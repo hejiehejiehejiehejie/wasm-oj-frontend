@@ -56,12 +56,25 @@ const probe = (page) =>
       return { x: Math.round(box.x), w: Math.round(box.width) }
     }
     const text = (selector) => document.querySelector(selector)?.textContent.trim() ?? null
+    // 偏好一律以 JSON 形式落在 localStorage（读出来是 '"left"' 这种带引号的字符串），
+    // 不解析就永远比不中 'left' —— 这一条曾让 B / C 长期误报
+    const stored = (key) => {
+      try {
+        return JSON.parse(localStorage.getItem(key))
+      } catch {
+        return null
+      }
+    }
+    // .minimap 节点是常驻 DOM 的：Monaco 靠把宽度压到 0 来隐藏它，而不是移除节点。
+    // 所以「可见性」只能看渲染宽度，看节点存在与否恒为真。
+    const minimapWidth = Math.round(document.querySelector('.minimap')?.getBoundingClientRect().width ?? 0)
     return {
       topbarHeight: Math.round(document.querySelector('.topbar')?.getBoundingClientRect().height ?? -1),
       flexDirection: getComputedStyle(document.querySelector('.workspace')).flexDirection,
       editorPane: rect('.pane--editor'),
       testsPane: rect('.pane--tests'),
-      minimapVisible: Boolean(document.querySelector('.minimap')),
+      minimapVisible: minimapWidth > 0,
+      minimapWidth,
       editorText: document.querySelector('.view-lines')?.textContent ?? '',
       codeLineCount: document.querySelectorAll('.view-line').length,
       cardCount: document.querySelectorAll('.card').length,
@@ -73,8 +86,8 @@ const probe = (page) =>
       hints: [...document.querySelectorAll('.card .hint')].map((el) => el.textContent.trim()),
       metrics: [...document.querySelectorAll('.card .metric')].map((el) => el.textContent.trim()),
       horizontalScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
-      storedPanel: localStorage.getItem('cph.panelPosition'),
-      storedShare: localStorage.getItem('cph.editorShare'),
+      storedPanel: stored('cph.panelPosition'),
+      storedShare: stored('cph.editorShare'),
       panelTitle: text('.panel__title'),
     }
   })
@@ -178,17 +191,21 @@ try {
 
   await step('D. 拖动分隔条改变两栏比例', async () => {
     const before = await probe(page)
+    // 往哪边拖取决于当前布局：row 时评测面板在右，往右拖它变窄；
+    // row-reverse 时它在左，得往左拖才变窄。写死方向会被 B / C 留下的状态坑掉。
+    const delta = before.flexDirection === 'row' ? 220 : -220
     const handle = await page.waitForSelector('.splitter', { timeout: 10000 })
     const box = await handle.boundingBox()
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
-    await page.mouse.move(box.x + box.width / 2 + 220, box.y + box.height / 2, { steps: 16 })
+    await page.mouse.move(box.x + box.width / 2 + delta, box.y + box.height / 2, { steps: 16 })
     await page.mouse.up()
     await wait(400)
     const after = await probe(page)
     await page.screenshot({ path: `${SHOTS}cph-4-resized.png` })
-    const grew = after.testsPane.w < before.testsPane.w - 100
-    record('D. 拖动分隔条改变两栏比例', grew, {
+    const shrank = after.testsPane.w < before.testsPane.w - 100
+    record('D. 拖动分隔条改变两栏比例', shrank, {
+      dragDelta: delta,
       beforeTests: before.testsPane,
       afterTests: after.testsPane,
       storedShare: after.storedShare,
