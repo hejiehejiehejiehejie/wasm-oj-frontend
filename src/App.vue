@@ -615,6 +615,20 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 5;
   cursor: col-resize;
+  /* 触屏的关键：pointerdown 里的 preventDefault() 只挡得住兼容鼠标事件，挡不住浏览器把这一拖
+     当成滚动/缩放手势 —— 那样触屏按下后会立刻收到 pointercancel，拖拽刚起手就被 stop() 结束，
+     表现就是手机上完全拖不动。touch-action 要在元素上声明，才算把这条手势交给我们。 */
+  touch-action: none;
+}
+
+/* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区翻倍到 24px，负外边距按同样幅度加大，
+   于是两块卡片的位置和间距与鼠标下逐像素一致 —— 只有可抓区域变宽，视觉一点没动。
+   （折叠态那条 `.workspace.is-collapsed .splitter` 特异性更高，仍然是 24px，不受这里影响） */
+@media (pointer: coarse) {
+  .splitter {
+    flex: 0 0 24px;
+    margin: 0 -9px;
+  }
 }
 
 /* 面板折叠后分隔条贴在窗口边缘：热区加宽到 24px，否则一根隐形热区贴在边缘很难抓 */
