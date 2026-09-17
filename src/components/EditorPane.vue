@@ -120,11 +120,7 @@ watch(
   { deep: true },
 )
 
-function focusEditor() {
-  editor.value?.focus()
-}
-
-defineExpose({ focusEditor, layout: () => editor.value?.layout() })
+defineExpose({ layout: () => editor.value?.layout() })
 </script>
 
 <template>

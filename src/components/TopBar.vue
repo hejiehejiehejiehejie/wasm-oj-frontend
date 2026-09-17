@@ -17,8 +17,6 @@ const props = defineProps({
   editorSettingsOpen: Boolean,
   running: Boolean,
   total: { type: Number, default: 0 },
-  // 触摸屏的「键盘模式」开关（按钮本身只在 pointer: coarse 下才出现）
-  keyboardMode: Boolean,
 })
 
 const emit = defineEmits([
@@ -29,7 +27,6 @@ const emit = defineEmits([
   'update:editor-settings',
   'update:editor-settings-open',
   'toggle-layout',
-  'toggle-keyboard-mode',
   'run-all',
 ])
 
@@ -54,11 +51,6 @@ watch(
 
 // 内置引擎（本地沙箱 / 自检）没有服务地址，按注册表约定 defaultBase 是 'local'
 const localEngine = computed(() => props.judge.base === 'local')
-
-// 键盘模式按钮的提示
-const keyboardHint = computed(() =>
-  props.keyboardMode ? '退出键盘模式' : '键盘模式：键盘不落，页面缩到键盘上方',
-)
 
 const probeTone = computed(() => {
   if (props.connection.state === 'ok') return 'is-ok'
@@ -260,18 +252,6 @@ function applyBase() {
     <!-- 图标区最右：窄屏时它最先折进「更多」，帮助属最不常用的一项 -->
     <HelpPanel :open="helpOpen" @update:open="setHelpOpen" />
 
-    <!-- 触摸屏专用：键盘弹起后把整块应用收缩到键盘上方。鼠标设备上整颗 display: none（见样式末尾） -->
-    <button
-      class="tool tool--keyboard"
-      :class="{ 'is-active': keyboardMode }"
-      :title="keyboardHint"
-      :aria-label="keyboardHint"
-      :aria-pressed="keyboardMode"
-      @click="emit('toggle-keyboard-mode')"
-    >
-      <AppIcon name="keyboard" />
-    </button>
-
     <!-- 窄屏收纳位：icon 装不下时从右到左折进这里。它自己占一格，
          所以要一次折掉两颗才算净赚，见样式的折叠档位 -->
     <div class="more">
@@ -459,22 +439,6 @@ function applyBase() {
   width: 28px;
   padding: 0;
   justify-content: center;
-}
-
-/* 键盘模式：桌面端整颗不生成盒子 —— 虚拟键盘只在触摸屏上有，
-   鼠标设备上这个模式既无收益又会白占一格。用 display: none 而非隐藏可视，
-   顺带把它从无障碍树里摘掉（同折叠档位的做法） */
-.tool--keyboard {
-  display: none;
-  width: 28px;
-  padding: 0;
-  justify-content: center;
-}
-
-@media (pointer: coarse) {
-  .tool--keyboard {
-    display: inline-flex;
-  }
 }
 
 .tool--solid {

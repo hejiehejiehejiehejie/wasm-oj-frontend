@@ -1,41 +1,30 @@
-import { onBeforeUnmount, ref, watch } from 'vue'
-import { usePersistentRef } from './usePersistentRef.js'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-// 触摸屏专用：虚拟键盘弹起来之后不让它被挤下去。
+// 触摸屏默认开启（鼠标设备上不生效）：键盘弹起之后只做两件事——
+//   1. 改变窗口大小：把整块应用收缩到键盘上方（visualViewport 的 height / offsetTop
+//      写成 --vvh / --vv-top，见 App.vue 的 .app.is-keyboard）；
+//   2. 焦点不要改变：点非可编辑元素时拦掉默认行为，不让焦点移给 body（键盘随之收起）。
 //
-// 只做两件事（2026-09-18 改版：原先还有个「底部输入停靠栏」，实测是多余的——
-// 输入框本来就在卡片里，多一条停靠栏反而挤掉内容，而且它抢焦点抢得点不进 Monaco 编辑器）：
-//   1. 可视高度——把 visualViewport 的剩余高度写成 --vvh，让 .app 收缩到键盘上方；
-//   2. 保焦——点上方空白 / 按钮时不让焦点转移出去（键盘收起）。
-//
-// 关键：**只拦默认行为，不抢焦点**。点在可编辑元素上一律放行，焦点照常交给它。
-//
-// 只在触摸屏入口下会被打开（按钮本身只在 pointer: coarse 出现），
-// 所以桌面端不会挂上这里任何全局监听。
+// 唤出键盘的逻辑不归这里管，就用浏览器默认的——焦点落进可输入文字的框里就弹。
+// 别再加「滑动不唤键盘」「点按钮唤键盘」这类手势或补焦逻辑：真机上这些干预要么把
+// 已经弹着的键盘弄收（点顶栏按钮自己会抢焦点），要么让滑动后轻点失效，两版都因此撤掉过。
+const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
+
 export function useMobileKeyboard() {
-  const open = usePersistentRef('cph.mobileKeyboard', false)
+  const active = ref(window.matchMedia('(pointer: coarse)').matches)
 
-  // 入口按钮本来就只在 pointer: coarse 下出现，所以存档里写着「开着」但当前是鼠标设备时
-  // 不能照旧生效：那样会凭一份旧存档把鼠标的点击也拦掉。粗指针才有虚拟键盘，也才有这个模式。
-  if (!window.matchMedia('(pointer: coarse)').matches) open.value = false
+  let listening = false
 
-  // 可编辑元素一律放行：Monaco 的输入面是个贴边的 textarea（.inputarea），卡片输入框是 .ta，
-  // 原生下拉是 select——都要能正常拿到焦点。挡掉它们就等于「焦点进不去编辑器」。
-  const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
-
-  // 只挡 mousedown，不挡 pointerdown：挡 mousedown 能阻止焦点转移，而 click 照常触发，
-  // 「运行全部」这类按钮仍然可用；挡 pointerdown 会连带把 click 一起吞掉。
-  //
-  // 这里刻意**没有** focusout 抢焦兜底：早先那版挂过 focusout + focus({ preventScroll: true })，
-  // 结果点 Monaco 编辑器时焦点被立刻抢回停靠栏的 textarea，编辑器根本点不进去（真机反馈的 bug）。
+  // 只拦默认行为，不抢焦点：键盘收起是因为焦点被移走了，所以对着非可编辑元素
+  // preventDefault 一下，焦点原地不动、键盘不落。
+  // 只挡 mousedown、不挡 pointerdown：挡 pointerdown 会把兼容的 click 一起吞掉，
+  // 「运行全部」「添加样例」这些按钮就点不动了；挡 mousedown 只阻止焦点转移，click 照常。
+  // 也只用 preventDefault、不用 stopPropagation：Monaco 的聚焦是它自己在 mousedown
+  // 里主动 focus()，不受默认行为影响，轻点编辑器该弹键盘还是照弹。
   function onMouseDown(event) {
-    if (!open.value) return
     const node = event.target
     if (!(node instanceof Element)) return
     if (node.closest(EDITABLE)) return
-
-    // 点在非可聚焦元素上（空白、标题、按钮……）：默认行为是把焦点移给 body、键盘随之收起，
-    // 拦掉它焦点就留在原处。click 不受影响，按钮照常响应。
     event.preventDefault()
   }
 
@@ -48,14 +37,6 @@ export function useMobileKeyboard() {
     style.setProperty('--vvh', `${height}px`)
     style.setProperty('--vv-top', `${top}px`)
   }
-
-  function clearViewport() {
-    const style = document.documentElement.style
-    style.removeProperty('--vvh')
-    style.removeProperty('--vv-top')
-  }
-
-  let listening = false
 
   function start() {
     if (listening) return
@@ -76,16 +57,12 @@ export function useMobileKeyboard() {
     window.removeEventListener('orientationchange', syncViewport)
     window.visualViewport?.removeEventListener('resize', syncViewport)
     window.visualViewport?.removeEventListener('scroll', syncViewport)
-    clearViewport()
   }
 
-  watch(open, (value) => (value ? start() : stop()), { immediate: true })
+  onMounted(() => {
+    if (active.value) start()
+  })
   onBeforeUnmount(stop)
 
-  return {
-    open,
-    toggle: () => {
-      open.value = !open.value
-    },
-  }
+  return { active }
 }

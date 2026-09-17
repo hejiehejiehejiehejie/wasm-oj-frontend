@@ -196,10 +196,9 @@ const workspace = ref(null)
 const editorPane = ref(null)
 const running = ref(false)
 
-// 触摸屏的「键盘模式」：把整块应用收缩到键盘上方，点上方空白时键盘不落。
-// 它不给任何元素写高度——.app 自己挂到 visualViewport 上（见 .app.is-keyboard），
-// 工作区是 flex 会跟着缩，Monaco 是 automaticLayout 会重排。
-const { open: keyboardMode, toggle: toggleKeyboardMode } = useMobileKeyboard()
+// 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
+// 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
+const { active: keyboardMode } = useMobileKeyboard()
 // 页头耗时 = 本轮最慢的那张卡片，口径与卡片完全一致（只计运行段）：
 // 编译 / 链接 / 排队 / WASI 启动都不算，跑完一批后不会比最快的样例大出一个量级。
 const elapsed = computed(() => {
@@ -474,8 +473,6 @@ onBeforeUnmount(() => {
       :editor-settings-open="editorSettingsOpen"
       :running="running"
       :total="testCases.length"
-      :keyboard-mode="keyboardMode"
-      @toggle-keyboard-mode="toggleKeyboardMode"
       @select-engine="selectEngine"
       @update-base="updateBase"
       @test-connection="testConnection"
@@ -544,9 +541,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* 键盘模式：键盘弹起来之后，看得见的只剩「可视视口」那一截，
-   而 100% 量的是布局视口（iOS 上它不跟着键盘缩），所以整块应用改挂到
-   visualViewport 实测出来的范围上（--vvh / --vv-top 由 useMobileKeyboard 写）。
+/* 触摸屏（默认开启，鼠标设备上 .app 不带这个类）：键盘弹起来之后，看得见的只剩
+   「可视视口」那一截，而 100% 量的是布局视口（iOS 上它不跟着键盘缩），所以整块应用
+   改挂到 visualViewport 实测出来的范围上（--vvh / --vv-top 由 useMobileKeyboard 写）。
    用 fixed + top 是为了连「可视区被顶上去」的那段偏移一起对上，
    否则底部会被键盘盖住。left/right 归零让宽度仍跟视口走，两栏是 flex 会自己重排。 */
 .app.is-keyboard {
