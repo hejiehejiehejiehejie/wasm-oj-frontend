@@ -8,6 +8,8 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 //
 // 唤出键盘的时机仍是浏览器默认的（焦点落进可输入文字的框里就弹），这里只是不让
 // 「滑动」也算唤出——用户口径：**滑动只滚动，轻点才聚焦**。
+// 反过来，**键盘一旦弹着，就只有键盘自己的返回键能把它收掉**，滑动不许收。所以「滑动
+// 时清焦点」这条只在键盘**没**弹着时执行（见 keyboardUpAtTouchStart 那道闸）。
 // 别加顶栏开关（点按钮自己会抢焦点，反而把已经弹着的键盘弄收，撤过一版）。
 const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
 // 判「焦点是不是落进了能输入文字的地方」时要把 Monaco 的输入面也算上：Chrome 里它是
@@ -23,6 +25,10 @@ const MONACO_GESTURE_TAP = '-monaco-gesturetap'
 // 与 Monaco 手势识别的 30px。比平台 slop 略大，免得把手抖的轻点误判成滑动；
 // 又远小于 30px，才能盖住 Monaco 把小幅拖动当点击的那一段。
 const PAN_SLOP = 10
+// 判「键盘现在弹着没有」用的最小收缩量。iOS 上键盘只缩「可视视口」（visualViewport），
+// 布局视口（window.innerHeight）不动；Android Chrome 默认 resizes-content，两个一起缩。
+// 所以两头都要看，取或。100px 是为了滤掉地址栏收放、旋转动画带出来的几十像素抖动。
+const KEYBOARD_MIN = 100
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
 
@@ -30,17 +36,36 @@ export function useMobileKeyboard() {
   const active = ref(window.matchMedia('(pointer: coarse)').matches)
 
   let listening = false
-  // 本次触摸的状态：起点、是否已判为滑动、滑动前焦点在哪
+  // 本次触摸的状态：起点、是否已判为滑动、滑动前焦点在哪、开始那刻键盘弹没弹
   let startX = 0
   let startY = 0
   let panning = false
   let focusBeforeTouch = null
+  let keyboardUpAtTouchStart = false
+
+  // 键盘可见性（见 KEYBOARD_MIN）：baselineHeight 是「没弹键盘时」的布局视口高
+  let baselineHeight = window.innerHeight
+  let lastWidth = window.innerWidth
+  let keyboardUp = false
+
+  function isKeyboardUp() {
+    const viewport = window.visualViewport
+    return (
+      baselineHeight - window.innerHeight > KEYBOARD_MIN ||
+      (viewport ? window.innerHeight - viewport.height > KEYBOARD_MIN : false)
+    )
+  }
 
   // 滑动不该改变焦点：编辑器里的焦点直接清掉（理由见下），其余情况把焦点还回滑动前那个；
   // 本来就没有焦点就别聚焦（键盘不弹）。
   // 两种时机都会调到这里——判定为滑动的那一刻（iOS 在 touchstart 就把焦点给了输入框，
   // 那时还没滑，得在滑动成立时补一次），以及滑动过程中焦点又被移走时（focusin）。
   function undoFocusChangeFromPan() {
+    // 键盘本来就弹着：用户是想滚动，不是想换焦点。此时清焦点正是「滑一下就收键盘」的
+    // 成因，而用户口径是除了键盘自己的返回键，键盘不许收——所以整场滑动都不碰焦点。
+    // 键盘没弹着（包括刚按过返回键、焦点还留在编辑器里的那种）才走下面，否则手势一结束
+    // 就会被系统把键盘重新弹起来。
+    if (keyboardUpAtTouchStart) return
     const current = document.activeElement
     if (!isEditable(current)) return
     // 编辑器里还留着焦点：直接清掉，别「还回去」。
@@ -61,6 +86,7 @@ export function useMobileKeyboard() {
     startX = touch ? touch.clientX : 0
     startY = touch ? touch.clientY : 0
     panning = false
+    keyboardUpAtTouchStart = keyboardUp
     const current = document.activeElement
     focusBeforeTouch = current instanceof HTMLElement && current !== document.body ? current : null
   }
@@ -103,6 +129,16 @@ export function useMobileKeyboard() {
 
   // -------------------------------------------------- 可视高度（键盘剩余空间）
   function syncViewport() {
+    // 宽度变了（旋转、桌面拖窗）就把基线重取：否则横屏时基线还留着竖屏那个高，
+    // 会被误判成「键盘弹着」，滑动就再也不清焦点了。键盘弹出只缩高度、不改宽度，
+    // 所以不会误触发重取。
+    if (window.innerWidth !== lastWidth) {
+      lastWidth = window.innerWidth
+      baselineHeight = window.innerHeight
+    }
+    baselineHeight = Math.max(baselineHeight, window.innerHeight)
+    keyboardUp = isKeyboardUp()
+
     const viewport = window.visualViewport
     const height = Math.round(viewport ? viewport.height : window.innerHeight)
     const top = Math.round(viewport ? viewport.offsetTop : 0)
