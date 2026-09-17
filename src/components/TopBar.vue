@@ -732,18 +732,27 @@ function applyBase() {
   }
 }
 
-/* 第 5 档：最后轮到「本地运行环境」与编辑器的齿轮。
+/* 第 5 档：轮到「本地运行环境」。
    折叠四格后仍需约 389px，320px 的窄机上还是会溢出，所以这一档补上。
-   齿轮排在这里而不是更早：它是「设一次」的偏好（字号 / 缩进 / 主题），
-   而底部输入按钮是触摸屏上的常用动作，宁可折齿轮也要让它留在栏里；
-   两个抽屉入口本来就在「更多」菜单里（对应 .menu__item 平时隐藏） */
+   它的抽屉入口本来就在「更多」菜单里（对应 .menu__item 平时隐藏） */
 @media (max-width: 400px) {
-  :deep(.panel-button),
+  :deep(.panel-button) {
+    display: none;
+  }
+
+  .menu__item--panel {
+    display: flex;
+  }
+}
+
+/* 第 6 档：编辑器齿轮（字号 / 缩进 / 主题）留到最后，视口窄于 350px 才折走。
+   写 349 而不是 350：口径是「宽度小于 350px 再消失」，max-width: 349px 正好等价
+   （350px 那档它仍在栏里）。它也是「设一次」的偏好，抽屉入口在 .menu__item--editor */
+@media (max-width: 349px) {
   :deep(.gear-button) {
     display: none;
   }
 
-  .menu__item--panel,
   .menu__item--editor {
     display: flex;
   }
