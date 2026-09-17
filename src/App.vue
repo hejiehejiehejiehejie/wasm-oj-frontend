@@ -185,7 +185,15 @@ const totals = computed(() => {
 const workspace = ref(null)
 const editorPane = ref(null)
 const running = ref(false)
-const elapsed = ref(0)
+// 页头耗时 = 本轮最慢的那张卡片，口径与卡片完全一致（只计运行段）：
+// 编译 / 链接 / 排队 / WASI 启动都不算，跑完一批后不会比最快的样例大出一个量级。
+const elapsed = computed(() => {
+  let max = 0
+  for (const item of testCases.value) {
+    if (typeof item.durationMs === 'number' && item.durationMs > max) max = item.durationMs
+  }
+  return max
+})
 const swapping = ref(false)
 const dragging = ref(false)
 
@@ -334,9 +342,7 @@ async function runAll() {
   if (!testCases.value.length) return
 
   running.value = true
-  elapsed.value = 0
   abortController = new AbortController()
-  const startedAt = performance.now()
   const snapshot = code.value
   const queue = [...testCases.value]
   queue.forEach(resetCase)
@@ -355,7 +361,6 @@ async function runAll() {
   // 中途中断时，未跑到的卡片回到待运行，不留假的“运行中”
   for (const item of testCases.value) if (item.status === 'running') item.status = 'idle'
 
-  elapsed.value = Math.round(performance.now() - startedAt)
   running.value = false
   abortController = null
 }

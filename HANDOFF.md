@@ -7,8 +7,9 @@
 - 目录：`/Users/hejie/Code/BISHE`
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`cd /Users/hejie/Code/BISHE && npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`。
+- 其他命令：`npm run verify` 跑无头回归（先看第 8 节的已知红项，另需 `VERIFY_PORT` 避开占用中的 5199）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
-- 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用。新增 npm 包要先讨论。
+- 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
@@ -30,7 +31,8 @@ index.html
 vite.config.js                  # COOP/COEP 响应头（本地沙箱的硬前提，别动）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存（见第 9 节）
 public/wasm/8.0.1/              # 自托管的工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
-scripts/verify-ui.mjs           # 无头回归脚本（已陈旧，见第 8 节）
+scripts/verify-ui.mjs           # 无头回归脚本（A–E 已修绿，F 仍红，见第 8 节）
+scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
 src/
   main.js
   monaco-setup.js               # Monaco 的 cph-dark / cph-light 两套自定义主题
@@ -147,7 +149,8 @@ div.app（column，100% 高）
 
 - 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱只支持 C++，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
 - 本地沙箱**没有 Python**（面板上 Python 是禁用态）。Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
-- TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时是「编译 + 运行」，所以可能大于时限。
+- TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。
+- **耗时口径（2026-09 改过，别改回去）**：卡片数字 = `runCpp` 里只包住 `runWasi` 的那一段，编译时间不计入。原先取的是 `runCase()` 入口到结束的墙钟，于是第一个用例含编译、命中编译缓存的后续用例只含运行，**同一份代码下第一个卡片能比其余大好几倍**（修前 3 个用例是「数百 ms + 9ms + 12ms」，修后 10/11/7ms），很容易被误读成「程序在第一个用例上特别慢」。面板页头那个 `elapsed` 现在也是同一口径：取当轮所有卡片耗时的**最大值**（`App.vue` 里是 computed，单独跑一个用例也会跟着更新），标题写明「最慢用例耗时」。TLE 消息里的 `durationMs` 与卡片同口径（`wasmRuntime.js` 在进入 `run` 段时重置 `stageStartedAt`）。
 - 判定词表：`ok / compile-error / runtime-error / timeout / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）。
 - 判题流程：先编译运行出实际输出，再与期望输出比对（`src/services/compare.js`）。
 - 工具链是静态自托管的（`public/wasm/8.0.1/`），但 `clang-fs.tar.gz` 这个扩展名会让静态服务器补上 `Content-Encoding: gzip`，浏览器已替我们解过一层，所以 `runnoSandbox.js` 里用**魔数判断**要不要 gunzip。换托管方时别把 `unpackSysroot` 改回无条件 `gunzip`（失败时 Chrome 只会报一句 "Failed to fetch"，很难查）。
@@ -160,6 +163,7 @@ div.app（column，100% 高）
   - `generatePch()` 先查 IndexedDB 存档，命中是毫秒级返回且**不会**拉起工具链；编译路径的 `loadPchBytes()` 只读存档、**绝不触发生成**——没备好就平滑走普通编译。带 PCH 时把 `/stdc++.h`（源码）和 `/stdc++.h.pch`（二进制）一起挂进 MemFS，参数追加 `-include-pch`，链接前把 `.pch` 从 fs 摘掉（免得 7MB 白克隆给 wasm-ld）。
   - 判废条件必须窄：只有「带了 PCH、没产出 `.o`、且 stderr 命中 `/stdc\+\+\.h\.pch|precompiled header/i`」才判废（删存档 + 置标记 + 普通编译重试一次）。用户自己代码写错同样没有 `.o`，放宽条件会让每次编译错误都白编一遍并永久关掉加速。
   - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。
+- **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
 
 ## 8. 验证方式
 
@@ -171,13 +175,12 @@ div.app（column，100% 高）
   3. 刷新页面再跑一次：编译应吃到存档（UI 每题耗时约从 600ms 降到 350ms 量级），输出与首次逐字一致；
   4. 降级：把那条记录的 `bytes` 改成任意垃圾字节再刷新运行，用户代码仍应正常通过，同时 `cph.pchUnsupported` 被置成 `true`、坏记录被删。
   注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cph.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
-- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**注意它已经陈旧**，运行前请先知道这几条断言当前必定失败，不是页面坏了：
-  - `localStorage.getItem('cph.panelPosition') === 'left'`：实际值是 JSON 字符串 `"left"`；
-  - 断言 `.minimap` 不存在：Monaco 节点仍在（宽度 0）；
-  - 左布局下断言「拖动后测试栏变窄」：当前语义是编辑器栏持有 basis，拖窄编辑器则测试栏变宽；
-  - 断言 Python 模板文本含 `def solve`：Monaco 用 NBSP 渲染空格。
-  - 它还会自己起 dev server，和常驻的 5199 冲突，跑的时候用 `VERIFY_PORT=5299` 覆盖。
-  - 它跑的是默认的 Piston 引擎（需要本地有 `localhost:2000` 的服务），验不到本地沙箱。
+- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**A–E 应当是绿的，F 仍是红的**，跑之前先知道这几条：
+  - F 断言切到 Python 后 `.view-lines` 文本含 `def solve`——Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**，属探针 bug（对照：A 步的 `includes('include')` 因为没有空格所以能过）。修法是断言前把 `\u00a0` 归一成空格，**不是**页面坏了。
+  - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=5299` 覆盖。
+  - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
+  - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到左侧，写死向右会让测试栏反向变宽。
+  - 各步之间有状态耦合（B/C 切布局会影响 D 的期望方向），改断言时顺着看一遍。
 - 回归脚本会把截图写到仓库根目录的 `cph-*.png`（可用 `SHOT_DIR` 改路径），`.gitignore` 已忽略它们，不用管。
 
 ## 9. 部署（GitHub + Vercel）
@@ -193,6 +196,8 @@ div.app（column，100% 高）
   本地 `vite.config.js` 的 `server.headers` / `preview.headers` 是同一组头的开发侧对应物，两边要一起改。
 - 工具链裸文件（约 52MB）直接进仓库：Vercel 边缘会做压缩传输，**不要自己塞 `.br` / `.gz` 预压缩文件**——那会被二次压缩成 `Content-Encoding: br, br`，Safari 直接崩。
 - 最大的单文件 31.2MB，远低于 GitHub 的 100MB 单文件上限，可以直接 `git push`（但会明显变慢，属正常）。
+- **工具链直到 2026-09-18 才进 git**（此前 `public/` 里只有 `favicon.svg`）：本地 `npm run dev` 一直正常是因为 dev server 直接读工作区，**与 git 无关**，所以这个缺口长期不可见。如果 Vercel 是**从 git 构建**的，那次入库之前线上取 `/wasm/8.0.1/*` 会 404（若线上沙箱一直可用，说明它是用 CLI 直接上传的）。入库后两条路径已对齐，部署完按上面的冒烟检查验一次 `content-type` / `cache-control` 就能确认。
+- `public/` 下另有被 gitignore 的 `clang_opt.wasm` 之类产物不要提交（见第 7 节的 wasm-opt 结论）。
 - 部署后的冒烟检查：
 
   ```bash

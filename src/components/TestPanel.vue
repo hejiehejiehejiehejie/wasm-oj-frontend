@@ -7,6 +7,7 @@ import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 const props = defineProps({
   cases: { type: Array, required: true },
   running: Boolean,
+  // 最慢的那张用例卡片耗时（毫秒，只计运行段，与卡片同口径）
   elapsed: { type: Number, default: 0 },
   // 全局时限（毫秒），只计运行段
   timeLimit: { type: Number, required: true },
@@ -44,7 +45,7 @@ const elapsedText = computed(() => {
       <div class="panel__heading">
         <h2 class="panel__title">Test Cases</h2>
         <span class="verdict" :data-tone="verdict.tone">{{ verdict.text }}</span>
-        <span v-if="elapsedText" class="elapsed" :title="`本次运行总耗时 ${elapsedText}`">
+        <span v-if="elapsedText" class="elapsed" :title="`最慢用例耗时 ${elapsedText}（只计运行段，不含编译）`">
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
         </span>
       </div>
