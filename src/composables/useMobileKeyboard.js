@@ -1,10 +1,12 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-// 触摸屏默认开启（鼠标设备上不生效）：键盘弹起之后只做两件事——
+// 触摸屏默认开启（鼠标设备上不生效）：键盘弹起之后只做三件事——
 //   1. 改变窗口大小：把整块应用收缩到键盘上方（visualViewport 的 height / offsetTop
 //      写成 --vvh / --vv-top，见 App.vue 的 .app.is-keyboard）；
 //   2. 焦点不要改变：点非可编辑元素时拦掉默认行为（键盘收起是因为焦点被移走）；
-//      滑动（滚动）时若焦点跑到了可编辑元素上，再把它还回去。
+//      滑动（滚动）时若焦点跑到了可编辑元素上，再把它还回去；
+//   3. 视口矮了要知会外面：可视高度小于 SHORT_VIEWPORT 时把 shortViewport 置真
+//      （App.vue 挂 .app.is-short，用来收掉编辑器状态栏，见 EditorPane.vue）。
 //
 // 唤出键盘的时机仍是浏览器默认的（焦点落进可输入文字的框里就弹），这里只是不让
 // 「滑动」也算唤出——用户口径：**滑动只滚动，轻点才聚焦**。
@@ -29,11 +31,16 @@ const PAN_SLOP = 10
 // 布局视口（window.innerHeight）不动；Android Chrome 默认 resizes-content，两个一起缩。
 // 所以两头都要看，取或。100px 是为了滤掉地址栏收放、旋转动画带出来的几十像素抖动。
 const KEYBOARD_MIN = 100
+// 可视高度小于它就认为视口「矮」，把编辑器状态栏收掉（口径 480px，见 EditorPane.vue）。
+// 必须按 visualViewport 量：iOS 上键盘弹起时布局视口不缩，@media (max-height) 看不见它。
+const SHORT_VIEWPORT = 480
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
 
 export function useMobileKeyboard() {
   const active = ref(window.matchMedia('(pointer: coarse)').matches)
+  // 可视高度矮于 SHORT_VIEWPORT（含键盘弹起的压缩）时为 true，App.vue 拿它挂 .app.is-short
+  const shortViewport = ref(false)
 
   let listening = false
   // 本次触摸的状态：起点、是否已判为滑动、滑动前焦点在哪、开始那刻键盘弹没弹
@@ -143,6 +150,7 @@ export function useMobileKeyboard() {
     const height = Math.round(viewport ? viewport.height : window.innerHeight)
     const top = Math.round(viewport ? viewport.offsetTop : 0)
     const style = document.documentElement.style
+    shortViewport.value = height < SHORT_VIEWPORT
     style.setProperty('--vvh', `${height}px`)
     style.setProperty('--vv-top', `${top}px`)
   }
@@ -182,5 +190,5 @@ export function useMobileKeyboard() {
   })
   onBeforeUnmount(stop)
 
-  return { active }
+  return { active, shortViewport }
 }

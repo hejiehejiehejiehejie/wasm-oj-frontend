@@ -198,7 +198,7 @@ const running = ref(false)
 
 // 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
 // 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
-const { active: keyboardMode } = useMobileKeyboard()
+const { active: keyboardMode, shortViewport } = useMobileKeyboard()
 // 页头耗时 = 本轮最慢的那张卡片，口径与卡片完全一致（只计运行段）：
 // 编译 / 链接 / 排队 / WASI 启动都不算，跑完一批后不会比最快的样例大出一个量级。
 const elapsed = computed(() => {
@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app" :class="{ 'is-keyboard': keyboardMode }">
+  <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
     <TopBar
       v-model:language="language"
       :judge="judgeSettings"

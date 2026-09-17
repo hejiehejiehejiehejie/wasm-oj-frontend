@@ -255,4 +255,20 @@ defineExpose({ layout: () => editor.value?.layout() })
     display: none;
   }
 }
+
+/* 视口矮下去就整条收掉：这 22px 里放的都是常量信息（文件名 / UTF-8 / 空格数 / 行列），
+   矮视口下编辑区高度更值钱。两道闸各管一半，不冲突：
+   @media 看的是布局视口，桌面拖窗、Android 键盘都会缩它；
+   .app.is-short 由 useMobileKeyboard 按 visualViewport 写，专管 iOS 键盘那种
+   只缩可视视口、布局视口一动不动的情况。
+   写 479 而不是 480：口径是「高度**小于** 480」，与 JS 那边的 `< 480` 等价 */
+@media (max-height: 479px) {
+  .editor-pane__status {
+    display: none;
+  }
+}
+
+.app.is-short .editor-pane__status {
+  display: none;
+}
 </style>
