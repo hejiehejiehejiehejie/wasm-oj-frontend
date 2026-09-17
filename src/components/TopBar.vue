@@ -33,6 +33,7 @@ const choices = engineChoices()
 
 const settingsOpen = ref(false)
 const localRuntimeOpen = ref(false)
+const moreOpen = ref(false)
 const draftBase = ref(props.judge.base)
 
 // 浏览器判定可安装后才会亮出这个按钮，装完（或已在独立窗口里）自动消失
@@ -66,6 +67,28 @@ function setLocalRuntimeOpen(value) {
   if (value) emit('update:editor-settings-open', false)
 }
 
+/* 窄屏折进省略号的四项。动作都复用栏里那几颗按钮的同一个开关 / 同一个 emit，
+   不复制组件，所以抽屉、弹层始终只有一份实例；点完顺手收起菜单。 */
+function openLocalRuntime() {
+  moreOpen.value = false
+  setLocalRuntimeOpen(true)
+}
+
+function openEngineSettings() {
+  moreOpen.value = false
+  settingsOpen.value = true
+}
+
+function swapPanes() {
+  moreOpen.value = false
+  emit('toggle-layout')
+}
+
+function runInstall() {
+  moreOpen.value = false
+  install()
+}
+
 const swapHint = computed(() =>
   props.panelPosition === 'right'
     ? '测试面板当前在右侧，点击换到左侧'
@@ -90,7 +113,6 @@ function applyBase() {
       <span class="brand__mark"><AppIcon name="code" :size="15" :stroke-width="2.2" /></span>
       <span class="brand__name">CPH Workbench</span>
       <span class="brand__sep"></span>
-      <span class="brand__sub">算法竞赛刷题工作台</span>
     </div>
 
     <label class="field" title="切换语言，会保留各自独立的代码草稿">
@@ -121,13 +143,12 @@ function applyBase() {
 
     <button
       v-if="canInstall"
-      class="tool"
+      class="tool tool--install"
       title="把 CPH Workbench 安装到这台设备，之后可独立窗口打开"
       aria-label="安装到设备"
       @click="install"
     >
       <AppIcon name="install" :size="15" />
-      <span>安装</span>
     </button>
 
     <div class="settings">
@@ -202,9 +223,44 @@ function applyBase() {
       <AppIcon name="swap" />
     </button>
 
+    <!-- 窄屏收纳位：icon 装不下时从右到左折进这里。它自己占一格，
+         所以要一次折掉两颗才算净赚，见样式的折叠档位 -->
+    <div class="more">
+      <button
+        class="tool tool--more"
+        :class="{ 'is-active': moreOpen }"
+        title="更多"
+        aria-label="更多"
+        :aria-expanded="moreOpen"
+        @click="moreOpen = !moreOpen"
+      >
+        <AppIcon name="more" />
+      </button>
+
+      <div v-if="moreOpen" class="popover popover--menu">
+        <button class="menu__item menu__item--panel" @click="openLocalRuntime">
+          <AppIcon name="cpu" :size="15" />
+          <span>本地运行环境</span>
+        </button>
+        <button v-if="canInstall" class="menu__item menu__item--install" @click="runInstall">
+          <AppIcon name="install" :size="15" />
+          <span>安装到设备</span>
+        </button>
+        <button class="menu__item menu__item--engine" @click="openEngineSettings">
+          <AppIcon name="sliders" :size="15" />
+          <span>评测引擎设置</span>
+        </button>
+        <button class="menu__item menu__item--swap" @click="swapPanes">
+          <AppIcon name="swap" :size="15" />
+          <span>{{ panelPosition === 'right' ? '面板换到左侧' : '面板换到右侧' }}</span>
+        </button>
+      </div>
+    </div>
+
     <button
       class="primary"
       :class="{ 'is-running': running }"
+      :aria-label="running ? '停止运行' : '运行全部测试'"
       :title="running ? '点击中断当前运行' : '运行全部测试用例 (⌘/Ctrl + Enter)'"
       :disabled="total === 0 && !running"
       @click="emit('run-all')"
@@ -536,5 +592,105 @@ function applyBase() {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
+}
+
+/* 省略号收纳位与菜单项：默认都不出现，只在对应图标被折叠的那一档才露出来 */
+.more {
+  position: relative;
+  display: none;
+}
+
+.menu__item {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.menu__item:hover {
+  background: var(--bg-hover);
+}
+
+/* ---------- 窄屏：按优先级从低到高逐级舍弃 ----------
+   顶栏没有 flex-wrap，而 .tool / .primary 都是 white-space: nowrap，所以宽度不够时既不换行
+   也不省略，只是整体向右溢出、把运行按钮挤出视口。这里用断点主动丢掉低优先级内容。
+   各档阈值不是经验值，是按元素实测宽度反推出来的（见 HANDOFF 第 8 节）：
+   宽档必需约 730px、中档约 481、折叠两格后约 390、折叠四格后约 302；
+   语言下拉宽度随语言名变（Python 比 C++ 宽约 17px）、运行文案随用例数变，所以留了余量。
+   全部用 display: none（而非 visibility / opacity），顺带从无障碍树里摘掉。 */
+
+/* 第 1 档：文字先让位 —— 品牌名与分隔线（装饰）、运行按钮文案（只留 ▶）
+   文字进 display: none 后就不在无障碍树里了，按钮的可访名由模板上的 aria-label 承担 */
+@media (max-width: 820px) {
+  .brand__name,
+  .brand__sep {
+    display: none;
+  }
+
+  .primary > span {
+    display: none;
+  }
+}
+
+/* 第 2 档：语言下拉本身必须保留（切换语言会切各自的代码草稿），只拿掉“语言”两个字 */
+@media (max-width: 560px) {
+  .field__label {
+    display: none;
+  }
+}
+
+/* 第 3 档：图标开始从右到左折进省略号，先轮到最右的 swap 和它左边的引擎设置齿轮。
+   省略号自己占一格（约 44px 含 gap），所以每档都折走两颗，净值才是 -44px */
+@media (max-width: 520px) {
+  .tool--icon,
+  .settings > .tool {
+    display: none;
+  }
+
+  /* 齿轮按钮藏了，但它的弹层还挂在 .settings 里。display: contents 让 .settings 不再生成盒子：
+     既腾出它自己那格，也让弹层脱离这个零宽锚点、改由下方 .popover 的 fixed 规则定位 */
+  .settings {
+    display: contents;
+  }
+
+  .more {
+    display: block;
+  }
+
+  .menu__item--swap,
+  .menu__item--engine {
+    display: flex;
+  }
+}
+
+/* 第 4 档：再往左轮两个 —— 安装按钮、本地运行环境 */
+@media (max-width: 420px) {
+  .tool--install,
+  :deep(.panel-button) {
+    display: none;
+  }
+
+  .menu__item--install,
+  .menu__item--panel {
+    display: flex;
+  }
+}
+
+/* 窄屏弹层改贴边整幅。弹层原是 right: 0 锚在栏中部的按钮上，375px 下实测 left = -28
+   （左边被切掉）；单纯收窄 width 救不了，因为锚点本身就不在栏右端。阈值与第 3 档对齐，
+   于是齿轮一旦被折叠，弹层必定已由视口定位，不会挂在零宽的 .settings 上 */
+@media (max-width: 520px) {
+  .popover {
+    position: fixed;
+    top: 56px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
 }
 </style>

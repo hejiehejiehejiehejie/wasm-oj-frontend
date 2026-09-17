@@ -111,7 +111,11 @@ const elapsedText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 标题 + 徽标 + 耗时 + 时限一行要约 250px：面板被拖到很窄时让时限那组整体换到第二行，
+     而不是继续挤 —— 挤到最后徽标会溢出自己的盒子，直接压在时限选择器上。 */
+  flex-wrap: wrap;
   gap: 10px;
+  row-gap: 6px;
   padding: 9px 10px 9px 14px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--bg-panel-head);
@@ -173,12 +177,14 @@ const elapsedText = computed(() => {
   color: var(--text-faint);
 }
 
-/* 时限选择器：贴着面板头部右侧，宽度不参与压缩 */
+/* 时限选择器：贴着面板头部右侧，宽度不参与压缩。
+   margin-left: auto 是给折行后的情形留的：它单独占第二行时仍然贴右。 */
 .limit {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .limit__label {

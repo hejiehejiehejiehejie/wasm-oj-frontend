@@ -228,7 +228,8 @@ function toggleLayout() {
 }
 
 // ------------------------------------------------------------------ 折叠规则
-// 编辑器最窄 24%；面板最窄 320px（见 .pane--tests 的 min-width）；82% 只是兜底上限
+// 编辑器最窄 24%；面板最低宽度是一组随视口收缩的值（宽屏 320px、窄屏按内容宽 50%，
+// 参数写在 .workspace 的三个 CSS 变量上，与 .pane--tests 的 min-width 同源）；82% 只是兜底上限
 const MIN_SHARE = 24
 const MAX_SHARE = 82
 // 「贴边」与「拖离边缘」的判定距离：鼠标进到最后 32px 算贴边 → 折叠；
@@ -250,8 +251,19 @@ function measureLimits() {
   const style = getComputedStyle(surface)
   const width =
     surface.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight) || 1
-  // 面板的 320px 下限加上分隔条自身宽度：越过这条线后浏览器会强行撑开面板，分隔条就脱离鼠标了。
-  const minTests = 320 + (surface.querySelector('.splitter')?.getBoundingClientRect().width ?? 0)
+  // 面板最低宽度读的是 .workspace 上那三个 CSS 变量（和 .pane--tests 的 min-width 同源，
+  // 免得同一个数字在样式与 JS 里各写一份）：内容宽 × ratio，再卡进 [floor, cap]。
+  // 宽屏下它恒等于 cap，也就是改版前那个固定 320px。
+  const cssNumber = (name, fallback) => {
+    const value = Number.parseFloat(style.getPropertyValue(name))
+    return Number.isFinite(value) ? value : fallback
+  }
+  const panelMin = Math.max(
+    cssNumber('--tests-min-floor', 160),
+    Math.min(cssNumber('--tests-min-cap', 320), width * cssNumber('--tests-min-ratio', 0.5)),
+  )
+  // 再加上分隔条自身宽度：越过这条线后浏览器会强行撑开面板，分隔条就脱离鼠标了。
+  const minTests = panelMin + (surface.querySelector('.splitter')?.getBoundingClientRect().width ?? 0)
   return {
     width,
     // 内容盒左边界：折叠状态下要把鼠标位置换算成虚拟比例
@@ -263,7 +275,7 @@ function measureLimits() {
 }
 
 // 统一收口规则，拖拽与方向键共用：
-// 面板可见时比例先跟着鼠标走，但压到 320px 最小宽度就不再变窄（被 maxShare 卡住）；
+// 面板可见时比例先跟着鼠标走，但压到最低宽度（见 measureLimits）就不再变窄（被 maxShare 卡住）；
 // 只有一直顶到贴边（edgeShare）才折叠。
 // 折叠后往外拖出 60px（releaseShare）就展开，面板先以最小宽度露出来，再继续跟手加宽。
 function applyShare(raw, limits) {
@@ -486,7 +498,6 @@ onBeforeUnmount(() => {
         aria-orientation="vertical"
         :aria-valuenow="Math.round(editorShare)"
         tabindex="0"
-        title="拖动调整两栏比例；一直拖到贴住窗口边缘即折叠，从边缘拖出 60px 即展开；双击折叠 / 展开"
         @pointerdown="beginDrag"
         @dblclick="togglePanel"
         @keydown.left.prevent="nudgeShare(-2)"
@@ -534,6 +545,13 @@ onBeforeUnmount(() => {
   /* 四周留白 6px + 两栏之间 6px 空隙（分隔条负外边距后剩下的部分）：两块卡片浮在底色上 */
   padding: 6px;
   background: var(--bg-editor);
+  /* 测试面板最低宽度的三个参数。JS 的拖拽上限（measureLimits）读的就是这三个变量，
+     同一个数字不在样式和脚本里各写一份。宽屏封顶 320px（保持桌面端原值）；
+     窄屏按内容宽的 50% 收缩 —— 面板与编辑器各占一半，两边都还能用；
+     地板 160px 是实测硬底：再窄卡片头部就开始横向溢出。 */
+  --tests-min-cap: 320px;
+  --tests-min-ratio: 0.5;
+  --tests-min-floor: 160px;
 }
 
 .workspace.is-left {
@@ -567,7 +585,9 @@ onBeforeUnmount(() => {
 
 .pane--tests {
   flex: 1 1 auto;
-  min-width: 320px;
+  /* 面板最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 320px，与改版前一致；
+     窄屏不再是硬邦邦的 320px，否则 375px 的屏上编辑器会被压成一条缝 */
+  min-width: clamp(var(--tests-min-floor), calc(var(--tests-min-ratio) * 100%), var(--tests-min-cap));
   view-transition-name: pane-tests;
 }
 
