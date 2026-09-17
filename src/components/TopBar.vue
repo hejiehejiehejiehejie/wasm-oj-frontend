@@ -5,6 +5,7 @@ import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import LocalRuntimePanel from './LocalRuntimePanel.vue'
 import { LANGUAGES } from '../services/templates.js'
 import { engineChoices } from '../services/engines/index.js'
+import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 
 const props = defineProps({
   language: { type: String, required: true },
@@ -33,6 +34,9 @@ const choices = engineChoices()
 const settingsOpen = ref(false)
 const localRuntimeOpen = ref(false)
 const draftBase = ref(props.judge.base)
+
+// 浏览器判定可安装后才会亮出这个按钮，装完（或已在独立窗口里）自动消失
+const { canInstall, install } = useInstallPrompt()
 
 // 切换引擎时 App 会把 judge.base 换成新引擎的地址，输入框要跟着走
 watch(
@@ -114,6 +118,17 @@ function applyBase() {
     />
 
     <LocalRuntimePanel :open="localRuntimeOpen" @update:open="setLocalRuntimeOpen" />
+
+    <button
+      v-if="canInstall"
+      class="tool"
+      title="把 CPH Workbench 安装到这台设备，之后可独立窗口打开"
+      aria-label="安装到设备"
+      @click="install"
+    >
+      <AppIcon name="install" :size="15" />
+      <span>安装</span>
+    </button>
 
     <div class="settings">
       <button

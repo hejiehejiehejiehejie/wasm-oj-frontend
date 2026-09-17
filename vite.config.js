@@ -9,8 +9,27 @@ const crossOriginIsolation = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 }
 
+// 构建产物文件名带内容哈希，Service Worker 没法在源码里硬编码，所以构建完把清单单独写一份，
+// install 阶段读取它来预缓存。这样不必引入 vite-plugin-pwa 之类的依赖。
+function precacheManifest() {
+  return {
+    name: 'cph-precache-manifest',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle)
+        .sort()
+        .map((name) => `/${name}`)
+      this.emitFile({
+        type: 'asset',
+        fileName: 'precache-manifest.json',
+        source: JSON.stringify(files),
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), precacheManifest()],
   server: {
     port: 5199,
     strictPort: false,

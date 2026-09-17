@@ -68,10 +68,19 @@ const editorSettingsOpen = ref(false)
 
 // 主题决定的是整套界面的配色：挂在 <html data-theme> 上由 CSS 变量接管，
 // Monaco 那边通过同一个 id 对应的自定义主题保持内芯同色。
+// 安装成独立应用后，浏览器还会拿 theme-color 画窗口标题栏，所以从变量里读出来同步给它，
+// 免得标题栏和界面串色（顺便守住「色值只定义在 base.css」这条约束）。
 watch(
   () => editorSettings.value.theme,
   (theme) => {
     document.documentElement.dataset.theme = theme
+    const chromeBar = document.querySelector('meta[name="theme-color"]')
+    if (chromeBar) {
+      const barColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-chrome')
+        .trim()
+      if (barColor) chromeBar.setAttribute('content', barColor)
+    }
   },
   { immediate: true },
 )
