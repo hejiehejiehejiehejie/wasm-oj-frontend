@@ -10,15 +10,18 @@ const props = defineProps({
 
 const emit = defineEmits(['remove', 'run'])
 
+// 徽标文案：跑完的用例用 runner 给的判定码（AC / WA / CE / TLE / RE / ERR），
+// 没跑过或正在跑才用状态名。判定码比「通过 / 未通过」短一个量级，窄面板下不会被挤成竖排。
 const STATUS = {
   idle: { label: '待运行', icon: '' },
   running: { label: '运行中', icon: '' },
-  passed: { label: '通过', icon: 'check' },
-  failed: { label: '未通过', icon: 'close' },
-  error: { label: '错误', icon: 'alert' },
+  passed: { label: 'AC', icon: 'check' },
+  failed: { label: 'WA', icon: 'close' },
+  error: { label: 'ERR', icon: 'alert' },
 }
 
 const status = computed(() => STATUS[props.testCase.status] ?? STATUS.idle)
+const badgeLabel = computed(() => props.testCase.verdict || status.value.label)
 
 // 折叠状态与用例记录放在一起，卡片被复用（v-for key 为 id）时不会丢。
 const isCollapsed = computed(() => props.testCase.collapsed === true)
@@ -113,7 +116,7 @@ async function copyOutput() {
       <span class="card__title">#{{ index + 1 }}</span>
       <span class="badge" :data-status="testCase.status">
         <AppIcon v-if="status.icon" :name="status.icon" :size="11" :stroke-width="2.6" />
-        <span>{{ status.label }}</span>
+        <span>{{ badgeLabel }}</span>
       </span>
       <!-- 判定区从状态徽标右侧一直延伸到删除按钮左侧：视觉不变，只把整条空白变成点得到的运行按钮 -->
       <button
@@ -123,7 +126,6 @@ async function copyOutput() {
         :disabled="locked"
         @click="emit('run', testCase)"
       >
-        <span v-if="testCase.hint" class="hint">{{ testCase.hint }}</span>
         <span v-if="testCase.stale" class="stale" title="代码或输入已改动，下面的结论来自上一次运行">
           结果待刷新
         </span>
@@ -234,9 +236,11 @@ async function copyOutput() {
 }
 
 .card__title {
+  flex: 0 0 auto;
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
 .grow {
@@ -247,6 +251,9 @@ async function copyOutput() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* 徽标不参与压缩、也不换行：窄面板下宁可让判定区先让位，否则中文会被挤成竖排单字 */
+  flex: 0 0 auto;
+  white-space: nowrap;
   padding: 1px 7px;
   border-radius: 999px;
   font-size: 11px;
@@ -287,21 +294,18 @@ async function copyOutput() {
   }
 }
 
-.hint,
 .stale {
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--warn);
   white-space: nowrap;
 }
 
-.stale {
-  color: var(--warn);
-}
-
 .metric {
+  flex: 0 0 auto;
   font-family: var(--mono-font);
   font-size: 11px;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 /* 运行判定区：撑满徽标与删除按钮之间的空白，内部排版与原来的头栏完全一致 */

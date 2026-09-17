@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "CPH Workbench · 算法竞赛刷题工作台",
+  "name": "CPH Workbench",
   "short_name": "CPH Workbench",
-  "description": "浏览器内的算法竞赛刷题工作台：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++ 并做 TLE 判定。",
+  "description": "浏览器内的算法竞赛刷题工作台：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "/",

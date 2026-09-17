@@ -160,7 +160,7 @@ function createCase(seed = {}) {
     actualOutput: '',
     status: 'idle',
     detail: '',
-    hint: '',
+    verdict: '',
     durationMs: null,
     stale: false,
     collapsed: false,
@@ -345,7 +345,7 @@ function resetCase(item) {
   item.status = 'running'
   item.actualOutput = ''
   item.detail = ''
-  item.hint = ''
+  item.verdict = ''
   item.durationMs = null
   item.stale = false
 }
@@ -393,7 +393,7 @@ async function runOne(target) {
   target.status = 'running'
   target.actualOutput = ''
   target.detail = ''
-  target.hint = ''
+  target.verdict = ''
   target.durationMs = null
   try {
     await runCases({

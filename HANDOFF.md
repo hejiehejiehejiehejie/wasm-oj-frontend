@@ -50,17 +50,18 @@ src/
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态
   composables/usePersistentRef.js
   composables/useInstallPrompt.js  # 顶栏「安装」按钮的数据源：拦 beforeinstallprompt，用完即弃
+  composables/useLocalRuntime.js   # 本地工具链下载状态（idle/downloading/ready/failed），顶栏引擎弹层的下载入口与本地运行环境抽屉共享同一份
   components/
-    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/运行（50px 高）+ 四档响应式断点与省略号收纳（见第 3 节）
+    TopBar.vue                  # 顶栏：语言/引擎（本地沙箱行内挂下载 chip）/连接/布局/设置/本地环境/安装/运行（50px 高）+ 四档响应式断点与省略号收纳（见第 3 节）
     EditorPane.vue              # Monaco 容器 + 文件页签
     EditorSettingsPanel.vue     # 右侧设置抽屉（Teleport，按钮在顶栏）
-    LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏）
-    TestPanel.vue               # 右侧评测面板：页头（verdict/耗时/时限）+ 用例列表 + 页脚运行按钮
-    TestCaseCard.vue            # 单个用例卡片：徽标 / hint / 耗时 / 输入框 / 输出块
+    LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏；下载状态取自 useLocalRuntime，自己不再持有）
+    TestPanel.vue               # 右侧评测面板：页头（verdict「全部 AC / n/m AC」/耗时/时限）+ 用例列表 + 页脚运行按钮
+    TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）
   services/                     # 判题逻辑，改样式基本不碰
-    runner.js                   # 逐用例调度（并发 2）+ 进度回调
-    compare.js                  # 实际输出与期望输出比对
+    runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
+    compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
     templates.js                # 各语言默认模板
     engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
     wasmRuntime.js              # 本地沙箱的唯一入口：阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
@@ -131,22 +132,7 @@ div.app（column，100% 高）
 - 160px 是实测硬底：面板固定到 160px 时面板与卡片都无横向溢出（到 150px 时 `.card__head` 才开始超 5px）。320px 视口正好卡在地板上。
 - 拖拽路径也同步：`measureLimits()` 的 `maxShare` 读同一组值，所以「一直往右拖」停在面板下限上（375px 下编辑器 167 / 面板 190，触屏因热区 24px 再让 18px），再往外才是折叠。
 - 面板头必须能**折行**（`TestPanel.vue` 的 `.panel__head` 加了 `flex-wrap: wrap` + `row-gap`，`.limit` 加 `margin-left: auto`）：标题 + 徽标 + 耗时 + 时限一行要约 250px，挤不下时若不换行，`.verdict`（`white-space: nowrap`）会溢出自己的盒子、直接压在时限选择器上（实测面板 160px 时压过去 82px，面板 320px 带上耗时时也会压过去 ~33px）。折行后时限整组落到第二行并仍贴右，一行放得下时与改版前逐像素一致。
-
-### 窄屏下的已知限制（2026-09 实测）
-
-工作区**刻意不堆叠**（两栏始终并排），所以窄屏是「两边都挤」而不是「一边让位」。下表都是 320–560px 上真实发生的降级，不算 bug，但改文案 / 往面板里加元素前要知道它们已经在这些宽度上出现：
-
-| 视口 | 面板宽 | 面板头 | 卡片徽标 | 跑过一轮后的耗时 | 页脚按钮 |
-| --- | --- | --- | --- | --- | --- |
-| 320 | 160 | 折两行（高 75px），标题也折两行 | 「待运行」竖排三行 | 被卡片裁掉约 32px（显示成「58」而不是「581ms」） | 文案折两行 |
-| 375 | 182 | 折两行（75px），标题折两行 | 折两行 | 探出内边距 ~11px，仍在卡片内 | 一行 |
-| 414 | 201 | 折两行（69px） | 折两行 | 正常 | 一行 |
-| ≥652 | ≥320 | 一行（43px），与改版前一致 | 一行 | 正常 | 一行 |
-
-- 面板头折行不是哪个断点在起作用：`.panel__head` 就是普通 `flex-wrap`，**面板窄到 320px 以下就会自然折成两行**（实测 274px 折、320px 不折）。所以别为了「把它拉回一行」去加样式——那等于把上一小节那处重叠放回来。
-- 折行与竖排是同一个原因：`.verdict`（`0/2 已通过`）、卡片徽标（`待运行`）、页脚按钮（`添加测试样例`）都压不到内容宽度以下，容不下就折到自己「最长的那个不可断点」——中文短词被挤成单字，于是竖排。
-- 「耗时被裁」是目前唯一会**切掉信息**的一处：`.elapsed`（图标 + `581ms`）是 inline-flex，缩到极限时尾部被卡片的 `overflow: hidden` 裁掉。它带 `title`，悬停仍能看到完整值。真要修，判断依据得用**面板宽度**而不是视口宽度（面板还受拖拽与左右换位影响）：给 `.panel` 加 `container-type: inline-size` 后用 `@container` 摘掉耗时或标题是最准的；也可以把耗时并进徽标文案（`0/2 已通过 · 581ms`）省掉一个元素。`@media` 视口断点只能近似。
-- 编辑器侧不用管：窄屏下 Monaco 只剩一百多像素宽是用户自己把分隔条拖到头的结果，两头分别被面板下限和 `MIN_SHARE`（24%）夹住，不会缩到 0（改版前面板下限固定 320px 时，375px 视口下编辑器只剩 37px、320px 视口下两栏还会合计溢出工作区——那才是这次要改的）。
+- 已知窄极限（2026-09-18 收紧过一次，**改完未逐档复测**，动卡片头部后按第 8 节重量）：头部那句失败提示（「输出多 N 行」「编译失败」）已删除；跑完卡片的徽标改成两字母判定码 AC/WA/CE/TLE/RE/ERR（不再竖排，未跑的「待运行」在 320px 档仍可能竖排）；`.card__title` / `.badge` / `.metric` 都加了 `flex: 0 0 auto; white-space: nowrap`，耗时不再折成两行。面板 ≤174px 且**跑过一轮**时，耗时文字仍可能被卡片横向裁掉几个字符（旧实测约 32px）；想要更干净就上容器查询（`container-type: inline-size` + `@container`）按面板宽度摘掉耗时或标题。
 
 ## 4. 主题与 CSS 变量
 
@@ -174,9 +160,9 @@ div.app（column，100% 高）
 | 组件 | 主要选择器 |
 | --- | --- |
 | `App.vue:506` | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
-| `TopBar.vue:277` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里）；`TopBar.vue:619` 起是四档响应式断点 + 省略号收纳与菜单（见第 3 节） |
-| `TestPanel.vue:99` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]` `.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
-| `TestCaseCard.vue:182` | `.card[data-status]` `.card__head` `.badge[data-status]` `.hint` `.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶） |
+| `TopBar.vue:277` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里）；`.engines` `.engine-row` `.engine__action`（本地沙箱行尾的下载 chip，约 `TopBar.vue:486/598`）；`TopBar.vue:629` 起是四档响应式断点 + 省略号收纳与菜单（见第 3 节） |
+| `TestPanel.vue:102` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
+| `TestCaseCard.vue:184` | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
 | `EditorPane.vue:158` | `.tab` `.tab__icon` |
 | `EditorSettingsPanel.vue:162` | `.icon-button` `.panel-drawer*` `.select` |
 | `LocalRuntimePanel.vue:181` | `.panel-button` `.panel-drawer*` `.runtime-row*` `.panel-note` |
@@ -184,7 +170,7 @@ div.app（column，100% 高）
 
 ## 5. 改样式时的几个坑
 
-1. **状态色是三元组**：卡片/徽标用 `data-status="passed|failed|error|running"`（`TestCaseCard.vue`），面板小结用 `data-tone="passed|failed|error|info"`（`TestPanel.vue`）。加新状态要同时补 CSS 分支。
+1. **状态色是三元组，但徽标文字是判定码**：卡片/徽标颜色用 `data-status="passed|failed|error|running"`（`TestCaseCard.vue`），面板小结用 `data-tone="passed|failed|error|info"`（`TestPanel.vue`），加新状态要同时补 CSS 分支。徽标里显示的文字不是状态名，而是用例记录上的 `verdict` 字段（`AC / WA / CE / TLE / RE / ERR`，没跑时回退「待运行/运行中」）；颜色归 `status`、文案归 `verdict`，两者在 `runner.js` 的补丁里成对产出，别合并成一个字段。
 2. **Monaco 文字用 NBSP 渲染**：用脚本读 `.view-lines` 的文本时，空格是 `\u00a0`（charCode 160），`includes('def solve')` 这类断言永远匹配不上。
 3. **Monaco 的 `.minimap` DOM 节点始终存在**，关闭时宽度为 0；判断"有没有小地图"要看 `getBoundingClientRect().width`，不是 `querySelector`。
 4. **localStorage 里存的是 JSON 字符串**：`cph.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
@@ -204,7 +190,7 @@ div.app（column，100% 高）
 | `cph.editorShare` | 两栏比例（%） | `App.vue:17` |
 | `cph.timeLimitMs` | 全局时限（毫秒，只计运行段） | `App.vue:20` |
 | `cph.language` / `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases` | 语言、各语言草稿、用例、引擎、服务地址 | `App.vue` |
-| `cph.localRuntime.clangReady` | C++ 本地工具链是否已拉取（只表示「这台浏览器下过一次」，用来少点一次「下载」；标记过期也无害） | `LocalRuntimePanel.vue` |
+| `cph.localRuntime.clangReady` | C++ 本地工具链是否已拉取（只表示「这台浏览器下过一次」，用来少点一次「下载」；标记过期也无害） | `composables/useLocalRuntime.js`（顶栏引擎弹层的下载 chip 与本地运行环境抽屉共用这一份状态） |
 | `cph.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
 
 另外 PCH 二进制（约 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cph-pch`、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:微缩头内容的 FNV-1a 哈希`（当前是 `1:8.0.1:69dc7cd9`），三者任一变化旧存档自然失效，取存档只按这个 id。
@@ -213,11 +199,11 @@ div.app（column，100% 高）
 
 ## 7. 现在的功能边界（写文案时别夸大）
 
-- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱只支持 C++，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
+- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱只支持 C++，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载有两个入口、同一份状态（`composables/useLocalRuntime.js`）：「本地运行环境」抽屉，以及引擎设置弹层里本地沙箱那一行尾部的下载 chip（工具链未就绪时才出现；点 chip 只下载、**不切换当前引擎**；引擎注册表里用可选的 `localRuntime: true` 声明，界面不硬编码引擎 id）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
 - 本地沙箱**没有 Python**（面板上 Python 是禁用态）。Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
 - TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。
 - **耗时口径（2026-09 改过，别改回去）**：卡片数字 = `runCpp` 里只包住 `runWasi` 的那一段，编译时间不计入。原先取的是 `runCase()` 入口到结束的墙钟，于是第一个用例含编译、命中编译缓存的后续用例只含运行，**同一份代码下第一个卡片能比其余大好几倍**（修前 3 个用例是「数百 ms + 9ms + 12ms」，修后 10/11/7ms），很容易被误读成「程序在第一个用例上特别慢」。面板页头那个 `elapsed` 现在也是同一口径：取当轮所有卡片耗时的**最大值**（`App.vue` 里是 computed，单独跑一个用例也会跟着更新），标题写明「最慢用例耗时」。TLE 消息里的 `durationMs` 与卡片同口径（`wasmRuntime.js` 在进入 `run` 段时重置 `stageStartedAt`）。
-- 判定词表：`ok / compile-error / runtime-error / timeout / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）。
+- 判定词表：引擎 outcome 是 `ok / compile-error / runtime-error / timeout / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）；`runner.js` 再把它翻译成卡片徽标上的 **verdict 判定码**：`ok` + 比对一致 → `AC`，`ok` + 不一致 → `WA`，`compile-error` → `CE`，`timeout` → `TLE`，`runtime-error` → `RE`，`unreachable` 等基础设施失败 → `ERR`。徽标颜色仍按 `status`（passed 绿 / failed 红 / error 琥珀）。`compare.js` 只返回布尔，**不再**产出「输出多 N 行 / 第 N 行不匹配」这类 hint 文案（2026-09-18 起，卡片头部不再显示它）。
 - 判题流程：先编译运行出实际输出，再与期望输出比对（`src/services/compare.js`）。
 - 工具链是静态自托管的（`public/wasm/8.0.1/`），但 `clang-fs.tar.gz` 这个扩展名会让静态服务器补上 `Content-Encoding: gzip`，浏览器已替我们解过一层，所以 `runnoSandbox.js` 里用**魔数判断**要不要 gunzip。换托管方时别把 `unpackSysroot` 改回无条件 `gunzip`（失败时 Chrome 只会报一句 "Failed to fetch"，很难查）。
 - 工具链地址里的 `8.0.1` 是**目录版本号**：升级工具链就换目录名，旧的 immutable 缓存自然失效；别在原地覆盖同名文件（浏览器会继续用缓存里的旧版本）。

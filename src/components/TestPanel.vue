@@ -25,13 +25,15 @@ const counts = computed(() => {
   return tally
 })
 
+// 与卡片徽标同一套判定词：AC 就是通过。混合结果只报「几 / 几 AC」，
+// 具体是 WA 还是 TLE 由各张卡片的徽标说明，页头不再堆第二个长句。
 const verdict = computed(() => {
-  if (!props.cases.length) return { text: '还没有测试用例', tone: 'muted' }
+  const total = props.cases.length
+  if (!total) return { text: '还没有测试用例', tone: 'muted' }
   if (counts.value.running) return { text: '运行中', tone: 'info' }
-  if (counts.value.error) return { text: `${counts.value.error} 个报错`, tone: 'error' }
-  if (counts.value.failed) return { text: `${counts.value.failed} 个未通过`, tone: 'failed' }
-  if (counts.value.passed === props.cases.length) return { text: '全部通过', tone: 'passed' }
-  return { text: `${counts.value.passed}/${props.cases.length} 已通过`, tone: 'muted' }
+  if (counts.value.passed === total) return { text: '全部 AC', tone: 'passed' }
+  const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
+  return { text: `${counts.value.passed}/${total} AC`, tone }
 })
 const elapsedText = computed(() => {
   if (!props.elapsed) return ''
