@@ -17,6 +17,9 @@ const props = defineProps({
   editorSettingsOpen: Boolean,
   running: Boolean,
   total: { type: Number, default: 0 },
+  // 触摸屏的「底部输入」模式开关（按钮本身只在 pointer: coarse 下才出现）
+  mobileInput: Boolean,
+  mobileInputDisabled: Boolean,
 })
 
 const emit = defineEmits([
@@ -27,6 +30,7 @@ const emit = defineEmits([
   'update:editor-settings',
   'update:editor-settings-open',
   'toggle-layout',
+  'toggle-mobile-input',
   'run-all',
 ])
 
@@ -51,6 +55,12 @@ watch(
 
 // 内置引擎（本地沙箱 / 自检）没有服务地址，按注册表约定 defaultBase 是 'local'
 const localEngine = computed(() => props.judge.base === 'local')
+
+// 底部输入按钮的提示：没有用例时它没有可停靠的内容
+const dockHint = computed(() => {
+  if (props.mobileInputDisabled) return '先添加一个测试用例，再用底部输入'
+  return props.mobileInput ? '退出底部输入' : '底部输入：把输入框停靠到键盘上方'
+})
 
 const probeTone = computed(() => {
   if (props.connection.state === 'ok') return 'is-ok'
@@ -103,6 +113,11 @@ function openEngineSettings() {
 function swapPanes() {
   moreOpen.value = false
   emit('toggle-layout')
+}
+
+function openEditorSettings() {
+  moreOpen.value = false
+  setEditorSettingsOpen(true)
 }
 
 function runInstall() {
@@ -247,6 +262,19 @@ function applyBase() {
     <!-- 图标区最右：窄屏时它最先折进「更多」，帮助属最不常用的一项 -->
     <HelpPanel :open="helpOpen" @update:open="setHelpOpen" />
 
+    <!-- 触摸屏专用：把输入框停靠到键盘上方。鼠标设备上整颗 display: none（见样式末尾） -->
+    <button
+      class="tool tool--dock"
+      :class="{ 'is-active': mobileInput }"
+      :disabled="mobileInputDisabled"
+      :title="dockHint"
+      :aria-label="dockHint"
+      :aria-pressed="mobileInput"
+      @click="emit('toggle-mobile-input')"
+    >
+      <AppIcon name="dock" />
+    </button>
+
     <!-- 窄屏收纳位：icon 装不下时从右到左折进这里。它自己占一格，
          所以要一次折掉两颗才算净赚，见样式的折叠档位 -->
     <div class="more">
@@ -262,6 +290,10 @@ function applyBase() {
       </button>
 
       <div v-if="moreOpen" class="popover popover--menu">
+        <button class="menu__item menu__item--editor" @click="openEditorSettings">
+          <AppIcon name="sliders" :size="15" />
+          <span>编辑器偏好设置</span>
+        </button>
         <button class="menu__item menu__item--help" @click="openHelp">
           <AppIcon name="help" :size="15" />
           <span>使用帮助</span>
@@ -430,6 +462,22 @@ function applyBase() {
   width: 28px;
   padding: 0;
   justify-content: center;
+}
+
+/* 底部输入：桌面端整颗不生成盒子 —— 虚拟键盘只在触摸屏上有，
+   鼠标设备上这个模式既无收益又会白占一格。用 display: none 而非隐藏可视，
+   顺带把它从无障碍树里摘掉（同折叠档位的做法） */
+.tool--dock {
+  display: none;
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+@media (pointer: coarse) {
+  .tool--dock {
+    display: inline-flex;
+  }
 }
 
 .tool--solid {
@@ -647,10 +695,20 @@ function applyBase() {
 /* ---------- 窄屏：按优先级从低到高逐级舍弃 ----------
    顶栏没有 flex-wrap，而 .tool / .primary 都是 white-space: nowrap，所以宽度不够时既不换行
    也不省略，只是整体向右溢出、把运行按钮挤出视口。这里用断点主动丢掉低优先级内容。
-   各档阈值不是经验值，是按元素实测宽度反推出来的（见 HANDOFF 第 8 节）。加进「?」按钮后重测：
-   全展开必需 730px、折叠第 1 档后 499、第 2 档后 469、第 3 档后 431、第 4 档后 341、第 5 档后 296
-   （实测含安装按钮，无头 Chrome 320–900px 逐档跑过均无溢出）。阈值都取比对应档位略大的一档：
-   第 4 档必需 431 就把阈值从 420 抬到 460，341 > 320 所以补了第 5 档折本地运行环境。
+   各档阈值不是经验值，是按元素实测宽度反推出来的（见 HANDOFF 第 8 节）。加进底部输入按钮后重测
+   （把按钮的 flex-shrink 关掉量「自然宽度」，含安装按钮，无头 Chrome 300–900px 逐像素跑过，
+   触摸屏与鼠标两套均无溢出、无按钮被挤扁）：
+
+                      全展开   第1档   第2档   第3档   第4档   第5档
+     触摸屏（粗指针）      715     537     507     469     379     289
+     鼠标设备             677     499     469     431     341     251
+
+   表里每格是「第 N 档生效时顶栏的最小自然宽度」，所以第 N 档的阈值不能小于第 N−1 档那一格：
+   触摸屏比鼠标多出底部输入按钮（28 + 10 gap = 38px），第 4、5 档的阈值就是为此上移的 ——
+   第 4 档的上一档要 469px，原来的 460 在 461–468 这段会溢出 → 抬到 480；
+   第 5 档的上一档要 379px，原来的 380 只剩 1px 余量 → 抬到 400，
+   顺手把编辑器齿轮也折进来：它是「设一次」的偏好（字号 / 缩进 / 主题），
+   而底部输入按钮是触摸屏上的常用动作，宁可折齿轮也要让它留在栏里。
    语言下拉是定宽的（选项里最长的「Python 3」决定宽度，切换语言不会变），会变的只有运行按钮文案在
    用例数变化时的那点宽度，而它在 ≤820 档已藏，余量留给这些波动。
    全部用 display: none（而非 visibility / opacity），顺带从无障碍树里摘掉。 */
@@ -694,8 +752,8 @@ function applyBase() {
 }
 
 /* 第 4 档：再往左轮两个 —— 评测引擎设置齿轮、安装按钮。
-   阈值由 420 抬到 460：折叠三格后顶栏仍需约 431px（加装安装按钮），420 会溢出 */
-@media (max-width: 460px) {
+   阈值由 460 抬到 480：多了底部输入按钮后，折叠三格后仍需约 479px，460 会溢出 */
+@media (max-width: 480px) {
   .settings > .tool,
   .tool--install {
     display: none;
@@ -713,14 +771,19 @@ function applyBase() {
   }
 }
 
-/* 第 5 档：最后轮到「本地运行环境」。折叠四格后仍需约 341px，320px 的窄机上还是会溢出，
-   所以这一档补上；它的抽屉入口本来就在「更多」菜单里（.menu__item--panel 平时隐藏） */
-@media (max-width: 380px) {
-  :deep(.panel-button) {
+/* 第 5 档：最后轮到「本地运行环境」与编辑器的齿轮。
+   折叠四格后仍需约 389px，320px 的窄机上还是会溢出，所以这一档补上。
+   齿轮排在这里而不是更早：它是「设一次」的偏好（字号 / 缩进 / 主题），
+   而底部输入按钮是触摸屏上的常用动作，宁可折齿轮也要让它留在栏里；
+   两个抽屉入口本来就在「更多」菜单里（对应 .menu__item 平时隐藏） */
+@media (max-width: 400px) {
+  :deep(.panel-button),
+  :deep(.gear-button) {
     display: none;
   }
 
-  .menu__item--panel {
+  .menu__item--panel,
+  .menu__item--editor {
     display: flex;
   }
 }
