@@ -139,16 +139,16 @@ defineExpose({ focusEditor, layout: () => editor.value?.layout() })
     <div ref="host" class="editor-pane__host"></div>
 
     <footer class="editor-pane__status">
-      <span>{{ fileName }}</span>
-      <span class="dot"></span>
-      <span>UTF-8</span>
-      <span class="dot"></span>
+      <span class="opt-file">{{ fileName }}</span>
+      <span class="dot opt-file"></span>
+      <span class="opt-utf8">UTF-8</span>
+      <span class="dot opt-utf8"></span>
       <span>空格: {{ settings.tabSize }}</span>
       <span class="grow"></span>
       <span v-if="selectedChars" class="picked">已选中 {{ selectedChars }} 字符</span>
       <span>行 {{ cursor.lineNumber }}，列 {{ cursor.column }}</span>
-      <span class="dot"></span>
-      <span>{{ meta.label }}</span>
+      <span class="dot opt-lang"></span>
+      <span class="opt-lang">{{ meta.label }}</span>
       <span class="dot"></span>
       <span title="运行全部测试用例">⌘⏎</span>
     </footer>
@@ -205,6 +205,20 @@ defineExpose({ focusEditor, layout: () => editor.value?.layout() })
   font-size: 11.5px;
   color: var(--statusbar-text);
   background: var(--accent);
+  /* 状态栏自身当容器：窄到放不下时由下面的 @container 逐项摘掉信息。
+     不能挂在上层的 .editor-pane 上 —— container-type 带 layout 包含，
+     会让它成为 position: fixed 后代的包含块，Monaco 的 fixedOverflowWidgets
+     弹出的建议框就会错位。另外收住横向溢出，免得挤不下的部分画到面板外面 */
+  container-type: inline-size;
+  overflow: hidden;
+}
+
+/* 各项按内容宽度定死且不换行：默认的 flex-shrink: 1 会把「行 1，列 1」折成两行、
+   把中文压成竖排，这就是「挤在一起」的成因。宽度不够时交给 @container 摘掉整项，
+   留下来的项内部始终单行 */
+.editor-pane__status > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .editor-pane__status .grow {
@@ -222,5 +236,27 @@ defineExpose({ focusEditor, layout: () => editor.value?.layout() })
 .editor-pane__status .picked {
   color: var(--text-on-accent);
   font-weight: 550;
+}
+
+/* 由窄到宽逐项隐藏：UTF-8 是常量、main.cpp 在页签栏已经有一份，先摘这两项，
+   再窄才轮到语言。每一项都连着身后的分隔点一起隐藏，避免留下孤零零一个圆点
+   （opt-lang 的那颗点在前，所以跟着自己走）。阈值按无选中文本时的实测宽度取整，
+   改字号或增删状态栏项后要重新量 */
+@container (max-width: 360px) {
+  .editor-pane__status .opt-utf8 {
+    display: none;
+  }
+}
+
+@container (max-width: 310px) {
+  .editor-pane__status .opt-file {
+    display: none;
+  }
+}
+
+@container (max-width: 250px) {
+  .editor-pane__status .opt-lang {
+    display: none;
+  }
 }
 </style>
