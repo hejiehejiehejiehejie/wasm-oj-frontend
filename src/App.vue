@@ -696,17 +696,28 @@ onBeforeUnmount(() => {
   transition: background-color 0.16s ease;
 }
 
-.splitter:hover .splitter__line,
 .splitter:focus-visible .splitter__line,
 .workspace.is-dragging .splitter__line {
   opacity: 1;
 }
 
 /* 细线亮起来时，三点同时切成主题强调色 */
-.splitter:hover .splitter__dots i,
 .splitter:focus-visible .splitter__dots i,
 .workspace.is-dragging .splitter__dots i {
   background: var(--focus);
+}
+
+/* 「悬停显影」只在真有悬停能力的指针上生效。触屏没有 hover，浏览器会把点按瞬间的 :hover
+   粘在元素上直到点了别处，于是双击折叠/展开后那条蓝线留在原处不灭；键盘焦点（上面的
+   :focus-visible）和拖拽态不受影响，触屏下这两条路仍然可用 */
+@media (hover: hover) {
+  .splitter:hover .splitter__line {
+    opacity: 1;
+  }
+
+  .splitter:hover .splitter__dots i {
+    background: var(--focus);
+  }
 }
 </style>
 
