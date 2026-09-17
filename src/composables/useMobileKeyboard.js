@@ -3,28 +3,74 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 // 触摸屏默认开启（鼠标设备上不生效）：键盘弹起之后只做两件事——
 //   1. 改变窗口大小：把整块应用收缩到键盘上方（visualViewport 的 height / offsetTop
 //      写成 --vvh / --vv-top，见 App.vue 的 .app.is-keyboard）；
-//   2. 焦点不要改变：点非可编辑元素时拦掉默认行为，不让焦点移给 body（键盘随之收起）。
+//   2. 焦点不要改变：点非可编辑元素时拦掉默认行为（键盘收起是因为焦点被移走）；
+//      滑动（滚动）时若焦点跑到了可编辑元素上，再把它还回去。
 //
-// 唤出键盘的逻辑不归这里管，就用浏览器默认的——焦点落进可输入文字的框里就弹。
-// 别再加「滑动不唤键盘」「点按钮唤键盘」这类手势或补焦逻辑：真机上这些干预要么把
-// 已经弹着的键盘弄收（点顶栏按钮自己会抢焦点），要么让滑动后轻点失效，两版都因此撤掉过。
+// 唤出键盘的时机仍是浏览器默认的（焦点落进可输入文字的框里就弹），这里只是不让
+// 「滑动」也算唤出——用户口径：**滑动只滚动，轻点才聚焦**。
+// 别加顶栏开关（点按钮自己会抢焦点，反而把已经弹着的键盘弄收，撤过一版）。
 const EDITABLE = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
+// 判「焦点是不是落进了能输入文字的地方」时要把 Monaco 的输入面也算上：Chrome 里它是
+// EditContext 的 .native-edit-context（**不是** contenteditable，上面那个选择器认不出来），
+// 其他浏览器走隐藏的 textarea.inputarea。漏了它，滑动时焦点被抢走就判不出来。
+const FOCUSABLE_SURFACE = `${EDITABLE}, .monaco-editor .native-edit-context, .monaco-editor textarea.inputarea`
+// 手指位移超过这个距离就算滑动，这次触摸不再允许改变焦点
+const PAN_SLOP = 8
+
+const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
 
 export function useMobileKeyboard() {
   const active = ref(window.matchMedia('(pointer: coarse)').matches)
 
   let listening = false
+  // 本次触摸的状态：起点、是否已判为滑动、滑动前焦点在哪
+  let startX = 0
+  let startY = 0
+  let panning = false
+  let focusBeforeTouch = null
 
-  // 只拦默认行为，不抢焦点：键盘收起是因为焦点被移走了，所以对着非可编辑元素
-  // preventDefault 一下，焦点原地不动、键盘不落。
+  // 滑动不该改变焦点：把焦点还给滑动前那个；本来就没有焦点就干脆别聚焦（键盘不弹）。
+  // 两种时机都会调到这里——判定为滑动的那一刻（iOS 在 touchstart 就把焦点给了输入框，
+  // 那时还没滑，得在滑动成立时补一次），以及滑动过程中焦点又被移走时（focusin）。
+  function undoFocusChangeFromPan() {
+    const current = document.activeElement
+    if (!isEditable(current) || current === focusBeforeTouch) return
+    if (isEditable(focusBeforeTouch) && focusBeforeTouch.isConnected) focusBeforeTouch.focus({ preventScroll: true })
+    else if (current instanceof HTMLElement) current.blur()
+  }
+
+  function onTouchStart(event) {
+    const touch = event.touches[0]
+    startX = touch ? touch.clientX : 0
+    startY = touch ? touch.clientY : 0
+    panning = false
+    const current = document.activeElement
+    focusBeforeTouch = current instanceof HTMLElement && current !== document.body ? current : null
+  }
+
+  function onTouchMove(event) {
+    if (panning) return
+    const touch = event.touches[0]
+    if (!touch) return
+    if (Math.abs(touch.clientX - startX) > PAN_SLOP || Math.abs(touch.clientY - startY) > PAN_SLOP) {
+      panning = true
+      undoFocusChangeFromPan()
+    }
+  }
+
+  function onFocusIn() {
+    if (panning) undoFocusChangeFromPan()
+  }
+
+  // 只拦默认行为，不抢焦点：对着非可编辑元素 preventDefault 一下，焦点原地不动、键盘不落。
   // 只挡 mousedown、不挡 pointerdown：挡 pointerdown 会把兼容的 click 一起吞掉，
   // 「运行全部」「添加样例」这些按钮就点不动了；挡 mousedown 只阻止焦点转移，click 照常。
-  // 也只用 preventDefault、不用 stopPropagation：Monaco 的聚焦是它自己在 mousedown
-  // 里主动 focus()，不受默认行为影响，轻点编辑器该弹键盘还是照弹。
+  // 可编辑元素一律放行，Monaco 的 focus() 是它自己在 mousedown 里调的、不受影响。
   function onMouseDown(event) {
     const node = event.target
-    if (!(node instanceof Element)) return
-    if (node.closest(EDITABLE)) return
+    if (!(node instanceof Element) || node.closest(EDITABLE)) return
+    // 刚滑动过：这次 mousedown 是滑动收尾补上的，别让它把焦点改掉
+    if (panning) event.stopPropagation()
     event.preventDefault()
   }
 
@@ -41,7 +87,10 @@ export function useMobileKeyboard() {
   function start() {
     if (listening) return
     listening = true
+    document.addEventListener('touchstart', onTouchStart, true)
+    document.addEventListener('touchmove', onTouchMove, true)
     document.addEventListener('mousedown', onMouseDown, true)
+    document.addEventListener('focusin', onFocusIn, true)
     window.addEventListener('resize', syncViewport)
     window.addEventListener('orientationchange', syncViewport)
     window.visualViewport?.addEventListener('resize', syncViewport)
@@ -52,7 +101,10 @@ export function useMobileKeyboard() {
   function stop() {
     if (!listening) return
     listening = false
+    document.removeEventListener('touchstart', onTouchStart, true)
+    document.removeEventListener('touchmove', onTouchMove, true)
     document.removeEventListener('mousedown', onMouseDown, true)
+    document.removeEventListener('focusin', onFocusIn, true)
     window.removeEventListener('resize', syncViewport)
     window.removeEventListener('orientationchange', syncViewport)
     window.visualViewport?.removeEventListener('resize', syncViewport)
