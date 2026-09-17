@@ -135,7 +135,7 @@ function close() {
 
           <section class="panel-group">
             <div class="runtime-row">
-              <span class="runtime-row__icon"><AppIcon name="cpu" :size="15" /></span>
+              <span class="runtime-row__icon is-cpp"><AppIcon name="cpp" :size="15" /></span>
               <span class="runtime-row__text">
                 <span class="runtime-row__title">C++</span>
                 <span class="runtime-row__hint">{{ cppHint }}</span>
@@ -157,7 +157,7 @@ function close() {
             </div>
 
             <div class="runtime-row is-muted">
-              <span class="runtime-row__icon"><AppIcon name="code" :size="15" /></span>
+              <span class="runtime-row__icon is-python"><AppIcon name="python" :size="15" /></span>
               <span class="runtime-row__text">
                 <span class="runtime-row__title">Python 3</span>
                 <span class="runtime-row__hint">暂未接入本地运行时</span>
@@ -296,6 +296,15 @@ function close() {
   border-radius: 6px;
   color: var(--text-dim);
   background: var(--bg-control);
+}
+
+/* 语言标志用各自的官方色，其它图标仍跟随主题文字色 */
+.runtime-row__icon.is-cpp {
+  color: var(--icon-cpp);
+}
+
+.runtime-row__icon.is-python {
+  color: var(--icon-python);
 }
 
 .runtime-row__text {
