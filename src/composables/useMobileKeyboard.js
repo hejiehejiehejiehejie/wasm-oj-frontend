@@ -36,12 +36,22 @@ export function useMobileKeyboard() {
   let panning = false
   let focusBeforeTouch = null
 
-  // 滑动不该改变焦点：把焦点还给滑动前那个；本来就没有焦点就干脆别聚焦（键盘不弹）。
+  // 滑动不该改变焦点：编辑器里的焦点直接清掉（理由见下），其余情况把焦点还回滑动前那个；
+  // 本来就没有焦点就别聚焦（键盘不弹）。
   // 两种时机都会调到这里——判定为滑动的那一刻（iOS 在 touchstart 就把焦点给了输入框，
   // 那时还没滑，得在滑动成立时补一次），以及滑动过程中焦点又被移走时（focusin）。
   function undoFocusChangeFromPan() {
     const current = document.activeElement
-    if (!isEditable(current) || current === focusBeforeTouch) return
+    if (!isEditable(current)) return
+    // 编辑器里还留着焦点：直接清掉，别「还回去」。
+    // Android Chrome 上，一个已经聚焦的输入框会在手势结束时被系统重新弹起键盘
+    // （这一步连 focusin 都不派发，所以下面 over-mousedown / 手势 Tap 两道闸都看不见它），
+    // 只有把焦点清掉才能断掉这个前提。真机反馈正是「滑之前点过编辑器、抬手后才弹」。
+    if (current.closest('.monaco-editor')) {
+      current.blur()
+      return
+    }
+    if (current === focusBeforeTouch) return
     if (isEditable(focusBeforeTouch) && focusBeforeTouch.isConnected) focusBeforeTouch.focus({ preventScroll: true })
     else if (current instanceof HTMLElement) current.blur()
   }
