@@ -20,23 +20,33 @@ function limitLabel(ms) {
 }
 
 const counts = computed(() => {
-  const tally = { idle: 0, running: 0, passed: 0, failed: 0, error: 0 }
-  for (const item of props.cases) tally[item.status] = (tally[item.status] ?? 0) + 1
+  // stale 是附加维度：卡片状态仍是 passed/failed/error，但代码或输入已改动、结论过期
+  const tally = { idle: 0, running: 0, passed: 0, failed: 0, error: 0, stale: 0 }
+  for (const item of props.cases) {
+    tally[item.status] = (tally[item.status] ?? 0) + 1
+    if (item.stale) tally.stale += 1
+  }
   return tally
 })
 
 // 与卡片徽标同一套判定词：AC 就是通过。混合结果只报「几 / 几 AC」，
 // 具体是 WA 还是 TLE 由各张卡片的徽标说明，页头不再堆第二个长句。
+// 只要有一张卡片的结论已过期（stale），就不能再宣称「全部 AC」——
+// 上一轮通过不代表改完代码后仍通过。
 const verdict = computed(() => {
   const total = props.cases.length
   if (!total) return { text: '还没有测试用例', tone: 'muted' }
   if (counts.value.running) return { text: '运行中', tone: 'info' }
+  // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待刷新）
+  if (counts.value.stale) return { text: `?/${total} AC`, tone: 'warn' }
   if (counts.value.passed === total) return { text: '全部 AC', tone: 'passed' }
   const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
   return { text: `${counts.value.passed}/${total} AC`, tone }
 })
+
+// 有过期结论时，页头耗时同样来自上一轮，跟着藏掉，免得和「结果待刷新」自相矛盾
 const elapsedText = computed(() => {
-  if (!props.elapsed) return ''
+  if (!props.elapsed || counts.value.stale) return ''
   return props.elapsed >= 1000 ? `${(props.elapsed / 1000).toFixed(2)}s` : `${props.elapsed}ms`
 })
 </script>
@@ -168,6 +178,12 @@ const elapsedText = computed(() => {
 .verdict[data-tone='info'] {
   color: var(--info);
   background: rgba(79, 193, 255, 0.12);
+}
+
+/* 有结论过期（代码/输入改后未重跑）：琥珀色提示，不再给绿色「全部 AC」 */
+.verdict[data-tone='warn'] {
+  color: var(--warn);
+  background: rgba(201, 164, 92, 0.14);
 }
 
 .elapsed {
