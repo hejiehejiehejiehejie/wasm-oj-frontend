@@ -11,8 +11,6 @@ const props = defineProps({
   elapsed: { type: Number, default: 0 },
   // 全局时限（毫秒），只计运行段
   timeLimit: { type: Number, required: true },
-  // 触摸屏的「底部输入」模式：卡片里的输入框退化成只读预览
-  dockMode: Boolean,
 })
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'update:time-limit'])
@@ -94,7 +92,6 @@ const elapsedText = computed(() => {
         :test-case="item"
         :index="index"
         :locked="running"
-        :dock-mode="dockMode"
         @remove="emit('remove', $event)"
         @run="emit('run-one', $event)"
       />

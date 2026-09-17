@@ -3,9 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TopBar from './components/TopBar.vue'
 import EditorPane from './components/EditorPane.vue'
 import TestPanel from './components/TestPanel.vue'
-import MobileInputDock from './components/MobileInputDock.vue'
 import { usePersistentRef } from './composables/usePersistentRef.js'
-import { useMobileInputDock } from './composables/useMobileInputDock.js'
+import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { LANGUAGE_IDS, defaultCode } from './services/templates.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
@@ -197,17 +196,10 @@ const workspace = ref(null)
 const editorPane = ref(null)
 const running = ref(false)
 
-// 触摸屏的「底部输入」：把当前输入框停靠到键盘上方，上方内容照常滚动。
-// 停靠栏是 .app 的最后一个 flex 子项（后缀在模板里），所以工作区会自己收缩，
-// 不需要给工作区写任何高度；Monaco 是 automaticLayout，会跟着重排。
-const dockRef = ref(null)
-const {
-  open: dockOpen,
-  resolved: dockTarget,
-  disabled: dockDisabled,
-  toggle: toggleDock,
-  close: closeDock,
-} = useMobileInputDock(testCases, () => dockRef.value?.textareaEl ?? null)
+// 触摸屏的「键盘模式」：把整块应用收缩到键盘上方，点上方空白时键盘不落。
+// 它不给任何元素写高度——.app 自己挂到 visualViewport 上（见 .app.is-keyboard），
+// 工作区是 flex 会跟着缩，Monaco 是 automaticLayout 会重排。
+const { open: keyboardMode, toggle: toggleKeyboardMode } = useMobileKeyboard()
 // 页头耗时 = 本轮最慢的那张卡片，口径与卡片完全一致（只计运行段）：
 // 编译 / 链接 / 排队 / WASI 启动都不算，跑完一批后不会比最快的样例大出一个量级。
 const elapsed = computed(() => {
@@ -472,7 +464,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app" :class="{ 'is-docked': dockOpen }">
+  <div class="app" :class="{ 'is-keyboard': keyboardMode }">
     <TopBar
       v-model:language="language"
       :judge="judgeSettings"
@@ -482,9 +474,8 @@ onBeforeUnmount(() => {
       :editor-settings-open="editorSettingsOpen"
       :running="running"
       :total="testCases.length"
-      :mobile-input="dockOpen"
-      :mobile-input-disabled="dockDisabled"
-      @toggle-mobile-input="toggleDock"
+      :keyboard-mode="keyboardMode"
+      @toggle-keyboard-mode="toggleKeyboardMode"
       @select-engine="selectEngine"
       @update-base="updateBase"
       @test-connection="testConnection"
@@ -535,7 +526,6 @@ onBeforeUnmount(() => {
           :cases="testCases"
           :running="running"
           :elapsed="elapsed"
-          :dock-mode="dockOpen"
           @add="addCase"
           @remove="removeCase"
           @run-one="runOne"
@@ -543,17 +533,6 @@ onBeforeUnmount(() => {
         />
       </section>
     </main>
-
-    <!-- 停靠栏排在最后：作为 .app 的列向 flex 子项，工作区自动让出它的高度 -->
-    <MobileInputDock
-      v-if="dockOpen && dockTarget"
-      ref="dockRef"
-      :target="dockTarget.target"
-      :field="dockTarget.field"
-      :label="dockTarget.label"
-      :disabled="running"
-      @done="closeDock"
-    />
   </div>
 </template>
 
@@ -565,12 +544,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* 停靠模式：键盘弹起来之后，看得见的只剩「可视视口」那一截，
+/* 键盘模式：键盘弹起来之后，看得见的只剩「可视视口」那一截，
    而 100% 量的是布局视口（iOS 上它不跟着键盘缩），所以整块应用改挂到
-   visualViewport 实测出来的范围上（--vvh / --vv-top 由 useMobileInputDock 写）。
+   visualViewport 实测出来的范围上（--vvh / --vv-top 由 useMobileKeyboard 写）。
    用 fixed + top 是为了连「可视区被顶上去」的那段偏移一起对上，
-   否则键盘会盖住底部输入框。left/right 归零让宽度仍跟视口走，两栏是 flex 会自己重排。 */
-.app.is-docked {
+   否则底部会被键盘盖住。left/right 归零让宽度仍跟视口走，两栏是 flex 会自己重排。 */
+.app.is-keyboard {
   position: fixed;
   top: var(--vv-top, 0px);
   left: 0;

@@ -8,7 +8,7 @@
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`cd /Users/hejie/Code/BISHE && npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
 - 其他命令：`npm run verify` 跑无头回归（先看第 8 节的已知红项，另需 `VERIFY_PORT` 避开占用中的 5199）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
-- 响应式：顶栏五档断点（窄屏把图标从右到左折进省略号）+ 测试面板最低宽度随视口收缩（见第 3 节三小节）；工作区两栏始终并排、不堆叠。断点与下限都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「底部输入」停靠栏（第 3 节末）。
+- 响应式：顶栏五档断点（窄屏把图标从右到左折进省略号）+ 测试面板最低宽度随视口收缩（见第 3 节三小节）；工作区两栏始终并排、不堆叠。断点与下限都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
 
@@ -51,16 +51,15 @@ src/
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态
   composables/usePersistentRef.js
   composables/useInstallPrompt.js  # 顶栏「安装」按钮的数据源：拦 beforeinstallprompt，用完即弃
-  composables/useMobileInputDock.js # 触摸屏「底部输入」：模式状态 + 保焦拦截 + --vvh 可视高度跟踪（见第 3 节末）
+  composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
   components/
-    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/帮助/底部输入/运行（50px 高）+ 五档响应式断点与省略号收纳（见第 3 节）
+    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/帮助/键盘模式/运行（50px 高）+ 五档响应式断点与省略号收纳（见第 3 节）
     EditorPane.vue              # Monaco 容器 + 文件页签
     EditorSettingsPanel.vue     # 右侧设置抽屉（Teleport，按钮在顶栏）
     LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏）
     HelpPanel.vue               # 右侧「使用帮助」抽屉（Teleport，按钮在顶栏最右；只读，内容是三条常见操作解答，与 docs/使用手册.md 同源）
-    MobileInputDock.vue         # 触摸屏底部输入停靠栏（不是浮层，是 .app 的最后一个 flex 子项；见第 3 节末）
     TestPanel.vue               # 右侧评测面板：页头（verdict「全部 AC / n/m AC」/耗时/时限）+ 用例列表 + 页脚运行按钮
-    TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块（停靠模式下输入框退化成只读预览）
+    TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）
   services/                     # 判题逻辑，改样式基本不碰
     runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
@@ -102,7 +101,7 @@ div.app（column，100% 高）
 
 ### 顶栏的响应式（`TopBar.vue`，2026-09 加）
 
-五档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证），**`display: contents` 的容器摊平后递归统计**。下表是 2026-09-18 加入顶栏「底部输入」按钮后重测的（无头 Chrome，安装按钮在 DOM 里，已计入）。
+五档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证），**`display: contents` 的容器摊平后递归统计**。下表是 2026-09-18 加入顶栏「键盘模式」按钮后重测的（无头 Chrome，安装按钮在 DOM 里，已计入）。
 
 | 档位 | 条件 | 顶栏让位的东西 | 触摸屏必需宽度 | 鼠标必需宽度 | 该档可用下限 | 余量（触屏） |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -113,11 +112,11 @@ div.app（column，100% 高）
 | 4 | ≤480px | 引擎设置齿轮、安装 → 折进省略号 | 379 | 341 | 401 | 22 |
 | 5 | ≤400px | 编辑器齿轮、本地运行环境 → 折进省略号 | 289 | 251 | 320 | 31 |
 
-- 「该档可用下限」= 下一档阈值 + 1（末档取支持的最小宽度 320px）。**触摸屏那一列是设计约束**：它比鼠标多出「底部输入」按钮（28px + 10px gap = 38px），阈值要看它。
+- 「该档可用下限」= 下一档阈值 + 1（末档取支持的最小宽度 320px）。**触摸屏那一列是设计约束**：它比鼠标多出「键盘模式」按钮（28px + 10px gap = 38px），阈值要看它。
 - 怎么量「必需宽度」：先把 `.topbar > * { flex-shrink: 0 }` 注进去（并把 `.spacer` 藏掉），再量最后一个可见子项右缘到栏左缘的距离 + 右内边距。**不能直接量 `scrollWidth`**——栏不是滚动容器，收缩后的子项不会让它溢出，量出来的恒等于栏宽。
 - **每档折走两颗**：省略号自己占一格（28px + 10px gap），只折一颗净值是 0，白折。
-- 收纳位在图标簇最右端（最右是「⋯」自己），折叠顺序是 **帮助 → 换边 → 引擎齿轮 → 安装 → 编辑器齿轮 + 本地运行环境**；位置不动，只往左吞。「底部输入」按钮**不参与折叠**：它是触摸屏上的常用动作，宁可折掉「设一次」的编辑器齿轮也要把它留在栏里。
-- **第 4 档阈值由 460 抬到 480**：加了「底部输入」按钮后折叠三格仍需 469px，461–468 这段会溢出。
+- 收纳位在图标簇最右端（最右是「⋯」自己），折叠顺序是 **帮助 → 换边 → 引擎齿轮 → 安装 → 编辑器齿轮 + 本地运行环境**；位置不动，只往左吞。「键盘模式」按钮**不参与折叠**：它是触摸屏上的常用动作，宁可折掉「设一次」的编辑器齿轮也要把它留在栏里。
+- **第 4 档阈值由 460 抬到 480**：加了「键盘模式」按钮后折叠三格仍需 469px，461–468 这段会溢出。
 - **第 5 档阈值由 380 抬到 400**：上一档现在要 379px，380 只剩 1px 余量；顺手把编辑器齿轮也折进来（它的抽屉入口在「⋯」菜单里，`.menu__item--editor` 平时隐藏、这一档才显示）。
 - **菜单项复用同一批开关**（`setEditorSettingsOpen` / `setLocalRuntimeOpen` / `setHelpOpen` / `settingsOpen` / `emit('toggle-layout')`），**不复制组件**：抽屉与弹层始终只有一份实例。
 - 折叠时给 `.settings` 加 `display: contents`：既腾出它那格（齿轮按钮 `display: none` 后 `.settings` 宽度为 0，但仍占一个 gap），也让弹层不再挂在零宽锚点上。弹层的 `fixed` 阈值**刻意保持 520px**——比齿轮折叠的第 4 档（480）更早一档，齿轮还可见的那段宽度里弹层也已由视口定位。
@@ -143,21 +142,19 @@ div.app（column，100% 高）
 - 面板头必须能**折行**（`TestPanel.vue` 的 `.panel__head` 加了 `flex-wrap: wrap` + `row-gap`，`.limit` 加 `margin-left: auto`）：标题 + 徽标 + 耗时 + 时限一行要约 250px，挤不下时若不换行，`.verdict`（`white-space: nowrap`）会溢出自己的盒子、直接压在时限选择器上（实测面板 160px 时压过去 82px，面板 320px 带上耗时时也会压过去 ~33px）。折行后时限整组落到第二行并仍贴右，一行放得下时与改版前逐像素一致。
 - 已知窄极限（2026-09-18 收紧过一次，**改完未逐档复测**，动卡片头部后按第 8 节重量）：头部那句失败提示（「输出多 N 行」「编译失败」）已删除；跑完卡片的徽标改成两字母判定码 AC/WA/CE/TLE/RE/ERR（不再竖排，未跑的「待运行」在 320px 档仍可能竖排）；`.card__title` / `.badge` / `.metric` 都加了 `flex: 0 0 auto; white-space: nowrap`，耗时不再折成两行。面板 ≤174px 且**跑过一轮**时，耗时文字仍可能被卡片横向裁掉几个字符（旧实测约 32px）；想要更干净就上容器查询（`container-type: inline-size` + `@container`）按面板宽度摘掉耗时或标题。
 
-### 触摸屏的「底部输入」停靠栏（2026-09-18 加）
+### 触摸屏的「键盘模式」（2026-09-18 加，同日改版一次）
 
-手机上虚拟键盘会盖住大半个屏幕，而用例卡片里的输入框在滚动列表中部——点开键盘就看不见刚输入的那一行。这个模式把「当前在编辑的那一个输入框」摘出来停靠到视口底部，上方内容照常滚动，键盘保持不放。
+手机上虚拟键盘会盖住大半个屏幕，而且滑动 / 点按上方内容时焦点容易被抢走、键盘随即收起，用户得反复点输入框。这个模式只做两件事：**把整块应用收缩到键盘上方**（内容照常滚动）+ **点上方空白时键盘不落**。
 
-- **入口**：顶栏图标簇里的 `.tool--dock`，**只在 `@media (pointer: coarse)` 出现**（鼠标设备上 `display: none`，整颗不生成盒子）。`useMobileInputDock.js` 里另有一道闸：setup 时若 `matchMedia('(pointer: coarse)')` 为假就把存档里的开关强制写回 `false`——否则「触摸屏上开过、换到鼠标设备」会凭一份旧存档把鼠标的焦点也劫持走。
-- **它不是一个浮层**：`MobileInputDock.vue` 是 `.app`（column flex）的**最后一个子项**，`flex: 0 0 auto`。工作区因此自动让出它的高度，Monaco 靠 `automaticLayout` 重排，不需要给 `.workspace` 写任何高度。
-- **可视高度**：`.app.is-docked` 改成 `position: fixed; top: var(--vv-top); height: var(--vvh)`。这两个变量由 composable 从 `window.visualViewport` 的 `height` / `offsetTop` 写进 `documentElement.style`，只在模式打开期间存在、退出即 `removeProperty`。用 `top` 一起对齐是因为 iOS 上可视区会被顶上去（`offsetTop > 0`），只改高度的话输入框仍会被键盘盖住。**没有用 `interactive-widget=resizes-content`**（Chrome 专用）。
-- **保焦**：键盘在虚拟键盘打开时收起，是因为焦点被别的元素抢走了。所以监听 `document` 的 **`mousedown`（capture）**：停靠模式下把上方内容的 `mousedown` 一律 `preventDefault()`，焦点留在停靠栏的 textarea 上，键盘不落。两个例外要放行——`[data-dock-surface]`（停靠栏自己，栏里的输入框和「完成」按钮要能正常用）与 `<select>`（原生下拉必须让系统选择器弹出来，此时键盘收起是预期）。
+- **入口**：顶栏图标簇里的 `.tool--keyboard`（键盘图标），**只在 `@media (pointer: coarse)` 出现**（鼠标设备上 `display: none`，整颗不生成盒子）。`useMobileKeyboard.js` 里另有一道闸：setup 时若 `matchMedia('(pointer: coarse)')` 为假就把存档里的开关强制写回 `false`——否则「触摸屏上开过、换到鼠标设备」会凭一份旧存档把鼠标的点击也拦掉。
+- **可视高度**：`.app.is-keyboard` 改成 `position: fixed; top: var(--vv-top); height: var(--vvh)`。这两个变量由 composable 从 `window.visualViewport` 的 `height` / `offsetTop` 写进 `documentElement.style`，只在模式打开期间存在、退出即 `removeProperty`。用 `top` 一起对齐是因为 iOS 上可视区会被顶上去（`offsetTop > 0`），只改高度的话底部仍会被键盘盖住。**没有用 `interactive-widget=resizes-content`**（Chrome 专用）。工作区是 flex、Monaco 是 `automaticLayout`，都不需要额外写高度。
+- **保焦 = 只拦默认行为，不抢焦点**：键盘收起是因为焦点被移走了，所以监听 `document` 的 **`mousedown`（capture）**，目标不是可编辑元素时 `preventDefault()`：焦点不再移给 body，键盘不落。
+  - 可编辑元素**一律放行**（`input, textarea, select, [contenteditable]`）。Monaco 的输入面是它自己那个 `textarea.inputarea`（Chrome 里实际聚焦到 `.native-edit-context`），卡片输入框是 `.ta`——挡掉它们就等于「焦点进不去编辑器」。
   - **只挡 `mousedown`，别改成 `pointerdown`**：挡 `pointerdown` 会把兼容的 `click` 一起吞掉，「运行全部」「添加样例」这些按钮就点不动了；挡 `mousedown` 只阻止焦点转移，`click` 照常触发（已用 `page.touchscreen.tap()` 验过）。
-  - 兜底是 `focusout`（capture）：真被抢走就立刻 `focus({ preventScroll: true })` 抢回来；`relatedTarget` 落在停靠栏内则放行（那是点「完成」）。
-  - 点列表里的输入框 = 把那一项停靠到底部：`.ta` 上有 `data-case-id` / `data-field`，`mousedown` 里读出来切目标再聚焦。停靠模式下这些 `.ta` 是 `readonly` 预览（虚线边框 + 「点按停靠」小标签），是第二道保险。
-- **状态**：`cph.mobileInputDock`（localStorage，见第 6 节）；停靠目标（哪个用例的哪一项）**故意不持久化**，刷新后回到第一个用例的标准输入。
-- **退出**：点停靠栏右侧「完成」（`blur()` 后再关，键盘才会真的收起）、再点一次顶栏图标、或用例被删空（`cases.length === 0` 自动关）。关掉时 `--vvh` / `--vv-top` 会被清掉。
-- **刷新后**：模式是开着的就会渲染出停靠栏、`--vvh` 也会写，但**不会自动聚焦**（浏览器不允许没有用户手势就弹键盘）；用户点一下上方任意输入框即可接管。
-- 验证口径（临时 puppeteer 脚本，跑完即删）：触屏 390×844 下点按钮 → 焦点落在 `.dock__input` 且 `--vvh` 写入；点卡片 `.ta`、点面板标题、点「添加测试样例」（用例 +1）之后 `document.activeElement` 仍是 `.dock__input`；把视口高度改成 420 → `--vvh` 与 `.app` 高度都变 420；点「完成」→ 停靠栏消失、`--vvh` 清空、存档写 `false`；切到鼠标视口并刷新 → 按钮不出现、存档不生效、卡片输入框能正常聚焦（保焦拦截器确实没挂上）。
+  - **别再加 `focusout` 抢焦兜底**（旧版踩过）：那会在点 Monaco 编辑器时把焦点立刻抢回底部输入框，真机反馈「焦点无法集中在代码编辑框中」就是这么来的。
+- **状态**：`cph.mobileKeyboard`（localStorage，见第 6 节）。旧的 `cph.mobileInputDock` 键已作废，残留在 localStorage 里无害。
+- **退出**：再点一次顶栏图标（或 `open` 变 false 的任何路径）。关掉时 `--vvh` / `--vv-top` 会被清掉，document 级监听解绑。
+- 验证口径（临时 puppeteer 脚本，跑完即删；触屏要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才命中 `pointer: coarse`）：触屏 390×844 下点按钮 → `.app` 带 `is-keyboard`、`--vvh=844px`；点卡片 `.ta` → `document.activeElement` 是那个 textarea；点 Monaco 编辑器 → activeElement 落在 `.monaco-editor` 内（改版前这条必红）；点面板标题 → activeElement 不变；视口改 844→420 → `--vvh` 与 `.app` 高度都变 420；再点按钮 → 类与变量都清空。鼠标视口下刷新 → 按钮 `display: none`、存档被写回 `false`、`--vvh` 为空、卡片输入框照常聚焦。另跑触屏 / 鼠标各 300–900px 逐像素，判 `topbar.scrollWidth - clientWidth === 0` 且 `.tool--keyboard` 不被挤扁。
 
 ## 4. 主题与 CSS 变量
 
@@ -216,7 +213,7 @@ div.app（column，100% 高）
 | `cph.editorShare` | 两栏比例（%） | `App.vue:17` |
 | `cph.timeLimitMs` | 全局时限（毫秒，只计运行段） | `App.vue:20` |
 | `cph.language` / `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases` | 语言、各语言草稿、用例、引擎、服务地址 | `App.vue` |
-| `cph.mobileInputDock` | 触摸屏「底部输入」模式是否打开（停靠的是哪个用例的哪一项**不持久化**；鼠标设备上读到 `true` 会被强制写回 `false`） | `composables/useMobileInputDock.js` |
+| `cph.mobileKeyboard` | 触摸屏「键盘模式」是否打开（鼠标设备上读到 `true` 会被强制写回 `false`）；旧键 `cph.mobileInputDock` 已作废 | `composables/useMobileKeyboard.js` |
 | `cph.localRuntime.clangReady` | C++ 本地工具链是否已拉取（只表示「这台浏览器下过一次」，用来少点一次「下载」；标记过期也无害） | `composables/useLocalRuntime.js`（顶栏引擎弹层的下载 chip 与本地运行环境抽屉共用这一份状态） |
 | `cph.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
 

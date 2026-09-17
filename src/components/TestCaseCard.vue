@@ -6,8 +6,6 @@ const props = defineProps({
   testCase: { type: Object, required: true },
   index: { type: Number, required: true },
   locked: Boolean,
-  // 触摸屏的「底部输入」模式：卡片里的输入框退化成只读预览，点一下把那一项停靠到底部
-  dockMode: Boolean,
 })
 
 const emit = defineEmits(['remove', 'run'])
@@ -145,30 +143,22 @@ async function copyOutput() {
     <div v-show="!isCollapsed" class="card__body">
       <div class="io">
         <label class="field">
-          <span class="field__label">Standard Input<span v-if="dockMode" class="field__badge">点按停靠</span></span>
+          <span class="field__label">Standard Input</span>
           <textarea
             v-model="input"
             ref="inputEl"
             class="ta"
-            :class="{ 'is-dockable': dockMode }"
-            :data-case-id="testCase.id"
-            data-field="input"
-            :readonly="dockMode"
             spellcheck="false"
             placeholder="标准输入 (stdin)"
             :disabled="locked"
           ></textarea>
         </label>
         <label class="field">
-          <span class="field__label">Expected Output<span v-if="dockMode" class="field__badge">点按停靠</span></span>
+          <span class="field__label">Expected Output</span>
           <textarea
             v-model="expectedOutput"
             ref="expectedEl"
             class="ta"
-            :class="{ 'is-dockable': dockMode }"
-            :data-case-id="testCase.id"
-            data-field="expectedOutput"
-            :readonly="dockMode"
             spellcheck="false"
             placeholder="期望输出"
             :disabled="locked"
@@ -426,19 +416,6 @@ async function copyOutput() {
   justify-content: space-between;
 }
 
-/* 底部输入模式下贴在字段名后的提示：这里只剩预览，改内容要到底部那条 */
-.field__badge {
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 999px;
-  font-size: 10px;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--info);
-  background: var(--case-chip-bg);
-  border: 1px solid var(--border-soft);
-}
-
 .ta {
   display: block;
   width: 100%;
@@ -459,13 +436,6 @@ async function copyOutput() {
 .ta:focus {
   outline: none;
   border-color: var(--focus);
-}
-
-/* 只读预览：虚线边 + 压暗，点它是「停靠到底部」而不是就地编辑 */
-.ta.is-dockable {
-  border-style: dashed;
-  color: var(--text-dim);
-  cursor: pointer;
 }
 
 .out {
