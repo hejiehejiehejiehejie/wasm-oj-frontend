@@ -36,16 +36,15 @@ export const wasmEngine = {
   },
 
   async execute({ code, stdin, signal, timeLimitMs }) {
-    const startedAt = performance.now()
     const message = await runCase({ code, stdin, signal, timeLimitMs })
-    // 报整段耗时（编译 + 运行），这更接近用户实际等待的时间
-    const durationMs = Math.round(performance.now() - startedAt)
+    // 耗时口径跟着 runCpp 走：只算程序运行段，不含编译，卡片之间才可比。
+    // 程序没跑起来（编译失败 / 环境不可用）时是 null，卡片就不显示时间。
+    const durationMs = typeof message.durationMs === 'number' ? message.durationMs : null
 
     if (message.type === 'cancelled') {
       return { outcome: 'cancelled', stdout: '', stderr: '', durationMs: null }
     }
     if (message.type === 'timeout') {
-      // 时限只计运行段，所以这里的耗时含编译，卡片上的数字比时限大是正常的
       return { outcome: 'timeout', stdout: message.stdout ?? '', stderr: message.stderr ?? '', durationMs }
     }
     if (message.type === 'failure') {

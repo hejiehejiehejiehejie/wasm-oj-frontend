@@ -454,12 +454,15 @@ function runClang(tool, baseFs, pch, onHost) {
 
 /**
  * 编译并运行一段 C++。
- * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number }>}
+ * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null }>}
  * 工具链本身出问题（下载失败、浏览器不支持等）会抛异常，由上层翻译成 failure。
- * 注意 durationMs 是「本次实际耗时」：命中编译缓存时它只含运行段，比第一个用例小得多。
+ *
+ * durationMs 只计**运行段**，与用例时限同口径。编译刻意不算进去：它是整批用例
+ * 共享的一次性开销（见上面的单槽缓存），摊到每张卡片上会让第一个用例的数字凭空
+ * 高出一截，卡片之间也就没法互相比较了。程序压根没跑起来（编译失败）时给 null，
+ * 由卡片显示为空 —— 那种情况下的「耗时」是编译耗时，不是这个数字要表达的东西。
  */
 export async function runCpp({ code, stdin, onStatus = () => {}, onHost = () => {} }) {
-  const startedAt = performance.now()
   const source = String(code ?? '')
 
   if (compileCache?.code !== source) {
@@ -474,12 +477,13 @@ export async function runCpp({ code, stdin, onStatus = () => {}, onHost = () => 
       exitCode: outcome.exitCode,
       stdout: outcome.stdout,
       stderr: outcome.stderr,
-      durationMs: Math.round(performance.now() - startedAt),
+      durationMs: null,
     }
   }
 
   onStatus('run', '正在运行…')
   const binaryURL = URL.createObjectURL(new Blob([outcome.binary.content], { type: 'application/wasm' }))
+  const runStartedAt = performance.now()
   try {
     const ran = await runWasi(binaryURL, { name: 'program', args: [], fs: {}, stdin, onHost })
     return {
@@ -488,7 +492,7 @@ export async function runCpp({ code, stdin, onStatus = () => {}, onHost = () => 
       exitCode: ran.exitCode,
       stdout: ran.stdout,
       stderr: ran.stderr,
-      durationMs: Math.round(performance.now() - startedAt),
+      durationMs: Math.round(performance.now() - runStartedAt),
     }
   } finally {
     URL.revokeObjectURL(binaryURL)

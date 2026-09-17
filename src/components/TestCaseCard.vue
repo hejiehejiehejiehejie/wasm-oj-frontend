@@ -128,7 +128,7 @@ async function copyOutput() {
           结果待刷新
         </span>
         <span class="grow"></span>
-        <span v-if="timing" class="metric">{{ timing }}</span>
+        <span v-if="timing" class="metric" title="程序运行耗时（不含编译）">{{ timing }}</span>
         <span class="run-zone__icon">
           <AppIcon name="play" :size="12" />
         </span>

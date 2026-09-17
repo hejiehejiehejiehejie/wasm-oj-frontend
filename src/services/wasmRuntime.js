@@ -222,6 +222,8 @@ export function runCase({ code, stdin, signal, timeLimitMs }) {
             type: 'timeout',
             stdout: error?.partialStdout ?? '',
             stderr: error?.partialStderr ?? '',
+            // 和 runCpp 成功路径同口径：只算运行段，所以这个数字约等于时限本身
+            durationMs: Math.round(performance.now() - entry.stageStartedAt),
           }
         }
         return { type: 'failure', stage: entry.stage === 'compile' ? 'compile' : 'infra', message: timeoutMessage(entry) }
