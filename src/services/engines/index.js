@@ -54,4 +54,5 @@ export function defaultBases() {
   return Object.fromEntries(ENGINES.map((engine) => [engine.id, engine.defaultBase]))
 }
 
-export const DEFAULT_ENGINE_ID = pistonEngine.id
+// 默认走本地沙箱：它不需要任何外部服务，新访客打开就能直接跑；Piston / Judge0 要用户自己填服务地址
+export const DEFAULT_ENGINE_ID = wasmEngine.id
