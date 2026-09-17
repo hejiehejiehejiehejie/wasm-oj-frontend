@@ -8,6 +8,7 @@
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`cd /Users/hejie/Code/BISHE && npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
 - 其他命令：`npm run verify` 跑无头回归（先看第 8 节的已知红项，另需 `VERIFY_PORT` 避开占用中的 5199）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
+- 响应式：顶栏四档断点（窄屏把图标从右到左折进省略号）+ 测试面板最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。断点与下限都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
 
@@ -19,7 +20,11 @@
 | 颜色只走 CSS 变量 | 组件里**不许**出现写死的十六进制颜色；所有色值定义在 `src/styles/base.css` |
 | 新增变量必须定义两遍 | `:root` 和 `:root[data-theme='cph-light']` 都要给值，否则浅色主题下会串色 |
 | 禁止第三方 UI 库 | 抽屉 / 弹层 / 下拉全部原生 CSS + Vue + `Teleport` |
-| 顶栏按钮不能进 Teleport | 抽屉本体 Teleport 到 `body`，**触发按钮必须留在顶栏内**，否则脱离 flex 布局被挤出视口 |
+| 顶栏按钮不能进 Teleport | 抽屉本体 Teleport 到 `body`，**触发按钮不许跟着走**，否则脱离 flex 布局被挤出视口。窄屏下这颗按钮可以降级成省略号菜单里的一项（2026-09 起），因为菜单弹层仍在顶栏 DOM 内——但**别把它挪到 `body`** |
+| 顶栏断点只能重测，不能照抄 | `TopBar.vue` 的四档阈值是按元素实测必需宽度反推的（695 / 464 / 434 / 396 / 306）。动了顶栏任何元素的宽度（文案、图标、gap、padding）都要**重新量一遍**，照抄旧值会在某一档悄悄溢出 |
+| 面板下限只在 CSS 里定义一份 | 测试面板最低宽度由 `.workspace` 上的 `--tests-min-cap / --tests-min-ratio / --tests-min-floor` 决定（即 `.pane--tests` 的 `clamp(160px, 50%, 320px)`），`measureLimits()` 读同一组变量复算；改数字只改 CSS 那三行，别在脚本或组件里再写一份 |
+| 顶栏装不下时不会省略，而是整体右溢出 | `.topbar` 没有 `flex-wrap`，`.tool` / `.primary` 都是 `white-space: nowrap`，所以宽度不够时既不换行也不截断，只是整体向右溢、把运行按钮挤出视口。窄屏只能靠断点主动舍弃（见第 3 节） |
+| 窄屏弹层必须由视口定位 | 弹层默认 `right: 0` 锚在栏中部那颗按钮上，窄屏会溢出到视口外（实测 375px 下 `left = -28`）。**只收窄 `width` 救不了**，因为锚点本身不在栏右端；≤520px 一律改 `position: fixed` 贴边整幅 |
 | flex 容器的子元素要显式拉伸 | 布局里 `.pane > *` 必须 `flex: 1 1 auto; min-width: 0`，否则子组件收缩到内容宽度 |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑） |
@@ -46,7 +51,7 @@ src/
   composables/usePersistentRef.js
   composables/useInstallPrompt.js  # 顶栏「安装」按钮的数据源：拦 beforeinstallprompt，用完即弃
   components/
-    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/运行（50px 高）
+    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/运行（50px 高）+ 四档响应式断点与省略号收纳（见第 3 节）
     EditorPane.vue              # Monaco 容器 + 文件页签
     EditorSettingsPanel.vue     # 右侧设置抽屉（Teleport，按钮在顶栏）
     LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏）
@@ -69,7 +74,7 @@ src/
 
 ```
 div.app（column，100% 高）
-├─ TopBar                    高度 50px，flex: 0 0 50px（TopBar.vue:207）
+├─ TopBar                    高度 50px，flex: 0 0 50px（TopBar.vue:277）
 └─ main.workspace            flex: 1 1 auto; min-height: 0; padding: 6px; 背景 --bg-editor
    │                         类名状态：is-left / is-dragging / is-swapping / is-collapsed
    ├─ section.pane.pane--editor   内联 flexBasis = editorShare%
@@ -86,8 +91,47 @@ div.app（column，100% 高）
 - `.workspace` 只靠 `flex-direction` 在 `row` / `row-reverse` 之间对调，**DOM 不重建**（布局切换还有 View Transitions 动画）。
 - 两栏 `flex-basis` 之和恒为 100%：编辑器栏拿 `editorShare%`，测试栏拿 `100 - editorShare%`。若给两栏留出 basis 之外的剩余空间，会被 `flex-grow` 平分，分隔条就只以一半幅度跟手——**改这两条 basis 时要一起想**。
 - `.pane` 是独立的圆角卡片（`border-radius: 8px; overflow: hidden`），让 Monaco 画布和面板头脚的方角被裁掉。
-- `.splitter` 视觉 1px 细线、热区 12px（负外边距各压进卡片 3px，卡片净间距 6px）；折叠状态下热区加宽到 24px。
+- `.splitter` 视觉 1px 细线、热区 12px（负外边距各压进卡片 3px，卡片净间距 6px）；折叠状态下热区加宽到 24px。触屏（`pointer: coarse`）下热区同样加宽到 24px，**但负外边距要同步从 -3px 改成 -9px**——两者一起改，分隔条在 flex 里才仍只占 6px，两侧卡片位置逐像素不变。
+- `.splitter` 必须声明 `touch-action: none`。触屏手势的归属是浏览器在 `pointerdown` 那一刻定的：缺这行它就把这一拖当成滚动/缩放，随即发 `pointercancel`，而 `beginDrag` 的 `stop` 正挂在 `pointercancel` 上，于是手机上按下即被打断。`pointerdown` 里的 `preventDefault()` 挡不住（按规范它只抑制兼容的 `mousedown` / `mouseup`）。
 - 折叠阈值在 `App.vue` 的拖拽逻辑里（贴边 32px 内折叠、离开边缘 60px 展开），改视觉宽度时注意别和阈值打架。
+- `measureLimits()` 用面板的**最低宽度 + 分隔条实际渲染宽度**算拖拽上限，两项都随视口与触屏档变（见下面「测试面板的最低宽度」）。
+
+### 顶栏的响应式（`TopBar.vue`，2026-09 加）
+
+四档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 子元素实际宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证）。
+
+| 档位 | 条件 | 顶栏让位的东西 | 该档必需宽度 | 该档可用下限 | 余量 |
+| --- | --- | --- | --- | --- | --- |
+| 宽档 | ≥821px | — | 695 | 821 | 126 |
+| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 464 | 561 | 97 |
+| 2 | ≤560px | “语言”二字 | 434 | 521 | 87 |
+| 3 | ≤520px | swap、引擎设置齿轮 → 折进省略号 | 396 | 421 | 25 |
+| 4 | ≤420px | 安装、本地运行环境 → 折进省略号 | 306 | 320 | 14 |
+
+- **每档折走两颗**：省略号自己占一格（34px + 10px gap），只折一颗净值是 0，白折。
+- 收纳位在图标簇最右端（swap 右边、运行按钮左边），折叠顺序天然是 swap → 引擎齿轮 → 安装 → 本地运行环境；位置不动，只往左吞。
+- **菜单项复用同一批开关**（`setEditorSettingsOpen` / `setLocalRuntimeOpen` / `settingsOpen` / `emit('toggle-layout')`），**不复制组件**：抽屉与弹层始终只有一份实例。
+- 折叠时给 `.settings` 加 `display: contents`：既腾出它那格（齿轮按钮 `display: none` 后 `.settings` 宽度为 0，但仍占一个 gap），也让弹层不再挂在零宽锚点上。弹层的 `fixed` 阈值**刻意与第 3 档对齐在 520px**，保证齿轮一被折叠、弹层就必定已由视口定位。
+- 隐藏一律用 `display: none`（而非 `visibility` / `opacity`），顺带从无障碍树里摘掉；因此运行按钮的可访名改由模板上的 `aria-label` 承担——**文字被藏的元素必须另给可访名**。
+- 量宽度时的两个口径坑：`display: none` 父元素内的子元素，`getComputedStyle(child).display` **仍返回它自己的值**（不是 `none`），判可见要量外层容器；`display: contents` / `display: none` 的子元素不生成盒子、**不占 gap**，量必需宽度时要把它们排除，否则每档虚高几十像素。
+- 语言下拉是**定宽**的：切到 Python 后各档必需宽度一个像素都没变。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档留了 91px 以上余量。
+- 覆盖范围实测 320–1200px 全程无溢出（320px 下运行按钮右缘 308/320）；桌面端零影响（1440px 下省略号 `display: none`、有效宽度 0）。
+
+### 测试面板的最低宽度（`App.vue`，2026-09 加）
+
+`.pane--tests` 的 `min-width` 不再是固定 320px，而是 `clamp(160px, 50%, 320px)`。三个参数定义在 `.workspace` 上（`--tests-min-cap` / `--tests-min-ratio` / `--tests-min-floor`），**JS 不另存一份**：`measureLimits()` 从 `getComputedStyle(workspace)` 读这三个变量，再按 `max(floor, min(cap, 内容宽 × ratio))` 复算面板下限。改参数只改 CSS 那三行（JS 里的 160 / 0.5 / 320 只是取不到变量时的兜底）。
+
+| 视口宽 | 320 | 360 | 375 | 414 | 480 | 520 | 560 | 640 | ≥652 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 面板最低宽 | 160（地板生效） | 174 | 182 | 201 | 234 | 254 | 274 | 314 | 320 |
+| 默认 60/40 实测（编辑器 / 面板） | 142 / 160 | 168 / 174 | 176 / 182 | 195 / 201 | 228 / 234 | 248 / 254 | 268 / 274 | 308 / 314 | 与改版前逐像素一致 |
+
+- 为什么要改：改版前 375px 下面板被 320px 下限顶住、编辑器只剩 **37px**；320px 下更糟，两栏合计超出工作区，面板被挤出视口（编辑器 2px）。
+- 50% 的来历：面板与编辑器在窄屏各占一半，两边都还放得下；320px 要到工作区内容宽 ≈640px 才够，所以 **≥652px 的视口行为与改版前完全一致**，桌面端零影响。
+- 160px 是实测硬底：面板固定到 160px 时面板与卡片都无横向溢出（到 150px 时 `.card__head` 才开始超 5px）。320px 视口正好卡在地板上。
+- 拖拽路径也同步：`measureLimits()` 的 `maxShare` 读同一组值，所以「一直往右拖」停在面板下限上（375px 下编辑器 167 / 面板 190，触屏因热区 24px 再让 18px），再往外才是折叠。
+- 面板头必须能**折行**（`TestPanel.vue` 的 `.panel__head` 加了 `flex-wrap: wrap` + `row-gap`，`.limit` 加 `margin-left: auto`）：标题 + 徽标 + 耗时 + 时限一行要约 250px，挤不下时若不换行，`.verdict`（`white-space: nowrap`）会溢出自己的盒子、直接压在时限选择器上（实测面板 160px 时压过去 82px，面板 320px 带上耗时时也会压过去 ~33px）。折行后时限整组落到第二行并仍贴右，一行放得下时与改版前逐像素一致。
+- 已知窄极限：面板 ≤174px 且**跑过一轮**（耗时块出现）时，耗时文字会被卡片裁掉几个字符（约 32px，显示成「58」而不是「581ms」）。想要更干净就得再上容器查询按面板宽度摘掉耗时或标题，属另一件事。
 
 ## 4. 主题与 CSS 变量
 
@@ -115,7 +159,7 @@ div.app（column，100% 高）
 | 组件 | 主要选择器 |
 | --- | --- |
 | `App.vue:506` | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
-| `TopBar.vue:205` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里） |
+| `TopBar.vue:277` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里）；`TopBar.vue:619` 起是四档响应式断点 + 省略号收纳与菜单（见第 3 节） |
 | `TestPanel.vue:99` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]` `.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
 | `TestCaseCard.vue:182` | `.card[data-status]` `.card__head` `.badge[data-status]` `.hint` `.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶） |
 | `EditorPane.vue:158` | `.tab` `.tab__icon` |
@@ -189,6 +233,7 @@ div.app（column，100% 高）
   3. 切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：顶栏应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
+- 响应式专项（动过 `TopBar.vue` 的断点或任何顶栏元素宽度后必做），临时探针、用完即删：在 320 / 375 / 414 / 520 / 560 / 820 / 1200 逐档量「必需宽度 = 子元素宽度之和 + gap + padding − `.spacer`」和「运行按钮右缘是否 ≤ 视口宽」。**只看有没有横向滚动条不够**：`.spacer` 会吸收剩余空间，所以 `topbar.scrollWidth` 在真溢出之前一直等于 `clientWidth`，必须按上面那个公式自己算差值。窄屏还要顺手验：375px 下打开省略号菜单，弹层 `getBoundingClientRect()` 应完整落在视口内（`left ≥ 0` 且 `right ≤ innerWidth`，修复前是 `left = -28`），并把菜单四项各点一次，确认能真的开抽屉 / 开引擎弹层 / 换布局。量的时候注意第 3 节记的那两个口径坑。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**A–E 应当是绿的，F 仍是红的**，跑之前先知道这几条：
   - F 断言切到 Python 后 `.view-lines` 文本含 `def solve`——Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**，属探针 bug（对照：A 步的 `includes('include')` 因为没有空格所以能过）。修法是断言前把 `\u00a0` 归一成空格，**不是**页面坏了。
   - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=5299` 覆盖。
