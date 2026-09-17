@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
+import HelpPanel from './HelpPanel.vue'
 import LocalRuntimePanel from './LocalRuntimePanel.vue'
 import { LANGUAGES } from '../services/templates.js'
 import { engineChoices } from '../services/engines/index.js'
@@ -33,6 +34,7 @@ const choices = engineChoices()
 
 const settingsOpen = ref(false)
 const localRuntimeOpen = ref(false)
+const helpOpen = ref(false)
 const moreOpen = ref(false)
 const draftBase = ref(props.judge.base)
 
@@ -56,22 +58,41 @@ const probeTone = computed(() => {
   return ''
 })
 
-// 两个抽屉都从右侧滑出，同时打开会叠在一起，所以开一个就关另一个
+// 三个抽屉都从右侧滑出，同时打开会叠在一起，所以开一个就关另外两个；
+// 引擎设置那个弹层挂在顶栏里，抽屉的遮罩会把它盖住，也顺手收掉，
+// 免得关掉抽屉之后它又冒出来。
+function closeDrawers(except) {
+  if (except !== 'editor') emit('update:editor-settings-open', false)
+  if (except !== 'local') localRuntimeOpen.value = false
+  if (except !== 'help') helpOpen.value = false
+  settingsOpen.value = false
+}
+
 function setEditorSettingsOpen(value) {
   emit('update:editor-settings-open', value)
-  if (value) localRuntimeOpen.value = false
+  if (value) closeDrawers('editor')
 }
 
 function setLocalRuntimeOpen(value) {
   localRuntimeOpen.value = value
-  if (value) emit('update:editor-settings-open', false)
+  if (value) closeDrawers('local')
 }
 
-/* 窄屏折进省略号的四项。动作都复用栏里那几颗按钮的同一个开关 / 同一个 emit，
+function setHelpOpen(value) {
+  helpOpen.value = value
+  if (value) closeDrawers('help')
+}
+
+/* 窄屏折进省略号的几项。动作都复用栏里那几颗按钮的同一个开关 / 同一个 emit，
    不复制组件，所以抽屉、弹层始终只有一份实例；点完顺手收起菜单。 */
 function openLocalRuntime() {
   moreOpen.value = false
   setLocalRuntimeOpen(true)
+}
+
+function openHelp() {
+  moreOpen.value = false
+  setHelpOpen(true)
 }
 
 function openEngineSettings() {
@@ -111,7 +132,7 @@ function applyBase() {
   <header class="topbar">
     <div class="brand">
       <span class="brand__mark"><AppIcon name="code" :size="15" :stroke-width="2.2" /></span>
-      <span class="brand__name">CPH Workbench</span>
+      <span class="brand__name">CPH IDE</span>
       <span class="brand__sep"></span>
     </div>
 
@@ -144,7 +165,7 @@ function applyBase() {
     <button
       v-if="canInstall"
       class="tool tool--install"
-      title="把 CPH Workbench 安装到这台设备，之后可独立窗口打开"
+      title="把 CPH IDE 安装到这台设备，之后可独立窗口打开"
       aria-label="安装到设备"
       @click="install"
     >
@@ -223,6 +244,9 @@ function applyBase() {
       <AppIcon name="swap" />
     </button>
 
+    <!-- 图标区最右：窄屏时它最先折进「更多」，帮助属最不常用的一项 -->
+    <HelpPanel :open="helpOpen" @update:open="setHelpOpen" />
+
     <!-- 窄屏收纳位：icon 装不下时从右到左折进这里。它自己占一格，
          所以要一次折掉两颗才算净赚，见样式的折叠档位 -->
     <div class="more">
@@ -238,6 +262,10 @@ function applyBase() {
       </button>
 
       <div v-if="moreOpen" class="popover popover--menu">
+        <button class="menu__item menu__item--help" @click="openHelp">
+          <AppIcon name="help" :size="15" />
+          <span>使用帮助</span>
+        </button>
         <button class="menu__item menu__item--panel" @click="openLocalRuntime">
           <AppIcon name="cpu" :size="15" />
           <span>本地运行环境</span>
@@ -619,9 +647,12 @@ function applyBase() {
 /* ---------- 窄屏：按优先级从低到高逐级舍弃 ----------
    顶栏没有 flex-wrap，而 .tool / .primary 都是 white-space: nowrap，所以宽度不够时既不换行
    也不省略，只是整体向右溢出、把运行按钮挤出视口。这里用断点主动丢掉低优先级内容。
-   各档阈值不是经验值，是按元素实测宽度反推出来的（见 HANDOFF 第 8 节）：
-   宽档必需约 730px、中档约 481、折叠两格后约 390、折叠四格后约 302；
-   语言下拉宽度随语言名变（Python 比 C++ 宽约 17px）、运行文案随用例数变，所以留了余量。
+   各档阈值不是经验值，是按元素实测宽度反推出来的（见 HANDOFF 第 8 节）。加进「?」按钮后重测：
+   全展开必需 730px、折叠第 1 档后 499、第 2 档后 469、第 3 档后 431、第 4 档后 341、第 5 档后 296
+   （实测含安装按钮，无头 Chrome 320–900px 逐档跑过均无溢出）。阈值都取比对应档位略大的一档：
+   第 4 档必需 431 就把阈值从 420 抬到 460，341 > 320 所以补了第 5 档折本地运行环境。
+   语言下拉是定宽的（选项里最长的「Python 3」决定宽度，切换语言不会变），会变的只有运行按钮文案在
+   用例数变化时的那点宽度，而它在 ≤820 档已藏，余量留给这些波动。
    全部用 display: none（而非 visibility / opacity），顺带从无障碍树里摘掉。 */
 
 /* 第 1 档：文字先让位 —— 品牌名与分隔线（装饰）、运行按钮文案（只留 ▶）
@@ -644,11 +675,29 @@ function applyBase() {
   }
 }
 
-/* 第 3 档：图标开始从右到左折进省略号，先轮到最右的 swap 和它左边的引擎设置齿轮。
+/* 第 3 档：图标开始从右到左折进省略号，先轮到最右的帮助和它左边的 swap。
    省略号自己占一格（约 44px 含 gap），所以每档都折走两颗，净值才是 -44px */
 @media (max-width: 520px) {
-  .tool--icon,
-  .settings > .tool {
+  :deep(.help-button),
+  .tool--icon {
+    display: none;
+  }
+
+  .more {
+    display: block;
+  }
+
+  .menu__item--help,
+  .menu__item--swap {
+    display: flex;
+  }
+}
+
+/* 第 4 档：再往左轮两个 —— 评测引擎设置齿轮、安装按钮。
+   阈值由 420 抬到 460：折叠三格后顶栏仍需约 431px（加装安装按钮），420 会溢出 */
+@media (max-width: 460px) {
+  .settings > .tool,
+  .tool--install {
     display: none;
   }
 
@@ -658,32 +707,27 @@ function applyBase() {
     display: contents;
   }
 
-  .more {
-    display: block;
-  }
-
-  .menu__item--swap,
-  .menu__item--engine {
+  .menu__item--engine,
+  .menu__item--install {
     display: flex;
   }
 }
 
-/* 第 4 档：再往左轮两个 —— 安装按钮、本地运行环境 */
-@media (max-width: 420px) {
-  .tool--install,
+/* 第 5 档：最后轮到「本地运行环境」。折叠四格后仍需约 341px，320px 的窄机上还是会溢出，
+   所以这一档补上；它的抽屉入口本来就在「更多」菜单里（.menu__item--panel 平时隐藏） */
+@media (max-width: 380px) {
   :deep(.panel-button) {
     display: none;
   }
 
-  .menu__item--install,
   .menu__item--panel {
     display: flex;
   }
 }
 
 /* 窄屏弹层改贴边整幅。弹层原是 right: 0 锚在栏中部的按钮上，375px 下实测 left = -28
-   （左边被切掉）；单纯收窄 width 救不了，因为锚点本身就不在栏右端。阈值与第 3 档对齐，
-   于是齿轮一旦被折叠，弹层必定已由视口定位，不会挂在零宽的 .settings 上 */
+   （左边被切掉）；单纯收窄 width 救不了，因为锚点本身就不在栏右端。阈值保持 520 —— 比齿轮
+   折叠的第 4 档更早一档，齿轮还可见的那段宽度里弹层也走视口定位，比贴着栏中部更稳 */
 @media (max-width: 520px) {
   .popover {
     position: fixed;

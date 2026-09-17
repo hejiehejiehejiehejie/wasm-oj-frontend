@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "CPH Workbench",
-  "short_name": "CPH Workbench",
-  "description": "浏览器内的算法竞赛刷题工作台：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++",
+  "name": "CPH IDE",
+  "short_name": "CPH IDE",
+  "description": "CPH IDE：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "/",

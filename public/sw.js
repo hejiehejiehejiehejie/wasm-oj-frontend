@@ -1,4 +1,4 @@
-/* CPH Workbench 的 Service Worker。
+/* CPH IDE 的 Service Worker。
 
    目标：装完就能离线用，所以 install 阶段一次性把「构建产物 + 静态资源 + 52MB 的 clang
    工具链」全部预缓存。工具链是本项目最大的资产，也是离线编译的硬前提。

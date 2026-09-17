@@ -1,4 +1,4 @@
-# WASM OJ 前端 · 交接文档
+# CPH IDE · 交接文档
 
 面向「接下来要改前端样式」的接手人。当前代码**已跑通并上线**：本地 WASM 沙箱能编译运行 C++、判题（含 TLE）、主题与布局都能用；前端已推到 GitHub 并由 Vercel 托管（见第 10 节）；也能作为 PWA 装到设备上独立窗口运行、断网可用（见第 9 节）。
 
@@ -43,6 +43,7 @@ public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/
 public/wasm/8.0.1/              # 自托管的工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 scripts/verify-ui.mjs           # 无头回归脚本（A–E 已修绿，F 仍红，见第 8 节）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
+docs/使用手册.md                # 面向新用户的说明：只回答「如何在本地运行 C++」「如何展开/折叠样例栏」，与 HelpPanel.vue 内容同源
 src/
   main.js                       # 挂载 + 生产构建里注册 Service Worker
   monaco-setup.js               # Monaco 的 cph-dark / cph-light 两套自定义主题
@@ -50,12 +51,12 @@ src/
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态
   composables/usePersistentRef.js
   composables/useInstallPrompt.js  # 顶栏「安装」按钮的数据源：拦 beforeinstallprompt，用完即弃
-  composables/useLocalRuntime.js   # 本地工具链下载状态（idle/downloading/ready/failed），顶栏引擎弹层的下载入口与本地运行环境抽屉共享同一份
   components/
-    TopBar.vue                  # 顶栏：语言/引擎（本地沙箱行内挂下载 chip）/连接/布局/设置/本地环境/安装/运行（50px 高）+ 四档响应式断点与省略号收纳（见第 3 节）
+    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/帮助/运行（50px 高）+ 五档响应式断点与省略号收纳（见第 3 节）
     EditorPane.vue              # Monaco 容器 + 文件页签
     EditorSettingsPanel.vue     # 右侧设置抽屉（Teleport，按钮在顶栏）
-    LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏；下载状态取自 useLocalRuntime，自己不再持有）
+    LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏）
+    HelpPanel.vue               # 右侧「使用帮助」抽屉（Teleport，按钮在顶栏最右；只读，内容是两条常见操作解答，与 docs/使用手册.md 同源）
     TestPanel.vue               # 右侧评测面板：页头（verdict「全部 AC / n/m AC」/耗时/时限）+ 用例列表 + 页脚运行按钮
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）
@@ -99,24 +100,29 @@ div.app（column，100% 高）
 
 ### 顶栏的响应式（`TopBar.vue`，2026-09 加）
 
-四档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 子元素实际宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证）。
+五档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证），**`display: contents` 的容器摊平后递归统计**。下表是 2026-09-18 加入顶栏「?」帮助按钮后重测的（无头 Chrome，安装按钮在 DOM 里，已计入）。
 
 | 档位 | 条件 | 顶栏让位的东西 | 该档必需宽度 | 该档可用下限 | 余量 |
 | --- | --- | --- | --- | --- | --- |
-| 宽档 | ≥821px | — | 695 | 821 | 126 |
-| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 464 | 561 | 97 |
-| 2 | ≤560px | “语言”二字 | 434 | 521 | 87 |
-| 3 | ≤520px | swap、引擎设置齿轮 → 折进省略号 | 396 | 421 | 25 |
-| 4 | ≤420px | 安装、本地运行环境 → 折进省略号 | 306 | 320 | 14 |
+| 宽档 | ≥821px | — | 730 | 821 | 91 |
+| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 499 | 561 | 62 |
+| 2 | ≤560px | “语言”二字 | 469 | 521 | 52 |
+| 3 | ≤520px | 帮助、换边 → 折进省略号 | 431 | 461 | 30 |
+| 4 | ≤460px | 引擎设置齿轮、安装 → 折进省略号 | 341 | 381 | 40 |
+| 5 | ≤380px | 本地运行环境 → 折进省略号 | 296 | 320 | 24 |
 
-- **每档折走两颗**：省略号自己占一格（34px + 10px gap），只折一颗净值是 0，白折。
-- 收纳位在图标簇最右端（swap 右边、运行按钮左边），折叠顺序天然是 swap → 引擎齿轮 → 安装 → 本地运行环境；位置不动，只往左吞。
-- **菜单项复用同一批开关**（`setEditorSettingsOpen` / `setLocalRuntimeOpen` / `settingsOpen` / `emit('toggle-layout')`），**不复制组件**：抽屉与弹层始终只有一份实例。
-- 折叠时给 `.settings` 加 `display: contents`：既腾出它那格（齿轮按钮 `display: none` 后 `.settings` 宽度为 0，但仍占一个 gap），也让弹层不再挂在零宽锚点上。弹层的 `fixed` 阈值**刻意与第 3 档对齐在 520px**，保证齿轮一被折叠、弹层就必定已由视口定位。
+- 「该档可用下限」= 下一档阈值 + 1（末档取支持的最小宽度 320px）。
+- **每档折走两颗**：省略号自己占一格（28px + 10px gap），只折一颗净值是 0，白折。
+- 收纳位在图标簇最右端（现在最右的图标是「?」，所以收纳位在它右边、运行按钮左边），折叠顺序天然是 **帮助 → 换边 → 引擎齿轮 → 安装 → 本地运行环境**；位置不动，只往左吞。
+- **第 4 档阈值由 420 抬到 460**：折叠三格后顶栏仍需 431px，420px 下会溢出。
+- **第 5 档是本次新增的**：折叠四格后仍需 341px，320px 窄机上依旧溢出，所以最后把「本地运行环境」也交出去（它的抽屉入口本来就在「⋯」菜单里，`.menu__item--panel` 平时隐藏、这一档才显示）。
+- **菜单项复用同一批开关**（`setEditorSettingsOpen` / `setLocalRuntimeOpen` / `setHelpOpen` / `settingsOpen` / `emit('toggle-layout')`），**不复制组件**：抽屉与弹层始终只有一份实例。
+- 折叠时给 `.settings` 加 `display: contents`：既腾出它那格（齿轮按钮 `display: none` 后 `.settings` 宽度为 0，但仍占一个 gap），也让弹层不再挂在零宽锚点上。弹层的 `fixed` 阈值**刻意保持 520px**——比齿轮折叠的第 4 档（460）更早一档，齿轮还可见的那段宽度里弹层也已由视口定位。
+- 三个抽屉（编辑器偏好 / 本地运行环境 / 使用帮助）互斥：`closeDrawers(except)` 一次关掉另外两个，并顺手关掉引擎设置弹层（否则遮罩把它盖住、关掉抽屉后它又冒出来）。
 - 隐藏一律用 `display: none`（而非 `visibility` / `opacity`），顺带从无障碍树里摘掉；因此运行按钮的可访名改由模板上的 `aria-label` 承担——**文字被藏的元素必须另给可访名**。
 - 量宽度时的两个口径坑：`display: none` 父元素内的子元素，`getComputedStyle(child).display` **仍返回它自己的值**（不是 `none`），判可见要量外层容器；`display: contents` / `display: none` 的子元素不生成盒子、**不占 gap**，量必需宽度时要把它们排除，否则每档虚高几十像素。
-- 语言下拉是**定宽**的：切到 Python 后各档必需宽度一个像素都没变。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档留了 91px 以上余量。
-- 覆盖范围实测 320–1200px 全程无溢出（320px 下运行按钮右缘 308/320）；桌面端零影响（1440px 下省略号 `display: none`、有效宽度 0）。
+- 语言下拉是**定宽**的：原生 `<select>` 按最宽的选项（「Python 3」）算宽，切到 Python 后各档必需宽度一个像素都没变（已复测）。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档留了 90px 以上余量。
+- **复测口径**：用 `page.setViewport()` 在 320/340/375/380/400/460/461/520/521/560/561/700/820/821/900px 逐个量 `topbar.scrollWidth - clientWidth` 与 `documentElement` 的溢出，全部为 0；运行按钮右缘 = 视口宽 - 12px（栏右内边距），没被挤出。**不要再用 iframe 或注入 `display: revert` 的方式模拟视口**——量不到真实溢出，返回的数字是自洽的假象。
 
 ### 测试面板的最低宽度（`App.vue`，2026-09 加）
 
@@ -166,6 +172,7 @@ div.app（column，100% 高）
 | `EditorPane.vue:158` | `.tab` `.tab__icon` |
 | `EditorSettingsPanel.vue:162` | `.icon-button` `.panel-drawer*` `.select` |
 | `LocalRuntimePanel.vue:181` | `.panel-button` `.panel-drawer*` `.runtime-row*` `.panel-note` |
+| `HelpPanel.vue:130` | `.help-button` `.panel-backdrop` `.panel-drawer*` `.panel-note` `.help-group*` `.help-item*` |
 | `base.css:141` 起 | `body`、`button`、`input/textarea/select`、滚动条、`:focus-visible`、`prefers-reduced-motion` |
 
 ## 5. 改样式时的几个坑
