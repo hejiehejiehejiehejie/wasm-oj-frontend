@@ -1,0 +1,57 @@
+import { echoEngine } from './echo.js'
+import { judge0Engine } from './judge0.js'
+import { pistonEngine } from './piston.js'
+import { wasmEngine } from './wasm.js'
+
+/**
+ * 评测引擎注册表 —— 想接学校 OJ、WASM 本地执行、或者别的判题服务，
+ * 只需要新增一个满足下面契约的对象并塞进 ENGINES，界面与运行器都不用改。
+ *
+ * @typedef {'ok'|'compile-error'|'runtime-error'|'timeout'|'rejected'|'unreachable'|'cancelled'} Outcome
+ *
+ * @typedef {Object} EngineExecution
+ * @property {Outcome} outcome
+ * @property {string} stdout               程序标准输出（outcome === 'ok' 时才参与判定）
+ * @property {string} stderr               运行错误 / 编译错误正文
+ * @property {number|null} durationMs
+ * @property {string} [detail]             额外诊断，直接展示给用户的一句话
+ *
+ * @typedef {Object} JudgeEngine
+ * @property {string} id                   localStorage 里存的引擎标识
+ * @property {string} label                设置面板中的名称
+ * @property {string} hint                 设置面板中的一行说明
+ * @property {boolean} executesCode        false 时界面要标出"不执行代码"
+ * @property {string} defaultBase          默认服务地址；内置引擎填 'local'
+ * @property {(languageId: string) => boolean} [supports]
+ * @property {(base: string, signal?: AbortSignal) => Promise<{ok: boolean, message: string}>} health
+ * @property {(input: {base: string, languageId: string, code: string, stdin: string, signal?: AbortSignal, timeLimitMs?: number}) => Promise<EngineExecution>} execute
+ *
+ * timeLimitMs 是界面上的全局时限（毫秒），**只计运行段**，不含编译。
+ * 引擎自己决定怎么兑现：本地沙箱用看门狗 kill()，Piston 透传 run_timeout，
+ * Judge0 换算成 cpu_time_limit；兑现不了就忽略它，不要假装遵守。
+ */
+// 顺序就是设置面板里的顺序：本地沙箱不需要任何服务，放第一个
+export const ENGINES = [wasmEngine, pistonEngine, judge0Engine, echoEngine]
+
+const BY_ID = new Map(ENGINES.map((engine) => [engine.id, engine]))
+
+export function getEngine(id) {
+  return BY_ID.get(id) ?? ENGINES[0]
+}
+
+export function engineChoices() {
+  return ENGINES.map(({ id, label, hint, executesCode, defaultBase }) => ({
+    id,
+    label,
+    hint,
+    executesCode,
+    defaultBase,
+  }))
+}
+
+/** 每个引擎各存一个地址，切引擎时不用重新填。 */
+export function defaultBases() {
+  return Object.fromEntries(ENGINES.map((engine) => [engine.id, engine.defaultBase]))
+}
+
+export const DEFAULT_ENGINE_ID = pistonEngine.id
