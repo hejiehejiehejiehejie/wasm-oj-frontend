@@ -18,9 +18,10 @@
  * - run 段用调用方给的时限（界面上的全局时限），到点即 TLE：
  *   回一条 type 'timeout'，由引擎翻译成 outcome 'timeout'，卡片显示成 TLE。
  */
-import { preloadToolchain, runCpp } from './runnoSandbox.js'
+import { generatePch, isToolchainReady, preloadToolchain, runCpp } from './runnoSandbox.js'
 
-// 约 14MB 资源，正常几秒就下完；3 分钟还没回来基本可以断定网络有问题
+// 约 50MB 裸文件（走 Vercel 边缘压缩，实际传输量小得多），正常几秒到十几秒；
+// 3 分钟还没回来基本可以断定网络有问题
 const DOWNLOAD_TIMEOUT_MS = 3 * 60 * 1000
 // 编译 + 链接一个竞赛程序通常 1 s 以内，60 s 还没回来是卡死而不是慢
 const COMPILE_TIMEOUT_MS = 60 * 1000
@@ -153,6 +154,45 @@ function enqueue(task) {
   return run
 }
 
+/** 放到空闲时段执行；没有 requestIdleCallback 的浏览器退化成延时 */
+function whenIdle(task) {
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(task, { timeout: 5000 })
+    return
+  }
+  window.setTimeout(task, 1500)
+}
+
+let pchWarmupStarted = false
+
+/**
+ * 后台静默生成 STL 预编译头（见 runnoSandbox.generatePch）。
+ *
+ * 触发时机不是「首屏」，而是「工具链已经在内存里」之后：首屏时 toolchain 还是 null，
+ * 放在那里要么空转、要么被迫替用户拉起 50MB 下载，两条都和「不影响首屏」矛盾。
+ * 所以由 runCase / preload 在工具链就绪后调一次，再等系统空闲才真正开工。
+ *
+ * 为什么必须排进同一条串行队列：生成时要把 ~9MB 的 sysroot 整体克隆进 worker，
+ * 出来的 PCH 又有十几 MB，和用户编译并行就是内存翻倍 —— 老机器上正是要避开这个。
+ * 排队的次序也天然合适：用户点了运行，编译先跑完，PCH 再补。
+ */
+export function warmupPch() {
+  if (pchWarmupStarted) return
+  pchWarmupStarted = true
+  whenIdle(() => {
+    void enqueue(async () => {
+      // 队列里可能刚被别的任务清过场，开工前再确认一次工具链还在
+      if (!isToolchainReady()) return
+      try {
+        await generatePch()
+      } catch {
+        // 失败（老机器 OOM / cc1 卡死）已在 runnoSandbox 里写成永久标记。
+        // 这是后台任务：不播报、不打扰用户，用例照常走普通编译。
+      }
+    })
+  })
+}
+
 /**
  * 编译并运行一段 C++。
  * @returns {Promise<object>} result / timeout / failure / cancelled 消息
@@ -169,6 +209,8 @@ export function runCase({ code, stdin, signal, timeLimitMs }) {
         onHost: entry.onHost,
       })
       if (entry.cancelled) return { type: 'cancelled' }
+      // 编译这步真走完了（成功或编译错误都算），说明工具链已在内存里 —— 趁空闲把 PCH 备好给下一批用
+      warmupPch()
       return { type: 'result', ...result }
     } catch (error) {
       if (entry.cancelled) return { type: 'cancelled' }
@@ -200,6 +242,8 @@ export function preload(signal) {
     try {
       const durationMs = await preloadToolchain(entry.onStatus)
       if (entry.cancelled) return { type: 'cancelled' }
+      // 用户手点「下载」就是在等工具链，这时候顺带把 PCH 生成掉最不打扰人
+      warmupPch()
       return { type: 'ready', durationMs }
     } catch (error) {
       if (entry.cancelled) return { type: 'cancelled' }

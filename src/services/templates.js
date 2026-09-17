@@ -27,8 +27,8 @@ const CPP_TEMPLATE = `#include <bits/stdc++.h>
 using namespace std;
 
 //{{
-1 2
-3
+// 1 2
+// 3
 //}}
 
 void solve() {

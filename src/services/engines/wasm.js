@@ -15,7 +15,7 @@ const SUPPORTED_LANGUAGES = new Set(['cpp'])
 export const wasmEngine = {
   id: 'wasm',
   label: '本地 WASM 沙箱',
-  hint: '在浏览器里编译运行，代码不出本机；只支持 C++，首次需下载约 14MB 的本地工具链',
+  hint: '在浏览器里编译运行，代码不出本机；只支持 C++，首次需下载约 50MB 的本地工具链',
   executesCode: true,
   // 内置引擎没有服务地址，按注册表约定固定填 'local'
   defaultBase: 'local',
@@ -32,7 +32,7 @@ export const wasmEngine = {
         message: '页面没有跨域隔离，SharedArrayBuffer 不可用：确认 dev server 已注入 COOP / COEP 响应头',
       }
     }
-    return { ok: true, message: '本地沙箱可用，首次运行需下载本地工具链（约 14MB，之后常驻内存）' }
+    return { ok: true, message: '本地沙箱可用，首次运行需下载本地工具链（约 50MB，之后常驻缓存）' }
   },
 
   async execute({ code, stdin, signal, timeLimitMs }) {

@@ -1,14 +1,14 @@
 # WASM OJ 前端 · 交接文档
 
-面向「接下来要改前端样式」的接手人。当前代码**已跑通**：本地 WASM 沙箱能编译运行 C++、判题（含 TLE）、主题与布局都能用。
+面向「接下来要改前端样式」的接手人。当前代码**已跑通并上线**：本地 WASM 沙箱能编译运行 C++、判题（含 TLE）、主题与布局都能用；前端已推到 GitHub 并由 Vercel 托管（见第 9 节）。
 
 ## 0. 一分钟上手
 
 - 目录：`/Users/hejie/Code/BISHE`
-- **不是 git 仓库**：改动没有版本兜底，动大样式前建议先手动备份文件（或先 `git init`）。
-- 启动：`cd /Users/hejie/Code/BISHE && npm run dev` → http://localhost:5199
+- **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
+- 启动：`cd /Users/hejie/Code/BISHE && npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
-- 唯一的重量级第三方依赖是 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）。新增 npm 包要先讨论。
+- 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用。新增 npm 包要先讨论。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
@@ -21,13 +21,16 @@
 | 顶栏按钮不能进 Teleport | 抽屉本体 Teleport 到 `body`，**触发按钮必须留在顶栏内**，否则脱离 flex 布局被挤出视口 |
 | flex 容器的子元素要显式拉伸 | 布局里 `.pane > *` 必须 `flex: 1 1 auto; min-width: 0`，否则子组件收缩到内容宽度 |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
-| 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 7 节的坑） |
+| 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑） |
 
 ## 2. 与界面相关的文件
 
 ```
 index.html
 vite.config.js                  # COOP/COEP 响应头（本地沙箱的硬前提，别动）
+vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存（见第 9 节）
+public/wasm/8.0.1/              # 自托管的工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
+scripts/verify-ui.mjs           # 无头回归脚本（已陈旧，见第 8 节）
 src/
   main.js
   monaco-setup.js               # Monaco 的 cph-dark / cph-light 两套自定义主题
@@ -43,6 +46,13 @@ src/
     TestCaseCard.vue            # 单个用例卡片：徽标 / hint / 耗时 / 输入框 / 输出块
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）
   services/                     # 判题逻辑，改样式基本不碰
+    runner.js                   # 逐用例调度（并发 2）+ 进度回调
+    compare.js                  # 实际输出与期望输出比对
+    templates.js                # 各语言默认模板
+    engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
+    wasmRuntime.js              # 本地沙箱的唯一入口：阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
+    runnoSandbox.js             # runno 的 clang 流水线（工具链地址、编译产物缓存、PCH 生成都在这里）
+    pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -99,7 +109,7 @@ div.app（column，100% 高）
 | `App.vue:506` | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
 | `TopBar.vue:205` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里） |
 | `TestPanel.vue:99` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]` `.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
-| `TestCaseCard.vue:148` | `.card[data-status]` `.card__head` `.badge[data-status]` `.hint` `.metric` `.icon-btn` `.card__body` `.ta`（输入）`.out`（输出） |
+| `TestCaseCard.vue:182` | `.card[data-status]` `.card__head` `.badge[data-status]` `.hint` `.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶） |
 | `EditorPane.vue:158` | `.tab` `.tab__icon` |
 | `EditorSettingsPanel.vue:162` | `.icon-button` `.panel-drawer*` `.select` |
 | `LocalRuntimePanel.vue:181` | `.panel-button` `.panel-drawer*` `.runtime-row*` `.panel-note` |
@@ -114,6 +124,8 @@ div.app（column，100% 高）
 5. **面板折叠是 `v-show`**，测试栏 DOM 一直在（分隔条要能用鼠标/键盘把面板拖回来）。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
 7. 抽屉有两个（设置 / 本地运行环境）**互斥**，开一个会关另一个；改抽屉宽高/动画时别破坏这个联动。
+8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠用的是 `v-show`，此刻 `scrollHeight` 为 0，代码会跳过重算，面板重新展开时会再算一次——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。
+9. **`.run-zone` 是撑满中段的 `<button>`**：里面的 `padding: 0` 不是装饰，是在抵消浏览器给按钮的默认内边距（不抵消的话 ▶ 图标位置会跑偏）；`.run-zone__icon` 才是那个 22px 的 ▶ 本体，悬停点亮的是它。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
@@ -124,30 +136,73 @@ div.app（column，100% 高）
 | `cph.editorShare` | 两栏比例（%） | `App.vue:17` |
 | `cph.timeLimitMs` | 全局时限（毫秒，只计运行段） | `App.vue:20` |
 | `cph.language` / `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases` | 语言、各语言草稿、用例、引擎、服务地址 | `App.vue` |
-| `cph.localRuntime.clangReady` | C++ 本地工具链是否已拉取 | `LocalRuntimePanel.vue` |
+| `cph.localRuntime.clangReady` | C++ 本地工具链是否已拉取（只表示「这台浏览器下过一次」，用来少点一次「下载」；标记过期也无害） | `LocalRuntimePanel.vue` |
+| `cph.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
+
+另外 PCH 二进制（约 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cph-pch`、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:微缩头内容的 FNV-1a 哈希`（当前是 `1:8.0.1:69dc7cd9`），三者任一变化旧存档自然失效，取存档只按这个 id。
 
 写值统一走 `usePersistentRef(key, defaultValue)`；`editorSettings` 因为要版本迁移，单独用 deep watch 存。
 
 ## 7. 现在的功能边界（写文案时别夸大）
 
-- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱只支持 C++，首次运行要下载约 14MB 工具链（clang + wasm-ld + sysroot，之后常驻内存）。
+- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱只支持 C++，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
 - 本地沙箱**没有 Python**（面板上 Python 是禁用态）。Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
 - TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时是「编译 + 运行」，所以可能大于时限。
 - 判定词表：`ok / compile-error / runtime-error / timeout / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）。
 - 判题流程：先编译运行出实际输出，再与期望输出比对（`src/services/compare.js`）。
+- 工具链是静态自托管的（`public/wasm/8.0.1/`），但 `clang-fs.tar.gz` 这个扩展名会让静态服务器补上 `Content-Encoding: gzip`，浏览器已替我们解过一层，所以 `runnoSandbox.js` 里用**魔数判断**要不要 gunzip。换托管方时别把 `unpackSysroot` 改回无条件 `gunzip`（失败时 Chrome 只会报一句 "Failed to fetch"，很难查）。
+- 工具链地址里的 `8.0.1` 是**目录版本号**：升级工具链就换目录名，旧的 immutable 缓存自然失效；别在原地覆盖同名文件（浏览器会继续用缓存里的旧版本）。
+- 编译产物缓存只留**最近一份源码**（`runnoSandbox.js` 的 `compileCache`）：命中时连工具链都不碰，第 2..N 个用例只付运行开销；编译失败的结论同样会被缓存，改代码即失效。别把它改成常驻多份——用例总是成批跑的，代码一改全都作废。
+- **STL 预编译头（PCH）**：为老机器省掉每次编译反复解析 STL 头的开销，全流程都在 `runnoSandbox.js` / `pchStore.js` / `wasmRuntime.js`，没有独立 worker。改这一块时几条不能破的约定：
+  - 微缩头 `MICRO_STDCXX_H` 刻意只含 `<iostream> <vector> <string> <algorithm> <map>` 5 个，`.pch` 实测 6.91MB（在 10–20MB 目标内）；**不要**换成几万行的完整 `bits/stdc++.h`（UNIVERSAL_HEADER 那份是挂给用户代码 `#include <bits/stdc++.h>` 用的，两回事）。
+  - PCH 生成与用户编译必须**逐字共用** `FRONTEND_ARGS`（`-std=c++17 -O2`、三个 `-internal-isystem` 路径等）：PCH 文件签名里含语言/目标选项和头文件搜索路径，参数对不上 clang 加载时直接 fatal，还可能混进语义不一致的 libc++ AST。生成走 cc1 直连：`-cc1 -emit-pch -x c++-header`（我们从来没有 driver，别写成 `clang -x c++-header ... -emit-pch`）。
+  - 生成只走后台：`wasmRuntime.warmupPch()` 在「首次编译成功」或「手点下载成功」后，经 `requestIdleCallback` 排进**同一条串行队列**（不能并行——sysroot + PCH 克隆会让内存翻倍，老机器正是要避开这个）。生成带 3 分钟看门狗，失败（OOM / 卡死）写 `cph.pchUnsupported=true` 且**以后任何路径都不再重试**。
+  - `generatePch()` 先查 IndexedDB 存档，命中是毫秒级返回且**不会**拉起工具链；编译路径的 `loadPchBytes()` 只读存档、**绝不触发生成**——没备好就平滑走普通编译。带 PCH 时把 `/stdc++.h`（源码）和 `/stdc++.h.pch`（二进制）一起挂进 MemFS，参数追加 `-include-pch`，链接前把 `.pch` 从 fs 摘掉（免得 7MB 白克隆给 wasm-ld）。
+  - 判废条件必须窄：只有「带了 PCH、没产出 `.o`、且 stderr 命中 `/stdc\+\+\.h\.pch|precompiled header/i`」才判废（删存档 + 置标记 + 普通编译重试一次）。用户自己代码写错同样没有 `.o`，放宽条件会让每次编译错误都白编一遍并永久关掉加速。
+  - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。
 
 ## 8. 验证方式
 
 - 手工：`npm run dev`，浏览器 http://localhost:5199，重点看**两套主题各一遍**、面板折叠/展开、分隔条拖拽与双击。
+- 本地沙箱端到端（动过 `runnoSandbox.js` / `wasmRuntime.js` / 工具链目录后必做）：手工路径是顶栏切「本地 WASM 沙箱」→ 跑一段带 `vector` / `sort` 的 A+B，看输出对不对、同一份代码第二次跑是否秒回（编译缓存）。想自动化就临时写个 puppeteer 脚本，在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `preloadToolchain()` 和 `runCpp({ code, stdin })`——**用完删掉脚本**，仓库里不留临时探针（这条纪律之前踩过：残留探针把 `scripts/` 弄得很乱）。
+- PCH 专项（动过 PCH 段落 / `FRONTEND_ARGS` / 微缩头后必做），同样临时探针、用完即删：
+  1. DevTools → Application → IndexedDB 删 `cph-pch` 库、localStorage 删 `cph.pchUnsupported`，从零开始；
+  2. 切「本地 WASM 沙箱」点一次「运行全部」（默认模板是合法 A+B，输出应判定通过），随后 IndexedDB 的 `pch` store 应在约 1 秒内自己出现一条 7,249,912 字节、id 前缀 `1:8.0.1:` 的记录（证明后台 `warmupPch()` 真的跑了）；
+  3. 刷新页面再跑一次：编译应吃到存档（UI 每题耗时约从 600ms 降到 350ms 量级），输出与首次逐字一致；
+  4. 降级：把那条记录的 `bytes` 改成任意垃圾字节再刷新运行，用户代码仍应正常通过，同时 `cph.pchUnsupported` 被置成 `true`、坏记录被删。
+  注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cph.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**注意它已经陈旧**，运行前请先知道这几条断言当前必定失败，不是页面坏了：
   - `localStorage.getItem('cph.panelPosition') === 'left'`：实际值是 JSON 字符串 `"left"`；
   - 断言 `.minimap` 不存在：Monaco 节点仍在（宽度 0）；
   - 左布局下断言「拖动后测试栏变窄」：当前语义是编辑器栏持有 basis，拖窄编辑器则测试栏变宽；
   - 断言 Python 模板文本含 `def solve`：Monaco 用 NBSP 渲染空格。
   - 它还会自己起 dev server，和常驻的 5199 冲突，跑的时候用 `VERIFY_PORT=5299` 覆盖。
-- 仓库根目录有几张上一轮遗留的 `cph-*.png` 截图，可以随时删。
+  - 它跑的是默认的 Piston 引擎（需要本地有 `localhost:2000` 的服务），验不到本地沙箱。
+- 回归脚本会把截图写到仓库根目录的 `cph-*.png`（可用 `SHOT_DIR` 改路径），`.gitignore` 已忽略它们，不用管。
 
-## 9. 建议的样式工作顺序
+## 9. 部署（GitHub + Vercel）
+
+- 仓库：https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git （私有），`main` 分支就是部署分支，推上去 Vercel 自动构建。
+- Vercel 面板导入时的配置：Framework Preset 选 `Vite`，Build Command `npm run build`，Output Directory `dist`，Install Command 用默认。
+  - **环境变量留空**：前端没有任何密钥；判题服务地址是用户在顶栏填的，存在 `cph.judgeBases` 里。
+  - Node 版本不用在面板上设，`package.json` 的 `engines.node = 22.x` 已经钉死，`build` 就是一句 `vite build`。
+- `vercel.json` 负责三件事，**别删**：
+  1. 全站注入 COOP `same-origin` / COEP `require-corp` —— 少任何一个，本地沙箱连 `SharedArrayBuffer` 都拿不到；
+  2. `.wasm` 声明 `Content-Type: application/wasm` —— MIME 不对时 `WebAssembly.instantiateStreaming` 会直接拒绝加载；
+  3. `.wasm` 与 `/wasm/(.*)` 一年 immutable 缓存。
+  本地 `vite.config.js` 的 `server.headers` / `preview.headers` 是同一组头的开发侧对应物，两边要一起改。
+- 工具链裸文件（约 52MB）直接进仓库：Vercel 边缘会做压缩传输，**不要自己塞 `.br` / `.gz` 预压缩文件**——那会被二次压缩成 `Content-Encoding: br, br`，Safari 直接崩。
+- 最大的单文件 31.2MB，远低于 GitHub 的 100MB 单文件上限，可以直接 `git push`（但会明显变慢，属正常）。
+- 部署后的冒烟检查：
+
+  ```bash
+  curl -sI https://<域名>/wasm/8.0.1/clang.wasm | grep -iE "content-type|cache-control"
+  curl -sI https://<域名>/wasm/8.0.1/clang-fs.tar.gz | grep -iE "content-encoding|content-length"
+  ```
+
+  第一条要看到 `application/wasm`；第二条的 `content-encoding` 有没有 `gzip` 都能跑（代码按魔数兼容两种），只要别出现 `br, br` 这类双重编码。
+
+## 10. 建议的样式工作顺序
 
 1. 先只改 `src/styles/base.css` 的变量值（最小风险，两套主题一起看）。
 2. 再动单个组件的 scoped 样式，每次只改一个组件，改完立刻两套主题 + 折叠/拖拽回归。

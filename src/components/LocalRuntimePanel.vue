@@ -10,9 +10,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:open'])
 
-// 工具链缓存在 wasmRuntime 这一层的内存里，刷新页面就没了。这个标记只表示
-// 「这台浏览器成功下载过一次」，用来少让用户点一次「下载」；标记过期也无妨，
-// 下一次评测本来就要重新拉那 14MB（几秒），运行时自己会把它拉回来。
+// 工具链缓存在浏览器 HTTP 缓存 + wasmRuntime 这一层的内存里，刷新页面后标记还在，
+// 但内存里的 sysroot 要重新解包。这个标记只表示「这台浏览器成功下载过一次」，
+// 用来少让用户点一次「下载」；标记过期也无妨，下一次评测自己会把它拉回来。
 const clangReady = usePersistentRef('cph.localRuntime.clangReady', false)
 
 // idle（未下载）→ downloading（下载中）→ ready（已就绪）/ failed（失败）
@@ -46,10 +46,10 @@ const cppHint = computed(() => {
     return elapsedMs.value ? `本地工具链已就绪，用时 ${(elapsedMs.value / 1000).toFixed(1)} s` : '本地工具链已就绪'
   }
   if (state.value === 'failed') return failureReason.value || '下载失败'
-  return 'clang 8 + libc++，约 14MB，只下一次'
+  return 'clang 8 + libc++，约 50MB，只下一次'
 })
 
-// 下载就是把这 14MB 拉进内存缓存（clang / wasm-ld / 系统头文件），
+// 下载就是把工具链（clang / wasm-ld / 系统头文件）拉进 HTTP 缓存与内存，
 // 之后引擎评测和面板共用同一份，不需要常驻 Worker。
 async function downloadClang() {
   if (downloading.value || state.value === 'ready') return
