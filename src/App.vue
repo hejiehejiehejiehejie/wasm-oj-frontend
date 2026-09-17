@@ -308,14 +308,35 @@ function togglePanel() {
   virtualShare = panelVisible.value ? editorShare.value : 100
 }
 
+// 双击的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点
+const TAP_SLOP = 10
+// 两次轻点的最大间隔。取浏览器自己的双击判定常用的 300ms
+const DOUBLE_TAP_MS = 300
+// 最近一次由我们自己认出来的触摸双击。有些设备在它之后还会补一发原生 dblclick，
+// 挨着就丢掉，否则一次双击被折两次、看上去像没动
+let touchDblTapAt = 0
+let lastTapAt = 0
+let lastTapX = 0
+
+// 鼠标 / 触控板走浏览器的原生双击；触摸端的双击在 beginDrag 的 pointerup 里自己认
+function onSplitterDblClick() {
+  if (Date.now() - touchDblTapAt < 400) return
+  togglePanel()
+}
+
 function beginDrag(event) {
   if (running.value) return
   const surface = workspace.value
   if (!surface) return
-  // 取消 pointerdown 会按规范抑制兼容的 mousedown/mouseup（click / dblclick 不受影响），
-  // 用来阻断从分隔条起手的原生文字选中拖拽；配合 .workspace.is-dragging 的 user-select: none 双保险。
+  // 取消 pointerdown 会按规范抑制兼容的 mousedown/mouseup，用来阻断从分隔条起手的
+  // 原生文字选中拖拽；配合 .workspace.is-dragging 的 user-select: none 双保险。
+  // 注意别指望别的浏览器也像 Chrome 那样把 click / dblclick 补回来——触摸端的双击
+  // 因此不依赖 dblclick，而是在下面的 pointerup 上自己认（见 stop）。
   event.preventDefault()
+  const isTouch = event.pointerType !== 'mouse'
+  let moved = 0
   const startX = event.clientX
+  const startY = event.clientY
   const limits = measureLimits()
   // 面板换到左侧后编辑器在右半边，拖拽方向要取反。
   const direction = panelPosition.value === 'right' ? 1 : -1
@@ -327,18 +348,31 @@ function beginDrag(event) {
   dragging.value = true
 
   const move = (moveEvent) => {
+    moved = Math.max(moved, Math.abs(moveEvent.clientX - startX), Math.abs(moveEvent.clientY - startY))
     // 虚拟比例始终从按下那一刻起算，来回拖动才连续
     const raw = startRaw + ((moveEvent.clientX - startX) * direction * 100) / limits.width
     virtualShare = Math.min(100, Math.max(MIN_SHARE, raw))
     applyShare(virtualShare, limits)
     editorPane.value?.layout()
   }
-  const stop = () => {
+  const stop = (upEvent) => {
     dragging.value = false
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
     editorPane.value?.layout()
+    // 触摸端的双击：两次都没怎么动的轻点，间隔够近就算。特意不看 dblclick——
+    // 部分触屏浏览器根本不为双指轻点合成它（真机反馈「有些触屏设备双击没反应」）。
+    if (!isTouch || upEvent.type !== 'pointerup' || moved > TAP_SLOP) return
+    const now = Date.now()
+    if (now - lastTapAt <= DOUBLE_TAP_MS && Math.abs(upEvent.clientX - lastTapX) <= TAP_SLOP) {
+      lastTapAt = 0
+      touchDblTapAt = now
+      togglePanel()
+    } else {
+      lastTapAt = now
+      lastTapX = upEvent.clientX
+    }
   }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
@@ -504,7 +538,7 @@ onBeforeUnmount(() => {
         :aria-valuenow="Math.round(editorShare)"
         tabindex="0"
         @pointerdown="beginDrag"
-        @dblclick="togglePanel"
+        @dblclick="onSplitterDblClick"
         @keydown.left.prevent="nudgeShare(-2)"
         @keydown.right.prevent="nudgeShare(2)"
       >
