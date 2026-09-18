@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/styles/guide.css" />
+    <link rel="canonical" href="https://www.998244353.best/guide.html" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta
+      name="description"
+      content="CPH IDE 完整使用指南：三种评测引擎的差别、如何在浏览器本地编译运行 C++、测试样例与时限（TLE）判定的口径、编辑器偏好与样例栏折叠、安装成独立窗口离线使用，以及常见问题解答。"
+    />
+    <title>CPH IDE 使用指南 · 本地运行 C++、测试样例与时限判定</title>
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="CPH IDE" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:url" content="https://www.998244353.best/guide.html" />
+    <meta property="og:title" content="CPH IDE 使用指南 · 本地运行 C++、测试样例与时限判定" />
+    <meta
+      property="og:description"
+      content="三种评测引擎的差别、如何在浏览器本地编译运行 C++、测试样例与 TLE 判定的口径、编辑器偏好与样例栏折叠、安装成独立窗口离线使用，以及常见问题解答。"
+    />
+    <meta property="og:image" content="https://www.998244353.best/og-cover.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CPH IDE 界面：左侧 Monaco 编辑器，右侧测试样例与判定结果" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CPH IDE 使用指南 · 本地运行 C++、测试样例与时限判定" />
+    <meta
+      name="twitter:description"
+      content="三种评测引擎的差别、如何在浏览器本地编译运行 C++、测试样例与 TLE 判定的口径、编辑器偏好与样例栏折叠、安装成独立窗口离线使用，以及常见问题解答。"
+    />
+    <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" />
+    <!--
+      主题同步：和主应用读同一份 localStorage 契约（cph.editorSettings.theme）。
+      不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
+      故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
+
+      同步义务：本页是使用说明的「完整版」，应用内「使用帮助」抽屉的 GROUPS
+      （src/components/HelpPanel.vue）与仓库里的 docs/使用手册.md 是它的简版。
+      改任意一处都要检查另外两处是否还说得通。
+    -->
+    <script>
+      try {
+        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        if (saved && saved.theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'cph-light'
+        }
+      } catch (error) {
+        /* 隐私模式或存档损坏：按默认深色渲染即可 */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page__top">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
+          <span class="brand__name">CPH IDE</span>
+        </a>
+        <a class="cta" href="/">打开 CPH IDE</a>
+      </header>
+
+      <main class="doc">
+        <h1>CPH IDE 使用指南</h1>
+        <p class="doc__lead">
+          CPH IDE 是一个在浏览器里写、跑、判 C++ 的在线 IDE：左边是 Monaco
+          编辑器，右边是测试样例面板。它内置「本地 WASM 沙箱」，编译与运行都在你自己的设备上完成，代码不出本机，
+          把工具链下载下来之后断网也能用。这份指南覆盖引擎选择、本地运行流程、判定的口径与常见问题。
+        </p>
+
+        <nav class="toc" aria-label="本页目录">
+          <span class="toc__title">本页内容</span>
+          <ul>
+            <li><a href="#engines">三种评测引擎</a></li>
+            <li><a href="#local-cpp">在本地编译运行 C++</a></li>
+            <li><a href="#test-cases">测试样例与时限判定</a></li>
+            <li><a href="#editor">编辑器与界面偏好</a></li>
+            <li><a href="#install">安装到设备、离线使用</a></li>
+            <li><a href="#faq">常见问题</a></li>
+          </ul>
+        </nav>
+
+        <h2 id="engines">1. 三种评测引擎</h2>
+        <p>
+          顶栏的「评测引擎设置」里可以切换引擎。它们跑代码的位置完全不同，这决定了代码会不会离开你的设备、以及离线时还能不能用。
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>引擎</th>
+                <th>在哪里运行</th>
+                <th>要不要填服务地址</th>
+                <th>要不要联网</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>本地 WASM 沙箱</td>
+                <td>你自己的浏览器（只支持 C++）</td>
+                <td>不用，它是内置引擎</td>
+                <td>首次要下载工具链，之后离线可用</td>
+              </tr>
+              <tr>
+                <td>Piston（默认）</td>
+                <td>你自建的评测服务</td>
+                <td>要</td>
+                <td>要</td>
+              </tr>
+              <tr>
+                <td>Judge0</td>
+                <td>你自建的评测服务</td>
+                <td>要</td>
+                <td>要</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">
+          本地沙箱只支持 C++，语言下拉里的 Python 3 在它下面是不可用的。要跑 Python
+          请切到 Piston 或 Judge0。
+        </p>
+
+        <h2 id="local-cpp">2. 在本地（浏览器里）编译运行 C++</h2>
+        <p>
+          「本地运行」指把编译和运行都放在你自己的浏览器里完成：代码不出本机，断网也能跑，不需要任何服务器。
+        </p>
+        <ol>
+          <li>
+            <strong>下载本地工具链。</strong>点顶栏的「本地运行环境」图标，右侧滑出抽屉。<code>C++</code>
+            一行写着 clang + libc++，约 50MB、只下一次，点它右侧的「下载」，等按钮变成「已就绪」。
+          </li>
+          <li>
+            <strong>切换到本地沙箱。</strong>点顶栏的「评测引擎设置」（滑杆图标），在「评测引擎」里选「本地
+            WASM 沙箱」。它是内置引擎，不需要填服务地址。
+          </li>
+          <li>
+            <strong>运行。</strong>点顶栏绿色的「运行全部测试」，或按 <kbd>⌘</kbd>/<kbd>Ctrl</kbd> +
+            <kbd>Enter</kbd>。编译与执行都在本机完成，卡片上会给出判定码。
+          </li>
+        </ol>
+        <ul>
+          <li>工具链只需下载一次，之后刷新页面会命中浏览器缓存，不再重复下载。</li>
+          <li>下载成功过一次之后即可离线使用：编辑器、测试面板、本地沙箱在断网状态下都能工作。</li>
+          <li>清除浏览器数据会把缓存一并清掉，此时第一次编译要重新拉取工具链，慢一些属正常。</li>
+        </ul>
+
+        <h2 id="test-cases">3. 测试样例与时限判定</h2>
+        <p>
+          右侧的「测试面板」就是样例栏，每个样例一张卡片：上面是输入框，下面是程序输出的只读块。用面板底部的「添加测试样例」增加用例，
+          卡片头右侧的按钮可以删除或折叠单个用例。跑完每张卡片会显示一个判定码。
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>判定码</th>
+                <th>含义</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>AC</code></td>
+                <td>程序正常结束，且输出与期望输出一致</td>
+              </tr>
+              <tr>
+                <td><code>WA</code></td>
+                <td>程序正常结束，但输出与期望输出不一致</td>
+              </tr>
+              <tr>
+                <td><code>CE</code></td>
+                <td>编译失败（编译错误）</td>
+              </tr>
+              <tr>
+                <td><code>TLE</code></td>
+                <td>运行时间超过当前时限</td>
+              </tr>
+              <tr>
+                <td><code>RE</code></td>
+                <td>运行时错误，程序非正常退出</td>
+              </tr>
+              <tr>
+                <td><code>ERR</code></td>
+                <td>评测服务连不上之类的环境问题，不是你的代码有问题</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>时限与耗时的口径</h3>
+        <ul>
+          <li>
+            面板页头的「时限」（1 / 2 / 5 / 10 秒，默认 1 秒）只计<strong>程序运行那一段</strong>，不含编译时间。
+            超时靠终止当前运行的沙箱实例实现。
+          </li>
+          <li>
+            卡片上的耗时和时限是同一个口径，也只算程序运行段。程序没跑起来时（比如编译失败）卡片不显示耗时。
+          </li>
+          <li>面板页头显示的是<strong>当轮所有用例里最慢的那个</strong>的耗时。</li>
+        </ul>
+
+        <h2 id="editor">4. 编辑器与界面偏好</h2>
+        <p>
+          顶栏的「编辑器偏好」里可以调字号、缩进宽度、自动换行、小地图，以及整套界面的主题（深色 / 浅色）。
+          这些设置与代码草稿、测试样例、两栏比例一样，都存在你浏览器的本地存储里，换台设备不会跟着走。
+        </p>
+        <h3>样例栏的展开与折叠</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>方式</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>双击</td>
+                <td>双击两栏中间的分隔条，收起 / 展开样例栏</td>
+              </tr>
+              <tr>
+                <td>拖到边缘</td>
+                <td>按住分隔条一直往边缘拖，拖到贴边即自动收起</td>
+              </tr>
+              <tr>
+                <td>拖回</td>
+                <td>收起后把分隔条往外拖出，样例栏重新展开</td>
+              </tr>
+              <tr>
+                <td>键盘</td>
+                <td>用 <kbd>Tab</kbd> 聚焦分隔条，按 <kbd>←</kbd> / <kbd>→</kbd> 微调两栏宽度</td>
+              </tr>
+              <tr>
+                <td>触屏</td>
+                <td>分隔条的触摸热区会加宽，手指更好抓</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          折叠只是不显示，测试用例本身不会丢。想让样例栏换到左侧，点顶栏的「换边」图标即可。
+        </p>
+
+        <h2 id="install">5. 安装到设备、离线使用</h2>
+        <p>
+          CPH IDE 可以当作一个独立窗口的应用安装到电脑或手机上。浏览器判定当前站点可以安装时，顶栏会出现「安装」按钮，
+          点它按提示确认即可；装好之后按钮会自动消失，再从桌面图标打开就是独立窗口，没有地址栏。
+        </p>
+        <ul>
+          <li>
+            iPhone / iPad 上的 Safari 没有这个按钮，需要手动走「分享 → 添加到主屏幕」。
+          </li>
+          <li>
+            安装后浏览器会缓存界面外壳和本地工具链，<strong>断网状态</strong>下编辑器、测试面板与本地沙箱都照常工作。
+          </li>
+          <li>离线时只有 Piston 与 Judge0 这两种远端引擎会失效，因为它们需要联网。</li>
+        </ul>
+
+        <h2 id="faq">6. 常见问题</h2>
+        <h3>代码会上传到服务器吗？</h3>
+        <p>
+          用本地 WASM 沙箱时不会：编译与运行都在你自己的浏览器里完成，代码不离开这台设备。切到 Piston 或 Judge0
+          这类远端引擎时，代码会发送到你填写的评测服务地址。
+        </p>
+
+        <h3>需要联网吗？</h3>
+        <p>
+          第一次用本地沙箱要先下载约 50MB 的 C++ 工具链，只下一次，之后常驻浏览器缓存。下载过之后即可离线使用；
+          清除了浏览器数据就要重新下载。
+        </p>
+
+        <h3>支持哪些语言？</h3>
+        <p>
+          本地 WASM 沙箱只支持 C++。其它语言要切到 Piston 或 Judge0 远端评测服务，具体支持范围取决于你所连的服务。
+        </p>
+
+        <h3>为什么第一次运行明显更慢？</h3>
+        <p>
+          首次运行要先下载工具链；之后每一份新代码的第一个用例都要付一次编译开销，同一份代码连续跑多个用例只编译一次，
+          第 2 个起只付运行开销。另外后台会在这台设备上生成一份 STL 预编译头，用来省掉每次编译反复解析标准库头的开销，
+          它安排在首次运行之后的空闲时间进行，不阻塞操作，失败也不影响正常编译。
+        </p>
+
+        <h3>为什么耗时和别的评测服务对不上？</h3>
+        <p>
+          这里的耗时只计程序运行段，不含编译与排队，所以看起来会比按总耗时统计的平台小。不同引擎和不同设备之间也不适合直接比较。
+        </p>
+
+        <h3>数据存在哪里？</h3>
+        <p>
+          代码草稿、测试样例、编辑器偏好、两栏比例这类状态存在浏览器的 localStorage 里；本地工具链的预编译头存在
+          IndexedDB 里。它们都只在这台设备的这个浏览器里，清除浏览器数据会一并清掉。
+        </p>
+
+        <h2 id="more">7. 还有问题？</h2>
+        <p>
+          打开 CPH IDE 后，点顶栏最右的「?」按钮可以随时查看精简版的使用帮助，内容与这份指南同源。
+        </p>
+      </main>
+
+      <footer class="page__foot">
+        <a class="cta" href="/">打开 CPH IDE</a>
+        <p>本页与界面内「使用帮助」抽屉同源。CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE。</p>
+      </footer>
+    </div>
+  </body>
+</html>

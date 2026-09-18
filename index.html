@@ -6,17 +6,124 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="description" content="CPH IDE：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++ 并做 TLE 判定。" />
+    <!-- 站点主地址是带 www 的域名，apex 会 308 跳过来；canonical 用来收掉 Vercel 预览域等重复地址 -->
+    <link rel="canonical" href="https://www.998244353.best/" />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta
+      name="description"
+      content="CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+    />
+    <title>CPH IDE · 在线 C++ 编译器与评测，浏览器本地运行、离线可用</title>
     <!-- 独立窗口的标题栏底色；跟着主题走，由 App.vue 在切换主题时改写 -->
     <meta name="theme-color" content="#323233" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="CPH IDE" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>CPH IDE</title>
+
+    <!-- 社交分享：图片必须是绝对地址，1200×630 是各平台推荐的 1.91:1 -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CPH IDE" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:url" content="https://www.998244353.best/" />
+    <meta property="og:title" content="CPH IDE · 在线 C++ 编译器与评测，浏览器本地运行、离线可用" />
+    <meta
+      property="og:description"
+      content="CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+    />
+    <meta property="og:image" content="https://www.998244353.best/og-cover.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CPH IDE 界面：左侧 Monaco 编辑器，右侧测试样例与判定结果" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CPH IDE · 在线 C++ 编译器与评测，浏览器本地运行、离线可用" />
+    <meta
+      name="twitter:description"
+      content="CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+    />
+    <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" />
+
+    <!-- 结构化数据：只写能对得上的事实，不加评分之类的编造字段 -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "CPH IDE",
+        "url": "https://www.998244353.best/",
+        "description": "CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "zh-CN",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
+        "image": "https://www.998244353.best/og-cover.png",
+        "featureList": [
+          "在浏览器里编译运行 C++，代码不出本机（本地 WASM 沙箱）",
+          "多测试样例批量运行与判定，支持时限（TLE）检测",
+          "Monaco 编辑器，多语言草稿与编辑器偏好可持久化",
+          "可切换 Piston / Judge0 远端评测服务",
+          "可安装为独立窗口应用，断网也能编译运行"
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!--
+        无脚本环境的兜底正文。JS 开启时浏览器不渲染 noscript（用户端零影响、不进无障碍树），
+        Vue 挂载时 #app 的整块内容也会被清空，所以这里只服务不执行 JS 的抓取器。
+
+        约束：只能放纯语义标签。构建期的 HTML 解析按「脚本未启用」遍历 noscript，
+        <style> / <link> / <script> / 相对路径的 <img> 会被特殊处理而在浏览器里失效，
+        链接因此一律写绝对地址。
+      -->
+      <noscript>
+        <h1>CPH IDE —— 浏览器里的在线 C++ 编译与评测环境</h1>
+        <p>
+          CPH IDE 是一个在线 IDE：左边是 Monaco 编辑器，右边是测试样例面板。它内置「本地 WASM
+          沙箱」，可以直接在浏览器里编译、运行并判定 C++ 代码，代码不出本机，断网也能用。
+        </p>
+
+        <h2>能做什么</h2>
+        <ul>
+          <li>在浏览器里编译运行 C++：编译与执行都在本机完成，代码不会被上传</li>
+          <li>多测试样例批量运行与判定，支持时限（TLE）检测</li>
+          <li>Monaco 编辑器，多语言草稿与编辑器偏好都存在浏览器本地</li>
+          <li>可在本地 WASM 沙箱与 Piston / Judge0 远端评测服务之间切换</li>
+          <li>可安装为独立窗口应用，装好之后断网也能编译运行</li>
+        </ul>
+
+        <h2>常见问题</h2>
+        <h3>代码会上传到服务器吗？</h3>
+        <p>
+          用本地 WASM 沙箱时不会：编译与运行都在你自己的浏览器里完成。切到 Piston 或 Judge0
+          这类远端引擎时，代码会发送到你填写的评测服务地址。
+        </p>
+
+        <h3>需要联网吗？</h3>
+        <p>
+          第一次用本地沙箱要先下载约 50MB 的 C++ 工具链（clang + libc++），只下一次，之后常驻浏览器缓存；
+          下载过之后即可离线使用。清除了浏览器数据就要重新下载。
+        </p>
+
+        <h3>支持 Python 吗？</h3>
+        <p>本地 WASM 沙箱目前只支持 C++。跑 Python 需要切换到 Piston 或 Judge0 远端评测服务。</p>
+
+        <h3>为什么第一次运行明显更慢？</h3>
+        <p>
+          首次运行要先下载工具链，之后每一份新代码的第一个用例都要付一次编译开销，同一份代码连续跑多个用例只编译一次。
+          卡片上的耗时只计「程序运行」那一段，不含编译与排队。
+        </p>
+
+        <p>
+          完整说明见 <a href="https://www.998244353.best/guide.html">CPH IDE 使用指南</a>。
+        </p>
+        <p>以上为无脚本环境下的说明；完整的编辑器与测试面板界面需要浏览器启用 JavaScript。</p>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

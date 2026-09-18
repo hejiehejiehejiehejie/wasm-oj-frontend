@@ -11,6 +11,7 @@ const emit = defineEmits(['update:open'])
 // 帮助抽屉的全部内容。每条 = 问题名称 / 核心答案 / 操作要点。
 // 文案与界面上的措辞保持一致（按钮 title、面板标签都按实际 UI 抄），
 // 改动 UI 文案时这里要跟着改；同一份内容也写在仓库 docs/使用手册.md 里。
+// 另外根目录的 guide.html 是它的「完整版」，改这里要检查那一页是否还说得通。
 const GROUPS = [
   {
     title: '常见操作',
@@ -126,6 +127,7 @@ function close() {
         </div>
 
         <footer class="panel-drawer__footer">
+          <a class="guide-link" href="/guide.html">完整使用指南</a>
           <button class="done-button" @click="close">完成</button>
         </footer>
       </aside>
@@ -270,9 +272,23 @@ function close() {
 .panel-drawer__footer {
   flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px 16px;
   border-top: 1px solid var(--border-soft);
+}
+
+/* 指向根目录 guide.html：抽屉里只放精简版，完整版是那一页 */
+.guide-link {
+  font-size: 12.5px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.guide-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
 }
 
 .done-button {

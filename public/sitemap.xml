@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 全站只有两条 URL。故意不写 lastmod：静态写死的日期会变成假信息；
+     changefreq / priority 已被 Google 忽略。 -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.998244353.best/</loc>
+  </url>
+  <url>
+    <loc>https://www.998244353.best/guide.html</loc>
+  </url>
+</urlset>

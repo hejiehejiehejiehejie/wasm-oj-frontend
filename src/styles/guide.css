@@ -1,0 +1,271 @@
+/* 使用指南页（guide.html）的样式。
+
+   只通过 @import 复用 base.css：两套主题的配色、字体、滚动条都由那里定义，
+   这里一律用 var(--…) 引用，不写任何十六进制色值（项目硬约束）。
+
+   注意 base.css 是为「满屏 IDE」写的：html/body 高度 100%、body 锁死滚动。
+   内容页必须把那两条放开，否则长页面滚不动。 */
+
+@import './base.css';
+
+/* 用 html body 提高优先级（0,0,2）而不是 body（0,0,1）：
+   构建后 base.css 是 Vite 注入的 <link>，与本文件在 <head> 里的先后顺序不可控，
+   只靠书写顺序压不住它。 */
+html body {
+  height: auto;
+  min-height: 100%;
+  /* base.css 的 overflow: hidden 会经根元素传播到视口，页面就滚不动了；
+     而且它是简写，横向也一起被锁死，这里显式放开两个轴 */
+  overflow: visible;
+  font-size: 14px;
+}
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 24px 72px;
+}
+
+/* ---------------------------------------------------------------- 页头 / 页脚 */
+
+.page__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 18px 0;
+  margin-bottom: 34px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-family: var(--mono-font);
+  font-size: 10px;
+  color: var(--text-on-accent);
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent-deep));
+}
+
+.brand__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--run-green);
+  color: var(--text-on-accent);
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.cta:hover {
+  background: var(--run-green-hover);
+}
+
+.page__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.page__foot p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- 正文排版 */
+
+.doc {
+  line-height: 1.78;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.doc__lead {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text-dim);
+}
+
+.doc h1 {
+  margin: 0 0 16px;
+  font-size: 26px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+.doc h2 {
+  margin: 44px 0 12px;
+  font-size: 19px;
+  font-weight: 620;
+  scroll-margin-top: 16px;
+}
+
+.doc h3 {
+  margin: 26px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.doc p {
+  margin: 0 0 14px;
+}
+
+.doc ul,
+.doc ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.doc li + li {
+  margin-top: 6px;
+}
+
+.doc a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.doc a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.doc code,
+.doc kbd {
+  font-family: var(--mono-font);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.doc code {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+}
+
+.doc kbd {
+  background: var(--bg-control);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* 浅底提示块：与界面里「评测服务」提示同款变量 */
+.note {
+  padding: 10px 13px;
+  border: 1px solid var(--info-soft-border);
+  border-radius: 7px;
+  background: var(--info-soft-bg);
+  color: var(--info-soft-text);
+  font-size: 13px;
+}
+
+/* 目录 */
+.toc {
+  margin: 0 0 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.toc__title {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc a {
+  font-size: 13.5px;
+}
+
+/* ---------------------------------------------------------------- 表格 */
+/* 窄屏不靠压缩列宽，而是让整张表在自己的容器里横向滚动，页面本身不出横向滚动条 */
+
+.table-wrap {
+  margin: 0 0 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  overflow-x: auto;
+}
+
+.doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.doc th,
+.doc td {
+  padding: 9px 13px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.doc th {
+  background: var(--bg-panel-head);
+  color: var(--text-dim);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.doc tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 0 16px 56px;
+  }
+
+  .doc h1 {
+    font-size: 22px;
+  }
+
+  .doc h2 {
+    font-size: 17px;
+    margin-top: 36px;
+  }
+}

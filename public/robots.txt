@@ -1,0 +1,11 @@
+# CPH IDE
+User-agent: *
+Allow: /
+
+# 52MB 的 clang 工具链只在用户点「下载」时才请求，不必占用抓取预算
+Disallow: /wasm/
+Disallow: /precache-manifest.json
+
+# 注意：不要 Disallow /assets/ —— Google 需要抓 JS/CSS 才能渲染页面
+
+Sitemap: https://www.998244353.best/sitemap.xml

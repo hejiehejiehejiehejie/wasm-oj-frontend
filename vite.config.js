@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
@@ -42,5 +43,15 @@ export default defineConfig({
     // Monaco ships a few large chunks; raise the warning threshold instead of
     // splitting the editor across many lazy chunks.
     chunkSizeWarningLimit: 4000,
+    // 两个入口：主应用 + 使用指南（guide.html）。指南页被搜索引擎直接抓取，
+    // 所以要作为真正的 HTML 入口构建，才能复用 base.css 的两套主题配色（色值只定义在那里）。
+    // 注意：precacheManifest 在 generateBundle 阶段从 bundle 生成、早于 vite:build-html，
+    // 所以清单里只有 guide 的 js/css，永远不含 .html，这一页不进 Service Worker 预缓存。
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        guide: fileURLToPath(new URL('./guide.html', import.meta.url)),
+      },
+    },
   },
 })
