@@ -27,6 +27,7 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+.trae/
 
 # Vite 的 *.local 约定（含 .env.local 之类）
 *.local
