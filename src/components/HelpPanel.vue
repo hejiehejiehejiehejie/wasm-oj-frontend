@@ -37,19 +37,28 @@ const GROUPS = [
       },
       {
         name: '本地运行代码性能的说明',
-        role: '首次最慢、之后只付运行开销；卡片上的耗时只算程序运行那一段，不含编译和排队。',
+        role: '首次最慢，之后只付运行开销；耗时只计「程序运行」那一段，不含编译与排队，页头取当轮最慢用例。',
         points: [
-          '耗时口径：卡片耗时和页头的时限同一口径，只计「程序运行」段，不含编译与排队；页头显示的是当轮最慢用例的耗时',
-          '首次运行要先下载约 50MB 的本地工具链，只下一次；下载后常驻浏览器缓存，断网也能继续编译运行',
-          '同一份代码连续跑多个用例只编译一次，第 2 个起只付运行开销——所以改完代码的第一枪会明显慢一些，属正常',
-          '后台自动生成一份 STL 预编译头并存在本机，省掉每次编译反复解析标准库头的开销；生成安排在首次运行之后的空闲时间，不阻塞操作，失败也不影响正常编译',
-          '工具链与预编译头都从本机缓存直接复用，于是每次编译只剩 WASI 启动、链接这类固定成本；这部分受本机性能影响，不承诺固定倍率',
+          '首次运行先下载约 50MB 工具链，只下一次；之后常驻本机，断网也能编译运行',
+          '同一份代码跑多个用例只编译一次，第 2 个起只付运行开销；改完代码的第一枪会明显慢些，属正常。**这部分受本机性能影响，不承诺固定倍率**',
+          '预编译头（PCH）开销：后台把最常用的 5 个 STL 头预先编译好，省掉每次编译重复解析它们的时间。生成排在首次运行之后的空闲时间，且等当前编译跑完才开工，会额外占用十几 MB 内存和一份约 9MB 的系统头文件副本',
+          'PCH 生成预算 3 分钟；机器扛不住（内存不足 / cc1 卡死）会在本机记为不支持、此后不再尝试，用例照常走普通编译',
+          'PCH 存在本机（约 10–20MB）；与当前编译选项对不上时自动退回普通编译、不会报错；换工具链版本后旧存档自动作废并重新生成',
           '以上只发生在本地沙箱；切到 Piston / Judge0 时速度取决于所连服务与网络',
         ],
       },
     ],
   },
 ]
+
+// 正文里用 **…** 标记加粗。不走 v-html：文案里会出现 <vector> 这类头文件名，
+// 交给 HTML 解析会被当成标签吃掉。
+function segments(point) {
+  return String(point)
+    .split(/\*\*(.+?)\*\*/g)
+    .map((text, index) => ({ text, bold: index % 2 === 1 }))
+    .filter((part) => part.text !== '')
+}
 
 function onKeydown(event) {
   if (event.key === 'Escape') close()
@@ -119,7 +128,13 @@ function close() {
                 <p class="help-item__name">{{ item.name }}</p>
                 <p class="help-item__role">{{ item.role }}</p>
                 <ul class="help-item__points">
-                  <li v-for="point in item.points" :key="point">{{ point }}</li>
+                  <li v-for="point in item.points" :key="point">
+                    <span
+                      v-for="(part, index) in segments(point)"
+                      :key="index"
+                      :class="{ 'is-bold': part.bold }"
+                    >{{ part.text }}</span>
+                  </li>
                 </ul>
               </li>
             </ul>
@@ -267,6 +282,11 @@ function close() {
 
 .help-item__points li + li {
   margin-top: 2px;
+}
+
+.help-item__points .is-bold {
+  font-weight: 700;
+  color: var(--text-dim);
 }
 
 .panel-drawer__footer {
