@@ -2,6 +2,10 @@
    深色是默认（不带 data-theme 时也用深色），浅色通过 <html data-theme="cph-light"> 切换。
    所有组件只允许引用这里的变量，不要再写死十六进制颜色。 */
 :root {
+  /* 告诉浏览器这套配色的明暗。UA 自己绘制的地方（橡皮筋回弹、滚动条、原生下拉）
+     按它取色，否则深色页面上会被画成白的 —— iPad 装到桌面后底部那条白边就出在这 */
+  color-scheme: dark;
+
   /* 底色层次：页面留白 → 卡片/面板 → 面板头脚 → 顶栏 */
   --bg-editor: #1e1e1e;
   --bg-panel: #252526;
@@ -81,6 +85,8 @@
 
 /* 浅色主题：层次与深色一致，只是整体翻转 */
 :root[data-theme='cph-light'] {
+  color-scheme: light;
+
   --bg-editor: #f3f3f3;
   --bg-panel: #ffffff;
   --bg-panel-head: #f3f3f3;
@@ -154,6 +160,12 @@ body,
 #app {
   height: 100%;
   margin: 0;
+}
+
+/* 画布底色显式给到 <html>：装成独立应用后页面铺满整屏，屏幕圆角与安全区那一圈
+   由 UA 画，不写在这里就会用默认的白色（深色主题下就是那条白边） */
+html {
+  background: var(--bg-editor);
 }
 
 body {
