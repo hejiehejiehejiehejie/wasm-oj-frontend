@@ -64,71 +64,11 @@ function onKeydown(event) {
   if (event.key === 'Escape') close()
 }
 
-// 设备诊断（临时）：iPad 独立窗口底部白条排查用。在真机上直接读出安全区、
-// 视口高度与底色，不用连 Mac 的网页检查器。定位完会整块撤掉。
-const diag = ref('')
-
-function collectDiag() {
-  try {
-    const probe = document.createElement('div')
-    probe.style.cssText =
-      'position:fixed;left:-9999px;top:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)'
-    document.body.appendChild(probe)
-    const s = getComputedStyle(probe)
-    const insets = [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft]
-    probe.remove()
-
-    const app = document.querySelector('.app')
-    const appStyle = app ? getComputedStyle(app) : null
-    const vv = window.visualViewport
-    diag.value = JSON.stringify(
-      {
-        mode: window.navigator.standalone
-          ? 'standalone(navigator)'
-          : matchMedia('(display-mode: standalone)').matches
-            ? 'standalone(media)'
-            : 'browser',
-        ua: window.navigator.userAgent,
-        uaData: window.navigator.userAgentData
-          ? {
-              brands: window.navigator.userAgentData.brands,
-              mobile: window.navigator.userAgentData.mobile,
-              platform: window.navigator.userAgentData.platform,
-            }
-          : null,
-        viewport: document.querySelector('meta[name=viewport]')?.content ?? null,
-        css: [...document.querySelectorAll('link[rel=stylesheet]')].map((l) =>
-          (l.getAttribute('href') ?? '').split('/').pop(),
-        ),
-        colorScheme: getComputedStyle(document.documentElement).colorScheme,
-        bg: {
-          html: getComputedStyle(document.documentElement).backgroundColor,
-          body: getComputedStyle(document.body).backgroundColor,
-          app: appStyle?.backgroundColor ?? null,
-        },
-        insets: { top: insets[0], right: insets[1], bottom: insets[2], left: insets[3] },
-        appPadding: appStyle
-          ? [appStyle.paddingTop, appStyle.paddingRight, appStyle.paddingBottom, appStyle.paddingLeft]
-          : null,
-        inner: [window.innerWidth, window.innerHeight],
-        visual: vv ? [Math.round(vv.width), Math.round(vv.height), Math.round(vv.offsetTop)] : null,
-        screen: [window.screen.width, window.screen.height],
-        dpr: window.devicePixelRatio,
-      },
-      null,
-      1,
-    )
-  } catch (error) {
-    diag.value = `诊断失败：${error?.message ?? error}`
-  }
-}
-
 watch(
   () => props.open,
   (open) => {
     if (open) {
       window.addEventListener('keydown', onKeydown)
-      collectDiag()
       return
     }
     window.removeEventListener('keydown', onKeydown)
@@ -198,12 +138,6 @@ function close() {
                 </ul>
               </li>
             </ul>
-          </section>
-
-          <!-- 临时诊断块：白条问题定位完会移除 -->
-          <section class="help-group help-diag-group">
-            <h3 class="help-group__title">设备诊断（排查白条用，截图发我即可）</h3>
-            <pre class="help-diag">{{ diag }}</pre>
           </section>
         </div>
 
@@ -353,25 +287,6 @@ function close() {
 .help-item__points .is-bold {
   font-weight: 700;
   color: var(--text-dim);
-}
-
-/* 临时诊断块：等宽小字直接铺 JSON，方便截图 */
-.help-diag-group {
-  user-select: all;
-}
-
-.help-diag {
-  margin: 0;
-  padding: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 7px;
-  background: var(--bg-input);
-  color: var(--text-dim);
-  font-family: var(--mono-font);
-  font-size: 10px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 
 .panel-drawer__footer {
