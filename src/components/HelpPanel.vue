@@ -88,6 +88,14 @@ function collectDiag() {
           : matchMedia('(display-mode: standalone)').matches
             ? 'standalone(media)'
             : 'browser',
+        ua: window.navigator.userAgent,
+        uaData: window.navigator.userAgentData
+          ? {
+              brands: window.navigator.userAgentData.brands,
+              mobile: window.navigator.userAgentData.mobile,
+              platform: window.navigator.userAgentData.platform,
+            }
+          : null,
         viewport: document.querySelector('meta[name=viewport]')?.content ?? null,
         css: [...document.querySelectorAll('link[rel=stylesheet]')].map((l) =>
           (l.getAttribute('href') ?? '').split('/').pop(),
