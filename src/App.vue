@@ -347,7 +347,26 @@ function beginDrag(event) {
   virtualShare = startRaw
   dragging.value = true
 
+  // 抓住指针。折叠阈值（EDGE_PX = 32）要求把鼠标一直拖到窗口边缘，松手时指针往往已经压在
+  // 窗口边框上、甚至跑到窗口外，这一发 pointerup 可能根本到不了页面。捕获之后事件始终投给
+  // 分隔条，松手才算数 —— 这是「松开左键还在拖」的正解，下面 move 里那条是它失灵时的兜底。
+  const captureTarget = event.currentTarget
+  if (captureTarget instanceof Element && captureTarget.setPointerCapture) {
+    try {
+      captureTarget.setPointerCapture(event.pointerId)
+    } catch {
+      /* 指针已经失效（例如按下瞬间就抬起），忽略即可 */
+    }
+  }
+
   const move = (moveEvent) => {
+    // 兜底：只要收到一个「没按任何键」的移动，就当场收尾。buttons 对鼠标是按键位、
+    // 对触摸是按住期间恒为 1，所以松手后的第一下晃动就会结束拖拽，
+    // 不会再出现「已经松手，面板还跟着鼠标走」。
+    if (moveEvent.buttons === 0) {
+      stop(moveEvent)
+      return
+    }
     moved = Math.max(moved, Math.abs(moveEvent.clientX - startX), Math.abs(moveEvent.clientY - startY))
     // 虚拟比例始终从按下那一刻起算，来回拖动才连续
     const raw = startRaw + ((moveEvent.clientX - startX) * direction * 100) / limits.width
@@ -500,6 +519,7 @@ onBeforeUnmount(() => {
   <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
     <TopBar
       v-model:language="language"
+      v-model:time-limit="timeLimitMs"
       :judge="judgeSettings"
       :connection="connection"
       :panel-position="panelPosition"
@@ -552,7 +572,6 @@ onBeforeUnmount(() => {
         :style="{ flexBasis: `${100 - editorShare}%` }"
       >
         <TestPanel
-          v-model:time-limit="timeLimitMs"
           :judge="judgeSettings"
           :cases="testCases"
           :running="running"
@@ -606,10 +625,13 @@ onBeforeUnmount(() => {
   padding: 6px;
   background: var(--bg-editor);
   /* 测试面板最低宽度的三个参数。JS 的拖拽上限（measureLimits）读的就是这三个变量，
-     同一个数字不在样式和脚本里各写一份。宽屏封顶 320px（保持桌面端原值）；
+     同一个数字不在样式和脚本里各写一份。宽屏封顶 240px（原来 320px，为了让样例栏能拖得更窄）；
      窄屏按内容宽的 50% 收缩 —— 面板与编辑器各占一半，两边都还能用；
-     地板 160px 是实测硬底：再窄卡片头部就开始横向溢出。 */
-  --tests-min-cap: 320px;
+     地板 160px 是实测硬底：再窄卡片头部就开始横向溢出。
+     240px 能成立的前提是卡片头部在窄容器下会让步：间距收紧，徽标图标与「结果待刷新」
+     按容器宽度逐级让位（每例的运行耗时始终保留，见 TestCaseCard.vue 的 @container 规则），
+     所以头部不会是「谁都不肯缩、最后叠在一起」。 */
+  --tests-min-cap: 240px;
   --tests-min-ratio: 0.5;
   --tests-min-floor: 160px;
 }
@@ -795,5 +817,17 @@ onBeforeUnmount(() => {
 ::view-transition-group(pane-tests) {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 换边也可以从设置抽屉里发起，那时抽屉正开着：两栏的快照默认画在 root 快照之上，而抽屉
+   只是普通层（z-index 61），于是动画期间两张卡片会浮到抽屉上面。把遮罩和抽屉也各自补成
+   一个过渡组并抬高 z-index（名字在 EditorSettingsPanel.vue 里声明），顺序就还原成
+   root → 两栏 → 遮罩 → 抽屉，动画老老实实待在抽屉底下。 */
+::view-transition-group(settings-backdrop) {
+  z-index: 1;
+}
+
+::view-transition-group(settings-drawer) {
+  z-index: 2;
 }
 </style>

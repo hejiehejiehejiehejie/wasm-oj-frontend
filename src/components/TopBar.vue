@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
-import LocalRuntimePanel from './LocalRuntimePanel.vue'
 import { LANGUAGES } from '../services/templates.js'
 import { engineChoices } from '../services/engines/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
@@ -15,6 +14,8 @@ const props = defineProps({
   connection: { type: Object, required: true },
   editorSettings: { type: Object, required: true },
   editorSettingsOpen: Boolean,
+  // 全局运行时限（毫秒，只计运行段），设置抽屉里修改
+  timeLimit: { type: Number, required: true },
   running: Boolean,
   total: { type: Number, default: 0 },
 })
@@ -26,6 +27,7 @@ const emit = defineEmits([
   'test-connection',
   'update:editor-settings',
   'update:editor-settings-open',
+  'update:time-limit',
   'toggle-layout',
   'run-all',
 ])
@@ -33,7 +35,6 @@ const emit = defineEmits([
 const choices = engineChoices()
 
 const settingsOpen = ref(false)
-const localRuntimeOpen = ref(false)
 const helpOpen = ref(false)
 const moreOpen = ref(false)
 const draftBase = ref(props.judge.base)
@@ -58,12 +59,11 @@ const probeTone = computed(() => {
   return ''
 })
 
-// 三个抽屉都从右侧滑出，同时打开会叠在一起，所以开一个就关另外两个；
+// 两个抽屉都从右侧滑出，同时打开会叠在一起，所以开一个就关另一个；
 // 引擎设置那个弹层挂在顶栏里，抽屉的遮罩会把它盖住，也顺手收掉，
 // 免得关掉抽屉之后它又冒出来。
 function closeDrawers(except) {
   if (except !== 'editor') emit('update:editor-settings-open', false)
-  if (except !== 'local') localRuntimeOpen.value = false
   if (except !== 'help') helpOpen.value = false
   settingsOpen.value = false
 }
@@ -73,11 +73,6 @@ function setEditorSettingsOpen(value) {
   if (value) closeDrawers('editor')
 }
 
-function setLocalRuntimeOpen(value) {
-  localRuntimeOpen.value = value
-  if (value) closeDrawers('local')
-}
-
 function setHelpOpen(value) {
   helpOpen.value = value
   if (value) closeDrawers('help')
@@ -85,11 +80,6 @@ function setHelpOpen(value) {
 
 /* 窄屏折进省略号的几项。动作都复用栏里那几颗按钮的同一个开关 / 同一个 emit，
    不复制组件，所以抽屉、弹层始终只有一份实例；点完顺手收起菜单。 */
-function openLocalRuntime() {
-  moreOpen.value = false
-  setLocalRuntimeOpen(true)
-}
-
 function openHelp() {
   moreOpen.value = false
   setHelpOpen(true)
@@ -98,11 +88,6 @@ function openHelp() {
 function openEngineSettings() {
   moreOpen.value = false
   settingsOpen.value = true
-}
-
-function swapPanes() {
-  moreOpen.value = false
-  emit('toggle-layout')
 }
 
 function openEditorSettings() {
@@ -114,12 +99,6 @@ function runInstall() {
   moreOpen.value = false
   install()
 }
-
-const swapHint = computed(() =>
-  props.panelPosition === 'right'
-    ? '测试面板当前在右侧，点击换到左侧'
-    : '测试面板当前在左侧，点击换到右侧',
-)
 
 function chooseEngine(id) {
   if (id === props.judge.id) return
@@ -160,12 +139,14 @@ function applyBase() {
 
     <EditorSettingsPanel
       :settings="editorSettings"
+      :panel-position="panelPosition"
+      :time-limit="timeLimit"
       :open="editorSettingsOpen"
       @update:settings="emit('update:editor-settings', $event)"
       @update:open="setEditorSettingsOpen"
+      @update:time-limit="emit('update:time-limit', $event)"
+      @toggle-layout="emit('toggle-layout')"
     />
-
-    <LocalRuntimePanel :open="localRuntimeOpen" @update:open="setLocalRuntimeOpen" />
 
     <button
       v-if="canInstall"
@@ -240,15 +221,6 @@ function applyBase() {
       </div>
     </div>
 
-    <button
-      class="tool tool--icon"
-      :title="swapHint"
-      :aria-label="swapHint"
-      @click="emit('toggle-layout')"
-    >
-      <AppIcon name="swap" />
-    </button>
-
     <!-- 图标区最右：窄屏时它最先折进「更多」，帮助属最不常用的一项 -->
     <HelpPanel :open="helpOpen" @update:open="setHelpOpen" />
 
@@ -268,16 +240,12 @@ function applyBase() {
 
       <div v-if="moreOpen" class="popover popover--menu">
         <button class="menu__item menu__item--editor" @click="openEditorSettings">
-          <AppIcon name="sliders" :size="15" />
-          <span>编辑器偏好设置</span>
+          <AppIcon name="gear" :size="15" />
+          <span>设置</span>
         </button>
         <button class="menu__item menu__item--help" @click="openHelp">
           <AppIcon name="help" :size="15" />
           <span>使用帮助</span>
-        </button>
-        <button class="menu__item menu__item--panel" @click="openLocalRuntime">
-          <AppIcon name="cpu" :size="15" />
-          <span>本地运行环境</span>
         </button>
         <button v-if="canInstall" class="menu__item menu__item--install" @click="runInstall">
           <AppIcon name="install" :size="15" />
@@ -286,10 +254,6 @@ function applyBase() {
         <button class="menu__item menu__item--engine" @click="openEngineSettings">
           <AppIcon name="sliders" :size="15" />
           <span>评测引擎设置</span>
-        </button>
-        <button class="menu__item menu__item--swap" @click="swapPanes">
-          <AppIcon name="swap" :size="15" />
-          <span>{{ panelPosition === 'right' ? '面板换到左侧' : '面板换到右侧' }}</span>
         </button>
       </div>
     </div>
@@ -432,13 +396,6 @@ function applyBase() {
 .tool:disabled:hover {
   background: none;
   border-color: transparent;
-}
-
-/* 纯图标按钮：去掉文字后收成正方形，避免左右多出空白 */
-.tool--icon {
-  width: 28px;
-  padding: 0;
-  justify-content: center;
 }
 
 .tool--solid {
@@ -656,20 +613,16 @@ function applyBase() {
 /* ---------- 窄屏：按优先级从低到高逐级舍弃 ----------
    顶栏没有 flex-wrap，而 .tool / .primary 都是 white-space: nowrap，所以宽度不够时既不换行
    也不省略，只是整体向右溢出、把运行按钮挤出视口。这里用断点主动丢掉低优先级内容。
-   各档阈值不是经验值，是按元素实测宽度反推出来的（见 HANDOFF 第 8 节）。加进底部输入按钮后重测
-   （把按钮的 flex-shrink 关掉量「自然宽度」，含安装按钮，无头 Chrome 300–900px 逐像素跑过，
-   触摸屏与鼠标两套均无溢出、无按钮被挤扁）：
+   各档阈值来自实测（把按钮的 flex-shrink 关掉量「自然宽度」，无头 Chrome 300–900px 逐像素
+   跑过，触摸屏与鼠标两套均无溢出、无按钮被挤扁，见 HANDOFF 第 3 节）。
 
-                      全展开   第1档   第2档   第3档   第4档   第5档
-     触摸屏（粗指针）      715     537     507     469     379     289
-     鼠标设备             677     499     469     431     341     251
+   2026-09：「换边」与「本地运行环境」两颗按钮搬进齿轮抽屉，顶栏少了 28 + 35 + 两个 gap
+   （共 73px，安装按钮存在时同量）。阈值一律没动 —— 少元素只会让各档更宽松：第 4 档（480）
+   对上一档的必需宽度从 431 降到约 386，余量由 49px 涨到约 94px，仍满足「第 N 档阈值 ≥
+   第 N−1 档必需宽度」。原第 5 档（≤400 折走「本地运行环境」）整块删除：它折的那颗按钮已经
+   不在 DOM 里，留着就是空规则。**改动后尚未按 HANDOFF 第 3 节的口径逐像素复测**，
+   再动顶栏任何元素的宽度前先补一次。
 
-   表里每格是「第 N 档生效时顶栏的最小自然宽度」，所以第 N 档的阈值不能小于第 N−1 档那一格：
-   触摸屏比鼠标多出底部输入按钮（28 + 10 gap = 38px），第 4、5 档的阈值就是为此上移的 ——
-   第 4 档的上一档要 469px，原来的 460 在 461–468 这段会溢出 → 抬到 480；
-   第 5 档的上一档要 379px，原来的 380 只剩 1px 余量 → 抬到 400，
-   顺手把编辑器齿轮也折进来：它是「设一次」的偏好（字号 / 缩进 / 主题），
-   而底部输入按钮是触摸屏上的常用动作，宁可折齿轮也要让它留在栏里。
    语言下拉是定宽的（选项里最长的「Python 3」决定宽度，切换语言不会变），会变的只有运行按钮文案在
    用例数变化时的那点宽度，而它在 ≤820 档已藏，余量留给这些波动。
    全部用 display: none（而非 visibility / opacity），顺带从无障碍树里摘掉。 */
@@ -694,11 +647,11 @@ function applyBase() {
   }
 }
 
-/* 第 3 档：图标开始从右到左折进省略号，先轮到最右的帮助和它左边的 swap。
-   省略号自己占一格（约 44px 含 gap），所以每档都折走两颗，净值才是 -44px */
+/* 第 3 档：图标开始从右到左折进省略号。原本这一档要一次折走两颗（省略号自己占一格，
+   折一颗净值是 0），「换边」搬走后只剩最右的帮助可折 —— 顶栏已经在别处空出 73px，
+   这一档仍有约 95px 余量，够用 */
 @media (max-width: 520px) {
-  :deep(.help-button),
-  .tool--icon {
+  :deep(.help-button) {
     display: none;
   }
 
@@ -706,14 +659,12 @@ function applyBase() {
     display: block;
   }
 
-  .menu__item--help,
-  .menu__item--swap {
+  .menu__item--help {
     display: flex;
   }
 }
 
-/* 第 4 档：再往左轮两个 —— 评测引擎设置齿轮、安装按钮。
-   阈值由 460 抬到 480：多了底部输入按钮后，折叠三格后仍需约 479px，460 会溢出 */
+/* 第 4 档：再往左轮两个 —— 评测引擎设置齿轮、安装按钮 */
 @media (max-width: 480px) {
   .settings > .tool,
   .tool--install {
@@ -732,20 +683,7 @@ function applyBase() {
   }
 }
 
-/* 第 5 档：轮到「本地运行环境」。
-   折叠四格后仍需约 389px，320px 的窄机上还是会溢出，所以这一档补上。
-   它的抽屉入口本来就在「更多」菜单里（对应 .menu__item 平时隐藏） */
-@media (max-width: 400px) {
-  :deep(.panel-button) {
-    display: none;
-  }
-
-  .menu__item--panel {
-    display: flex;
-  }
-}
-
-/* 第 6 档：编辑器齿轮（字号 / 缩进 / 主题）留到最后，视口窄于 350px 才折走。
+/* 第 5 档：编辑器齿轮（字号 / 缩进 / 主题）留到最后，视口窄于 350px 才折走。
    写 349 而不是 350：口径是「宽度小于 350px 再消失」，max-width: 349px 正好等价
    （350px 那档它仍在栏里）。它也是「设一次」的偏好，抽屉入口在 .menu__item--editor */
 @media (max-width: 349px) {

@@ -298,6 +298,11 @@ async function copyOutput() {
   font-size: 11px;
   color: var(--warn);
   white-space: nowrap;
+  /* 判定区里唯一能缩的一格（耗时与运行图标都是 flex: 0 0 auto）。给它省略号，
+     窄到放不下时它自己截断，而不是让文字溢出、压住右边的耗时和运行图标。 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric {
@@ -318,6 +323,8 @@ async function copyOutput() {
   /* 去掉 UA 默认的按钮内边距，否则整条判定区的内容会整体偏移 */
   padding: 0;
   color: inherit;
+  /* 兜底：判定区是头部唯一可压缩的一格，内容宁可被裁也不许压到相邻格上 */
+  overflow: hidden;
 }
 
 .run-zone:disabled {
@@ -467,5 +474,53 @@ async function copyOutput() {
 
 .out.is-empty {
   color: var(--text-faint);
+}
+
+/* ---------- 窄容器下的降级 ----------
+   容器是 TestPanel 里 .cases 的 inline-size（约等于面板宽度 − 24px 内边距 − 滚动条）。
+   面板下限放宽到 240px 后（见 App.vue 的 --tests-min-cap），头部一行放不下全部内容：
+   折叠箭头、#N、徽标、删除按钮都是 flex: 0 0 auto，不参与压缩，只剩判定区能缩。
+   所以按重要性逐级让步，而不是让它们挤在一起。
+
+   注意优先级：**每例的运行耗时（.metric）任何宽度下都不隐藏** —— 它是这一行里
+   唯一「看完会想改代码」的信息，「结果待刷新」还有面板头部的 ?/N AC 徽标与卡片
+   降透明度在提示，徽标图标（✓/✕）则只是装饰，文字本身已经说明结论。
+   该让位的是后两者。 */
+@container (max-width: 360px) {
+  .card__head {
+    gap: 6px;
+    padding: 7px 6px 7px 8px;
+  }
+
+  /* 正文同步收一点内边距，把省下的宽度留给输入框与输出框 */
+  .card__body {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .io {
+    gap: 8px;
+  }
+
+  .ta,
+  .out {
+    padding: 7px 8px;
+  }
+}
+
+/* 再挤一档：间距收到最小，并让掉徽标图标与「结果待刷新」，把宽度省给运行耗时 */
+@container (max-width: 250px) {
+  .card__head {
+    gap: 4px;
+    padding: 7px 5px 7px 6px;
+  }
+
+  .badge :deep(svg) {
+    display: none;
+  }
+
+  .stale {
+    display: none;
+  }
 }
 </style>

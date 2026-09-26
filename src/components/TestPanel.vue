@@ -2,22 +2,15 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import TestCaseCard from './TestCaseCard.vue'
-import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 
 const props = defineProps({
   cases: { type: Array, required: true },
   running: Boolean,
   // 最慢的那张用例卡片耗时（毫秒，只计运行段，与卡片同口径）
   elapsed: { type: Number, default: 0 },
-  // 全局时限（毫秒），只计运行段
-  timeLimit: { type: Number, required: true },
 })
 
-const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'update:time-limit'])
-
-function limitLabel(ms) {
-  return `${ms / 1000} s`
-}
+const emit = defineEmits(['add', 'remove', 'run-one', 'run-all'])
 
 const counts = computed(() => {
   // stale 是附加维度：卡片状态仍是 passed/failed/error，但代码或输入已改动、结论过期
@@ -61,19 +54,6 @@ const elapsedText = computed(() => {
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
         </span>
       </div>
-
-      <label class="limit" title="运行时限：只计程序运行阶段（不含编译），超出即判 TLE">
-        <span class="limit__label">时限</span>
-        <span class="select">
-          <select
-            :value="timeLimit"
-            @change="emit('update:time-limit', Number($event.target.value))"
-          >
-            <option v-for="ms in TIME_LIMIT_OPTIONS" :key="ms" :value="ms">{{ limitLabel(ms) }}</option>
-          </select>
-          <AppIcon name="chevron" :size="12" class="select__chevron" />
-        </span>
-      </label>
     </header>
 
     <ul class="cases">
@@ -123,8 +103,8 @@ const elapsedText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* 标题 + 徽标 + 耗时 + 时限一行要约 250px：面板被拖到很窄时让时限那组整体换到第二行，
-     而不是继续挤 —— 挤到最后徽标会溢出自己的盒子，直接压在时限选择器上。 */
+  /* 时限选择器搬进设置抽屉后头部只剩标题 + 徽标 + 耗时，换算下来仍可能超过很窄的面板，
+     所以折行保留：挤不下时整体换行而不是让徽标溢出自己的盒子 */
   flex-wrap: wrap;
   gap: 10px;
   row-gap: 6px;
@@ -193,49 +173,6 @@ const elapsedText = computed(() => {
   font-family: var(--mono-font);
   font-size: 11px;
   color: var(--text-faint);
-}
-
-/* 时限选择器：贴着面板头部右侧，宽度不参与压缩。
-   margin-left: auto 是给折行后的情形留的：它单独占第二行时仍然贴右。 */
-.limit {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-
-.limit__label {
-  font-size: 11.5px;
-  color: var(--text-faint);
-}
-
-.select {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.select select {
-  appearance: none;
-  padding: 4px 24px 4px 8px;
-  border-radius: 5px;
-  background: var(--bg-control);
-  border: 1px solid var(--border);
-  font-size: 12px;
-  font-family: var(--mono-font);
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.select select:hover {
-  background: var(--bg-control-hover);
-}
-
-.select__chevron {
-  position: absolute;
-  right: 7px;
-  pointer-events: none;
-  color: var(--text-dim);
 }
 
 .cases {
