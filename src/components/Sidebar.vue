@@ -13,7 +13,7 @@
  * 宽度与显隐不在这里管：外层 .pane--tests 作为一个整体参与与 Monaco 的分屏拖拽
  * （见 App.vue 的 .splitter 与 measureLimits）。
  */
-import { provide } from 'vue'
+import { computed, provide } from 'vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { closeSettingsTab, openSettingsTab, settingsTab } from '../services/settingsTab.js'
 
@@ -23,30 +23,36 @@ const PANEL_TABS = [
   { id: 'tests', label: '评测样例', icon: 'cases' },
 ]
 
-// 页头里并排的三个入口。第三个不是面板，而是编辑区里那个「设置」合成页签的开关
-// （2026-09 顶栏删除后从齿轮按钮搬过来的），所以它只参与渲染，不参与下面的 v-show 切换
-const TABS = [...PANEL_TABS, { id: 'settings', label: '设置', icon: 'gear' }]
-
 // 当前页签：默认落在资源管理器，与改动前的默认视觉一致
 const activeTab = usePersistentRef('cph.sidebarTab', 'explorer')
 // 存档里可能是旧值 / 脏值：认不出来就退回默认页签，免得两个面板被一起藏掉
 if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'explorer'
 
-// 两个面板与「设置」互不排斥（设置开在编辑区、面板照旧显示），所以这里逐项判高亮
-function isActive(id) {
-  return id === 'settings' ? settingsTab.active : activeTab.value === id
-}
+// 两个面板的入口在 2026-09 合并成了一颗按钮：点一下在两个面板之间来回切。
+// 所以它画的是**将要去的那一个**（图标与文案都是），而不是当前这个 ——
+// 只画图标不写字，画当前的话用户没法预判点下去会发生什么。
+const targetPanel = computed(
+  () => PANEL_TABS.find((tab) => tab.id !== activeTab.value) ?? PANEL_TABS[0],
+)
 
-function selectTab(id) {
+// 页头里并排的两个入口：面板切换 + 编辑区里那个「设置」合成页签的开关
+// （2026-09 顶栏删除后从齿轮按钮搬过来的）。后者不是面板，不参与下面的 v-show 切换。
+// pressed 只有「设置」才有：面板那颗是动作按钮（点它执行切换），不是可按下状态。
+const entries = computed(() => [
+  { id: 'panel', icon: targetPanel.value.icon, label: `切换到${targetPanel.value.label}` },
+  { id: 'settings', icon: 'gear', label: '设置', pressed: settingsTab.active },
+])
+
+function selectEntry(id) {
   if (id === 'settings') {
     // 再点一次＝收起设置，回到刚才那个代码文件（与顶栏那颗齿轮的旧行为一致）
     settingsTab.active ? closeSettingsTab() : openSettingsTab()
     return
   }
-  if (PANEL_TABS.some((tab) => tab.id === id)) activeTab.value = id
+  activeTab.value = targetPanel.value.id
 }
 
-provide('sidebarTabs', { tabs: TABS, isActive, select: selectTab })
+provide('sidebarTabs', { entries, select: selectEntry })
 
 // 供父组件从外部切到指定面板（如 App.vue 在开跑时要把「评测样例」亮出来）。
 // 状态与持久化仍只在这一处，这里只是多一个入口，不让父组件自己存一份
@@ -59,10 +65,12 @@ defineExpose({ showPanel })
 <template>
   <div class="sidebar">
     <div class="sidebar__body">
-      <div v-show="activeTab === 'explorer'" class="sidebar__panel">
+      <!-- data-panel：页头的切换钮画的是「将要去的那一个」，不再是当前面板的名字，
+           所以「现在停在哪个面板」需要一个机器可读的出处（无头回归按它判）。 -->
+      <div v-show="activeTab === 'explorer'" class="sidebar__panel" data-panel="explorer">
         <slot name="explorer" />
       </div>
-      <div v-show="activeTab === 'tests'" class="sidebar__panel">
+      <div v-show="activeTab === 'tests'" class="sidebar__panel" data-panel="tests">
         <slot name="tests" />
       </div>
     </div>

@@ -68,14 +68,13 @@ const probe = (page) =>
     // .minimap 节点是常驻 DOM 的：Monaco 靠把宽度压到 0 来隐藏它，而不是移除节点。
     // 所以「可见性」只能看渲染宽度，看节点存在与否恒为真。
     const minimapWidth = Math.round(document.querySelector('.minimap')?.getBoundingClientRect().width ?? 0)
-    // 「资源管理器 / 评测样例」的切换按钮分别渲染在两个面板的页头里（v-show 藏着另一个面板），
+    // 「资源管理器 / 评测样例」的页头切换钮分别渲染在两个面板各自的页头里（v-show 藏着另一个面板），
     // 所以只认当前可见那个面板里的那一份；用 getClientRects 判可见（computed display 会误报）。
-    const visibleSwitcherTabs = () => {
-      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
-        (el) => el.getClientRects().length > 0,
-      )
-      return panel ? [...panel.querySelectorAll('.sidebar-switcher__tab')] : []
-    }
+    const visiblePanel = () =>
+      [...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)
+    const visibleSwitcherTabs = () => [
+      ...(visiblePanel()?.querySelectorAll('.sidebar-switcher__tab') ?? []),
+    ]
     return {
       // 顶栏已在 2026-09 整体删除（设置入口搬进侧栏页头、运行按钮搬进编辑器页签栏），
       // 这里守的是「它真的不回来了」以及工作区仍然贴顶
@@ -100,12 +99,22 @@ const probe = (page) =>
       storedPanel: stored('cph.panelPosition'),
       storedShare: stored('cph.editorShare'),
       sidebarTabs: visibleSwitcherTabs().map((el) => el.getAttribute('aria-label')),
-      sidebarActiveTab:
-        visibleSwitcherTabs()
-          .find((el) => el.classList.contains('is-active'))
-          ?.getAttribute('aria-label') ?? '',
+      // 面板入口合并成一颗切换钮之后，页头不再有「我在哪个面板」的高亮信号：
+      // 那颗钮画的是将要去的那一个，当前面板只能看 .sidebar__panel 的 data-panel。
+      sidebarPanel: visiblePanel()?.dataset.panel ?? '',
     }
   })
+
+// 面板入口合并成一颗切换钮后不能按名字点它（它画的是「将要去的那一个」）：
+// 先看当前可见面板是不是目标，不是就点页头第一颗（永远是那颗面板切换钮）翻过去。
+const showPanel = (page, id) =>
+  page.evaluate((target) => {
+    const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+      (el) => el.getClientRects().length > 0,
+    )
+    if (!panel || panel.dataset.panel === target) return
+    panel.querySelector('.sidebar-switcher__tab')?.click()
+  }, id)
 
 const results = []
 const logs = []
@@ -147,11 +156,12 @@ try {
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     await page.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
     // 新契约（2026-09 统一侧边栏）：侧边栏默认停在「资源管理器」，用例卡在「评测样例」
-    // 页签里、被 v-show 藏着（节点在 DOM 里，但不可见）。先确认两个页签都在，再切过去，
-    // 卡片才是真的渲染出来——这也是切页签这条路本身的回归。
-    // 切换按钮现已并入两个面板各自的页头，所以要落在当前可见的那个面板里找。
-    // 切换按钮已只画 logo（不写字），所以认 aria-label 而不是 textContent，
-    // 并且要落在当前可见的那个面板里找。
+    // 里、被 v-show 藏着（节点在 DOM 里，但不可见）。先确认页头那颗切换钮在，再点过去，
+    // 卡片才是真的渲染出来——这也是切面板这条路本身的回归。
+    // 切换钮已并入两个面板各自的页头，所以要落在当前可见的那个面板里找；
+    // 它只画 logo 不写字，所以认 aria-label 而不是 textContent。
+    // 面板入口已合并成一颗钮：它画的是「将要去的那一个」，所以默认停在资源管理器时，
+    // 页头上的两颗应该是「切换到评测样例」+「设置」。
     const tabs = await page.evaluate(() => {
       const panel = [...document.querySelectorAll('.sidebar__panel')].find(
         (el) => el.getClientRects().length > 0,
@@ -173,8 +183,8 @@ try {
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cph-1-default-right.png` })
     const ok =
-      tabs.join('/') === '资源管理器/评测样例/设置' &&
-      state.sidebarActiveTab === '评测样例' &&
+      tabs.join('/') === '切换到评测样例/设置' &&
+      state.sidebarPanel === 'tests' &&
       !state.topbarPresent &&
       state.workspaceTop === 0 &&
       state.codeLineCount > 3 &&
@@ -320,17 +330,8 @@ try {
     const added = await page.evaluate(() => document.querySelectorAll('.card').length)
     // 先把侧栏切回「资源管理器」再双击分隔条折叠它——为的是验新契约：点运行按钮时
     // 侧栏要自己展开、并切到「评测样例」，不然点了运行看不到结果。
-    // （顺序不能反：折叠后整栏 display:none，页头里那几颗图标就点不到了。）
-    const visibleTab = (name) =>
-      page.evaluate((label) => {
-        const panel = [...document.querySelectorAll('.sidebar__panel')].find(
-          (el) => el.getClientRects().length > 0,
-        )
-        ;[...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])]
-          .find((el) => el.getAttribute('aria-label') === label)
-          ?.click()
-      }, name)
-    await visibleTab('资源管理器')
+    // （顺序不能反：折叠后整栏 display:none，页头那颗切换钮也就点不到了。）
+    await showPanel(page, 'explorer')
     await wait(300)
     await page.evaluate(() =>
       document
@@ -354,10 +355,7 @@ try {
       )
       return {
         visible: document.querySelector('.pane--tests').getClientRects().length > 0,
-        activeTab:
-          [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])]
-            .find((el) => el.classList.contains('is-active'))
-            ?.getAttribute('aria-label') ?? '',
+        activePanel: panel?.dataset.panel ?? '',
       }
     })
     const state = await probe(page)
@@ -368,7 +366,7 @@ try {
         state.badges.length === 3 &&
         collapsed &&
         revealed.visible &&
-        revealed.activeTab === '评测样例',
+        revealed.activePanel === 'tests',
       {
         cardsAfterAdd: added,
         collapsedBeforeRun: collapsed,
@@ -385,18 +383,8 @@ try {
   // 语言不再有顶栏下拉（2026-09 移除）：语言跟着活跃文件的扩展名走，所以这一步走真实 UI ——
   // 在资源管理器里点开 main.py（迁移在首次启动时已种下它），断言模板 / 页签 / 判题语言都变成 Python。
   await step('F. 打开 main.py：Python 模板与判题语言', async () => {
-    // A 步把侧栏切到了「评测样例」，先切回「资源管理器」；切换入口在两个面板各自的页头里，
-    // 所以要认「当前可见的那个 panel」再取其切换按钮（同一时刻只有一个可见）。
-    // 切换按钮只画 logo 不写字（名字在 aria-label / title 上），所以不能按 textContent 找。
-    await page.evaluate(() => {
-      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
-        (el) => el.getClientRects().length > 0,
-      )
-      const tab = [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].find((el) =>
-        (el.getAttribute('aria-label') ?? el.getAttribute('title') ?? '').includes('资源管理器'),
-      )
-      tab?.click()
-    })
+    // E 步把侧栏切到了「评测样例」（点运行会自动亮出结果），这里先切回「资源管理器」。
+    await showPanel(page, 'explorer')
     await page.waitForSelector('.tree-item__label', { visible: true, timeout: 10000 })
     // 用 DOM click（不是坐标点击）：面板被拖窄后标签会省略号化，坐标点击会点偏。
     // 点 .tree-item__row 才走 FileTreeItem.onClick → openFile。
