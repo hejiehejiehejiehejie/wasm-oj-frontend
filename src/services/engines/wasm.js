@@ -1,21 +1,19 @@
 /**
- * 本地 WASM 沙箱引擎 —— 在浏览器里用 runno 的 wasm 版 clang 编译并运行 C++，不经过任何后端。
- *
- * 真正干活的是 src/services/runnoSandbox.js，而它的唯一入口是 src/services/wasmRuntime.js
- * （工具链缓存 + 阶段播报 + 看门狗中断）。这个文件只做一件事：
- * 把回来的一串消息翻译成 runner 认识的 EngineExecution。
- *
- * 已知边界（本步不处理）：只支持 C++（Python 的运行时没接）。
+ * 本地 WASM 沙箱引擎 —— 在浏览器里用 runno 跑代码，不经过任何后端。
+ * C++ 走「wasm 版 clang 编译 + wasm-ld 链接」，Python 走「解释器直接执行」，
+ * 两条管线都落在 src/services/runnoSandbox.js，由 src/services/wasmRuntime.js
+ * （工具链缓存 + 阶段播报 + 看门狗中断 + 语言路由）统一调度。
+ * 这个文件只做一件事：把回来的一串消息翻译成 runner 认识的 EngineExecution。
  */
 
 import { runCase } from '../wasmRuntime.js'
 
-const SUPPORTED_LANGUAGES = new Set(['cpp'])
+const SUPPORTED_LANGUAGES = new Set(['cpp', 'python'])
 
 export const wasmEngine = {
   id: 'wasm',
   label: '本地 WASM 沙箱',
-  hint: '在浏览器里编译运行，代码不出本机；只支持 C++，首次需下载约 50MB 的本地工具链',
+  hint: '在浏览器里编译运行，代码不出本机；支持 C++ 与 Python，首次需下载本地运行时（C++ 约 50MB / Python 约 24MB）',
   executesCode: true,
   // 内置引擎没有服务地址，按注册表约定固定填 'local'
   defaultBase: 'local',
@@ -32,12 +30,13 @@ export const wasmEngine = {
         message: '页面没有跨域隔离，SharedArrayBuffer 不可用：确认 dev server 已注入 COOP / COEP 响应头',
       }
     }
-    return { ok: true, message: '本地沙箱可用，首次运行需下载本地工具链（约 50MB，之后常驻缓存）' }
+    return { ok: true, message: '本地沙箱可用，首次运行需下载本地运行时（C++ 约 50MB / Python 约 24MB，之后常驻缓存）' }
   },
 
-  async execute({ code, stdin, signal, timeLimitMs }) {
-    const message = await runCase({ code, stdin, signal, timeLimitMs })
-    // 耗时口径跟着 runCpp 走：只算程序运行段，不含编译，卡片之间才可比。
+  async execute({ languageId, entryPath, code, stdin, signal, timeLimitMs }) {
+    const message = await runCase({ language: languageId, entryPath, code, stdin, signal, timeLimitMs })
+    // 耗时口径：C++ 只算运行段（不含编译，编译是整批用例共享的一次性开销）；
+    // Python 没有编译段，这里就是解释器启动 + 程序执行的墙钟。
     // 程序没跑起来（编译失败 / 环境不可用）时是 null，卡片就不显示时间。
     const durationMs = typeof message.durationMs === 'number' ? message.durationMs : null
 

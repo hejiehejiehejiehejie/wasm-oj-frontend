@@ -24,6 +24,9 @@
  */
 import { WASIWorkerHost } from '@runno/wasi'
 import { deletePch, readPch, writePch } from './pchStore.js'
+// 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
+// 必须长得一模一样，runno 才认。
+import { fsEntry as wasiFile } from './vfs/runnoFs.js'
 
 // 工具链自托管在 public/wasm/<版本>/（原来是 runno.dev 的 CDN）。
 // 裸文件体积：clang.wasm 31.2MB、wasm-ld.wasm 19.5MB、clang-fs.tar.gz 1.8MB；
@@ -50,9 +53,6 @@ const UNIVERSAL_HEADER_PATH = '/sys/include/bits/stdc++.h'
 // 不要指望自己建目录 —— runno 的 path_create_directory 是残缺实现（只会塞一个 .runno 文件）
 const PCH_SOURCE_PATH = '/stdc++.h'
 const PCH_PATH = '/stdc++.h.pch'
-
-// WASI 文件系统里的时间戳，对我们没有意义，给个固定值即可
-const TIME = new Date(0)
 
 /**
  * 前端（cc1）的公共参数，PCH 生成和用户代码编译必须**逐字共用**这一份。
@@ -196,10 +196,6 @@ const MICRO_STDCXX_H = `#ifndef OJ_SANDBOX_MICRO_STDCXX_H
 #endif
 `
 
-function wasiFile(path, content, mode = 'string') {
-  return { path, content, mode, timestamps: { change: TIME, access: TIME, modification: TIME } }
-}
-
 /** 浏览器原生 gzip 解压，省掉 pako 依赖 */
 async function gunzip(bytes) {
   if (typeof DecompressionStream !== 'function') {
@@ -337,14 +333,17 @@ function releaseStdinWaiter(host) {
 /**
  * 跑一个 WASI 模块，收回 stdout / stderr / 退出码，以及跑完之后的文件系统。
  * onHost 用来把当前 WASIWorkerHost 交给上层，卡死或被取消时靠它 kill()。
+ *
+ * env 是给解释器这类「不带编译器、运行时自己找配置」的模块用的；
+ * C++ 那条线不需要，留空即可。
  */
-async function runWasi(binaryURL, { name, args, fs, stdin, onHost }) {
+async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
   let stdout = ''
   let stderr = ''
   const host = new WASIWorkerHost(binaryURL, {
     // argv[0] 是程序名，不能省（见文件头的坑 1）
     args: [name, ...args],
-    env: {},
+    env: env ?? {},
     fs,
     stdout: (chunk) => {
       stdout += chunk
@@ -496,6 +495,128 @@ export async function runCpp({ code, stdin, onStatus = () => {}, onHost = () => 
     }
   } finally {
     URL.revokeObjectURL(binaryURL)
+  }
+}
+
+// ---------------------------------------------------------------- Python
+//
+// 和 C++ 那条线并列的第二条管线：同一条 WASI 宿主（runno 的 WASIWorkerHost），
+// 同一个 fs 形状，同一套 stdout / stderr 拦截与 kill() 中断，区别只在于
+// 「没有编译」——解释器启动、导入、执行都发生在同一次 WASI run 里。
+//
+// 运行时用的是 runno 自带的那一份（taybenlor/runno 的 langs/），和工具链同源：
+//   python.wasm               CPython 3.11.3，wasm32-wasi，约 20.5MB
+//   python-fs.tar.gz          标准库，解包后只有 3 个文件，约 4MB
+// 标准库不是散落的 500 个 .py，而是打包成 /usr/local/lib/python311.zip 走 zipimport，
+// 只有 os.py 必须是真文件（zipimport 加载它有循环依赖问题），所以体积才压得住。
+//
+// 关键点：env 必须留空。这份构建把 prefix 编译死成 /usr/local，解释器自己会去
+// /usr/local/lib/python311.zip 找标准库，塞 PYTHONHOME 反而会把查找路径带偏。
+
+const PYTHON_VERSION = '3.11.3'
+const PYTHON_ASSETS = `${location.origin}${import.meta.env.BASE_URL}wasm/python-${PYTHON_VERSION}`
+const PYTHON_BINARY_URL = `${PYTHON_ASSETS}/python.wasm`
+const PYTHON_FS_URL = `${PYTHON_ASSETS}/python-fs.tar.gz`
+
+/** @type {{ binaryURL: string, stdlib: Record<string, object> } | null} */
+let pythonRuntime = null
+let pythonRuntimePromise = null
+
+/** 与 loadToolchain 同构：解包一次常驻内存，二进制先读一遍进 HTTP 缓存 */
+function loadPythonRuntime(onStatus) {
+  if (!pythonRuntimePromise) {
+    pythonRuntimePromise = (async () => {
+      onStatus('download', '正在获取 Python 运行时（解释器 + 标准库，约 24MB，只下一次）…')
+      const [stdlib] = await Promise.all([
+        (async () => {
+          const response = await fetch(PYTHON_FS_URL)
+          if (!response.ok) throw new Error(`Python 标准库下载失败（HTTP ${response.status}）`)
+          return unpackSysroot(new Uint8Array(await response.arrayBuffer()))
+        })(),
+        warmCache(PYTHON_BINARY_URL, 'python'),
+      ])
+      pythonRuntime = { binaryURL: PYTHON_BINARY_URL, stdlib: stdlib.fs }
+      return pythonRuntime
+    })()
+    // 失败时清掉缓存的 promise，下次点运行还能重试
+    pythonRuntimePromise.catch(() => {
+      pythonRuntimePromise = null
+    })
+  }
+  return pythonRuntimePromise
+}
+
+/** Python 运行时是否已在内存里（与 isToolchainReady 对称） */
+export function isPythonRuntimeReady() {
+  return pythonRuntime !== null
+}
+
+/** 只把 Python 运行时拉到本地（不跑代码），用于「本地运行环境」面板的下载按钮。 */
+export async function preloadPythonRuntime(onStatus = () => {}) {
+  const startedAt = performance.now()
+  await loadPythonRuntime(onStatus)
+  return Math.round(performance.now() - startedAt)
+}
+
+/**
+ * 各语言下载时要落缓存的资产清单。
+ * 「这些 URL 是否都在本地缓存」就是运行时「是否已下载」的判据；版本号编在目录路径里，
+ * 升级版本自然指向新文件，不需要额外的版本标记。
+ * 未知语言返回空表（调用方据此判定不可用）。
+ * @param {string} language
+ * @returns {string[]}
+ */
+export function runtimeAssetURLs(language) {
+  if (language === 'python') return [PYTHON_BINARY_URL, PYTHON_FS_URL]
+  if (language === 'cpp') return [CLANG_URL, LINKER_URL, SYSROOT_URL]
+  return []
+}
+
+/**
+ * 直接解释执行一段 Python（不编译）。
+ *
+ * fs 的叠放顺序就是优先级：标准库垫底 → 用户 VFS 整棵树 → 入口文件用入参内容覆盖。
+ * 入口必须放最后：编辑器里可能刚敲完还没落盘，跑的一定得是屏幕上那份。
+ * 入口所在目录（一般是 /）会成为解释器的 sys.path[0]，兄弟模块才 import 得到。
+ *
+ * 返回值刻意和 runCpp 同构，上层（wasmRuntime / engines）就不用分两份处理：
+ * stage 恒为 'run'（Python 没有编译段），durationMs 是解释器启动 + 程序执行的实测墙钟。
+ *
+ * @param {{ code: string, entryPath?: string, fs?: Record<string, object>, stdin?: string, onStatus?: Function, onHost?: Function }} options
+ */
+export async function runPython({
+  code,
+  entryPath = '/main.py',
+  fs: userFs,
+  stdin,
+  onStatus = () => {},
+  onHost = () => {},
+}) {
+  const runtime = await loadPythonRuntime(onStatus)
+  const path = String(entryPath || '/main.py')
+  const fs = {
+    ...runtime.stdlib,
+    ...(userFs ?? {}),
+    [path]: wasiFile(path, String(code ?? '')),
+  }
+
+  onStatus('run', '正在运行…')
+  const startedAt = performance.now()
+  const ran = await runWasi(runtime.binaryURL, {
+    // argv = ['python', '<入口文件>']：解释器把 sys.argv[1] 当脚本路径执行
+    name: 'python',
+    args: [path],
+    fs,
+    stdin,
+    onHost,
+  })
+  return {
+    stage: 'run',
+    ok: ran.exitCode === 0,
+    exitCode: ran.exitCode,
+    stdout: ran.stdout,
+    stderr: ran.stderr,
+    durationMs: Math.round(performance.now() - startedAt),
   }
 }
 

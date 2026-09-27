@@ -23,7 +23,7 @@ function failed(detail, durationMs = null, extra = {}) {
 /**
  * @returns {Promise<CasePatch>}
  */
-export async function evaluateCase({ engine, base, languageId, code, testCase, timeLimitMs, signal }) {
+export async function evaluateCase({ engine, base, languageId, entryPath, code, testCase, timeLimitMs, signal }) {
   if (engine?.supports && !engine.supports(languageId)) {
     return failed(LANGUAGE_UNSUPPORTED(engine))
   }
@@ -31,6 +31,7 @@ export async function evaluateCase({ engine, base, languageId, code, testCase, t
   const result = await engine.execute({
     base,
     languageId,
+    entryPath,
     code,
     stdin: testCase.input ?? '',
     timeLimitMs,
@@ -92,7 +93,7 @@ export async function evaluateCase({ engine, base, languageId, code, testCase, t
  * 小并发跑完一批用例，逐个回调补丁，界面可以实时看到卡片变色。
  * 回调签名固定为 (testCase, patch, index)。
  */
-export async function runCases({ engine, base, languageId, code, cases, timeLimitMs, signal, concurrency = 2, onCase }) {
+export async function runCases({ engine, base, languageId, entryPath, code, cases, timeLimitMs, signal, concurrency = 2, onCase }) {
   const queue = cases.map((testCase, index) => ({ testCase, index }))
 
   const workers = Array.from({ length: Math.max(1, Math.min(concurrency, queue.length)) }, async () => {
@@ -100,7 +101,7 @@ export async function runCases({ engine, base, languageId, code, cases, timeLimi
       if (signal?.aborted) return
       const next = queue.shift()
       if (!next) return
-      const patch = await evaluateCase({ engine, base, languageId, code, testCase: next.testCase, timeLimitMs, signal })
+      const patch = await evaluateCase({ engine, base, languageId, entryPath, code, testCase: next.testCase, timeLimitMs, signal })
       onCase?.(next.testCase, patch, next.index)
     }
   })

@@ -24,11 +24,14 @@ import { wasmEngine } from './wasm.js'
  * @property {string} defaultBase          默认服务地址；内置引擎填 'local'
  * @property {(languageId: string) => boolean} [supports]
  * @property {(base: string, signal?: AbortSignal) => Promise<{ok: boolean, message: string}>} health
- * @property {(input: {base: string, languageId: string, code: string, stdin: string, signal?: AbortSignal, timeLimitMs?: number}) => Promise<EngineExecution>} execute
+ * @property {(input: {base: string, languageId: string, entryPath?: string, code: string, stdin: string, signal?: AbortSignal, timeLimitMs?: number}) => Promise<EngineExecution>} execute
  *
  * timeLimitMs 是界面上的全局时限（毫秒），**只计运行段**，不含编译。
  * 引擎自己决定怎么兑现：本地沙箱用看门狗 kill()，Piston 透传 run_timeout，
  * Judge0 换算成 cpu_time_limit；兑现不了就忽略它，不要假装遵守。
+ *
+ * entryPath 是入口文件在 VFS 里的绝对路径，给需要「文件名」的引擎用
+ * （本地沙箱的 Python 就是拿它当 argv[1]）；远端引擎按 code 直接提交，忽略它即可。
  */
 // 顺序就是设置面板里的顺序：本地沙箱不需要任何服务，放第一个
 export const ENGINES = [wasmEngine, pistonEngine, judge0Engine, echoEngine]

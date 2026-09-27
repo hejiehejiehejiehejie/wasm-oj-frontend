@@ -18,7 +18,23 @@
  * - run 段用调用方给的时限（界面上的全局时限），到点即 TLE：
  *   回一条 type 'timeout'，由引擎翻译成 outcome 'timeout'，卡片显示成 TLE。
  */
-import { generatePch, isToolchainReady, preloadToolchain, runCpp } from './runnoSandbox.js'
+import {
+  generatePch,
+  isPythonRuntimeReady,
+  isToolchainReady,
+  preloadPythonRuntime,
+  preloadToolchain,
+  runCpp,
+  runPython,
+  runtimeAssetURLs,
+} from './runnoSandbox.js'
+import { vfsToRunnoFs } from './vfs/runnoFs.js'
+
+// Python 解释器的冷启动（wasm 实例化 + zipimport 找标准库）实测约 190ms，
+// 它发生在 run 段里，而 run 段正是 TLE 判定的那一段。不给余量的话，
+// 1s 的时限会被解释器启动本身吃掉一大截，跑得再快的程序也可能被判 TLE。
+// 留 500ms 覆盖慢机器上的冷启动，代价是 TLE 最多晚 0.5s 报出来。
+const PYTHON_STARTUP_ALLOWANCE_MS = 500
 
 // 约 50MB 裸文件（走 Vercel 边缘压缩，实际传输量小得多），正常几秒到十几秒；
 // 3 分钟还没回来基本可以断定网络有问题
@@ -194,23 +210,45 @@ export function warmupPch() {
 }
 
 /**
- * 编译并运行一段 C++。
+ * 编译并运行一段代码 —— 沙箱调度器，按语言分流到两条并列的管线：
+ * - cpp：clang 编译 + wasm-ld 链接 + 跑产物（见 runnoSandbox.runCpp），有 compile / run 两段；
+ * - python：不编译，解释器直接执行入口文件（见 runnoSandbox.runPython），只有 run 一段。
+ * 两条线共用同一个 WASI 宿主、同一套 stdout / stderr 拦截和同一个看门狗，所以
+ * 超时强杀（TLE）、取消、阶段播报在两种语言下的行为完全一致。
+ *
+ * @param {{ language?: string, entryPath?: string, code: string, stdin?: string, signal?: AbortSignal, timeLimitMs?: number }} options
+ *   language   'cpp' | 'python'，缺省按 cpp（保持既有调用方不改也能跑）
+ *   entryPath  入口文件在 VFS 里的绝对路径；python 用它当 argv[1]，同时决定 sys.path[0]
  * @returns {Promise<object>} result / timeout / failure / cancelled 消息
  */
-export function runCase({ code, stdin, signal, timeLimitMs }) {
+export function runCase({ language = 'cpp', entryPath, code, stdin, signal, timeLimitMs }) {
   return enqueue(async () => {
     if (signal?.aborted) return { type: 'cancelled' }
+    const isPython = language === 'python'
+    const entryFile = entryPath || (isPython ? '/main.py' : '/main.cpp')
     const entry = beginTask(signal, timeLimitMs)
+    if (isPython) entry.runLimit += PYTHON_STARTUP_ALLOWANCE_MS
     try {
-      const result = await runCpp({
-        code,
-        stdin,
-        onStatus: entry.onStatus,
-        onHost: entry.onHost,
-      })
+      // python 走解释执行：整棵 VFS 拍成 fs 一起塞进去，多文件 import 才有得找
+      const result = isPython
+        ? await runPython({
+            code,
+            entryPath: entryFile,
+            fs: await vfsToRunnoFs({ overrides: { [entryFile]: code } }),
+            stdin,
+            onStatus: entry.onStatus,
+            onHost: entry.onHost,
+          })
+        : await runCpp({
+            code,
+            stdin,
+            onStatus: entry.onStatus,
+            onHost: entry.onHost,
+          })
       if (entry.cancelled) return { type: 'cancelled' }
-      // 编译这步真走完了（成功或编译错误都算），说明工具链已在内存里 —— 趁空闲把 PCH 备好给下一批用
-      warmupPch()
+      // 编译这步真走完了（成功或编译错误都算），说明工具链已在内存里 —— 趁空闲把 PCH 备好给下一批用。
+      // PCH 是 C++ 专属的，跑 Python 不该去拉那 50MB 工具链。
+      if (!isPython) warmupPch()
       return { type: 'result', ...result }
     } catch (error) {
       if (entry.cancelled) return { type: 'cancelled' }
@@ -236,16 +274,58 @@ export function runCase({ code, stdin, signal, timeLimitMs }) {
   })
 }
 
-/** 只把运行时与工具链拉到本地（不发编译任务），用于「本地运行环境」面板的下载按钮。 */
-export function preload(signal) {
+/**
+ * 探测某个本地运行时的资产是否真的都在本机（全程不触网）。
+ *
+ * 三级判据，从最权威到兜底：
+ * 1. 内存里已加载（isToolchainReady / isPythonRuntimeReady）——本次会话一定可用；
+ * 2. 资产都在本地缓存里 —— Service Worker 控制页面时，fetch 会先被 SW 的 cacheFirst
+ *    接住（Cache Storage 命中即返回）；SW 不命中时它内部再发的请求带着 only-if-cached，
+ *    落到 HTTP 缓存；
+ * 3. 没有 SW（dev 模式）时，only-if-cached 直接探 HTTP 缓存：缓存缺失浏览器以网络
+ *    错误失败，于是「标记说下过、实际已被浏览器清掉」的情况能被如实识别。
+ *
+ * @param {string} language 'cpp' | 'python'
+ * @returns {Promise<boolean>}
+ */
+export async function probeRuntime(language) {
+  if (language !== 'cpp' && language !== 'python') return false
+  if (language === 'python' ? isPythonRuntimeReady() : isToolchainReady()) return true
+  const urls = runtimeAssetURLs(language)
+  if (!urls.length) return false
+  const probes = await Promise.all(urls.map(isAssetCached))
+  return probes.every(Boolean)
+}
+
+async function isAssetCached(url) {
+  try {
+    // only-if-cached 要求 same-origin；这些资产本来就是同源自托管的
+    const response = await fetch(url, { mode: 'same-origin', cache: 'only-if-cached' })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 只把指定语言的运行时拉到本地（不发评测任务），用于「本地运行环境」面板的下载按钮。
+ *
+ * @param {string} [language='cpp'] 'cpp' | 'python'
+ * @param {AbortSignal} [signal]
+ */
+export function preload(language = 'cpp', signal) {
+  const isPython = language === 'python'
   return enqueue(async () => {
     if (signal?.aborted) return { type: 'cancelled' }
     const entry = beginTask(signal)
     try {
-      const durationMs = await preloadToolchain(entry.onStatus)
+      const durationMs = isPython
+        ? await preloadPythonRuntime(entry.onStatus)
+        : await preloadToolchain(entry.onStatus)
       if (entry.cancelled) return { type: 'cancelled' }
-      // 用户手点「下载」就是在等工具链，这时候顺带把 PCH 生成掉最不打扰人
-      warmupPch()
+      // 用户手点「下载」就是在等工具链，这时候顺带把 PCH 生成掉最不打扰人。
+      // PCH 是 C++ 专属，Python 没有这一步。
+      if (!isPython) warmupPch()
       return { type: 'ready', durationMs }
     } catch (error) {
       if (entry.cancelled) return { type: 'cancelled' }

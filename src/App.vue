@@ -3,18 +3,36 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TopBar from './components/TopBar.vue'
 import EditorPane from './components/EditorPane.vue'
 import TestPanel from './components/TestPanel.vue'
+import Sidebar from './components/Sidebar.vue'
+import FileExplorer from './components/FileExplorer.vue'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
-import { LANGUAGE_IDS, defaultCode } from './services/templates.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
+import { initWorkspace } from './services/vfs/migrate.js'
+import {
+  activeLanguage,
+  activeNode,
+  initWorkspaceStore,
+  openLanguage,
+  peekActiveContent,
+  saveAll,
+  toggleSidebar,
+} from './services/vfs/workspaceStore.js'
+import { modelManager } from './services/monaco/modelManager.js'
 
 // ---------------------------------------------------------------- 持久化状态
 // panelPosition 是本项目的核心偏好：'right' | 'left'，默认在右侧。
 const panelPosition = usePersistentRef('cph.panelPosition', 'right')
 // 是否显示整个测试面板（只影响显隐，用例数据不丢）
 const panelVisible = usePersistentRef('cph.panelVisible', true)
-const language = usePersistentRef('cph.language', 'cpp')
+// 语言不再独立持久化：由活跃文件派生（activeLanguage）；TopBar 选语言 → openLanguage
+const language = computed({
+  get: () => activeLanguage.value ?? 'cpp',
+  set: (value) => {
+    openLanguage(value).catch(() => {})
+  },
+})
 const editorShare = usePersistentRef('cph.editorShare', 60)
 const engineId = usePersistentRef('cph.engine', DEFAULT_ENGINE_ID)
 const judgeBases = usePersistentRef('cph.judgeBases', defaultBases())
@@ -65,7 +83,6 @@ function readEditorSettings() {
 }
 
 const editorSettings = ref(readEditorSettings())
-const editorSettingsOpen = ref(false)
 
 // 主题决定的是整套界面的配色：挂在 <html data-theme> 上由 CSS 变量接管，
 // Monaco 那边通过同一个 id 对应的自定义主题保持内芯同色。
@@ -102,10 +119,6 @@ watch(
 
 function updateEditorSettings(value) {
   editorSettings.value = { ...editorSettingsDefaults, ...value }
-}
-
-function toggleEditorSettingsOpen(value) {
-  editorSettingsOpen.value = value
 }
 
 const engine = computed(() => getEngine(engineId.value))
@@ -145,10 +158,7 @@ async function testConnection() {
   const result = await engine.value.health(judgeBase.value, connectionProbe.signal)
   connection.value = { state: result.ok ? 'ok' : 'bad', message: result.message }
 }
-const drafts = usePersistentRef('cph.drafts', {
-  cpp: defaultCode('cpp'),
-  python: defaultCode('python'),
-})
+// （旧的 cph.drafts「每语言草稿」已由 VFS 取代：启动时一次性迁移，见 services/vfs/migrate.js）
 
 // ------------------------------------------------------------------ 测试用例
 let caseSeq = 0
@@ -179,13 +189,6 @@ const testCases = usePersistentRef('cph.testCases', [
     Array.isArray(list) ? list.map((item) => createCase({ input: item?.input ?? '', expectedOutput: item?.expectedOutput ?? '' })) : [],
 })
 
-const code = computed({
-  get: () => drafts.value[language.value] ?? defaultCode(language.value),
-  set: (value) => {
-    drafts.value = { ...drafts.value, [language.value]: value }
-  },
-})
-
 const totals = computed(() => {
   const tally = { passed: 0, failed: 0, error: 0, running: 0 }
   for (const item of testCases.value) if (tally[item.status] !== undefined) tally[item.status] += 1
@@ -195,6 +198,17 @@ const totals = computed(() => {
 const workspace = ref(null)
 const editorPane = ref(null)
 const running = ref(false)
+
+// order 换序：Sidebar 恒 0；splitter 恒 2；测试在右时 editor 1 / tests 3，反之对调。
+// flexBasis 两栏之和恒为 100%（折叠时编辑器不设 basis，撑满剩余空间）。
+const editorPaneStyle = computed(() => ({
+  order: panelPosition.value === 'right' ? 1 : 3,
+  ...(panelVisible.value ? { flexBasis: `${editorShare.value}%` } : {}),
+}))
+const testsPaneStyle = computed(() => ({
+  order: panelPosition.value === 'right' ? 3 : 1,
+  flexBasis: `${100 - editorShare.value}%`,
+}))
 
 // 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
 // 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
@@ -419,17 +433,21 @@ async function runAll() {
     return
   }
   if (!testCases.value.length) return
+  if (!activeLanguage.value) return
 
   running.value = true
   abortController = new AbortController()
-  const snapshot = code.value
+  // 运行前自动保存全部 dirty model，再取活跃文件快照
+  await saveAll()
+  const snapshot = peekActiveContent() ?? ''
   const queue = [...testCases.value]
   queue.forEach(resetCase)
 
   const left = await runCases({
     engine: engine.value,
     base: judgeBase.value,
-    languageId: language.value,
+    languageId: activeLanguage.value,
+    entryPath: activeNode.value?.path,
     cases: queue,
     code: snapshot,
     timeLimitMs: timeLimitMs.value,
@@ -446,6 +464,7 @@ async function runAll() {
 
 async function runOne(target) {
   if (running.value || !target) return
+  if (!activeLanguage.value) return
   running.value = true
   const controller = new AbortController()
   target.status = 'running'
@@ -454,17 +473,19 @@ async function runOne(target) {
   target.verdict = ''
   target.durationMs = null
   try {
+    await saveAll()
     await runCases({
-        engine: engine.value,
-        base: judgeBase.value,
-        languageId: language.value,
-        cases: [target],
-        code: code.value,
-        timeLimitMs: timeLimitMs.value,
-        signal: controller.signal,
-        onCase: applyPatch,
-      })
-      if (target.status === 'running') target.status = 'idle'
+      engine: engine.value,
+      base: judgeBase.value,
+      languageId: activeLanguage.value,
+      entryPath: activeNode.value?.path,
+      cases: [target],
+      code: peekActiveContent() ?? '',
+      timeLimitMs: timeLimitMs.value,
+      signal: controller.signal,
+      onCase: applyPatch,
+    })
+    if (target.status === 'running') target.status = 'idle'
   } finally {
     running.value = false
   }
@@ -482,10 +503,10 @@ function removeCase(target) {
   testCases.value = testCases.value.filter((item) => item.id !== target.id)
 }
 
-// 代码改动后，之前的判定不再可信，标成「待刷新」。
+// 用户输入（dirty 集合变化）后，之前的判定不再可信，标成「待刷新」。
 let staleTimer = 0
 watch(
-  [code, language],
+  () => modelManager.dirtyIds.size,
   () => {
     window.clearTimeout(staleTimer)
     staleTimer = window.setTimeout(() => {
@@ -497,15 +518,22 @@ watch(
 )
 
 function onKeydown(event) {
-  const isRun = (event.metaKey || event.ctrlKey) && (event.key === 'Enter' || event.key.toLowerCase() === 's')
-  if (!isRun) return
-  event.preventDefault()
-  runAll()
+  if (!(event.metaKey || event.ctrlKey)) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    runAll()
+  }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  if (!LANGUAGE_IDS.includes(language.value)) language.value = 'cpp'
+  // 初始化 VFS（含旧草稿迁移）→ 恢复上次会话的 tab 与 model
+  try {
+    await initWorkspace()
+    await initWorkspaceStore()
+  } catch {
+    /* 存储不可用时静默；界面仍可使用 */
+  }
 })
 
 onBeforeUnmount(() => {
@@ -519,20 +547,14 @@ onBeforeUnmount(() => {
   <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
     <TopBar
       v-model:language="language"
-      v-model:time-limit="timeLimitMs"
       :judge="judgeSettings"
       :connection="connection"
-      :panel-position="panelPosition"
-      :editor-settings="editorSettings"
-      :editor-settings-open="editorSettingsOpen"
       :running="running"
       :total="testCases.length"
       @select-engine="selectEngine"
       @update-base="updateBase"
       @test-connection="testConnection"
-      @update:editor-settings="updateEditorSettings"
-      @update:editor-settings-open="toggleEditorSettingsOpen"
-      @toggle-layout="toggleLayout"
+      @toggle-sidebar="toggleSidebar"
       @run-all="runAll"
     />
 
@@ -541,13 +563,20 @@ onBeforeUnmount(() => {
       class="workspace"
       :class="[`is-${panelPosition}`, { 'is-dragging': dragging, 'is-swapping': swapping, 'is-collapsed': !panelVisible }]"
     >
-      <section class="pane pane--editor" :style="panelVisible ? { flexBasis: `${editorShare}%` } : null">
+      <Sidebar>
+        <FileExplorer />
+      </Sidebar>
+
+      <section class="pane pane--editor" :style="editorPaneStyle">
         <EditorPane
           ref="editorPane"
-          v-model="code"
-          :language="language"
           :settings="editorSettings"
+          :panel-position="panelPosition"
+          :time-limit="timeLimitMs"
           @run-all="runAll"
+          @update:settings="updateEditorSettings"
+          @update:time-limit="timeLimitMs = $event"
+          @toggle-layout="toggleLayout"
         />
       </section>
 
@@ -556,6 +585,7 @@ onBeforeUnmount(() => {
         role="separator"
         aria-orientation="vertical"
         :aria-valuenow="Math.round(editorShare)"
+        :style="{ order: 2 }"
         tabindex="0"
         @pointerdown="beginDrag"
         @dblclick="onSplitterDblClick"
@@ -569,7 +599,7 @@ onBeforeUnmount(() => {
       <section
         v-show="panelVisible"
         class="pane pane--tests"
-        :style="{ flexBasis: `${100 - editorShare}%` }"
+        :style="testsPaneStyle"
       >
         <TestPanel
           :judge="judgeSettings"
@@ -636,9 +666,7 @@ onBeforeUnmount(() => {
   --tests-min-floor: 160px;
 }
 
-.workspace.is-left {
-  flex-direction: row-reverse;
-}
+/* 换边不再用 row-reverse（会连 Sidebar 一起甩动）：始终 row，靠 order 换序 */
 
 /* 两块独立的圆角卡片容器：overflow:hidden 让内部方角（Monaco 画布、
    面板页头页脚）被圆角裁掉，卡片边界才干净 */
@@ -817,17 +845,5 @@ onBeforeUnmount(() => {
 ::view-transition-group(pane-tests) {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-/* 换边也可以从设置抽屉里发起，那时抽屉正开着：两栏的快照默认画在 root 快照之上，而抽屉
-   只是普通层（z-index 61），于是动画期间两张卡片会浮到抽屉上面。把遮罩和抽屉也各自补成
-   一个过渡组并抬高 z-index（名字在 EditorSettingsPanel.vue 里声明），顺序就还原成
-   root → 两栏 → 遮罩 → 抽屉，动画老老实实待在抽屉底下。 */
-::view-transition-group(settings-backdrop) {
-  z-index: 1;
-}
-
-::view-transition-group(settings-drawer) {
-  z-index: 2;
 }
 </style>

@@ -149,31 +149,73 @@ try {
     process.stdout.write('')
   })
 
-  await step('B. 切换布局：仅 flex-direction 变化，DOM 不重建', async () => {
+  await step('B. 切换布局：order 换序，DOM/Monaco 不重建', async () => {
     const monacoBefore = await page.evaluate(() => {
       const el = document.querySelector('.monaco-editor')
       el.dataset.marker = 'keep-me'
       return el.dataset.marker
     })
+    // 新架构：换边入口在「设置」页签里。打开设置（顶栏齿轮 → 编辑区里多一个页签）
+    // → 选「左侧」→ 关掉页签回到代码。
     await page.evaluate(() => {
       const btn = [...document.querySelectorAll('.topbar button')].find((b) =>
-        (b.getAttribute('title') ?? '').includes('换到左侧'),
+        (b.getAttribute('title') ?? b.getAttribute('aria-label') ?? '').includes('设置'),
       )
       btn?.click()
     })
-    await wait(1000)
+    await wait(500)
+    const settingsShown = await page.evaluate(() => {
+      const view = document.querySelector('.settings-view')
+      const tab = [...document.querySelectorAll('.editor-tabs__item')].find((el) =>
+        el.textContent.includes('设置'),
+      )
+      return {
+        viewVisible: !!view && view.getBoundingClientRect().width > 0,
+        tabActive: tab?.classList.contains('editor-tabs__item--active') ?? false,
+      }
+    })
+    await page.evaluate(() => {
+      const select = [...document.querySelectorAll('.settings-view select')].find((s) =>
+        [...s.options].some((o) => o.textContent.trim() === '左侧'),
+      )
+      select.value = 'left'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await wait(600)
+    await page.evaluate(() => {
+      document.querySelector('.editor-tabs__close[aria-label="关闭设置"]')?.click()
+    })
+    await wait(300)
+    const settingsClosed = await page.evaluate(() => {
+      const view = document.querySelector('.settings-view')
+      const tab = [...document.querySelectorAll('.editor-tabs__item')].find((el) =>
+        el.textContent.includes('设置'),
+      )
+      return {
+        viewVisible: !!view && view.getBoundingClientRect().width > 0,
+        tabPresent: !!tab,
+      }
+    })
     const state = await probe(page)
     const markerAlive = await page.evaluate(() => document.querySelector('.monaco-editor')?.dataset.marker)
     await page.screenshot({ path: `${SHOTS}cph-2-swapped-left.png` })
+    // 新契约：flex-direction 恒为 row；靠 order 让测试面板跑到左边；Monaco 实例与 DOM 不重建；
+    // 设置是个页签（开时铺满编辑区、关时视图与页签一起消失）
     const ok =
-      state.flexDirection === 'row-reverse' &&
+      state.flexDirection === 'row' &&
       state.testsPane.x < state.editorPane.x &&
       state.storedPanel === 'left' &&
       markerAlive === monacoBefore &&
-      state.codeLineCount > 3
-    record('B. 切换布局：仅 flex-direction 变化，DOM 不重建', ok, {
+      state.codeLineCount > 3 &&
+      settingsShown.viewVisible &&
+      settingsShown.tabActive &&
+      !settingsClosed.tabPresent &&
+      !settingsClosed.viewVisible
+    record('B. 切换布局：order 换序，DOM/Monaco 不重建', ok, {
       ...state,
       monacoInstanceReused: markerAlive === monacoBefore,
+      settingsShown,
+      settingsClosed,
     })
   })
 
@@ -183,7 +225,7 @@ try {
     await wait(600)
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cph-3-persisted-left.png` })
-    record('C. 刷新后偏好仍在 localStorage', state.storedPanel === 'left' && state.flexDirection === 'row-reverse', {
+    record('C. 刷新后偏好仍在 localStorage', state.storedPanel === 'left' && state.flexDirection === 'row', {
       storedPanel: state.storedPanel,
       flexDirection: state.flexDirection,
     })
@@ -191,9 +233,9 @@ try {
 
   await step('D. 拖动分隔条改变两栏比例', async () => {
     const before = await probe(page)
-    // 往哪边拖取决于当前布局：row 时评测面板在右，往右拖它变窄；
-    // row-reverse 时它在左，得往左拖才变窄。写死方向会被 B / C 留下的状态坑掉。
-    const delta = before.flexDirection === 'row' ? 220 : -220
+    // 往哪边拖取决于面板实际位置（新架构 flex-direction 恒为 row，看 x 坐标判断）：
+    // 测试面板在右 → 往右拖它变窄；在左 → 往左拖。写死方向会被 B / C 留下的状态坑掉。
+    const delta = before.testsPane.x > before.editorPane.x ? 220 : -220
     const handle = await page.waitForSelector('.splitter', { timeout: 10000 })
     const box = await handle.boundingBox()
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -238,18 +280,27 @@ try {
     })
   })
 
-  await step('F. 语言切到 Python 并重新运行', async () => {
+  await step('F. 语言切到 Python：main.py 激活', async () => {
     await page.evaluate(() => {
       const select = document.querySelector('.topbar select')
       select.value = 'python'
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    await wait(900)
-    const pythonLoaded = await page.evaluate(() =>
-      document.querySelector('.view-lines')?.textContent.includes('def solve'),
+    // Monaco 渲染时把空格转成不间断空格（\u00a0），匹配前先规范化空白
+    const hasPythonCode = () => {
+      const text = document.querySelector('.view-lines')?.textContent
+      return Boolean(text && text.replace(/\u00a0/g, ' ').includes('def solve'))
+    }
+    await page.waitForFunction(hasPythonCode, { timeout: 20000, polling: 300 })
+    const pythonLoaded = await page.evaluate(hasPythonCode)
+    const activeIsPy = await page.evaluate(() =>
+      document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === 'main.py',
     )
     await page.screenshot({ path: `${SHOTS}cph-6-python.png` })
-    record('F. 语言切到 Python 并重新运行', Boolean(pythonLoaded), { pythonLoaded })
+    record('F. 语言切到 Python：main.py 激活', Boolean(pythonLoaded) && activeIsPy, {
+      pythonLoaded,
+      activeIsPy,
+    })
   })
 
   console.log(`\n控制台告警/错误: ${JSON.stringify(logs.slice(0, 12), null, 1)}`)

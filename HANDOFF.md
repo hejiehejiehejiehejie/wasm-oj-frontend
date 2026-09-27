@@ -1,6 +1,6 @@
 # CPH IDE · 交接文档
 
-面向「接下来要改前端样式」的接手人。当前代码**已跑通并上线**：本地 WASM 沙箱能编译运行 C++、判题（含 TLE）、主题与布局都能用；前端已推到 GitHub 并由 Vercel 托管（见第 10 节）；也能作为 PWA 装到设备上独立窗口运行、断网可用（见第 9 节）。
+面向「接下来要改前端样式」的接手人。当前代码**已跑通并上线**：本地 WASM 沙箱能编译运行 C++、也能解释运行 Python（含多文件 import）、判题（含 TLE）、主题与布局都能用；前端已推到 GitHub 并由 Vercel 托管（见第 10 节）；也能作为 PWA 装到设备上独立窗口运行、断网可用（见第 9 节）。
 
 ## 0. 一分钟上手
 
@@ -8,7 +8,7 @@
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`cd /Users/hejie/Code/BISHE && npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
 - 其他命令：`npm run verify` 跑无头回归（先看第 8 节的已知红项，另需 `VERIFY_PORT` 避开占用中的 5199）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
-- 响应式：顶栏六档断点（窄屏把图标从右到左折进省略号）+ 测试面板最低宽度随视口收缩（见第 3 节三小节）；工作区两栏始终并排、不堆叠。断点与下限都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
+- 响应式：顶栏五档断点（窄屏把图标从右到左折进省略号）+ 测试面板最低宽度随视口收缩（见第 3 节三小节）；工作区两栏始终并排、不堆叠。断点与下限都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
 
@@ -21,7 +21,7 @@
 | 新增变量必须定义两遍 | `:root` 和 `:root[data-theme='cph-light']` 都要给值，否则浅色主题下会串色 |
 | 禁止第三方 UI 库 | 抽屉 / 弹层 / 下拉全部原生 CSS + Vue + `Teleport` |
 | 顶栏按钮不能进 Teleport | 抽屉本体 Teleport 到 `body`，**触发按钮不许跟着走**，否则脱离 flex 布局被挤出视口。窄屏下这颗按钮可以降级成省略号菜单里的一项（2026-09 起），因为菜单弹层仍在顶栏 DOM 内——但**别把它挪到 `body`** |
-| 顶栏断点只能重测，不能照抄 | `TopBar.vue` 的六档阈值是按元素实测必需宽度反推的（现为 820 / 560 / 520 / 480 / 400 / 349，数值表见第 3 节）。动了顶栏任何元素的宽度（文案、图标、gap、padding）都要**重新量一遍**，照抄旧值会在某一档悄悄溢出 |
+| 顶栏断点只能重测，不能照抄 | `TopBar.vue` 的五档阈值是按元素实测必需宽度反推的（现为 820 / 560 / 520 / 480 / 349，数值表见第 3 节；2026-09-28 加 Sidebar 开关按钮后已重测）。动了顶栏任何元素的宽度（文案、图标、gap、padding）都要**重新量一遍**，照抄旧值会在某一档悄悄溢出 |
 | 面板下限只在 CSS 里定义一份 | 测试面板最低宽度由 `.workspace` 上的 `--tests-min-cap / --tests-min-ratio / --tests-min-floor` 决定（即 `.pane--tests` 的 `clamp(160px, 50%, 320px)`），`measureLimits()` 读同一组变量复算；改数字只改 CSS 那三行，别在脚本或组件里再写一份 |
 | 顶栏装不下时不会省略，而是整体右溢出 | `.topbar` 没有 `flex-wrap`，`.tool` / `.primary` 都是 `white-space: nowrap`，所以宽度不够时既不换行也不截断，只是整体向右溢、把运行按钮挤出视口。窄屏只能靠断点主动舍弃（见第 3 节） |
 | 窄屏弹层必须由视口定位 | 弹层默认 `right: 0` 锚在栏中部那颗按钮上，窄屏会溢出到视口外（实测 375px 下 `left = -28`）。**只收窄 `width` 救不了**，因为锚点本身不在栏右端；≤520px 一律改 `position: fixed` 贴边整幅 |
@@ -40,8 +40,9 @@ vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME �
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
 public/sw.js                    # Service Worker：预缓存外壳 + 52MB 工具链，导航网络优先（见第 9 节）
 public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
-public/wasm/8.0.1/              # 自托管的工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
-scripts/verify-ui.mjs           # 无头回归脚本（A–E 已修绿，F 仍红，见第 8 节）
+public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
+public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
+scripts/verify-ui.mjs           # 无头回归脚本（A–F 已全绿，见第 8 节；B 步走的是「设置页签」）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
 docs/使用手册.md                # 面向新用户的说明：只回答「如何在本地运行 C++」「如何展开/折叠样例栏」，与 HelpPanel.vue 内容同源
 src/
@@ -53,10 +54,10 @@ src/
   composables/useInstallPrompt.js  # 顶栏「安装」按钮的数据源：拦 beforeinstallprompt，用完即弃
   composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
   components/
-    TopBar.vue                  # 顶栏：语言/引擎/连接/布局/设置/本地环境/安装/帮助/键盘模式/运行（50px 高）+ 六档响应式断点与省略号收纳（见第 3 节）
-    EditorPane.vue              # Monaco 容器 + 文件页签
-    EditorSettingsPanel.vue     # 右侧设置抽屉（Teleport，按钮在顶栏）
-    LocalRuntimePanel.vue       # 右侧本地运行环境抽屉（Teleport，按钮在顶栏）
+    TopBar.vue                  # 顶栏：侧栏开关/语言/设置齿轮/安装/引擎设置/帮助/更多/运行（50px 高）+ 五档响应式断点与省略号收纳（见第 3 节）。设置齿轮只负责「打开设置页签」、本身不是抽屉
+    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏
+    EditorTabs.vue              # 编辑器标签栏：文件页签 + 「设置」合成页签（见第 5 节坑 7）
+    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）
     HelpPanel.vue               # 右侧「使用帮助」抽屉（Teleport，按钮在顶栏最右；只读，内容是三条常见操作解答，与 docs/使用手册.md 同源）
     TestPanel.vue               # 右侧评测面板：页头（verdict「全部 AC / n/m AC」/耗时/时限）+ 用例列表 + 页脚运行按钮
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块
@@ -66,9 +67,11 @@ src/
     compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
     templates.js                # 各语言默认模板
     engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
-    wasmRuntime.js              # 本地沙箱的唯一入口：阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
-    runnoSandbox.js             # runno 的 clang 流水线（工具链地址、编译产物缓存、PCH 生成都在这里）
+    wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
+    runnoSandbox.js             # runno 双管线：C++ 编译（工具链地址、编译产物缓存、PCH 生成）+ Python 解释运行
+    vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
+    settingsTab.js              # 「设置」合成页签的 UI 状态（刻意不进 workspaceStore/openTabIds、不建模型、不落 localStorage；见第 5 节坑 7）
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -101,32 +104,31 @@ div.app（column，100% 高）
 
 ### 顶栏的响应式（`TopBar.vue`，2026-09 加）
 
-六档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证），**`display: contents` 的容器摊平后递归统计**。下表是 2026-09-18 调整折叠顺序后重测的（无头 Chrome，300–900px 逐档量过）。**触屏与鼠标两套数字现在完全相同**——原先让触摸屏多 38px 的「键盘模式」按钮已撤掉（见第 3 节末）。
+五档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证），**`display: contents` 的容器摊平后递归统计**。下表是 2026-09-28 多文件重构加「Sidebar 开关」按钮（35px + gap，每档 +45）后用官方方法重测的（无头 CfT）。**触屏与鼠标两套数字现在完全相同**——原先让触摸屏多 38px 的「键盘模式」按钮已撤掉（见第 3 节末）。
 
 | 档位 | 条件 | 顶栏让位的东西 | 该档必需宽度 | 该档可用下限 | 余量 |
 | --- | --- | --- | --- | --- | --- |
-| 宽档 | ≥821px | — | 676 | 821 | 145 |
-| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 499 | 561 | 62 |
-| 2 | ≤560px | “语言”二字 | 469 | 521 | 52 |
-| 3 | ≤520px | 帮助、换边 → 折进省略号 | 431 | 481 | 50 |
-| 4 | ≤480px | 引擎设置齿轮、安装 → 折进省略号 | 341 | 401 | 60 |
-| 5 | ≤400px | 本地运行环境 → 折进省略号 | 296 | 350 | 54 |
-| 6 | ≤349px | 编辑器偏好齿轮 → 折进省略号 | 251 | 320 | 69 |
+| 宽档 | ≥821px | — | 638 | 821 | 183 |
+| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 461 | 561 | 100 |
+| 2 | ≤560px | “语言”二字 | 431 | 521 | 90 |
+| 3 | ≤520px | 帮助 → 折进省略号 | 431 | 481 | 50 |
+| 4 | ≤480px | 引擎设置齿轮、安装 → 折进省略号 | 341 | 350 | 9 |
+| 5 | ≤349px | 设置齿轮 → 折进省略号 | 296 | 320 | 24 |
 
 - 「该档可用下限」= 下一档阈值 + 1（末档取支持的最小宽度 320px）；**余量 = 可用下限 − 必需宽度**，也就是这一档最窄还能撑到哪。
-- **硬约束：第 N 档的阈值必须 ≥ 第 N−1 档的必需宽度**（视口再窄一档就换状态，卡的是「上一档还开着时的那份宽度」）。当前最紧的一处是第 4 档：480 对 431，只剩 49px。**动顶栏任何元素的宽度（文案、图标、gap、padding）都要先看这三列**，照抄旧值就是溢出事故的来源。
+- **硬约束：第 N 档的阈值必须 ≥ 第 N−1 档的必需宽度**（视口再窄一档就换状态，卡的是「上一档还开着时的那份宽度」）。当前最紧的两处：第 3 档 520 对 431（余 89），**第 4 档 480 对 431 只剩 49**；另外第 4 档自身在 350px 处只余 9px。**动顶栏任何元素的宽度（文案、图标、gap、padding）都要先看这三列**，照抄旧值就是溢出事故的来源。
 - 怎么量「必需宽度」：把摊平后的每个可见 flex 项**逐个**注 `flex-shrink: 0`（只写 `.topbar > *` 不够——`.settings` 在窄档是 `display: contents`，它的按钮不是 `.topbar > *`），再把 `.spacer` 藏掉，量最后一个可见子项右缘到栏左缘的距离 + 右内边距。**不能直接量 `scrollWidth`**——栏不是滚动容器，收缩后的子项不会让它溢出，量出来的恒等于栏宽。
-- **每档折走几颗**：省略号自己占一格（35px + 10px gap = 45px）。所以在省略号**首次出现**的第 3 档要一次折掉两颗（帮助 35 + 换边 28，再少一个 gap，共 73px 换 35px，**净赚 38px**）；只折一颗等于「那颗按钮换成了省略号」，净值 0，白折。省略号已经在栏里之后的各档，折一颗就净赚 45px。
-- 收纳位在图标簇最右端（最右是「⋯」自己），折叠顺序就是模板里从右往左的顺序：**帮助 → 换边 → 引擎设置齿轮 → 安装 → 本地运行环境 → 编辑器偏好齿轮**；收纳位位置不动，只往左吞。编辑器齿轮排在最后是 2026-09 定的：它属「设一次」的偏好（字号 / 缩进 / 主题），要留到视口窄于 350px 才交出去。
+- **每档折走几颗**：省略号自己占一格（35px + 10px gap = 45px）。多文件重构后「换边」按钮已不在顶栏，省略号**首次出现**的第 3 档只折帮助一颗（35 换 35，净值 0），520 这个阈值主要承载的是**弹层 fixed + 侧栏抽屉**两条规则；省略号已经在栏里之后的各档，折一颗净赚 45px（第 4 档一次折两颗：齿轮与安装）。
+- 收纳位在图标簇最右端（最右是「⋯」自己），折叠顺序就是模板里从右往左的顺序：**帮助 → 引擎设置齿轮 + 安装 → 设置齿轮**；收纳位位置不动，只往左吞。设置齿轮排在最后是 2026-09 定的：它属「设一次」的偏好（字号 / 缩进 / 主题，现在还含布局与本地运行环境），要留到视口窄于 350px 才交出去。
 - 表里的必需宽度**含安装按钮**。它由 `beforeinstallprompt` 决定存不存在：已装成独立应用（或浏览器判定不可安装）的设备上它不渲染，**宽档到第 3 档会再窄 45px**；第 4 档起它本来就被折掉，不受影响。
-- **第 4、5 档的阈值是给「键盘模式」按钮腾位置时抬上去的（460→480、380→400）**：那个按钮在触摸屏上把每档必需宽度顶高 38px。它已撤掉，所以这两档现在的余量（49 / 59px）比当时设计的多出正好 38px，**没有调回**——调回属于新的改动，要动就按本节末的复测口径重新逐像素量一遍。
-- **第 6 档（349）是 2026-09 新加的**：需求是「编辑器偏好齿轮在宽度小于 350px 时才消失」。写 349 而不是 350——`max-width: 349px` 正好等价「< 350px」，350px 那一档齿轮仍在栏里；它在「⋯」菜单里的入口是 `.menu__item--editor`。
-- **菜单项复用同一批开关**（`setEditorSettingsOpen` / `setLocalRuntimeOpen` / `setHelpOpen` / `settingsOpen` / `emit('toggle-layout')`），**不复制组件**：抽屉与弹层始终只有一份实例。
+- **旧第 5 档（≤400px 折「本地运行环境」）已删除**：那颗按钮不在 DOM 里，留着是空规则。现在的五档为 820 / 560 / 520 / 480 / 349。旧第 4 档阈值曾为「键盘模式」抬到 480；该按钮已撤，但调回阈值属于新改动，未做。
+- **第 5 档（349）**：需求是「设置齿轮在宽度小于 350px 时才消失」。写 349 而不是 350——`max-width: 349px` 正好等价「< 350px」，350px 那一档齿轮仍在栏里；它在「⋯」菜单里的入口是 `.menu__item--editor`。
+- **菜单项复用同一批开关**（`openSettingsTab()` / `setHelpOpen()` / `settingsOpen`），**不复制组件**：抽屉、弹层、设置页签始终各只有一份实例（菜单项「设置」只是调 `openSettingsTab()`）。
 - 折叠时给 `.settings` 加 `display: contents`：既腾出它那格（齿轮按钮 `display: none` 后 `.settings` 宽度为 0，但仍占一个 gap），也让弹层不再挂在零宽锚点上。弹层的 `fixed` 阈值**刻意保持 520px**——比齿轮折叠的第 4 档（480）更早一档，齿轮还可见的那段宽度里弹层也已由视口定位。
-- 三个抽屉（编辑器偏好 / 本地运行环境 / 使用帮助）互斥：`closeDrawers(except)` 一次关掉另外两个，并顺手关掉引擎设置弹层（否则遮罩把它盖住、关掉抽屉后它又冒出来）。
+- 帮助抽屉与引擎设置弹层**互斥**：`closeDrawers()` 打开帮助时顺手关掉引擎弹层（否则遮罩把它盖住、关掉抽屉后它又冒出来）。**设置已不是抽屉**——它是编辑区里与代码文件平级的页签，不遮挡顶栏，所以不参与这个联动；「本地运行环境」也不再是独立抽屉，已并进设置视图。
 - 隐藏一律用 `display: none`（而非 `visibility` / `opacity`），顺带从无障碍树里摘掉；因此运行按钮的可访名改由模板上的 `aria-label` 承担——**文字被藏的元素必须另给可访名**。
 - 量宽度时的两个口径坑：`display: none` 父元素内的子元素，`getComputedStyle(child).display` **仍返回它自己的值**（不是 `none`），判可见要量外层容器；`display: contents` / `display: none` 的子元素不生成盒子、**不占 gap**，量必需宽度时要把它们排除，否则每档虚高几十像素。
-- 语言下拉是**定宽**的：原生 `<select>` 按最宽的选项（「Python 3」）算宽，切到 Python 后各档必需宽度一个像素都没变（已复测）。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档有 145px 余量，够这点波动。
+- 语言下拉是**定宽**的：原生 `<select>` 按最宽的选项（「Python 3」）算宽，切到 Python 后各档必需宽度一个像素都没变（已复测）。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档有 183px 余量，够这点波动。
 - **复测口径**（2026-09-18 更新）：触屏与鼠标各跑一遍 **300–900px 逐像素**，同时判三件事——`topbar.scrollWidth - clientWidth === 0`（没溢出）、`documentElement` 也没有横向溢出、**运行按钮右缘 = 视口宽 − 12px**（没被挤出视口），再逐个查图标按钮宽度不小于它的正常值（**换边 28px，其余 35px**，没被 flex 挤扁）。**别只看溢出**：`.tool` 的 `flex-shrink` 默认为 1，挤扁到 17px 时图标被裁掉但仍不溢出，只量溢出的探针会漏掉它。触屏要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才会命中 `@media (pointer: coarse)`（`emulateMediaFeatures` 不支持 `pointer`）。**不要再用 iframe 或注入 `display: revert` 的方式模拟视口**——量不到真实溢出，返回的数字是自洽的假象。
 
 ### 测试面板的最低宽度（`App.vue`，2026-09 加）
@@ -206,13 +208,13 @@ div.app（column，100% 高）
 | 组件 | 主要选择器 |
 | --- | --- |
 | `App.vue:506` | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
-| `TopBar.vue:277` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里）；`.engines` `.engine-row` `.engine__action`（本地沙箱行尾的下载 chip，约 `TopBar.vue:486/598`）；`TopBar.vue:656` 起是六档响应式断点 + 省略号收纳与菜单（见第 3 节） |
-| `TestPanel.vue:102` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
+| `TopBar.vue:274` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里）；`.engines` `.engine`（引擎列表项，整块可点）；`TopBar.vue:629` 起是**五档**响应式断点 + 一档弹层 fixed + 省略号收纳与菜单（见第 3 节） |
+| `TestPanel.vue:92` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
 | `TestCaseCard.vue:184` | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
-| `EditorPane.vue:158` | `.tab` `.tab__icon` |
-| `EditorSettingsPanel.vue:162` | `.icon-button` `.panel-drawer*` `.select` |
-| `LocalRuntimePanel.vue:181` | `.panel-button` `.panel-drawer*` `.runtime-row*` `.panel-note` |
-| `HelpPanel.vue:130` | `.help-button` `.panel-backdrop` `.panel-drawer*` `.panel-note` `.help-group*` `.help-item*` |
+| `EditorTabs.vue:101` | `.editor-tabs` `.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式） |
+| `EditorPane.vue:219` | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
+| `EditorSettingsPanel.vue:377` | `.settings-view` `.settings-view__inner` `.setting-group*` `.setting-row*` `.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.download-button*` `.is-spinning`（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
+| `HelpPanel.vue:153` | `.help-button` `.panel-backdrop` `.panel-drawer*` `.panel-note` `.help-group*` `.help-item*` |
 | `base.css:141` 起 | `body`、`button`、`input/textarea/select`、滚动条、`:focus-visible`、`prefers-reduced-motion` |
 
 ## 5. 改样式时的几个坑
@@ -223,7 +225,7 @@ div.app（column，100% 高）
 4. **localStorage 里存的是 JSON 字符串**：`cph.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
 5. **面板折叠是 `v-show`**，测试栏 DOM 一直在（分隔条要能用鼠标/键盘把面板拖回来）。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
-7. 抽屉有两个（设置 / 本地运行环境）**互斥**，开一个会关另一个；改抽屉宽高/动画时别破坏这个联动。
+7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠用的是 `v-show`，此刻 `scrollHeight` 为 0，代码会跳过重算，面板重新展开时会再算一次——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。
 9. **`.run-zone` 是撑满中段的 `<button>`**：里面的 `padding: 0` 不是装饰，是在抵消浏览器给按钮的默认内边距（不抵消的话 ▶ 图标位置会跑偏）；`.run-zone__icon` 才是那个 22px 的 ▶ 本体，悬停点亮的是它。
 10. **`theme-color` 是 JS 写的，不是静态 meta**：`App.vue` 切主题时会把 `--bg-chrome` 读出来写进 `<meta name="theme-color">`（装成独立应用后浏览器拿它画窗口标题栏）。`index.html` 里那个 `content` 只是首帧兜底，别在那里维护第二份色值。
@@ -238,7 +240,7 @@ div.app（column，100% 高）
 | `cph.timeLimitMs` | 全局时限（毫秒，只计运行段） | `App.vue:20` |
 | `cph.language` / `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases` | 语言、各语言草稿、用例、引擎、服务地址 | `App.vue` |
 | `cph.mobileKeyboard` / `cph.mobileInputDock` | 都已作废（两个版本的键盘适配都不再持久化）；残留在 localStorage 里无害 | `composables/useMobileKeyboard.js` |
-| `cph.localRuntime.clangReady` | C++ 本地工具链是否已拉取（只表示「这台浏览器下过一次」，用来少点一次「下载」；标记过期也无害） | `composables/useLocalRuntime.js`（顶栏引擎弹层的下载 chip 与本地运行环境抽屉共用这一份状态） |
+| `cph.localRuntime.clangReady` / `cph.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
 | `cph.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
 
 另外 PCH 二进制（约 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cph-pch`、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:微缩头内容的 FNV-1a 哈希`（当前是 `1:8.0.1:69dc7cd9`），三者任一变化旧存档自然失效，取存档只按这个 id。
@@ -247,10 +249,11 @@ div.app（column，100% 高）
 
 ## 7. 现在的功能边界（写文案时别夸大）
 
-- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱只支持 C++，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载有两个入口、同一份状态（`composables/useLocalRuntime.js`）：「本地运行环境」抽屉，以及引擎设置弹层里本地沙箱那一行尾部的下载 chip（工具链未就绪时才出现；点 chip 只下载、**不切换当前引擎**；引擎注册表里用可选的 `localRuntime: true` 声明，界面不硬编码引擎 id）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
-- 本地沙箱**没有 Python**（面板上 Python 是禁用态）。Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
-- TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。
-- **耗时口径（2026-09 改过，别改回去）**：卡片数字 = `runCpp` 里只包住 `runWasi` 的那一段，编译时间不计入。原先取的是 `runCase()` 入口到结束的墙钟，于是第一个用例含编译、命中编译缓存的后续用例只含运行，**同一份代码下第一个卡片能比其余大好几倍**（修前 3 个用例是「数百 ms + 9ms + 12ms」，修后 10/11/7ms），很容易被误读成「程序在第一个用例上特别慢」。面板页头那个 `elapsed` 现在也是同一口径：取当轮所有卡片耗时的**最大值**（`App.vue` 里是 computed，单独跑一个用例也会跟着更新），标题写明「最慢用例耗时」。TLE 消息里的 `durationMs` 与卡片同口径（`wasmRuntime.js` 在进入 `run` 段时重置 `stageStartedAt`）。
+- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱支持 **C++ 与 Python**，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载**只有一个入口**：设置视图里的「本地运行环境」分组（C++ / Python 两行同一套数据驱动渲染，下载中另一行按钮自动禁用；状态在 `EditorSettingsPanel.vue` 里，直接调 `wasmRuntime.preload(language)`）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
+- **本地沙箱的 Python（2026-09 加）**：走 CPython 3.11.3 的 wasm32-wasi 构建（`public/wasm/python-3.11.3/`，约 24MB，来源与 C++ 工具链一致，都取自 `taybenlor/runno` 的 `langs/`）。没有编译段：`runPython()` 直接把整棵 VFS 拍成 fs、以 `args: ['python', 入口文件]` 拉起解释器，多文件 `import` 靠 `sys.path[0] = '/'` 找到同目录的模块。标准库打包在 `/usr/local/lib/python311.zip`（zipimport），`sys.prefix` 编译期写死为 `/usr/local`，所以 **env 必须留空**（不要自作聪明加 `PYTHONHOME`）。语言路由在 `wasmRuntime.runCase()`：`language === 'python'` 走解释分支，其余原样走 C++ 分支；`entryPath` 由 App 从当前激活文件传下来。Python 与 C++ 互不影响，改一边不用管另一边。
+- Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
+- TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。Python 没有编译段，它的「运行段」包含解释器冷启动（实测约 190ms），因此 `wasmRuntime.js` 给 Python 的 run 时限额外加 `PYTHON_STARTUP_ALLOWANCE_MS = 500` 余量——不加的话 1s 时限会被启动开销吃掉一大截，跑得再快的程序也可能被判 TLE。代价是 TLE 最多晚 0.5s 报出来。
+- **耗时口径（2026-09 改过，别改回去）**：卡片数字 = `runCpp` 里只包住 `runWasi` 的那一段（Python 同理，是 `runPython` 里只包住 `runWasi` 的那一段），编译时间不计入。原先取的是 `runCase()` 入口到结束的墙钟，于是第一个用例含编译、命中编译缓存的后续用例只含运行，**同一份代码下第一个卡片能比其余大好几倍**（修前 3 个用例是「数百 ms + 9ms + 12ms」，修后 10/11/7ms），很容易被误读成「程序在第一个用例上特别慢」。面板页头那个 `elapsed` 现在也是同一口径：取当轮所有卡片耗时的**最大值**（`App.vue` 里是 computed，单独跑一个用例也会跟着更新），标题写明「最慢用例耗时」。TLE 消息里的 `durationMs` 与卡片同口径（`wasmRuntime.js` 在进入 `run` 段时重置 `stageStartedAt`）。
 - 判定词表：引擎 outcome 是 `ok / compile-error / runtime-error / timeout / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）；`runner.js` 再把它翻译成卡片徽标上的 **verdict 判定码**：`ok` + 比对一致 → `AC`，`ok` + 不一致 → `WA`，`compile-error` → `CE`，`timeout` → `TLE`，`runtime-error` → `RE`，`unreachable` 等基础设施失败 → `ERR`。徽标颜色仍按 `status`（passed 绿 / failed 红 / error 琥珀）。`compare.js` 只返回布尔，**不再**产出「输出多 N 行 / 第 N 行不匹配」这类 hint 文案（2026-09-18 起，卡片头部不再显示它）。
 - 判题流程：先编译运行出实际输出，再与期望输出比对（`src/services/compare.js`）。
 - 工具链是静态自托管的（`public/wasm/8.0.1/`），但 `clang-fs.tar.gz` 这个扩展名会让静态服务器补上 `Content-Encoding: gzip`，浏览器已替我们解过一层，所以 `runnoSandbox.js` 里用**魔数判断**要不要 gunzip。换托管方时别把 `unpackSysroot` 改回无条件 `gunzip`（失败时 Chrome 只会报一句 "Failed to fetch"，很难查）。
@@ -270,6 +273,7 @@ div.app（column，100% 高）
 
 - 手工：`npm run dev`，浏览器 http://localhost:5199，重点看**两套主题各一遍**、面板折叠/展开、分隔条拖拽与双击。
 - 本地沙箱端到端（动过 `runnoSandbox.js` / `wasmRuntime.js` / 工具链目录后必做）：手工路径是顶栏切「本地 WASM 沙箱」→ 跑一段带 `vector` / `sort` 的 A+B，看输出对不对、同一份代码第二次跑是否秒回（编译缓存）。想自动化就临时写个 puppeteer 脚本，在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `preloadToolchain()` 和 `runCpp({ code, stdin })`——**用完删掉脚本**，仓库里不留临时探针（这条纪律之前踩过：残留探针把 `scripts/` 弄得很乱）。
+- Python 专项（动过 `runPython` / 语言路由 / `python-3.11.3/` 目录后必做），同样临时探针、用完即删：手工路径是新建/打开一个 `.py` 文件（面板会自动切到 Python）→ 切「本地 WASM 沙箱」→ 运行，应看到 AC 且耗时在 100–200ms 量级；再补一条用例验证 `import` 同目录的另一个 `.py`（多文件路径）。自动化时在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `runPython({ code, entryPath, fs })`，注意 `fs` 是「路径 → `{ path, content, mode, timestamps }`」的映射，别直接塞裸字符串。
 - PCH 专项（动过 PCH 段落 / `FRONTEND_ARGS` / 微缩头后必做），同样临时探针、用完即删：
   1. DevTools → Application → IndexedDB 删 `cph-pch` 库、localStorage 删 `cph.pchUnsupported`，从零开始；
   2. 切「本地 WASM 沙箱」点一次「运行全部」（默认模板是合法 A+B，输出应判定通过），随后 IndexedDB 的 `pch` store 应在约 1 秒内自己出现一条 7,249,912 字节、id 前缀 `1:8.0.1:` 的记录（证明后台 `warmupPch()` 真的跑了）；
@@ -282,9 +286,10 @@ div.app（column，100% 高）
   3. 切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：顶栏应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
-- 响应式专项（动过 `TopBar.vue` 的断点或任何顶栏元素宽度后必做），临时探针、用完即删：在 320 / 375 / 414 / 520 / 560 / 820 / 1200 逐档量「必需宽度 = 子元素宽度之和 + gap + padding − `.spacer`」和「运行按钮右缘是否 ≤ 视口宽」。**只看有没有横向滚动条不够**：`.spacer` 会吸收剩余空间，所以 `topbar.scrollWidth` 在真溢出之前一直等于 `clientWidth`，必须按上面那个公式自己算差值。窄屏还要顺手验：375px 下打开省略号菜单，弹层 `getBoundingClientRect()` 应完整落在视口内（`left ≥ 0` 且 `right ≤ innerWidth`，修复前是 `left = -28`），并把菜单四项各点一次，确认能真的开抽屉 / 开引擎弹层 / 换布局。量的时候注意第 3 节记的那两个口径坑。
-- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**A–E 应当是绿的，F 仍是红的**，跑之前先知道这几条：
-  - F 断言切到 Python 后 `.view-lines` 文本含 `def solve`——Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**，属探针 bug（对照：A 步的 `includes('include')` 因为没有空格所以能过）。修法是断言前把 `\u00a0` 归一成空格，**不是**页面坏了。
+- 响应式专项（动过 `TopBar.vue` 的断点或任何顶栏元素宽度后必做），临时探针、用完即删：在 320 / 375 / 414 / 520 / 560 / 820 / 1200 逐档量「必需宽度 = 子元素宽度之和 + gap + padding − `.spacer`」和「运行按钮右缘是否 ≤ 视口宽」。**只看有没有横向滚动条不够**：`.spacer` 会吸收剩余空间，所以 `topbar.scrollWidth` 在真溢出之前一直等于 `clientWidth`，必须按上面那个公式自己算差值。窄屏还要顺手验：375px 下打开省略号菜单，弹层 `getBoundingClientRect()` 应完整落在视口内（`left ≥ 0` 且 `right ≤ innerWidth`，修复前是 `left = -28`），并把菜单四项各点一次，确认能真的开设置视图 / 开帮助抽屉 / 开引擎弹层（「安装到设备」只在 `beforeinstallprompt` 触发时才有）。量的时候注意第 3 节记的那两个口径坑。
+- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**A–F 都应当是绿的**，跑之前先知道这几条：
+  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点顶栏齿轮 → 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上 → 在页签里选「左侧」→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
+  - F 步曾长期误报：断言切到 Python 后 `.view-lines` 文本含 `def solve`，而 Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**——已修（断言前把 `\u00a0` 归一成空格），现在过。对照 A 步的 `includes('include')` 因为不含空格，从来没被这条绊到。
   - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=5299` 覆盖。
   - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
   - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到左侧，写死向右会让测试栏反向变宽。

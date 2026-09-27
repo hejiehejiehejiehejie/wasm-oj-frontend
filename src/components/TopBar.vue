@@ -1,21 +1,16 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
-import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
 import { LANGUAGES } from '../services/templates.js'
 import { engineChoices } from '../services/engines/index.js'
+import { openSettingsTab, settingsTab } from '../services/settingsTab.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 
 const props = defineProps({
   language: { type: String, required: true },
-  panelPosition: { type: String, required: true },
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
-  editorSettings: { type: Object, required: true },
-  editorSettingsOpen: Boolean,
-  // 全局运行时限（毫秒，只计运行段），设置抽屉里修改
-  timeLimit: { type: Number, required: true },
   running: Boolean,
   total: { type: Number, default: 0 },
 })
@@ -25,10 +20,7 @@ const emit = defineEmits([
   'select-engine',
   'update-base',
   'test-connection',
-  'update:editor-settings',
-  'update:editor-settings-open',
-  'update:time-limit',
-  'toggle-layout',
+  'toggle-sidebar',
   'run-all',
 ])
 
@@ -59,23 +51,16 @@ const probeTone = computed(() => {
   return ''
 })
 
-// 两个抽屉都从右侧滑出，同时打开会叠在一起，所以开一个就关另一个；
-// 引擎设置那个弹层挂在顶栏里，抽屉的遮罩会把它盖住，也顺手收掉，
-// 免得关掉抽屉之后它又冒出来。
-function closeDrawers(except) {
-  if (except !== 'editor') emit('update:editor-settings-open', false)
-  if (except !== 'help') helpOpen.value = false
+// 帮助抽屉从右侧滑出，会盖住引擎设置弹层，所以开一个就关另一个。
+// 编辑器设置不再是抽屉（它是编辑区里的一个页签，不遮挡顶栏），故不在这里处理。
+function closeDrawers() {
+  helpOpen.value = false
   settingsOpen.value = false
-}
-
-function setEditorSettingsOpen(value) {
-  emit('update:editor-settings-open', value)
-  if (value) closeDrawers('editor')
 }
 
 function setHelpOpen(value) {
   helpOpen.value = value
-  if (value) closeDrawers('help')
+  if (value) closeDrawers()
 }
 
 /* 窄屏折进省略号的几项。动作都复用栏里那几颗按钮的同一个开关 / 同一个 emit，
@@ -92,7 +77,8 @@ function openEngineSettings() {
 
 function openEditorSettings() {
   moreOpen.value = false
-  setEditorSettingsOpen(true)
+  closeDrawers()
+  openSettingsTab()
 }
 
 function runInstall() {
@@ -114,6 +100,15 @@ function applyBase() {
 
 <template>
   <header class="topbar">
+    <button
+      class="tool tool--sidebar"
+      title="切换资源管理器"
+      aria-label="切换资源管理器"
+      @click="emit('toggle-sidebar')"
+    >
+      <AppIcon name="sidebar" :size="15" />
+    </button>
+
     <div class="brand">
       <span class="brand__mark"><AppIcon name="code" :size="15" :stroke-width="2.2" /></span>
       <span class="brand__name">CPH IDE</span>
@@ -137,16 +132,18 @@ function applyBase() {
 
     <div class="spacer"></div>
 
-    <EditorSettingsPanel
-      :settings="editorSettings"
-      :panel-position="panelPosition"
-      :time-limit="timeLimit"
-      :open="editorSettingsOpen"
-      @update:settings="emit('update:editor-settings', $event)"
-      @update:open="setEditorSettingsOpen"
-      @update:time-limit="emit('update:time-limit', $event)"
-      @toggle-layout="emit('toggle-layout')"
-    />
+    <!-- 设置入口：打开编辑器里那个与代码文件平级的「设置」页签（原来是个右侧抽屉）。
+         沿用 .tool 的尺寸（与旧 .gear-button 逐项相同：28px 高、0 9px 内边距、gap 7），
+         这样顶栏各档断点的宽度口径不用重新量 -->
+    <button
+      class="tool gear-button"
+      :class="{ 'is-active': settingsTab.active }"
+      title="设置"
+      aria-label="设置"
+      @click="openEditorSettings"
+    >
+      <AppIcon name="gear" />
+    </button>
 
     <button
       v-if="canInstall"
@@ -683,11 +680,11 @@ function applyBase() {
   }
 }
 
-/* 第 5 档：编辑器齿轮（字号 / 缩进 / 主题）留到最后，视口窄于 350px 才折走。
+/* 第 5 档：设置齿轮（打开设置页签）留到最后，视口窄于 350px 才折走。
    写 349 而不是 350：口径是「宽度小于 350px 再消失」，max-width: 349px 正好等价
-   （350px 那档它仍在栏里）。它也是「设一次」的偏好，抽屉入口在 .menu__item--editor */
+   （350px 那档它仍在栏里）。它也是「设一次」的偏好，窄屏入口在 .menu__item--editor */
 @media (max-width: 349px) {
-  :deep(.gear-button) {
+  .gear-button {
     display: none;
   }
 

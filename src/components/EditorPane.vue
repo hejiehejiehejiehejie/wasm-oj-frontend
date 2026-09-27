@@ -1,30 +1,61 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+/**
+ * EditorPane —— 编辑器面板（多标签、单编辑器组）。
+ *
+ * 重构要点：
+ * - Monaco 实例只建一次，切文件只 editor.setModel()，绝不重建（HANDOFF 硬约束）；
+ * - model 全部来自 ModelManager（按 fileId 单例，多分屏时可共享）；
+ * - ViewState 按 fileId 在本面板内保存/恢复；
+ * - ⌘S 保存当前文件，⌘⏎ 运行全部；
+ * - 「设置」是与代码文件平级的合成页签：它显示时只是把 Monaco 藏起来（v-show，
+ *   实例和 model 都留着），设置视图铺在同一层。
+ */
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
 import { langMeta } from '../services/templates.js'
+import { modelManager } from '../services/monaco/modelManager.js'
+import { settingsTab } from '../services/settingsTab.js'
+import {
+  activeLanguage,
+  activeNode,
+  saveActive,
+  workspace,
+} from '../services/vfs/workspaceStore.js'
 import AppIcon from './AppIcon.vue'
+import EditorSettingsPanel from './EditorSettingsPanel.vue'
+import EditorTabs from './EditorTabs.vue'
 
 const props = defineProps({
-  modelValue: { type: String, default: '' },
-  language: { type: String, required: true },
   settings: { type: Object, required: true },
+  panelPosition: { type: String, required: true },
+  timeLimit: { type: Number, required: true },
 })
 
-const emit = defineEmits(['update:modelValue', 'run-all'])
+const emit = defineEmits(['run-all', 'update:settings', 'update:time-limit', 'toggle-layout'])
 
 const host = ref(null)
 const editor = shallowRef(null)
 const cursor = ref({ lineNumber: 1, column: 1 })
 const selectedChars = ref(0)
-let echoing = false
 
-const meta = computed(() => langMeta(props.language))
-const fileName = computed(() => `Main.${meta.value.extension}`)
+/** 本面板各文件的视图状态（滚动 / 光标 / 折叠） @type {Map<string, unknown>} */
+const viewStates = new Map()
+
+const meta = () => (activeLanguage.value ? langMeta(activeLanguage.value) : null)
+
+/**
+ * Monaco 在 editor.create 且未指定 model 时会自动造一个 inmemory://model/1。
+ * 挂上真正的 VFS model 后它就是孤儿（永远不会被 UI 使用），及时销毁。
+ */
+function disposeInMemoryOrphans() {
+  const attached = editor.value?.getModel()
+  for (const model of monaco.editor.getModels()) {
+    if (model.uri.scheme === 'inmemory' && model !== attached) model.dispose()
+  }
+}
 
 onMounted(() => {
   const instance = monaco.editor.create(host.value, {
-    value: props.modelValue,
-    language: meta.value.monaco,
     theme: props.settings.theme,
     minimap: { enabled: props.settings.minimap },
     fontSize: props.settings.fontSize,
@@ -54,10 +85,12 @@ onMounted(() => {
   })
   editor.value = instance
 
-  instance.onDidChangeModelContent(() => {
-    if (echoing) return
-    emit('update:modelValue', instance.getValue())
-  })
+  // 启动时安静挂上当前 model（不抢焦点；会话恢复已建好 model）
+  if (workspace.activeId) {
+    const model = modelManager.getExistingModel(workspace.activeId)
+    if (model) instance.setModel(model)
+  }
+  disposeInMemoryOrphans()
 
   instance.onDidChangeCursorPosition((event) => {
     cursor.value = { lineNumber: event.position.lineNumber, column: event.position.column }
@@ -67,9 +100,10 @@ onMounted(() => {
     selectedChars.value = instance.getModel()?.getValueInRange(event.selection)?.length ?? 0
   })
 
-  // Keep ⌘/Ctrl+Enter working while the editor itself has focus.
   instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => emit('run-all'))
-  instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => emit('run-all'))
+  instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    saveActive().catch(() => {})
+  })
 
   monaco.editor.setTheme(props.settings.theme)
 })
@@ -79,29 +113,43 @@ onBeforeUnmount(() => {
   editor.value = null
 })
 
+// ------------------------------------------------------------ 切文件（只换 model）
+
 watch(
-  () => props.modelValue,
-  (value) => {
+  () => workspace.activeId,
+  (nextId, previousId) => {
     const instance = editor.value
     if (!instance) return
-    const next = value ?? ''
-    if (instance.getValue() === next) return
-    const viewState = instance.saveViewState()
-    echoing = true
-    instance.setValue(next)
-    instance.restoreViewState(viewState)
-    echoing = false
+    if (previousId) viewStates.set(previousId, instance.saveViewState())
+
+    if (!nextId) {
+      instance.setModel(null)
+      return
+    }
+    const model = modelManager.getExistingModel(nextId)
+    if (!model) return
+    instance.setModel(model)
+    disposeInMemoryOrphans()
+    const saved = viewStates.get(nextId)
+    if (saved) instance.restoreViewState(saved)
+    instance.focus()
   },
 )
 
+// ------------------------------------------------------------ 设置页签
+
+// Monaco 在 display: none 的容器里量到的是 0 尺寸。automaticLayout 的 ResizeObserver
+// 通常能在重新显示时自愈，但刚切回来那一帧仍可能用的是旧尺寸（滚动位置、概览标尺错位），
+// 显式补一次 layout 最稳。
 watch(
-  () => props.language,
-  () => {
-    const instance = editor.value
-    if (!instance?.getModel()) return
-    monaco.editor.setModelLanguage(instance.getModel(), meta.value.monaco)
+  () => settingsTab.active,
+  (active) => {
+    if (active) return
+    nextTick(() => editor.value?.layout())
   },
 )
+
+// ------------------------------------------------------------ 编辑器设置
 
 watch(
   () => props.settings,
@@ -125,17 +173,33 @@ defineExpose({ layout: () => editor.value?.layout() })
 
 <template>
   <div class="editor-pane">
-    <div class="editor-pane__tabbar">
-      <span class="tab">
-        <AppIcon name="code" :size="12" class="tab__icon" />
-        {{ fileName }}
-      </span>
+    <EditorTabs />
+
+    <div class="editor-pane__stage">
+      <div v-show="!settingsTab.active" ref="host" class="editor-pane__host"></div>
+
+      <!-- 设置视图与 Monaco 同一层，靠 v-show 互斥：切来切去不重建编辑器，
+           也不重挂设置组件（它的运行环境探针订阅只建立一次） -->
+      <EditorSettingsPanel
+        v-show="settingsTab.active"
+        :settings="settings"
+        :panel-position="panelPosition"
+        :time-limit="timeLimit"
+        :active="settingsTab.active"
+        @update:settings="emit('update:settings', $event)"
+        @update:time-limit="emit('update:time-limit', $event)"
+        @toggle-layout="emit('toggle-layout')"
+      />
+
+      <div v-if="!activeNode && !settingsTab.active" class="editor-pane__empty">
+        <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
+        <p>从左侧资源管理器打开或新建文件</p>
+      </div>
     </div>
 
-    <div ref="host" class="editor-pane__host"></div>
-
-    <footer class="editor-pane__status">
-      <span class="opt-file">{{ fileName }}</span>
+    <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看设置时它没有意义 -->
+    <footer v-if="activeNode && !settingsTab.active" class="editor-pane__status">
+      <span class="opt-file">{{ activeNode.name }}</span>
       <span class="dot opt-file"></span>
       <span class="opt-utf8">UTF-8</span>
       <span class="dot opt-utf8"></span>
@@ -144,7 +208,7 @@ defineExpose({ layout: () => editor.value?.layout() })
       <span v-if="selectedChars" class="picked">已选中 {{ selectedChars }} 字符</span>
       <span>行 {{ cursor.lineNumber }}，列 {{ cursor.column }}</span>
       <span class="dot opt-lang"></span>
-      <span class="opt-lang">{{ meta.label }}</span>
+      <span class="opt-lang">{{ meta()?.label }}</span>
       <span class="dot"></span>
       <span title="运行全部测试用例">⌘⏎</span>
     </footer>
@@ -161,35 +225,36 @@ defineExpose({ layout: () => editor.value?.layout() })
   background: var(--bg-panel);
 }
 
-.editor-pane__tabbar {
-  flex: 0 0 35px;
-  display: flex;
-  align-items: center;
-  background: var(--bg-panel-head);
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 100%;
-  padding: 0 14px;
-  font-size: 12.5px;
-  color: var(--text);
-  /* 活动页签单独取一档底色，和页签栏拉开层次 */
-  background: var(--bg-tab-active);
-  border-right: 1px solid var(--border-soft);
-  border-top: 1px solid var(--focus);
-}
-
-.tab__icon {
-  color: var(--icon-code);
+.editor-pane__stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .editor-pane__host {
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+}
+
+.editor-pane__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.editor-pane__empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.editor-pane__empty-icon {
+  opacity: 0.5;
 }
 
 .editor-pane__status {
@@ -234,7 +299,7 @@ defineExpose({ layout: () => editor.value?.layout() })
   font-weight: 550;
 }
 
-/* 由窄到宽逐项隐藏：UTF-8 是常量、main.cpp 在页签栏已经有一份，先摘这两项，
+/* 由窄到宽逐项隐藏：UTF-8 是常量、文件名在页签栏已经有一份，先摘这两项，
    再窄才轮到语言。每一项都连着身后的分隔点一起隐藏，避免留下孤零零一个圆点
    （opt-lang 的那颗点在前，所以跟着自己走）。阈值按无选中文本时的实测宽度取整，
    改字号或增删状态栏项后要重新量 */
