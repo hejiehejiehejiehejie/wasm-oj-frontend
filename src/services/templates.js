@@ -26,11 +26,6 @@ export function langMeta(id) {
 const CPP_TEMPLATE = `#include <bits/stdc++.h>
 using namespace std;
 
-//{{
-// 1 2
-// 3
-//}}
-
 void solve() {
     int a, b;
     cin >> a >> b;
@@ -49,10 +44,6 @@ int main() {
 
 const PYTHON_TEMPLATE = `import sys
 
-#{{
-1 2
-3
-#}}
 
 def solve() -> None:
     a, b = map(int, sys.stdin.read().split())

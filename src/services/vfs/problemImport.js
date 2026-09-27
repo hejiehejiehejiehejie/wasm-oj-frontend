@@ -1,9 +1,13 @@
 /**
  * problemImport —— 把浏览器扩展（Competitive Companion）抓到的题目落进 VFS。
  *
- * 落盘约定：一道题 = 一个代码文件 + 一份隐藏元数据，两者**同名、只差后缀**、同在 OJ 目录下
- *   /Problems/<OJ 标签>/<题目名>.cpp        用户写的题解。只在首次导入时创建，此后正文一个字都不改
- *   /Problems/<OJ 标签>/.cph/<题目名>.json  抓取结果（题目元数据 + 全部测试样例），每次抓取整体覆盖
+ * 落盘约定：一道题 = 一个代码文件 + 一份隐藏元数据，两者**同名、只差后缀**、同在题目录下
+ *   /Problems/<年月>/<OJ 标签>/<难度>/<题目名>.cpp        用户写的题解。只在首次导入时创建，此后正文一个字都不改
+ *   /Problems/<年月>/<OJ 标签>/<难度>/.cph/<题目名>.json  抓取结果（题目元数据 + 全部测试样例），每次抓取整体覆盖
+ *
+ * 为什么要分「年月 / OJ / 难度」三层：抓来的题攒多了，平铺在一个 OJ 目录下没法看。年月粒度取到月
+ * （按天会长出大量只含一个文件的目录）；难度导入时一律为空（来源站点口径不一，由用户手填），
+ * 先落「未分类」占位，用户填了不会自动搬动（见下面的身份判据）。
  *
  * 为什么不给每道题套一个目录：树里多一层「题目名/」纯是噪音，点开一道题还得再点一次才见得到代码。
  * 题名直接做文件名，一眼就是这道题。代价是代码与元数据成了同级的两个条目，所以元数据必须
@@ -16,17 +20,24 @@
  * 【身份判据是 url，不是文件名】题目在来源站点被改名后再次抓取，文件名就对不上了；
  * 只认文件名会另起一个新文件，用户旧文件里写好的题解就此变成孤儿。
  * batch.id 不能用：它是扩展每次抓取现生成的一个随机 uuid，抓两次就是两个值。
+ *
+ * 路径分层以后，同一道题再抓一次可能算出**不同的**日期 / 难度目录，所以认题时先按「算出来的
+ * 新路径」走快路径，不中就必须**全库按 url** 找回原来那个目录并复用 —— 只扫某一个 OJ 目录
+ * 会让老题在新结构下永远找不到，旧题解变孤儿。这也意味着目录结构一旦定下就跟着题走：
+ * 用户后来填了难度、或跨月再抓，都不会把已有文件搬走（搬动 = 丢题解）。
  */
 import { OJ_LIST, normalizeMeta, todayISO } from '../problemMeta.js'
 import { deactivateSettingsTab } from '../settingsTab.js'
-import { join } from './paths.js'
+import { dirname, join, normalize } from './paths.js'
 import { getVFS } from './vfsFactory.js'
 import { openFile } from './workspaceStore.js'
 
-/** 所有导入的题目都收在这一层下，与用户自己建的 /main.cpp 等分开 */
+/** 所有导入的题目都收在这一层下，与用户自己建的 /main.cpp 等分开（由 migrate.js 在建工作区时种子） */
 const ROOT_DIR = '/Problems'
 /** 抓取产物目录：里面的东西都是工具写的，可以放心整体覆盖；同时被树 UI 过滤掉 */
 const META_DIR = '.cph'
+/** 难度为空时的占位目录名：导入时难度一律为空，用户手填后也不搬动已有文件 */
+const UNCATEGORIZED = '未分类'
 
 /**
  * 代码文件后缀写死 cpp：扩展送来的 languages 里只有 java（TaskBuilder 的固定默认值
@@ -115,63 +126,77 @@ function buildConfig(task, ojId) {
 
 // ------------------------------------------------------------ 路径
 
-const codePathOf = (ojDir, name) => join(ojDir, `${name}${CODE_EXT}`)
-const metaDirOf = (ojDir) => join(ojDir, META_DIR)
-const configPathOf = (ojDir, name) => join(metaDirOf(ojDir), `${name}${META_EXT}`)
+const codePathOf = (dir, name) => join(dir, `${name}${CODE_EXT}`)
+const metaDirOf = (dir) => join(dir, META_DIR)
+const configPathOf = (dir, name) => join(metaDirOf(dir), `${name}${META_EXT}`)
+
+/** 落盘用的年月，形如 2026-09（日期粒度按月，避免长出大量只含一个文件的目录） */
+const todayMonth = () => todayISO().slice(0, 7)
 
 // ------------------------------------------------------------ 存储辅助
 
 /**
  * 读某道题的配置；没有 / 坏了都返回 null（判据不存在，当作没匹配上）。
  * @param {import('./BaseVFSProvider.js').BaseVFSProvider} vfs
- * @param {string} ojDir
+ * @param {string} dir 题目所在目录
  * @param {string} name 题目名（不含后缀）
  * @returns {Promise<Record<string, any>|null>}
  */
-async function readConfig(vfs, ojDir, name) {
+async function readConfig(vfs, dir, name) {
   try {
-    const parsed = JSON.parse(await vfs.readFile(configPathOf(ojDir, name)))
+    const parsed = JSON.parse(await vfs.readFile(configPathOf(dir, name)))
     return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
     return null
   }
 }
 
-/** 目录不存在才建；已存在的同名 **文件** 交给 createDirectory 抛错，不静默造怪结构 */
+/**
+ * 逐级确保目录存在（createDirectory 要求父目录已存在，所以从根往下走）。
+ * 某一级已存在同名 **文件** 时交给 createDirectory 抛错，不静默造怪结构。
+ */
 async function ensureDirectory(vfs, dirPath) {
-  const existing = await vfs.stat(dirPath)
-  if (existing?.type === 'directory') return
-  await vfs.createDirectory(dirPath)
+  let current = ''
+  for (const part of normalize(dirPath).split('/').filter(Boolean)) {
+    current += `/${part}`
+    const existing = await vfs.stat(current)
+    if (existing?.type === 'directory') continue
+    await vfs.createDirectory(current)
+  }
 }
 
 /**
- * 在同一个 OJ 的元数据目录里按 url 找回题目名（题目被改过名时靠它认出来）。
- * 只在文件名那条快路径没命中时才扫，扫描成本是「该 OJ 下的题目数」次内存读。
+ * 全库按 url 找回已有题目（题目改名、或落盘目录随日期 / 难度变化时靠它认出来）。
+ * 只扫 `.cph` 元数据目录；返回题目所在目录与名字，调用方**复用该目录**，不搬文件。
  *
- * 接口里没有 readDirectory，所以仍旧走 getTree 自己往下找一层。
+ * 接口里没有 readDirectory，所以仍旧走 getTree 自己往下找。
+ * 扫全库比原先只扫一个 OJ 目录更贵，等 VFS 补上 readDirectory / 全局 url 索引后再优化。
  * @param {import('./BaseVFSProvider.js').BaseVFSProvider} vfs
- * @param {string} ojDir
  * @param {string} url
- * @returns {Promise<string|null>} 题目名（不含后缀）
+ * @returns {Promise<{ dir: string, name: string }|null>}
  */
-async function findNameByUrl(vfs, ojDir, url) {
+async function findByUrl(vfs, url) {
   if (!url) return null
 
-  /** 找到指定路径的节点（getTree 只给根的子节点，要自己往下走） */
-  const findNode = (nodes, path) => {
+  /** 收集全库的元数据条目（getTree 只给根的子节点，要自己往下走） */
+  const candidates = []
+  const walk = (nodes) => {
     for (const node of nodes) {
-      if (node.path === path) return node
-      const hit = findNode(node.children ?? [], path)
-      if (hit) return hit
+      if (node.type === 'directory' && node.name === META_DIR) {
+        const dir = dirname(node.path)
+        for (const child of node.children ?? []) {
+          if (child.type === 'file' && child.name.endsWith(META_EXT)) {
+            candidates.push({ dir, name: child.name.slice(0, -META_EXT.length) })
+          }
+        }
+      }
+      if (node.children) walk(node.children)
     }
-    return null
   }
+  walk(await vfs.getTree())
 
-  const metaNode = findNode(await vfs.getTree(), metaDirOf(ojDir))
-  for (const child of metaNode?.children ?? []) {
-    if (child.type !== 'file' || !child.name.endsWith(META_EXT)) continue
-    const name = child.name.slice(0, -META_EXT.length)
-    if ((await readConfig(vfs, ojDir, name))?.url === url) return name
+  for (const candidate of candidates) {
+    if ((await readConfig(vfs, candidate.dir, candidate.name))?.url === url) return candidate
   }
   return null
 }
@@ -180,15 +205,15 @@ async function findNameByUrl(vfs, ojDir, url) {
  * 取一个没被占用的题目名：原名被别的题占了就依次试 name-2、name-3…
  * 代码文件与元数据文件共用这个名字，所以两边都得是空的。
  * @param {import('./BaseVFSProvider.js').BaseVFSProvider} vfs
- * @param {string} ojDir
+ * @param {string} dir
  * @param {string} baseName
  * @returns {Promise<string>}
  */
-async function resolveFreeName(vfs, ojDir, baseName) {
+async function resolveFreeName(vfs, dir, baseName) {
   for (let index = 1; index < MAX_NAME_ATTEMPTS; index += 1) {
     const name = index === 1 ? baseName : `${baseName}-${index}`
-    const codeTaken = await vfs.stat(codePathOf(ojDir, name))
-    const metaTaken = await vfs.stat(configPathOf(ojDir, name))
+    const codeTaken = await vfs.stat(codePathOf(dir, name))
+    const metaTaken = await vfs.stat(configPathOf(dir, name))
     if (!codeTaken && !metaTaken) return name
   }
   return `${baseName}-${Date.now().toString(36)}`
@@ -209,31 +234,38 @@ export async function importProblem(task) {
   const url = typeof task.url === 'string' ? task.url.trim() : ''
   const ojId = detectOj(url) ?? 'other'
   const ojLabel = OJ_LIST.find((item) => item.id === ojId)?.label ?? '其它'
-  const ojDir = join(ROOT_DIR, ojLabel)
   const baseName = sanitizeName(task.name)
   // 落盘与回传给调用方的是同一份（调用方要拿它里面的 tests 灌评测面板）
   const config = buildConfig(task, ojId)
-  const candidateCode = codePathOf(ojDir, baseName)
 
-  // 1) 文件名撞上就一定是同一道题吗？不一定。快路径先看名字，名字对上了还要 url 也对上
-  let name = null
-  if ((await vfs.stat(candidateCode)) && (await readConfig(vfs, ojDir, baseName))?.url === url) {
-    name = baseName
+  // 新题的落点：/Problems/<年月>/<OJ>/<难度>。难度导入时一律为空（来源站点口径不一），先落「未分类」
+  const defaultDir = join(ROOT_DIR, todayMonth(), ojLabel, UNCATEGORIZED)
+  const candidateCode = codePathOf(defaultDir, baseName)
+
+  // 1) 快路径：算出来的新路径上文件名与 url 都对上，就是这道题
+  let target = null
+  if ((await vfs.stat(candidateCode)) && (await readConfig(vfs, defaultDir, baseName))?.url === url) {
+    target = { dir: defaultDir, name: baseName }
   }
-  // 2) 名字没对上：可能是这道题在来源站点改过名，按 url 找回旧名字
-  if (!name) name = await findNameByUrl(vfs, ojDir, url)
+  // 2) 没对上：可能改了名，也可能落在别的年月 / 难度目录里，全库按 url 找回并复用那个目录
+  if (!target) target = await findByUrl(vfs, url)
   // 3) 确实是新题：名字没被占就直接用，否则起一个不重名的
   //    （同名文件在、但元数据里的 url 对不上，说明那是用户自己的另一个文件，不能覆盖）
-  if (!name) name = (await vfs.stat(candidateCode)) ? await resolveFreeName(vfs, ojDir, baseName) : baseName
+  if (!target) {
+    const name = (await vfs.stat(candidateCode))
+      ? await resolveFreeName(vfs, defaultDir, baseName)
+      : baseName
+    target = { dir: defaultDir, name }
+  }
 
-  const codePath = codePathOf(ojDir, name)
+  const { dir, name } = target
+  const codePath = codePathOf(dir, name)
   const existingCode = await vfs.stat(codePath)
 
   // 整趟放进一个 batch：一次落库、一个 reset 事件，界面只重建一次树
   const node = await vfs.batch(async () => {
-    await ensureDirectory(vfs, ROOT_DIR)
-    await ensureDirectory(vfs, ojDir)
-    await ensureDirectory(vfs, metaDirOf(ojDir))
+    await ensureDirectory(vfs, dir)
+    await ensureDirectory(vfs, metaDirOf(dir))
 
     // 【硬要求】已存在的代码文件一个字都不动 —— 那里面是用户写的题解
     if (!existingCode) await vfs.createFile(codePath, NEW_FILE_CONTENT)
@@ -252,7 +284,7 @@ export async function importProblem(task) {
     )
 
     // 样例与限制整体覆盖：用户重抓，图的就是拿到最新的
-    await vfs.writeFile(configPathOf(ojDir, name), `${JSON.stringify(config, null, 2)}\n`)
+    await vfs.writeFile(configPathOf(dir, name), `${JSON.stringify(config, null, 2)}\n`)
 
     return nextNode
   })
@@ -263,5 +295,5 @@ export async function importProblem(task) {
   deactivateSettingsTab()
   await openFile(node.id, node)
 
-  return { name, ojDir, codePath, created: !existingCode, config, node }
+  return { name, ojDir: dir, codePath, created: !existingCode, config, node }
 }
