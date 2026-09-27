@@ -28,7 +28,7 @@
 | flex 容器的子元素要显式拉伸 | 布局里 `.pane > *` 必须 `flex: 1 1 auto; min-width: 0`，否则子组件收缩到内容宽度 |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑） |
-| SW 改了策略就升版本号 | `public/sw.js` 的 `VERSION` 决定缓存桶名（`cph-shell-v1` / `cph-toolchain-v1`）；改缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶 |
+| SW 改了策略就升版本号 | `public/sw.js` 的 `VERSION` 决定缓存桶名（现为 `cph-shell-v2` / `cph-toolchain-v2`）；改缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物，**不在**构建清单里，改动它们要同步 `sw.js` 的 `STATIC_ASSETS`（见第 9 节） |
 
 ## 2. 与界面相关的文件
@@ -38,7 +38,7 @@ index.html                      # 除挂载点外还负责 PWA 的 manifest / ap
 vite.config.js                  # COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
-public/sw.js                    # Service Worker：预缓存外壳 + 52MB 工具链，导航网络优先（见第 9 节）
+public/sw.js                    # Service Worker：预缓存外壳（工具链不预缓存、改为按需落缓存），导航网络优先（见第 9 节）
 public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
 public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
@@ -54,11 +54,12 @@ src/
   composables/useInstallPrompt.js  # 顶栏「安装」按钮的数据源：拦 beforeinstallprompt，用完即弃
   composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
   components/
-    TopBar.vue                  # 顶栏：侧栏开关/语言/设置齿轮/安装/引擎设置/帮助/更多/运行（50px 高）+ 五档响应式断点与省略号收纳（见第 3 节）。设置齿轮只负责「打开设置页签」、本身不是抽屉
-    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏
+    TopBar.vue                  # 顶栏：侧栏开关/语言/设置齿轮/安装/更多/运行（50px 高）+ 四档响应式断点与省略号收纳（见第 3 节）。设置齿轮只负责「打开设置页签」、本身不是抽屉；顶栏已无自己的弹层 / 抽屉
+    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图
     EditorTabs.vue              # 编辑器标签栏：文件页签 + 「设置」合成页签（见第 5 节坑 7）
-    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）
-    HelpPanel.vue               # 右侧「使用帮助」抽屉（Teleport，按钮在顶栏最右；只读，内容是三条常见操作解答，与 docs/使用手册.md 同源）
+    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 编辑器 / 布局 / 评测 / 本地运行环境 / 帮助
+    EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
+    HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）
     TestPanel.vue               # 右侧评测面板：页头（verdict「全部 AC / n/m AC」/耗时/时限）+ 用例列表 + 页脚运行按钮
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）
@@ -104,32 +105,32 @@ div.app（column，100% 高）
 
 ### 顶栏的响应式（`TopBar.vue`，2026-09 加）
 
-五档断点 + 一档弹层定位，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证），**`display: contents` 的容器摊平后递归统计**。下表是 2026-09-28 多文件重构加「Sidebar 开关」按钮（35px + gap，每档 +45）后用官方方法重测的（无头 CfT）。**触屏与鼠标两套数字现在完全相同**——原先让触摸屏多 38px 的「键盘模式」按钮已撤掉（见第 3 节末）。
+四档断点，阈值全部由实测反推。各档「必需宽度」= 可见 flex 项宽度之和 + gap + padding，**不含 `.spacer`**（它总是吃掉剩余空间，算进去公式会自证）。下表是 2026-09-28「评测引擎设置」与「帮助」并进设置视图（顶栏少了两颗 35px 按钮 + 两个 gap，共 90px）后用官方方法重测的（无头 CfT）。**触屏与鼠标两套数字现在完全相同**。
 
 | 档位 | 条件 | 顶栏让位的东西 | 该档必需宽度 | 该档可用下限 | 余量 |
 | --- | --- | --- | --- | --- | --- |
-| 宽档 | ≥821px | — | 638 | 821 | 183 |
-| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 461 | 561 | 100 |
-| 2 | ≤560px | “语言”二字 | 431 | 521 | 90 |
-| 3 | ≤520px | 帮助 → 折进省略号 | 431 | 481 | 50 |
-| 4 | ≤480px | 引擎设置齿轮、安装 → 折进省略号 | 341 | 350 | 9 |
-| 5 | ≤349px | 设置齿轮 → 折进省略号 | 296 | 320 | 24 |
+| 宽档 | ≥821px | — | 548 | 821 | 273 |
+| 1 | ≤820px | 品牌名 + 分隔线（装饰）、运行按钮文案（只留 ▶） | 371 | 561 | 190 |
+| 2 | ≤560px | “语言”二字 | 341 | 521 | 180 |
+| 3 | ≤520px | 安装 → 折进省略号（省略号此时才出现） | 341 | 350 | 9 |
+| 4 | ≤349px | 设置齿轮 → 折进省略号 | 296 | 320 | 24 |
+
+第 3 档的必需宽度与第 2 档**逐像素相同**：折走安装（-35）与亮出省略号（+35）正好抵消（`.more` 自占一格 + 10px gap，各 45px）。它存在的意义是给「安装」一个窄屏去处，不是为了腾宽度。
 
 - 「该档可用下限」= 下一档阈值 + 1（末档取支持的最小宽度 320px）；**余量 = 可用下限 − 必需宽度**，也就是这一档最窄还能撑到哪。
-- **硬约束：第 N 档的阈值必须 ≥ 第 N−1 档的必需宽度**（视口再窄一档就换状态，卡的是「上一档还开着时的那份宽度」）。当前最紧的两处：第 3 档 520 对 431（余 89），**第 4 档 480 对 431 只剩 49**；另外第 4 档自身在 350px 处只余 9px。**动顶栏任何元素的宽度（文案、图标、gap、padding）都要先看这三列**，照抄旧值就是溢出事故的来源。
-- 怎么量「必需宽度」：把摊平后的每个可见 flex 项**逐个**注 `flex-shrink: 0`（只写 `.topbar > *` 不够——`.settings` 在窄档是 `display: contents`，它的按钮不是 `.topbar > *`），再把 `.spacer` 藏掉，量最后一个可见子项右缘到栏左缘的距离 + 右内边距。**不能直接量 `scrollWidth`**——栏不是滚动容器，收缩后的子项不会让它溢出，量出来的恒等于栏宽。
-- **每档折走几颗**：省略号自己占一格（35px + 10px gap = 45px）。多文件重构后「换边」按钮已不在顶栏，省略号**首次出现**的第 3 档只折帮助一颗（35 换 35，净值 0），520 这个阈值主要承载的是**弹层 fixed + 侧栏抽屉**两条规则；省略号已经在栏里之后的各档，折一颗净赚 45px（第 4 档一次折两颗：齿轮与安装）。
-- 收纳位在图标簇最右端（最右是「⋯」自己），折叠顺序就是模板里从右往左的顺序：**帮助 → 引擎设置齿轮 + 安装 → 设置齿轮**；收纳位位置不动，只往左吞。设置齿轮排在最后是 2026-09 定的：它属「设一次」的偏好（字号 / 缩进 / 主题，现在还含布局与本地运行环境），要留到视口窄于 350px 才交出去。
+- **硬约束：第 N 档的阈值必须 ≥ 第 N−1 档的必需宽度**（视口再窄一档就换状态，卡的是「上一档还开着时的那份宽度」）。当前最紧的是**第 4 档 349 对第 3 档的 341 只剩 8**；另外第 3 档自身在 350px 处只余 9px。**动顶栏任何元素的宽度（文案、图标、gap、padding）都要先看这三列**，照抄旧值就是溢出事故的来源。
+- 怎么量「必需宽度」：把摊平后的每个可见 flex 项**逐个**注 `flex-shrink: 0`，再把 `.spacer` 藏掉，量最后一个可见子项右缘到栏左缘的距离 + 右内边距。**不能直接量 `scrollWidth`**——栏不是滚动容器，收缩后的子项不会让它溢出，量出来的恒等于栏宽。
+- **每档折走几颗**：省略号自己占一格（35px + 10px gap = 45px），折一颗净值是 0。第 3 档「安装 → 省略号」正是这种净值 0 的折法；第 4 档折设置齿轮时省略号已经在栏里，净赚 45px。
+- 收纳位在图标簇最右端（最右是「⋯」自己），折叠顺序就是模板里从右往左的顺序：**安装 → 设置齿轮**；收纳位位置不动，只往左吞。设置齿轮排在最后：它属「设一次」的偏好（字号 / 缩进 / 主题，现在还含布局、评测引擎、本地运行环境与帮助），要留到视口窄于 350px 才交出去。
 - 表里的必需宽度**含安装按钮**。它由 `beforeinstallprompt` 决定存不存在：已装成独立应用（或浏览器判定不可安装）的设备上它不渲染，**宽档到第 3 档会再窄 45px**；第 4 档起它本来就被折掉，不受影响。
-- **旧第 5 档（≤400px 折「本地运行环境」）已删除**：那颗按钮不在 DOM 里，留着是空规则。现在的五档为 820 / 560 / 520 / 480 / 349。旧第 4 档阈值曾为「键盘模式」抬到 480；该按钮已撤，但调回阈值属于新改动，未做。
-- **第 5 档（349）**：需求是「设置齿轮在宽度小于 350px 时才消失」。写 349 而不是 350——`max-width: 349px` 正好等价「< 350px」，350px 那一档齿轮仍在栏里；它在「⋯」菜单里的入口是 `.menu__item--editor`。
-- **菜单项复用同一批开关**（`openSettingsTab()` / `setHelpOpen()` / `settingsOpen`），**不复制组件**：抽屉、弹层、设置页签始终各只有一份实例（菜单项「设置」只是调 `openSettingsTab()`）。
-- 折叠时给 `.settings` 加 `display: contents`：既腾出它那格（齿轮按钮 `display: none` 后 `.settings` 宽度为 0，但仍占一个 gap），也让弹层不再挂在零宽锚点上。弹层的 `fixed` 阈值**刻意保持 520px**——比齿轮折叠的第 4 档（480）更早一档，齿轮还可见的那段宽度里弹层也已由视口定位。
-- 帮助抽屉与引擎设置弹层**互斥**：`closeDrawers()` 打开帮助时顺手关掉引擎弹层（否则遮罩把它盖住、关掉抽屉后它又冒出来）。**设置已不是抽屉**——它是编辑区里与代码文件平级的页签，不遮挡顶栏，所以不参与这个联动；「本地运行环境」也不再是独立抽屉，已并进设置视图。
+- **历史**：断点由五档收到四档（2026-09-28）。原五档是 820 / 560 / 520 / 480 / 349，其中第 3 档折「帮助」、第 4 档折「引擎设置齿轮 + 安装」，另外还有一档 ≤520 的「弹层 fixed」规则。评测引擎设置与帮助并进设置视图后，这两颗按钮连 DOM 都不在了，那两条规则（以及弹层定位）一起删掉，剩下的安装与设置齿轮按下表折。
+- **第 4 档（349）**：需求是「设置齿轮在宽度小于 350px 时才消失」。写 349 而不是 350——`max-width: 349px` 正好等价「< 350px」，350px 那一档齿轮仍在栏里；它在「⋯」菜单里的入口是 `.menu__item--editor`。
+- **菜单项复用同一个入口**（`openSettings()` 里调 `openSettingsTab()`），**不复制组件**：设置页签始终只有一份实例（菜单项「设置」与栏里的齿轮是同一个动作）。
+- 顶栏现在**没有任何自己的弹层 / 抽屉**：评测引擎设置与使用帮助的内容都搬进了设置视图，「⋯」里只剩「设置」与「安装到设备」两项，弹出的 `.popover--menu` 仍挂在顶栏 DOM 内（**不要挪到 body**——脱离 flex 布局会被挤出视口）。
 - 隐藏一律用 `display: none`（而非 `visibility` / `opacity`），顺带从无障碍树里摘掉；因此运行按钮的可访名改由模板上的 `aria-label` 承担——**文字被藏的元素必须另给可访名**。
 - 量宽度时的两个口径坑：`display: none` 父元素内的子元素，`getComputedStyle(child).display` **仍返回它自己的值**（不是 `none`），判可见要量外层容器；`display: contents` / `display: none` 的子元素不生成盒子、**不占 gap**，量必需宽度时要把它们排除，否则每档虚高几十像素。
-- 语言下拉是**定宽**的：原生 `<select>` 按最宽的选项（「Python 3」）算宽，切到 Python 后各档必需宽度一个像素都没变（已复测）。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档有 183px 余量，够这点波动。
-- **复测口径**（2026-09-18 更新）：触屏与鼠标各跑一遍 **300–900px 逐像素**，同时判三件事——`topbar.scrollWidth - clientWidth === 0`（没溢出）、`documentElement` 也没有横向溢出、**运行按钮右缘 = 视口宽 − 12px**（没被挤出视口），再逐个查图标按钮宽度不小于它的正常值（**换边 28px，其余 35px**，没被 flex 挤扁）。**别只看溢出**：`.tool` 的 `flex-shrink` 默认为 1，挤扁到 17px 时图标被裁掉但仍不溢出，只量溢出的探针会漏掉它。触屏要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才会命中 `@media (pointer: coarse)`（`emulateMediaFeatures` 不支持 `pointer`）。**不要再用 iframe 或注入 `display: revert` 的方式模拟视口**——量不到真实溢出，返回的数字是自洽的假象。
+- 语言下拉是**定宽**的：原生 `<select>` 按最宽的选项（「Python 3」）算宽，切到 Python 后各档必需宽度一个像素都没变（已复测）。会变宽的只有运行按钮文案，而它在 ≤820 档已藏，带文案的宽档有 273px 余量，够这点波动。
+- **复测口径**（2026-09-18 更新）：触屏与鼠标各跑一遍 **320–900px 逐像素**（360 以下已超出支持范围），同时判三件事——`topbar.scrollWidth - clientWidth === 0`（没溢出）、`documentElement` 也没有横向溢出、**运行按钮右缘 = 视口宽 − 12px**（没被挤出视口），再逐个查图标按钮宽度不小于它的正常值（**都是 35px**，没被 flex 挤扁）。**别只看溢出**：`.tool` 的 `flex-shrink` 默认为 1，挤扁到 17px 时图标被裁掉但仍不溢出，只量溢出的探针会漏掉它。触屏要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才会命中 `@media (pointer: coarse)`（`emulateMediaFeatures` 不支持 `pointer`）。**不要再用 iframe 或注入 `display: revert` 的方式模拟视口**——量不到真实溢出，返回的数字是自洽的假象。查「哪个图标没被挤扁」时要用 `el.getClientRects().length > 0` 判可见，**别用 `getComputedStyle(el).display`**——被 `display: none` 的父元素藏起来的子元素，它自己的 computed display 仍是 `inline-flex`，会误报成可见。
 
 ### 测试面板的最低宽度（`App.vue`，2026-09 加）
 
@@ -208,13 +209,14 @@ div.app（column，100% 高）
 | 组件 | 主要选择器 |
 | --- | --- |
 | `App.vue:506` | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
-| `TopBar.vue:274` | `.topbar` `.select` `.popover` 及引擎/连接 chip（`height: 50px` 在这里）；`.engines` `.engine`（引擎列表项，整块可点）；`TopBar.vue:629` 起是**五档**响应式断点 + 一档弹层 fixed + 省略号收纳与菜单（见第 3 节） |
+| `TopBar.vue` | `.topbar`（`height: 50px` 在这里）`.brand*` `.field*` `.select` `.tool` `.primary` `.popover--menu` + `.menu__item--*`（省略号菜单）；文件末尾是**四档**响应式断点与省略号收纳（见第 3 节）。原来的 `.settings` / `.engines` / `.engine*` / `.probe*` 已随引擎弹层搬去 `EngineSettingsPanel.vue` |
 | `TestPanel.vue:92` | `.panel` `.panel__head` `.panel__heading` `.panel__title` `.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.limit` `.select` `.panel__foot` `.run-inline` |
 | `TestCaseCard.vue:184` | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
 | `EditorTabs.vue:101` | `.editor-tabs` `.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式） |
 | `EditorPane.vue:219` | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
-| `EditorSettingsPanel.vue:377` | `.settings-view` `.settings-view__inner` `.setting-group*` `.setting-row*` `.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.download-button*` `.is-spinning`（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
-| `HelpPanel.vue:153` | `.help-button` `.panel-backdrop` `.panel-drawer*` `.panel-note` `.help-group*` `.help-item*` |
+| `EditorSettingsPanel.vue:400` | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-row*` `.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.download-button*` `.is-spinning`（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
+| `EngineSettingsPanel.vue` | `.engine-panel` `.engine-list` `.engine`（`--active` 是选中引擎，整块可点）`.engine__*` `.engine-field*`（服务地址）`.engine-button*`（自检 / 保存）`.engine-probe*`（自检结果文案，`--ok` / `--bad` 由 `is-*` 类控制） |
+| `HelpPanel.vue` | `.help-content` `.help-group*` `.help-item*`（`.is-bold` 是 `**…**` 加粗片段）`.guide-link`。原 `.help-button` / `.panel-backdrop` / `.panel-drawer*` / `.done-button` 与两段 Transition 已随抽屉外壳一起删掉 |
 | `base.css:141` 起 | `body`、`button`、`input/textarea/select`、滚动条、`:focus-visible`、`prefers-reduced-motion` |
 
 ## 5. 改样式时的几个坑
@@ -225,7 +227,7 @@ div.app（column，100% 高）
 4. **localStorage 里存的是 JSON 字符串**：`cph.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
 5. **面板折叠是 `v-show`**，测试栏 DOM 一直在（分隔条要能用鼠标/键盘把面板拖回来）。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
-7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）
+7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身是**「目录 + 内容」两栏**（2026-09 改）：左边 `.settings-nav` 是分类目录（编辑器 / 布局 / 评测 / 本地运行环境 / 帮助，`SECTIONS` 常量驱动），右边同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）。窄宽度降级不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `@container settings (max-width: 560px)` 把目录翻成顶部横向标签条。
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠用的是 `v-show`，此刻 `scrollHeight` 为 0，代码会跳过重算，面板重新展开时会再算一次——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。
 9. **`.run-zone` 是撑满中段的 `<button>`**：里面的 `padding: 0` 不是装饰，是在抵消浏览器给按钮的默认内边距（不抵消的话 ▶ 图标位置会跑偏）；`.run-zone__icon` 才是那个 22px 的 ▶ 本体，悬停点亮的是它。
 10. **`theme-color` 是 JS 写的，不是静态 meta**：`App.vue` 切主题时会把 `--bg-chrome` 读出来写进 `<meta name="theme-color">`（装成独立应用后浏览器拿它画窗口标题栏）。`index.html` 里那个 `content` 只是首帧兜底，别在那里维护第二份色值。
@@ -249,7 +251,7 @@ div.app（column，100% 高）
 
 ## 7. 现在的功能边界（写文案时别夸大）
 
-- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱支持 **C++ 与 Python**，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载**只有一个入口**：设置视图里的「本地运行环境」分组（C++ / Python 两行同一套数据驱动渲染，下载中另一行按钮自动禁用；状态在 `EditorSettingsPanel.vue` 里，直接调 `wasmRuntime.preload(language)`）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
+- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱支持 **C++ 与 Python**，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载**只有一个入口**：设置视图目录里的「本地运行环境」（C++ / Python 两行同一套数据驱动渲染，下载中另一行按钮自动禁用；状态在 `EditorSettingsPanel.vue` 里，直接调 `wasmRuntime.preload(language)`）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
 - **本地沙箱的 Python（2026-09 加）**：走 CPython 3.11.3 的 wasm32-wasi 构建（`public/wasm/python-3.11.3/`，约 24MB，来源与 C++ 工具链一致，都取自 `taybenlor/runno` 的 `langs/`）。没有编译段：`runPython()` 直接把整棵 VFS 拍成 fs、以 `args: ['python', 入口文件]` 拉起解释器，多文件 `import` 靠 `sys.path[0] = '/'` 找到同目录的模块。标准库打包在 `/usr/local/lib/python311.zip`（zipimport），`sys.prefix` 编译期写死为 `/usr/local`，所以 **env 必须留空**（不要自作聪明加 `PYTHONHOME`）。语言路由在 `wasmRuntime.runCase()`：`language === 'python'` 走解释分支，其余原样走 C++ 分支；`entryPath` 由 App 从当前激活文件传下来。Python 与 C++ 互不影响，改一边不用管另一边。
 - Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
 - TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。Python 没有编译段，它的「运行段」包含解释器冷启动（实测约 190ms），因此 `wasmRuntime.js` 给 Python 的 run 时限额外加 `PYTHON_STARTUP_ALLOWANCE_MS = 500` 余量——不加的话 1s 时限会被启动开销吃掉一大截，跑得再快的程序也可能被判 TLE。代价是 TLE 最多晚 0.5s 报出来。
@@ -267,7 +269,7 @@ div.app（column，100% 高）
   - 判废条件必须窄：只有「带了 PCH、没产出 `.o`、且 stderr 命中 `/stdc\+\+\.h\.pch|precompiled header/i`」才判废（删存档 + 置标记 + 普通编译重试一次）。用户自己代码写错同样没有 `.o`，放宽条件会让每次编译错误都白编一遍并永久关掉加速。
   - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
-- **PWA：装到设备后可独立窗口运行，且断网也能编译**（2026-09 加，见第 9 节）。工具链被 Service Worker 一起预缓存，所以离线状态下本地沙箱、判题、主题、布局全部照常，只有 Piston / Judge0 这两种远端引擎会失效。装完之后顶栏的「安装」按钮自动消失，也不会再重复提示。
+- **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后顶栏的「安装」按钮自动消失，也不会再重复提示。
 
 ## 8. 验证方式
 
@@ -282,13 +284,13 @@ div.app（column，100% 高）
   注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cph.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
 - PWA / 离线专项（动过 `sw.js` / manifest / 图标 / 预缓存清单后必做），仍然临时探针、用完即删：
   1. `npm run build && npm run preview`（**必须是生产构建**，dev 下不注册 SW），DevTools → Application 应看到 manifest 无报错、Service Worker 已是 `activated`；
-  2. Application → Cache Storage 应有两个桶：`cph-shell-v1`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）与 `cph-toolchain-v1`（3 条，clang / wasm-ld / clang-fs 全中）；
+  2. Application → Cache Storage 应只有 `cph-shell-v2`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）；`cph-toolchain-v2` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
   3. 切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：顶栏应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
-- 响应式专项（动过 `TopBar.vue` 的断点或任何顶栏元素宽度后必做），临时探针、用完即删：在 320 / 375 / 414 / 520 / 560 / 820 / 1200 逐档量「必需宽度 = 子元素宽度之和 + gap + padding − `.spacer`」和「运行按钮右缘是否 ≤ 视口宽」。**只看有没有横向滚动条不够**：`.spacer` 会吸收剩余空间，所以 `topbar.scrollWidth` 在真溢出之前一直等于 `clientWidth`，必须按上面那个公式自己算差值。窄屏还要顺手验：375px 下打开省略号菜单，弹层 `getBoundingClientRect()` 应完整落在视口内（`left ≥ 0` 且 `right ≤ innerWidth`，修复前是 `left = -28`），并把菜单四项各点一次，确认能真的开设置视图 / 开帮助抽屉 / 开引擎弹层（「安装到设备」只在 `beforeinstallprompt` 触发时才有）。量的时候注意第 3 节记的那两个口径坑。
+- 响应式专项（动过 `TopBar.vue` 的断点或任何顶栏元素宽度后必做），临时探针、用完即删：在 320 / 375 / 414 / 520 / 560 / 820 / 1200 逐档量「必需宽度 = 子元素宽度之和 + gap + padding − `.spacer`」和「运行按钮右缘是否 ≤ 视口宽」。**只看有没有横向滚动条不够**：`.spacer` 会吸收剩余空间，所以 `topbar.scrollWidth` 在真溢出之前一直等于 `clientWidth`，必须按上面那个公式自己算差值。窄屏还要顺手验：375px 下打开省略号菜单，弹层 `getBoundingClientRect()` 应完整落在视口内（`left ≥ 0` 且 `right ≤ innerWidth`），并把菜单两项各点一次，确认「设置」能真的开出设置视图、「安装到设备」能触发安装（后者只在 `beforeinstallprompt` 触发时才渲染）。量的时候注意第 3 节记的那两个口径坑。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**A–F 都应当是绿的**，跑之前先知道这几条：
-  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点顶栏齿轮 → 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上 → 在页签里选「左侧」→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
+  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点顶栏齿轮 → 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、目录里正好 5 个 `.settings-nav__item`（编辑器 / 布局 / 评测 / 本地运行环境 / 帮助） → **点目录里的「布局」**（设置是「目录 + 内容」两栏，默认停在「编辑器」，右侧只渲染当前那一组，不点就找不到换边入口）→ 在页签里选「左侧」→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
   - F 步曾长期误报：断言切到 Python 后 `.view-lines` 文本含 `def solve`，而 Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**——已修（断言前把 `\u00a0` 归一成空格），现在过。对照 A 步的 `includes('include')` 因为不含空格，从来没被这条绊到。
   - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=5299` 覆盖。
   - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
@@ -309,7 +311,7 @@ div.app（column，100% 高）
 
 **Service Worker 的三段策略**：
 
-- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存；工具链单独进 `cph-toolchain-v1`。**逐条 `catch` 容错**——灵感来自 52MB 的工具链，任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
+- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存进 `cph-shell-v2`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cph-toolchain-v2`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
 - `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。
 - `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错。
 
@@ -317,8 +319,8 @@ div.app（column，100% 高）
 
 **两个版本号，别混**：
 
-- `sw.js` 的 `VERSION = 'v1'` —— 常量前缀，决定缓存桶名。改缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧桶整个删掉。**只在缓存桶名上生效，和工具链版本无关。**
-- 工具链目录 `public/wasm/8.0.1/` —— 换目录名即自然失效，`sw.js` 的 `TOOLCHAIN_ASSETS` 要跟着改（第 7 节那条约定）。
+- `sw.js` 的 `VERSION = 'v2'` —— 常量前缀，决定缓存桶名。改缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧桶整个删掉。**只在缓存桶名上生效，和工具链版本无关。**
+- 工具链目录 `public/wasm/8.0.1/`（C++）与 `public/wasm/python-3.11.3/`（Python）—— 目录名就是版本号，换名字即自然失效（URL 变了，浏览器与 SW 都当新资源重新取）。**不用再改 `sw.js`**：工具链已改成按需缓存的，`cacheFirst` 只按 `/wasm/` 前缀分流、不认具体版本目录。
 
 **注册时机**：`src/main.js` 里 `import.meta.env.PROD && 'serviceWorker' in navigator` 才注册，且挂在 `window.load` 上。**dev 下刻意不注册**——Vite 的模块是即时编译的，缓存它只会让改完代码看到旧页面；所以 `npm run dev` 里既没有安装入口也测不到离线，要验就走 `npm run build && npm run preview`。
 

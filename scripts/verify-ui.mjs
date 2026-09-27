@@ -172,8 +172,18 @@ try {
       return {
         viewVisible: !!view && view.getBoundingClientRect().width > 0,
         tabActive: tab?.classList.contains('editor-tabs__item--active') ?? false,
+        navItems: document.querySelectorAll('.settings-nav__item').length,
       }
     })
+    // 设置是「目录 + 内容」两栏：默认停在「编辑器」那一组，换边入口在「布局」里。
+    // 先点目录里的「布局」，右侧才会渲染出含「左侧」选项的那组设置。
+    await page.evaluate(() => {
+      const item = [...document.querySelectorAll('.settings-nav__item')].find((el) =>
+        el.textContent.includes('布局'),
+      )
+      item?.click()
+    })
+    await wait(200)
     await page.evaluate(() => {
       const select = [...document.querySelectorAll('.settings-view select')].find((s) =>
         [...s.options].some((o) => o.textContent.trim() === '左侧'),
@@ -209,6 +219,7 @@ try {
       state.codeLineCount > 3 &&
       settingsShown.viewVisible &&
       settingsShown.tabActive &&
+      settingsShown.navItems === 5 &&
       !settingsClosed.tabPresent &&
       !settingsClosed.viewVisible
     record('B. 切换布局：order 换序，DOM/Monaco 不重建', ok, {

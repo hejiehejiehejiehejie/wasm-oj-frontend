@@ -15,9 +15,9 @@
     />
     <meta
       name="description"
-      content="CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+      content="CPH IDE 是一个在浏览器里编译运行 C++ 与 Python 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
     />
-    <title>CPH IDE · 在线 C++ 编译器与评测，浏览器本地运行、离线可用</title>
+    <title>CPH IDE</title>
     <!-- 独立窗口的标题栏底色；跟着主题走，由 App.vue 在切换主题时改写 -->
     <meta name="theme-color" content="#323233" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -111,7 +111,10 @@
         </p>
 
         <h3>支持 Python 吗？</h3>
-        <p>本地 WASM 沙箱目前只支持 C++。跑 Python 需要切换到 Piston 或 Judge0 远端评测服务。</p>
+        <p>
+          支持。本地 WASM 沙箱既能跑 C++，也能跑 Python 3（由 CPython 解释器直接执行，不需要编译）；
+          其它语言请切到 Piston 或 Judge0 远端评测服务。
+        </p>
 
         <h3>为什么第一次运行明显更慢？</h3>
         <p>

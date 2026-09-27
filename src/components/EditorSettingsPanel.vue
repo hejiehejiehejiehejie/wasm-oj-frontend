@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import EngineSettingsPanel from './EngineSettingsPanel.vue'
+import HelpPanel from './HelpPanel.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { preload, probeRuntime, subscribeStatus } from '../services/wasmRuntime.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
@@ -10,6 +12,10 @@ const props = defineProps({
   panelPosition: { type: String, required: true },
   // 全局运行时限（毫秒，只计运行段），与 App.vue 的 cph.timeLimitMs 同源
   timeLimit: { type: Number, required: true },
+  // 评测引擎状态（引擎列表 / 服务地址 / 自检结果）从 App 一路传下来，
+  // 与测试面板读到的是同一份
+  judge: { type: Object, required: true },
+  connection: { type: Object, required: true },
   // 设置视图此刻是否真的显示在编辑器里（合成页签被切走时为 false）。
   // 组件本身用 v-show 常驻挂载，靠这个 prop 决定何时重新核对本地运行环境。
   active: Boolean,
@@ -19,6 +25,9 @@ const emit = defineEmits([
   'update:settings',
   'update:time-limit',
   'toggle-layout',
+  'select-engine',
+  'update-base',
+  'test-connection',
 ])
 
 // 主题决定的是整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套
@@ -38,6 +47,19 @@ const PANEL_POSITIONS = [
   { id: 'right', label: '右侧' },
   { id: 'left', label: '左侧' },
 ]
+
+// 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
+// activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
+// 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
+const SECTIONS = [
+  { id: 'editor', title: '编辑器', icon: 'code' },
+  { id: 'layout', title: '布局', icon: 'sidebar' },
+  { id: 'judge', title: '评测', icon: 'check' },
+  { id: 'runtime', title: '本地运行环境', icon: 'download' },
+  { id: 'help', title: '帮助', icon: 'help' },
+]
+
+const activeSection = ref('editor')
 
 // ------------------------------------------------------------ 本地运行环境
 // 「是否已下载」不再只看一个 localStorage 布尔标记（它会过期：浏览器随时可能清缓存，
@@ -231,7 +253,23 @@ function setTimeLimit(event) {
        关它靠页签上的 ×，改动本来就即时生效，不需要一个「确认」动作。 -->
   <div class="settings-view" role="region" aria-label="设置">
     <div class="settings-view__inner">
-      <section class="setting-group">
+      <!-- 目录：点哪一项，右边就只渲染那一组设置（原来是四段纵向平铺） -->
+      <nav class="settings-nav" aria-label="设置分类">
+        <button
+          v-for="section in SECTIONS"
+          :key="section.id"
+          type="button"
+          class="settings-nav__item"
+          :class="{ 'settings-nav__item--active': section.id === activeSection }"
+          :aria-current="section.id === activeSection ? 'true' : undefined"
+          @click="activeSection = section.id"
+        >
+          <AppIcon :name="section.icon" :size="14" />
+          <span class="settings-nav__label">{{ section.title }}</span>
+        </button>
+      </nav>
+
+      <section v-if="activeSection === 'editor'" class="setting-group">
         <p class="setting-group__title">编辑器</p>
 
         <label class="setting-row">
@@ -294,7 +332,7 @@ function setTimeLimit(event) {
         </label>
       </section>
 
-      <section class="setting-group">
+      <section v-else-if="activeSection === 'layout'" class="setting-group">
         <p class="setting-group__title">布局</p>
 
         <label class="setting-row">
@@ -313,7 +351,7 @@ function setTimeLimit(event) {
         </label>
       </section>
 
-      <section class="setting-group">
+      <section v-else-if="activeSection === 'judge'" class="setting-group">
         <p class="setting-group__title">评测</p>
 
         <label class="setting-row">
@@ -330,9 +368,18 @@ function setTimeLimit(event) {
             <AppIcon name="chevron" :size="12" class="select__chevron" />
           </span>
         </label>
+
+        <p class="setting-subtitle">评测引擎</p>
+        <EngineSettingsPanel
+          :judge="judge"
+          :connection="connection"
+          @select-engine="emit('select-engine', $event)"
+          @update-base="emit('update-base', $event)"
+          @test-connection="emit('test-connection')"
+        />
       </section>
 
-      <section class="setting-group">
+      <section v-else-if="activeSection === 'runtime'" class="setting-group">
         <p class="setting-group__title">本地运行环境</p>
         <p class="setting-group__note">在浏览器里直接编译运行，代码不出本机。</p>
 
@@ -365,34 +412,113 @@ function setTimeLimit(event) {
           </div>
         </div>
       </section>
+
+      <section v-else-if="activeSection === 'help'" class="setting-group">
+        <p class="setting-group__title">帮助</p>
+        <HelpPanel />
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 设置视图：铺满编辑区的那一块（Monaco 被 v-show 让开）。滚动交给最外层，
-   内层只负责限宽 —— 设置项是「标签在左、控件在右」的两端对齐行，不限宽的话
-   宽面板上控件会飘到很远的地方。原来那套抽屉定位（fixed + 遮罩 + 滑入过渡）
+/* 设置视图：铺满编辑区的那一块（Monaco 被 v-show 让开），本身是滚动容器。
+   内容是「目录 + 具体设置」两栏。原来那套抽屉定位（fixed + 遮罩 + 滑入过渡）
    连带 View Transition 的组名一起撤掉了：现在是编辑区里的一层，跟着面板走。 */
 .settings-view {
   position: absolute;
   inset: 0;
   overflow-y: auto;
   padding: 4px 0 18px;
+  /* 「目录 / 内容」是两栏，窄宽度下要降级成顶部标签条。宽度判断交给容器查询：
+     设置视图活在编辑区里，它的宽度只是编辑区宽度的一部分，拿视口 media query 当代理是错的。 */
+  container-type: inline-size;
+  container-name: settings;
 }
 
+/* 目录 + 内容：左栏是分类导航（sticky 跟着滚动），右栏只放当前选中的那一组设置。
+   max-width 只用来防止宽面板上控件飘到很远（设置行是「标签靠左、控件靠右」的两端对齐）。 */
 .settings-view__inner {
-  max-width: 720px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 880px;
 }
 
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
+  width: 168px;
+  padding: 12px 12px 12px 18px;
+}
+
+.settings-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-nav__item:hover {
+  background: var(--bg-control-hover);
+  color: var(--text);
+}
+
+.settings-nav__item--active {
+  background: var(--bg-control);
+  color: var(--text);
+}
+
+.settings-nav__label {
+  white-space: nowrap;
+}
+
+/* 同一时刻只渲染一组设置（v-if / v-else-if），所以它自己就是右栏那一格：
+   吃掉剩余宽度，但不超过 max-width，免得控件被推到很远。 */
 .setting-group {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 640px;
 }
 
-.setting-group + .setting-group {
-  margin-top: 8px;
-  border-top: 1px solid var(--border-soft);
+/* 编辑区被挤窄时（比如手机上两栏并排），目录从左侧竖排换成顶部横向标签条 */
+@container settings (max-width: 560px) {
+  .settings-view__inner {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    gap: 4px;
+    width: auto;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 10px 18px 2px;
+  }
+
+  .settings-nav__item {
+    flex: 0 0 auto;
+    height: 28px;
+  }
+
+  .setting-group {
+    max-width: none;
+    width: 100%;
+  }
 }
 
 .setting-group__title {
@@ -401,6 +527,17 @@ function setTimeLimit(event) {
   font-size: 11.5px;
   letter-spacing: 0.2px;
   color: var(--text-faint);
+}
+
+/* 组内的小标题：把「运行时限」与「评测引擎」在同一个「评测」分组里分开 */
+.setting-subtitle {
+  margin: 6px 0 0;
+  padding: 16px 18px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border-soft);
 }
 
 .setting-group__note {

@@ -1,15 +1,14 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import AppIcon from './AppIcon.vue'
+/**
+ * HelpPanel —— 「帮助」这一组设置的正文。
+ *
+ * 原先是顶栏「?」按钮打开的右侧抽屉（按钮 + Teleport + 遮罩 + 滑入动画 + 「完成」按钮），
+ * 2026-09 并入设置视图后只留正文：内容是 GROUPS 里的问答列表 + 完整指南链接。
+ * 没有 props / emits —— 开关归设置页签管，所以这里也不再有 Esc 关闭那套键盘逻辑。
+ */
 
-const props = defineProps({
-  open: Boolean,
-})
-
-const emit = defineEmits(['update:open'])
-
-// 帮助抽屉的全部内容。每条 = 问题名称 / 核心答案 / 操作要点。
-// 文案与界面上的措辞保持一致（按钮 title、面板标签都按实际 UI 抄），
+// 帮助的全部内容。每条 = 问题名称 / 核心答案 / 操作要点。
+// 文案与界面上的措辞保持一致（设置目录的分类名、按钮 title 都按实际 UI 抄），
 // 改动 UI 文案时这里要跟着改；同一份内容也写在仓库 docs/使用手册.md 里。
 // 另外根目录的 guide.html 是它的「完整版」，改这里要检查那一页是否还说得通。
 const GROUPS = [
@@ -20,10 +19,10 @@ const GROUPS = [
         name: '如何在本地运行 C++',
         role: '把编译与运行搬到本机浏览器里：代码不出本机，断网也能跑。',
         points: [
-          '点顶栏的「本地运行环境」图标，在 C++ 那行点「下载」，等按钮变成「已就绪」（约 50MB，只下一次）',
-          '点顶栏的「评测引擎设置」，引擎选「本地 WASM 沙箱」——它不需要填服务地址',
+          '打开顶栏齿轮图标里的「设置」页签，在「本地运行环境」里给 C++ 点「下载」，等按钮变成「已就绪」（约 50MB，只下一次）',
+          '在设置的「评测」里把评测引擎选成「本地 WASM 沙箱」——它不需要填服务地址',
           '点顶栏 ▶「运行全部测试」，或按 ⌘/Ctrl + Enter',
-          '只支持 C++；Python 3 那行写着「暂未接入本地运行时」',
+          'C++ 与 Python 3 都走本地运行时；Python 直接解释执行，不需要编译',
         ],
       },
       {
@@ -33,6 +32,7 @@ const GROUPS = [
           '双击两栏中间的分隔条：收起 / 展开',
           '按住分隔条往边缘拖，拖到贴边即自动收起；收起后往外拖出展开',
           '用 Tab 聚焦分隔条后按 ← / → 微调宽度',
+          '想把样例栏换到左侧，在设置的「布局」里把「测试面板位置」换成「左侧」',
         ],
       },
       {
@@ -59,177 +59,42 @@ function segments(point) {
     .map((text, index) => ({ text, bold: index % 2 === 1 }))
     .filter((part) => part.text !== '')
 }
-
-function onKeydown(event) {
-  if (event.key === 'Escape') close()
-}
-
-watch(
-  () => props.open,
-  (open) => {
-    if (open) {
-      window.addEventListener('keydown', onKeydown)
-      return
-    }
-    window.removeEventListener('keydown', onKeydown)
-  },
-)
-
-onMounted(() => {
-  if (props.open) window.addEventListener('keydown', onKeydown)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-})
-
-function toggle() {
-  emit('update:open', !props.open)
-}
-
-function close() {
-  emit('update:open', false)
-}
 </script>
 
 <template>
-  <button
-    class="help-button"
-    :class="{ 'is-active': open }"
-    title="使用帮助"
-    aria-label="使用帮助"
-    :aria-expanded="open"
-    @click="toggle"
-  >
-    <AppIcon name="help" />
-  </button>
+  <div class="help-content">
+    <section v-for="group in GROUPS" :key="group.title" class="help-group">
+      <h3 class="help-group__title">{{ group.title }}</h3>
 
-  <!-- 与其它抽屉同款：只有抽屉需要 Teleport，按钮必须留在顶栏内，否则会脱离 flex 布局被挤出视口 -->
-  <Teleport to="body">
-    <Transition name="help-fade">
-      <div v-if="open" class="panel-backdrop" @click.self="close"></div>
-    </Transition>
+      <ul class="help-list">
+        <li v-for="item in group.items" :key="item.name" class="help-item">
+          <p class="help-item__name">{{ item.name }}</p>
+          <p class="help-item__role">{{ item.role }}</p>
+          <ul class="help-item__points">
+            <li v-for="point in item.points" :key="point">
+              <!-- 正文里用 **…** 标记加粗。不走 v-html：文案里会出现 <vector> 这类
+                   头文件名，交给 HTML 解析会被当成标签吃掉 -->
+              <span
+                v-for="(part, index) in segments(point)"
+                :key="index"
+                :class="{ 'is-bold': part.bold }"
+              >{{ part.text }}</span>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </section>
 
-    <Transition name="help-slide">
-      <aside v-if="open" class="panel-drawer" role="dialog" aria-modal="true" aria-label="使用帮助">
-        <header class="panel-drawer__header">
-          <h2>使用帮助</h2>
-          <button class="icon-button" title="关闭" aria-label="关闭使用帮助" @click="close">
-            <AppIcon name="close" :size="16" />
-          </button>
-        </header>
-
-        <div class="panel-drawer__body">
-          <section v-for="group in GROUPS" :key="group.title" class="help-group">
-            <h3 class="help-group__title">{{ group.title }}</h3>
-
-            <ul class="help-list">
-              <li v-for="item in group.items" :key="item.name" class="help-item">
-                <p class="help-item__name">{{ item.name }}</p>
-                <p class="help-item__role">{{ item.role }}</p>
-                <ul class="help-item__points">
-                  <li v-for="point in item.points" :key="point">
-                    <span
-                      v-for="(part, index) in segments(point)"
-                      :key="index"
-                      :class="{ 'is-bold': part.bold }"
-                    >{{ part.text }}</span>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </section>
-        </div>
-
-        <footer class="panel-drawer__footer">
-          <a class="guide-link" href="/guide.html">完整使用指南</a>
-          <button class="done-button" @click="close">完成</button>
-        </footer>
-      </aside>
-    </Transition>
-  </Teleport>
+    <a class="guide-link" href="/guide.html">完整使用指南</a>
+  </div>
 </template>
 
 <style scoped>
-/* 与顶栏其它图标按钮同尺寸（28px 高、9px 内边距），放在换边图标右边 */
-.help-button {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 9px;
-  border-radius: 5px;
-  border: 1px solid transparent;
-  color: var(--text);
-  font-size: 12.5px;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-}
-
-.help-button:hover,
-.help-button.is-active {
-  background: var(--bg-hover);
-  border-color: var(--border);
-}
-
-.panel-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.48);
-}
-
-.panel-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 61;
+.help-content {
   display: flex;
   flex-direction: column;
-  width: min(360px, 92vw);
-  background: var(--bg-raised);
-  border-left: 1px solid var(--border);
-  box-shadow: -18px 0 46px -22px rgba(0, 0, 0, 0.8);
-}
-
-.panel-drawer__header {
-  flex: 0 0 50px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px 0 18px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.panel-drawer__header h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.icon-button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
-  color: var(--text-dim);
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.icon-button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.panel-drawer__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 14px 18px;
-}
-
-.help-group + .help-group {
-  margin-top: 16px;
+  gap: 16px;
+  padding: 2px 18px 16px;
 }
 
 .help-group__title {
@@ -289,18 +154,9 @@ function close() {
   color: var(--text-dim);
 }
 
-.panel-drawer__footer {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-soft);
-}
-
-/* 指向根目录 guide.html：抽屉里只放精简版，完整版是那一页 */
+/* 指向根目录 guide.html：设置里只放精简版，完整版是那一页 */
 .guide-link {
+  align-self: flex-start;
   font-size: 12.5px;
   color: var(--accent);
   text-decoration: none;
@@ -309,40 +165,5 @@ function close() {
 .guide-link:hover {
   color: var(--accent-hover);
   text-decoration: underline;
-}
-
-.done-button {
-  height: 30px;
-  padding: 0 16px;
-  border-radius: 5px;
-  font-size: 12.5px;
-  font-weight: 550;
-  color: var(--text-on-accent);
-  background: var(--run-green);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.done-button:hover {
-  background: var(--run-green-hover);
-}
-
-.help-fade-enter-active,
-.help-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.help-fade-enter-from,
-.help-fade-leave-to {
-  opacity: 0;
-}
-
-.help-slide-enter-active,
-.help-slide-leave-active {
-  transition: transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.help-slide-enter-from,
-.help-slide-leave-to {
-  transform: translateX(100%);
 }
 </style>

@@ -29,9 +29,20 @@ const props = defineProps({
   settings: { type: Object, required: true },
   panelPosition: { type: String, required: true },
   timeLimit: { type: Number, required: true },
+  // 评测引擎状态：只有设置视图里的「评测」分组用得到，这里只做透传
+  judge: { type: Object, required: true },
+  connection: { type: Object, required: true },
 })
 
-const emit = defineEmits(['run-all', 'update:settings', 'update:time-limit', 'toggle-layout'])
+const emit = defineEmits([
+  'run-all',
+  'update:settings',
+  'update:time-limit',
+  'toggle-layout',
+  'select-engine',
+  'update-base',
+  'test-connection',
+])
 
 const host = ref(null)
 const editor = shallowRef(null)
@@ -185,10 +196,15 @@ defineExpose({ layout: () => editor.value?.layout() })
         :settings="settings"
         :panel-position="panelPosition"
         :time-limit="timeLimit"
+        :judge="judge"
+        :connection="connection"
         :active="settingsTab.active"
         @update:settings="emit('update:settings', $event)"
         @update:time-limit="emit('update:time-limit', $event)"
         @toggle-layout="emit('toggle-layout')"
+        @select-engine="emit('select-engine', $event)"
+        @update-base="emit('update-base', $event)"
+        @test-connection="emit('test-connection')"
       />
 
       <div v-if="!activeNode && !settingsTab.active" class="editor-pane__empty">

@@ -1,100 +1,39 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
-import HelpPanel from './HelpPanel.vue'
 import { LANGUAGES } from '../services/templates.js'
-import { engineChoices } from '../services/engines/index.js'
 import { openSettingsTab, settingsTab } from '../services/settingsTab.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 
+// 顶栏只剩「打开设置页签」这一个入口：评测引擎设置与使用帮助都在 2026-09 并进设置视图，
+// 顶栏不再有自己的弹层 / 抽屉，因此这里也不再有 judge / connection 之类的 props。
 const props = defineProps({
   language: { type: String, required: true },
-  judge: { type: Object, required: true },
-  connection: { type: Object, required: true },
   running: Boolean,
   total: { type: Number, default: 0 },
 })
 
 const emit = defineEmits([
   'update:language',
-  'select-engine',
-  'update-base',
-  'test-connection',
   'toggle-sidebar',
   'run-all',
 ])
 
-const choices = engineChoices()
-
-const settingsOpen = ref(false)
-const helpOpen = ref(false)
 const moreOpen = ref(false)
-const draftBase = ref(props.judge.base)
 
 // 浏览器判定可安装后才会亮出这个按钮，装完（或已在独立窗口里）自动消失
 const { canInstall, install } = useInstallPrompt()
 
-// 切换引擎时 App 会把 judge.base 换成新引擎的地址，输入框要跟着走
-watch(
-  () => props.judge.base,
-  (value) => {
-    draftBase.value = value
-  },
-)
-
-// 内置引擎（本地沙箱 / 自检）没有服务地址，按注册表约定 defaultBase 是 'local'
-const localEngine = computed(() => props.judge.base === 'local')
-
-const probeTone = computed(() => {
-  if (props.connection.state === 'ok') return 'is-ok'
-  if (props.connection.state === 'bad') return 'is-bad'
-  return ''
-})
-
-// 帮助抽屉从右侧滑出，会盖住引擎设置弹层，所以开一个就关另一个。
-// 编辑器设置不再是抽屉（它是编辑区里的一个页签，不遮挡顶栏），故不在这里处理。
-function closeDrawers() {
-  helpOpen.value = false
-  settingsOpen.value = false
-}
-
-function setHelpOpen(value) {
-  helpOpen.value = value
-  if (value) closeDrawers()
-}
-
-/* 窄屏折进省略号的几项。动作都复用栏里那几颗按钮的同一个开关 / 同一个 emit，
-   不复制组件，所以抽屉、弹层始终只有一份实例；点完顺手收起菜单。 */
-function openHelp() {
+/* 窄屏折进省略号的几项。动作复用栏里那几颗按钮的同一个开关，
+   不复制组件，所以设置页签始终只有一份入口；点完顺手收起菜单。 */
+function openSettings() {
   moreOpen.value = false
-  setHelpOpen(true)
-}
-
-function openEngineSettings() {
-  moreOpen.value = false
-  settingsOpen.value = true
-}
-
-function openEditorSettings() {
-  moreOpen.value = false
-  closeDrawers()
   openSettingsTab()
 }
 
 function runInstall() {
   moreOpen.value = false
   install()
-}
-
-function chooseEngine(id) {
-  if (id === props.judge.id) return
-  emit('select-engine', id)
-}
-
-function applyBase() {
-  const value = draftBase.value.trim()
-  if (!value) return
-  emit('update-base', value)
 }
 </script>
 
@@ -140,7 +79,7 @@ function applyBase() {
       :class="{ 'is-active': settingsTab.active }"
       title="设置"
       aria-label="设置"
-      @click="openEditorSettings"
+      @click="openSettings"
     >
       <AppIcon name="gear" />
     </button>
@@ -154,72 +93,6 @@ function applyBase() {
     >
       <AppIcon name="install" :size="15" />
     </button>
-
-    <div class="settings">
-      <button
-        class="tool"
-        :class="{ 'is-active': settingsOpen }"
-        title="评测引擎设置"
-        aria-label="评测引擎设置"
-        @click="settingsOpen = !settingsOpen"
-      >
-        <AppIcon name="sliders" />
-      </button>
-      <div v-if="settingsOpen" class="popover">
-        <p class="popover__title">评测引擎</p>
-
-        <div class="engines">
-          <button
-            v-for="item in choices"
-            :key="item.id"
-            class="engine"
-            :class="{ 'is-active': item.id === judge.id }"
-            :aria-pressed="item.id === judge.id"
-            @click="chooseEngine(item.id)"
-          >
-            <span class="engine__head">
-              <span class="engine__label">{{ item.label }}</span>
-              <span v-if="!item.executesCode" class="engine__badge">不执行代码</span>
-              <AppIcon v-if="item.id === judge.id" name="check" :size="13" />
-            </span>
-            <span class="engine__hint">{{ item.hint }}</span>
-          </button>
-        </div>
-
-        <template v-if="!localEngine">
-          <p class="popover__title popover__title--gap">服务地址</p>
-          <input
-            v-model="draftBase"
-            class="popover__input"
-            spellcheck="false"
-            @keyup.enter="applyBase"
-          />
-        </template>
-        <p v-else class="popover__hint">本地沙箱在浏览器里跑，不需要服务地址。</p>
-
-        <div class="probe">
-          <button
-            class="tool"
-            :disabled="connection.state === 'checking'"
-            @click="emit('test-connection')"
-          >
-            <AppIcon name="reset" :size="13" />
-            <span>{{ connection.state === 'checking' ? '探测中…' : '自检' }}</span>
-          </button>
-          <span v-if="connection.message" class="probe__message" :class="probeTone">
-            {{ connection.message }}
-          </span>
-        </div>
-
-        <div class="popover__actions">
-          <button class="tool" @click="settingsOpen = false">关闭</button>
-          <button v-if="!localEngine" class="tool tool--solid" @click="applyBase">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 图标区最右：窄屏时它最先折进「更多」，帮助属最不常用的一项 -->
-    <HelpPanel :open="helpOpen" @update:open="setHelpOpen" />
 
     <!-- 窄屏收纳位：icon 装不下时从右到左折进这里。它自己占一格，
          所以要一次折掉两颗才算净赚，见样式的折叠档位 -->
@@ -236,21 +109,13 @@ function applyBase() {
       </button>
 
       <div v-if="moreOpen" class="popover popover--menu">
-        <button class="menu__item menu__item--editor" @click="openEditorSettings">
+        <button class="menu__item menu__item--editor" @click="openSettings">
           <AppIcon name="gear" :size="15" />
           <span>设置</span>
-        </button>
-        <button class="menu__item menu__item--help" @click="openHelp">
-          <AppIcon name="help" :size="15" />
-          <span>使用帮助</span>
         </button>
         <button v-if="canInstall" class="menu__item menu__item--install" @click="runInstall">
           <AppIcon name="install" :size="15" />
           <span>安装到设备</span>
-        </button>
-        <button class="menu__item menu__item--engine" @click="openEngineSettings">
-          <AppIcon name="sliders" :size="15" />
-          <span>评测引擎设置</span>
         </button>
       </div>
     </div>
@@ -312,11 +177,6 @@ function applyBase() {
   height: 16px;
   background: var(--border);
   margin: 0 2px;
-}
-
-.brand__sub {
-  font-size: 12px;
-  color: var(--text-faint);
 }
 
 .field {
@@ -395,15 +255,6 @@ function applyBase() {
   border-color: transparent;
 }
 
-.tool--solid {
-  background: var(--accent);
-  border-color: transparent;
-}
-
-.tool--solid:hover {
-  background: var(--accent-hover);
-}
-
 .primary {
   display: inline-flex;
   align-items: center;
@@ -446,10 +297,6 @@ function applyBase() {
   box-shadow: none;
 }
 
-.settings {
-  position: relative;
-}
-
 .popover {
   position: absolute;
   top: 36px;
@@ -461,128 +308,6 @@ function applyBase() {
   background: var(--bg-raised);
   border: 1px solid var(--border);
   box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.85);
-}
-
-.popover__title {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.popover__title--gap {
-  margin-top: 12px;
-}
-
-/* 引擎列表：整块可点，选中态靠左侧色条 + 描边区分 */
-.engines {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.engine {
-  display: block;
-  width: 100%;
-  padding: 7px 9px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  border-left: 3px solid transparent;
-  text-align: left;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.engine:hover {
-  background: var(--bg-hover);
-}
-
-.engine.is-active {
-  background: var(--bg-control);
-  border-color: var(--border);
-  border-left-color: var(--focus);
-}
-
-.engine__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text);
-}
-
-.engine__label {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 12.5px;
-}
-
-.engine__badge {
-  flex: 0 0 auto;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  color: var(--text-dim);
-  background: var(--case-chip-bg);
-}
-
-.engine__hint {
-  display: block;
-  margin-top: 3px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-faint);
-}
-
-.probe {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.probe__message {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding-top: 5px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  overflow-wrap: anywhere;
-}
-
-.probe__message.is-ok {
-  color: var(--ok);
-}
-
-.probe__message.is-bad {
-  color: var(--fail);
-}
-
-.popover__input {
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: 5px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  font-family: var(--mono-font);
-  font-size: 12px;
-}
-
-.popover__hint {
-  margin: 8px 0 0;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--text-faint);
-}
-
-.popover__hint code {
-  font-family: var(--mono-font);
-  color: var(--text-dim);
-}
-
-.popover__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
 }
 
 /* 省略号收纳位与菜单项：默认都不出现，只在对应图标被折叠的那一档才露出来 */
@@ -613,12 +338,10 @@ function applyBase() {
    各档阈值来自实测（把按钮的 flex-shrink 关掉量「自然宽度」，无头 Chrome 300–900px 逐像素
    跑过，触摸屏与鼠标两套均无溢出、无按钮被挤扁，见 HANDOFF 第 3 节）。
 
-   2026-09：「换边」与「本地运行环境」两颗按钮搬进齿轮抽屉，顶栏少了 28 + 35 + 两个 gap
-   （共 73px，安装按钮存在时同量）。阈值一律没动 —— 少元素只会让各档更宽松：第 4 档（480）
-   对上一档的必需宽度从 431 降到约 386，余量由 49px 涨到约 94px，仍满足「第 N 档阈值 ≥
-   第 N−1 档必需宽度」。原第 5 档（≤400 折走「本地运行环境」）整块删除：它折的那颗按钮已经
-   不在 DOM 里，留着就是空规则。**改动后尚未按 HANDOFF 第 3 节的口径逐像素复测**，
-   再动顶栏任何元素的宽度前先补一次。
+   2026-09：评测引擎设置齿轮 + 帮助按钮一起并进设置视图，顶栏少了 35 + 35 + 两个 gap
+   （共 90px），断点从五档收到四档（第 3 档原先是「折帮助」，那颗按钮已不在 DOM 里）。
+   现在只剩「安装」与「设置齿轮」两颗可折：安装折进省略号（自己占的那格正好抵掉，净值 0，
+   主要是给它一个窄屏去处），设置齿轮按需求留到视口窄于 350px 才交出去。
 
    语言下拉是定宽的（选项里最长的「Python 3」决定宽度，切换语言不会变），会变的只有运行按钮文案在
    用例数变化时的那点宽度，而它在 ≤820 档已藏，余量留给这些波动。
@@ -644,11 +367,10 @@ function applyBase() {
   }
 }
 
-/* 第 3 档：图标开始从右到左折进省略号。原本这一档要一次折走两颗（省略号自己占一格，
-   折一颗净值是 0），「换边」搬走后只剩最右的帮助可折 —— 顶栏已经在别处空出 73px，
-   这一档仍有约 95px 余量，够用 */
+/* 第 3 档：安装折进省略号。省略号自己占一格，折一颗净值是 0，这一档本身不为省宽度，
+   只为给「安装」一个窄屏入口（它在桌面端本就是可选按钮） */
 @media (max-width: 520px) {
-  :deep(.help-button) {
+  .tool--install {
     display: none;
   }
 
@@ -656,31 +378,12 @@ function applyBase() {
     display: block;
   }
 
-  .menu__item--help {
-    display: flex;
-  }
-}
-
-/* 第 4 档：再往左轮两个 —— 评测引擎设置齿轮、安装按钮 */
-@media (max-width: 480px) {
-  .settings > .tool,
-  .tool--install {
-    display: none;
-  }
-
-  /* 齿轮按钮藏了，但它的弹层还挂在 .settings 里。display: contents 让 .settings 不再生成盒子：
-     既腾出它自己那格，也让弹层脱离这个零宽锚点、改由下方 .popover 的 fixed 规则定位 */
-  .settings {
-    display: contents;
-  }
-
-  .menu__item--engine,
   .menu__item--install {
     display: flex;
   }
 }
 
-/* 第 5 档：设置齿轮（打开设置页签）留到最后，视口窄于 350px 才折走。
+/* 第 4 档：设置齿轮（打开设置页签）留到最后，视口窄于 350px 才折走。
    写 349 而不是 350：口径是「宽度小于 350px 再消失」，max-width: 349px 正好等价
    （350px 那档它仍在栏里）。它也是「设一次」的偏好，窄屏入口在 .menu__item--editor */
 @media (max-width: 349px) {
@@ -690,19 +393,6 @@ function applyBase() {
 
   .menu__item--editor {
     display: flex;
-  }
-}
-
-/* 窄屏弹层改贴边整幅。弹层原是 right: 0 锚在栏中部的按钮上，375px 下实测 left = -28
-   （左边被切掉）；单纯收窄 width 救不了，因为锚点本身就不在栏右端。阈值保持 520 —— 比齿轮
-   折叠的第 4 档更早一档，齿轮还可见的那段宽度里弹层也走视口定位，比贴着栏中部更稳 */
-@media (max-width: 520px) {
-  .popover {
-    position: fixed;
-    top: 56px;
-    right: 12px;
-    left: 12px;
-    width: auto;
   }
 }
 </style>

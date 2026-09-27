@@ -547,13 +547,8 @@ onBeforeUnmount(() => {
   <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
     <TopBar
       v-model:language="language"
-      :judge="judgeSettings"
-      :connection="connection"
       :running="running"
       :total="testCases.length"
-      @select-engine="selectEngine"
-      @update-base="updateBase"
-      @test-connection="testConnection"
       @toggle-sidebar="toggleSidebar"
       @run-all="runAll"
     />
@@ -573,10 +568,15 @@ onBeforeUnmount(() => {
           :settings="editorSettings"
           :panel-position="panelPosition"
           :time-limit="timeLimitMs"
+          :judge="judgeSettings"
+          :connection="connection"
           @run-all="runAll"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
           @toggle-layout="toggleLayout"
+          @select-engine="selectEngine"
+          @update-base="updateBase"
+          @test-connection="testConnection"
         />
       </section>
 
