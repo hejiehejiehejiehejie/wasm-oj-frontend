@@ -4,8 +4,22 @@ import AppIcon from './AppIcon.vue'
 import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
+import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { preload, probeRuntime, subscribeStatus } from '../services/wasmRuntime.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
+import {
+  CURSOR_BLINKINGS,
+  CURSOR_STYLES,
+  EDITOR_SETTING_RANGES,
+  FONT_FAMILIES,
+  LINE_HEIGHT_RATIOS,
+  LINE_HIGHLIGHTS,
+  PADDINGS,
+  SCROLLBAR_SIZES,
+  THEMES,
+  WHITESPACE_MODES,
+  WRAP_MODES,
+} from '../services/editorOptions.js'
 
 const props = defineProps({
   settings: { type: Object, required: true },
@@ -13,7 +27,7 @@ const props = defineProps({
   // 全局运行时限（毫秒，只计运行段），与 App.vue 的 cph.timeLimitMs 同源
   timeLimit: { type: Number, required: true },
   // 评测引擎状态（引擎列表 / 服务地址 / 自检结果）从 App 一路传下来，
-  // 与测试面板读到的是同一份
+  // 与侧边栏「评测样例」面板读到的是同一份
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
   // 设置视图此刻是否真的显示在编辑器里（合成页签被切走时为 false）。
@@ -30,19 +44,96 @@ const emit = defineEmits([
   'test-connection',
 ])
 
-// 主题决定的是整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套
-const THEMES = [
-  { id: 'cph-dark', label: '深色（默认）' },
-  { id: 'cph-light', label: '浅色' },
+// ------------------------------------------------------------ 编辑器设置的行描述
+// 编辑器这块项最多，按小节铺开。每一行只描述「键 / 标签 / 控件类型 / 可选项」，
+// 模板按 control 挑控件；可选项表全部来自 services/editorOptions.js，与 localStorage 校验、
+// Monaco 真正吃到的选项共用同一份，免得面板里能选、编辑器却不认。
+const EDITOR_GROUPS = [
+  {
+    title: '外观',
+    rows: [
+      { key: 'theme', label: '主题', control: 'select', options: THEMES },
+      { key: 'fontFamily', label: '字体', control: 'select', options: FONT_FAMILIES },
+      { key: 'fontSize', label: '字体大小', control: 'number' },
+      {
+        key: 'lineHeightRatio',
+        label: '行高',
+        control: 'select',
+        options: LINE_HEIGHT_RATIOS.map((ratio) => ({ id: ratio, label: `${ratio} 倍` })),
+      },
+      {
+        key: 'fontLigatures',
+        label: '连字',
+        hint: '要选带连字功能的字体（如 Fira Code）才看得出来',
+        control: 'switch',
+      },
+    ],
+  },
+  {
+    title: '编辑',
+    rows: [
+      {
+        key: 'tabSize',
+        label: 'Tab 宽度',
+        control: 'select',
+        options: [2, 4, 8].map((size) => ({ id: size, label: `${size} 空格` })),
+      },
+      { key: 'insertSpaces', label: '用空格代替 Tab', hint: '关掉后按 Tab 键输入制表符', control: 'switch' },
+      { key: 'wordWrap', label: '自动换行', control: 'select', options: WRAP_MODES },
+      { key: 'wordWrapColumn', label: '换行列宽', hint: '只在「按列宽换行」下生效', control: 'number' },
+      { key: 'bracketPairColorization', label: '括号对着色', control: 'switch' },
+      { key: 'indentGuides', label: '缩进参考线', control: 'switch' },
+      { key: 'bracketGuides', label: '括号对参考线', hint: '只画光标所在的那一层', control: 'switch' },
+      {
+        key: 'stickyScroll',
+        label: '粘性滚动',
+        hint: '滚动时把外层作用域钉在顶部',
+        control: 'switch',
+      },
+      {
+        key: 'scrollBeyondLastLine',
+        label: '允许滚过最后一行',
+        hint: '关掉后到底即停',
+        control: 'switch',
+      },
+      { key: 'smoothScrolling', label: '平滑滚动', control: 'switch' },
+    ],
+  },
+  {
+    title: '光标与高亮',
+    rows: [
+      { key: 'cursorStyle', label: '光标样式', control: 'select', options: CURSOR_STYLES },
+      { key: 'cursorBlinking', label: '光标闪烁', control: 'select', options: CURSOR_BLINKINGS },
+      { key: 'cursorSmoothCaretAnimation', label: '光标平滑移动', control: 'switch' },
+      { key: 'renderLineHighlight', label: '当前行突出', control: 'select', options: LINE_HIGHLIGHTS },
+      { key: 'renderWhitespace', label: '空白字符', control: 'select', options: WHITESPACE_MODES },
+    ],
+  },
+  {
+    title: '视图',
+    rows: [
+      {
+        key: 'minimap',
+        label: '缩略图 (Minimap)',
+        hint: '在编辑器右侧显示代码地图',
+        control: 'switch',
+      },
+      { key: 'padding', label: '内边距', control: 'select', options: PADDINGS },
+      { key: 'scrollbarSize', label: '滚动条粗细', control: 'select', options: SCROLLBAR_SIZES },
+    ],
+  },
+  {
+    title: '代码辅助',
+    rows: [
+      { key: 'quickSuggestions', label: '输入时补全', control: 'switch' },
+      { key: 'parameterHints', label: '参数提示', control: 'switch' },
+      { key: 'linkedEditing', label: '标签联动编辑', hint: '改开标签时同步改闭合标签', control: 'switch' },
+      { key: 'inlineSuggest', label: '行内建议', control: 'switch' },
+    ],
+  },
 ]
 
-const WRAP_MODES = [
-  { id: 'off', label: '不换行' },
-  { id: 'on', label: '按视口换行' },
-  { id: 'wordWrapColumn', label: '按列宽换行' },
-]
-
-// 测试面板的位置偏好存在 App.vue 的 cph.panelPosition 里，这里只负责发起一次对调
+// 统一侧边栏的位置偏好存在 App.vue 的 cph.panelPosition 里，这里只负责发起一次对调
 const PANEL_POSITIONS = [
   { id: 'right', label: '右侧' },
   { id: 'left', label: '左侧' },
@@ -56,10 +147,14 @@ const SECTIONS = [
   { id: 'layout', title: '布局', icon: 'sidebar' },
   { id: 'judge', title: '评测', icon: 'check' },
   { id: 'runtime', title: '本地运行环境', icon: 'download' },
+  { id: 'app', title: '应用', icon: 'install' },
   { id: 'help', title: '帮助', icon: 'help' },
 ]
 
 const activeSection = ref('editor')
+
+// 安装到设备（2026-09 顶栏删除后从顶栏那颗按钮搬进来的）：浏览器判定可安装时才亮出来
+const { canInstall, install } = useInstallPrompt()
 
 // ------------------------------------------------------------ 本地运行环境
 // 「是否已下载」不再只看一个 localStorage 布尔标记（它会过期：浏览器随时可能清缓存，
@@ -223,14 +318,21 @@ function set(key, value) {
   emit('update:settings', { ...props.settings, [key]: value })
 }
 
-function setFontSize(event) {
-  const value = Number.parseInt(event.target.value, 10)
-  if (Number.isFinite(value)) set('fontSize', Math.min(32, Math.max(8, value)))
+/** 数字行的取值区间（min/max 与读盘校验共用 editorOptions.js 里的同一份） */
+function rangeOf(row) {
+  return EDITOR_SETTING_RANGES[row.key] ?? [0, 1000]
 }
 
-function setTabSize(event) {
+function setNumber(row, event) {
   const value = Number.parseInt(event.target.value, 10)
-  if (Number.isFinite(value)) set('tabSize', Math.min(8, Math.max(2, value)))
+  if (!Number.isFinite(value)) return
+  const [min, max] = rangeOf(row)
+  set(row.key, Math.min(max, Math.max(min, value)))
+}
+
+/** 下拉的 value 永远是字符串，而「Tab 宽度 / 行高」这类选项 id 是数字，要转回来 */
+function coerce(row, raw) {
+  return typeof row.options[0].id === 'number' ? Number(raw) : raw
 }
 
 // 下拉里选中的始终是「当前值」，选中另一侧就等于发起一次对调（App 那边会翻转偏好）
@@ -272,64 +374,53 @@ function setTimeLimit(event) {
       <section v-if="activeSection === 'editor'" class="setting-group">
         <p class="setting-group__title">编辑器</p>
 
-        <label class="setting-row">
-          <span class="setting-row__label">主题</span>
-          <span class="select">
-            <select :value="settings.theme" @change="set('theme', $event.target.value)">
-              <option v-for="item in THEMES" :key="item.id" :value="item.id">{{ item.label }}</option>
-            </select>
-            <AppIcon name="chevron" :size="12" class="select__chevron" />
-          </span>
-        </label>
+        <template v-for="(group, index) in EDITOR_GROUPS" :key="group.title">
+          <p class="setting-subtitle" :class="{ 'setting-subtitle--first': index === 0 }">
+            {{ group.title }}
+          </p>
 
-        <label class="setting-row">
-          <span class="setting-row__label">字体大小</span>
-          <input
-            class="number-input"
-            type="number"
-            min="8"
-            max="32"
-            step="1"
-            :value="settings.fontSize"
-            @change="setFontSize"
-          />
-        </label>
+          <label v-for="row in group.rows" :key="row.key" class="setting-row">
+            <span class="setting-row__label">
+              {{ row.label }}
+              <span v-if="row.hint" class="setting-row__hint">{{ row.hint }}</span>
+            </span>
 
-        <label class="setting-row">
-          <span class="setting-row__label">Tab 宽度</span>
-          <span class="select">
-            <select :value="settings.tabSize" @change="setTabSize">
-              <option v-for="size in [2, 4, 8]" :key="size" :value="size">{{ size }} 空格</option>
-            </select>
-            <AppIcon name="chevron" :size="12" class="select__chevron" />
-          </span>
-        </label>
+            <input
+              v-if="row.control === 'number'"
+              class="number-input"
+              type="number"
+              step="1"
+              :min="rangeOf(row)[0]"
+              :max="rangeOf(row)[1]"
+              :value="settings[row.key]"
+              @change="setNumber(row, $event)"
+            />
 
-        <label class="setting-row">
-          <span class="setting-row__label">自动换行</span>
-          <span class="select">
-            <select :value="settings.wordWrap" @change="set('wordWrap', $event.target.value)">
-              <option v-for="item in WRAP_MODES" :key="item.id" :value="item.id">{{ item.label }}</option>
-            </select>
-            <AppIcon name="chevron" :size="12" class="select__chevron" />
-          </span>
-        </label>
+            <span v-else-if="row.control === 'select'" class="select">
+              <select
+                :value="settings[row.key]"
+                @change="set(row.key, coerce(row, $event.target.value))"
+              >
+                <option v-for="item in row.options" :key="item.id" :value="item.id">
+                  {{ item.label }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
 
-        <label class="setting-row">
-          <span class="setting-row__label">
-            缩略图 (Minimap)
-            <span class="setting-row__hint">在编辑器右侧显示代码地图</span>
-          </span>
-          <button
-            class="switch"
-            :class="{ 'is-on': settings.minimap }"
-            role="switch"
-            :aria-checked="settings.minimap"
-            @click="set('minimap', !settings.minimap)"
-          >
-            <span class="switch__thumb"></span>
-          </button>
-        </label>
+            <button
+              v-else
+              class="switch"
+              :class="{ 'is-on': settings[row.key] }"
+              role="switch"
+              :aria-checked="settings[row.key]"
+              :aria-label="row.label"
+              @click="set(row.key, !settings[row.key])"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </label>
+        </template>
       </section>
 
       <section v-else-if="activeSection === 'layout'" class="setting-group">
@@ -337,8 +428,8 @@ function setTimeLimit(event) {
 
         <label class="setting-row">
           <span class="setting-row__label">
-            测试面板位置
-            <span class="setting-row__hint">样例面板放在编辑器左侧还是右侧</span>
+            侧边栏位置
+            <span class="setting-row__hint">资源管理器与评测样例放在编辑区的左侧还是右侧</span>
           </span>
           <span class="select">
             <select :value="panelPosition" @change="setPanelPosition">
@@ -410,6 +501,30 @@ function setTimeLimit(event) {
               <span>{{ buttonLabel(entry) }}</span>
             </button>
           </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeSection === 'app'" class="setting-group">
+        <p class="setting-group__title">应用</p>
+        <p class="setting-group__note">
+          装到这台设备后，可以从主屏幕 / 桌面直接以独立窗口打开，离线也能用。
+        </p>
+
+        <div class="setting-row">
+          <span class="setting-row__label">
+            安装到设备
+            <span class="setting-row__hint">
+              {{
+                canInstall
+                  ? '当前浏览器支持安装，点右侧按钮即可'
+                  : '当前浏览器不支持安装，或已经装好了'
+              }}
+            </span>
+          </span>
+          <button class="download-button" :disabled="!canInstall" title="安装到设备" @click="install">
+            <AppIcon name="install" :size="15" />
+            <span>{{ canInstall ? '安装' : '已安装' }}</span>
+          </button>
         </div>
       </section>
 
@@ -538,6 +653,13 @@ function setTimeLimit(event) {
   letter-spacing: 0.06em;
   color: var(--text-dim);
   border-top: 1px solid var(--border-soft);
+}
+
+/* 编辑器分组里的第一小节紧跟在分组标题下面，不用再画一条分隔线 */
+.setting-subtitle--first {
+  margin-top: 0;
+  padding-top: 6px;
+  border-top: none;
 }
 
 .setting-group__note {

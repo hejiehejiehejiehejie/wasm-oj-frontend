@@ -6,7 +6,7 @@
  * 这样未来换成 GitHubVFSProvider，store 与组件零修改。
  *
  * 本模块同时负责：
- * - openTabIds / activeId / 展开目录 / Sidebar 宽度与显隐的持久化；
+ * - openTabIds / activeId / 展开目录的持久化；
  * - 启动时把上次会话的 tab 恢复为 model（引用计数 + retain）；
  * - reset 后清理已不存在的 tab（并 release model），同步存活 model 的节点元数据。
  */
@@ -17,13 +17,8 @@ import { defaultCode } from '../templates.js'
 import { getVFS } from './vfsFactory.js'
 
 const EXPANDED_KEY = 'cph.vfsExpanded'
-const SIDEBAR_VISIBLE_KEY = 'cph.sidebarVisible'
-const SIDEBAR_WIDTH_KEY = 'cph.sidebarWidth'
 const TABS_KEY = 'cph.openTabs'
 const ACTIVE_KEY = 'cph.activeFile'
-
-const SIDEBAR_WIDTH_MIN = 180
-const SIDEBAR_WIDTH_MAX = 360
 
 // ------------------------------------------------------------ 本地存储小工具
 
@@ -44,12 +39,6 @@ function writeJSON(key, value) {
   }
 }
 
-function clampWidth(value) {
-  const num = Number(value)
-  if (!Number.isFinite(num)) return 240
-  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(num)))
-}
-
 // ------------------------------------------------------------ 状态
 
 export const workspace = reactive({
@@ -62,14 +51,10 @@ export const workspace = reactive({
   activeId: null,
   /** @type {string[]} 展开的目录 id */
   expandedIds: [],
-  sidebarVisible: true,
-  sidebarWidth: 240,
 })
 
 // 先吃进上次的偏好（tab 的 model 恢复在 initStore 里做）
 workspace.expandedIds = Array.isArray(readJSON(EXPANDED_KEY, [])) ? readJSON(EXPANDED_KEY, []) : []
-workspace.sidebarVisible = readJSON(SIDEBAR_VISIBLE_KEY, true) !== false
-workspace.sidebarWidth = clampWidth(readJSON(SIDEBAR_WIDTH_KEY, 240))
 
 /**
  * id → 最近一次树重建时的节点（供 tab / 恢复使用）。
@@ -90,7 +75,7 @@ async function rebuildTree() {
 
   // 原地更新响应式 Map（保持同一个对象，触发依赖它的 tab / 树重渲染）
   nodeIndex.clear()
-  // getTree 只返回根的子节点；把根本身也放进索引，供「空白处右键 → 根菜单」
+  // getTree 只返回根的子节点；把根本身也放进索引，供根级新建时取父路径
   try {
     const rootNode = await vfs.stat('/')
     if (rootNode) nodeIndex.set('root', rootNode)
@@ -188,14 +173,6 @@ watch(
   () => [...workspace.expandedIds],
   (value) => writeJSON(EXPANDED_KEY, value),
   { deep: true },
-)
-watch(
-  () => workspace.sidebarVisible,
-  (value) => writeJSON(SIDEBAR_VISIBLE_KEY, value),
-)
-watch(
-  () => workspace.sidebarWidth,
-  (value) => writeJSON(SIDEBAR_WIDTH_KEY, value),
 )
 
 // DEV：追踪 openTabIds 每次变化与调用栈，定位「tab 被清空」竞态
@@ -335,10 +312,11 @@ export async function saveAll() {
 }
 
 /**
- * TopBar 语言选择：打开该语言的规范文件（没有就创建）。
+ * 首次启动 / 会话失效时的兜底：打开该语言的规范文件（没有就创建）。
+ * 只由 initWorkspaceStore 调用——语言此后一律跟着活跃文件的扩展名走。
  * @param {'cpp'|'python'} languageId
  */
-export async function openLanguage(languageId) {
+async function openLanguage(languageId) {
   const canonical = languageId === 'python' ? '/main.py' : '/main.cpp'
   const existing = await getVFS().stat(canonical)
   if (existing) await openFile(existing.id)
@@ -362,13 +340,4 @@ export function peekActiveContent() {
 /** @param {string} id @returns {import('./BaseVFSProvider.js').VFSNode|null} */
 export function getNodeById(id) {
   return nodeIndex.get(id) ?? null
-}
-
-/** @param {number} width */
-export function setSidebarWidth(width) {
-  workspace.sidebarWidth = clampWidth(width)
-}
-
-export function toggleSidebar() {
-  workspace.sidebarVisible = !workspace.sidebarVisible
 }

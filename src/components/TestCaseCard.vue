@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
@@ -73,7 +73,25 @@ watch([input, expectedOutput], () => nextTick(growAll))
 watch(isCollapsed, (collapsed) => {
   if (!collapsed) nextTick(growAll)
 })
-onMounted(growAll)
+
+// 卡片所在的面板（统一侧边栏的「评测样例」页签）默认是 display: none，
+// onMounted 那一刻 scrollHeight 为 0，autoGrow 会直接跳过；之后切到该页签时
+// 没有任何重算时机，输入框就会一直塌成一行。ResizeObserver 能接住「从不可见变为可见」
+// （宽度 0 → 有值）以及面板宽度变化，只在宽度变大时重算 —— 宽度不受我们自己设的
+// height 影响，不会形成回调环。
+let growObserver = null
+let lastGrownWidth = 0
+onMounted(() => {
+  growAll()
+  growObserver = new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width ?? 0
+    if (width === lastGrownWidth) return
+    lastGrownWidth = width
+    if (width > 0) growAll()
+  })
+  if (inputEl.value) growObserver.observe(inputEl.value)
+})
+onBeforeUnmount(() => growObserver?.disconnect())
 
 const outputText = computed(() => {
   const { actualOutput, detail } = props.testCase

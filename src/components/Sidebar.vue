@@ -1,157 +1,96 @@
 <script setup>
 /**
- * Sidebar —— 工作区左侧栏外壳：只管壳（背景 / 右缘调宽 / 响应式抽屉），
- * 内容由 FileExplorer 经插槽填入。
+ * Sidebar —— 统一侧边栏外壳：内容区按激活态切换两个面板
+ * （具名插槽由 App.vue 填入 FileExplorer / TestPanel）。
  *
- * 桌面：flex 子项，隐藏时 display:none，不占工作区宽度。
- * 窄屏（≤520px）：fixed 覆盖抽屉 + 半透明遮罩，宽度 86vw。
+ * 两个面板都用 v-show 切换（不是 v-if）：文件树的展开态、评测样例里用户手写的输入
+ * 与卡片折叠态都挂在 DOM 上，不能因切换而销毁重建。
+ *
+ * 切换入口不再单独占一行页签栏，而是渲染进两个面板各自的页头里
+ * （见 SidebarSwitcher.vue）：同一时刻只有一个面板可见，视觉上仍只有一份。
+ * 页签状态与持久化都留在这里，经 provide 下发给页头里的切换组件。
+ *
+ * 宽度与显隐不在这里管：外层 .pane--tests 作为一个整体参与与 Monaco 的分屏拖拽
+ * （见 App.vue 的 .splitter 与 measureLimits）。
  */
-import { onBeforeUnmount, ref } from 'vue'
-import { setSidebarWidth, toggleSidebar, workspace } from '../services/vfs/workspaceStore.js'
+import { provide } from 'vue'
+import { usePersistentRef } from '../composables/usePersistentRef.js'
+import { closeSettingsTab, openSettingsTab, settingsTab } from '../services/settingsTab.js'
 
-const NARROW_QUERY = '(max-width: 520px)'
-const narrowMedia = window.matchMedia(NARROW_QUERY)
-const isNarrow = ref(narrowMedia.matches)
-narrowMedia.addEventListener('change', onNarrowChange)
-function onNarrowChange(event) {
-  isNarrow.value = event.matches
+// 侧边栏里的两个面板
+const PANEL_TABS = [
+  { id: 'explorer', label: '资源管理器', icon: 'files' },
+  { id: 'tests', label: '评测样例', icon: 'cases' },
+]
+
+// 页头里并排的三个入口。第三个不是面板，而是编辑区里那个「设置」合成页签的开关
+// （2026-09 顶栏删除后从齿轮按钮搬过来的），所以它只参与渲染，不参与下面的 v-show 切换
+const TABS = [...PANEL_TABS, { id: 'settings', label: '设置', icon: 'gear' }]
+
+// 当前页签：默认落在资源管理器，与改动前的默认视觉一致
+const activeTab = usePersistentRef('cph.sidebarTab', 'explorer')
+// 存档里可能是旧值 / 脏值：认不出来就退回默认页签，免得两个面板被一起藏掉
+if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'explorer'
+
+// 两个面板与「设置」互不排斥（设置开在编辑区、面板照旧显示），所以这里逐项判高亮
+function isActive(id) {
+  return id === 'settings' ? settingsTab.active : activeTab.value === id
 }
 
-// ------------------------------------------------------------ 右缘拖拽调宽
-
-let resizing = false
-
-function startResize(event) {
-  if (isNarrow.value) return
-  event.preventDefault()
-  resizing = true
-  const startX = event.clientX
-  const startWidth = workspace.sidebarWidth
-
-  function onPointerMove(moveEvent) {
-    if (!resizing) return
-    setSidebarWidth(startWidth + (moveEvent.clientX - startX))
+function selectTab(id) {
+  if (id === 'settings') {
+    // 再点一次＝收起设置，回到刚才那个代码文件（与顶栏那颗齿轮的旧行为一致）
+    settingsTab.active ? closeSettingsTab() : openSettingsTab()
+    return
   }
-  function onPointerUp() {
-    resizing = false
-    window.removeEventListener('pointermove', onPointerMove)
-    window.removeEventListener('pointerup', onPointerUp)
-  }
-  window.addEventListener('pointermove', onPointerMove)
-  window.addEventListener('pointerup', onPointerUp)
+  if (PANEL_TABS.some((tab) => tab.id === id)) activeTab.value = id
 }
 
-onBeforeUnmount(() => {
-  narrowMedia.removeEventListener('change', onNarrowChange)
-})
+provide('sidebarTabs', { tabs: TABS, isActive, select: selectTab })
+
+// 供父组件从外部切到指定面板（如 App.vue 在开跑时要把「评测样例」亮出来）。
+// 状态与持久化仍只在这一处，这里只是多一个入口，不让父组件自己存一份
+function showPanel(id) {
+  if (PANEL_TABS.some((tab) => tab.id === id)) activeTab.value = id
+}
+defineExpose({ showPanel })
 </script>
 
 <template>
-  <aside
-    v-if="workspace.sidebarVisible"
-    class="sidebar"
-    :class="{ 'sidebar--drawer': isNarrow }"
-    :style="isNarrow ? undefined : { width: `${workspace.sidebarWidth}px` }"
-    aria-label="侧边栏"
-  >
+  <div class="sidebar">
     <div class="sidebar__body">
-      <slot />
+      <div v-show="activeTab === 'explorer'" class="sidebar__panel">
+        <slot name="explorer" />
+      </div>
+      <div v-show="activeTab === 'tests'" class="sidebar__panel">
+        <slot name="tests" />
+      </div>
     </div>
-    <div
-      v-if="!isNarrow"
-      class="sidebar__resize"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="调整侧边栏宽度"
-      @pointerdown="startResize"
-    ></div>
-  </aside>
-  <div
-    v-if="isNarrow && workspace.sidebarVisible"
-    class="sidebar__backdrop"
-    @click="toggleSidebar"
-  ></div>
+  </div>
 </template>
 
 <style scoped>
 .sidebar {
-  position: relative;
-  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  /* 与编辑区 / 测试面板同款圆角卡片：右缘留 6px 空隙，三块卡片才各成一体 */
-  margin-right: 6px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  min-height: 0;
   background: var(--bg-panel);
-  overflow: hidden;
 }
 
+/* ---------------------------------------------------------------- 内容区
+   占满剩余高度；面板过长时由面板自己滚动，不撑破外层卡片 */
 .sidebar__body {
-  height: 100%;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* 右缘调宽热区：8px 命中、视觉 1px，触摸与鼠标统一走指针事件 */
-.sidebar__resize {
-  position: absolute;
-  top: 0;
-  right: -4px;
-  width: 9px;
-  height: 100%;
-  cursor: col-resize;
-  touch-action: none;
-  z-index: 5;
-}
-
-@media (max-width: 520px) {
-  .sidebar--drawer {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 86vw;
-    max-width: 320px;
-    z-index: 90;
-    /* 抽屉贴着屏幕左缘：左边不留圆角与空隙，只圆右侧 */
-    margin-right: 0;
-    border-radius: 0 8px 8px 0;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-    animation: sidebar-slide-in 0.18s ease;
-  }
-
-  .sidebar__backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.32);
-    z-index: 80;
-    animation: sidebar-fade-in 0.18s ease;
-  }
-}
-
-@keyframes sidebar-slide-in {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-@keyframes sidebar-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar--drawer,
-  .sidebar__backdrop {
-    animation: none;
-  }
+.sidebar__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>

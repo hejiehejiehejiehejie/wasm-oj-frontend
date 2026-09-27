@@ -68,8 +68,19 @@ const probe = (page) =>
     // .minimap 节点是常驻 DOM 的：Monaco 靠把宽度压到 0 来隐藏它，而不是移除节点。
     // 所以「可见性」只能看渲染宽度，看节点存在与否恒为真。
     const minimapWidth = Math.round(document.querySelector('.minimap')?.getBoundingClientRect().width ?? 0)
+    // 「资源管理器 / 评测样例」的切换按钮分别渲染在两个面板的页头里（v-show 藏着另一个面板），
+    // 所以只认当前可见那个面板里的那一份；用 getClientRects 判可见（computed display 会误报）。
+    const visibleSwitcherTabs = () => {
+      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )
+      return panel ? [...panel.querySelectorAll('.sidebar-switcher__tab')] : []
+    }
     return {
-      topbarHeight: Math.round(document.querySelector('.topbar')?.getBoundingClientRect().height ?? -1),
+      // 顶栏已在 2026-09 整体删除（设置入口搬进侧栏页头、运行按钮搬进编辑器页签栏），
+      // 这里守的是「它真的不回来了」以及工作区仍然贴顶
+      topbarPresent: !!document.querySelector('.topbar'),
+      workspaceTop: Math.round(document.querySelector('.workspace').getBoundingClientRect().top),
       flexDirection: getComputedStyle(document.querySelector('.workspace')).flexDirection,
       editorPane: rect('.pane--editor'),
       testsPane: rect('.pane--tests'),
@@ -88,7 +99,11 @@ const probe = (page) =>
       horizontalScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
       storedPanel: stored('cph.panelPosition'),
       storedShare: stored('cph.editorShare'),
-      panelTitle: text('.panel__title'),
+      sidebarTabs: visibleSwitcherTabs().map((el) => el.getAttribute('aria-label')),
+      sidebarActiveTab:
+        visibleSwitcherTabs()
+          .find((el) => el.classList.contains('is-active'))
+          ?.getAttribute('aria-label') ?? '',
     }
   })
 
@@ -131,11 +146,37 @@ try {
   await step('A. 首屏：Monaco 与评测面板真实渲染', async () => {
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     await page.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
+    // 新契约（2026-09 统一侧边栏）：侧边栏默认停在「资源管理器」，用例卡在「评测样例」
+    // 页签里、被 v-show 藏着（节点在 DOM 里，但不可见）。先确认两个页签都在，再切过去，
+    // 卡片才是真的渲染出来——这也是切页签这条路本身的回归。
+    // 切换按钮现已并入两个面板各自的页头，所以要落在当前可见的那个面板里找。
+    // 切换按钮已只画 logo（不写字），所以认 aria-label 而不是 textContent，
+    // 并且要落在当前可见的那个面板里找。
+    const tabs = await page.evaluate(() => {
+      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )
+      return [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].map((el) =>
+        el.getAttribute('aria-label'),
+      )
+    })
+    await page.evaluate(() => {
+      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )
+      const tab = [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].find((el) =>
+        el.getAttribute('aria-label')?.includes('评测样例'),
+      )
+      tab?.click()
+    })
     await page.waitForSelector('.card', { visible: true, timeout: 20000 })
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cph-1-default-right.png` })
     const ok =
-      state.topbarHeight === 50 &&
+      tabs.join('/') === '资源管理器/评测样例/设置' &&
+      state.sidebarActiveTab === '评测样例' &&
+      !state.topbarPresent &&
+      state.workspaceTop === 0 &&
       state.codeLineCount > 3 &&
       state.editorText.includes('include') &&
       !state.minimapVisible &&
@@ -155,11 +196,14 @@ try {
       el.dataset.marker = 'keep-me'
       return el.dataset.marker
     })
-    // 新架构：换边入口在「设置」页签里。打开设置（顶栏齿轮 → 编辑区里多一个页签）
+    // 新架构：换边入口在「设置」页签里。打开设置（侧栏页头的齿轮图标 → 编辑区里多一个页签）
     // → 选「左侧」→ 关掉页签回到代码。
     await page.evaluate(() => {
-      const btn = [...document.querySelectorAll('.topbar button')].find((b) =>
-        (b.getAttribute('title') ?? b.getAttribute('aria-label') ?? '').includes('设置'),
+      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )
+      const btn = [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].find(
+        (el) => el.getAttribute('aria-label') === '设置',
       )
       btn?.click()
     })
@@ -219,7 +263,7 @@ try {
       state.codeLineCount > 3 &&
       settingsShown.viewVisible &&
       settingsShown.tabActive &&
-      settingsShown.navItems === 5 &&
+      settingsShown.navItems === 6 &&
       !settingsClosed.tabPresent &&
       !settingsClosed.viewVisible
     record('B. 切换布局：order 换序，DOM/Monaco 不重建', ok, {
@@ -274,29 +318,106 @@ try {
     })
     await wait(400)
     const added = await page.evaluate(() => document.querySelectorAll('.card').length)
-    await page.evaluate(() => document.querySelector('.primary')?.click())
+    // 先把侧栏切回「资源管理器」再双击分隔条折叠它——为的是验新契约：点运行按钮时
+    // 侧栏要自己展开、并切到「评测样例」，不然点了运行看不到结果。
+    // （顺序不能反：折叠后整栏 display:none，页头里那几颗图标就点不到了。）
+    const visibleTab = (name) =>
+      page.evaluate((label) => {
+        const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+          (el) => el.getClientRects().length > 0,
+        )
+        ;[...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])]
+          .find((el) => el.getAttribute('aria-label') === label)
+          ?.click()
+      }, name)
+    await visibleTab('资源管理器')
+    await wait(300)
+    await page.evaluate(() =>
+      document
+        .querySelector('.splitter')
+        .dispatchEvent(new MouseEvent('dblclick', { bubbles: true })),
+    )
+    await wait(400)
+    const collapsed = await page.evaluate(
+      () => document.querySelector('.pane--tests').getClientRects().length === 0,
+    )
+    // 运行入口：顶栏删除后，编辑器页签栏最右那颗是常驻入口（此处也顺带守它）
+    await page.evaluate(() => document.querySelector('.editor-tabs__run')?.click())
     await page.waitForFunction(
       () => document.querySelector('.verdict')?.textContent.trim() !== '运行中',
       { timeout: 90000, polling: 500 },
     )
+    // 运行确实把侧栏捞了回来，且落在「评测样例」上（这正是「点运行自动亮出结果」那条契约）
+    const revealed = await page.evaluate(() => {
+      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )
+      return {
+        visible: document.querySelector('.pane--tests').getClientRects().length > 0,
+        activeTab:
+          [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])]
+            .find((el) => el.classList.contains('is-active'))
+            ?.getAttribute('aria-label') ?? '',
+      }
+    })
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cph-5-run-all.png` })
-    record('E. 添加用例并运行全部（真实评测）', added === 3 && state.badges.length === 3, {
-      cardsAfterAdd: added,
-      verdict: state.verdict,
-      badges: state.badges,
-      metrics: state.metrics,
-      outputs: state.outputs,
-      hints: state.hints,
-    })
+    record(
+      'E. 添加用例并运行全部（真实评测）',
+      added === 3 &&
+        state.badges.length === 3 &&
+        collapsed &&
+        revealed.visible &&
+        revealed.activeTab === '评测样例',
+      {
+        cardsAfterAdd: added,
+        collapsedBeforeRun: collapsed,
+        revealedAfterRun: revealed,
+        verdict: state.verdict,
+        badges: state.badges,
+        metrics: state.metrics,
+        outputs: state.outputs,
+        hints: state.hints,
+      },
+    )
   })
 
-  await step('F. 语言切到 Python：main.py 激活', async () => {
+  // 语言不再有顶栏下拉（2026-09 移除）：语言跟着活跃文件的扩展名走，所以这一步走真实 UI ——
+  // 在资源管理器里点开 main.py（迁移在首次启动时已种下它），断言模板 / 页签 / 判题语言都变成 Python。
+  await step('F. 打开 main.py：Python 模板与判题语言', async () => {
+    // A 步把侧栏切到了「评测样例」，先切回「资源管理器」；切换入口在两个面板各自的页头里，
+    // 所以要认「当前可见的那个 panel」再取其切换按钮（同一时刻只有一个可见）。
+    // 切换按钮只画 logo 不写字（名字在 aria-label / title 上），所以不能按 textContent 找。
     await page.evaluate(() => {
-      const select = document.querySelector('.topbar select')
-      select.value = 'python'
-      select.dispatchEvent(new Event('change', { bubbles: true }))
+      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )
+      const tab = [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].find((el) =>
+        (el.getAttribute('aria-label') ?? el.getAttribute('title') ?? '').includes('资源管理器'),
+      )
+      tab?.click()
     })
+    await page.waitForSelector('.tree-item__label', { visible: true, timeout: 10000 })
+    // 用 DOM click（不是坐标点击）：面板被拖窄后标签会省略号化，坐标点击会点偏。
+    // 点 .tree-item__row 才走 FileTreeItem.onClick → openFile。
+    const clicked = await page.evaluate(() => {
+      const label = [...document.querySelectorAll('.tree-item__label')].find(
+        (el) => el.textContent.trim() === 'main.py',
+      )
+      if (!label) return false
+      label.closest('.tree-item__row')?.click()
+      return true
+    })
+    if (!clicked) {
+      const labels = await page.evaluate(() =>
+        [...document.querySelectorAll('.tree-item__label')].map((el) => el.textContent.trim()),
+      )
+      record('F. 打开 main.py：Python 模板与判题语言', false, {
+        treeLabels: labels,
+        note: '资源管理器里没有 main.py（迁移未种下？）',
+      })
+      return
+    }
     // Monaco 渲染时把空格转成不间断空格（\u00a0），匹配前先规范化空白
     const hasPythonCode = () => {
       const text = document.querySelector('.view-lines')?.textContent
@@ -304,14 +425,31 @@ try {
     }
     await page.waitForFunction(hasPythonCode, { timeout: 20000, polling: 300 })
     const pythonLoaded = await page.evaluate(hasPythonCode)
+    // 选择器必须收窄到编辑器页签：侧边栏的切换按钮也是 tab 语义，
+    // 用 [role="tab"][aria-selected="true"] 会跟它们撞上（谁在 DOM 里靠前就看运气）。
     const activeIsPy = await page.evaluate(() =>
-      document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() === 'main.py',
+      document.querySelector('.editor-tabs__item--active')?.textContent.trim() === 'main.py',
+    )
+    // 判题语言与 model 语言同源（activeLanguage → languageForPath），直接问 workspaceStore；
+    // 与 App.vue 是同一个模块实例（URL 一致），不是另建一份。
+    const derived = await page.evaluate(async () => {
+      const store = await import('/src/services/vfs/workspaceStore.js')
+      return { language: store.activeLanguage.value, path: store.activeNode.value?.path ?? null }
+    })
+    // 语言下拉确实已经没了：全应用的下拉只剩设置视图里那几个（时限 / 换行 / 栏位 / 主题）
+    const noLangSelect = await page.evaluate(() =>
+      [...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view')),
     )
     await page.screenshot({ path: `${SHOTS}cph-6-python.png` })
-    record('F. 语言切到 Python：main.py 激活', Boolean(pythonLoaded) && activeIsPy, {
-      pythonLoaded,
-      activeIsPy,
-    })
+    record(
+      'F. 打开 main.py：Python 模板与判题语言',
+      Boolean(pythonLoaded) &&
+        activeIsPy &&
+        derived.language === 'python' &&
+        derived.path === '/main.py' &&
+        noLangSelect,
+      { pythonLoaded, activeIsPy, ...derived, noLangSelect },
+    )
   })
 
   console.log(`\n控制台告警/错误: ${JSON.stringify(logs.slice(0, 12), null, 1)}`)

@@ -1,46 +1,114 @@
 <script setup>
 /**
- * FileExplorer —— 资源管理器：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单。
+ * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（重命名 / 删除）。
  *
- * 通过 provide 向递归树项提供能力：右键菜单、删除确认、内联新建输入、
+ * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
+ * 新建只从头部按钮发起、固定建在根目录；右键菜单不再提供新建（2026-09 移除）。
+ *
+ * 通过 provide 向递归树项提供能力：右键菜单、删除确认、
  * 根 DOM、重命名目标、焦点管理。树项不直接操作这些状态，避免跨层耦合。
+ * 新建不在此列：它只发生在根目录，输入框由本组件自己渲染（见下方 explorer__create）。
  */
-import { nextTick, provide, ref } from 'vue'
+import { nextTick, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
+import SidebarSwitcher from './SidebarSwitcher.vue'
 import {
+  activeLanguage,
   createDirectory,
   createFile,
   deleteNode,
-  getNodeById,
   workspace,
 } from '../services/vfs/workspaceStore.js'
-import { assertName, join } from '../services/vfs/paths.js'
+import { assertName, basename, join } from '../services/vfs/paths.js'
 
 const rootEl = ref(null)
 
-/** 内联新建状态：{ type:'file'|'directory', parentId, value, error } | null */
+/** 内联新建状态：{ type:'file'|'directory', value, error } | null（新建只发生在根目录） */
 const creating = ref(null)
+/** 内联新建的输入框：出现后要把焦点送进去 */
+const createInput = ref(null)
 /** 右键菜单状态：{ x, y, node, items } | null */
 const menu = ref(null)
 /** 需要进入重命名的节点 id */
 const renameTarget = ref(null)
 /** 树内最近获得焦点的 id（roving tabindex） */
 const focusedId = ref(null)
+/** 待确认删除的节点；null = 没有待确认的删除 */
+const pendingDelete = ref(null)
+/** 确认弹窗里的「删除」按钮：弹窗打开时把焦点送进去 */
+const confirmBtn = ref(null)
 
 // ------------------------------------------------------------ 内联新建
 
-function startCreate(type, parentId = 'root') {
-  menu.value = null
-  if (parentId !== 'root' && !workspace.expandedIds.includes(parentId)) {
-    workspace.expandedIds.push(parentId)
-  }
-  creating.value = { type, parentId, value: '', error: '' }
+/**
+ * 新建时的默认名字：文件跟着当前判题语言给 new.cpp / new.py，目录给「新建文件夹」；
+ * 与根目录下已有名字撞了就往后排 new-2、new-3……——预填的名字不该让用户敲下回车先吃一个「已存在」。
+ * @param {'file'|'directory'} type
+ * @returns {string}
+ */
+function defaultName(type) {
+  const taken = new Set(workspace.tree.map((node) => basename(node.path)))
+  if (type !== 'file') return uniqueName(taken, '新建文件夹')
+  return uniqueName(taken, 'new', activeLanguage.value === 'python' ? '.py' : '.cpp')
 }
+
+/**
+ * @param {Set<string>} taken
+ * @param {string} base
+ * @param {string} [ext] 目录留空
+ * @returns {string}
+ */
+function uniqueName(taken, base, ext = '') {
+  if (!taken.has(base + ext)) return base + ext
+  let index = 2
+  while (taken.has(`${base}-${index}${ext}`)) index += 1
+  return `${base}-${index}${ext}`
+}
+
+function startCreate(type) {
+  menu.value = null
+  creating.value = { type, value: defaultName(type), error: '' }
+  // autofocus 属性对动态插入的节点不生效（浏览器只在解析 HTML 时认它），得自己把焦点送进去。
+  // 与 FileTreeItem 的重命名同款：聚焦 + 全选，默认名字可以直接敲回车接受，也可以直接打字替换。
+  nextTick(focusCreateInput)
+}
+
+function focusCreateInput() {
+  createInput.value?.focus()
+  createInput.value?.select()
+}
+
+/**
+ * 在途的创建轮次（= 已经交给 VFS、还没回来的那些 state 对象）。
+ * 用来区分「用户离开输入框」和「我们自己把焦点弄丢了」，见 onCreateBlur。
+ * @type {Set<object>}
+ */
+const createFlights = new Set()
 
 function cancelCreate() {
   creating.value = null
+}
+
+/**
+ * 输入框失焦。正常情况（用户点到别处）就提交；但有一类**程序性**失焦必须挡掉：
+ * 创建完成后会自动打开新文件，Monaco 顺势 focus() 把焦点抢走（EditorPane 里换 model 后
+ * 的那行 instance.focus()）。那不是用户要离开输入框 —— 照常提交的话，会凭空多出一个
+ * 用默认名建出来的文件（连点两次「新建文件」时最明显：第二轮输入框刚聚焦就被提交掉）。
+ *
+ * 分两种：
+ * - 屏幕上这个输入框自己就在提交中：这次失焦正来自「打开刚建好的文件」，跳过重复提交，
+ *   也不去抢焦点 —— 它马上就会被移除，焦点留给 Monaco 正合适。
+ * - 在途的是上一轮（连点两次「新建文件」）：这个刚聚焦的输入框是被误伤的，把焦点要回来
+ *   （Monaco 的 focus 在 pre-flush watcher 里，nextTick 抢得赢），并放弃这次提交。
+ */
+function onCreateBlur() {
+  if (!createFlights.size) {
+    commitCreate()
+    return
+  }
+  if (!createFlights.has(creating.value)) nextTick(focusCreateInput)
 }
 
 async function commitCreate() {
@@ -51,15 +119,19 @@ async function commitCreate() {
     cancelCreate()
     return
   }
+  createFlights.add(state)
   try {
     assertName(name)
-    const parent = getNodeById(state.parentId)
-    const path = join(parent ? parent.path : '/', name)
+    const path = join('/', name)
     if (state.type === 'file') await createFile(path)
     else await createDirectory(path)
-    creating.value = null
+    // 只关掉自己这一轮：创建是异步的，等它回来的这段时间里用户可能又点了一次「新建文件」
+    // （blur 会先提交上一轮），无条件清空会把刚打开的新输入框一起抹掉。
+    if (creating.value === state) creating.value = null
   } catch (error) {
     state.error = error.message || '创建失败'
+  } finally {
+    createFlights.delete(state)
   }
 }
 
@@ -68,19 +140,10 @@ async function commitCreate() {
 function openContextMenu(event, node) {
   if (!node) return // 索引尚未就绪等情况：静默，不弹菜单
   focusedId.value = node.id
-  menu.value = { x: event.clientX, y: event.clientY, node, items: buildMenuItems(node) }
+  menu.value = { x: event.clientX, y: event.clientY, node, items: buildMenuItems() }
 }
 
-function buildMenuItems(node) {
-  if (node.type === 'directory') {
-    return [
-      { id: 'new-file', label: '新建文件' },
-      { id: 'new-folder', label: '新建文件夹' },
-      { id: 'actions-divider', divider: true },
-      { id: 'rename', label: '重命名', disabled: node.id === 'root' },
-      { id: 'delete', label: '删除', disabled: node.id === 'root' },
-    ]
-  }
+function buildMenuItems() {
   return [
     { id: 'rename', label: '重命名' },
     { id: 'delete', label: '删除' },
@@ -91,9 +154,7 @@ async function onMenuSelect(id) {
   const node = menu.value?.node
   menu.value = null
   if (!node) return
-  if (id === 'new-file') startCreate('file', node.id)
-  else if (id === 'new-folder') startCreate('directory', node.id)
-  else if (id === 'rename') beginRename(node.id)
+  if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node)
 }
 
@@ -109,16 +170,36 @@ function onRenameDone() {
   renameTarget.value = null
 }
 
-async function requestDelete(node) {
-  const suffix = node.type === 'directory' ? '目录内的全部内容将一并删除。' : ''
-  if (!window.confirm(`确定删除 ${node.path} ？${suffix}`)) return
-  await deleteNode(node.path)
+/**
+ * 删除入口：先把待删节点记下来、弹确认框，**点「删除」之后**才动 VFS。
+ *
+ * 这里不用 window.confirm：原生弹窗的返回值在 webview / 装成应用窗口打开时不由我们
+ * 掌控（被浏览器抑制时它自己直接返回一个值），出现过「弹窗上点了取消，文件还是没了」。
+ * 自己画的弹窗没有这层不确定性，取消就是取消。
+ */
+function requestDelete(node) {
+  if (node) pendingDelete.value = node
 }
 
-// 在树空白处右键：给根目录菜单
+function cancelDelete() {
+  pendingDelete.value = null
+}
+
+async function confirmDelete() {
+  const node = pendingDelete.value
+  // 先关弹窗再动 VFS：删除过程中（可能要等 VFS 的异步事件）不该再留一个可点的按钮
+  pendingDelete.value = null
+  if (node) await deleteNode(node.path)
+}
+
+// 弹窗一出现就把焦点放到「删除」上：Enter 确认、Esc 取消都能纯键盘走完
+watch(pendingDelete, (node) => {
+  if (node) nextTick(() => confirmBtn.value?.focus())
+})
+
+// 在树空白处右键：只屏蔽浏览器原生菜单（没有针对「整个工作区」的操作）
 function onTreeContextMenu(event) {
   event.preventDefault()
-  openContextMenu(event, getNodeById('root'))
 }
 
 // ------------------------------------------------------------ 焦点（roving tabindex）
@@ -140,9 +221,6 @@ function onTreeFocus(event) {
 
 provide('openContextMenu', openContextMenu)
 provide('requestDelete', requestDelete)
-provide('creating', creating)
-provide('commitCreate', commitCreate)
-provide('cancelCreate', cancelCreate)
 provide('treeRootEl', rootEl)
 provide('renameTarget', renameTarget)
 provide('isTabbable', isTabbable)
@@ -152,7 +230,7 @@ provide('setFocusedId', setFocusedId)
 <template>
   <section class="explorer">
     <header class="explorer__head">
-      <span class="explorer__title">资源管理器</span>
+      <SidebarSwitcher />
       <span class="explorer__actions">
         <button type="button" class="explorer__btn" title="新建文件" @click="startCreate('file')">
           <AppIcon name="file" :size="14" />
@@ -164,18 +242,18 @@ provide('setFocusedId', setFocusedId)
     </header>
 
     <div ref="rootEl" class="explorer__tree" role="tree" @contextmenu="onTreeContextMenu" @focusin="onTreeFocus">
-      <template v-if="creating?.parentId === 'root'">
+      <template v-if="creating">
         <div class="explorer__create">
           <span class="explorer__create-arrow"></span>
           <AppIcon class="explorer__create-icon" :name="creating.type === 'file' ? 'file' : 'folder'" :size="15" />
           <input
+            ref="createInput"
             v-model="creating.value"
             class="explorer__input"
-            :placeholder="creating.type === 'file' ? 'main.cpp' : 'folder'"
-            autofocus
+            :placeholder="creating.type === 'file' ? 'new.cpp' : '新建文件夹'"
             @keydown.enter.prevent="commitCreate"
             @keydown.esc.prevent="cancelCreate"
-            @blur="commitCreate"
+            @blur="onCreateBlur"
           />
         </div>
         <p v-if="creating.error" class="explorer__error">{{ creating.error }}</p>
@@ -202,6 +280,40 @@ provide('setFocusedId', setFocusedId)
       @select="onMenuSelect"
       @close="menu = null"
     />
+
+    <!-- 删除确认：自己实现的弹窗（不用 window.confirm，见 requestDelete 的注释）。
+         点遮罩 / Esc = 取消，只有点「删除」才会真的动文件。 -->
+    <Teleport to="body">
+      <div v-if="pendingDelete" class="confirm" @pointerdown.self="cancelDelete">
+        <div
+          class="confirm__card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="confirm-title"
+          aria-describedby="confirm-desc"
+          @keydown.esc.stop.prevent="cancelDelete"
+        >
+          <p id="confirm-title" class="confirm__title">确定删除？</p>
+          <p id="confirm-desc" class="confirm__desc">
+            <span class="confirm__path">{{ pendingDelete.path }}</span>
+            <template v-if="pendingDelete.type === 'directory'">
+              ，目录内的全部内容将一并删除。
+            </template>
+          </p>
+          <div class="confirm__actions">
+            <button type="button" class="confirm__btn" @click="cancelDelete">取消</button>
+            <button
+              ref="confirmBtn"
+              type="button"
+              class="confirm__btn confirm__btn--danger"
+              @click="confirmDelete"
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -213,25 +325,105 @@ provide('setFocusedId', setFocusedId)
   flex: 1 1 auto;
 }
 
+/* ---------------------------------------------------------------- 删除确认
+   Teleport 到 body，所以这里的定位与色值都只依赖主题变量，不依赖侧边栏的容器 */
+.confirm {
+  position: fixed;
+  inset: 0;
+  /* 高于右键菜单（120），低于顶栏下拉之类的系统级浮层 */
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.confirm__card {
+  width: min(340px, 100%);
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+
+.confirm__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.confirm__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  /* 长路径要能换行，别把卡片撑破 */
+  overflow-wrap: anywhere;
+}
+
+.confirm__path {
+  color: var(--text);
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.confirm__btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 500 12.5px/1.5 var(--font-sans, system-ui);
+  cursor: pointer;
+}
+
+.confirm__btn:hover {
+  background: var(--bg-hover);
+}
+
+/* 危险动作沿用 icon-btn--danger 的配色，两套主题各自有变量 */
+.confirm__btn--danger {
+  border-color: transparent;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.confirm__btn--danger:hover {
+  background: var(--danger-bg-hover);
+}
+
+.confirm__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
 .explorer__head {
   display: flex;
   align-items: center;
+  /* 左侧是「资源管理器 / 评测样例」切换入口（两个 logo），右侧是两颗操作按钮；
+     两边加起来也远比面板下限窄，所以不折行（折行只留给评测样例页头） */
   justify-content: space-between;
+  gap: 8px;
+  /* 与评测样例页头同高 */
   height: 35px;
-  padding: 0 8px 0 12px;
+  padding: 0 8px 0 4px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--bg-panel-head);
 }
 
-.explorer__title {
-  color: var(--text);
-  font-size: 11.5px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-}
-
 .explorer__actions {
   display: inline-flex;
+  flex: 0 0 auto;
+  /* 折到第二行时仍然贴右 */
+  margin-left: auto;
   gap: 2px;
 }
 

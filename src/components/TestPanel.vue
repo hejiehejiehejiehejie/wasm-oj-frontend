@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
+import SidebarSwitcher from './SidebarSwitcher.vue'
 import TestCaseCard from './TestCaseCard.vue'
 
 const props = defineProps({
@@ -47,8 +48,8 @@ const elapsedText = computed(() => {
 <template>
   <section class="panel" aria-label="CPH 评测面板">
     <header class="panel__head">
+      <SidebarSwitcher />
       <div class="panel__heading">
-        <h2 class="panel__title">Test Cases</h2>
         <span class="verdict" :data-tone="verdict.tone">{{ verdict.text }}</span>
         <span v-if="elapsedText" class="elapsed" :title="`最慢用例耗时 ${elapsedText}（只计运行段，不含编译）`">
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
@@ -94,7 +95,9 @@ const elapsedText = computed(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: 100%;
+  /* 作为统一侧边栏「评测样例」页签里的 flex 子项撑满内容区（与 FileExplorer 的 .explorer 同款） */
+  flex: 1 1 auto;
+  min-height: 0;
   background: var(--bg-panel);
 }
 
@@ -103,12 +106,13 @@ const elapsedText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* 时限选择器搬进设置抽屉后头部只剩标题 + 徽标 + 耗时，换算下来仍可能超过很窄的面板，
-     所以折行保留：挤不下时整体换行而不是让徽标溢出自己的盒子 */
+  /* 左侧是「资源管理器 / 评测样例」切换入口，右侧只剩徽标与耗时；
+     与资源管理器页头同高（min-height 35px）；挤不下时整体换行而不是让徽标溢出自己的盒子 */
   flex-wrap: wrap;
   gap: 10px;
-  row-gap: 6px;
-  padding: 9px 10px 9px 14px;
+  row-gap: 4px;
+  min-height: 35px;
+  padding: 4px 10px 4px 4px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--bg-panel-head);
 }
@@ -118,15 +122,8 @@ const elapsedText = computed(() => {
   align-items: center;
   gap: 9px;
   min-width: 0;
-}
-
-.panel__title {
-  margin: 0;
-  font-size: 11.5px;
-  font-weight: 650;
-  letter-spacing: 0.9px;
-  text-transform: uppercase;
-  color: var(--text);
+  /* 换行后单独占一行时仍然贴右（不写会在换行那一行落到左边） */
+  margin-left: auto;
 }
 
 .verdict {

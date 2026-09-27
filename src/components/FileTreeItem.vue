@@ -3,19 +3,13 @@
  * FileTreeItem —— 递归树项（文件 / 目录）。
  *
  * - 单击：目录折叠；文件打开（openFile 内含 reveal）。
- * - 右键菜单、新建输入、键盘导航均通过 FileExplorer provide 的能力完成。
+ * - 右键菜单、删除确认、键盘导航均通过 FileExplorer provide 的能力完成。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
 import { computed, inject, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { modelManager } from '../services/monaco/modelManager.js'
-import {
-  getNodeById,
-  openFile,
-  renameNode,
-  toggleExpand,
-  workspace,
-} from '../services/vfs/workspaceStore.js'
+import { openFile, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, join } from '../services/vfs/paths.js'
 
 defineOptions({ name: 'FileTreeItem' })
@@ -28,9 +22,6 @@ const emit = defineEmits(['rename-done'])
 
 const openContextMenu = inject('openContextMenu')
 const requestDelete = inject('requestDelete')
-const creating = inject('creating')
-const commitCreate = inject('commitCreate')
-const cancelCreate = inject('cancelCreate')
 const treeRootEl = inject('treeRootEl')
 const renameTarget = inject('renameTarget')
 const isTabbable = inject('isTabbable')
@@ -171,7 +162,7 @@ function onKeyDown(event) {
       :aria-selected="active"
       :tabindex="isTabbable(node.id) ? 0 : -1"
       @click="onClick"
-      @contextmenu="onContextMenu"
+      @contextmenu.stop="onContextMenu"
       @keydown="onKeyDown"
     >
       <span class="tree-item__arrow">
@@ -195,19 +186,6 @@ function onKeyDown(event) {
     </p>
 
     <div v-if="node.type === 'directory' && expanded" role="group">
-      <div v-if="creating?.parentId === node.id" class="tree-item__create" :style="{ paddingLeft: `${(depth + 1) * 10 + 8}px` }">
-        <span class="tree-item__arrow"></span>
-        <AppIcon class="tree-item__icon" :name="creating.type === 'file' ? 'file' : 'folder'" :size="15" />
-        <input
-          v-model="creating.value"
-          class="tree-item__input"
-          :placeholder="creating.type === 'file' ? 'main.cpp' : 'folder'"
-          autofocus
-          @keydown.enter.prevent="commitCreate"
-          @keydown.esc.prevent="cancelCreate"
-          @blur="commitCreate"
-        />
-      </div>
       <FileTreeItem
         v-for="child in node.children ?? []"
         :key="child.id"
@@ -279,10 +257,6 @@ function onKeyDown(event) {
   border-radius: 4px;
   color: var(--text);
   font: 400 13px/20px var(--font-mono, ui-monospace, monospace);
-}
-
-.tree-item__create .tree-item__input {
-  margin-right: 8px;
 }
 
 .tree-item__error {

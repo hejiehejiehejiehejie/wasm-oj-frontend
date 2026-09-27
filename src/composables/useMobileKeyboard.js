@@ -36,6 +36,9 @@ const KEYBOARD_MIN = 100
 const SHORT_VIEWPORT = 480
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
+// 焦点是不是还在编辑器里（Monaco 的输入面，Chrome 是 .native-edit-context、其余是
+// 隐藏的 textarea.inputarea，两者都在 .monaco-editor 里面）
+const isInEditor = (node) => node instanceof Element && Boolean(node.closest('.monaco-editor'))
 
 export function useMobileKeyboard() {
   const active = ref(window.matchMedia('(pointer: coarse)').matches)
@@ -96,6 +99,17 @@ export function useMobileKeyboard() {
     keyboardUpAtTouchStart = keyboardUp
     const current = document.activeElement
     focusBeforeTouch = current instanceof HTMLElement && current !== document.body ? current : null
+    // 「用户在键盘上按返回键把键盘收掉了，但焦点还留在编辑器里」这一种，和下面
+    // 滑动那条是同一个成因（已聚焦的输入框会被系统在手势结束时重新弹起键盘），只是
+    // 轻点也会触发、而且拦 mousedown 来不及（合成 mousedown 在 touchend 之后才来）。
+    // 用户口径：键盘收掉之后点哪儿都不该再把它捞回来。所以在 touchstart 就把这个前提
+    // 断掉——键盘没弹着还残留着编辑器焦点，先 blur。点编辑器文本时的重新聚焦不用管，
+    // 那是 Monaco 自己的 Tap 干的（焦点本来就是这个入口给的）；点别处则不再弹键盘。
+    // 键盘弹着时不能这样做：那时正确行为是保焦（点按钮、点输出区都不收键盘）。
+    if (!keyboardUpAtTouchStart && isInEditor(current)) {
+      current.blur()
+      focusBeforeTouch = null
+    }
   }
 
   function onTouchMove(event) {

@@ -13,6 +13,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
 import { langMeta } from '../services/templates.js'
+import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { settingsTab } from '../services/settingsTab.js'
 import {
@@ -32,6 +33,9 @@ const props = defineProps({
   // 评测引擎状态：只有设置视图里的「评测」分组用得到，这里只做透传
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
+  // 运行状态：页签栏最右那颗运行 / 停止按钮用
+  running: Boolean,
+  total: { type: Number, default: 0 },
 })
 
 const emit = defineEmits([
@@ -65,41 +69,34 @@ function disposeInMemoryOrphans() {
   }
 }
 
+/**
+ * tabSize / insertSpaces 是 model 级选项（EditorOption 里没有它们），
+ * 给它俩走 editor.create() / updateOptions() 会被 Monaco 静默丢掉。
+ * 所以每挂上一个 model 都要补一次，否则新 model 会退回 4 空格默认值。
+ */
+function applyModelOptions(model) {
+  model?.updateOptions(editorModelOptions(props.settings))
+}
+
 onMounted(() => {
   const instance = monaco.editor.create(host.value, {
+    // 用户可调的选项全部来自 services/editorOptions.js（构造与 updateOptions 共用同一份映射）
+    ...editorOptions(props.settings),
     theme: props.settings.theme,
-    minimap: { enabled: props.settings.minimap },
-    fontSize: props.settings.fontSize,
-    lineHeight: Math.round(props.settings.fontSize * 1.5),
-    fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
-    fontLigatures: false,
-    smoothScrolling: true,
-    cursorBlinking: 'smooth',
-    cursorSmoothCaretAnimation: 'on',
-    scrollBeyondLastLine: false,
-    padding: { top: 14, bottom: 10 },
-    renderLineHighlight: 'all',
-    renderWhitespace: 'selection',
-    tabSize: props.settings.tabSize,
-    insertSpaces: true,
-    wordWrap: props.settings.wordWrap,
+    // 布局必须跟着容器走（面板拖宽 / 换边 / 折叠侧边栏）：交给 Monaco 自己的 ResizeObserver
     automaticLayout: true,
-    bracketPairColorization: { enabled: true },
-    guides: { bracketPairs: 'active', indentation: true },
-    scrollbar: { verticalScrollbarSize: 11, horizontalScrollbarSize: 11, useShadows: false },
     overviewRulerBorder: false,
     fixedOverflowWidgets: true,
-    stickyScroll: { enabled: false },
-    quickSuggestions: { other: true, comments: false, strings: false },
-    linkedEditing: true,
-    inlineSuggest: { enabled: true },
   })
   editor.value = instance
 
   // 启动时安静挂上当前 model（不抢焦点；会话恢复已建好 model）
   if (workspace.activeId) {
     const model = modelManager.getExistingModel(workspace.activeId)
-    if (model) instance.setModel(model)
+    if (model) {
+      instance.setModel(model)
+      applyModelOptions(model)
+    }
   }
   disposeInMemoryOrphans()
 
@@ -140,6 +137,7 @@ watch(
     const model = modelManager.getExistingModel(nextId)
     if (!model) return
     instance.setModel(model)
+    applyModelOptions(model)
     disposeInMemoryOrphans()
     const saved = viewStates.get(nextId)
     if (saved) instance.restoreViewState(saved)
@@ -162,18 +160,17 @@ watch(
 
 // ------------------------------------------------------------ 编辑器设置
 
+// 所有可调项一次性交给 updateOptions（映射见 editorOptions.js）：逐项写 watch 的写法
+// 每加一项设置都要在两处同步，漏一处就是「面板里有、编辑器不认」。主题是唯一的例外，
+// 它必须走 setTheme；tabSize / insertSpaces 也要单独落到 model 上（model.updateOptions
+// 只在值真的变了时才发事件，所以这里无条件补一次是安全的）。
 watch(
   () => props.settings,
   (next, prev) => {
     const instance = editor.value
     if (!instance) return
-    instance.updateOptions({
-      fontSize: next.fontSize,
-      lineHeight: Math.round(next.fontSize * 1.5),
-      tabSize: next.tabSize,
-      wordWrap: next.wordWrap,
-      minimap: { enabled: next.minimap },
-    })
+    instance.updateOptions(editorOptions(next))
+    applyModelOptions(instance.getModel())
     if (prev?.theme !== next.theme) monaco.editor.setTheme(next.theme)
   },
   { deep: true },
@@ -184,7 +181,7 @@ defineExpose({ layout: () => editor.value?.layout() })
 
 <template>
   <div class="editor-pane">
-    <EditorTabs />
+    <EditorTabs :running="running" :total="total" @run-all="emit('run-all')" />
 
     <div class="editor-pane__stage">
       <div v-show="!settingsTab.active" ref="host" class="editor-pane__host"></div>
@@ -209,7 +206,7 @@ defineExpose({ layout: () => editor.value?.layout() })
 
       <div v-if="!activeNode && !settingsTab.active" class="editor-pane__empty">
         <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
-        <p>从左侧资源管理器打开或新建文件</p>
+        <p>在侧边栏的「资源管理器」里打开或新建文件</p>
       </div>
     </div>
 

@@ -1,6 +1,5 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import TopBar from './components/TopBar.vue'
 import EditorPane from './components/EditorPane.vue'
 import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
@@ -14,25 +13,21 @@ import {
   activeLanguage,
   activeNode,
   initWorkspaceStore,
-  openLanguage,
   peekActiveContent,
   saveAll,
-  toggleSidebar,
 } from './services/vfs/workspaceStore.js'
 import { modelManager } from './services/monaco/modelManager.js'
+import {
+  EDITOR_SETTINGS_DEFAULTS,
+  normalizeEditorSetting,
+} from './services/editorOptions.js'
 
 // ---------------------------------------------------------------- 持久化状态
 // panelPosition 是本项目的核心偏好：'right' | 'left'，默认在右侧。
 const panelPosition = usePersistentRef('cph.panelPosition', 'right')
-// 是否显示整个测试面板（只影响显隐，用例数据不丢）
+// 是否显示统一侧边栏（只影响显隐，文件树展开态与用例数据都不丢）
 const panelVisible = usePersistentRef('cph.panelVisible', true)
-// 语言不再独立持久化：由活跃文件派生（activeLanguage）；TopBar 选语言 → openLanguage
-const language = computed({
-  get: () => activeLanguage.value ?? 'cpp',
-  set: (value) => {
-    openLanguage(value).catch(() => {})
-  },
-})
+// 语言不独立持久化：由活跃文件扩展名派生（activeLanguage），顶栏已无语言下拉
 const editorShare = usePersistentRef('cph.editorShare', 60)
 const engineId = usePersistentRef('cph.engine', DEFAULT_ENGINE_ID)
 const judgeBases = usePersistentRef('cph.judgeBases', defaultBases())
@@ -44,41 +39,34 @@ const EDITOR_SETTINGS_KEY = 'cph.editorSettings'
 // 存档版本号只用于一次性迁移主题（见 readEditorSettings）
 const EDITOR_SETTINGS_VERSION_KEY = 'cph.editorSettingsVersion'
 const EDITOR_SETTINGS_VERSION = 3
-// 主题现在决定整套界面配色，所以只保留深 / 浅两套
-const EDITOR_THEMES = ['cph-dark', 'cph-light']
-const editorSettingsDefaults = {
-  fontSize: 14,
-  tabSize: 4,
-  wordWrap: 'off',
-  minimap: false,
-  theme: 'cph-dark',
-}
-const EDITOR_SETTING_KEYS = Object.keys(editorSettingsDefaults)
+// 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
+const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
 
 function readEditorSettings() {
   try {
     const raw = window.localStorage.getItem(EDITOR_SETTINGS_KEY)
-    if (!raw) return { ...editorSettingsDefaults }
+    if (!raw) return { ...EDITOR_SETTINGS_DEFAULTS }
     const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return { ...editorSettingsDefaults }
-    // 只采纳已知字段，丢弃历史遗留的过期配置（如已移除的 keybinding）
-    const merged = { ...editorSettingsDefaults }
-    for (const key of EDITOR_SETTING_KEYS) if (key in parsed) merged[key] = parsed[key]
-    merged.fontSize = Number.isFinite(Number(merged.fontSize)) ? Number(merged.fontSize) : editorSettingsDefaults.fontSize
-    merged.tabSize = Number.isFinite(Number(merged.tabSize)) ? Number(merged.tabSize) : editorSettingsDefaults.tabSize
-    if (!['off', 'on', 'wordWrapColumn'].includes(merged.wordWrap)) merged.wordWrap = 'off'
+    if (!parsed || typeof parsed !== 'object') return { ...EDITOR_SETTINGS_DEFAULTS }
     // v3 之前主题只作用于编辑器（选项有 vs-dark / vs / hc-black），这里换算成新的两套：
     // 原本选浅色 vs 的迁到浅色，其余一律回默认深色。只做一次，之后按键是白名单。
     if (
       Number(window.localStorage.getItem(EDITOR_SETTINGS_VERSION_KEY)) < EDITOR_SETTINGS_VERSION &&
       parsed.theme === 'vs'
     ) {
-      merged.theme = 'cph-light'
+      parsed.theme = 'cph-light'
     }
-    if (!EDITOR_THEMES.includes(merged.theme)) merged.theme = editorSettingsDefaults.theme
+    // 只采纳已知字段，并且逐键夹成合法值：历史遗留的过期配置（如已移除的 keybinding）
+    // 会被 normalizeEditorSetting 丢掉，越界 / 认不出来的值一律退回默认。
+    const merged = { ...EDITOR_SETTINGS_DEFAULTS }
+    for (const key of EDITOR_SETTING_KEYS) {
+      if (!(key in parsed)) continue
+      const value = normalizeEditorSetting(key, parsed[key])
+      if (value !== undefined) merged[key] = value
+    }
     return merged
   } catch {
-    return { ...editorSettingsDefaults }
+    return { ...EDITOR_SETTINGS_DEFAULTS }
   }
 }
 
@@ -118,7 +106,14 @@ watch(
 )
 
 function updateEditorSettings(value) {
-  editorSettings.value = { ...editorSettingsDefaults, ...value }
+  // 面板送来的值也过一遍校验：数字输入框可以手打，越界值不该进存档
+  const merged = { ...EDITOR_SETTINGS_DEFAULTS }
+  for (const key of EDITOR_SETTING_KEYS) {
+    if (!(key in value)) continue
+    const normalized = normalizeEditorSetting(key, value[key])
+    if (normalized !== undefined) merged[key] = normalized
+  }
+  editorSettings.value = merged
 }
 
 const engine = computed(() => getEngine(engineId.value))
@@ -197,9 +192,10 @@ const totals = computed(() => {
 
 const workspace = ref(null)
 const editorPane = ref(null)
+const sidebarRef = ref(null)
 const running = ref(false)
 
-// order 换序：Sidebar 恒 0；splitter 恒 2；测试在右时 editor 1 / tests 3，反之对调。
+// order 换序：splitter 恒 2；统一侧边栏在右时 editor 1 / tests 3，反之对调。
 // flexBasis 两栏之和恒为 100%（折叠时编辑器不设 basis，撑满剩余空间）。
 const editorPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 1 : 3,
@@ -427,6 +423,14 @@ function applyPatch(target, patch, index) {
   Object.assign(target, patch, { stale: false })
 }
 
+// 运行入口有三处（编辑器页签栏右端的运行按钮、⌘/Ctrl + Enter、评测面板页脚），
+// 都并到 runAll 这一个出口。跑之前先保证「看得到结果」：侧栏若收起了就展开，
+// 若停在资源管理器就切到评测样例（已经在评测样例上则什么都不做，不影响页签持久化）
+function revealTestsPanel() {
+  if (!panelVisible.value) togglePanel()
+  sidebarRef.value?.showPanel('tests')
+}
+
 async function runAll() {
   if (running.value) {
     abortController?.abort()
@@ -435,6 +439,7 @@ async function runAll() {
   if (!testCases.value.length) return
   if (!activeLanguage.value) return
 
+  revealTestsPanel()
   running.value = true
   abortController = new AbortController()
   // 运行前自动保存全部 dirty model，再取活跃文件快照
@@ -545,23 +550,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
-    <TopBar
-      v-model:language="language"
-      :running="running"
-      :total="testCases.length"
-      @toggle-sidebar="toggleSidebar"
-      @run-all="runAll"
-    />
-
     <main
       ref="workspace"
       class="workspace"
       :class="[`is-${panelPosition}`, { 'is-dragging': dragging, 'is-swapping': swapping, 'is-collapsed': !panelVisible }]"
     >
-      <Sidebar>
-        <FileExplorer />
-      </Sidebar>
-
       <section class="pane pane--editor" :style="editorPaneStyle">
         <EditorPane
           ref="editorPane"
@@ -570,6 +563,8 @@ onBeforeUnmount(() => {
           :time-limit="timeLimitMs"
           :judge="judgeSettings"
           :connection="connection"
+          :running="running"
+          :total="testCases.length"
           @run-all="runAll"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
@@ -596,21 +591,29 @@ onBeforeUnmount(() => {
         <span class="splitter__dots" aria-hidden="true"><i></i><i></i><i></i></span>
       </div>
 
+      <!-- 统一侧边栏：资源管理器与评测样例合并成一个页签容器，
+           整体仍按原来的 .pane--tests 参与分屏拖拽与折叠（宽度 / 阈值逻辑不变） -->
       <section
         v-show="panelVisible"
         class="pane pane--tests"
         :style="testsPaneStyle"
       >
-        <TestPanel
-          :judge="judgeSettings"
-          :cases="testCases"
-          :running="running"
-          :elapsed="elapsed"
-          @add="addCase"
-          @remove="removeCase"
-          @run-one="runOne"
-          @run-all="runAll"
-        />
+        <Sidebar ref="sidebarRef">
+          <template #explorer>
+            <FileExplorer />
+          </template>
+          <template #tests>
+            <TestPanel
+              :cases="testCases"
+              :running="running"
+              :elapsed="elapsed"
+              @add="addCase"
+              @remove="removeCase"
+              @run-one="runOne"
+              @run-all="runAll"
+            />
+          </template>
+        </Sidebar>
       </section>
     </main>
   </div>
@@ -654,9 +657,11 @@ onBeforeUnmount(() => {
   /* 四周留白 6px + 两栏之间 6px 空隙（分隔条负外边距后剩下的部分）：两块卡片浮在底色上 */
   padding: 6px;
   background: var(--bg-editor);
-  /* 测试面板最低宽度的三个参数。JS 的拖拽上限（measureLimits）读的就是这三个变量，
-     同一个数字不在样式和脚本里各写一份。宽屏封顶 240px（原来 320px，为了让样例栏能拖得更窄）；
-     窄屏按内容宽的 50% 收缩 —— 面板与编辑器各占一半，两边都还能用；
+  /* 统一侧边栏（原评测面板所在的「测试栏」）最低宽度的三个参数。JS 的拖拽上限
+     （measureLimits）读的就是这三个变量，同一个数字不在样式和脚本里各写一份。
+     变量名保留 --tests-* 是历史沿革，现在约束的就是这个统一侧边栏。
+     宽屏封顶 240px（原来 320px，为了让侧边栏能拖得更窄）；
+     窄屏按内容宽的 50% 收缩 —— 侧边栏与编辑器各占一半，两边都还能用；
      地板 160px 是实测硬底：再窄卡片头部就开始横向溢出。
      240px 能成立的前提是卡片头部在窄容器下会让步：间距收紧，徽标图标与「结果待刷新」
      按容器宽度逐级让位（每例的运行耗时始终保留，见 TestCaseCard.vue 的 @container 规则），
@@ -666,7 +671,7 @@ onBeforeUnmount(() => {
   --tests-min-floor: 160px;
 }
 
-/* 换边不再用 row-reverse（会连 Sidebar 一起甩动）：始终 row，靠 order 换序 */
+/* 换边始终用 row，靠 order 换序（不用 row-reverse：那会把两栏一起甩到另一边） */
 
 /* 两块独立的圆角卡片容器：overflow:hidden 让内部方角（Monaco 画布、
    面板页头页脚）被圆角裁掉，卡片边界才干净 */
@@ -695,8 +700,8 @@ onBeforeUnmount(() => {
 
 .pane--tests {
   flex: 1 1 auto;
-  /* 面板最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 320px，与改版前一致；
-     窄屏不再是硬邦邦的 320px，否则 375px 的屏上编辑器会被压成一条缝 */
+  /* 统一侧边栏的最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 240px；
+     窄屏不再是硬邦邦的 240px，否则 375px 的屏上编辑器会被压成一条缝 */
   min-width: clamp(var(--tests-min-floor), calc(var(--tests-min-ratio) * 100%), var(--tests-min-cap));
   view-transition-name: pane-tests;
 }
@@ -767,7 +772,7 @@ onBeforeUnmount(() => {
 }
 
 /* 两栏各有自己的边，空隙里默认不再画线；指针移上来时才亮出一条主题色细线，
-   提示「这里可以拖，一直拖到测试面板那侧就会折叠」 */
+   提示「这里可以拖，一直拖到侧边栏那侧就会折叠」 */
 .splitter__line {
   position: absolute;
   top: 0;
