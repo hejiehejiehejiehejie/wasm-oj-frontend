@@ -303,6 +303,15 @@ export async function deleteNode(path) {
   // tab 清理由 reset 事件里的 rebuildTree 完成
 }
 
+/**
+ * 写入文件的题目元数据（meta 为 null 时清除）。树的刷新由随后的 update 事件驱动。
+ * @param {string} path
+ * @param {import('./BaseVFSProvider.js').VFSNodeMeta|null} meta
+ */
+export async function updateFileMeta(path, meta) {
+  await getVFS().setMeta(path, meta)
+}
+
 export async function saveActive() {
   if (workspace.activeId) await modelManager.save(workspace.activeId)
 }

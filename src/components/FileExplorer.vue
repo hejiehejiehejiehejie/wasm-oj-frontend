@@ -9,7 +9,7 @@
  * 根 DOM、重命名目标、焦点管理。树项不直接操作这些状态，避免跨层耦合。
  * 新建不在此列：它只发生在根目录，输入框由本组件自己渲染（见下方 explorer__create）。
  */
-import { nextTick, provide, ref, watch } from 'vue'
+import { computed, nextTick, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
@@ -19,9 +19,18 @@ import {
   createDirectory,
   createFile,
   deleteNode,
+  updateFileMeta,
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import { assertName, basename, join } from '../services/vfs/paths.js'
+import {
+  OJ_LIST,
+  difficultyOptionsFor,
+  difficultySystemFor,
+  emptyMeta,
+  normalizeMeta,
+  todayISO,
+} from '../services/problemMeta.js'
 
 const rootEl = ref(null)
 
@@ -39,6 +48,15 @@ const focusedId = ref(null)
 const pendingDelete = ref(null)
 /** 确认弹窗里的「删除」按钮：弹窗打开时把焦点送进去 */
 const confirmBtn = ref(null)
+
+/** 正在编辑题目信息的节点；null = 弹窗关闭 */
+const metaTarget = ref(null)
+/** 题目信息表单的绑定值 */
+const metaForm = ref(emptyMeta())
+/** 保存失败的提示 */
+const metaError = ref('')
+/** 弹窗里的「OJ」下拉：出现后把焦点送进去 */
+const metaFirstField = ref(null)
 
 // ------------------------------------------------------------ 内联新建
 
@@ -140,21 +158,24 @@ async function commitCreate() {
 function openContextMenu(event, node) {
   if (!node) return // 索引尚未就绪等情况：静默，不弹菜单
   focusedId.value = node.id
-  menu.value = { x: event.clientX, y: event.clientY, node, items: buildMenuItems() }
+  menu.value = { x: event.clientX, y: event.clientY, node, items: buildMenuItems(node) }
 }
 
-function buildMenuItems() {
-  return [
-    { id: 'rename', label: '重命名' },
-    { id: 'delete', label: '删除' },
-  ]
+/** 题目信息只对文件有意义，目录不给这一项 */
+function buildMenuItems(node) {
+  const items = []
+  if (node?.type === 'file') items.push({ id: 'meta', label: '题目信息' })
+  items.push({ id: 'rename', label: '重命名' })
+  items.push({ id: 'delete', label: '删除' })
+  return items
 }
 
 async function onMenuSelect(id) {
   const node = menu.value?.node
   menu.value = null
   if (!node) return
-  if (id === 'rename') beginRename(node.id)
+  if (id === 'meta') beginEditMeta(node)
+  else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node)
 }
 
@@ -195,6 +216,53 @@ async function confirmDelete() {
 // 弹窗一出现就把焦点放到「删除」上：Enter 确认、Esc 取消都能纯键盘走完
 watch(pendingDelete, (node) => {
   if (node) nextTick(() => confirmBtn.value?.focus())
+})
+
+// ------------------------------------------------------------ 题目信息弹窗
+
+/** 当前 OJ 对应的难度口径：rating / luogu / free / null（未选 OJ） */
+const metaSystem = computed(() => difficultySystemFor(metaForm.value.oj))
+/** 难度下拉选项；自由文本 / 未选 OJ 时为 null（模板据此换成文本框） */
+const metaDifficultyOptions = computed(() => difficultyOptionsFor(metaForm.value.oj))
+
+/** 打开弹窗：有元数据就回填，日期留空则预填今天 */
+function beginEditMeta(node) {
+  const saved = node.meta ?? {}
+  metaForm.value = {
+    url: saved.url ?? '',
+    oj: saved.oj ?? '',
+    difficulty: saved.difficulty ?? '',
+    date: saved.date || todayISO(),
+  }
+  metaError.value = ''
+  metaTarget.value = node
+}
+
+function cancelMeta() {
+  metaTarget.value = null
+  metaError.value = ''
+}
+
+/** 换 OJ 就必须清掉难度：两套口径的 id 互不相通，留着会存进一个对不上的值 */
+function onOjChange() {
+  metaForm.value.difficulty = ''
+}
+
+async function confirmMeta() {
+  const node = metaTarget.value
+  if (!node) return
+  try {
+    // normalizeMeta 全空时给 null，setMeta 会把节点上的 meta 整个摘掉
+    await updateFileMeta(node.path, normalizeMeta(metaForm.value))
+    metaTarget.value = null
+  } catch (error) {
+    metaError.value = error.message || '保存失败'
+  }
+}
+
+// 弹窗一出现就把焦点放到第一个字段上
+watch(metaTarget, (node) => {
+  if (node) nextTick(() => metaFirstField.value?.focus())
 })
 
 // 在树空白处右键：只屏蔽浏览器原生菜单（没有针对「整个工作区」的操作）
@@ -314,6 +382,65 @@ provide('setFocusedId', setFocusedId)
         </div>
       </div>
     </Teleport>
+
+    <!-- 题目信息：与删除确认同款自绘弹窗。难度控件跟着 OJ 走（见 problemMeta.js）。 -->
+    <Teleport to="body">
+      <div v-if="metaTarget" class="meta" @pointerdown.self="cancelMeta">
+        <div
+          class="meta__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="meta-title"
+          @keydown.esc.stop.prevent="cancelMeta"
+        >
+          <p id="meta-title" class="meta__title">题目信息</p>
+          <p class="meta__file">{{ metaTarget.path }}</p>
+
+          <label class="meta__field">
+            <span class="meta__label">题目链接</span>
+            <input v-model="metaForm.url" class="meta__input" type="url" placeholder="https://…" />
+          </label>
+
+          <label class="meta__field">
+            <span class="meta__label">OJ</span>
+            <select ref="metaFirstField" v-model="metaForm.oj" class="meta__input" @change="onOjChange">
+              <option value="">未选择</option>
+              <option v-for="item in OJ_LIST" :key="item.id" :value="item.id">{{ item.label }}</option>
+            </select>
+          </label>
+
+          <label class="meta__field">
+            <span class="meta__label">难度</span>
+            <select v-if="metaDifficultyOptions" v-model="metaForm.difficulty" class="meta__input">
+              <option value="">未设置</option>
+              <option v-for="item in metaDifficultyOptions" :key="item.id" :value="item.id">
+                {{ item.label }}
+              </option>
+            </select>
+            <input
+              v-else-if="metaSystem === 'free'"
+              v-model="metaForm.difficulty"
+              class="meta__input"
+              type="text"
+              placeholder="自定义难度"
+            />
+            <input v-else class="meta__input" type="text" disabled placeholder="先选择 OJ" />
+          </label>
+
+          <label class="meta__field">
+            <span class="meta__label">日期</span>
+            <input v-model="metaForm.date" class="meta__input" type="date" />
+          </label>
+
+          <p v-if="metaError" class="meta__error">{{ metaError }}</p>
+
+          <div class="meta__actions">
+            <button type="button" class="meta__btn" @click="cancelMeta">取消</button>
+            <button type="button" class="meta__btn meta__btn--primary" @click="confirmMeta">保存</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -401,6 +528,117 @@ provide('setFocusedId', setFocusedId)
 }
 
 .confirm__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------- 题目信息
+   与删除确认同款：Teleport 到 body，只依赖主题变量 */
+.meta {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.meta__card {
+  width: min(360px, 100%);
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+
+.meta__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.meta__file {
+  margin: 0 0 12px;
+  font: 400 11.5px/16px var(--font-mono, ui-monospace, monospace);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+.meta__field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.meta__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.meta__input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: 400 13px/26px var(--font-sans, system-ui);
+}
+
+.meta__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.meta__input:disabled {
+  opacity: 0.5;
+}
+
+.meta__error {
+  margin: 0 0 8px;
+  color: var(--danger-text);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+.meta__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.meta__btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 500 12.5px/1.5 var(--font-sans, system-ui);
+  cursor: pointer;
+}
+
+.meta__btn:hover {
+  background: var(--bg-hover);
+}
+
+.meta__btn--primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.meta__btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+.meta__btn:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }

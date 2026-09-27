@@ -11,6 +11,7 @@ import AppIcon from './AppIcon.vue'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { openFile, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, join } from '../services/vfs/paths.js'
+import { formatMetaTooltip } from '../services/problemMeta.js'
 
 defineOptions({ name: 'FileTreeItem' })
 
@@ -29,6 +30,9 @@ const isTabbable = inject('isTabbable')
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
 const active = computed(() => workspace.activeId === props.node.id)
 const dirty = computed(() => modelManager.isDirty(props.node.id))
+
+/** 题目元数据的悬停摘要；没有元数据时为空串（行上就不设 title，别弹空提示） */
+const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
 
 const iconName = computed(() => {
   if (props.node.type === 'directory') return expanded.value ? 'folder-open' : 'folder'
@@ -156,6 +160,7 @@ function onKeyDown(event) {
       class="tree-item__row"
       :class="{ 'tree-item__row--active': active }"
       :style="{ paddingLeft: `${depth * 10 + 8}px` }"
+      :title="metaTooltip || undefined"
       role="treeitem"
       :data-tree-id="node.id"
       :aria-expanded="node.type === 'directory' ? expanded : undefined"

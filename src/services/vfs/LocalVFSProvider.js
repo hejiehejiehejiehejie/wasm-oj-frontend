@@ -200,6 +200,28 @@ export class LocalVFSProvider extends BaseVFSProvider {
     return { ...node }
   }
 
+  /**
+   * 写题目元数据；content 传 null 表示只动 nodes store、不碰正文。
+   * @param {string} path
+   * @param {import('./BaseVFSProvider.js').VFSNodeMeta|null} meta
+   */
+  async setMeta(path, meta) {
+    const norm = normalize(path)
+    const id = this.#pathIndex.get(norm)
+    const node = id ? this.#nodes.get(id) : null
+    if (!node || node.type !== 'file') throw new Error(`文件不存在：${path}`)
+
+    const next = { ...node, updatedAt: Date.now() }
+    // meta 为 null / 空对象时把字段整个摘掉，不在节点上留空壳
+    if (meta && Object.keys(meta).length) next.meta = meta
+    else delete next.meta
+
+    this.#indexNode(next)
+    await this.#schedulePut(next, null)
+    this._emit({ type: 'update', id, path: norm, node: next })
+    return { ...next }
+  }
+
   // ------------------------------------------------------------ 改名 / 删除
 
   async rename(path, newPath) {

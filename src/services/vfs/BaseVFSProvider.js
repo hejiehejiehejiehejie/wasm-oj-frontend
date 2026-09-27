@@ -18,7 +18,16 @@
  * @property {string|null} parentId
  * @property {number} createdAt
  * @property {number} updatedAt
+ * @property {VFSNodeMeta} [meta]        题目元数据（仅文件；见 problemMeta.js）
  * @property {VFSNode[]} [children]      仅 getTree() 的返回里组装；存储层不维护
+ */
+
+/**
+ * @typedef {Object} VFSNodeMeta
+ * @property {string} [url]        题目链接
+ * @property {string} [oj]         OJ 的 id（problemMeta.js 的 OJ_LIST）
+ * @property {string} [difficulty] 难度：分数段 / 洛谷等级 id / 自由文本，由 OJ 决定口径
+ * @property {string} [date]       做题日期，YYYY-MM-DD
  */
 
 /**
@@ -111,6 +120,16 @@ export class BaseVFSProvider {
    * @returns {Promise<void>}
    */
   async delete(path) {
+    throw new Error(NOT_IMPLEMENTED)
+  }
+
+  /**
+   * 写入文件的题目元数据，不影响正文。meta 为 null 时清除已有元数据。
+   * @param {string} path
+   * @param {VFSNodeMeta|null} meta
+   * @returns {Promise<VFSNode>}
+   */
+  async setMeta(path, meta) {
     throw new Error(NOT_IMPLEMENTED)
   }
 
