@@ -38,6 +38,7 @@ export const IS_MAC =
 export const SHORTCUT_ACTIONS = [
   { id: 'run', label: '运行全部用例', hint: '光标在编辑器里也生效', default: 'Mod+Enter' },
   { id: 'toggle-panel', label: '显示 / 隐藏侧边栏', default: 'Mod+KeyB' },
+  { id: 'switch-panel', label: '切换侧栏面板', hint: '资源管理器 ↔ 评测样例', default: 'Mod+Shift+KeyE' },
   { id: 'toggle-layout', label: '侧边栏左右对调', default: 'Mod+Shift+KeyB' },
   { id: 'new-case', label: '新增一条测试用例', default: 'Mod+Alt+Enter' },
   { id: 'open-settings', label: '打开 / 收起设置', default: 'Mod+Comma' },

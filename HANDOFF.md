@@ -7,14 +7,14 @@
 - 目录：`/Users/hejie/Code/BISHE`（仓库名是 `wasm-oj-frontend`）。
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
-- 其他命令：`npm run verify` 跑无头回归（A–F 全绿，**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
+- 其他命令：`npm run verify` 跑无头回归（**B–G 应当是绿的**，A 步有一条已知竞态，见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
 - 两个 HTML 入口：`index.html`（主应用）与 `guide.html`（使用指南，给搜索引擎抓取的静态长文）。改文案 / 样式时**两页连同 docs/使用手册.md、HelpPanel.vue 一共四处要一起看**（见第 12 节）。
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
-- 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<OJ>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`，并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`）。详见第 13 节。
-- 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例；实现要点与坑都在第 13 节。
+- 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`（难度导入时为空，先落「未分类」），并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`）。详见第 13 节。
+- 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **还没做、但已经想清楚怎么做的 9 项计划**（VFS 优化 / 题目时限接入 / 默认模板 / 文件归类设置 / 比赛模式 / 右键打开题目链接 / 换新建图标 / 登录与云同步 / 设置页 UI 精修）连同每条要避开的坑和落地顺序，都写在第 14 节。（原第 14.1 项「合并侧栏切换钮」已于 2026-09-28 落地。）
+- **还没做、但已经想清楚怎么做的 9 项计划**（VFS 优化 / 题目时限接入 / 默认模板 / 文件归类设置 / 比赛模式 / 右键打开题目链接 / 换新建图标 / 登录与云同步 / 设置页 UI 精修）连同每条要避开的坑和落地顺序，都写在第 14 节。（原第 14.1 项「合并侧栏切换钮」已于 2026-09-28 落地，同日又删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键；第 14.5 项「文件归类」的**固定落盘结构**也在同一天落地，只剩配置 UI。）
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
@@ -34,7 +34,7 @@
 | SW 改了策略就升版本号 | `public/sw.js` 的 `VERSION` 决定缓存桶名（现为 `cph-shell-v2` / `cph-toolchain-v2`）；改缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物，**不在**构建清单里，改动它们要同步 `sw.js` 的 `STATIC_ASSETS`（见第 9 节） |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
-| 导入题目的落盘结构不许改 | `/Problems/<OJ>/<题名>.cpp` + `/Problems/<OJ>/.cph/<题名>.json`。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例与元数据整体覆盖；题目身份认 `url` 不认文件名。改这里等于动用户数据，见第 13 节 |
+| 导入题目的落盘结构不许改 | `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp` + 同目录 `.cph/<题名>.json`（年月粒度 `YYYY-MM`；难度导入时一律为空，先落「未分类」）。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例与元数据整体覆盖；题目身份认 `url` 不认文件名，且**必须全库扫 `.cph` 找回原目录**（分层后同一道题会算出新路径，只扫一个 OJ 目录会让老题解变孤儿）。改这里等于动用户数据，见第 13 节 |
 | `.cph` 只在渲染层过滤 | `workspaceStore.js` 的 `withoutHiddenDirs()` 只作用于交给 UI 的那棵树，provider 接口 / `nodeIndex` / 清死 tab 逻辑一概照旧——别把过滤下沉到存储层，否则元数据读写会一起断 |
 | 全局快捷键监听必须在 `window` 捕获阶段 | `window.addEventListener('keydown', onKeydown, true)` + `preventDefault()` + `stopPropagation()`。Monaco 的键位服务挂在编辑器内部 DOM 上，只有捕获阶段抢得过它；**不要**再用 `editor.addCommand()` 同步键位（Monaco 0.56 没有 `removeCommand`，旧的撤不掉） |
 | 录制快捷键时全局监听必须让路 | 开录时置 `recordingActive = true`（录制框自己的监听在按钮的目标阶段，捕获永远先跑），否则按下新组合键的瞬间功能会先被执行一遍 |
@@ -57,7 +57,7 @@ public/robots.txt               # 抓取规则 + 指向 sitemap
 public/sitemap.xml              # 站点地图（两个入口：/ 与 /guide.html）
 public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
-scripts/verify-ui.mjs           # 无头回归脚本（A–F 已全绿，见第 8 节；B 步走的是「设置页签」）
+scripts/verify-ui.mjs           # 无头回归脚本（B–G 应当是绿的，A 是已知竞态，见第 8 节；B 步走的是「设置页签」）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
 docs/使用手册.md                # 面向新用户的说明：目前只回答「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」，与 HelpPanel.vue 内容同源（**精简版**；完整版是 guide.html）
 src/
@@ -99,7 +99,7 @@ src/
     vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
     settingsTab.js              # 「设置」合成页签的 UI 状态（刻意不进 workspaceStore/openTabIds、不建模型、不落 localStorage；见第 5 节坑 7）
-    vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/Problems/<OJ>/<题名>.cpp` + `.cph/<题名>.json`）：OJ 辨认、题名清洗、按 url 认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
+    vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp` + 同目录 `.cph/<题名>.json`）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -254,7 +254,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `App.vue`（style@622） | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
 | （原 `TopBar.vue`） | **已删除**（2026-09-28）：`.topbar` / `.brand*` / `.tool` / `.primary` / `.popover--menu` / `.menu__item--*` 和三档响应式断点整块没了。对应的三处去处见第 3 节「无顶栏后的两条宽度线」 |
 | `Sidebar.vue`（style@72） | `.sidebar`（column）`.sidebar__body` `.sidebar__panel`（`flex: 1 1 auto; min-height: 0`）。**面板内部的滚动归各面板自己**，这里只保证「不限高、不撑破外层」。原 `.sidebar__tabs` / `.sidebar__tab`（独占一行的页签栏）已在 2026-09 删除，改成下面那套 |
-| `SidebarSwitcher.vue`（style@40） | `.sidebar-switcher`（`inline-flex; gap: 4px`，高 26px，`flex: 0 0 auto`）`.sidebar-switcher__pill`（**本身是 `<button>`**：胶囊轨道 + 那颗 toggle，`padding: 2px`、`border-radius: 13px`、底色 `--bg-control`，hover 提亮到 `--bg-control-hover`）`.sidebar-switcher__seg`（胶囊里的两段，`<span>` 纯视觉、不接点击也没 `tabindex`，28×22 / `border-radius: 11px`，带 `data-panel` 与 `data-current`；`.is-active` 填 `--accent` + `--text-on-accent`）`.sidebar-switcher__tab`（胶囊**外**那颗设置钮，26×26 圆形；`.is-active` 同样填 `--accent`——**不能**退回 `--bg-hover`，那色与隔壁轨道 `--bg-control` 几乎同色，实测两个控件会糊成一块）。只画 logo 不写字，名字放 `title` / `aria-label`（胶囊那颗写「将要去的那一个」）。切换时选中段播放滑动动画：`sidebar-seg-from-left` / `sidebar-seg-from-right`（260ms，house 缓动 `cubic-bezier(0.22, 0.61, 0.36, 1)`），位移是一段宽（`var(--seg-w)`，与段的宽高同源，只在上面的 `--seg-w` 写一次），`color` 从 `transparent` 起步让图标在途中隐形、到位才亮；只挂在 `.sidebar-switcher__pill[data-switched]` 下，首屏不放（见第 5 节坑 5c）。断言时先落到当前可见的那个 `.sidebar__panel` 里，再认 `aria-label` / `data-current` / `data-panel`（`textContent` 都是空的） |
+| `SidebarSwitcher.vue`（style@40） | `.sidebar-switcher`（`inline-flex; gap: 4px`，高 26px，`flex: 0 0 auto`）`.sidebar-switcher__pill`（**本身是 `<button>`**：胶囊轨道 + 那颗 toggle，`padding: 2px`、`border-radius: 13px`、底色 `--bg-control`，hover 提亮到 `--bg-control-hover`）`.sidebar-switcher__seg`（胶囊里的两段，`<span>` 纯视觉、不接点击也没 `tabindex`，28×22 / `border-radius: 11px`，带 `data-panel` 与 `data-current`；段自己是 `position: relative; isolation: isolate`，**只放图标**）与它的 `::before`（**蓝色高亮本体**：`inset: 0` + `border-radius: 11px` + `--accent`，`z-index: -1` 所以压在图标下面、又靠 `isolation` 不会钻到轨道背景后面；默认 `opacity: 0`，`.is-active::before` 才 `opacity: 1`）——两层是给动画拆的，见下）`.sidebar-switcher__tab`（胶囊**外**那颗设置钮，26×26 圆形；`.is-active` 同样填 `--accent`——**不能**退回 `--bg-hover`，那色与隔壁轨道 `--bg-control` 几乎同色，实测两个控件会糊成一块）。只画 logo 不写字，名字放 `title` / `aria-label`（胶囊那颗写「将要去的那一个」）。切换动画**拆成两层、分别挂在不同选择器上**：位移只挂在选中段的 `::before` 上（`sidebar-indicator-from-left` / `sidebar-indicator-from-right`，260ms，house 缓动 `cubic-bezier(0.22, 0.61, 0.36, 1)`，起点是一段宽 `var(--seg-w)`，与段的宽高同源、只在上面的 `--seg-w` 写一次），**段自己不参与 transform，图标因此钉在原格不动**；段的 `color` 另走 `sidebar-icon-light-up`（200ms + 90ms `delay` + `backwards`，只碰颜色不碰位移）——高亮先滑到位、图标随后在原地点亮。四条规则都只挂在 `.sidebar-switcher__pill[data-switched]` 下，首屏不放（见第 5 节坑 5c）。断言时先落到当前可见的那个 `.sidebar__panel` 里，再认 `aria-label` / `data-current` / `data-panel`（`textContent` 都是空的） |
 | `TestPanel.vue`（style@93） | `.panel`（`flex: 1 1 auto; min-height: 0`，不再写 `height: 100%`）`.panel__head`（`min-height: 35px` + 上下 4px 内边距，左侧放 `SidebarSwitcher`，`flex-wrap: wrap`）`.panel__heading`（`margin-left: auto`，折行后仍贴右）`.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.select` `.panel__foot` `.run-inline` |
 | `FileExplorer.vue`（style@330） | `.explorer`（column，`flex: 1 1 auto`）`.explorer__head`（`height: 35px`，左侧放 `SidebarSwitcher`、右上角两颗按钮；两边加起来离面板下限还远，所以**不折行**）`.explorer__actions`（`flex: 0 0 auto`）`.explorer__btn` `.explorer__tree` `.explorer__input` `.explorer__error`；删除确认弹窗（Teleport 到 body，`z-index: 130`）：`.confirm`（遮罩）`.confirm__card` `.confirm__title` `.confirm__desc` `.confirm__path` `.confirm__actions` `.confirm__btn`（`--danger` 用 `--danger-bg` / `--danger-bg-hover` / `--danger-text`） |
 | `TestCaseCard.vue`（style@202） | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
@@ -274,7 +274,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 2. **Monaco 文字用 NBSP 渲染**：用脚本读 `.view-lines` 的文本时，空格是 `\u00a0`（charCode 160），`includes('def solve')` 这类断言永远匹配不上。
 3. **Monaco 的 `.minimap` DOM 节点始终存在**，关闭时宽度为 0；判断"有没有小地图"要看 `getBoundingClientRect().width`，不是 `querySelector`。
 4. **localStorage 里存的是 JSON 字符串**：`cph.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
-5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换按钮（`SidebarSwitcher`）在两个面板的页头里各有一份实例，**按选择器取它时必须先落到「当前可见的那个 `.sidebar__panel`」里**（用 `getClientRects().length > 0` 判可见），否则会同时拿到隐藏那份，脚本/断言会凭空多出一倍。（c）**同一原因让「跨这两个实例的运动」做不了 `transition`**：点一下就是把刚点的那份藏了、另一份亮出来，高亮不是同一个元素在动，`transition` 永远看不到。胶囊的滑动高亮（`SidebarSwitcher` 的 `sidebar-seg-from-*`）因此用 `animation` ——元素从 `display: none` 变成可见时动画会从头播；并用 `[data-switched]` 挡掉首屏那次（首屏同样是「从隐藏变可见」，可那时并没有发生任何切换）。两份胶囊在屏幕上的位置完全相同，所以「新亮出来的那份从旧位置滑过来」看起来就是同一枚高亮在横移。
+5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换按钮（`SidebarSwitcher`）在两个面板的页头里各有一份实例，**按选择器取它时必须先落到「当前可见的那个 `.sidebar__panel`」里**（用 `getClientRects().length > 0` 判可见），否则会同时拿到隐藏那份，脚本/断言会凭空多出一倍。（c）**同一原因让「跨这两个实例的运动」做不了 `transition`**：点一下就是把刚点的那份藏了、另一份亮出来，高亮不是同一个元素在动，`transition` 永远看不到。胶囊的滑动高亮（`SidebarSwitcher` 的 `sidebar-indicator-from-*`，挂在选中段的 `::before` 上、段本身不参与位移）因此用 `animation` ——元素从 `display: none` 变成可见时动画会从头播；并用 `[data-switched]` 挡掉首屏那次（首屏同样是「从隐藏变可见」，可那时并没有发生任何切换）。两份胶囊在屏幕上的位置完全相同，所以「新亮出来的那份从旧位置滑过来」看起来就是同一枚高亮在横移。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
 7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身是**「目录 + 内容」两栏**（2026-09 改）：左边 `.settings-nav` 是分类目录（编辑器 / 布局 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助，`SECTIONS` 常量驱动），右边同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「浏览器插件」那一组会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」与「浏览器插件」两组是 2026-09 新加的（见第 13 节）。窄宽度降级不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `@container settings (max-width: 560px)` 把目录翻成顶部横向标签条。
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠、以及整个「评测样例」页签被切走时元素都是 `display: none`，此刻 `scrollHeight` 为 0，代码会跳过重算——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。重算的触发有两处：`watch`（输入变化 / 卡片展开）+ 一个挂在输入框上的 **`ResizeObserver`**（只认宽度从 0 变有值、或面板被拖宽，宽度变大才算，避免回调环）。页签是 `v-show` 切换的，没有重新挂载的时刻，**没有这个 observer 就会一直塌成一行**（旧版只在 `onMounted` 跑一次，切到「评测样例」时必然塌）。
@@ -293,9 +293,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **不动 `DB_VERSION`**：`LocalVFSProvider` 本来就整条记录持久化（`_commit` / `#persistPuts` 只剥掉 `children`），`writeFile` / `rename` 又是 `{...node}` 展开，所以 `meta` 天然跟着走。新增的 `setMeta(path, meta)` 用 `#schedulePut(node, null)` 落库（`content === null` = 只写 nodes store、不碰正文）。
     - **难度跟着 OJ 走**，口径表、合法值、悬停文案全在 `services/problemMeta.js` 一处：Codeforces / AtCoder → 分数段 `800…3500`（步长 100），洛谷 → 官方八级，牛客 / LeetCode / 其它 → 自由文本。换 OJ 时**必须清空当前难度**（`onOjChange`）——两套口径的 id 互不相通，留着会存下一个对不上的值（比如 `1200` 混进洛谷）。
     - **全空存 `null`**：`normalizeMeta()` 逐键校验后四项全空就返回 `null`，`setMeta` 据此把 `meta` 字段整个摘掉，不在节点上留空壳；`formatMetaTooltip()` 对空 meta 返回空串，`FileTreeItem` 此时不设 `title`（避免弹出空提示）。
-18. **导入的题目是「一个代码文件 + 一份隐藏元数据」，不给每道题套目录**（`services/vfs/problemImport.js`，2026-09 定稿，**别再改回目录结构**）：树里多一层「题目名/」纯是噪音——点开一道题还得再点一次才见得到代码。所以题名直接做文件名：`/Problems/<OJ>/<题名>.cpp`，元数据收进同级隐藏目录 `.cph/`（同名，只差后缀）。三条纪律：
+18. **导入的题目是「一个代码文件 + 一份隐藏元数据」，不给每道题套目录**（`services/vfs/problemImport.js`，2026-09 定稿，**别再改回题名目录结构**）：树里多一层「题目名/」纯是噪音——点开一道题还得再点一次才见得到代码。所以题名直接做文件名，上面按「年月 / OJ / 难度」分层归类：`/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，元数据收进同级隐藏目录 `.cph/`（同名，只差后缀）。四条纪律：
     - **代码文件只在首次导入时创建，此后一个字都不动**：那里面是用户写的题解。重抓同一道题只刷新样例与元数据（`.cph/<题名>.json` 每次整体覆盖），难度这种用户手填的字段还得从 `existingCode.meta` 里保留下来、日期只在首次播种。
-    - **题目身份认 `url`，不认文件名**：题目在来源站点被改名后再次抓取，文件名就对不上了，只认文件名会另起一个文件、把用户旧文件里的题解变成孤儿。所以先走「文件名 + `url` 都对上」的快路径，不中再扫该 OJ 的 `.cph/` 目录按 `url` 找回旧名字。**`batch.id` 不能用**——它是扩展每次抓取现生成的随机 uuid，抓两次就是两个值。
+    - **题目身份认 `url`，不认文件名、也不认路径**：题目在来源站点改名后文件名就对不上；跨月再抓、或用户事后填了难度，算出来的新路径也对不上。只认其中任何一个都会另起一个文件、把用户旧文件里的题解变成孤儿。所以先走「算出来的新路径 + 文件名 + `url` 都对上」的快路径，不中再**全库扫 `.cph` 目录**按 `url` 找回旧题目、**复用原来那个目录**（不搬文件）。**`batch.id` 不能用**——它是扩展每次抓取现生成的随机 uuid，抓两次就是两个值。
+    - **`未分类` 是「难度为空」的占位，且路径一定下就跟着题走**：导入时难度一律为空（来源站点口径不一），所以新题都落在 `未分类/` 下；用户事后填难度**不会**把已有文件搬过去（搬动 = 丢题解），分层只对**之后新抓的**生效，老数据不迁移。
     - **同名但 `url` 对不上 = 用户自己的文件**，这时候不能覆盖，要 `baseName-2`、`baseName-3` 依次找空位（代码文件与元数据文件两边都得是空的）；整趟塞进一个 `vfs.batch()`，界面只重建一次树。
 19. **`.cph` 的过滤不能只看「本层摘掉了没」**（`workspaceStore.js` 的 `withoutHiddenDirs()`）：过滤发生在**渲染层**——`rebuildTree()` 拿 `rawTree` 走索引 / 清死 tab，只有赋给 `workspace.tree` 的那棵树摘掉隐藏目录，`provider` 的读写完全不受影响（这是「树里看不见、元数据照常读写」的关键，别把过滤下沉到存储层）。函数返回值的引用约定容易写错：子树一点没动就原样返回入参，父层靠 `children === node.children` 判断要不要换新对象——判据 `changed` 必须**同时**涵盖「本层直接摘掉了节点」与「某个子节点被换成了新对象」两种情况。只认第一种（或改比 `children.length`）都会漏：`.cph` 通常在两层之下，中间层自己一个节点没摘、长度也没变，于是父层拿到「没变」的错误结论继续挂着未过滤的旧子树，`.cph` 就照旧显示出来。
 20. **扩展安装包靠文件名换版，不靠 `sw.js` 的 `VERSION`**（`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION` / `EXTENSION_FILE`）：`public/extension/` 下的 zip 不在构建清单里，而 SW 对同源 GET 走 `cacheFirst` 且**不重新校验**——原地覆盖同名文件，老用户会一直下到缓存里的旧包。所以发新版必须换文件名（`cc-for-web-2.65.1.zip` → `...-2.65.2.zip`），同步改这两个常量 + `cph-companion` 的 `package.json` 版本号。也**不要**把它塞进 `STATIC_ASSETS`（那会每次 install 都预缓存一份几百 KB 的包，而它只在用户点「下载」时才需要）。
@@ -347,7 +348,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
 - **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
-- **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/Problems/<OJ>/<题名>.cpp`（元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
+- **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（难度导入时为空、先落「未分类」；元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
 - **全局快捷键（2026-09 加）**：可绑定的只有 5 个动作——运行全部用例 / 显示隐藏侧边栏 / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
 
 ## 8. 验证方式
@@ -372,16 +373,16 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
 - 布局宽度专项（动过 `SidebarSwitcher.vue` / `EditorTabs.vue` / 侧栏各面板页头 / `.pane--tests` 下限后必做），临时探针、用完即删：在 1680 / 560 / 414 / 375 / 320 五档量四件事——（a）侧栏页头图标区（量 `.sidebar-switcher`，合计 90px = 胶囊 60 + 间距 4 + 设置 26）都可见、且右缘不超页头右缘，（b）侧栏宽 / 页头宽（与上表逐像素比，删掉页签栏那颗运行按钮后应仍是 663 / 238 / 199 / 180 / 158），（c）`documentElement.scrollWidth === innerWidth`（无横向溢出），（d）`.workspace` 的 `getBoundingClientRect().top === 0`（顶栏确实没了、工作区贴顶）。**只看有没有横向滚动条不够**：`.editor-tabs__strip` 自己会滚，真溢出反而被它吸收；要按第 3 节那个「必需宽度」公式自己算。2026-09-28 的实测表与结论记在第 3 节「无顶栏后的两条宽度线」（**运行按钮 2026-09-28 删除后已重测**，所以别再去找 `.editor-tabs__run`）。
 - 插件抓题专项（动过 `problemImport.js` / `useCompanionBridge.js` / `useCompanionImport.js` / 落盘结构后必做），临时探针、用完即删。**不必真装扩展**——在页面上下文直接 `window.postMessage({ source: 'competitive-companion', type: 'cph-task', taskId: 't1', payload: JSON.stringify(task) }, location.origin)` 就能走完整条链路（`event.source` 与 `event.origin` 两道校验都能过）。要覆盖的六件事：
-  1. 首次导入后树里出现 `<题名>.cpp`、**不出现** `.cph` 与任何 `.json`，UI 树里也没有「题名」这一层目录；
-  2. 底层元数据在（`vfs.readFile('/Problems/<OJ>/.cph/<题名>.json')` 能读到，含 `tests` 与 `oj`）；
+  1. 首次导入后树里出现 `<年月> / <OJ 标签> / 未分类 / <题名>.cpp` 这条链（中间几层是归类用的，**不是**「题名」那一层目录）、**不出现** `.cph` 与任何 `.json`；
+  2. 底层元数据在（`vfs.readFile('/Problems/<年月>/<OJ 标签>/未分类/.cph/<题名>.json')` 能读到，含 `tests` 与 `oj`）；
   3. 往代码文件里写入 `// my solution` 再重抓同一道题 → 正文**原样保留**、样例换成新的；
   4. 评测面板的用例是**整体替换**而不是追加（第 3 条之后卡片数应等于新题目的样例数）；
-  5. 同一个 `url` 换个题目名重抓 → 仍落在**同一个文件**上（按 url 认题）；`url` 不同但题名相同 → 另起 `<题名>-2.cpp`；
+  5. 同一个 `url` 换个题目名重抓 → 仍落在**同一个文件**上（按 url **全库**认题，哪怕算出来的新路径不同）；`url` 不同但题名相同 → 另起 `<题名>-2.cpp`；
   6. 抓完后编辑器打开的是这道题的代码文件（`.editor-tabs__item--active` 与 `workspace.activeId` 对得上）。
   写这个探针时踩过两个坑，别再踩：**（a）** 点树上的箭头展开目录时，只点 `.tree-item__row[aria-expanded="false"]`——`.tree-item__arrow` 这个 span 在**每一行**都有（文件行的箭头是空的），而点击处理挂在父级 `.tree-item__row` 上，所以「点所有箭头」实际会把每个文件都 `openFile` 一遍，最后点到的文件抢走 `activeId`，断言就会误报「打开的标题不对」；**（b）** 动态 `import('/src/services/…')` 拿到的可能是**另一个空实例**——Vite dev 给源码模块 URL 加了 `?t=<时间戳>`，裸路径 import 与 app 真正加载的那份不是同一个模块（症状是 `workspace.tree.length === 0` 但界面明明渲染出来了）。正确姿势是用 `performance.getEntriesByType('resource')` 找到 app 真实加载过的那条 URL 再 import。
-- 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cph.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面）；开录状态下按同一个键**不应**触发功能。
-- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–F 应当是绿的**，跑之前先知道这几条：
-  - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（23 行全模板）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
+- 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cph.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面），按 `Mod+Shift+KeyE` 应翻到另一个侧栏面板（等价于点页头那枚胶囊）；开录状态下按同一个键**不应**触发功能。
+- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–G 应当是绿的**，跑之前先知道这几条：
+  - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（整份 C++ 模板，行数随模板改而变，别把行数写死进断言）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
   - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（编辑器 / 布局 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项，**加分类时这个数字要跟着改**） → **点目录里的「布局」**（设置是「目录 + 内容」两栏，默认停在「编辑器」，右侧只渲染当前那一组，不点就找不到换边入口）→ 在页签里选「左侧」→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
   - **F 步（Python 模板与判题语言）走的是「资源管理器 → 点 main.py」这条路**（2026-09 改）：顶栏语言下拉已移除，语言只跟活跃文件的扩展名走。所以步骤是——先把面板切回「资源管理器」（用脚本里的 `showPanel(page, 'explorer')`，它点胶囊那颗 toggle；先判当前面板不是目标再点，否则会翻过头。该 helper 必须把 `page` 当参数传进来，`const page` 在 `try {}` 块里，模块级函数直接引用会 `page is not defined`）→ DOM click 标签为 `main.py` 的 `.tree-item__row` → 断言 `.view-lines` 文本（NBSP 已归一）含 `def solve`、`.editor-tabs__item--active` 是 `main.py`、动态 `import('/src/services/vfs/workspaceStore.js')` 后 `activeLanguage === 'python'` 且 `activeNode.path === '/main.py'`、`[...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view'))`（钉住「顶栏语言下拉不会复活」——现在全站只剩设置视图里那几个原生下拉）。
   - F 步曾长期误报：断言切到 Python 后 `.view-lines` 文本含 `def solve`，而 Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**——已修（断言前把 `\u00a0` 归一成空格），现在过。这条 NBSP 归一化仍在用，别退回直接 `includes`。对照 A 步的 `includes('include')` 因为不含空格，从来没被这条绊到。
@@ -390,6 +391,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
   - **E 步同时守「开跑必亮结果」**（见第 3 节）：跑之前先把侧栏切回「资源管理器」再双击分隔条折叠，然后**按 `⌘/Ctrl + Enter`**（2026-09-28 起，页签栏那颗运行按钮删掉后 E 步改走快捷键——此刻侧栏正折叠着，页脚那颗 ▶ 是 `display: none` 点不到的，正好顺带守住「侧栏收起时快捷键照样能跑」），收尾断言 `.pane--tests` 又可见、且当前面板是「评测样例」（`collapsedBeforeRun` / `revealedAfterRun` 两个字段；后者看的是 `.sidebar__panel[data-panel] === 'tests'`，不再是 `is-active` 高亮）。顺序不能反——折叠后整栏 `display: none`，页头那几颗切换图标就点不到了。这一改让 E 收尾时侧栏停在「评测样例」，F 步本来就会自己切回「资源管理器」，两边不冲突。修饰键按平台取（`process.platform === 'darwin' ? 'Meta' : 'Control'`，与 `useShortcutManager` 的 `IS_MAC` 同口径）。
   - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到左侧，写死向右会让测试栏反向变宽。
+  - **G 步（快捷键切换侧栏面板，2026-09-28 加）** 守的是 `switch-panel` 这条链路（第 13.4 节）：交替按两次 `Mod+Shift+KeyE` 断言 `data-panel` 走 `explorer → tests → explorer`（等价于点胶囊，走的是同一个 `Sidebar.vue` 的 `togglePanel`）；再双击 `.splitter` 折叠侧栏、按第三次，断言 `.pane--tests` 又可见**且**当前面板变成「评测样例」——「收起时按一下 = 先捞回来再翻面」这条契约就在这一句里。收尾记得把侧栏恢复成「可见 + 资源管理器」。修饰键用模块级常量 `MOD`（`process.platform === 'darwin' ? 'Meta' : 'Control'`），E 步那个运行快捷键也复用它，别再造一份。
   - 临时探针的第三个坑：**边改源码边跑着 dev server** 时，探针会服务到旧的 transform（改完文件、刷新了页面，行为却还是旧的，断言照旧失败）。停掉 server → `rm -rf node_modules/.vite` → 重启，再跑一遍。
   - 各步之间有状态耦合（B/C 切布局会影响 D 的期望方向），改断言时顺着看一遍。
 - 回归脚本会把截图写到仓库根目录的 `cph-*.png`（可用 `SHOT_DIR` 改路径），`.gitignore` 已忽略它们，不用管。
@@ -526,15 +528,20 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 ### 13.2 落盘结构（**动之前先想清楚**）
 
 ```
-/Problems/<OJ 标签>/<题名>.cpp        用户写的题解 —— 只在首次导入时创建，此后一个字都不动
-/Problems/<OJ 标签>/.cph/<题名>.json  抓取结果（题目元数据 + 全部测试样例）—— 每次抓取整体覆盖
+/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp        用户写的题解 —— 只在首次导入时创建，此后一个字都不动
+/Problems/<年月>/<OJ 标签>/<难度>/.cph/<题名>.json  抓取结果（题目元数据 + 全部测试样例）—— 每次抓取整体覆盖
 ```
 
+工作区第一次建立时还会种子两个**空**顶层目录（`migrate.js` 的 `SEED_DIRS`，之后每次启动幂等补一次）：`/Problems`（抓题落盘的根）与 `/contest`（比赛模式的比赛根，见 14.6）。它们只是固定骨架，用户删掉后下次启动会自动回来。
+
+- `<年月>` 取**当天本地时间**的 `YYYY-MM`（`todayMonth()`，`todayISO().slice(0, 7)`）。粒度到月：按天会长出大量只含一个文件的目录。
 - `<OJ 标签>` 取自 `services/problemMeta.js` 的 `OJ_LIST` 中文标签（洛谷 / Codeforces / …），认不出来落 `其它`。OJ 由题目 `url` 的域名判断（`problemImport.js` 的 `OJ_HOSTS`，带子域名的按 `endsWith` 匹配）。
-- 为什么不留目录层、为什么元数据要收进 `.cph`、为什么认 `url` 不认文件名：全在第 5 节坑 18。
+- `<难度>` 导入时**一律为空**（来源站点口径不一，由用户手填），先落 `未分类` 占位。用户事后填难度**不会**搬动已有文件——路径一旦定下就跟着题走，分层只对之后新抓的生效。这是一条纪律，不是待补的漏洞。
+- 为什么不留「题名」目录、为什么元数据要收进 `.cph`、为什么认 `url` 不认文件名 / 路径：全在第 5 节坑 18。
 - 元数据 json 里**原样保留**扩展送来的所有字段（`tests` / `timeLimit` / `memoryLimit` / `testType` / `input` / `output` / `group` / `interactive` / `name` …），只额外补 `oj` 与 `importedAt`：少存一份，将来要加模板或按批次分组就得回头重抓。
 - 代码文件后缀**暂时写死 `.cpp`**：扩展送来的 `languages` 里只有 `java`（TaskBuilder 的固定默认值），拿它判语言等于把每道题都当 Java，`cpp` / `python` 这些键上游解析器根本不写。等真做了模板功能再改这里（`CODE_EXT`）。
 - 题名清洗（`sanitizeName()`）：非法字符换 `-`、空白收成一个、连续短横收成一个、**结尾的点 / 空格 / 短横剪掉**（题名里问号极常见，`Is It a Tree?` 替换完会留个尾巴），超长截到 80 字。全空退回「未命名题目」。
+- 中间几层由 `ensureDirectory()` 逐级建（`createDirectory` 要求父目录已存在），整趟在一个 `vfs.batch()` 里，界面只重建一次树。
 - 用户手填的**难度保留**、日期只在首次播种，其余（`url` / `oj`）每次刷新——见坑 18。
 
 ### 13.3 安装包的分发
@@ -545,7 +552,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 13.4 全局快捷键
 
-- 动作表 `SHORTCUT_ACTIONS`（5 项）就是全部能力边界，**没登记的动作就是做不到的**（理由见第 7 节）。加动作 = 改这张表 + 在 `App.vue` 的 `SHORTCUT_HANDLERS` 里补一条同 id 的处理函数，两处 id 必须对上。
+- 动作表 `SHORTCUT_ACTIONS`（**6 项**，2026-09-28 多了 `switch-panel`）就是全部能力边界，**没登记的动作就是做不到的**（理由见第 7 节）。加动作 = 改这张表 + 在 `App.vue` 的 `SHORTCUT_HANDLERS` 里补一条同 id 的处理函数，两处 id 必须对上。设置视图那个「快捷键」分组是 `v-for` 出来的，加动作不用改 UI。
+- `switch-panel`（默认 `Mod+Shift+KeyE`，label「切换侧栏面板」，2026-09-28 加）等价于点页头那枚胶囊。处理函数是 `App.vue` 的 `switchSidebarPanel()`：先 `if (!panelVisible.value) togglePanel()` 把侧栏捞回来，再 `sidebarRef.value?.switchPanel()`。**翻面只有 `Sidebar.vue` 一处实现**——`switchPanel` 就是它内部 `togglePanel` 直接 expose 出来的，所以滑动动画（`hasSwitched`）、`localStorage` 持久化与点胶囊完全同源；别在 App 里另写一份改 `activeTab` 的逻辑，那样键盘切过去会没动画、还多一份状态。**先捞侧栏是刻意的**：侧栏收起着的时候只翻那个看不见的面板，用户会以为快捷键没生效。
 - 展示：编辑器底部状态栏那枚运行提示读的是 `formatCombo(bindings.run)`，键改了提示跟着变（`EditorPane.vue`）——**别把它写成写死的 `⌘↵`**。
 - 冲突检测分三类，都在 `shortcutConflict()` 一处：浏览器原生键（`BROWSER_RESERVED`）、没带修饰键又不是功能键 / `Esc`、已经绑给别的动作。冲突时录制框**停在录制态显示红字、不写入**，用户可以接着按别的组合，不用重新点一次。
 - `resetAll()` 复位成默认表；单条可用 Delete / Backspace 清除（清成空串 = 未绑定，不是删键）。
@@ -559,7 +567,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ## 14. 后续计划与待解决问题
 
-这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**14.1 已落地**（保留在下面只作记录），剩下 9 项里靠前的都是站点侧小改动，越往后越重：14.3 / 14.5 / 14.6 会动用户数据，14.2 是 14.5 的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
+这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**14.1 已落地**；**14.5 的固定结构 + 身份索引提级那一半也已落地（2026-09-28），剩下的配置 UI 仍待做**（两者都保留在下面只作记录）。剩下 9 项里靠前的都是站点侧小改动，越往后越重：14.3 / 14.6 会动用户数据，14.2 是 14.5 剩余部分的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
 
 ### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28，做成胶囊开关）
 
@@ -577,13 +585,16 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 2. 第一版胶囊让**每段各自可点**。用户随即要求「点胶囊的任意位置都可以切换」——那版在胶囊里留了 2px 内边距的死区，而且点当前段本身是空操作。于是把整枚轨道做成那颗 `<button>`（toggle），两段降级为纯视觉 `<span>`。
    > 实测（真实鼠标坐标打 hit-test）：正中、上下左右边缘内 1px、当前段正中、另一段正中**全都能切**；只有圆角裁掉的那 1px 角不响应——那本来就不在胶囊形状里。
 3. 接着要求「做一个胶囊按钮中切换的动画」。这里有个真陷阱：胶囊在**两个面板的页头里各有一份实例**（`v-show` 藏一份），点一下就是把刚点的那份藏了、另一份亮出来，**高亮不是同一个元素在移动，`transition` 永远看不到**。做法是让新亮出来的那份里的选中段用 `animation` 从旧位置滑过来（两份胶囊屏幕位置完全相同，看起来就是同一枚高亮在横移），`color` 从 `transparent` 起步遮掉「图标在起点就跳成目标图标」那一瞬，并用 `[data-switched]` 挡掉首屏那次假切换。**没有改动 DOM 结构、也没有加 JS 状态机式的东西**（只多了一个「点过胶囊」标记）——把胶囊提出面板做成单一实例是另一条路，但那会破坏「切换入口长在面板页头里」这个已经定过的布局。
-   > 实测（把动画放慢到 2s 取样）：2s 的 117ms 处 `transform: translateX(-23.5px)`、图标 alpha 0.16（停在起点那一格、几乎全透明）；983ms 处 `-3.72px`、alpha 0.867（house 缓动在 49% 处已走完 87%，28×0.132=3.70 ✓，说明起点确实是一段宽）；终点 `none` 且动画列表清空；切回时换成 `sidebar-seg-from-right`、`+3.56px`。首屏 `data-switched:false`、动画数 0；点击后 `true`、1。
+   > 当时实测确认过两件事，重做后仍成立（对外接口没变）：位移起点确实是一段宽（放慢到 2s，取样点推得回 28px 的起点）、`[data-switched]` 确实挡住了首屏那次假切换（首屏动画数 0，点击后 1）。
+4. 紧接着（同日下午）用户指出这版动画**不够美观，而且蓝色高亮上的图标会跟着一起横移、不符合直觉**——图标应该待在原格，动的只有高亮。于是把**位移与图标拆成两层**：位移只挂在选中段的 `::before`（蓝色高亮本体；段自带 `isolation: isolate`，让这个 `z-index: -1` 只在段内生效），**段自己完全不参与 transform，图标因此钉死不动**；段的 `color` 另走一条 `sidebar-icon-light-up`（200ms + 90ms `delay` + `backwards`，延迟期间保持暗态）——高亮先滑到位、图标随后在原地点亮，就是 iOS 分段控件的观感。旧 keyframes（`sidebar-seg-from-left` / `-from-right`，含 `color: transparent` 那招）整组废弃。
+   > 实测（把指示块动画放慢到 2s、切换后每 110ms 逐帧取样）：**图标横坐标取值集合是单值**——`activeIconX` 恒为 762、`inactiveIconX` 恒为 734，一格都没动；真正在动的只有 `getComputedStyle(seg, '::before').transform`，从 `matrix(1, 0, 0, 1, -24.14, 0)` 单调收敛到 `none`。另采样 `color` 确认图标在约 220–330ms 由 `rgb(162, 163, 162)` 淡到 `rgb(241, 247, 244)`（真实时长为 90ms 延迟 + 200ms 淡入）。层叠也核对过：`::before` 在**自己所属段**的 stacking context 内 `z-index: -1`，而该段作为兄弟节点绘制在其他段之后 → 蓝块滑动时盖住另一段的图标、不盖自己段的图标；两张途中截图确认轨道内无露底、无空洞、无遮挡异常。
 
 **其余决定**：
 
 - **页头宽度最终仍是 90px**（胶囊 60 + 间距 4 + 设置 26），与最初「三颗 30px」逐像素一致；中间那版单钮的 60px 是过渡态。第 1 节硬约束表与第 3 节实测表已同步，且因为总占位回到原值，**第 3 节其余各列不必重测**。
 - **设置那颗不进胶囊**：塞进同一枚胶囊会暗示它是第三个面板、且属于同一个单选组（它其实是编辑区页签的独立开关）。第一版把它的 `.is-active` 做成 `--bg-hover` 底以求「不与胶囊抢」，截图一看那色和轨道 `--bg-control` 几乎同色、两个控件糊成一块，于是改成与面板段同一枚实心蓝——它在轨道外、是个圆形，不会被误读成「第三个面板被选中」。
 - **`showPanel('tests')` 的语义保住了**：仍是直接赋值、不是 toggle，`App.vue` 的「开跑必亮结果」不受影响。
+- **`defineExpose` 现在是两个**（2026-09-28 下午加）：`showPanel(id)`（直接赋值，给「开跑必亮结果」）与 `switchPanel()`（就是内部 `togglePanel`，给快捷键 `switch-panel`）。两者分工别混：要「必定落到某个面板」用前者，要「翻到另一个」用后者。
 - **沿用 `cph.sidebarTab`**，没开新 key；老存档里的 `explorer` / `tests` 继续有效。
 
 **还没做（留给后续）**：页头宽度只在 1680 视口下跑过 `npm run verify`，320px 窄档没重量（总占位与最初实测的那一版相同，风险低）。
@@ -592,7 +603,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **现状与痛点**（都能在代码里指认，不是猜的）：
 
-- **接口缺 `readDirectory` / `list`**：`BaseVFSProvider` 只给 `getTree()`（整树）。所以 `problemImport.findNameByUrl()` 为了按 url 找一道旧题，得把整棵树取回来再自己递归找节点——题目一多，这一步就是 O(全库)。
+- **接口缺 `readDirectory` / `list`**：`BaseVFSProvider` 只给 `getTree()`（整树）。所以 `problemImport.findByUrl()` 为了按 url 找一道旧题，得把整棵树取回来再自己递归找节点——题目一多，这一步就是 O(全库)（题目分层落盘后它已经是全库扫描，见 13.2）。
 - **启动时把所有正文读进内存**：`LocalVFSProvider` 初始化走 `contentsStore.getAll()`，把**每个文件的正文**都塞进 `#contents`。文件少时无所谓，题解多了以后这是启动耗时和常驻内存的主要来源；正文完全可以惰性读。
 - **`rebuildTree()` 是全量重建**：`workspaceStore` 里任何一次改动都重取整树 → `withoutHiddenDirs` 每层递归 copy（过滤 `.cph`）→ 重新 walk 建索引 → 清理死 tab。`rebuildChain` 只是把它串行化，并没有减少工作量。
 - **rename / delete 一律聚合成一次 `reset`**（见 `workspaceStore.js` 头部注释），UI 侧永远吃一次全量 diff。
@@ -603,7 +614,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 1. 给 provider 补 `readDirectory(path)`，把「按目录找题」从 O(n) 降到 O(该目录)。
 2. 正文惰性加载：`#contents` 只缓存打开中的文件（或做 LRU），其余按需读 IDB。
 3. `rebuildTree` 改成按变更子树局部刷新，或给 `getTree()` 加缓存 + 失效标记；`.cph` 过滤下沉一层，别每次全树 copy。
-4. 常驻一份 `path → node` 索引，替掉 `findNameByUrl` 那种自己 walk 的写法。
+4. 常驻一份 `path → node` 索引，替掉 `findByUrl` 那种自己 walk 的写法（或直接维护一张全局 `url → path` 表，让认题变成 O(1)）。
 
 **不能破的约定**：`.cph` 在 UI 里必须仍然不可见（第 5 节坑 19 的 `changed` 标志别搞丢）、代码文件正文永不覆盖、题目身份认 `url`。
 
@@ -622,17 +633,17 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 14.4 默认模板功能
 
-**现状**：**没有模板系统**。新建文件的初值只在两处出现：`problemImport.js` 的 `NEW_FILE_CONTENT = '// your code here\n'`（注释里写着「等真做了模板功能再改这里」）和 `workspaceStore.createFile(path, initialContent = '')` 的默认空串；文件树新建走 `FileExplorer.vue` 的内联输入框。
+**现状**（2026-09-28 更新）：**骨架已经有了，缺的是把新建也接上去**。两份骨架写在 `services/templates.js`（`defaultCode(id)`，C++ / Python，**不含样例块**——`{{ … }}` 那种「样例写进注释」是 CPH 的约定，本站用不到，2026-09-28 已去掉），目前被两处消费：`migrate.js` 首次建工作区时种出 `/main.cpp` / `/main.py`，`workspaceStore.js` 的 `openLanguage()` 在对应文件缺失时兜底创建。**还没接上的两处**：文件树新建走 `createFile(path)` 的空串（`FileExplorer.vue` 的内联输入框），导入题目走 `problemImport.js` 的 `NEW_FILE_CONTENT = '// your code here\n'`（注释里写着「等真做了模板功能再改这里」）。
 
-**要做的**：按语言给默认代码骨架，新建文件与导入题目共用同一份。
+**要做的**：把「新建文件」与「导入题目」都接上 `defaultCode(按扩展名判出的语言)`，与种子 / `openLanguage()` 兜底共用同一份（骨架已经在 `templates.js` 里了，别再造第二份）。
 
 **坑**：
 
 - **按扩展名选模板，不要按「当前激活语言」**：在 `.cpp` 上新建 `main.py` 时，当前激活的还是 cpp。
 - **顺带把 `CODE_EXT` 做活**：导入题目的后缀现在写死 `.cpp`（见 13.2），做模板正好是把它变成可配置的时机，两件事应当一起做。
-- **模板存哪要先想清楚**：只内置几套骨架的话，写死在源码里就够；要让用户**可编辑**，就得先决定它的家——放 `.cph/` 里会被 UI 过滤掉（用户看不见也就改不了），放 localStorage 又不适合多行代码。这是「先定产品形态再写代码」的问题。
+- **模板存哪（部分已定）**：内置骨架已定为**写死在源码里**（`services/templates.js`，用户不可编辑）。将来若要让用户**可编辑**，得先决定它的家——放 `.cph/` 里会被 UI 过滤掉（用户看不见也就改不了），放 localStorage 又不适合多行代码。这是「先定产品形态再写代码」的问题。
 
-### 14.5 文件归类设置（可视化编排 时间 / OJ / 难度 三层目录）
+### 14.5 文件归类设置（可视化编排 时间 / OJ / 难度 三层目录）—— 🟡 固定结构已落地（2026-09-28），配置 UI 未做
 
 **需求**（2026-09-28 澄清）：在**设置面板里新增一个「文件管理」分类**，用来规划导入的题目落盘时怎么分层。
 
@@ -641,21 +652,21 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 编排要**图形化**：三个维度做成可拖拽的卡片 / 标签，横向排列即层级顺序，各自带一个开关，旁边实时预览最终路径。
 - 在图形编排之外，**仍然允许自定义文件夹结构**（手写层级模板串，作为高级入口）。
 
-**现状**：`problemImport.js` 里路径是写死的 `/Problems/<OJ 标签>/<题名>.cpp`，只有一层，没有任何设置项与之对应（`EditorSettingsPanel.vue` 的 `SECTIONS` 现在是 8 项）。难度在节点 `meta.difficulty`（**用户自己填**，导入时保留不覆盖），日期在 `meta.date`（只在首次导入时播种）。
+**现状**（2026-09-28 更新）：落盘**已经**按「时间 / OJ / 难度」分好层（见 13.2）——`/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，难度为空落 `未分类`；认题也已经**提级成全库按 url 查**（`findByUrl()` 扫全 `.cph`，并复用题目原目录），这是这条需求能不能做的**前提**，已完成。**还差的只有「让用户可配置」这一半**：`EditorSettingsPanel.vue` 的 `SECTIONS` 仍是 8 项，没有任何设置项与这套路径对应——三个维度的顺序与开关都还写死在 `problemImport.js` 里。难度在节点 `meta.difficulty`（**用户自己填**，导入时保留不覆盖），日期在 `meta.date`（只在首次导入时播种）。
 
 **要做的三块**：
 
 1. **新增设置分类**：`SECTIONS` 加一项（**8 → 9**），内容按现有设置面板「分组 + 行」的写法组织（`EDITOR_GROUPS` 那套）。
 2. **图形编排 UI**：三个可拖拽的维度卡片 + 每张卡上的开关 + 旁边的路径预览。拖拽必须**原生实现**（第 1 节硬约束：不引第三方 UI 库），且要键盘可操作（左右箭头换序）+ `aria-label` 交代「第几层」，否则触屏 / 无鼠标用户用不了。
-3. **路径装配**：把「维度顺序 + 各维度开关」编译成一个路径分段数组交给导入流程；自定义模板串那条高级入口复用同一套装配逻辑，别写两份。
+3. **路径装配**：把 `problemImport.js` 里写死的那三段（`todayMonth()` / OJ 标签 / `未分类` 兜底）抽成「读设置 → 编译成分段数组」；自定义模板串那条高级入口复用同一套装配逻辑，别写两份。
 
 **坑（这条风险最高，直接动用户数据）**：
 
 - **新增设置分类会让无头回归直接红**：`scripts/verify-ui.mjs` 里 `navItems` 断言的是设置分类数（第 8 节 B 步），8 → 9 必须同步改；第 4 节 CSS 类名表里那句「8 项」也要跟着改。
-- **先确认一件事：根目录 `/Problems` 还留不留**。需求写的是 `/时间/oj/难度/题目名.cpp`，没有 `/Problems` 这一层；但去掉它，题目目录就和用户自己建的 `main.cpp` 平铺在同一层了。建议保留 `/Problems` 作根、三个维度只放在它下面——改之前先定。
-- **默认把「时间」放最外层会不断长出新顶层目录**：每月/每天都冒一个新目录。日期粒度建议 `YYYY-MM`（按天会产生大量只含一个文件的目录）。
-- **难度维度首次导入时是空的**：来源站点难度口径不一，导入时 `difficulty` 一律为空串（第 7 节明说难度不自动填）。这里要区分两种「空」——用户**关掉**了这个维度（整层跳过），与这一维度**开着但当前题无值**（落「未分类」还是整层跳过？得定死并写进文档）。
-- **`findNameByUrl` 会失效，这是能不能做的前提**：它现在只扫「同一 OJ 目录下的 `.cph/`」找旧题名。路径变成可配置以后，用户一改结构，老题目就在新路径下找不到 → 被当成新题再抓一份，旧题解变孤儿。所以**身份索引必须提级**：全库按 url 查，或维护一张全局 `url → path` 表。
+- ~~**先确认一件事：根目录 `/Problems` 还留不留**~~ **已定（2026-09-28）：保留**——`/Problems` 作根、三个维度只放在它下面；去掉它就等于让题目目录和用户自己建的 `main.cpp` 平铺在同一层。`migrate.js` 已把它与 `/contest` 一起种子出来。
+- ~~**默认把「时间」放最外层会不断长出新顶层目录**~~ **已定（2026-09-28）：粒度 `YYYY-MM`（按月）**，按天会产生大量只含一个文件的目录。
+- ~~**难度维度首次导入时是空的**~~ **已定（2026-09-28）：维度开着但当前题无值 → 落「未分类」**（整层不跳过，新题路径层级才稳定）。用户事后填难度**不搬动**已有文件，见 13.2。
+- ~~**`findNameByUrl` 会失效，这是能不能做的前提**~~ **已做（2026-09-28）**：`findByUrl()` 已改成**全库**扫 `.cph` 按 url 找回旧题目、并复用原目录。只要「身份索引提级」这条在，路径可配置以后「用户一改结构、老题就变孤儿」的风险就不存在——保留这条记录只为说明它当初为什么是前置条件。
 - **对老数据零影响**：与 13.2 的纪律一致——新规则只对之后抓的题生效；若要做「重新归位」，必须是一次独立的、要用户确认的操作，绝不能隐式迁移（题解会跟着代码文件挪窝，一动就丢）。
 - **持久化放哪**：维度顺序与开关是全局偏好，适合进 localStorage 的一个新 key（如 `cph.problemLayout`）；**不能放 `.cph/`**——那里会被 UI 过滤掉，用户也就改不了。
 - **强依赖 14.2**：路径多两层之后全树规模明显变大，`rebuildTree` 的整树重建会先扛不住。
@@ -672,7 +683,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 而 `problemImport.buildConfig()` 是 `...task` 展开落盘的，**这三样现在就已经存进 `.cph/<题名>.json` 了**。
 
-**要做的**：一个开关（放哪待定：设置面板 or 面板页头）→ 收到 `batch.size > 1` 的一批任务时，落进以 `group` 命名的目录，而不是按 OJ 分目录；并给出「第 3 / 8 题」这类进度。
+**要做的**：一个开关（放哪待定：设置面板 or 面板页头）→ 收到 `batch.size > 1` 的一批任务时，落进 `/contest/<group>`（这个根目录已经在建工作区时种子好了，见 13.2），而不是按 OJ 分目录；并给出「第 3 / 8 题」这类进度。
 
 **坑**：
 
@@ -739,4 +750,4 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **两套主题都要过一遍**（`cph-dark` / `cph-light`），色值只能来自 `base.css` 变量。
 - **窄面板靠容器查询隐藏元素**，改布局时要连着容器查询一起看，否则窄屏会挤成一团。
 
-**建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → 14.7 → 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5（依赖 14.2 与提级后的身份索引）→ 14.9（要先选型，且是唯一需要后端的）。
+**建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → 14.7 → 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。

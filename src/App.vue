@@ -434,6 +434,13 @@ function revealTestsPanel() {
   sidebarRef.value?.showPanel('tests')
 }
 
+// 快捷键版的「翻到另一个面板」。侧栏收起着就先把它捞回来 —— 否则按下去什么也看不见，
+// 会被当成快捷键没生效。真正的翻面还是交给 Sidebar.vue 的 togglePanel（它负责动画与落盘）。
+function switchSidebarPanel() {
+  if (!panelVisible.value) togglePanel()
+  sidebarRef.value?.switchPanel()
+}
+
 async function runAll() {
   if (running.value) {
     abortController?.abort()
@@ -532,6 +539,7 @@ watch(
 const SHORTCUT_HANDLERS = {
   run: () => runAll(),
   'toggle-panel': () => togglePanel(),
+  'switch-panel': () => switchSidebarPanel(),
   'toggle-layout': () => toggleLayout(),
   'new-case': () => addCase(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),

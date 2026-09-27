@@ -47,6 +47,18 @@ function waitForServer() {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// 快捷键里的主修饰键：macOS 是 ⌘、其他平台是 Ctrl（与 useShortcutManager 的 IS_MAC 同口径）
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control'
+
+// 当前可见的那个面板的 data-panel（'explorer' | 'tests' | ''）
+const visiblePanelId = (page) =>
+  page.evaluate(
+    () =>
+      [...document.querySelectorAll('.sidebar__panel')].find(
+        (el) => el.getClientRects().length > 0,
+      )?.dataset.panel ?? '',
+  )
+
 const probe = (page) =>
   page.evaluate(() => {
     const rect = (selector) => {
@@ -357,10 +369,9 @@ try {
     // 运行入口：页签栏那颗运行按钮已删（2026-09-28），现在只剩全局快捷键与评测面板
     // 页脚那颗 ▶。此刻侧栏正折叠着（上面刚双击折起来），页脚那颗 display:none 点不到，
     // 所以走快捷键 —— 顺带守住「侧栏收起时快捷键照样能跑、且能把侧栏重新捞回来」。
-    const runModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
-    await page.keyboard.down(runModifier)
+    await page.keyboard.down(MOD)
     await page.keyboard.press('Enter')
-    await page.keyboard.up(runModifier)
+    await page.keyboard.up(MOD)
     await page.waitForFunction(
       () => document.querySelector('.verdict')?.textContent.trim() !== '运行中',
       { timeout: 90000, polling: 500 },
@@ -454,6 +465,61 @@ try {
         derived.path === '/main.py' &&
         noLangSelect,
       { pythonLoaded, activeIsPy, ...derived, noLangSelect },
+    )
+  })
+
+  // G. 快捷键切换侧栏面板（switch-panel，默认 Mod+Shift+E）：等价于点页头那枚胶囊。
+  //    F 步结束时侧栏正停在「资源管理器」，正好当起点。
+  await step('G. 快捷键切换侧栏面板', async () => {
+    const pressSwitch = async () => {
+      await page.keyboard.down(MOD)
+      await page.keyboard.down('Shift')
+      await page.keyboard.press('KeyE')
+      await page.keyboard.up('Shift')
+      await page.keyboard.up(MOD)
+      await wait(200)
+    }
+
+    await showPanel(page, 'explorer')
+    await pressSwitch()
+    const afterFirst = await visiblePanelId(page)
+    await pressSwitch()
+    const afterSecond = await visiblePanelId(page)
+
+    // 侧栏收起时按同一个键：既要翻面，也得先把它捞回来（否则按了看不见任何反应）
+    await page.evaluate(() =>
+      document
+        .querySelector('.splitter')
+        .dispatchEvent(new MouseEvent('dblclick', { bubbles: true })),
+    )
+    await wait(400)
+    const collapsed = await page.evaluate(
+      () => document.querySelector('.pane--tests').getClientRects().length === 0,
+    )
+    await pressSwitch()
+    // 收起时按一下 = 先捞回来 + 再翻面，所以落点应当是「评测样例」而不是折叠前那个
+    const afterCollapsedPress = await visiblePanelId(page)
+    const revealed = await page.evaluate(
+      () => document.querySelector('.pane--tests').getClientRects().length > 0,
+    )
+    // 收尾把侧栏恢复成「可见 + 资源管理器」，免得给后续步骤留个歪状态
+    await showPanel(page, 'explorer')
+    await page.screenshot({ path: `${SHOTS}cph-7-switch-panel.png` })
+
+    record(
+      'G. 快捷键切换侧栏面板',
+      afterFirst === 'tests' &&
+        afterSecond === 'explorer' &&
+        collapsed &&
+        revealed &&
+        afterCollapsedPress === 'tests',
+      {
+        afterFirst,
+        afterSecond,
+        collapsedBeforePress: collapsed,
+        revealed,
+        afterCollapsedPress,
+      },
     )
   })
 

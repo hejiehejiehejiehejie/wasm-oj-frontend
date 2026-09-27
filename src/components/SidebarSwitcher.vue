@@ -101,8 +101,11 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings 
 }
 
 /* 胶囊里的一段：纯视觉指示，没有自己的点击处理与 tabindex。
-   圆角取内高的一半，选中段填亮后是一枚完整的小胶囊 */
+   段只管「图标 + 它占哪一格」，蓝色高亮交给它的 ::before —— 拆成两层是为了动画，见下面。
+   `isolation` 让 ::before 那个 z-index:-1 只在段内生效，不会钻到轨道背景后面去。 */
 .sidebar-switcher__seg {
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -110,60 +113,92 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings 
   height: var(--seg-h);
   border-radius: 11px;
   color: var(--text-dim);
-  transition: color 0.16s ease, background-color 0.16s ease;
+  transition: color 0.16s ease;
 }
 
-/* 选中段：填亮。这是「我在哪一个面板」唯一的主信号，别退成只换图标色的弱提示。
-   它压在轨道上面，所以轨道 hover 变亮时这一段仍保持实心蓝 */
+/* 蓝色高亮：一枚铺满当前段的小胶囊。默认隐身，选中才现身 —— 它是「我在哪一个面板」
+   唯一的主信号，别退成只换图标色的弱提示。它压在轨道上面，所以轨道 hover 变亮时
+   这一段仍是实心蓝 */
+.sidebar-switcher__seg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 11px;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
 .sidebar-switcher__seg.is-active {
   color: var(--text-on-accent);
-  background: var(--accent);
+}
+
+.sidebar-switcher__seg.is-active::before {
+  opacity: 1;
 }
 
 /* -------------------------------------------------------- 切换时的滑动动画
    难点：页头里的胶囊是**两个面板各渲染一份**（v-show 藏一个），点一下就把你刚点的那一份
    藏了、另一份亮出来，所以高亮不是同一个元素在移动 —— 过渡（transition）永远看不到。
 
-   解法：让**新亮出来的那一份**里的选中段，从「原来那一段的位置」滑过来。
+   解法：让**新亮出来的那一份**里的蓝色高亮，从「原来那一段的位置」滑过来。
    两份胶囊在屏幕上的位置完全相同，于是看起来就是同一枚高亮在横移。
    用 `animation` 而不是 `transition`：元素从 display:none 变成可见时，动画会从头播。
 
-   `color` 从 transparent 起步是故意的：新亮出来的这一份状态已经是「最终态」了，
-   若不遮一下，滑动途中会先看到目标段自己的图标出现在起点上（图标瞬间跳一次）。
-   起点透明 → 到位时亮起，读起来就是「高亮带着图标滑过去、在原位点亮」。
+   **只让高亮动、不让图标动**（2026-09-28 用户反馈：图标跟着高亮一起横移不符合直觉）：
+   位移只挂在 `::before` 上，段自己不参与 transform，图标就钉在原格里；段的 `color`
+   另走一条淡入动画并压 90ms 延迟（`backwards` 让延迟期间保持暗态）——
+   高亮先滑到位，图标随后在原地点亮，就是 iOS 分段控件那个观感。
+   两层动画写在不同选择器上（段 / 段的 ::before），互不干扰。
+
    `:nth-child` 判方向：第一段亮 = 从右边滑来，第二段亮 = 从左边滑来
    （只有两段，位移正好是一段宽，这也是它和上面 --seg-w 的唯一耦合）。
 
    挂 `[data-switched]` 才放：首屏那次渲染同样是「从隐藏变可见」，不加这个条件就会在
    页面加载时平白播一次滑动 —— 可那时候并没有发生任何切换。 */
-@keyframes sidebar-seg-from-right {
+@keyframes sidebar-indicator-from-right {
   from {
     transform: translateX(var(--seg-w));
-    color: transparent;
   }
   to {
     transform: none;
-    color: var(--text-on-accent);
   }
 }
 
-@keyframes sidebar-seg-from-left {
+@keyframes sidebar-indicator-from-left {
   from {
     transform: translateX(calc(var(--seg-w) * -1));
-    color: transparent;
   }
   to {
     transform: none;
+  }
+}
+
+/* 图标点亮：只碰 color，不碰位移 */
+@keyframes sidebar-icon-light-up {
+  from {
+    color: var(--text-dim);
+  }
+  to {
     color: var(--text-on-accent);
   }
 }
 
 .sidebar-switcher__pill[data-switched] .sidebar-switcher__seg.is-active:nth-child(1) {
-  animation: sidebar-seg-from-right 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation: sidebar-icon-light-up 200ms ease-out 90ms backwards;
+}
+
+.sidebar-switcher__pill[data-switched] .sidebar-switcher__seg.is-active:nth-child(1)::before {
+  animation: sidebar-indicator-from-right 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .sidebar-switcher__pill[data-switched] .sidebar-switcher__seg.is-active:nth-child(2) {
-  animation: sidebar-seg-from-left 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  animation: sidebar-icon-light-up 200ms ease-out 90ms backwards;
+}
+
+.sidebar-switcher__pill[data-switched] .sidebar-switcher__seg.is-active:nth-child(2)::before {
+  animation: sidebar-indicator-from-left 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* 设置那颗：胶囊外的独立圆形图标钮，与轨道同高 */

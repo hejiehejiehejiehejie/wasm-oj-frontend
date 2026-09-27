@@ -85,7 +85,12 @@ provide('sidebarTabs', {
 function showPanel(id) {
   if (PANEL_TABS.some((tab) => tab.id === id)) activeTab.value = id
 }
-defineExpose({ showPanel })
+defineExpose({
+  showPanel,
+  // 供快捷键用（App.vue 的 switch-panel）：与点胶囊走的是同一个 togglePanel，
+  // 所以动画、hasSwitched、持久化都一致，不会出现「键盘切过去没动画」这种两套行为
+  switchPanel: togglePanel,
+})
 </script>
 
 <template>
