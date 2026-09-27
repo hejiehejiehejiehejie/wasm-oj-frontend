@@ -426,8 +426,8 @@ function applyPatch(target, patch, index) {
   Object.assign(target, patch, { stale: false })
 }
 
-// 运行入口有三处（编辑器页签栏右端的运行按钮、⌘/Ctrl + Enter、评测面板页脚），
-// 都并到 runAll 这一个出口。跑之前先保证「看得到结果」：侧栏若收起了就展开，
+// 运行入口有两处（⌘/Ctrl + Enter、评测面板页脚那颗 ▶），都并到 runAll 这一个出口。
+// 跑之前先保证「看得到结果」：侧栏若收起了就展开，
 // 若停在资源管理器就切到评测样例（已经在评测样例上则什么都不做，不影响页签持久化）
 function revealTestsPanel() {
   if (!panelVisible.value) togglePanel()
@@ -598,9 +598,6 @@ onBeforeUnmount(() => {
           :time-limit="timeLimitMs"
           :judge="judgeSettings"
           :connection="connection"
-          :running="running"
-          :total="testCases.length"
-          @run-all="runAll"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
           @toggle-layout="toggleLayout"

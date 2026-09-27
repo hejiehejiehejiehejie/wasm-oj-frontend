@@ -13,11 +13,11 @@
  * 宽度与显隐不在这里管：外层 .pane--tests 作为一个整体参与与 Monaco 的分屏拖拽
  * （见 App.vue 的 .splitter 与 measureLimits）。
  */
-import { computed, provide } from 'vue'
+import { computed, provide, ref } from 'vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { closeSettingsTab, openSettingsTab, settingsTab } from '../services/settingsTab.js'
 
-// 侧边栏里的两个面板
+// 侧边栏里的两个面板。数组顺序就是页头胶囊里两段的顺序
 const PANEL_TABS = [
   { id: 'explorer', label: '资源管理器', icon: 'files' },
   { id: 'tests', label: '评测样例', icon: 'cases' },
@@ -28,31 +28,57 @@ const activeTab = usePersistentRef('cph.sidebarTab', 'explorer')
 // 存档里可能是旧值 / 脏值：认不出来就退回默认页签，免得两个面板被一起藏掉
 if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'explorer'
 
-// 两个面板的入口在 2026-09 合并成了一颗按钮：点一下在两个面板之间来回切。
-// 所以它画的是**将要去的那一个**（图标与文案都是），而不是当前这个 ——
-// 只画图标不写字，画当前的话用户没法预判点下去会发生什么。
+// 页头里的两组入口（2026-09-28 改了两轮，定稿形态见下）：
+// - 两个面板合成一枚**胶囊开关**（见 SidebarSwitcher）：两段图标并排、当前段填亮，
+//   但整枚胶囊是**一颗 toggle 按钮** —— 点轨道上任意位置（含内边距与当前段本身）
+//   都翻到另一个面板。两段只负责「把两个面板和我在哪一个同时画出来」，不各自接点击：
+//   光有一颗画「将要去的那一个」的动作钮看不出可切换（用户第一次反馈），
+//   光有两段各自可点又留了 2px 死区、点边缘没反应（用户第二次反馈）。
+// - 设置那颗独立：它开关的是编辑区里的合成页签，与面板互不排斥（见第 5 节坑 7），
+//   不进胶囊（进同一个胶囊就暗示它也是面板之一，且是同一个单选组）。
+const panels = computed(() =>
+  PANEL_TABS.map((tab) => ({ ...tab, active: tab.id === activeTab.value })),
+)
+
+// 胶囊上要写的是「将要去的那一个」：整枚是一个动作按钮，文案得说清点下去会去哪
 const targetPanel = computed(
   () => PANEL_TABS.find((tab) => tab.id !== activeTab.value) ?? PANEL_TABS[0],
 )
 
-// 页头里并排的两个入口：面板切换 + 编辑区里那个「设置」合成页签的开关
-// （2026-09 顶栏删除后从齿轮按钮搬过来的）。后者不是面板，不参与下面的 v-show 切换。
-// pressed 只有「设置」才有：面板那颗是动作按钮（点它执行切换），不是可按下状态。
-const entries = computed(() => [
-  { id: 'panel', icon: targetPanel.value.icon, label: `切换到${targetPanel.value.label}` },
-  { id: 'settings', icon: 'gear', label: '设置', pressed: settingsTab.active },
-])
+// 滑动动画只在「用户点了胶囊」之后才放（见 SidebarSwitcher 的 data-switched）：
+// 首屏那次渲染同样是「从隐藏变可见」，不拦一下就会平白播一次「切换」——那并不存在。
+// 一次真的切换之后就常开：此后任何一次翻面（包括 App 里 showPanel 把人推过去）都该有动画。
+const hasSwitched = ref(false)
 
-function selectEntry(id) {
-  if (id === 'settings') {
-    // 再点一次＝收起设置，回到刚才那个代码文件（与顶栏那颗齿轮的旧行为一致）
-    settingsTab.active ? closeSettingsTab() : openSettingsTab()
-    return
-  }
-  activeTab.value = targetPanel.value.id
+function togglePanel() {
+  // 只有两个面板时就是「另一个」；写成 find 是为了数组真变长时也不会错得很离谱
+  const next = PANEL_TABS.find((tab) => tab.id !== activeTab.value)
+  if (!next) return
+  activeTab.value = next.id
+  hasSwitched.value = true
 }
 
-provide('sidebarTabs', { entries, select: selectEntry })
+function toggleSettings() {
+  // 再点一次＝收起设置，回到刚才那个代码文件（与顶栏那颗齿轮的旧行为一致）
+  settingsTab.active ? closeSettingsTab() : openSettingsTab()
+}
+
+// 设置那颗整条做成一个 computed 对象：属性跟着 settingsTab 走，
+// 下发给子组件后在模板里直接写 settings.active 就行（不用 .value）
+const settingsEntry = computed(() => ({
+  icon: 'gear',
+  label: '设置',
+  active: settingsTab.active,
+}))
+
+provide('sidebarTabs', {
+  panels,
+  targetPanel,
+  togglePanel,
+  hasSwitched,
+  settings: settingsEntry,
+  toggleSettings,
+})
 
 // 供父组件从外部切到指定面板（如 App.vue 在开跑时要把「评测样例」亮出来）。
 // 状态与持久化仍只在这一处，这里只是多一个入口，不让父组件自己存一份
@@ -65,8 +91,9 @@ defineExpose({ showPanel })
 <template>
   <div class="sidebar">
     <div class="sidebar__body">
-      <!-- data-panel：页头的切换钮画的是「将要去的那一个」，不再是当前面板的名字，
-           所以「现在停在哪个面板」需要一个机器可读的出处（无头回归按它判）。 -->
+      <!-- data-panel：「现在停在哪个面板」的机器可读出处（无头回归按它判）。
+           页头胶囊虽然也画了当前段，但从 DOM 反推「哪一段算选中」要连着读 class，
+           不如在这里直接标一个数据集属性稳。 -->
       <div v-show="activeTab === 'explorer'" class="sidebar__panel" data-panel="explorer">
         <slot name="explorer" />
       </div>

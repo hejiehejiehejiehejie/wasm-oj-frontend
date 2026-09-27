@@ -4,8 +4,10 @@
  * - 点击切换活跃标签；中键关闭；× 按钮关闭。
  * - dirty 文件显示圆点替代图标；活跃标签顶边取主题强调色。
  * - 横向溢出时可横向滚动，不换行。
- * - 最右侧常驻一颗运行 / 停止按钮：2026-09 顶栏删除后从顶栏的「运行全部测试」
- *   搬过来的（侧边栏收起、或停在资源管理器页签时，这里是唯一的运行入口）。
+ *
+ * 这里不再有运行按钮（2026-09-28 删）：运行入口只剩全局快捷键（⌘/Ctrl + Enter）
+ * 与评测样例面板页脚那颗 ▶，两处都直连 App.vue 的 runAll，跑起来会自己把侧栏
+ * 展开并切到「评测样例」，所以删掉页签栏这颗不会出现「点了看不到结果」。
  */
 import AppIcon from './AppIcon.vue'
 import { modelManager } from '../services/monaco/modelManager.js'
@@ -21,13 +23,6 @@ import {
   setActiveTab,
   workspace,
 } from '../services/vfs/workspaceStore.js'
-
-defineProps({
-  running: Boolean,
-  total: { type: Number, default: 0 },
-})
-
-const emit = defineEmits(['run-all'])
 
 function activate(id) {
   // 点文件页签＝要看代码：先把设置视图让开。已经停在同一个文件上时
@@ -105,18 +100,6 @@ function onMouseDown(event, id) {
         </span>
       </button>
     </div>
-
-    <button
-      class="editor-tabs__run"
-      :class="{ 'is-running': running }"
-      :aria-label="running ? '停止运行' : '运行全部测试'"
-      :title="running ? '点击中断当前运行' : '运行全部测试用例 (⌘/Ctrl + Enter)'"
-      :disabled="!running && total === 0"
-      @click="emit('run-all')"
-    >
-      <AppIcon :name="running ? 'stop' : 'play'" :size="13" />
-      <span>{{ running ? '停止' : '运行' }}</span>
-    </button>
   </div>
 </template>
 
@@ -125,7 +108,7 @@ function onMouseDown(event, id) {
   flex: 0 0 35px;
   display: flex;
   align-items: stretch;
-  /* 横向滚动归内部的 .editor-tabs__strip：右边那颗运行按钮要钉住不跟着滚 */
+  /* 横向滚动归内部的 .editor-tabs__strip */
   overflow: hidden;
   background: var(--bg-panel-head);
   border-bottom: 1px solid var(--border-soft);
@@ -143,45 +126,6 @@ function onMouseDown(event, id) {
 
 .editor-tabs__strip::-webkit-scrollbar {
   height: 0;
-}
-
-/* 运行 / 停止：从顶栏搬来的那颗，压成页签栏高度的一颗小按钮 */
-.editor-tabs__run {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: center;
-  height: 25px;
-  margin: 0 6px;
-  padding: 0 11px;
-  border: none;
-  border-radius: 5px;
-  background: var(--run-green);
-  color: var(--text-on-accent);
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color 0.16s ease, opacity 0.16s ease;
-}
-
-.editor-tabs__run:hover:not(:disabled) {
-  background: var(--run-green-hover);
-}
-
-.editor-tabs__run:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.editor-tabs__run.is-running {
-  background: var(--danger-bg);
-  color: var(--danger-text);
-}
-
-.editor-tabs__run.is-running:hover {
-  background: var(--danger-bg-hover);
 }
 
 .editor-tabs__item {

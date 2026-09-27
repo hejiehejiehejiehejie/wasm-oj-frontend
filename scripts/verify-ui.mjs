@@ -72,9 +72,12 @@ const probe = (page) =>
     // 所以只认当前可见那个面板里的那一份；用 getClientRects 判可见（computed display 会误报）。
     const visiblePanel = () =>
       [...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)
+    // 页头上可点的控件：胶囊那颗 toggle（`.sidebar-switcher__pill`）+ 设置那颗
     const visibleSwitcherTabs = () => [
-      ...(visiblePanel()?.querySelectorAll('.sidebar-switcher__tab') ?? []),
+      ...(visiblePanel()?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
     ]
+    // 胶囊里的两段：纯视觉指示，不可点，所以按它们自己的标记读「哪一段亮着」
+    const visibleSegs = () => [...(visiblePanel()?.querySelectorAll('.sidebar-switcher__seg') ?? [])]
     return {
       // 顶栏已在 2026-09 整体删除（设置入口搬进侧栏页头、运行按钮搬进编辑器页签栏），
       // 这里守的是「它真的不回来了」以及工作区仍然贴顶
@@ -98,22 +101,29 @@ const probe = (page) =>
       horizontalScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
       storedPanel: stored('cph.panelPosition'),
       storedShare: stored('cph.editorShare'),
+      // 页头控件的 aria-label：胶囊那颗写的是「将要去的那一个」，设置那颗恒定
       sidebarTabs: visibleSwitcherTabs().map((el) => el.getAttribute('aria-label')),
-      // 面板入口合并成一颗切换钮之后，页头不再有「我在哪个面板」的高亮信号：
-      // 那颗钮画的是将要去的那一个，当前面板只能看 .sidebar__panel 的 data-panel。
+      // 胶囊里被填亮的那一段。这条守的是「胶囊真的把当前面板画出来了」——
+      // 早先那颗动作钮没有这个信号。读 data-current 而不是 class：class 是样式，
+      // 这里要的是「哪一段被标记成当前」，换个样式名就不该让断言红。
+      sidebarSegActive: visibleSegs()
+        .filter((el) => el.dataset.current === 'true')
+        .map((el) => el.dataset.panel),
+      // 「现在停在哪个面板」认 .sidebar__panel 的 data-panel：比从 class 反推稳。
       sidebarPanel: visiblePanel()?.dataset.panel ?? '',
     }
   })
 
-// 面板入口合并成一颗切换钮后不能按名字点它（它画的是「将要去的那一个」）：
-// 先看当前可见面板是不是目标，不是就点页头第一颗（永远是那颗面板切换钮）翻过去。
+// 切到指定面板：整枚胶囊是一颗 toggle（2026-09-28 定稿），点它一次就是「翻到另一个」。
+// 所以只有两个面板时这一下必然到位；先判当前面板是不是目标，是就不点（否则会翻过头）。
+// 注意必须把 page 当参数传进来：const page 在下面的 try {} 块里，模块级函数引用不到它。
 const showPanel = (page, id) =>
   page.evaluate((target) => {
     const panel = [...document.querySelectorAll('.sidebar__panel')].find(
       (el) => el.getClientRects().length > 0,
     )
     if (!panel || panel.dataset.panel === target) return
-    panel.querySelector('.sidebar-switcher__tab')?.click()
+    panel.querySelector('.sidebar-switcher__pill')?.click()
   }, id)
 
 const results = []
@@ -156,34 +166,36 @@ try {
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     await page.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
     // 新契约（2026-09 统一侧边栏）：侧边栏默认停在「资源管理器」，用例卡在「评测样例」
-    // 里、被 v-show 藏着（节点在 DOM 里，但不可见）。先确认页头那颗切换钮在，再点过去，
+    // 里、被 v-show 藏着（节点在 DOM 里，但不可见）。先确认页头那枚胶囊在，再点过去，
     // 卡片才是真的渲染出来——这也是切面板这条路本身的回归。
-    // 切换钮已并入两个面板各自的页头，所以要落在当前可见的那个面板里找；
+    // 切换入口已并入两个面板各自的页头，所以要落在当前可见的那个面板里找；
     // 它只画 logo 不写字，所以认 aria-label 而不是 textContent。
-    // 面板入口已合并成一颗钮：它画的是「将要去的那一个」，所以默认停在资源管理器时，
-    // 页头上的两颗应该是「切换到评测样例」+「设置」。
+    // 面板那枚胶囊整体是一颗 toggle，文案是「将要去的那一个」；两段在它里面，
+    // 所以这里钉住的是「胶囊在（且说的是去向）+ 两段都渲染出来了」。
     const tabs = await page.evaluate(() => {
       const panel = [...document.querySelectorAll('.sidebar__panel')].find(
         (el) => el.getClientRects().length > 0,
       )
-      return [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].map((el) =>
-        el.getAttribute('aria-label'),
-      )
+      return [
+        ...(panel?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
+      ].map((el) => el.getAttribute('aria-label'))
     })
-    await page.evaluate(() => {
+    const segIds = await page.evaluate(() => {
       const panel = [...document.querySelectorAll('.sidebar__panel')].find(
         (el) => el.getClientRects().length > 0,
       )
-      const tab = [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].find((el) =>
-        el.getAttribute('aria-label')?.includes('评测样例'),
+      return [...(panel?.querySelectorAll('.sidebar-switcher__seg') ?? [])].map(
+        (el) => el.dataset.panel,
       )
-      tab?.click()
     })
+    await showPanel(page, 'tests')
     await page.waitForSelector('.card', { visible: true, timeout: 20000 })
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cph-1-default-right.png` })
     const ok =
       tabs.join('/') === '切换到评测样例/设置' &&
+      segIds.join('/') === 'explorer/tests' &&
+      state.sidebarSegActive.join('/') === 'tests' &&
       state.sidebarPanel === 'tests' &&
       !state.topbarPresent &&
       state.workspaceTop === 0 &&
@@ -342,8 +354,13 @@ try {
     const collapsed = await page.evaluate(
       () => document.querySelector('.pane--tests').getClientRects().length === 0,
     )
-    // 运行入口：顶栏删除后，编辑器页签栏最右那颗是常驻入口（此处也顺带守它）
-    await page.evaluate(() => document.querySelector('.editor-tabs__run')?.click())
+    // 运行入口：页签栏那颗运行按钮已删（2026-09-28），现在只剩全局快捷键与评测面板
+    // 页脚那颗 ▶。此刻侧栏正折叠着（上面刚双击折起来），页脚那颗 display:none 点不到，
+    // 所以走快捷键 —— 顺带守住「侧栏收起时快捷键照样能跑、且能把侧栏重新捞回来」。
+    const runModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+    await page.keyboard.down(runModifier)
+    await page.keyboard.press('Enter')
+    await page.keyboard.up(runModifier)
     await page.waitForFunction(
       () => document.querySelector('.verdict')?.textContent.trim() !== '运行中',
       { timeout: 90000, polling: 500 },

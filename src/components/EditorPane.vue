@@ -35,13 +35,9 @@ const props = defineProps({
   // 评测引擎状态：只有设置视图里的「评测」分组用得到，这里只做透传
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
-  // 运行状态：页签栏最右那颗运行 / 停止按钮用
-  running: Boolean,
-  total: { type: Number, default: 0 },
 })
 
 const emit = defineEmits([
-  'run-all',
   'update:settings',
   'update:time-limit',
   'toggle-layout',
@@ -187,7 +183,7 @@ defineExpose({ layout: () => editor.value?.layout(), focus: () => editor.value?.
 
 <template>
   <div class="editor-pane">
-    <EditorTabs :running="running" :total="total" @run-all="emit('run-all')" />
+    <EditorTabs />
 
     <div class="editor-pane__stage">
       <div v-show="!settingsTab.active" ref="host" class="editor-pane__host"></div>

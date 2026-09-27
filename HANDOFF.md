@@ -9,7 +9,7 @@
 - 启动：`npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
 - 其他命令：`npm run verify` 跑无头回归（A–F 全绿，**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
 - 两个 HTML 入口：`index.html`（主应用）与 `guide.html`（使用指南，给搜索引擎抓取的静态长文）。改文案 / 样式时**两页连同 docs/使用手册.md、HelpPanel.vue 一共四处要一起看**（见第 12 节）。
-- 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、编辑器页签栏右端的运行按钮、设置视图里的「应用」分组（安装到设备）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
+- 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<OJ>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`，并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`）。详见第 13 节。
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例；实现要点与坑都在第 13 节。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
@@ -24,8 +24,8 @@
 | 颜色只走 CSS 变量 | 组件里**不许**出现写死的十六进制颜色；所有色值定义在 `src/styles/base.css` |
 | 新增变量必须定义两遍 | `:root` 和 `:root[data-theme='cph-light']` 都要给值，否则浅色主题下会串色 |
 | 禁止第三方 UI 库 | 抽屉 / 弹层 / 下拉全部原生 CSS + Vue + `Teleport` |
-| 侧边栏页头的图标不许溢出 | 两颗图标（30×26）渲染在**两个面板各自的页头**里，最窄的面板下限是 158px（320px 视口）；两面板入口已于 2026-09-28 合并成一颗切换钮（见 14.1），实测两颗占 60px + 右侧动作按钮 2 颗仍有 94px 余量。**别给图标加文字、别加大 `gap`、别加第三颗**——页头没有折行兜底（`FileExplorer` 的 `.explorer__head` 是固定 `height: 35px`），撑不下就直接溢出 |
-| 运行按钮不在页签滚动容器里 | `.editor-tabs` 现在是「`.editor-tabs__strip`（`flex: 1 1 auto`，横向滚动）+ `.editor-tabs__run`（`flex: 0 0 auto`）」两个兄弟。**运行按钮必须在 strip 之外**——塞进去会跟着页签一起滚出视口，侧边栏收起时就没有运行入口了 |
+| 侧边栏页头的图标不许溢出 | 页头左侧是一枚**面板胶囊开关**（两段，共 60px）+ 一颗独立的设置钮（26px）+ 4px 间距 = 90px，渲染在**两个面板各自的页头**里；最窄的面板下限是 158px（320px 视口），实测仍留 64px 给右侧的动作按钮（新建文件 / 文件夹）。**别给图标加文字、别加大 `gap`、别加第三段/第三颗**——页头没有折行兜底（`FileExplorer` 的 `.explorer__head` 是固定 `height: 35px`），撑不下就直接溢出。整枚胶囊是一颗 toggle 按钮（点它任意位置都翻到另一个面板），里面的两段是纯视觉指示——**别把点击下放回某一段**，那会在胶囊里留出点不动的边 |
+| 运行入口只剩两处 | 编辑器页签栏右端那颗「运行 / 停止」按钮已于 **2026-09-28 删除**（它当时是侧栏收起后唯一的点击入口）。现在只剩：全局快捷键 `Mod+Enter`（捕获阶段监听，见坑 21）、评测样例面板页脚那颗 ▶。两个入口都并到 `App.vue` 的 `runAll()`，跑之前都会 `revealTestsPanel()` 把侧栏亮出来（见第 3 节「开跑必亮结果」）。**别再往页签栏加运行按钮**：`.editor-tabs` 现在只有 `.editor-tabs__strip` 一个子元素、`flex: 1 1 auto` 铺满整行 |
 | 面板下限只在 CSS 里定义一份 | 侧边栏最低宽度由 `.workspace` 上的 `--tests-min-cap / --tests-min-ratio / --tests-min-floor` 决定（即 `.pane--tests` 的 `clamp(160px, 50%, 320px)`；变量名里的 `tests` 是历史沿革，统一侧边栏沿用同一套），`measureLimits()` 读同一组变量复算；改数字只改 CSS 那三行，别在脚本或组件里再写一份 |
 | 侧边栏内部只用 `v-show` | 整栏显隐、栏内两个面板（资源管理器 / 评测样例）的切换**都是 `v-show`**：文件树的展开状态、样例里手填的输入与卡片折叠态都挂在 DOM 上，改成 `v-if` 会在切换时被销毁重建，用户数据直接丢。**「设置」也在这一栏里，但它不是第三个面板**——它是编辑区里的合成页签，页头那颗图标只负责开关那个页签，不参与两个面板的 `v-show` 切换（见第 5 节坑 7） |
 | flex 容器的子元素要显式拉伸 | 布局里 `.pane > *` 必须 `flex: 1 1 auto; min-width: 0`，否则子组件收缩到内容宽度 |
@@ -74,13 +74,13 @@ src/
   composables/useShortcutManager.js # ★ 全局快捷键的唯一权威：动作表 SHORTCUT_ACTIONS + 绑定表 + comboFromEvent 规范化 + 冲突检测 + localStorage。**刻意不挂组件生命周期**（App 的全局 keydown 与 EditorPane 的状态栏提示都要在任何组件挂载前就可用）
   components/
     HotkeyRecorder.vue          # 单个动作的快捷键录制框：点一下开录、冲突红字且拒绝写入、Esc 放弃、Delete 清除绑定；开录时置 recordingActive 让全局监听让路（见第 13 节）
-    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection / running / total 透传给页签栏与设置视图
-    EditorTabs.vue              # 编辑器标签栏：`strip`（文件页签 + 「设置」合成页签，横向滚动）+ 右端常驻的「运行 / 停止」按钮（2026-09-28 从被删的顶栏搬来，见第 3 节）
+    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图（运行状态不再透传——页签栏那颗运行按钮已删）
+    EditorTabs.vue              # 编辑器标签栏：只有一条 `strip`（文件页签 + 「设置」合成页签，横向滚动）。右端那颗「运行 / 停止」按钮已于 2026-09-28 删除（运行入口见第 1 节硬约束表）
     EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 编辑器 / 布局 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「编辑器」那组按 `EDITOR_GROUPS`（外观 / 编辑 / 光标与高亮 / 视图 / 代码辅助 5 小节，共 27 行）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
     HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）
     Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cph.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
-    SidebarSwitcher.vue         # 侧栏页头里的两个入口（2026-09 加）：面板切换 + 设置。不再独占一行页签栏，而是渲染进两个面板各自的页头里（同一时刻只有一个面板可见，视觉上只有一份）；只画 logo 不写字，名字在 `title` / `aria-label`；状态从 Sidebar 的 provide 取，自己不存状态。**面板那颗是 2026-09-28 由「资源管理器 / 评测样例」两颗合并来的**：点一下在两个面板之间来回切，所以它画的是**将要去的那一个**（图标 `files` / `cases` 与文案都跟着翻），`title` 用「切换到…」祈使句——它不带 `is-active`（动作按钮，不是可按下状态）。第二颗（齿轮 `gear`）开关编辑区里的设置页签（`settingsTab`，不落盘），只有它有 `aria-pressed`
+    SidebarSwitcher.vue         # 侧栏页头里的两组入口（2026-09 加）：面板胶囊开关 + 设置。不再独占一行页签栏，而是渲染进两个面板各自的页头里（同一时刻只有一个面板可见，视觉上只有一份）；只画 logo 不写字，名字在 `title` / `aria-label`；状态从 Sidebar 的 provide 取（`panels` / `targetPanel` / `togglePanel` / `settings` / `toggleSettings`），自己不存状态。面板那枚：`.sidebar-switcher__pill` **本身是一颗 `<button>`**（点任意位置 toggle，高度 26 / 13px 圆角 / 底色 `--bg-control`），里面 `v-for` 出两段 `<span class="sidebar-switcher__seg">` 作纯视觉指示（28×22、11px 圆角，当前段 `.is-active` 填 `--accent` + `--text-on-accent`，并打 `data-panel` 与 `data-current`）。设置那颗 `gear`（开关编辑区里的设置页签，`settingsTab`，不落盘）在轨道外，是独立的圆形按钮。切换时选中段播一次滑动动画（见第 4 节类名表与第 5 节坑 5c），只在 `[data-switched]` 下放
     FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）；内联新建输入框自带默认名并把焦点送进去（见第 5 节坑 12）
     FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）
     ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前只有文件树在用（文件节点给「题目信息 / 重命名 / 删除」，目录节点不给「题目信息」）
@@ -112,7 +112,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
    │                         类名状态：is-left / is-dragging / is-swapping / is-collapsed
    ├─ section.pane.pane--editor   内联 flexBasis = editorShare%
    │    └─ EditorPane
-   │         ├─ EditorTabs            strip（页签，横向滚动）+ 右端「运行 / 停止」按钮
+   │         ├─ EditorTabs            strip（页签，横向滚动，铺满整行）
    │         ├─ 编辑器画布 或 EditorSettingsPanel（v-show 互斥）
    │         └─ footer.editor-pane__status
    ├─ div.splitter                role=separator，键盘左右微调，双击折叠
@@ -122,18 +122,23 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
         └─ Sidebar               统一侧边栏外壳（一个整体参与拖拽）
              └─ div.sidebar__body        内容区（flex: 1 1 auto; min-height: 0）
                   ├─ div.sidebar__panel  v-show="activeTab === 'explorer'" → FileExplorer
-                  │      └─ header.explorer__head   ← SidebarSwitcher（左，2 颗图标） + 新建文件 / 文件夹（右）
+                  │      └─ header.explorer__head   ← SidebarSwitcher（左，面板胶囊 2 段 + 设置 1 颗） + 新建文件 / 文件夹（右）
                   └─ div.sidebar__panel  v-show="activeTab === 'tests'"    → TestPanel
-                         └─ header.panel__head      ← SidebarSwitcher（左，2 颗图标） + verdict / 耗时（右）
+                         └─ header.panel__head      ← SidebarSwitcher（左，同上） + verdict / 耗时（右）
 ```
 
-侧边栏页头里**第二颗图标是「设置」**（2026-09-28 加，顶栏删除后从顶栏齿轮搬来）：它不切侧栏面板，而是开关编辑区里的设置页签（`settingsTab`，见第 5 节坑 7）。第一颗切 `cph.sidebarTab`。因为设置页签是编辑区的东西，关掉它时侧栏那颗图标的高亮也跟着灭——高亮状态由 `settingsTab.active` 决定，不走 `cph.sidebarTab`。
+侧边栏页头左侧是**一枚面板胶囊开关 + 一颗设置钮**：胶囊整枚是一颗 toggle 按钮（点它任意位置都翻到另一个面板，切 `cph.sidebarTab`），里面两段分别是资源管理器与评测样例、当前所在的那段填亮；胶囊外那颗（2026-09-28 加，顶栏删除后从顶栏齿轮搬来）不切面板，而是开关编辑区里的设置页签（`settingsTab`，见第 5 节坑 7）。因为设置页签是编辑区的东西，关掉它时那颗齿轮的底色也跟着灭——它的状态由 `settingsTab.active` 决定，不走 `cph.sidebarTab`，但它填的是与胶囊选中段同一枚实心蓝（「填亮＝开着」一套语言；它在轨道外、是圆形，不会被误读成第三个面板）。
 
-**开跑必亮结果**（2026-09-28 加）：运行入口有三处——编辑器页签栏右端的运行按钮、`⌘/Ctrl + Enter`、评测面板页脚的运行按钮——全都并到 `App.vue` 的 `runAll()` 这一个出口。`runAll()` 在通过「正在跑 / 没有用例 / 没有活跃语言」三道前置判断之后、真正开跑之前，会调 `revealTestsPanel()`：侧栏收起了就用 `togglePanel()` 展开（它顺带把 `virtualShare` 接回 `editorShare`，与双击展开同一套收口），然后 `sidebarRef.value?.showPanel('tests')` 切到评测样例。已经在评测样例上就是空操作，不会破坏页签持久化。**别把这段放到 `runAll()` 的前置判断之前**——那样点「停止」（同一个按钮，跑到一半时发的是中止）也会把侧栏弹出来。
+**开跑必亮结果**（2026-09-28 加）：运行入口有两处——`⌘/Ctrl + Enter`、评测面板页脚的运行按钮（编辑器页签栏右端那颗已于 2026-09-28 删除）——全都并到 `App.vue` 的 `runAll()` 这一个出口。`runAll()` 在通过「正在跑 / 没有用例 / 没有活跃语言」三道前置判断之后、真正开跑之前，会调 `revealTestsPanel()`：侧栏收起了就用 `togglePanel()` 展开（它顺带把 `virtualShare` 接回 `editorShare`，与双击展开同一套收口），然后 `sidebarRef.value?.showPanel('tests')` 切到评测样例。已经在评测样例上就是空操作，不会破坏页签持久化。**别把这段放到 `runAll()` 的前置判断之前**——那样点「停止」（同一个按钮，跑到一半时发的是中止）也会把侧栏弹出来。页签栏那颗按钮删掉之后这条路更关键了：侧栏收起时唯一的点击入口已经没了，`⌘/Ctrl + Enter` 是唯一还能「隔空开跑并把结果亮出来」的手段（无头回归 E 步走的就是它）。
 
 切换栏目的入口（`SidebarSwitcher.vue`，2026-09 加）**不再单独占一行页签栏**，而是渲染在两个面板各自的页头里：同一时刻只有一个面板可见，所以视觉上只有一份，且两个页头里它都贴左——切过去之后按钮位置不动，可以连点。按钮**只画 logo 不写字**（多文件 = 资源管理器，带勾的清单 = 评测样例，齿轮 = 设置，见 `AppIcon.vue` 的 `files` / `cases` / `gear`），名字放 `title` 与 `aria-label`。
 
-**两个面板的入口已在 2026-09-28 合并成一颗切换钮**（第 14.1 项的落地结果，见该节）：它画的是**将要去的那一个**（图标与文案都跟着翻），`title` 是「切换到评测样例」这种祈使句，因此它**不带 `is-active`**——页头上不再有「我现在在哪个面板」的视觉信号，当前面板只能看 `.sidebar__panel[data-panel]`（`verify-ui.mjs` 的探针就认这个）。面板状态仍是 `cph.sidebarTab`，只有 `Sidebar` 一份（经 `provide('sidebarTabs')` 下发），别让面板各存一份；第二颗（设置）读的是 `settingsTab.active`。
+**两个面板的入口在 2026-09-28 定稿为「胶囊式开关」**（第 14.1 项的落地结果，见该节），当天改了两轮，最终形态是这两条的合体：
+
+- **视觉像分段控件**：两段图标并排住在一个圆角轨道（`.sidebar-switcher__pill`）里，**当前所在的那段填实心蓝**（`--accent` + `--text-on-accent`）。这守的是「有两个面板可切」，也是第一轮否掉「一颗只有去向往哪儿的动作钮」时提的要求。
+- **交互是一颗 toggle**：整枚轨道就是那个 `<button>`，点它**任意位置**（含 2px 内边距、圆角内的边缘、当前段自己）都翻到另一个面板；两段是纯视觉的 `<span>`，不接点击、也没有 `tabindex`。这是第二轮的要求——两段各自可点会在胶囊里留下点不动的边。
+
+所以**别把点击下放回某一段**，也别退回「一颗只有去向往哪儿的单钮」。文案写**将要去的那一个**（`title` / `aria-label` 都是「切换到评测样例」这种祈使句，跟着 `targetPanel` 变）。无头回归的 `sidebarSegActive` 读的是每段上的 `data-current="true"`（哪一段被标记成当前），`sidebarTabs` 读页头两个控件的 `aria-label`。另外「现在停在哪个面板」仍有一个更直接的机器可读出处：`.sidebar__panel[data-panel]`。面板状态是 `cph.sidebarTab`，只有 `Sidebar` 一份（经 `provide('sidebarTabs')` 下发），别让面板各存一份；胶囊外那颗（设置）读的是 `settingsTab.active`。
 
 关键规则（`src/App.vue:513` 起）：
 
@@ -149,22 +154,24 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 顶栏（`TopBar.vue`）整体删除后，原来那套「三档断点 + 省略号收纳」**不再存在**（历史见本节末）。现在需要守的只有两条，且都不靠 `@media` 断点，靠 flex 自己收缩；下表是 2026-09-28 用无头 CfT 在 1680 / 560 / 414 / 375 / 320 五档实测的（`documentElement` 无横向溢出，异常 0 条）。
 
-| 视口宽 | 侧边栏宽 | 页头宽 | 图标 | 图标是否溢出 | 页签 strip 宽 | strip 是否横向滚动 | 运行按钮 | 运行按钮是否被裁 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1680 | 663 | 663 | 2×30 = 60 | 否 | 919 | 否 | 64×25 @ x=932 | 否 |
-| 560 | 238 | 238 | 2×30 = 60 | 否 | 224 | 否 | 64×25 @ x=237 | 否 |
-| 414 | 199 | 199 | 2×30 = 60 | 否 | 117 | 否 | 64×25 @ x=130 | 否 |
-| 375 | 180 | 180 | 2×30 = 60 | 否 | 98 | 是 | 64×25 @ x=111 | 否 |
-| 320 | 158 | 158 | 2×30 = 60 | 否 | 64 | 是 | 64×25 @ x=77 | 否 |
+| 视口宽 | 侧边栏宽（= 页头宽） | 页头图标区 | 图标是否溢出 | 页签 strip 宽 | strip 是否横向滚动 | 页面是否横向溢出 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1680 | 663 | 60 + 4 + 26 = 90 | 否 | 995 | 否 | 否 |
+| 560 | 238 | 60 + 4 + 26 = 90 | 否 | 300 | 否 | 否 |
+| 414 | 199 | 60 + 4 + 26 = 90 | 否 | 193 | 否 | 否 |
+| 375 | 180 | 60 + 4 + 26 = 90 | 否 | 174 | 否 | 否 |
+| 320 | 158 | 60 + 4 + 26 = 90 | 否 | 140 | 否 | 否 |
 
-> 表里「图标」一列原是「三颗图标 / 3×30 = 90」，2026-09-28 两个面板入口合并成一颗切换钮后（第 14.1 项）改为 60px。其余各列（页签 strip、运行按钮、无横向溢出）**未重测**——图标变少只会让页头更宽松，不会让它们变紧；下次动页头时要么顺手重量，要么就照旧只信这几列。
+> 本表 **2026-09-28 重测过一次**（编辑器页签栏右端那颗运行按钮当天删除后）：侧边栏宽 / 页头宽与删除前逐像素一致（663 / 238 / 199 / 180 / 158，五档全中），而「页签 strip 宽」因为不再被那颗 64px 的按钮挤窄而变宽（375 档从 98 → 174、320 档从 64 → 140），所以后两列是新的。测量时默认只开着 `main.cpp` 一个页签，五档都不需要滚动；**strip 自己仍是 `overflow-x: auto`**，页签多起来照常滚——别把「不滚动」当成新契约。
+>
+> 表里「页头图标区」一列 2026-09-28 改动过两次，最终**回到 90px**：先是「三颗 30px 图标」= 90px（实测值），当天中午合并成一颗动作钮变成 60px，下午按反馈改成胶囊（两段 60px + 间距 4px + 设置 26px）又回到 90px。
 
-- **侧边栏页头两颗图标**（`SidebarSwitcher`）：30×26 一颗、`gap` 0、`flex: 0 0 auto`，合计 60px（2026-09-28 前是 90px，两个面板入口各占一颗）。最窄档（320px 视口，面板 158px）页头右侧还有新建文件 / 文件夹两颗动作按钮，图标右缘到动作区仍留 94px。`.explorer__head` 是固定 `height: 35px`、**不折行**，所以加第三颗或给图标加文字就会直接溢出——要加先按下面口径重量（见第 1 节硬约束表）。
-- **编辑器页签栏的运行按钮**（`.editor-tabs__run`，64×25）：`.editor-tabs` 拆成两个兄弟——`.editor-tabs__strip { flex: 1 1 auto; min-width: 0; overflow-x: auto }`（页签在这层滚）+ `.editor-tabs__run { flex: 0 0 auto }`。所以页签再多、视口再窄，运行按钮都**不跟着滚**，永远贴在页签栏右端（375 / 320 档实测：strip 已可滚，运行按钮仍完整可见）。它是侧边栏收起后唯一的运行入口（另一颗在评测面板页脚）。
+- **侧边栏页头图标区**（`SidebarSwitcher`）：`.sidebar-switcher` 是 `inline-flex; gap: 4px`，内含①面板胶囊 `.sidebar-switcher__pill`（**本身是那颗 toggle 按钮**；`padding: 2px` + 两段各 28×22 = 60px 宽，整枚 13px 圆角）②设置钮（26×26 圆形）。三者相加 90px，与最早「三颗 30px」的占位完全相同。最窄档（320px 视口，面板 158px）页头右侧还有新建文件 / 文件夹两颗动作按钮，图标区右缘到动作区仍留 64px。`.explorer__head` 是固定 `height: 35px`、**不折行**，所以给图标加文字、加大 `gap`、往胶囊里塞第三段都会直接溢出——要加先按下面口径重量（见第 1 节硬约束表）。
+- **编辑器页签栏**（`.editor-tabs`，`flex: 0 0 35px`）：现在只有一个子元素 `.editor-tabs__strip { flex: 1 1 auto; min-width: 0; overflow-x: auto }`，页签铺满整行、装不下就自己横向滚。右端那颗 64×25 的「运行 / 停止」按钮（`.editor-tabs__run`）**2026-09-28 已删**：删之前它靠 `flex: 0 0 auto` 钉在右端不跟着滚，同时把 strip 挤窄 64px + 12px 外边距；删掉之后 strip 直接宽出这一截（见上表）。**别再往这里加常驻按钮**——加了就要重新量五档宽度，并想清楚窄屏下页签被挤成什么样。
 - 怎么量「必需宽度」：把摊平后的每个可见 flex 项**逐个**注 `flex-shrink: 0`，再把吃剩余空间的项藏掉，量最后一个可见子项右缘到容器左缘的距离 + 右内边距。**不能直接量 `scrollWidth`**——容器不是滚动容器时，收缩后的子项不会让它溢出，量出来的恒等于容器宽。
 - 量宽度时的两个口径坑：`display: none` 父元素内的子元素，`getComputedStyle(child).display` **仍返回它自己的值**（不是 `none`），判可见要量外层容器或用 `el.getClientRects().length > 0`；`display: contents` / `display: none` 的子元素不生成盒子、**不占 gap**，量必需宽度时要把它们排除，否则会虚高几十像素。
 - **不要用 iframe 或注入 `display: revert` 的方式模拟视口**——量不到真实溢出，返回的数字是自洽的假象。触屏档要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才会命中 `@media (pointer: coarse)`（`emulateMediaFeatures` 不支持 `pointer`）。
-- **历史**：顶栏原有的三档响应式断点（820 / 520 / 349）与 `⋯` 省略号收纳，2026-09-28 连同 `.topbar` / `.brand*` / `.tool` / `.primary` / `.popover--menu` 一起删除。设置入口搬进侧边栏页头（当时是第三颗图标，两个面板入口合并后成了第二颗）、运行按钮搬进编辑器页签栏、安装到设备并进设置视图的「应用」分组、侧边栏开关与品牌删除（侧栏显隐仍可由分隔条双击 / 键盘切换，见第 3 节关键规则）。`--bg-chrome` 变量保留——它现在只服务于 `theme-color`（独立应用窗口标题栏底色），不再是任何组件的背景。
+- **历史**：顶栏原有的三档响应式断点（820 / 520 / 349）与 `⋯` 省略号收纳，2026-09-28 连同 `.topbar` / `.brand*` / `.tool` / `.primary` / `.popover--menu` 一起删除。设置入口搬进侧边栏页头（当时是第三颗图标，现在胶囊外那颗）、运行按钮先搬进编辑器页签栏、**同一天又删掉**（删后运行只剩 `⌘/Ctrl + Enter` 与评测面板页脚那颗 ▶）、安装到设备并进设置视图的「应用」分组、侧边栏开关与品牌删除（侧栏显隐仍可由分隔条双击 / 键盘切换，见第 3 节关键规则）。`--bg-chrome` 变量保留——它现在只服务于 `theme-color`（独立应用窗口标题栏底色），不再是任何组件的背景。
 
 ### 侧边栏的最低宽度（`App.vue`，2026-09 加；原名「测试面板的最低宽度」）
 
@@ -232,7 +239,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | 描边 | `--border`、`--border-soft` |
 | 文字 | `--text`、`--text-dim`、`--text-faint`、`--text-on-accent`、`--statusbar-text` |
 | 强调 | `--accent`、`--accent-hover`、`--accent-strong`、`--accent-deep`、`--focus`（焦点框与分隔条高亮） |
-| 运行按钮 | `--run-green`、`--run-green-hover` |
+| 运行（评测样例面板页脚那颗 ▶） | `--run-green`、`--run-green-hover` |
 | 状态色 | `--ok`、`--fail`、`--err`、`--info`、`--warn` + 浅底变体 `--ok-soft`、`--fail-soft`、`--danger-bg`、`--danger-bg-hover`、`--danger-text` |
 | 提示块 | `--info-soft-bg`、`--info-soft-border`、`--info-soft-bg-hover`、`--info-soft-border-hover`、`--info-soft-text` |
 | 用例卡片 | `--case-border`、`--case-chip-bg` |
@@ -247,11 +254,11 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `App.vue`（style@622） | `.app` `.workspace` `.pane` `.splitter` 及其状态类 |
 | （原 `TopBar.vue`） | **已删除**（2026-09-28）：`.topbar` / `.brand*` / `.tool` / `.primary` / `.popover--menu` / `.menu__item--*` 和三档响应式断点整块没了。对应的三处去处见第 3 节「无顶栏后的两条宽度线」 |
 | `Sidebar.vue`（style@72） | `.sidebar`（column）`.sidebar__body` `.sidebar__panel`（`flex: 1 1 auto; min-height: 0`）。**面板内部的滚动归各面板自己**，这里只保证「不限高、不撑破外层」。原 `.sidebar__tabs` / `.sidebar__tab`（独占一行的页签栏）已在 2026-09 删除，改成下面那套 |
-| `SidebarSwitcher.vue`（style@37） | `.sidebar-switcher`（`inline-flex`，高 26px，`flex: 0 0 auto`）`.sidebar-switcher__tab`（30×26，**只画 logo 不写字**，名字放 `title` / `aria-label`；`.is-active` = 底部 `--focus` 高亮 + 底色换 `--bg-panel`，与内容区连成一体）。用 `aria-pressed` 而不是 `role="tab"`：它渲染在面板（页头）内部，不再是独立的 tablist。要断言/选中它时认 `aria-label`（`textContent` 是空的），并且先落到当前可见的那个 `.sidebar__panel` 里。**2026-09-28 起第一颗是「切换面板」的动作钮（不带 `is-active` / `aria-pressed`，`aria-label` 形如「切换到评测样例」），只有第二颗「设置」用这两个属性**；当前面板改看 `.sidebar__panel[data-panel]` |
+| `SidebarSwitcher.vue`（style@40） | `.sidebar-switcher`（`inline-flex; gap: 4px`，高 26px，`flex: 0 0 auto`）`.sidebar-switcher__pill`（**本身是 `<button>`**：胶囊轨道 + 那颗 toggle，`padding: 2px`、`border-radius: 13px`、底色 `--bg-control`，hover 提亮到 `--bg-control-hover`）`.sidebar-switcher__seg`（胶囊里的两段，`<span>` 纯视觉、不接点击也没 `tabindex`，28×22 / `border-radius: 11px`，带 `data-panel` 与 `data-current`；`.is-active` 填 `--accent` + `--text-on-accent`）`.sidebar-switcher__tab`（胶囊**外**那颗设置钮，26×26 圆形；`.is-active` 同样填 `--accent`——**不能**退回 `--bg-hover`，那色与隔壁轨道 `--bg-control` 几乎同色，实测两个控件会糊成一块）。只画 logo 不写字，名字放 `title` / `aria-label`（胶囊那颗写「将要去的那一个」）。切换时选中段播放滑动动画：`sidebar-seg-from-left` / `sidebar-seg-from-right`（260ms，house 缓动 `cubic-bezier(0.22, 0.61, 0.36, 1)`），位移是一段宽（`var(--seg-w)`，与段的宽高同源，只在上面的 `--seg-w` 写一次），`color` 从 `transparent` 起步让图标在途中隐形、到位才亮；只挂在 `.sidebar-switcher__pill[data-switched]` 下，首屏不放（见第 5 节坑 5c）。断言时先落到当前可见的那个 `.sidebar__panel` 里，再认 `aria-label` / `data-current` / `data-panel`（`textContent` 都是空的） |
 | `TestPanel.vue`（style@93） | `.panel`（`flex: 1 1 auto; min-height: 0`，不再写 `height: 100%`）`.panel__head`（`min-height: 35px` + 上下 4px 内边距，左侧放 `SidebarSwitcher`，`flex-wrap: wrap`）`.panel__heading`（`margin-left: auto`，折行后仍贴右）`.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.select` `.panel__foot` `.run-inline` |
 | `FileExplorer.vue`（style@330） | `.explorer`（column，`flex: 1 1 auto`）`.explorer__head`（`height: 35px`，左侧放 `SidebarSwitcher`、右上角两颗按钮；两边加起来离面板下限还远，所以**不折行**）`.explorer__actions`（`flex: 0 0 auto`）`.explorer__btn` `.explorer__tree` `.explorer__input` `.explorer__error`；删除确认弹窗（Teleport 到 body，`z-index: 130`）：`.confirm`（遮罩）`.confirm__card` `.confirm__title` `.confirm__desc` `.confirm__path` `.confirm__actions` `.confirm__btn`（`--danger` 用 `--danger-bg` / `--danger-bg-hover` / `--danger-text`） |
 | `TestCaseCard.vue`（style@202） | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
-| `EditorTabs.vue`（style@123） | `.editor-tabs`（`flex: 0 0 35px`）`.editor-tabs__strip`（`flex: 1 1 auto; min-width: 0`，**横向滚动在这里**，运行按钮不跟着滚）`.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式）`.editor-tabs__run`（`flex: 0 0 auto`，64×25，`--run-green` 底色；`.is-running` 换 `--danger-bg` / `--danger-text`，见第 3 节） |
+| `EditorTabs.vue`（style@106） | `.editor-tabs`（`flex: 0 0 35px`）`.editor-tabs__strip`（`flex: 1 1 auto; min-width: 0`，**横向滚动在这里**，现在铺满整行）`.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式）。原 `.editor-tabs__run`（64×25 的运行 / 停止按钮，以及它的 `.is-running`）2026-09-28 已随按钮一起删除 |
 | `EditorPane.vue`（style@231） | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
 | `EditorSettingsPanel.vue`（style@539） | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，8 项，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row*` `.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.download-button*`（本地运行环境下载 / 「应用」组安装按钮 / 扩展包下载共用）`.shortcut-list*`（插件快捷键只读清单）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
 | `HotkeyRecorder.vue` | `.hotkey-field`（右对齐一列）`.hotkey`（录制框，`--is-recording` 描边点亮 / `--is-conflict` 红描边红字 / `--is-empty` 未绑定置灰）`.hotkey-clear`（清除按钮）`.hotkey-error`（冲突红字）`.hotkey-tip`（录制中的 Esc / Delete 提示） |
@@ -267,7 +274,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 2. **Monaco 文字用 NBSP 渲染**：用脚本读 `.view-lines` 的文本时，空格是 `\u00a0`（charCode 160），`includes('def solve')` 这类断言永远匹配不上。
 3. **Monaco 的 `.minimap` DOM 节点始终存在**，关闭时宽度为 0；判断"有没有小地图"要看 `getBoundingClientRect().width`，不是 `querySelector`。
 4. **localStorage 里存的是 JSON 字符串**：`cph.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
-5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换按钮（`SidebarSwitcher`）在两个面板的页头里各有一份实例，**按选择器取它时必须先落到「当前可见的那个 `.sidebar__panel`」里**（用 `getClientRects().length > 0` 判可见），否则会同时拿到隐藏那份，脚本/断言会凭空多出一倍。
+5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换按钮（`SidebarSwitcher`）在两个面板的页头里各有一份实例，**按选择器取它时必须先落到「当前可见的那个 `.sidebar__panel`」里**（用 `getClientRects().length > 0` 判可见），否则会同时拿到隐藏那份，脚本/断言会凭空多出一倍。（c）**同一原因让「跨这两个实例的运动」做不了 `transition`**：点一下就是把刚点的那份藏了、另一份亮出来，高亮不是同一个元素在动，`transition` 永远看不到。胶囊的滑动高亮（`SidebarSwitcher` 的 `sidebar-seg-from-*`）因此用 `animation` ——元素从 `display: none` 变成可见时动画会从头播；并用 `[data-switched]` 挡掉首屏那次（首屏同样是「从隐藏变可见」，可那时并没有发生任何切换）。两份胶囊在屏幕上的位置完全相同，所以「新亮出来的那份从旧位置滑过来」看起来就是同一枚高亮在横移。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
 7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身是**「目录 + 内容」两栏**（2026-09 改）：左边 `.settings-nav` 是分类目录（编辑器 / 布局 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助，`SECTIONS` 常量驱动），右边同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「浏览器插件」那一组会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」与「浏览器插件」两组是 2026-09 新加的（见第 13 节）。窄宽度降级不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `@container settings (max-width: 560px)` 把目录翻成顶部横向标签条。
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠、以及整个「评测样例」页签被切走时元素都是 `display: none`，此刻 `scrollHeight` 为 0，代码会跳过重算——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。重算的触发有两处：`watch`（输入变化 / 卡片展开）+ 一个挂在输入框上的 **`ResizeObserver`**（只认宽度从 0 变有值、或面板被拖宽，宽度变大才算，避免回调环）。页签是 `v-show` 切换的，没有重新挂载的时刻，**没有这个 observer 就会一直塌成一行**（旧版只在 `onMounted` 跑一次，切到「评测样例」时必然塌）。
@@ -341,7 +348,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
 - **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
 - **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/Problems/<OJ>/<题名>.cpp`（元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
-- **全局快捷键（2026-09 加）**：可绑定的只有 5 个动作——运行全部用例 / 显示隐藏侧边栏 / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时点运行按钮会先把结果亮出来（见第 3 节「开跑必亮结果」），快捷键走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
+- **全局快捷键（2026-09 加）**：可绑定的只有 5 个动作——运行全部用例 / 显示隐藏侧边栏 / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
 
 ## 8. 验证方式
 
@@ -363,7 +370,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   3. 在设置里切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：界面应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
-- 布局宽度专项（动过 `SidebarSwitcher.vue` / `EditorTabs.vue` / 侧栏各面板页头 / `.pane--tests` 下限后必做），临时探针、用完即删：在 1680 / 560 / 414 / 375 / 320 五档量四件事——（a）侧栏页头两颗图标（`aria-label` 认「切换到…」与「设置」；2026-09-28 前是「资源管理器 / 评测样例 / 设置」三颗）都可见、宽 30、且右缘不超页头右缘，（b）`.editor-tabs__run` 存在、宽 ≥ 40、左右缘都落在视口内（没被裁），（c）`documentElement.scrollWidth === innerWidth`（无横向溢出），（d）`.workspace` 的 `getBoundingClientRect().top === 0`（顶栏确实没了、工作区贴顶）。**只看有没有横向滚动条不够**：`.editor-tabs__strip` 自己会滚，真溢出反而被它吸收；要按第 3 节那个「必需宽度」公式自己算。2026-09-28 的实测表与结论记在第 3 节「无顶栏后的两条宽度线」。
+- 布局宽度专项（动过 `SidebarSwitcher.vue` / `EditorTabs.vue` / 侧栏各面板页头 / `.pane--tests` 下限后必做），临时探针、用完即删：在 1680 / 560 / 414 / 375 / 320 五档量四件事——（a）侧栏页头图标区（量 `.sidebar-switcher`，合计 90px = 胶囊 60 + 间距 4 + 设置 26）都可见、且右缘不超页头右缘，（b）侧栏宽 / 页头宽（与上表逐像素比，删掉页签栏那颗运行按钮后应仍是 663 / 238 / 199 / 180 / 158），（c）`documentElement.scrollWidth === innerWidth`（无横向溢出），（d）`.workspace` 的 `getBoundingClientRect().top === 0`（顶栏确实没了、工作区贴顶）。**只看有没有横向滚动条不够**：`.editor-tabs__strip` 自己会滚，真溢出反而被它吸收；要按第 3 节那个「必需宽度」公式自己算。2026-09-28 的实测表与结论记在第 3 节「无顶栏后的两条宽度线」（**运行按钮 2026-09-28 删除后已重测**，所以别再去找 `.editor-tabs__run`）。
 - 插件抓题专项（动过 `problemImport.js` / `useCompanionBridge.js` / `useCompanionImport.js` / 落盘结构后必做），临时探针、用完即删。**不必真装扩展**——在页面上下文直接 `window.postMessage({ source: 'competitive-companion', type: 'cph-task', taskId: 't1', payload: JSON.stringify(task) }, location.origin)` 就能走完整条链路（`event.source` 与 `event.origin` 两道校验都能过）。要覆盖的六件事：
   1. 首次导入后树里出现 `<题名>.cpp`、**不出现** `.cph` 与任何 `.json`，UI 树里也没有「题名」这一层目录；
   2. 底层元数据在（`vfs.readFile('/Problems/<OJ>/.cph/<题名>.json')` 能读到，含 `tests` 与 `oj`）；
@@ -373,13 +380,15 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   6. 抓完后编辑器打开的是这道题的代码文件（`.editor-tabs__item--active` 与 `workspace.activeId` 对得上）。
   写这个探针时踩过两个坑，别再踩：**（a）** 点树上的箭头展开目录时，只点 `.tree-item__row[aria-expanded="false"]`——`.tree-item__arrow` 这个 span 在**每一行**都有（文件行的箭头是空的），而点击处理挂在父级 `.tree-item__row` 上，所以「点所有箭头」实际会把每个文件都 `openFile` 一遍，最后点到的文件抢走 `activeId`，断言就会误报「打开的标题不对」；**（b）** 动态 `import('/src/services/…')` 拿到的可能是**另一个空实例**——Vite dev 给源码模块 URL 加了 `?t=<时间戳>`，裸路径 import 与 app 真正加载的那份不是同一个模块（症状是 `workspace.tree.length === 0` 但界面明明渲染出来了）。正确姿势是用 `performance.getEntriesByType('resource')` 找到 app 真实加载过的那条 URL 再 import。
 - 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cph.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面）；开录状态下按同一个键**不应**触发功能。
-- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**A–F 都应当是绿的**，跑之前先知道这几条：
+- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–F 应当是绿的**，跑之前先知道这几条：
+  - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（23 行全模板）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
   - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（编辑器 / 布局 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项，**加分类时这个数字要跟着改**） → **点目录里的「布局」**（设置是「目录 + 内容」两栏，默认停在「编辑器」，右侧只渲染当前那一组，不点就找不到换边入口）→ 在页签里选「左侧」→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
-  - **F 步（Python 模板与判题语言）走的是「资源管理器 → 点 main.py」这条路**（2026-09 改）：顶栏语言下拉已移除，语言只跟活跃文件的扩展名走。所以步骤是——先把面板切回「资源管理器」（2026-09-28 起用脚本里的 `showPanel(page, 'explorer')`：面板入口合并成了一颗切换钮，**不能再按名字点它**——它画的是「将要去的那一个」；且该 helper 必须把 `page` 当参数传进来，`const page` 在 `try {}` 块里，模块级函数直接引用会 `page is not defined`）→ DOM click 标签为 `main.py` 的 `.tree-item__row` → 断言 `.view-lines` 文本（NBSP 已归一）含 `def solve`、`.editor-tabs__item--active` 是 `main.py`、动态 `import('/src/services/vfs/workspaceStore.js')` 后 `activeLanguage === 'python'` 且 `activeNode.path === '/main.py'`、`[...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view'))`（钉住「顶栏语言下拉不会复活」——现在全站只剩设置视图里那几个原生下拉）。
+  - **F 步（Python 模板与判题语言）走的是「资源管理器 → 点 main.py」这条路**（2026-09 改）：顶栏语言下拉已移除，语言只跟活跃文件的扩展名走。所以步骤是——先把面板切回「资源管理器」（用脚本里的 `showPanel(page, 'explorer')`，它点胶囊那颗 toggle；先判当前面板不是目标再点，否则会翻过头。该 helper 必须把 `page` 当参数传进来，`const page` 在 `try {}` 块里，模块级函数直接引用会 `page is not defined`）→ DOM click 标签为 `main.py` 的 `.tree-item__row` → 断言 `.view-lines` 文本（NBSP 已归一）含 `def solve`、`.editor-tabs__item--active` 是 `main.py`、动态 `import('/src/services/vfs/workspaceStore.js')` 后 `activeLanguage === 'python'` 且 `activeNode.path === '/main.py'`、`[...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view'))`（钉住「顶栏语言下拉不会复活」——现在全站只剩设置视图里那几个原生下拉）。
   - F 步曾长期误报：断言切到 Python 后 `.view-lines` 文本含 `def solve`，而 Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**——已修（断言前把 `\u00a0` 归一成空格），现在过。这条 NBSP 归一化仍在用，别退回直接 `includes`。对照 A 步的 `includes('include')` 因为不含空格，从来没被这条绊到。
   - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=<任意空闲端口>` 覆盖（端口占用很随机，别写死某一个）。
+  - **写探针时别用 `page.$('.xxx')` / `page.click('.xxx')` 去碰页头里的东西**：它们抓的是**文档里第一个**匹配，而侧栏那两个面板是 `v-show` 双份 DOM，第一个多半落在被藏起来的那个面板里。症状是 `Node is either not clickable or not an Element`（`page.click`）或截图报 `Node is either not visible`（`ElementHandle.screenshot`）。正确姿势：先用 `[...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)` 拿到可见面板，再在它里面 `querySelector`，要真点就用 `page.mouse.click(x, y)` 打真实坐标（2026-09-28 一天里踩了两次）。
   - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
-  - **E 步同时守「开跑必亮结果」**（见第 3 节）：跑之前先把侧栏切回「资源管理器」再双击分隔条折叠，然后点编辑器那颗运行按钮，收尾断言 `.pane--tests` 又可见、且当前面板是「评测样例」（`collapsedBeforeRun` / `revealedAfterRun` 两个字段；后者看的是 `.sidebar__panel[data-panel] === 'tests'`，不再是 `is-active` 高亮）。顺序不能反——折叠后整栏 `display: none`，页头那几颗切换图标就点不到了。这一改让 E 收尾时侧栏停在「评测样例」，F 步本来就会自己切回「资源管理器」，两边不冲突。
+  - **E 步同时守「开跑必亮结果」**（见第 3 节）：跑之前先把侧栏切回「资源管理器」再双击分隔条折叠，然后**按 `⌘/Ctrl + Enter`**（2026-09-28 起，页签栏那颗运行按钮删掉后 E 步改走快捷键——此刻侧栏正折叠着，页脚那颗 ▶ 是 `display: none` 点不到的，正好顺带守住「侧栏收起时快捷键照样能跑」），收尾断言 `.pane--tests` 又可见、且当前面板是「评测样例」（`collapsedBeforeRun` / `revealedAfterRun` 两个字段；后者看的是 `.sidebar__panel[data-panel] === 'tests'`，不再是 `is-active` 高亮）。顺序不能反——折叠后整栏 `display: none`，页头那几颗切换图标就点不到了。这一改让 E 收尾时侧栏停在「评测样例」，F 步本来就会自己切回「资源管理器」，两边不冲突。修饰键按平台取（`process.platform === 'darwin' ? 'Meta' : 'Control'`，与 `useShortcutManager` 的 `IS_MAC` 同口径）。
   - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到左侧，写死向右会让测试栏反向变宽。
   - 临时探针的第三个坑：**边改源码边跑着 dev server** 时，探针会服务到旧的 transform（改完文件、刷新了页面，行为却还是旧的，断言照旧失败）。停掉 server → `rm -rf node_modules/.vite` → 重启，再跑一遍。
   - 各步之间有状态耦合（B/C 切布局会影响 D 的期望方向），改断言时顺着看一遍。
@@ -552,24 +561,32 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**14.1 已落地**（保留在下面只作记录），剩下 9 项里靠前的都是站点侧小改动，越往后越重：14.3 / 14.5 / 14.6 会动用户数据，14.2 是 14.5 的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
 
-### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28）
+### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28，做成胶囊开关）
 
 **原现状**：`Sidebar.vue` 的 `PANEL_TABS` 两项（`explorer` / `tests`）+ 一项 `settings`，三颗按钮并排渲染在面板页头（`SidebarSwitcher.vue`）；当前面板存在 `cph.sidebarTab`，两个面板用 `v-show` 切；`Sidebar.vue` 用 `defineExpose` 暴露 `showPanel(id)`，供 `App.vue` 开跑时把「评测样例」亮出来。
 
-**做成了**：面板入口合并成一颗按钮，点一下在两个面板之间来回切；设置那颗原地不动。改动落在三处：
+**做成了**：两个面板的入口是**「视觉像分段控件、交互是一颗 toggle」的胶囊**（当天改了两轮才定稿，见下）。改动落在三处：
 
-- `Sidebar.vue`：`PANEL_TABS` 保留两项（仍是状态与持久化的唯一出处），新增 `targetPanel` 计算属性；`provide('sidebarTabs')` 下发的 `entries` 变成「面板切换 + 设置」两条，`selectEntry` 里面板那条执行 `activeTab.value = targetPanel.value.id`。两个 `.sidebar__panel` 加了 `data-panel="explorer" / "tests"`。
-- `SidebarSwitcher.vue`：按 `entries` 渲染（原来按 `tabs` + `isActive`）；面板那颗**不传 `pressed`**，所以既没有 `is-active` 也没有 `aria-pressed`。
-- `scripts/verify-ui.mjs`：探针新增 `visiblePanel()`，用 `sidebarPanel`（读 `data-panel`）取代 `sidebarActiveTab`；新增模块级 `showPanel(page, id)`（**必须传 `page`**，块级作用域坑见第 8 节 F 步那条）；A / E / F 三处断言同步。
+- `Sidebar.vue`：`PANEL_TABS` 保留两项（仍是状态与持久化的唯一出处）；新增 `panels`（每项带 `active`）、`targetPanel`、`togglePanel`、`settingsEntry`、`toggleSettings`，经 `provide('sidebarTabs')` 下发。两个 `.sidebar__panel` 加了 `data-panel="explorer" / "tests"`。
+- `SidebarSwitcher.vue`：`.sidebar-switcher__pill` **本身就是 `<button>`**（点它任意位置都 toggle），里面 `v-for` 出两段 `<span>` 作纯视觉指示（28×22、11px 圆角、带 `data-panel` 与 `data-current`、当前段 `.is-active` 填 `--accent`）；设置那颗是轨道外的 26×26 圆形按钮。
+- `scripts/verify-ui.mjs`：探针新增 `visiblePanel()` / `visibleSegs()` / `sidebarSegActive`（读 `data-current`），用 `sidebarPanel`（读 `data-panel`）取代 `sidebarActiveTab`；`showPanel(page, id)` 改成「先判当前面板不是目标，再点胶囊」（**必须传 `page`**，块级作用域坑见第 8 节 F 步那条）；A / E / F 三处断言同步。
 
-**落地时定的四条**（与动手前预判一致）：
+**两轮反馈各推翻了什么**（别再走回头路）：
 
-- **图标与文案画「将要去的那一个」**，`title` 用「切换到评测样例」祈使句。代价是页头不再有「我现在在哪个面板」的视觉信号——所以 `data-panel` 这个机器可读出处是必需的（无头回归按它判），不是可选项。
-- **页头宽度从 30px × 3 = 90px 改成 30px × 2 = 60px**。第 1 节硬约束表与第 3 节实测表已同步；**其余各列（页签 strip 宽、运行按钮位置）没有重测**，只把图标那一列改掉了（图标变少只会更宽松），表下有注明。
-- **`showPanel('tests')` 的语义保住了**：它仍是直接赋值、不是 toggle，`App.vue` 的「开跑必亮结果」不受影响。
+1. 原方案是「两颗独立按钮合并成**一颗动作钮**」。落地后用户指出**看不出切换的过程**——只有一颗钮、只画「将要去的那一个」，看不到「有两个面板可选」。于是改成**胶囊**：两段并排住在一个轨道里、当前段填亮，「有哪些面板」和「我在哪一个」同时可见。
+2. 第一版胶囊让**每段各自可点**。用户随即要求「点胶囊的任意位置都可以切换」——那版在胶囊里留了 2px 内边距的死区，而且点当前段本身是空操作。于是把整枚轨道做成那颗 `<button>`（toggle），两段降级为纯视觉 `<span>`。
+   > 实测（真实鼠标坐标打 hit-test）：正中、上下左右边缘内 1px、当前段正中、另一段正中**全都能切**；只有圆角裁掉的那 1px 角不响应——那本来就不在胶囊形状里。
+3. 接着要求「做一个胶囊按钮中切换的动画」。这里有个真陷阱：胶囊在**两个面板的页头里各有一份实例**（`v-show` 藏一份），点一下就是把刚点的那份藏了、另一份亮出来，**高亮不是同一个元素在移动，`transition` 永远看不到**。做法是让新亮出来的那份里的选中段用 `animation` 从旧位置滑过来（两份胶囊屏幕位置完全相同，看起来就是同一枚高亮在横移），`color` 从 `transparent` 起步遮掉「图标在起点就跳成目标图标」那一瞬，并用 `[data-switched]` 挡掉首屏那次假切换。**没有改动 DOM 结构、也没有加 JS 状态机式的东西**（只多了一个「点过胶囊」标记）——把胶囊提出面板做成单一实例是另一条路，但那会破坏「切换入口长在面板页头里」这个已经定过的布局。
+   > 实测（把动画放慢到 2s 取样）：2s 的 117ms 处 `transform: translateX(-23.5px)`、图标 alpha 0.16（停在起点那一格、几乎全透明）；983ms 处 `-3.72px`、alpha 0.867（house 缓动在 49% 处已走完 87%，28×0.132=3.70 ✓，说明起点确实是一段宽）；终点 `none` 且动画列表清空；切回时换成 `sidebar-seg-from-right`、`+3.56px`。首屏 `data-switched:false`、动画数 0；点击后 `true`、1。
+
+**其余决定**：
+
+- **页头宽度最终仍是 90px**（胶囊 60 + 间距 4 + 设置 26），与最初「三颗 30px」逐像素一致；中间那版单钮的 60px 是过渡态。第 1 节硬约束表与第 3 节实测表已同步，且因为总占位回到原值，**第 3 节其余各列不必重测**。
+- **设置那颗不进胶囊**：塞进同一枚胶囊会暗示它是第三个面板、且属于同一个单选组（它其实是编辑区页签的独立开关）。第一版把它的 `.is-active` 做成 `--bg-hover` 底以求「不与胶囊抢」，截图一看那色和轨道 `--bg-control` 几乎同色、两个控件糊成一块，于是改成与面板段同一枚实心蓝——它在轨道外、是个圆形，不会被误读成「第三个面板被选中」。
+- **`showPanel('tests')` 的语义保住了**：仍是直接赋值、不是 toggle，`App.vue` 的「开跑必亮结果」不受影响。
 - **沿用 `cph.sidebarTab`**，没开新 key；老存档里的 `explorer` / `tests` 继续有效。
 
-**还没做（留给后续）**：页头宽度只在 1680 视口下跑过 `npm run verify`，320px 窄档没重量（本次是**减**一颗按钮，窄屏只会更宽松，风险低）。
+**还没做（留给后续）**：页头宽度只在 1680 视口下跑过 `npm run verify`，320px 窄档没重量（总占位与最初实测的那一版相同，风险低）。
 
 ### 14.2 VFS 需要优化（14.5 的前置）
 
