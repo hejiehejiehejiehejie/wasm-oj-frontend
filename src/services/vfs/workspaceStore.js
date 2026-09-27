@@ -63,6 +63,59 @@ workspace.expandedIds = Array.isArray(readJSON(EXPANDED_KEY, [])) ? readJSON(EXP
  */
 const nodeIndex = reactive(new Map())
 
+// ------------------------------------------------------------ UI 过滤
+
+/**
+ * 文件树里不显示的目录名。
+ *
+ * `.cph` 是导入题目的元数据目录（见 problemImport.js）：每道题一个与代码同名的 json，
+ * 由工具自己维护，用户既不该编辑也不该删，摆在树里纯是干扰。
+ * 代码文件本身不在这里 —— 它直接叫题目名，就摆在 OJ 目录下。
+ *
+ * 只过滤「交给 UI 的那棵树」——provider 的接口、nodeIndex、下面的清死 tab 逻辑一概照旧，
+ * 读写 .cph 下的元数据完全不受影响。
+ */
+const HIDDEN_DIR_NAMES = new Set(['.cph'])
+
+/**
+ * 递归剔除隐藏目录及其内容。
+ * 只摘目录：`.cph` 是个目录名，同名文件不在约定内，不必顺带处理。
+ *
+ * 返回值的引用规矩：这棵子树**一点没动**就原样返回入参（同一引用），父层靠它判断自己
+ * 要不要换新对象；动了才返回新数组。判据是 `changed`，而它必须**同时**涵盖两种情况：
+ *   1. 本层直接摘掉了节点；
+ *   2. 某个子节点被换成了新对象（说明更深的地方动过）。
+ * 只认第 1 种（或改比长度）都会漏：`.cph` 在两层之下，中间层自己一个节点没摘、
+ * children 长度也没变，于是父层拿到「没变」的错误结论，继续挂着那份未过滤的旧子树，
+ * `.cph` 就照旧显示出来。
+ *
+ * @param {import('./BaseVFSProvider.js').VFSNode[]} nodes
+ * @returns {import('./BaseVFSProvider.js').VFSNode[]}
+ */
+function withoutHiddenDirs(nodes) {
+  let changed = false
+  const visible = []
+  for (const node of nodes) {
+    if (node.type === 'directory' && HIDDEN_DIR_NAMES.has(node.name)) {
+      changed = true
+      continue
+    }
+    if (!node.children) {
+      visible.push(node)
+      continue
+    }
+    const children = withoutHiddenDirs(node.children)
+    if (children === node.children) {
+      // 子树没变，沿用原对象（保持引用稳定，避免整棵树无谓换新）
+      visible.push(node)
+    } else {
+      changed = true
+      visible.push({ ...node, children })
+    }
+  }
+  return changed ? visible : nodes
+}
+
 // ------------------------------------------------------------ 事件 → tree
 
 /**
@@ -71,7 +124,9 @@ const nodeIndex = reactive(new Map())
  */
 async function rebuildTree() {
   const vfs = getVFS()
-  workspace.tree = await vfs.getTree()
+  const rawTree = await vfs.getTree()
+  // 索引与清死 tab 继续看全量原始树，只有渲染用的这棵树摘掉隐藏目录
+  workspace.tree = withoutHiddenDirs(rawTree)
 
   // 原地更新响应式 Map（保持同一个对象，触发依赖它的 tab / 树重渲染）
   nodeIndex.clear()
@@ -88,7 +143,7 @@ async function rebuildTree() {
       if (node.children) walk(node.children)
     }
   }
-  walk(workspace.tree)
+  walk(rawTree)
 
   // 1) 同步存活 model 的最新节点元数据（改名后 path 变了）
   for (const id of workspace.openTabIds) {

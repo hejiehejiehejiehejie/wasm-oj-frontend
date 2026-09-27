@@ -5,7 +5,9 @@ import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import { usePersistentRef } from './composables/usePersistentRef.js'
+import { useCompanionImport } from './composables/useCompanionImport.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
+import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
 import { initWorkspace } from './services/vfs/migrate.js'
@@ -17,6 +19,7 @@ import {
   saveAll,
 } from './services/vfs/workspaceStore.js'
 import { modelManager } from './services/monaco/modelManager.js'
+import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/settingsTab.js'
 import {
   EDITOR_SETTINGS_DEFAULTS,
   normalizeEditorSetting,
@@ -522,16 +525,48 @@ watch(
   },
 )
 
-function onKeydown(event) {
-  if (!(event.metaKey || event.ctrlKey)) return
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    runAll()
-  }
+// ------------------------------------------------------------ 全局快捷键
+// 键位表在 useShortcutManager 里（含持久化与冲突检测），这里只把动作 id 接上真正的函数。
+// 监听挂在 window 的**捕获**阶段：Monaco 的键位服务挂在编辑器内部的 DOM 上，捕获是从外
+// 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
+const SHORTCUT_HANDLERS = {
+  run: () => runAll(),
+  'toggle-panel': () => togglePanel(),
+  'toggle-layout': () => toggleLayout(),
+  'new-case': () => addCase(),
+  'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
 }
 
+function onKeydown(event) {
+  // 输入法组字期间的按键不算快捷键（否则拼音选词会被当成命令）
+  if (event.isComposing) return
+  // 正在录制快捷键：全局这条在捕获阶段，永远早于录制框自己的监听，得主动让路
+  if (recordingActive.value) return
+
+  const actionId = actionForCombo(comboFromEvent(event))
+  const handler = actionId ? SHORTCUT_HANDLERS[actionId] : null
+  if (!handler) return
+  event.preventDefault()
+  // 拦住后续传播：既不让 Monaco 再按自己的内置键位处理一遍（如 Ctrl+Enter 会在下方插入一行），
+  // 也不让页面里其它监听重复响应
+  event.stopPropagation()
+  handler()
+}
+
+// ------------------------------------------------------- 浏览器扩展导入题目
+// 扩展推来的题目由 problemImport 落进 VFS，并顺手把编辑器切过去；这里补两脚：
+// 1) 抓到的样例整体替换评测面板（新题来了，旧题目的样例已经作废）；
+// 2) 若这道题本就开着、activeId 没变，EditorPane 的 watch 不响，得自己把焦点抢回编辑区。
+useCompanionImport({
+  setTestCases: (tests) => {
+    testCases.value = tests.map((test) => createCase(test))
+  },
+  onImported: () => editorPane.value?.focus(),
+})
+
 onMounted(async () => {
-  window.addEventListener('keydown', onKeydown)
+  // 捕获阶段：见上面 onKeydown 的说明（要抢在 Monaco 之前）
+  window.addEventListener('keydown', onKeydown, true)
   // 初始化 VFS（含旧草稿迁移）→ 恢复上次会话的 tab 与 model
   try {
     await initWorkspace()
@@ -542,7 +577,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onKeydown, true)
   window.clearTimeout(staleTimer)
   abortController?.abort()
 })

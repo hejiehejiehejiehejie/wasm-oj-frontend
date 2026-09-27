@@ -6,12 +6,14 @@
  * - Monaco 实例只建一次，切文件只 editor.setModel()，绝不重建（HANDOFF 硬约束）；
  * - model 全部来自 ModelManager（按 fileId 单例，多分屏时可共享）；
  * - ViewState 按 fileId 在本面板内保存/恢复；
- * - ⌘S 保存当前文件，⌘⏎ 运行全部；
+ * - ⌘S 保存当前文件；运行键不在这里注册 —— 全局快捷键挂在 window 捕获阶段，
+ *   抢在 Monaco 之前就把按键拦走了（见 composables/useShortcutManager.js）；
  * - 「设置」是与代码文件平级的合成页签：它显示时只是把 Monaco 藏起来（v-show，
  *   实例和 model 都留着），设置视图铺在同一层。
  */
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
+import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { langMeta } from '../services/templates.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
@@ -52,6 +54,9 @@ const host = ref(null)
 const editor = shallowRef(null)
 const cursor = ref({ lineNumber: 1, column: 1 })
 const selectedChars = ref(0)
+
+// 只用于状态栏那枚「运行」提示：键位可改，提示得跟着变
+const { bindings } = useShortcutManager()
 
 /** 本面板各文件的视图状态（滚动 / 光标 / 折叠） @type {Map<string, unknown>} */
 const viewStates = new Map()
@@ -108,7 +113,6 @@ onMounted(() => {
     selectedChars.value = instance.getModel()?.getValueInRange(event.selection)?.length ?? 0
   })
 
-  instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => emit('run-all'))
   instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     saveActive().catch(() => {})
   })
@@ -176,7 +180,9 @@ watch(
   { deep: true },
 )
 
-defineExpose({ layout: () => editor.value?.layout() })
+// focus 给「从外部把焦点送回编辑区」用（扩展导入题目后 activeId 可能没变，
+// 上面那个 watch 不会响，只能由调用方补一次）
+defineExpose({ layout: () => editor.value?.layout(), focus: () => editor.value?.focus() })
 </script>
 
 <template>
@@ -223,7 +229,7 @@ defineExpose({ layout: () => editor.value?.layout() })
       <span class="dot opt-lang"></span>
       <span class="opt-lang">{{ meta()?.label }}</span>
       <span class="dot"></span>
-      <span title="运行全部测试用例">⌘⏎</span>
+      <span title="运行全部测试用例">{{ formatCombo(bindings.run) }}</span>
     </footer>
   </div>
 </template>

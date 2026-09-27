@@ -3,8 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
+import HotkeyRecorder from './HotkeyRecorder.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
+import { useCompanionBridge } from '../composables/useCompanionBridge.js'
+import { SHORTCUT_ACTIONS, useShortcutManager } from '../composables/useShortcutManager.js'
 import { preload, probeRuntime, subscribeStatus } from '../services/wasmRuntime.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
@@ -145,16 +148,76 @@ const PANEL_POSITIONS = [
 const SECTIONS = [
   { id: 'editor', title: '编辑器', icon: 'code' },
   { id: 'layout', title: '布局', icon: 'sidebar' },
+  { id: 'shortcuts', title: '快捷键', icon: 'keyboard' },
   { id: 'judge', title: '评测', icon: 'check' },
   { id: 'runtime', title: '本地运行环境', icon: 'download' },
+  { id: 'extension', title: '浏览器插件', icon: 'plugin' },
   { id: 'app', title: '应用', icon: 'install' },
   { id: 'help', title: '帮助', icon: 'help' },
 ]
 
 const activeSection = ref('editor')
 
+// 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
+// 录制、冲突红字、阻止绑定都收在 HotkeyRecorder 内部（它要一边录一边校验）。
+const { resetAll } = useShortcutManager()
+
 // 安装到设备（2026-09 顶栏删除后从顶栏那颗按钮搬进来的）：浏览器判定可安装时才亮出来
 const { canInstall, install } = useInstallPrompt()
+
+// ------------------------------------------------------------ 浏览器插件
+// 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
+// cacheFirst 且从不重新校验，不带版本号的 URL 会把旧包一直喂给已经来过的用户。
+// 发新版插件时只需改这两个常量，再把新 zip 拷进 public/extension/。
+const EXTENSION_VERSION = '2.65.1'
+const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
+const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
+
+// 扩展对外只暴露 _execute_action 这类内部 id，中文名只能在这边维护
+const EXTENSION_COMMAND_LABELS = {
+  _execute_action: '解析当前页面题目',
+}
+
+const { extensionInfo, checking: extensionChecking, refresh: refreshExtension } = useCompanionBridge()
+
+const extensionStatusHint = computed(() => {
+  if (extensionChecking.value) return '检测中…'
+  if (!extensionInfo.value) return '未检测到；装好后需要刷新本页才会被检测到'
+  return `已安装 v${extensionInfo.value.version}`
+})
+
+const extensionShortcuts = computed(() =>
+  (extensionInfo.value?.commands ?? []).map((command) => ({
+    name: command.name,
+    label: EXTENSION_COMMAND_LABELS[command.name] || command.description || command.name,
+    shortcut: command.shortcut,
+  })),
+)
+
+const shortcutsCopied = ref(false)
+let copyTimer = 0
+
+// 浏览器的安全策略不允许网页改插件快捷键，也拦掉了指向 chrome:// 的跳转，
+// 所以这里只能把地址复制给用户，让他自己去地址栏粘贴。
+async function copyShortcutsUrl() {
+  try {
+    await navigator.clipboard.writeText('chrome://extensions/shortcuts')
+    shortcutsCopied.value = true
+    window.clearTimeout(copyTimer)
+    copyTimer = window.setTimeout(() => {
+      shortcutsCopied.value = false
+    }, 2000)
+  } catch {
+    /* 非安全上下文或用户未授权：保持原样，提示里已写明地址 */
+  }
+}
+
+// 插件可能在页面打开之后才装上或才被重载，所以每次切到这一栏都重探一次
+watch(activeSection, (section) => {
+  if (section === 'extension') refreshExtension()
+})
+
+onBeforeUnmount(() => window.clearTimeout(copyTimer))
 
 // ------------------------------------------------------------ 本地运行环境
 // 「是否已下载」不再只看一个 localStorage 布尔标记（它会过期：浏览器随时可能清缓存，
@@ -442,6 +505,33 @@ function setTimeLimit(event) {
         </label>
       </section>
 
+      <section v-else-if="activeSection === 'shortcuts'" class="setting-group">
+        <p class="setting-group__title">快捷键</p>
+        <p class="setting-group__note">
+          点右侧输入框后按下组合键即可改绑；按 Delete 清除绑定，按 Esc 取消录制。
+          与浏览器自带快捷键或其他功能冲突时会拒绝绑定并给出原因。
+        </p>
+
+        <div v-for="action in SHORTCUT_ACTIONS" :key="action.id" class="setting-row">
+          <span class="setting-row__label">
+            {{ action.label }}
+            <span v-if="action.hint" class="setting-row__hint">{{ action.hint }}</span>
+          </span>
+          <HotkeyRecorder :action-id="action.id" />
+        </div>
+
+        <div class="setting-row">
+          <span class="setting-row__label">
+            恢复默认
+            <span class="setting-row__hint">把上面所有快捷键还原成初始设置</span>
+          </span>
+          <button class="download-button" title="恢复默认快捷键" @click="resetAll">
+            <AppIcon name="reset" :size="13" />
+            <span>恢复默认</span>
+          </button>
+        </div>
+      </section>
+
       <section v-else-if="activeSection === 'judge'" class="setting-group">
         <p class="setting-group__title">评测</p>
 
@@ -526,6 +616,73 @@ function setTimeLimit(event) {
             <span>{{ canInstall ? '安装' : '已安装' }}</span>
           </button>
         </div>
+      </section>
+
+      <section v-else-if="activeSection === 'extension'" class="setting-group">
+        <p class="setting-group__title">浏览器插件</p>
+        <p class="setting-group__note">
+          装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站，不用手抄。
+        </p>
+
+        <div class="setting-row">
+          <span class="setting-row__label">
+            安装状态
+            <span class="setting-row__hint">{{ extensionStatusHint }}</span>
+          </span>
+          <button
+            class="download-button"
+            :disabled="extensionChecking"
+            title="重新检测插件"
+            @click="refreshExtension"
+          >
+            <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
+            <span>{{ extensionChecking ? '检测中' : '重新检测' }}</span>
+          </button>
+        </div>
+
+        <div class="setting-row">
+          <span class="setting-row__label">
+            下载插件
+            <span class="setting-row__hint">
+              装上后需在 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。
+              插件不在应用商店里，所以没法一键安装。
+            </span>
+          </span>
+          <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
+            <AppIcon name="download" :size="15" />
+            <span>下载</span>
+          </a>
+        </div>
+
+        <template v-if="extensionInfo">
+          <p class="setting-subtitle">插件快捷键</p>
+
+          <ul class="shortcut-list">
+            <li v-for="command in extensionShortcuts" :key="command.name" class="shortcut-list__item">
+              <span class="shortcut-list__label">{{ command.label }}</span>
+              <kbd class="shortcut-list__keys">{{ command.shortcut || '未设置' }}</kbd>
+            </li>
+          </ul>
+
+          <p class="setting-group__note">
+            插件快捷键由浏览器管理，网页没有权限改写，也没有权限跳转到
+            <code class="setting-code">chrome://extensions/shortcuts</code>
+            （浏览器会拦掉指向 chrome:// 的跳转）。只能复制地址后自己到地址栏粘贴打开。
+          </p>
+
+          <div class="setting-row">
+            <span class="setting-row__label">
+              快捷键设置页
+              <span class="setting-row__hint">
+                {{ shortcutsCopied ? '已复制，粘贴到地址栏回车即可' : '复制后在地址栏粘贴打开' }}
+              </span>
+            </span>
+            <button class="download-button" title="复制 chrome://extensions/shortcuts" @click="copyShortcutsUrl">
+              <AppIcon name="copy" :size="13" />
+              <span>{{ shortcutsCopied ? '已复制' : '复制地址' }}</span>
+            </button>
+          </div>
+        </template>
       </section>
 
       <section v-else-if="activeSection === 'help'" class="setting-group">
@@ -867,6 +1024,60 @@ function setTimeLimit(event) {
 
 .is-spinning {
   animation: settings-spin 0.9s linear infinite;
+}
+
+/* 下载按钮同时用在 <button>（复制地址）和 <a>（下载安装包）上，链接要去掉下划线 */
+a.download-button {
+  text-decoration: none;
+}
+
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shortcut-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-control);
+}
+
+.shortcut-list__label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shortcut-list__keys {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-control-hover);
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.setting-code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-control);
+  font-family: inherit;
+  font-size: 11px;
 }
 
 @keyframes settings-spin {
