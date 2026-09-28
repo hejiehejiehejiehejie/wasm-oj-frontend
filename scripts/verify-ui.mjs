@@ -253,8 +253,8 @@ try {
         navItems: document.querySelectorAll('.settings-nav__item').length,
       }
     })
-    // 设置是「目录 + 内容」两栏：默认停在「编辑器」那一组，换边入口在「外观」里。
-    // 先点目录里的「外观」，右侧才会渲染出含「侧边栏位置」的那组设置。
+    // 设置是「目录 + 内容」两栏：默认停在第一项「外观」，换边入口（侧边栏位置）就在这一组里。
+    // 仍然显式点一下目录里的「外观」，这样默认分类以后再变，这一步也不会跟着坏。
     await page.evaluate(() => {
       const item = [...document.querySelectorAll('.settings-nav__item')].find((el) =>
         el.textContent.includes('外观'),

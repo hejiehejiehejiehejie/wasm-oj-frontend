@@ -231,6 +231,7 @@ const PANEL_POSITIONS = [
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
+// 初值是目录里的第一项「外观」——第一次打开（或刷新后）就落在这里。
 const SECTIONS = [
   { id: 'appearance', title: '外观', icon: 'sliders' },
   { id: 'editor', title: '编辑器', icon: 'code' },
@@ -242,7 +243,7 @@ const SECTIONS = [
   { id: 'help', title: '帮助', icon: 'help' },
 ]
 
-const activeSection = ref('editor')
+const activeSection = ref('appearance')
 
 // 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
 // 录制、冲突红字、阻止绑定都收在 HotkeyRecorder 内部（它要一边录一边校验）。
