@@ -11,7 +11,7 @@ import AppIcon from './AppIcon.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { openFile, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
-import { dirname, join } from '../services/vfs/paths.js'
+import { dirname, join, stem } from '../services/vfs/paths.js'
 import { formatMetaTooltip } from '../services/problemMeta.js'
 
 defineOptions({ name: 'FileTreeItem' })
@@ -68,13 +68,20 @@ watch(renameTarget, (value) => {
   if (value === props.node.id) startRename()
 })
 
+/**
+ * 进入内联重命名。输入框里放整名（含后缀），但**只选中主干**：
+ * 把 main.cpp 改成 two-sum.cpp 时，后缀留在选中区外，不会被一并打掉；目录名整段选中。
+ */
 function startRename() {
   renameMode.value = true
   renameValue.value = props.node.name
   renameError.value = ''
   nextTick(() => {
-    renameInput.value?.focus()
-    renameInput.value?.select()
+    const el = renameInput.value
+    if (!el) return
+    el.focus()
+    const end = props.node.type === 'file' ? stem(props.node.name).length : el.value.length
+    el.setSelectionRange(0, end)
   })
 }
 

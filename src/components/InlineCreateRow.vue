@@ -11,6 +11,7 @@
  */
 import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { stem } from '../services/vfs/paths.js'
 
 defineOptions({ name: 'InlineCreateRow' })
 
@@ -29,10 +30,17 @@ const creatingRow = inject('creatingRow')
 
 const input = ref(null)
 
-/** autofocus 对动态插入的节点不生效，得自己把焦点送进去（聚焦 + 全选，默认名可直接敲回车） */
+/**
+ * autofocus 对动态插入的节点不生效，得自己把焦点送进去。
+ * 选中范围按类型分流：文件（默认名 new.cpp / new.py）只选中主干、「.cpp」留着不动，
+ * 免得用户改个名字就把后缀一起打没了；目录名整段选中。默认名都能直接回车接受。
+ */
 function focus() {
-  input.value?.focus()
-  input.value?.select()
+  const el = input.value
+  if (!el) return
+  el.focus()
+  const end = props.state.type === 'file' ? stem(props.state.value).length : el.value.length
+  el.setSelectionRange(0, end)
 }
 
 // 父组件的 nextTick(focusCreateInput) 排在 mounted 之后，所以这里注册完就能被调到

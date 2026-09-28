@@ -73,6 +73,21 @@ export function extname(path) {
 }
 
 /**
+ * 单级名称去掉扩展名后的**主干**（'main.cpp' → 'main'，'a.b.cpp' → 'a.b'）。
+ * 判定规则与 extname 完全一致：没有点、或点是前导点（'.gitignore'、'.cph'）时视作没有扩展名，原样返回。
+ *
+ * 注意参数是**单级名称**而不是路径（'main.cpp' 可以，'/src/main.cpp' 不行）——
+ * 新建 / 重命名时输入框里放的本来就是名称。文件只选中主干、不选中后缀，靠它取长度。
+ * @param {string} name
+ * @returns {string}
+ */
+export function stem(name) {
+  const text = String(name ?? '')
+  const index = text.lastIndexOf('.')
+  return index > 0 ? text.slice(0, index) : text
+}
+
+/**
  * 拆成 { dir, name }。
  * @param {string} path
  * @returns {{ dir: string, name: string }}
