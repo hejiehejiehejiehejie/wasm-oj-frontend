@@ -1,24 +1,28 @@
 <script setup>
 /**
- * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（重命名 / 删除）。
+ * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（题目信息 / 新建 / 重命名 / 删除）。
  *
  * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
- * 新建只从头部按钮发起、固定建在根目录；右键菜单不再提供新建（2026-09 移除）。
+ * 新建的目标目录可以是任意已存在目录：页头按钮跟随树内聚焦的目录（没聚焦时回落根目录），
+ * 右键目录则显式指定该目录。名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
  *
- * 通过 provide 向递归树项提供能力：右键菜单、删除确认、
- * 根 DOM、重命名目标、焦点管理。树项不直接操作这些状态，避免跨层耦合。
- * 新建不在此列：它只发生在根目录，输入框由本组件自己渲染（见下方 explorer__create）。
+ * 通过 provide 向递归树项提供能力：右键菜单、删除确认、根 DOM、重命名目标、焦点管理，
+ * 以及内联新建的状态与提交入口。输入行由 InlineCreateRow 渲染：根目录这份在本组件，
+ * 建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
  */
 import { computed, nextTick, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
+import InlineCreateRow from './InlineCreateRow.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
 import {
   activeLanguage,
   createDirectory,
   createFile,
   deleteNode,
+  getNodeById,
+  toggleExpand,
   updateFileMeta,
   workspace,
 } from '../services/vfs/workspaceStore.js'
@@ -34,10 +38,11 @@ import {
 
 const rootEl = ref(null)
 
-/** 内联新建状态：{ type:'file'|'directory', value, error } | null（新建只发生在根目录） */
+/** 内联新建状态：{ type:'file'|'directory', targetId, targetPath, value, error } | null
+ *  targetId 为 'root' 或目标目录的节点 id；targetPath 是它的绝对路径（根为 '/'）。 */
 const creating = ref(null)
-/** 内联新建的输入框：出现后要把焦点送进去 */
-const createInput = ref(null)
+/** 内联新建输入行的句柄（InlineCreateRow 挂载时注册）；同一时刻只有一行 */
+const creatingRow = ref(null)
 /** 右键菜单状态：{ x, y, node, items } | null */
 const menu = ref(null)
 /** 需要进入重命名的节点 id */
@@ -62,12 +67,15 @@ const metaFirstField = ref(null)
 
 /**
  * 新建时的默认名字：文件跟着当前判题语言给 new.cpp / new.py，目录给「新建文件夹」；
- * 与根目录下已有名字撞了就往后排 new-2、new-3……——预填的名字不该让用户敲下回车先吃一个「已存在」。
+ * 与目标目录下已有名字撞了就往后排 new-2、new-3……——预填的名字不该让用户敲下回车先吃一个「已存在」。
  * @param {'file'|'directory'} type
+ * @param {string} targetId 'root' 或目标目录的节点 id
  * @returns {string}
  */
-function defaultName(type) {
-  const taken = new Set(workspace.tree.map((node) => basename(node.path)))
+function defaultName(type, targetId) {
+  const siblings =
+    targetId === 'root' ? workspace.tree : (getNodeById(targetId)?.children ?? [])
+  const taken = new Set(siblings.map((node) => basename(node.path)))
   if (type !== 'file') return uniqueName(taken, '新建文件夹')
   return uniqueName(taken, 'new', activeLanguage.value === 'python' ? '.py' : '.cpp')
 }
@@ -85,17 +93,42 @@ function uniqueName(taken, base, ext = '') {
   return `${base}-${index}${ext}`
 }
 
-function startCreate(type) {
+/**
+ * 页头按钮的目标目录：跟随树内聚焦的节点（目录就是它自己，文件取其父目录），
+ * 没有聚焦 / 索引未就绪时回落根目录。
+ * @returns {object|null}
+ */
+function headerCreateTarget() {
+  const node = focusedId.value ? getNodeById(focusedId.value) : null
+  if (!node) return null
+  if (node.type === 'directory') return node
+  return getNodeById(node.parentId) ?? null
+}
+
+/**
+ * @param {'file'|'directory'} type
+ * @param {object|null} target 目标目录节点；null = 根目录
+ */
+function startCreate(type, target = null) {
   menu.value = null
-  creating.value = { type, value: defaultName(type), error: '' }
+  const targetId = target ? target.id : 'root'
+  // 输入行渲染在目标目录的 role="group" 里，而那个 div 挂着 v-if="expanded"——
+  // 目标目录折叠时行根本不存在，得先展开（沿用 expandedIds，会一起被持久化）。
+  if (target && !workspace.expandedIds.includes(targetId)) toggleExpand(targetId)
+  creating.value = {
+    type,
+    targetId,
+    targetPath: target ? target.path : '/',
+    value: defaultName(type, targetId),
+    error: '',
+  }
   // autofocus 属性对动态插入的节点不生效（浏览器只在解析 HTML 时认它），得自己把焦点送进去。
   // 与 FileTreeItem 的重命名同款：聚焦 + 全选，默认名字可以直接敲回车接受，也可以直接打字替换。
   nextTick(focusCreateInput)
 }
 
 function focusCreateInput() {
-  createInput.value?.focus()
-  createInput.value?.select()
+  creatingRow.value?.focus()
 }
 
 /**
@@ -140,7 +173,7 @@ async function commitCreate() {
   createFlights.add(state)
   try {
     assertName(name)
-    const path = join('/', name)
+    const path = join(state.targetPath, name)
     if (state.type === 'file') await createFile(path)
     else await createDirectory(path)
     // 只关掉自己这一轮：创建是异步的，等它回来的这段时间里用户可能又点了一次「新建文件」
@@ -161,10 +194,17 @@ function openContextMenu(event, node) {
   menu.value = { x: event.clientX, y: event.clientY, node, items: buildMenuItems(node) }
 }
 
-/** 题目信息只对文件有意义，目录不给这一项 */
+/**
+ * 题目信息只对文件有意义；新建只对目录有意义——目标就是被右键的那个目录。
+ * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
+ */
 function buildMenuItems(node) {
   const items = []
   if (node?.type === 'file') items.push({ id: 'meta', label: '题目信息' })
+  else if (node?.type === 'directory') {
+    items.push({ id: 'new-file', label: '新建文件' })
+    items.push({ id: 'new-folder', label: '新建文件夹' })
+  }
   items.push({ id: 'rename', label: '重命名' })
   items.push({ id: 'delete', label: '删除' })
   return items
@@ -175,6 +215,8 @@ async function onMenuSelect(id) {
   menu.value = null
   if (!node) return
   if (id === 'meta') beginEditMeta(node)
+  else if (id === 'new-file') startCreate('file', node)
+  else if (id === 'new-folder') startCreate('directory', node)
   else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node)
 }
@@ -225,7 +267,7 @@ const metaSystem = computed(() => difficultySystemFor(metaForm.value.oj))
 /** 难度下拉选项；自由文本 / 未选 OJ 时为 null（模板据此换成文本框） */
 const metaDifficultyOptions = computed(() => difficultyOptionsFor(metaForm.value.oj))
 
-/** 打开弹窗：有元数据就回填，日期留空则预填今天 */
+/** 打开弹窗：有元数据就回填，日期留空则预填今天。timeLimit 以秒回填（ms → s 字符串） */
 function beginEditMeta(node) {
   const saved = node.meta ?? {}
   metaForm.value = {
@@ -233,6 +275,7 @@ function beginEditMeta(node) {
     oj: saved.oj ?? '',
     difficulty: saved.difficulty ?? '',
     date: saved.date || todayISO(),
+    timeLimit: saved.timeLimit ? String(saved.timeLimit / 1000) : '',
   }
   metaError.value = ''
   metaTarget.value = node
@@ -253,7 +296,12 @@ async function confirmMeta() {
   if (!node) return
   try {
     // normalizeMeta 全空时给 null，setMeta 会把节点上的 meta 整个摘掉
-    await updateFileMeta(node.path, normalizeMeta(metaForm.value))
+    // timeLimit：表单里是秒字符串，这里换算回 ms；留空 = 0（= 清除）
+    const form = {
+      ...metaForm.value,
+      timeLimit: metaForm.value.timeLimit ? Math.round(Number(metaForm.value.timeLimit) * 1000) : 0,
+    }
+    await updateFileMeta(node.path, normalizeMeta(form))
     metaTarget.value = null
   } catch (error) {
     metaError.value = error.message || '保存失败'
@@ -293,6 +341,11 @@ provide('treeRootEl', rootEl)
 provide('renameTarget', renameTarget)
 provide('isTabbable', isTabbable)
 provide('setFocusedId', setFocusedId)
+provide('creating', creating)
+provide('creatingRow', creatingRow)
+provide('commitCreate', commitCreate)
+provide('cancelCreate', cancelCreate)
+provide('onCreateBlur', onCreateBlur)
 </script>
 
 <template>
@@ -300,32 +353,28 @@ provide('setFocusedId', setFocusedId)
     <header class="explorer__head">
       <SidebarSwitcher />
       <span class="explorer__actions">
-        <button type="button" class="explorer__btn" title="新建文件" @click="startCreate('file')">
-          <AppIcon name="file" :size="14" />
+        <button
+          type="button"
+          class="explorer__btn"
+          title="新建文件"
+          @click="startCreate('file', headerCreateTarget())"
+        >
+          <AppIcon name="file-plus" :size="14" />
         </button>
-        <button type="button" class="explorer__btn" title="新建文件夹" @click="startCreate('directory')">
-          <AppIcon name="folder" :size="14" />
+        <button
+          type="button"
+          class="explorer__btn"
+          title="新建文件夹"
+          @click="startCreate('directory', headerCreateTarget())"
+        >
+          <AppIcon name="folder-plus" :size="14" />
         </button>
       </span>
     </header>
 
     <div ref="rootEl" class="explorer__tree" role="tree" @contextmenu="onTreeContextMenu" @focusin="onTreeFocus">
-      <template v-if="creating">
-        <div class="explorer__create">
-          <span class="explorer__create-arrow"></span>
-          <AppIcon class="explorer__create-icon" :name="creating.type === 'file' ? 'file' : 'folder'" :size="15" />
-          <input
-            ref="createInput"
-            v-model="creating.value"
-            class="explorer__input"
-            :placeholder="creating.type === 'file' ? 'new.cpp' : '新建文件夹'"
-            @keydown.enter.prevent="commitCreate"
-            @keydown.esc.prevent="cancelCreate"
-            @blur="onCreateBlur"
-          />
-        </div>
-        <p v-if="creating.error" class="explorer__error">{{ creating.error }}</p>
-      </template>
+      <!-- 建在根目录的输入行；建在某个目录里的那份由 FileTreeItem 渲染（同一个组件） -->
+      <InlineCreateRow v-if="creating && creating.targetId === 'root'" :state="creating" :depth="0" />
 
       <FileTreeItem
         v-for="node in workspace.tree"
@@ -430,6 +479,19 @@ provide('setFocusedId', setFocusedId)
           <label class="meta__field">
             <span class="meta__label">日期</span>
             <input v-model="metaForm.date" class="meta__input" type="date" />
+          </label>
+
+          <label class="meta__field">
+            <span class="meta__label">时限（秒）</span>
+            <input
+              v-model="metaForm.timeLimit"
+              class="meta__input"
+              type="number"
+              min="0.1"
+              step="0.5"
+              placeholder="留空用默认"
+              inputmode="decimal"
+            />
           </label>
 
           <p v-if="metaError" class="meta__error">{{ metaError }}</p>
@@ -690,42 +752,6 @@ provide('setFocusedId', setFocusedId)
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 0;
-}
-
-.explorer__create {
-  display: flex;
-  align-items: center;
-  height: 24px;
-  padding-left: 8px;
-}
-
-.explorer__create-arrow {
-  flex: 0 0 16px;
-}
-
-.explorer__create-icon {
-  flex: 0 0 auto;
-  margin-right: 6px;
-}
-
-.explorer__input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 22px;
-  margin-right: 8px;
-  padding: 0 6px;
-  background: var(--bg-input);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  color: var(--text);
-  font: 400 13px/20px var(--font-mono, ui-monospace, monospace);
-}
-
-.explorer__error {
-  margin: 2px 8px 2px 30px;
-  color: var(--danger-text);
-  font-size: 11px;
-  line-height: 16px;
 }
 
 .explorer__empty {

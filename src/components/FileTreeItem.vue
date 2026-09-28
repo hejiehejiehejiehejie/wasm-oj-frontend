@@ -8,6 +8,7 @@
  */
 import { computed, inject, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import InlineCreateRow from './InlineCreateRow.vue'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { openFile, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, join } from '../services/vfs/paths.js'
@@ -26,6 +27,7 @@ const requestDelete = inject('requestDelete')
 const treeRootEl = inject('treeRootEl')
 const renameTarget = inject('renameTarget')
 const isTabbable = inject('isTabbable')
+const creating = inject('creating')
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
 const active = computed(() => workspace.activeId === props.node.id)
@@ -191,6 +193,9 @@ function onKeyDown(event) {
     </p>
 
     <div v-if="node.type === 'directory' && expanded" role="group">
+      <!-- 建在这个目录里的输入行。放在 group 内、而不是 .tree-item__row 内：那一行挂着
+           @keydown="onKeyDown"（方向键导航），输入框进去会让编辑文字的光标键被树抢走。 -->
+      <InlineCreateRow v-if="creating?.targetId === node.id" :state="creating" :depth="depth + 1" />
       <FileTreeItem
         v-for="child in node.children ?? []"
         :key="child.id"
