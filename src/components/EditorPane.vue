@@ -36,11 +36,15 @@ const props = defineProps({
   // 评测引擎状态：只有设置视图里的「评测」分组用得到，这里只做透传
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
+  // 全局界面缩放比例：Monaco 在 postcss 黑名单里，它的尺寸不吃 rem，
+  // 必须由这里乘进 editorOptions（见 services/editorOptions.js）
+  uiScale: { type: Number, required: true },
 })
 
 const emit = defineEmits([
   'update:settings',
   'update:time-limit',
+  'update:ui-scale',
   'toggle-layout',
   'select-engine',
   'update-base',
@@ -83,7 +87,7 @@ function applyModelOptions(model) {
 onMounted(() => {
   const instance = monaco.editor.create(host.value, {
     // 用户可调的选项全部来自 services/editorOptions.js（构造与 updateOptions 共用同一份映射）
-    ...editorOptions(props.settings),
+    ...editorOptions(props.settings, props.uiScale),
     theme: props.settings.theme,
     // 布局必须跟着容器走（面板拖宽 / 换边 / 折叠侧边栏）：交给 Monaco 自己的 ResizeObserver
     automaticLayout: true,
@@ -173,11 +177,23 @@ watch(
   (next, prev) => {
     const instance = editor.value
     if (!instance) return
-    instance.updateOptions(editorOptions(next))
+    instance.updateOptions(editorOptions(next, props.uiScale))
     applyModelOptions(instance.getModel())
     if (prev?.theme !== next.theme) monaco.editor.setTheme(next.theme)
   },
   { deep: true },
+)
+
+// 全局缩放变化：Monaco 的 DOM 在 postcss 黑名单里，根本感知不到根字号变了，
+// 必须把乘过 scale 的选项重新下发一次；容器尺寸同步也变了，再补一次 layout 最稳。
+watch(
+  () => props.uiScale,
+  (scale) => {
+    const instance = editor.value
+    if (!instance) return
+    instance.updateOptions(editorOptions(props.settings, scale))
+    nextTick(() => instance.layout())
+  },
 )
 
 // focus 给「从外部把焦点送回编辑区」用（扩展导入题目后 activeId 可能没变，
@@ -208,8 +224,10 @@ defineExpose({
         :judge="judge"
         :connection="connection"
         :active="settingsTab.active"
+        :ui-scale="uiScale"
         @update:settings="emit('update:settings', $event)"
         @update:time-limit="emit('update:time-limit', $event)"
+        @update:ui-scale="emit('update:ui-scale', $event)"
         @toggle-layout="emit('toggle-layout')"
         @select-engine="emit('select-engine', $event)"
         @update-base="emit('update-base', $event)"
@@ -327,20 +345,22 @@ defineExpose({
 /* 由窄到宽逐项隐藏：UTF-8 是常量、文件名在页签栏已经有一份，先摘这两项，
    再窄才轮到语言。每一项都连着身后的分隔点一起隐藏，避免留下孤零零一个圆点
    （opt-lang 的那颗点在前，所以跟着自己走）。阈值按无选中文本时的实测宽度取整，
-   改字号或增删状态栏项后要重新量 */
-@container (max-width: 360px) {
+   改字号或增删状态栏项后要重新量。
+   阈值写成 rem 是为了全局缩放：postcss-pxtorem 不处理 at-rule 参数（见 vite.config.js），
+   写成 px 的话界面放大后状态栏会提前挤爆，断点却还停在原地。 */
+@container (max-width: 22.5rem) {
   .editor-pane__status .opt-utf8 {
     display: none;
   }
 }
 
-@container (max-width: 310px) {
+@container (max-width: 19.375rem) {
   .editor-pane__status .opt-file {
     display: none;
   }
 }
 
-@container (max-width: 250px) {
+@container (max-width: 15.625rem) {
   .editor-pane__status .opt-lang {
     display: none;
   }

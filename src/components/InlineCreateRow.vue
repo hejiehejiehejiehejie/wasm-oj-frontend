@@ -53,7 +53,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="create-row" :style="{ paddingLeft: `${depth * 10 + 8}px` }">
+  <div class="create-row" :style="{ '--depth': depth }">
     <span class="create-row__arrow"></span>
     <AppIcon class="create-row__icon" :name="state.type === 'file' ? 'file' : 'folder'" :size="15" />
     <input
@@ -66,7 +66,7 @@ onBeforeUnmount(() => {
       @blur="onCreateBlur"
     />
   </div>
-  <p v-if="state.error" class="create-row__error" :style="{ paddingLeft: `${depth * 10 + 30}px` }">
+  <p v-if="state.error" class="create-row__error" :style="{ '--depth': depth }">
     {{ state.error }}
   </p>
 </template>
@@ -76,6 +76,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   height: 24px;
+  /* 与 FileTreeItem 的行用同一套缩进公式（--depth 是模板给的无单位层数） */
+  padding-left: calc(var(--depth, 0) * 10px + 8px);
 }
 
 .create-row__arrow {
@@ -102,6 +104,8 @@ onBeforeUnmount(() => {
 
 .create-row__error {
   margin: 2px 8px 2px 0;
+  /* 对齐输入框左侧（箭头 16px + 图标与间距）；30px = 8px 基准 + 22px 偏移 */
+  padding-left: calc(var(--depth, 0) * 10px + 30px);
   color: var(--danger-text);
   font-size: 11px;
   line-height: 16px;

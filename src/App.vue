@@ -5,6 +5,7 @@ import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import { usePersistentRef } from './composables/usePersistentRef.js'
+import { applyUiScale, normalizeUiScale, uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
@@ -42,6 +43,13 @@ const effectiveTimeLimitMs = computed(() => {
   const fromMeta = activeNode.value?.meta?.timeLimit
   return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
 })
+
+// 全局界面缩放（100% / 110% / 125% / 150%）。CSS 的 px 已由 postcss-pxtorem
+// 转成 rem，所以这里只需要写一次根字号；物理尺寸与拖拽数学都不受影响（见 useUiScale.js）。
+const uiScalePref = usePersistentRef('cph.uiScale', 1, { revive: normalizeUiScale })
+// setup 期就落地：早于首帧渲染，不会先按 100% 画一帧再跳到目标档位
+applyUiScale(uiScalePref.value)
+watch(uiScalePref, applyUiScale)
 
 // ------------------------------------------------------------ 编辑器偏好
 const EDITOR_SETTINGS_KEY = 'cph.editorSettings'
@@ -277,14 +285,16 @@ function measureLimits() {
     surface.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight) || 1
   // 面板最低宽度读的是 .workspace 上那三个 CSS 变量（和 .pane--tests 的 min-width 同源，
   // 免得同一个数字在样式与 JS 里各写一份）：内容宽 × ratio，再卡进 [floor, cap]。
-  // 宽屏下它恒等于 cap，也就是改版前那个固定 320px。
+  // floor / cap 是「逻辑尺寸」（100% 下的设计值），要随全局缩放一起变大，所以这里乘一次
+  // scale；ratio 是相对工作区物理宽度的比例，不乘。CSS 侧同款乘法见 .pane--tests 的 calc。
   const cssNumber = (name, fallback) => {
     const value = Number.parseFloat(style.getPropertyValue(name))
     return Number.isFinite(value) ? value : fallback
   }
+  const scale = uiScale.value
   const panelMin = Math.max(
-    cssNumber('--tests-min-floor', 160),
-    Math.min(cssNumber('--tests-min-cap', 320), width * cssNumber('--tests-min-ratio', 0.5)),
+    cssNumber('--tests-min-floor', 160) * scale,
+    Math.min(cssNumber('--tests-min-cap', 240) * scale, width * cssNumber('--tests-min-ratio', 0.5)),
   )
   // 再加上分隔条自身宽度：越过这条线后浏览器会强行撑开面板，分隔条就脱离鼠标了。
   const minTests = panelMin + (surface.querySelector('.splitter')?.getBoundingClientRect().width ?? 0)
@@ -612,8 +622,10 @@ onBeforeUnmount(() => {
           :time-limit="timeLimitMs"
           :judge="judgeSettings"
           :connection="connection"
+          :ui-scale="uiScalePref"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
+          @update:ui-scale="uiScalePref = $event"
           @toggle-layout="toggleLayout"
           @select-engine="selectEngine"
           @update-base="updateBase"
@@ -711,7 +723,12 @@ onBeforeUnmount(() => {
      地板 160px 是实测硬底：再窄卡片头部就开始横向溢出。
      240px 能成立的前提是卡片头部在窄容器下会让步：间距收紧，徽标图标与「结果待刷新」
      按容器宽度逐级让位（每例的运行耗时始终保留，见 TestCaseCard.vue 的 @container 规则），
-     所以头部不会是「谁都不肯缩、最后叠在一起」。 */
+     所以头部不会是「谁都不肯缩、最后叠在一起」。
+
+     三个值都是「100% 下的设计值」，刻意留在 px（见 vite.config.js 的 propList 排除名单）：
+     JS 要 parseFloat 它们做拖拽数学，转成 rem 会读成 15 而不是 240。代价是 rem 自动缩放
+     带不动它们，所以使用处（下面的 .pane--tests 与 App.vue 的 measureLimits）各乘一次
+     --ui-scale / scale 来补偿。ratio 是比例、不乘。 */
   --tests-min-cap: 240px;
   --tests-min-ratio: 0.5;
   --tests-min-floor: 160px;
@@ -747,8 +764,15 @@ onBeforeUnmount(() => {
 .pane--tests {
   flex: 1 1 auto;
   /* 统一侧边栏的最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 240px；
-     窄屏不再是硬邦邦的 240px，否则 375px 的屏上编辑器会被压成一条缝 */
-  min-width: clamp(var(--tests-min-floor), calc(var(--tests-min-ratio) * 100%), var(--tests-min-cap));
+     窄屏不再是硬邦邦的 240px，否则 375px 的屏上编辑器会被压成一条缝。
+     floor / cap 要乘 --ui-scale 才会跟全局缩放一起变大（它们留在 px、吃不到 rem，
+     理由见 .workspace 上那段注释）；ratio 是比例，不乘。JS 侧的 measureLimits 同款处理，
+     两边必须保持一致，否则分隔条会与浏览器强行撑开的那条线错位。 */
+  min-width: clamp(
+    calc(var(--tests-min-floor) * var(--ui-scale, 1)),
+    calc(var(--tests-min-ratio) * 100%),
+    calc(var(--tests-min-cap) * var(--ui-scale, 1))
+  );
   view-transition-name: pane-tests;
 }
 

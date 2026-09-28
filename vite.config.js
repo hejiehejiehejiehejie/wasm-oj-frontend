@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import pxtorem from 'postcss-pxtorem'
 
 // 本地沙箱（runno 的 WASI 运行时）靠 SharedArrayBuffer 在 Worker 之间传 stdin，
 // 而浏览器只在「跨域隔离」的页面里开放 SharedArrayBuffer，所以开发服务器必须带上这两个头。
@@ -31,6 +32,33 @@ function precacheManifest() {
 
 export default defineConfig({
   plugins: [vue(), precacheManifest()],
+  css: {
+    // 全局 UI 缩放的「止血防线」：把 CSS 里的 px 转成 rem，缩放时只改根字号即可。
+    // 但转换只发生在 CSS 声明上，JS 内联样式 / JS 常量 / @media·@container 断点都不受影响，
+    // 所以下面四项是把「会被 JS 以 px 语义读取」的部分强行留在 px 坐标系：
+    postcss: {
+      plugins: [
+        pxtorem({
+          rootValue: 16, // 基准字号（100% 比例）
+          unitPrecision: 5, // 转出的 rem 保留 5 位小数（16 的幂次分母在十进制里精确）
+          // 1px / 2px 不转：亚像素会让细边框、小间距忽粗忽细，甚至在取整时消失
+          minPixelValue: 3,
+          // 断点不转：@media (max-height: 479px)（EditorPane）与 JS 的 SHORT_VIEWPORT = 480
+          // （useMobileKeyboard）是成对契约，转成 rem 后两者在缩放时不再等价
+          mediaQuery: false,
+          // Monaco 自带样式表经 node_modules 进 Vite 管线，必须整包排除
+          exclude: /node_modules/i,
+          // 双保险：本项目自己若有 monaco 关键字选择器也不转
+          selectorBlackList: [/monaco/],
+          // 被 App.vue 的 measureLimits() 用 getPropertyValue + parseFloat 读取的变量，
+          // 一旦转成 rem，parseFloat("15rem") 会得到 15 而不是 240，拖拽上限直接算错。
+          // 注意 --seg-w / --seg-h 不放进来：它们是纯视觉尺寸、无 JS 读取，
+          // 只需跟 rem 一起缩放才能保住胶囊的宽高比例（只保护其中一个会扭形）。
+          propList: ['*', '!--tests-min-cap', '!--tests-min-floor', '!--tests-min-ratio'],
+        }),
+      ],
+    },
+  },
   server: {
     port: 5199,
     strictPort: false,

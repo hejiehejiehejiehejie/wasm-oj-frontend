@@ -164,17 +164,27 @@ export function normalizeEditorSetting(key, value) {
  * create() 与 updateOptions() 共用这一份，免得加一项设置要改两处、还容易漏。
  * 刻意不含 theme：它是构造参数，运行中的切换必须走 monaco.editor.setTheme()。
  * 刻意不含 tabSize / insertSpaces：那是 model 级选项（见 editorModelOptions）。
+ *
+ * 【全局缩放的补偿点】Monaco 的样式表在 postcss 黑名单里（不吃 rem），它内部所有
+ * 尺寸都靠这里的真实 px 撑起来，所以 fontFamily 之外的像素量都要乘 scale，
+ * 否则 125% 下会出现「界面放大了、编辑器还是 14px」的脱节。
+ * 注意 tabSize 不乘：那是列数（几个字符宽），不是像素。
  * @param {typeof EDITOR_SETTINGS_DEFAULTS} settings
+ * @param {number} scale 全局缩放比例（见 composables/useUiScale.js）
  */
-export function editorOptions(settings) {
+export function editorOptions(settings, scale = 1) {
   const font = pick(FONT_FAMILIES, settings.fontFamily, FONT_FAMILIES[0])
   const padding = pick(PADDINGS, settings.padding, PADDINGS[1])
   const scrollbar = pick(SCROLLBAR_SIZES, settings.scrollbarSize, SCROLLBAR_SIZES[1])
+  // fontSize / lineHeight 必须是整数像素，Monaco 不接受小数
+  const fontSize = Math.round(settings.fontSize * scale)
+  const scaled = (value) => Math.round(value * scale)
   return {
     // 外观
     fontFamily: font.stack,
-    fontSize: settings.fontSize,
-    lineHeight: Math.round(settings.fontSize * settings.lineHeightRatio),
+    fontSize,
+    // 行高跟着「缩放后的字号」算，而不是各乘一次再拼：这样行高倍数这个语义才不漂
+    lineHeight: Math.round(fontSize * settings.lineHeightRatio),
     fontLigatures: settings.fontLigatures,
     minimap: { enabled: settings.minimap },
     // 编辑
@@ -195,10 +205,10 @@ export function editorOptions(settings) {
     },
     scrollBeyondLastLine: settings.scrollBeyondLastLine,
     smoothScrolling: settings.smoothScrolling,
-    padding: { top: padding.top, bottom: padding.bottom },
+    padding: { top: scaled(padding.top), bottom: scaled(padding.bottom) },
     scrollbar: {
-      verticalScrollbarSize: scrollbar.size,
-      horizontalScrollbarSize: scrollbar.size,
+      verticalScrollbarSize: scaled(scrollbar.size),
+      horizontalScrollbarSize: scaled(scrollbar.size),
       useShadows: false,
     },
     stickyScroll: { enabled: settings.stickyScroll },

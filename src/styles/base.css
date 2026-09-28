@@ -80,6 +80,11 @@
   --mono-font: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas,
     'Courier New', monospace;
 
+  /* 全局界面缩放的**无单位**倍数（1 / 1.1 / 1.25 / 1.5），由 applyUiScale() 写在 <html> 上。
+     给「不能用 rem 自动缩放的逻辑尺寸」用：例如 .pane--tests 的最低宽度，它的三个参数是纯
+     物理 px（要留给 JS 的 parseFloat 做拖拽数学），只能在 calc 里手动乘这个倍数。 */
+  --ui-scale: 1;
+
   color-scheme: dark;
 }
 

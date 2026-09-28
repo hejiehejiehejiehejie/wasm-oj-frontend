@@ -14,7 +14,7 @@
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键。仍待做 8 项：VFS 优化 / 题目时限接入 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 右键打开题目链接 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 8 项：VFS 优化 / 题目时限接入 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 右键打开题目链接 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
@@ -39,13 +39,14 @@
 | 全局快捷键监听必须在 `window` 捕获阶段 | `window.addEventListener('keydown', onKeydown, true)` + `preventDefault()` + `stopPropagation()`。Monaco 的键位服务挂在编辑器内部 DOM 上，只有捕获阶段抢得过它；**不要**再用 `editor.addCommand()` 同步键位（Monaco 0.56 没有 `removeCommand`，旧的撤不掉） |
 | 录制快捷键时全局监听必须让路 | 开录时置 `recordingActive = true`（录制框自己的监听在按钮的目标阶段，捕获永远先跑），否则按下新组合键的瞬间功能会先被执行一遍 |
 | 禁止引第三方快捷键库 | 规范化只需要「读 `event.code` + 四个修饰键」，`useShortcutManager.js` 里一个纯函数就够（Mousetrap 之类一律不引） |
+| px / rem 的边界纪律 | CSS 里写 `px`，构建时由 `postcss-pxtorem` 统一转 `rem`（配置在 `vite.config.js` 的 `css.postcss`），全局缩放只改根字号。但**转换只发生在 CSS 声明值上**：JS 内联样式、JS 常量、`@media` / `@container` 断点参数都不受影响（见第 5 节坑 24）。三条判据：① 物理尺寸（鼠标坐标 / DOM 原生测量 / 手势阈值）永远保持 `px`；② 逻辑尺寸里，喂给 Monaco 的 `fontSize / lineHeight / scrollbarSize / padding`、以及 JS 写死的容器上限必须自己乘 `scale`（见 `composables/useUiScale.js` 的 `px()`）；③ 被 JS `parseFloat` 读的 CSS 变量（`--tests-min-*`）必须在 `propList` 排除名单里留在 px 坐标系，**不要**在 JS 里对 parseFloat 结果做 rem 反向换算——代价是它们吃不到 rem 的自动缩放，所以这类「以物理 px 存放、但语义上是逻辑尺寸」的值要在**使用处**乘一次缩放倍数（JS 用 `uiScale.value`，CSS 用 `--ui-scale`），见第 5 节坑 24 |
 
 ## 2. 与界面相关的文件
 
 ```
 index.html                      # 主应用入口：挂载点 + PWA（manifest / apple-touch-icon / theme-color，见第 9 节）+ 一整套 SEO 头（canonical / og / ld+json）+ 服务无脚本抓取器的 noscript 兜底正文（见第 12 节；那块正文**是给搜索引擎看的文案**，改界面能力时别忘了它）
 guide.html                      # 第二个 Vite 入口：使用指南长文（静态、无 Vue、无 JS），给搜索引擎直接抓取；样式在 src/styles/guide.css（见第 12 节）
-vite.config.js                  # 两个 rollup 入口（index / guide）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json
+vite.config.js                  # 两个 rollup 入口（index / guide）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头 + sitemap.xml 的 MIME（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
 public/sw.js                    # Service Worker：预缓存外壳（工具链不预缓存、改为按需落缓存），导航网络优先（见第 9 节）
@@ -67,6 +68,7 @@ src/
   styles/guide.css              # 使用指南页（guide.html）的样式：**`@import './base.css'` 后再加长文排版**，两套主题的配色 / 字体 / 滚动条仍来自 base.css，这里一律 `var(--…)` 引用、不写十六进制（见第 12 节）。唯一要小心的：base.css 是为「满屏 IDE」写的（`html/body` 高度 100%、body 锁死滚动），内容页必须把那两条放开，否则长页滚不动
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态；另外挂两件全局事：window 捕获阶段的 keydown（快捷键，`SHORTCUT_HANDLERS` 把动作 id 接上真函数）与 `useCompanionImport()`（接扩展投来的题目）
   composables/usePersistentRef.js
+  composables/useUiScale.js       # ★ 全局界面缩放的唯一权威：uiScale 单例 + 档位表 UI_SCALE_OPTIONS + px()（设计 px → 真实 px）+ applyUiScale()（落根字号）+ normalizeUiScale()（读盘校验）。三条边界见文件头与第 5 节坑 24
   composables/useInstallPrompt.js  # 设置视图「应用」分组里「安装到设备」按钮的数据源：拦 beforeinstallprompt，用完即弃
   composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
   composables/useCompanionBridge.js # ★ 扩展消息接收端：window.postMessage 握手（cph-ping → cph-info）与题目投递（cph-task）。状态是**模块级单例**（扩展装没装是全局事实，各组件不该各探一次）；同站多开标签页时扩展会广播，按 taskId 去重
@@ -92,7 +94,7 @@ src/
     runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
     compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
     templates.js                # 各语言默认模板
-    editorOptions.js            # 编辑器偏好的单一出处：默认值 27 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions() / model 级 editorModelOptions()）
+    editorOptions.js            # 编辑器偏好的单一出处：默认值 23 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24
     problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()（见第 5 节坑 17）
     engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
     wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
@@ -318,6 +320,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **内存**：C++ 是 `toolchain` / `toolchainPromise` / `compileCache` / `pchBytes` / `pchPromise`，Python 是 `pythonRuntime` / `pythonRuntimePromise`；另加 `wasmRuntime` 的 `pchWarmupStarted` 复位（不复位的话，卸载后再跑 C++，`warmupPch()` 会因「已预热过」直接跳过）。PCH 存在 IndexedDB（十几 MB），单独 `deletePch()`。
     - **HTTP 缓存：删不掉**，浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只改取值策略）。所以 `isAssetCached` 改成「SW 控制页面时只认 `caches.match()`，没有 SW（dev 模式）才退回 `only-if-cached` 探 HTTP 缓存」——仍让 HTTP 缓存当判据的话，刚卸载完的资产会被那份残留立刻判回「已就绪」。**这是本项目第一次让「判据」与「删得掉的那一层」对齐**，以后改探针先想清楚这点（坑 12 那套探针注释也同步改过）。
     - 卸载按钮只在 `ready` 时出现（没装就没有可卸的），下载中禁用——会和 SW 在途的 `cache.put` 打架。
+24. **`postcss-pxtorem` 只转 CSS 声明，转不到 JS 与断点**（`vite.config.js` 的 `css.postcss` + `composables/useUiScale.js`，2026-09-28 加）：全局缩放的机制是「构建期把 CSS 的 `px` 转 `rem`，运行时只改 `document.documentElement.style.fontSize`」，但有四类东西**根本不经过转换**，不认清楚就会踩：
+    - **JS 内联样式与 JS 常量**：`el.style.height = '320px'`、`:style="{ … }"` 这类不走 PostCSS，永远是真 px。凡是「按 100% 设计的逻辑尺寸」都要自己乘 `scale`（`useUiScale.js` 的 `px()`），如 `TestCaseCard.vue` 的 `MAX_IO_HEIGHT`（且要 `watch(uiScale)` 在缩放后重算）；反过来，**物理尺寸绝不能乘**——`clientX/clientY`、`getBoundingClientRect`、`offsetWidth`、`scrollHeight`，以及 `TAP_SLOP` / `EDGE_PX = 32` / `RELEASE_PX = 60` 这类手势阈值，量的是屏幕与手指，与 UI 大小无关。`FileTreeItem` / `InlineCreateRow` 的树缩进已改成「模板传无单位 `--depth` + CSS `calc(var(--depth) * 10px + 8px)`」，让缩进跟着 rem 走、不再走内联 px。
+    - **`@container` 断点参数不被转换**（`mediaQuery: false`，且插件内部只特判 `@media`）：本仓 7 处 `@container` 阈值都是**手工写成 rem** 的——`EditorPane` 状态栏 3 处（`22.5rem` / `19.375rem` / `15.625rem`）、`TestCaseCard` 3 处（`35rem` / `22.5rem` / `15.625rem`）、`EditorSettingsPanel` 1 处（`35rem`）；改断点时**别再写回 px**，否则缩放后断点位置与实际内容宽度脱节。`@media (max-height: 479px)`（`EditorPane`）与 JS 的 `SHORT_VIEWPORT = 480`（`useMobileKeyboard`）是一对刻意**都不转**的契约，两者必须同时是物理 px。
+    - **被 JS `parseFloat` 读的自定义属性**：`App.vue` 的 `measureLimits()` 用 `style.getPropertyValue('--tests-min-cap') + parseFloat` 做拖拽数学，该变量一旦被转成 `rem`，`parseFloat("15rem")` 得到的是 `15` 而不是 `240`，上限直接算错（实测已确认保留为 `240px`）。所以 `--tests-min-cap / --tests-min-floor / --tests-min-ratio` 三个变量在 `propList` 里以 `!` 前缀排除、留在 px 坐标系；**不要**改成在 JS 里对 parseFloat 结果做 rem 反向换算。反之 `--seg-w` / `--seg-h`（胶囊宽高）是纯视觉尺寸、无 JS 读取，**不放**排除名单，必须整组一起随 rem 缩放——只保护其中一个会让胶囊扭形（28 × 27.5）。**「留在 px」不等于「不缩放」**：这三个变量是逻辑尺寸（100% 下的设计值），得在使用处各乘一次缩放倍数——CSS 的 `.pane--tests` 写 `calc(var(--tests-min-floor) * var(--ui-scale, 1))`（cap 同理，ratio 是比例不乘），JS 的 `measureLimits()` 写 `* uiScale.value`；`--ui-scale` 是无单位倍数，由 `applyUiScale()` 写在 `<html>` 上（`styles/base.css` 的 `:root` 里默认 `1`）。**两边必须同款**，否则 125% 下分隔条会与浏览器强行撑开面板的那条线错位（表现为拖到最窄时脱手）。
+    - **`minPixelValue: 3`**：小于 3px 的值不转换，所以 1px / 2px 的细线、小间距（如胶囊的 2px padding）在缩放下始终是物理像素、不会亚像素模糊。
+    - Monaco 那侧靠 `exclude: /node_modules/i` + `selectorBlackList: [/monaco/]` 双重排除（它的样式表经 `node_modules` 进 Vite 管线，整包不吃 rem），尺寸补偿改走 `services/editorOptions.js` 的 `editorOptions(settings, scale)`；缩放变化时 `EditorPane.vue` 的 `watch(() => props.uiScale)` 重新 `updateOptions()` + `nextTick(layout())`（容器尺寸同步也变了，补一次 layout 最稳）。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
@@ -328,6 +336,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `cph.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
 | `cph.editorShare`（`App.vue:31`） | 两栏比例（%） |
 | `cph.timeLimitMs`（`App.vue:35`） | 全局时限（毫秒，只计运行段） |
+| `cph.uiScale`（`App.vue:49`） | 全局界面缩放比例，只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回 `1`）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「布局」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。除根字号外，`applyUiScale()` 还会在 `<html>` 上写一个**无单位**变量 `--ui-scale`（`styles/base.css` 的 `:root` 里默认 `1`），专给「吃不到 rem、但语义上是逻辑尺寸」的地方用：目前只有 `.pane--tests` 的最低宽度（侧边栏 floor / cap 要随缩放一起变大）。见 14.12 与第 5 节坑 24 |
 | `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases`（`App.vue:32-33` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
 | ~~`cph.language`~~ | **已作废**（2026-09 顶栏语言下拉移除后成为死键，全仓不再读写）；残留在 localStorage 里无害。判题语言现在一律由活跃文件的扩展名派生，见第 5 节坑 15 | — |
 | `cph.mobileKeyboard` / `cph.mobileInputDock` | 都已作废（两个版本的键盘适配都不再持久化）；残留在 localStorage 里无害 | `composables/useMobileKeyboard.js` |
@@ -792,5 +801,16 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **嵌套输入行溢出**：输入行的左缩进是 `depth * 10 + 8`（像素），深层目录 + 窄侧边栏（下限 160px）会顶到边界，阶段二落地时连着看窄屏截断。
 
 **注**：这条推翻了坑 14 原来「禁止把新建放回右键菜单」的写法——根因是当时没有「目标目录」这个概念，现在右键目录正好是它的自然载体（坑 14 已按此改写）。
+
+### 14.12 全局界面缩放（100% / 110% / 125% / 150%）—— ✅ 已落地（2026-09-28，计划外新增）
+
+**做法**：构建期用 `postcss-pxtorem` 把 CSS 的 `px` 统一转 `rem`（配置在 `vite.config.js` 的 `css.postcss`），运行时只改 `document.documentElement.style.fontSize`；Monaco 的样式表在 `node_modules` 里被整包排除、不吃 rem，靠它自己的 API 单独补偿。
+
+- **状态与换算**：`composables/useUiScale.js` 是唯一权威——`uiScale` 单例（值即比例）、`UI_SCALE_OPTIONS` 档位表（含文案）、`px()`（设计 px → 真实 px，只给「逻辑尺寸」用）、`applyUiScale()`（落根字号 + 更新单例）、`normalizeUiScale()`（读盘校验，认不出来退回 1）。`App.vue:49` 用 `usePersistentRef('cph.uiScale', 1, { revive: normalizeUiScale })` 持久化，并在 **setup 期**就 `applyUiScale()` 落地。设置页「布局」组的下拉是消费方，prop / emit 一路贯穿 `App → EditorPane → EditorSettingsPanel`。
+- **Monaco 补偿**：`services/editorOptions.js` 的 `editorOptions(settings, scale)` 把 `fontSize`（取整）、`lineHeight`（按缩放后的字号 × 倍数算，不各乘一次）、`padding`、`scrollbarSize` 都乘 `scale`；`tabSize` 不乘（列数不是像素）。`EditorPane.vue` 的 `watch(() => props.uiScale)` 在变化时重新 `updateOptions()` + `nextTick(layout())`。
+- **JS 动态像素**：`TestCaseCard.vue` 的 `MAX_IO_HEIGHT` 走 `px()`（`scrollHeight` 是真实 px，上限必须跟着缩放），并 `watch(uiScale)` 在缩放后重算高度。树缩进改成模板传无单位 `--depth` + CSS `calc()`，不再走内联 px。
+- **侧边栏最窄宽度也跟着缩放**：`.workspace` 上的 `--tests-min-floor / --tests-min-cap` 是「100% 下的设计值」、必须留在物理 px（JS 要 `parseFloat` 它们做拖拽数学），所以使用处各乘一次缩放倍数——CSS 的 `.pane--tests` 用 `calc(… * var(--ui-scale, 1))`、JS 的 `measureLimits()` 用 `* uiScale.value`，`--ui-scale` 由 `applyUiScale()` 写在 `<html>` 上。两边同步才不会在缩放后出现「拖到最窄就脱手」。
+- **陷阱**（完整版见第 5 节坑 24）：JS 内联样式 / JS 常量 / `@container`·`@media` 断点参数**都不经过转换**，所以本仓 7 处 `@container` 阈值是手工写成 rem 的；被 `measureLimits()` 用 `parseFloat` 读的 `--tests-min-*` 必须留在 `propList` 排除名单里（否则 `240` 会变成 `15`）；`--seg-w` / `--seg-h` 反过来必须一起随 rem 缩放，否则胶囊扭形；`minPixelValue: 3` 保住 1px / 2px 细线。
+- **验证**：`npm run verify` A–G 全 PASS（scale=1 的几何与第 8 节记录逐像素一致——`--ui-scale` 默认为 1，clamp 结果不变）；125% / 150% 下实测根字号 20px / 24px、Monaco 字号与行高同步、拖拽仍 1:1 跟手；侧边栏最窄宽度同步变大（`getPropertyValue('--tests-min-cap')` 仍是设计值 `240`，乘过 scale 后实际是 300 / 360）。
 
 **建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → 14.7 → 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。

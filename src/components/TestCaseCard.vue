@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { px, uiScale } from '../composables/useUiScale.js'
 
 const props = defineProps({
   testCase: { type: Object, required: true },
@@ -48,6 +49,8 @@ const input = field('input')
 const expectedOutput = field('expectedOutput')
 
 // 输入 / 期望输出框的高度随内容自适应：最多长到 MAX_IO_HEIGHT，超出后框内滚动。
+// MAX_IO_HEIGHT 是「设计 px」：scrollHeight 是真实 px（吃根字号），所以上限必须用 px()
+// 乘上缩放比例，否则 125% 下会在内容还没占满时就提前出滚动条。
 const MAX_IO_HEIGHT = 320
 const inputEl = ref(null)
 const expectedEl = ref(null)
@@ -60,8 +63,9 @@ function autoGrow(el) {
   const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
   el.style.height = 'auto'
   const full = el.scrollHeight + border
-  el.style.height = `${Math.min(full, MAX_IO_HEIGHT)}px`
-  el.style.overflowY = full > MAX_IO_HEIGHT ? 'auto' : 'hidden'
+  const cap = px(MAX_IO_HEIGHT)
+  el.style.height = `${Math.min(full, cap)}px`
+  el.style.overflowY = full > cap ? 'auto' : 'hidden'
 }
 
 function growAll() {
@@ -73,6 +77,8 @@ watch([input, expectedOutput], () => nextTick(growAll))
 watch(isCollapsed, (collapsed) => {
   if (!collapsed) nextTick(growAll)
 })
+// 全局缩放变化：字号与上限一起变，已经写死的高度要重算一遍
+watch(uiScale, () => nextTick(growAll))
 
 // 卡片所在的面板（统一侧边栏的「评测样例」页签）默认是 display: none，
 // onMounted 那一刻 scrollHeight 为 0，autoGrow 会直接跳过；之后切到该页签时
@@ -415,7 +421,9 @@ async function copyOutput() {
   gap: 10px;
 }
 
-@container (min-width: 560px) {
+/* 断点一律写成 rem：全局缩放时卡片内容会一起变大，阈值必须同步上移。
+   postcss-pxtorem 不处理 at-rule 参数（见 vite.config.js），写成 px 就会脱节。 */
+@container (min-width: 35rem) {
   .io {
     grid-template-columns: 1fr 1fr;
   }
@@ -429,7 +437,7 @@ async function copyOutput() {
 .field__label {
   display: block;
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -500,11 +508,11 @@ async function copyOutput() {
    折叠箭头、#N、徽标、删除按钮都是 flex: 0 0 auto，不参与压缩，只剩判定区能缩。
    所以按重要性逐级让步，而不是让它们挤在一起。
 
-   注意优先级：**每例的运行耗时（.metric）任何宽度下都不隐藏** —— 它是这一行里
-   唯一「看完会想改代码」的信息，「结果待刷新」还有面板头部的 ?/N AC 徽标与卡片
-   降透明度在提示，徽标图标（✓/✕）则只是装饰，文字本身已经说明结论。
-   该让位的是后两者。 */
-@container (max-width: 360px) {
+   注意优先级：**每例的运行耗时（.metric）与徽标图标（✓/✕）任何宽度下都不隐藏** ——
+   前者是这一行里唯一「看完会想改代码」的信息；后者与 AC / WA 文字是一体的判定图示，
+   单独把图标藏掉会让徽标看起来缺了一角。唯一还能让位的是「结果待刷新」
+   （它还有面板头部的 ?/N AC 徽标与卡片降透明度在提示）。 */
+@container (max-width: 22.5rem) {
   .card__head {
     gap: 6px;
     padding: 7px 6px 7px 8px;
@@ -526,15 +534,12 @@ async function copyOutput() {
   }
 }
 
-/* 再挤一档：间距收到最小，并让掉徽标图标与「结果待刷新」，把宽度省给运行耗时 */
-@container (max-width: 250px) {
+/* 再挤一档：间距收到最小，只让掉「结果待刷新」，把宽度省给运行耗时与徽标图标。
+   徽标图标（✓/✕）不藏：它与 AC / WA 文字是一体的，藏了徽标就缺一角。 */
+@container (max-width: 15.625rem) {
   .card__head {
     gap: 4px;
     padding: 7px 5px 7px 6px;
-  }
-
-  .badge :deep(svg) {
-    display: none;
   }
 
   .stale {

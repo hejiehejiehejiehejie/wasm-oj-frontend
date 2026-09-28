@@ -5,6 +5,7 @@ import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
 import HotkeyRecorder from './HotkeyRecorder.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
+import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { SHORTCUT_ACTIONS, useShortcutManager } from '../composables/useShortcutManager.js'
@@ -37,11 +38,14 @@ const props = defineProps({
   // 设置视图此刻是否真的显示在编辑器里（合成页签被切走时为 false）。
   // 组件本身用 v-show 常驻挂载，靠这个 prop 决定何时重新核对本地运行环境。
   active: Boolean,
+  // 全局界面缩放比例（1 / 1.1 / 1.25 / 1.5），与 App.vue 的 cph.uiScale 同源
+  uiScale: { type: Number, required: true },
 })
 
 const emit = defineEmits([
   'update:settings',
   'update:time-limit',
+  'update:ui-scale',
   'toggle-layout',
   'select-engine',
   'update-base',
@@ -526,6 +530,11 @@ function setPanelPosition(event) {
   if (event.target.value !== props.panelPosition) emit('toggle-layout')
 }
 
+/** 缩放档位选中即生效（App 那边写进 cph.uiScale，再落到根字号） */
+function setUiScale(event) {
+  emit('update:ui-scale', Number(event.target.value))
+}
+
 function limitLabel(ms) {
   return `${ms / 1000} s`
 }
@@ -633,6 +642,25 @@ function setTimeLimit(event) {
             <span class="select">
               <select :value="panelPosition" @change="setPanelPosition">
                 <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
+                  {{ item.label }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">界面缩放</span>
+            </span>
+            <span class="setting-row__hint">整体放大或缩小界面，适合高分屏或投屏演示；编辑器也会一起缩放</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="uiScale" @change="setUiScale">
+                <option v-for="item in UI_SCALE_OPTIONS" :key="item.id" :value="item.id">
                   {{ item.label }}
                 </option>
               </select>
@@ -977,8 +1005,9 @@ function setTimeLimit(event) {
   max-width: 640px;
 }
 
-/* 编辑区被挤窄时（比如手机上两栏并排），目录从左侧竖排换成顶部横向标签条 */
-@container settings (max-width: 560px) {
+/* 编辑区被挤窄时（比如手机上两栏并排），目录从左侧竖排换成顶部横向标签条。
+   阈值写成 rem：全局缩放后目录与内容都会变大，需要更早翻成横条 */
+@container settings (max-width: 35rem) {
   .settings-view__inner {
     flex-direction: column;
     gap: 0;

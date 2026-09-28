@@ -168,7 +168,7 @@ function onKeyDown(event) {
     <div
       class="tree-item__row"
       :class="{ 'tree-item__row--active': active }"
-      :style="{ paddingLeft: `${depth * 10 + 8}px` }"
+      :style="{ '--depth': depth }"
       :title="metaTooltip || undefined"
       role="treeitem"
       :data-tree-id="node.id"
@@ -195,7 +195,7 @@ function onKeyDown(event) {
         @blur="commitRename"
       />
     </div>
-    <p v-if="renameError" class="tree-item__error" :style="{ paddingLeft: `${depth * 10 + 8}px` }">
+    <p v-if="renameError" class="tree-item__error" :style="{ '--depth': depth }">
       {{ renameError }}
     </p>
 
@@ -219,6 +219,8 @@ function onKeyDown(event) {
   display: flex;
   align-items: center;
   height: 24px;
+  /* 缩进步长走 rem（--depth 是模板给的无单位层数），全局缩放时与行高、字号同步 */
+  padding-left: calc(var(--depth, 0) * 10px + 8px);
   padding-right: 8px;
   color: var(--text);
   cursor: default;
@@ -278,6 +280,7 @@ function onKeyDown(event) {
 
 .tree-item__error {
   margin: 2px 0;
+  padding-left: calc(var(--depth, 0) * 10px + 8px);
   color: var(--danger-text);
   font-size: 11px;
   line-height: 16px;
