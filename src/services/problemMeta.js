@@ -85,9 +85,9 @@ export function difficultyLabel(oj, difficulty) {
   return table.find((item) => item.id === difficulty)?.label ?? ''
 }
 
-/** 四项全空的初始值（对话框绑定用） */
+/** 全空的初始值（对话框绑定用）。timeLimit 为 0 = 未设置，单位毫秒 */
 export function emptyMeta() {
-  return { url: '', oj: '', difficulty: '', date: '' }
+  return { url: '', oj: '', difficulty: '', date: '', timeLimit: 0 }
 }
 
 /** 本地时区的今天，形如 2026-09-28 */
@@ -97,11 +97,15 @@ export function todayISO() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
+/** timeLimit 合法范围（毫秒）：低于 100ms 毫无意义，高于 60s 足以覆盖任何 OJ */
+const TIME_LIMIT_MIN_MS = 100
+const TIME_LIMIT_MAX_MS = 60000
+
 /**
  * 逐键校验一份来路不明的元数据，丢弃越界 / 未知值。
  * 全空时返回 null —— 调用方据此把节点上的 meta 整个删掉，而不是留一个空壳。
  * @param {unknown} raw
- * @returns {{ url: string, oj: string, difficulty: string, date: string } | null}
+ * @returns {{ url: string, oj: string, difficulty: string, date: string, timeLimit: number } | null}
  */
 export function normalizeMeta(raw) {
   if (!raw || typeof raw !== 'object') return null
@@ -112,9 +116,24 @@ export function normalizeMeta(raw) {
   const rawDate = typeof source.date === 'string' ? source.date.trim() : ''
   const date = DATE_PATTERN.test(rawDate) ? rawDate : ''
   const difficulty = normalizeDifficulty(oj, source.difficulty)
+  const timeLimit = normalizeTimeLimit(source.timeLimit)
 
-  if (!url && !oj && !date && !difficulty) return null
-  return { url, oj, difficulty, date }
+  if (!url && !oj && !date && !difficulty && !timeLimit) return null
+  return { url, oj, difficulty, date, timeLimit }
+}
+
+/**
+ * 时限校验：接受 number 或数字字符串，转整数毫秒并 clamp 到合法范围；
+ * 非法 / 空值 / 越界一律退 0（= 未设置，调用方据此不写运行时限）。
+ * @param {unknown} value
+ * @returns {number}
+ */
+function normalizeTimeLimit(value) {
+  const num = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(num) || num <= 0) return 0
+  const ms = Math.round(num)
+  if (ms < TIME_LIMIT_MIN_MS || ms > TIME_LIMIT_MAX_MS) return 0
+  return ms
 }
 
 /**
@@ -136,7 +155,7 @@ function normalizeDifficulty(oj, value) {
 /**
  * 元数据 → 文件树行的 title 文案（多行）。没有任何内容时返回 ''，
  * 调用方据此不设 title，避免弹出一个空提示。
- * @param {{ url?: string, oj?: string, difficulty?: string, date?: string } | null | undefined} meta
+ * @param {{ url?: string, oj?: string, difficulty?: string, date?: string, timeLimit?: number } | null | undefined} meta
  * @returns {string}
  */
 export function formatMetaTooltip(meta) {
@@ -146,6 +165,7 @@ export function formatMetaTooltip(meta) {
   if (oj) lines.push(`OJ：${oj.label}`)
   const difficulty = difficultyLabel(meta.oj, meta.difficulty)
   if (difficulty) lines.push(`难度：${difficulty}`)
+  if (meta.timeLimit && meta.timeLimit > 0) lines.push(`时限：${meta.timeLimit / 1000}s`)
   if (meta.date) lines.push(`日期：${meta.date}`)
   if (meta.url) lines.push(meta.url)
   return lines.join('\n')

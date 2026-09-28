@@ -34,8 +34,14 @@ const panelVisible = usePersistentRef('cph.panelVisible', true)
 const editorShare = usePersistentRef('cph.editorShare', 60)
 const engineId = usePersistentRef('cph.engine', DEFAULT_ENGINE_ID)
 const judgeBases = usePersistentRef('cph.judgeBases', defaultBases())
-// 全局时限（毫秒，只计运行段）：所有用例统一，超了判 TLE
+// 全局时限（毫秒，只计运行段）：所有用例统一，超了判 TLE。
+// 这是「没有题目时限时的默认值」；带 meta.timeLimit 的题目文件优先用题目时限。
 const timeLimitMs = usePersistentRef('cph.timeLimitMs', TIME_LIMIT_DEFAULT_MS)
+// 实际生效的时限：活跃文件自带题目时限就用它，否则退回全局默认
+const effectiveTimeLimitMs = computed(() => {
+  const fromMeta = activeNode.value?.meta?.timeLimit
+  return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
+})
 
 // ------------------------------------------------------------ 编辑器偏好
 const EDITOR_SETTINGS_KEY = 'cph.editorSettings'
@@ -465,7 +471,7 @@ async function runAll() {
     entryPath: activeNode.value?.path,
     cases: queue,
     code: snapshot,
-    timeLimitMs: timeLimitMs.value,
+    timeLimitMs: effectiveTimeLimitMs.value,
     signal: abortController.signal,
     onCase: applyPatch,
   })
@@ -496,7 +502,7 @@ async function runOne(target) {
       entryPath: activeNode.value?.path,
       cases: [target],
       code: peekActiveContent() ?? '',
-      timeLimitMs: timeLimitMs.value,
+      timeLimitMs: effectiveTimeLimitMs.value,
       signal: controller.signal,
       onCase: applyPatch,
     })

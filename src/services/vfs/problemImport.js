@@ -270,7 +270,7 @@ export async function importProblem(task) {
     // 【硬要求】已存在的代码文件一个字都不动 —— 那里面是用户写的题解
     if (!existingCode) await vfs.createFile(codePath, NEW_FILE_CONTENT)
 
-    // 抓取器管得着的字段（url / oj）每次刷新；难度是用户自己填的，保留；
+    // 抓取器管得着的字段（url / oj / timeLimit）每次刷新；难度是用户自己填的，保留；
     // 日期只在首次导入时播种，之后不再覆盖
     const previousMeta = existingCode?.meta
     const nextNode = await vfs.setMeta(
@@ -280,6 +280,7 @@ export async function importProblem(task) {
         oj: ojId,
         difficulty: previousMeta?.difficulty ?? '',
         date: previousMeta?.date || todayISO(),
+        timeLimit: typeof task.timeLimit === 'number' && task.timeLimit > 0 ? task.timeLimit : 0,
       }),
     )
 
