@@ -76,7 +76,7 @@ src/
     HotkeyRecorder.vue          # 单个动作的快捷键录制框：点一下开录、冲突红字且拒绝写入、Esc 放弃、Delete 清除绑定；开录时置 recordingActive 让全局监听让路（见第 13 节）
     EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图（运行状态不再透传——页签栏那颗运行按钮已删）
     EditorTabs.vue              # 编辑器标签栏：只有一条 `strip`（文件页签 + 「设置」合成页签，横向滚动）。右端那颗「运行 / 停止」按钮已于 2026-09-28 删除（运行入口见第 1 节硬约束表）
-    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 编辑器 / 布局 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「编辑器」那组按 `EDITOR_GROUPS`（外观 / 编辑 / 光标与高亮 / 视图 / 代码辅助 5 小节，共 27 行）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
+    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 编辑器 / 布局 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「编辑器」那组按 `EDITOR_GROUPS`（外观 / 编辑 / 光标与高亮 / 视图 4 小节，共 23 行）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
     HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）
     Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cph.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
@@ -192,12 +192,16 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 触摸屏的键盘适配（2026-09-18 加）
 
-手机上虚拟键盘会盖住大半个屏幕。这套适配**在触摸屏上默认开启、没有开关**，只做两件事：**把整块应用收缩到键盘上方**（内容照常滚动）+ **焦点不要被「滑动」改变**。
+手机上虚拟键盘会盖住大半个屏幕。这套适配**在触摸屏上默认开启、没有开关**，只做三件事：**把整块应用收缩到键盘上方**（内容照常滚动）+ **焦点不要被「滑动」改变** + **代码里不许主动把焦点塞进编辑器**（切文件只换内容，不弹键盘）。
 
 **唤出键盘的时机用浏览器默认的**（焦点落进可输入文字的框里就弹），界面上不要另设开关。用户口径是：**滑动只滚动，轻点才聚焦**——一条曾经的失败尝试记在下面。
 1. 加界面开关（先是「底部输入停靠栏 + 按钮」，再是「键盘模式按钮」）：真机上点按钮本身就会把焦点从编辑器抢走，反而把已经弹着的键盘收起来。两版都因此撤掉，**不要再加**。
 
-- **默认开启的判定**：`matchMedia('(pointer: coarse)')` 为真即启用（鼠标设备上不写变量、不挂任何监听，行为与加这个功能之前逐像素一致）。
+- **默认开启的判定**：`matchMedia('(pointer: coarse)')` 为真即启用（鼠标设备上不写变量、不挂任何监听，行为与加这个功能之前逐像素一致）。判定单独导出成 `isTouchPointer()`（`composables/useMobileKeyboard.js`），供下面「不许抢焦点」的调用点复用——那里**不能**整体调 `useMobileKeyboard()`，否则 `onMounted` 会把整套 document 监听再挂一遍。
+- **切文件不抢焦点（2026-09-28 加）**：`EditorPane.vue` 的 `activeId` watch 结尾原本无条件 `instance.focus()`，于是触屏上**点页签、点文件树都会把软键盘唤起来**——和上面「点哪儿都不会莫名弹键盘」的口径直接冲突。改成 `if (!isTouchPointer()) instance.focus()`：触屏上只是**不再主动聚焦**，并没有 `blur()`，所以「键盘弹着时一概不碰焦点」那条照旧（正在改代码时切页签，键盘不会被收掉）。暴露给外部的 `focus()`（扩展导入题目后补焦用）同样加了这道闸。
+  - 触屏上「要看代码」的正常入口因此只剩一个：**轻点编辑器正文**，由 Monaco 自己的手势 Tap 去 `focusTextArea()`。光标不再跟着页签跑，这本来就是用户要的——焦点与光标只属于「用户点过的那块正文」。
+  - **不要把 `focus()` 整个删掉**：鼠标设备上点页签后能直接敲键盘，是 VS Code 的既有手感（桌面实测点页签后 `activeElement` 仍是 `.native-edit-context`），删了就回归了。
+
 - **可视高度**：`.app.is-keyboard` 是 `position: fixed; top: var(--vv-top); height: var(--vvh)`。这两个变量由 composable 从 `window.visualViewport` 的 `height` / `offsetTop` 写进 `documentElement.style`（`resize` / `scroll` / `orientationchange` 都跟）。用 `top` 一起对齐是因为 iOS 上可视区会被顶上去（`offsetTop > 0`），只改高度的话底部仍会被键盘盖住。**没有用 `interactive-widget=resizes-content`**（Chrome 专用）。工作区是 flex、Monaco 是 `automaticLayout`，都不需要额外写高度。
 - **保焦 = 只拦默认行为，不抢焦点**：键盘收起是因为焦点被移走了，所以监听 `document` 的 **`mousedown`（capture）**，目标不是可编辑元素时 `preventDefault()`：焦点不再移给 body，键盘不落。
   - 可编辑元素**一律放行**（`input, textarea, select, [contenteditable]`）。Monaco 的输入面是它自己那个 `textarea.inputarea`（Chrome 里实际聚焦到 `.native-edit-context`），卡片输入框是 `.ta`——挡掉它们就等于「焦点进不去编辑器」。
@@ -224,6 +228,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 验证口径（临时 puppeteer 脚本，跑完即删；触屏要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才命中 `pointer: coarse`，`emulateMediaFeatures` 不支持 `pointer`）。触屏 390×844：`.app` 带 `is-keyboard`、`--vvh=844px`；**轻点**编辑器 / 卡片 `.ta` → 焦点分别进 Monaco 输入面与那个 textarea；**手抖 4px** 拖动 → 仍聚焦（不误伤轻点）；**拖动 20px** 与**划出去再划回来** → 焦点仍 body（这两条是真机问题的靶子，改前必红：探针会在页面里给 `-monaco-gesturetap` 挂个计数器，先确认 Monaco 那时**确实派了 Tap**，再看焦点没进去）；拖动 72px → 焦点仍 body（Monaco 本就不派）；滑动后手动派一个 `mousedown` 给编辑器 → `defaultPrevented` 且焦点不进去；滑动期间手动 `focus()` 编辑器输入面 → 焦点被还回 body（这是 `focusin` 兜底那道闸）；焦点在 `.ta` 时滑动编辑器 → 焦点仍在 `.ta`；滑动后再轻点 → 焦点能进；焦点在 `.ta` 时点面板标题、输出区 `.out`、页签栏空白处 → activeElement 一字不变；视口 844→420 → `--vvh` 与 `.app` 高度都变 420。鼠标视口：无 `is-keyboard`、`--vvh` 为空、点输入框与点编辑器都照常聚焦。
   - **先点编辑器、再滑动 → 焦点必须被清掉**（这条是最后一个真机 bug 的靶子，改前实测焦点仍留在 `.native-edit-context`）；滑动期间再强行 `focus()` 编辑器 → 又被清掉；焦点在 `.ta` 时滑动编辑器 → `.ta` 焦点不动；滑动后轻点 → 焦点能进；手抖 4px → 不算滑动、焦点保留。
   - **轻点那条（2026-09-28 加）**：模拟「键盘收起但焦点还残留在编辑器里」（`visualViewport` 复位使 `keyboardUp` 为假，焦点仍 `.native-edit-context`）→ 只 `touchstart` 一次、不滑 → 焦点必须被清成 body（**改前必红**）；反过来「键盘弹着时轻点非可编辑处」→ 焦点一字不动（证明没破坏保焦设计）；轻点编辑器文本本身仍能重新聚焦（靠 Monaco 自己的 Tap）；焦点在卡片 `.ta` 时轻点别处 → 不动它；鼠标视口下整层不生效（`--vvh` 为空）。
+  - **切文件不抢焦点（2026-09-28 加）**：触屏 390×844，先把焦点 `blur()` 到 body → 轻点**文件树里另一个文件**、以及轻点**页签栏里另一个页签** → 两者都换文件成功（`openTabs` 增加、activeTab 改名）且 `activeElement` 仍是 `body`、不在 `.monaco-editor` 里（**改前必红**）；再轻点编辑器正文 → `activeElement` 进 `DIV.native-edit-context`（证明正常入口没被误伤）。鼠标视口 1680×950 下点页签 → `activeElement` 仍是 `.native-edit-context`（证明没回归桌面手感）。
+    - **落点要落在编辑器「可视区」里**：`.view-lines` 的 `getBoundingClientRect()` 比 `.monaco-editor` 宽得多（它是内容全宽、被裁掉的），取它的中心点会打到编辑器外面——390px 档实测 `.monaco-editor` 只有 `x:7 w:181`，而 `.view-lines` 是 `x:75 w:314`。要取「两者矩形交集」再取中心，并用 `document.elementFromPoint()` 先确认 `closest('.monaco-editor')` 为真。
   - **本地探针验证不了「真滑动」**：`page.touchscreen` 的合成触摸在我们这个无头 Chrome 里**根本不会滚动**（实测拖动 200px 前后 `.monaco-scrollable-element` 的 `scrollTop` 都是 0）。所以凡是依赖「真的滚起来了」的用例（Safari 在 `touchstart` 就聚焦、系统的键盘重弹）本地一律复现不出，别把绿色当已验过——只能靠真机反馈。可验证的是「touchmove 位移判定」这一层，它不依赖滚动。
   - **选落点要避开本来就会改焦点的地方**，否则用例自己会测糊：卡片头左侧 30px 是折叠按钮（点了会把 `.card__body` 收起，输入框被 `v-show` 藏掉，焦点只能掉给 body）；面板头中部是时限的 `<label>`，点它会把 click 转给 `<select>`，焦点本来就会跟着走。
 
@@ -261,7 +267,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `TestCaseCard.vue`（style@202） | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
 | `EditorTabs.vue`（style@106） | `.editor-tabs`（`flex: 0 0 35px`）`.editor-tabs__strip`（`flex: 1 1 auto; min-width: 0`，**横向滚动在这里**，现在铺满整行）`.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式）。原 `.editor-tabs__run`（64×25 的运行 / 停止按钮，以及它的 `.is-running`）2026-09-28 已随按钮一起删除 |
 | `EditorPane.vue`（style@231） | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
-| `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，8 项，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.download-button*`（本地运行环境下载 / 「应用」组安装按钮 / 扩展包下载共用）`.shortcut-list*`（插件快捷键只读清单）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
+| `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，8 项，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.runtime-row__actions`（已就绪时右侧「已就绪 + 卸载」两颗的容器）`.download-button*`（本地运行环境下载 / 卸载 / 「应用」组安装按钮 / 扩展包下载共用；`.is-uninstall` 悬停才转危险色）`.shortcut-list*`（插件快捷键只读清单）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`，以及卸载确认弹窗那一组 `.confirm*`（与 `FileExplorer` 同款，Teleport 到 body，见坑 23）（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
 | `HotkeyRecorder.vue` | `.hotkey-field`（右对齐一列）`.hotkey`（录制框，`--is-recording` 描边点亮 / `--is-conflict` 红描边红字 / `--is-empty` 未绑定置灰）`.hotkey-clear`（清除按钮）`.hotkey-error`（冲突红字）`.hotkey-tip`（录制中的 Esc / Delete 提示） |
 | `EngineSettingsPanel.vue`（style@103） | `.engine-panel` `.engine-list` `.engine`（`--active` 是选中引擎，整块可点）`.engine__*` `.engine-field*`（服务地址）`.engine-button*`（自检 / 保存）`.engine-probe*`（自检结果文案，`--ok` / `--bad` 由 `is-*` 类控制） |
 | `HelpPanel.vue`（style@95） | `.help-content` `.help-group*` `.help-item*`（`.is-bold` 是 `**…**` 加粗片段）`.guide-link`。原 `.help-button` / `.panel-backdrop` / `.panel-drawer*` / `.done-button` 与两段 Transition 已随抽屉外壳一起删掉 |
@@ -285,7 +291,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 12. **新建的目标目录可以是任意目录，输入行要挡住一种「程序性失焦」**（`FileExplorer.vue` + `InlineCreateRow.vue` + `FileTreeItem.vue`，2026-09-28 改）：两处入口——页头两颗按钮**跟随树内聚焦的节点**（目录取自己、文件取父目录、没聚焦回落根目录，见 `headerCreateTarget()`），右键**目录**则显式指定该目录（菜单项回来了，见坑 14）。状态里的 `targetId` / `targetPath` 决定落点（`join(targetPath, name)`），名字仍是单级（`assertName` 拒绝 `/`）。输入行抽成了 `InlineCreateRow.vue`，**两处渲染点**：根目录那份在 `FileExplorer` 的树容器里，建在某个目录里那份在 `FileTreeItem` 的 `role="group"` 内、递归 `v-for` 之前。三条纪律：
     - **输入行不能放进 `.tree-item__row` 里**：那一行挂着 `@keydown="onKeyDown"`（方向键导航）与由 `onTreeFocus` 的 `closest('[data-tree-id]')` 驱动的 roving tabindex，输入框进去会让编辑文字的光标键被树抢走、打字还会篡改 `focusedId`。放 `role="group"` 里则 `closest('[data-tree-id]')` 返回 `null`（`[data-tree-id]` 只在 `.tree-item__row` 上，而它是兄弟不是祖先），两个问题一起避开（已实测）。另：`role="group"` 挂着 `v-if="expanded"`，所以 `startCreate` 必须先 `toggleExpand` 目标目录，否则输入行根本不存在。
     - **默认名按目标目录查重**：`defaultName` 扫的是目标目录的兄弟（根目录扫 `workspace.tree`，其余走 `getNodeById(targetId).children`），不是全库；文件按 `activeLanguage` 给 `new.cpp` / `new.py`、目录给「新建文件夹」，撞了排 `new-2` / `new-3`。
-    - 焦点靠 `nextTick(focusCreateInput)`（聚焦 + 全选）送进去，`autofocus` 属性对动态插入的节点不生效、指望不上；句柄由 InlineCreateRow 挂载时注册进 `provide('creatingRow')`。真正阴的地方是失焦提交：创建成功后会自动**打开**新文件，`EditorPane` 在 `activeId` 变化时会 `instance.focus()`（打开文件抢焦点本身是正常行为，别删它），这一抢就落在内联输入框头上 → 输入框 `blur` → 失焦提交 → **凭空多出一个默认名的文件**（连点两次「新建文件」时必现：第二轮输入框刚聚焦就被提交掉）。所以绑的是 `onCreateBlur()` 而不是直接 `commitCreate()`，用 `createFlights`（在途创建轮次的 state 集合）分两种：屏幕上这个输入框自己正在提交（失焦正来自「打开刚建好的文件」）→ 跳过重复提交、也不抢焦点，让焦点留在 Monaco；在途的是上一轮、屏幕上这个是新一轮被误伤的 → `nextTick` 把焦点抢回来（Monaco 的 focus 在 pre-flush watcher 里，抢得赢）并放弃提交。
+    - 焦点靠 `nextTick(focusCreateInput)`（聚焦 + 选中主干，见下）送进去，`autofocus` 属性对动态插入的节点不生效、指望不上；句柄由 InlineCreateRow 挂载时注册进 `provide('creatingRow')`。真正阴的地方是失焦提交：创建成功后会自动**打开**新文件，`EditorPane` 在 `activeId` 变化时会 `instance.focus()`（打开文件抢焦点本身是正常行为，别删它），这一抢就落在内联输入框头上 → 输入框 `blur` → 失焦提交 → **凭空多出一个默认名的文件**（连点两次「新建文件」时必现：第二轮输入框刚聚焦就被提交掉）。所以绑的是 `onCreateBlur()` 而不是直接 `commitCreate()`，用 `createFlights`（在途创建轮次的 state 集合）分两种：屏幕上这个输入框自己正在提交（失焦正来自「打开刚建好的文件」）→ 跳过重复提交、也不抢焦点，让焦点留在 Monaco；在途的是上一轮、屏幕上这个是新一轮被误伤的 → `nextTick` 把焦点抢回来（Monaco 的 focus 在 pre-flush watcher 里，抢得赢）并放弃提交。
+    - **进去时不是「全选」，是「只选中主干」**（2026-09-28 改）：两个输入框（这里的 InlineCreateRow 与 `FileTreeItem` 的重命名）都用 `setSelectionRange(0, 主干长度)`，落点是 `new.cpp → 'new'`、`main.cpp → 'main'`，后缀留在选中区外——全选的话，改个文件名会顺手把 `.cpp` 打没，用户还得手动补回去。**目录名没有后缀这回事，整段选中**（所以两处都要判 `type === 'file'` / `type === 'directory'`，别无条件套 `stem`）。主干长度取自 `paths.js` 的 `stem(name)`，**它收的是单级名称而不是路径**——`stem('main.cpp')` 对，`stem('/src/main.cpp')` 会返回 `'/src/main'` 这种垃圾，因为它不剥目录（`extname` 那边收的是路径、内部走 `basename`，两者签名刻意不同）。判定规则与 `extname` 保持一致：没有点或点是前导点都算没有后缀，所以 `.gitignore` 与 `Makefile` 是整段选中。
 13. **`tabSize` / `insertSpaces` 是 model 级选项，不是编辑器选项**（`services/editorOptions.js` 的 `editorModelOptions` + `EditorPane.vue` 的 `applyModelOptions`）：monaco 0.56 的 `EditorOption` 枚举里**根本没有这两项**（整个 `esm/vs/editor/common/editorOptions.js` 里搜不到 `tabSize`），真实定义在 `ITextModelCreationOptions` / `ITextModelUpdateOptions`。把 `tabSize: 2` 塞进 `editor.create()` 或 `editor.updateOptions()`，`EditorOptionsUtil.validateOptions()` 会当成未知键**静默丢掉**——面板看起来改了、localStorage 也存了，编辑器却一直按 4 空格渲染，而且 `getOption(EditorOption.tabSize)` 返回 `undefined`，不细看根本发现不了。正确姿势是 `model.updateOptions({ tabSize, insertSpaces })`，并且**每挂一个 model 都要补一次**（`setModel()` 之后、切文件 / 新建文件都算），否则新 model 立刻退回默认值。校验这类「改了没生效」的选项时，要读 `editor.getModel().getOptions()`，不是 `editor.getOption()`。顺带记一句默认值：`tabSize` 沿用改造前的 4，`insertSpaces` 刻意是 **`false`（关闭，按 Tab 出制表符）**——Monaco 自己的默认是 `true`，这是全表唯一一处刻意偏离 Monaco 默认的项（`editorOptions.js` 文件头也写了）。
 14. **文件树的右键事件必须 `.stop`**（`FileTreeItem.vue` 的 `@contextmenu.stop="onContextMenu"`）：树根 `.explorer__tree` 上也挂了一个 `@contextmenu`（`onTreeContextMenu`，负责屏蔽空白处右键的原生菜单），而节点的右键**会冒泡到树根**——不 `.stop` 的话节点菜单会被树根那一次覆盖掉，症状是「右键文件/文件夹没反应、右键空白处反而正常」。菜单项在 2026-09-28 变成「题目信息（仅文件）」/「新建文件 · 新建文件夹（仅目录）」/「重命名」/「删除」——目录上那两项是**刻意加回来**的：新建的目标目录可以是任意目录，而页头按钮只能跟随聚焦节点、表达不了「建在哪个目录」（见坑 12）。
 15. **判题语言没有独立状态，由活跃文件的扩展名派生**（`App.vue` 的 `activeLanguage`）：2026-09-28 顶栏整体删除时那颗语言下拉也一并删了，`cph.language` 随之成为死键（见第 6 节）。现在 `runAll()` / `runOne()` 直接拿 `activeLanguage` + `activeNode.path` 调 `wasmRuntime.runCase()`（`.py` 走解释分支、其余走 C++ 分支），`workspaceStore.initWorkspaceStore()` 里那句 `openLanguage()` 只剩「首次启动给 `/main.cpp` 兜底」这一个作用。**别把语言选择器加回来**——它与「一个页签 = 一个真实文件」这套模型天然冗余，加回来就得再造一份语言状态去和活跃文件抢口径。想加「新建 Python 文件」入口也不用碰状态层，改 `FileExplorer` 的默认名规则即可（见坑 12）。
@@ -306,12 +313,17 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 20. **扩展安装包靠文件名换版，不靠 `sw.js` 的 `VERSION`**（`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION` / `EXTENSION_FILE`）：`public/extension/` 下的 zip 不在构建清单里，而 SW 对同源 GET 走 `cacheFirst` 且**不重新校验**——原地覆盖同名文件，老用户会一直下到缓存里的旧包。所以发新版必须换文件名（`cc-for-web-2.65.1.zip` → `...-2.65.2.zip`），同步改这两个常量 + `cph-companion` 的 `package.json` 版本号。也**不要**把它塞进 `STATIC_ASSETS`（那会每次 install 都预缓存一份几百 KB 的包，而它只在用户点「下载」时才需要）。
 21. **全局快捷键挂在 `window` 的捕获阶段，且录制期间必须让路**（`useShortcutManager.js` + `App.vue` 的 `onKeydown` + `HotkeyRecorder.vue`）：`window.addEventListener('keydown', onKeydown, true)` 里 `preventDefault()` + `stopPropagation()`——Monaco 的键位服务挂在编辑器内部 DOM 上，捕获是从外往内走，只有这样才能抢在它前面，编辑器里也归这套表管（顺带把 `Ctrl/⌘+Enter` 原本「在下方插入一行」的内置行为一并挡掉）。反过来，`HotkeyRecorder` 的 keydown 在按钮的目标阶段，而捕获永远先跑，所以**开录时必须置 `recordingActive = true`**、`onKeydown` 见到它就 return，否则录入组合键的瞬间功能会先被执行一遍。同理，`event.isComposing` 期间一律不处理（拼音选词不能被当成命令）。**不要**改回 `editor.addCommand()` 同步键位：Monaco 0.56 的 `ICodeEditor` 只有 `addCommand`、没有 `removeCommand`，改过键之后旧的撤不掉，会出现「新键不跑、旧键反而跑」。
 22. **组合键内部串用 `event.code`，且必须挡住浏览器原生键**（同上）：用 `event.key` 对不上——Alt 组合在 macOS 上会把 key 变成特殊字符（Alt+B 是 `∫`）、Shift 会把 `Digit1` 变成 `!`。内部写法固定为 `Mod+Ctrl+Alt+Shift+<code>`（顺序固定、必带键码），所以字符串相等就是精确匹配，`Ctrl+B` 与 `Ctrl+Shift+B` 天然不会互相误触；`Mod` = 平台主修饰键（macOS 是 ⌘，其它平台是 Ctrl），macOS 上还要单独有 `Ctrl`。另外 `BROWSER_RESERVED` 那张表（`⌘W` / `⌘T` / `⌘R` / `F12` 等）要在**录制阶段**就拒绝并给红字原因：这些组合由浏览器 UI 层直接吃掉，`preventDefault()` 无效，绑上去只会得到一个永远不触发的快捷键。裸键只放行功能键与 `Esc`（`SAFE_BARE_CODES`），其余一律要求带修饰键，否则打字时会不停误触发。
+23. **「卸载本地运行环境」删的是 Cache Storage，判据也必须以它为准**（`runnoSandbox.unloadRuntime` + `wasmRuntime` 的 `uninstallRuntime` / `isAssetCached`，2026-09-28 加）：设置页「本地运行环境」在 `ready` 时右侧多一颗「卸载」（自绘确认弹窗，理由同坑 11，不要 `window.confirm`）。要同时清三处，缺一处就「卸了像没卸」：
+    - **Cache Storage**（SW 的 `cph-toolchain-*`）：资产的实际落点，按 `runtimeAssetURLs()` 逐个 `cache.delete()`；缓存名带 `VERSION`，所以按前缀全扫，不只认当前那一个。
+    - **内存**：C++ 是 `toolchain` / `toolchainPromise` / `compileCache` / `pchBytes` / `pchPromise`，Python 是 `pythonRuntime` / `pythonRuntimePromise`；另加 `wasmRuntime` 的 `pchWarmupStarted` 复位（不复位的话，卸载后再跑 C++，`warmupPch()` 会因「已预热过」直接跳过）。PCH 存在 IndexedDB（十几 MB），单独 `deletePch()`。
+    - **HTTP 缓存：删不掉**，浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只改取值策略）。所以 `isAssetCached` 改成「SW 控制页面时只认 `caches.match()`，没有 SW（dev 模式）才退回 `only-if-cached` 探 HTTP 缓存」——仍让 HTTP 缓存当判据的话，刚卸载完的资产会被那份残留立刻判回「已就绪」。**这是本项目第一次让「判据」与「删得掉的那一层」对齐**，以后改探针先想清楚这点（坑 12 那套探针注释也同步改过）。
+    - 卸载按钮只在 `ready` 时出现（没装就没有可卸的），下载中禁用——会和 SW 在途的 `cache.put` 打架。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
 | key | 内容 | 位置 |
 | --- | --- | --- |
-| `App.vue`（`EDITOR_SETTINGS_KEY` / `readEditorSettings()` / `updateEditorSettings()`，约 38–112 行；定义在 `services/editorOptions.js`） | `cph.editorSettings` + `cph.editorSettingsVersion` | 编辑器偏好共 27 项（主题、字体族 / 字号 / 行高 / 连字、Tab 宽度 / 空格代替 Tab / 自动换行 / 换行列宽、光标样式 / 闪烁 / 平滑移动、当前行突出、空白字符、缩略图、括号对着色 / 缩进参考线 / 括号参考线、粘性滚动 / 滚过最后一行 / 平滑滚动、内边距、滚动条粗细、补全 / 参数提示 / 标签联动 / 行内建议）。**默认值、可选项表、逐键校验、偏好 → Monaco 选项的映射全部在 `src/services/editorOptions.js` 一处**，面板下拉、读盘校验、Monaco 吃到的选项三者共用，加新项只改这一个文件（面板加一行描述即可，见 `EditorSettingsPanel.vue` 的 `EDITOR_GROUPS`）。`Version` 只用于一次性把 v3 之前的 `vs` 主题迁成 `cph-light`，不参与其余键 |
+| `App.vue`（`EDITOR_SETTINGS_KEY` / `readEditorSettings()` / `updateEditorSettings()`，约 38–112 行；定义在 `services/editorOptions.js`） | `cph.editorSettings` + `cph.editorSettingsVersion` | 编辑器偏好共 23 项（主题、字体族 / 字号 / 行高 / 连字、Tab 宽度 / 空格代替 Tab / 自动换行 / 换行列宽、光标样式 / 闪烁 / 平滑移动、当前行突出、空白字符、缩略图、括号对着色 / 缩进参考线 / 括号参考线、粘性滚动 / 滚过最后一行 / 平滑滚动、内边距、滚动条粗细）。**默认值、可选项表、逐键校验、偏好 → Monaco 选项的映射全部在 `src/services/editorOptions.js` 一处**，面板下拉、读盘校验、Monaco 吃到的选项三者共用，加新项只改这一个文件（面板加一行描述即可，见 `EditorSettingsPanel.vue` 的 `EDITOR_GROUPS`）。`Version` 只用于一次性把 v3 之前的 `vs` 主题迁成 `cph-light`，不参与其余键 |
 | `cph.panelVisible` / `cph.panelPosition`（`App.vue:27-29`） | 统一侧边栏是否展开 / 侧边栏在左还是右（键名是历史沿革，语义已从「测试面板」扩到整栏） |
 | `cph.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
 | `cph.editorShare`（`App.vue:31`） | 两栏比例（%） |
@@ -387,14 +399,15 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cph.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面），按 `Mod+Shift+KeyE` 应翻到另一个侧栏面板（等价于点页头那枚胶囊）；开录状态下按同一个键**不应**触发功能。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–G 应当是绿的**，跑之前先知道这几条：
   - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（整份 C++ 模板，行数随模板改而变，别把行数写死进断言）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
-  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（编辑器 / 布局 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项，**加分类时这个数字要跟着改**） → **点目录里的「布局」**（设置是「目录 + 内容」两栏，默认停在「编辑器」，右侧只渲染当前那一组，不点就找不到换边入口）→ 在页签里选「左侧」→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
+  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（编辑器 / 布局 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项，**加分类时这个数字要跟着改**） → **点目录里的「布局」**（设置是「目录 + 内容」两栏，默认停在「编辑器」，右侧只渲染当前那一组，不点就找不到换边入口）→ 在页签里选「右侧」（2026-09-28 起面板默认在**左**，所以这一步反过来选「右侧」）→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
   - **F 步（Python 模板与判题语言）走的是「资源管理器 → 点 main.py」这条路**（2026-09 改）：顶栏语言下拉已移除，语言只跟活跃文件的扩展名走。所以步骤是——先把面板切回「资源管理器」（用脚本里的 `showPanel(page, 'explorer')`，它点胶囊那颗 toggle；先判当前面板不是目标再点，否则会翻过头。该 helper 必须把 `page` 当参数传进来，`const page` 在 `try {}` 块里，模块级函数直接引用会 `page is not defined`）→ DOM click 标签为 `main.py` 的 `.tree-item__row` → 断言 `.view-lines` 文本（NBSP 已归一）含 `def solve`、`.editor-tabs__item--active` 是 `main.py`、动态 `import('/src/services/vfs/workspaceStore.js')` 后 `activeLanguage === 'python'` 且 `activeNode.path === '/main.py'`、`[...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view'))`（钉住「顶栏语言下拉不会复活」——现在全站只剩设置视图里那几个原生下拉）。
   - F 步曾长期误报：断言切到 Python 后 `.view-lines` 文本含 `def solve`，而 Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**——已修（断言前把 `\u00a0` 归一成空格），现在过。这条 NBSP 归一化仍在用，别退回直接 `includes`。对照 A 步的 `includes('include')` 因为不含空格，从来没被这条绊到。
   - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=<任意空闲端口>` 覆盖（端口占用很随机，别写死某一个）。
   - **写探针时别用 `page.$('.xxx')` / `page.click('.xxx')` 去碰页头里的东西**：它们抓的是**文档里第一个**匹配，而侧栏那两个面板是 `v-show` 双份 DOM，第一个多半落在被藏起来的那个面板里。症状是 `Node is either not clickable or not an Element`（`page.click`）或截图报 `Node is either not visible`（`ElementHandle.screenshot`）。正确姿势：先用 `[...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)` 拿到可见面板，再在它里面 `querySelector`，要真点就用 `page.mouse.click(x, y)` 打真实坐标（2026-09-28 一天里踩了两次）。
   - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
   - **E 步同时守「开跑必亮结果」**（见第 3 节）：跑之前先把侧栏切回「资源管理器」再双击分隔条折叠，然后**按 `⌘/Ctrl + Enter`**（2026-09-28 起，页签栏那颗运行按钮删掉后 E 步改走快捷键——此刻侧栏正折叠着，页脚那颗 ▶ 是 `display: none` 点不到的，正好顺带守住「侧栏收起时快捷键照样能跑」），收尾断言 `.pane--tests` 又可见、且当前面板是「评测样例」（`collapsedBeforeRun` / `revealedAfterRun` 两个字段；后者看的是 `.sidebar__panel[data-panel] === 'tests'`，不再是 `is-active` 高亮）。顺序不能反——折叠后整栏 `display: none`，页头那几颗切换图标就点不到了。这一改让 E 收尾时侧栏停在「评测样例」，F 步本来就会自己切回「资源管理器」，两边不冲突。修饰键按平台取（`process.platform === 'darwin' ? 'Meta' : 'Control'`，与 `useShortcutManager` 的 `IS_MAC` 同口径）。
-  - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到左侧，写死向右会让测试栏反向变宽。
+  - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到右侧，写死向左会让测试栏反向变宽。
+  - **A / B / C 三步把「面板默认在哪一侧」写进了断言**（A 断言 `storedPanel === 'left'` 首屏默认、B 选「右侧」并断言 `testsPane.x > editorPane.x`、C 断言刷新后仍是 `'right'`）。2026-09-28 默认从右改成左时这四处一起翻过；**再改默认就把它们一起改**，并顺手过一遍 §12 那四处文案里描述左右的那几句（`guide.html` 首段与折叠小节、`index.html` 的 `<noscript>`）。`og-cover.png` 那张截图里的面板位置不会跟着变，`og:image:alt` 描述的是**那张图**、不是当前默认，别跟着翻。
   - **G 步（快捷键切换侧栏面板，2026-09-28 加）** 守的是 `switch-panel` 这条链路（第 13.4 节）：交替按两次 `Mod+Shift+KeyE` 断言 `data-panel` 走 `explorer → tests → explorer`（等价于点胶囊，走的是同一个 `Sidebar.vue` 的 `togglePanel`）；再双击 `.splitter` 折叠侧栏、按第三次，断言 `.pane--tests` 又可见**且**当前面板变成「评测样例」——「收起时按一下 = 先捞回来再翻面」这条契约就在这一句里。收尾记得把侧栏恢复成「可见 + 资源管理器」。修饰键用模块级常量 `MOD`（`process.platform === 'darwin' ? 'Meta' : 'Control'`），E 步那个运行快捷键也复用它，别再造一份。
   - 临时探针的第三个坑：**边改源码边跑着 dev server** 时，探针会服务到旧的 transform（改完文件、刷新了页面，行为却还是旧的，断言照旧失败）。停掉 server → `rm -rf node_modules/.vite` → 重启，再跑一遍。
   - 各步之间有状态耦合（B/C 切布局会影响 D 的期望方向），改断言时顺着看一遍。
@@ -486,6 +499,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `docs/使用手册.md` | 仓库内的简版，只回答最常问的两三个问题 |
 | `index.html` 的 `<noscript>` | 给不跑 JS 的抓取器的摘要，内容与上面几处对齐 |
 
+其中 `guide.html` 的首段、`guide.html` 的折叠小节、`index.html` 的 `<noscript>` 首段会**点名描述侧边栏在哪一侧**（「左边是 Monaco 编辑器，右边是测试样例面板」）。面板默认位置 2026-09-28 从右改成左时，这三处跟着翻过一遍——**它描述的是「默认」，不是「唯一」**，所以别再往里面加「（可配置）」之类的补丁，也别让它们和 §8 的 A/B/C 断言各说各话。`og:image:alt` 是例外：它描述的是 `og-cover.png` **那张实际截图**，只有重新截图时才该改。
+
 **`index.html` 的 `<noscript>` 正文有硬约束**（注释里也写了）：构建期的 HTML 解析按「脚本未启用」遍历 `<noscript>`，`<style>` / `<link>` / `<script>` 与**相对路径的 `<img>`** 会被特殊处理而在浏览器里失效，所以这块只放纯语义标签（`h1/h2/h3/ul/li/p/a`），**链接一律写绝对地址**（如导向 `https://www.998244353.best/guide.html`）。用户端零影响（JS 开启时不渲染、不进无障碍树），Vue 挂载时 `#app` 内容也会被清空。
 
 **其余 SEO 落点**（都在 `public/`，直接进产物）：
@@ -536,7 +551,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 /Problems/<年月>/<OJ 标签>/<难度>/.cph/<题名>.json  抓取结果（题目元数据 + 全部测试样例）—— 每次抓取整体覆盖
 ```
 
-工作区第一次建立时还会种子两个**空**顶层目录（`migrate.js` 的 `SEED_DIRS`，之后每次启动幂等补一次）：`/Problems`（抓题落盘的根）与 `/contest`（比赛模式的比赛根，见 14.6）。它们只是固定骨架，用户删掉后下次启动会自动回来。
+工作区第一次建立时还会种子两个**空**顶层目录（`migrate.js` 的 `SEED_DIRS`，之后每次启动幂等补一次）：`/Problems`（抓题落盘的根）与 `/Contest`（比赛模式的比赛根，见 14.6）。它们只是固定骨架，用户删掉后下次启动会自动回来。
 
 - `<年月>` 取**当天本地时间**的 `YYYY-MM`（`todayMonth()`，`todayISO().slice(0, 7)`）。粒度到月：按天会长出大量只含一个文件的目录。
 - `<OJ 标签>` 取自 `services/problemMeta.js` 的 `OJ_LIST` 中文标签（洛谷 / Codeforces / …），认不出来落 `其它`。OJ 由题目 `url` 的域名判断（`problemImport.js` 的 `OJ_HOSTS`，带子域名的按 `endsWith` 匹配）。
@@ -667,7 +682,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 **坑（这条风险最高，直接动用户数据）**：
 
 - **新增设置分类会让无头回归直接红**：`scripts/verify-ui.mjs` 里 `navItems` 断言的是设置分类数（第 8 节 B 步），8 → 9 必须同步改；第 4 节 CSS 类名表里那句「8 项」也要跟着改。
-- ~~**先确认一件事：根目录 `/Problems` 还留不留**~~ **已定（2026-09-28）：保留**——`/Problems` 作根、三个维度只放在它下面；去掉它就等于让题目目录和用户自己建的 `main.cpp` 平铺在同一层。`migrate.js` 已把它与 `/contest` 一起种子出来。
+- ~~**先确认一件事：根目录 `/Problems` 还留不留**~~ **已定（2026-09-28）：保留**——`/Problems` 作根、三个维度只放在它下面；去掉它就等于让题目目录和用户自己建的 `main.cpp` 平铺在同一层。`migrate.js` 已把它与 `/Contest` 一起种子出来。
 - ~~**默认把「时间」放最外层会不断长出新顶层目录**~~ **已定（2026-09-28）：粒度 `YYYY-MM`（按月）**，按天会产生大量只含一个文件的目录。
 - ~~**难度维度首次导入时是空的**~~ **已定（2026-09-28）：维度开着但当前题无值 → 落「未分类」**（整层不跳过，新题路径层级才稳定）。用户事后填难度**不搬动**已有文件，见 13.2。
 - ~~**`findNameByUrl` 会失效，这是能不能做的前提**~~ **已做（2026-09-28）**：`findByUrl()` 已改成**全库**扫 `.cph` 按 url 找回旧题目、并复用原目录。只要「身份索引提级」这条在，路径可配置以后「用户一改结构、老题就变孤儿」的风险就不存在——保留这条记录只为说明它当初为什么是前置条件。
@@ -687,7 +702,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 而 `problemImport.buildConfig()` 是 `...task` 展开落盘的，**这三样现在就已经存进 `.cph/<题名>.json` 了**。
 
-**要做的**：一个开关（放哪待定：设置面板 or 面板页头）→ 收到 `batch.size > 1` 的一批任务时，落进 `/contest/<group>`（这个根目录已经在建工作区时种子好了，见 13.2），而不是按 OJ 分目录；并给出「第 3 / 8 题」这类进度。
+**要做的**：一个开关（放哪待定：设置面板 or 面板页头）→ 收到 `batch.size > 1` 的一批任务时，落进 `/Contest/<group>`（这个根目录已经在建工作区时种子好了，见 13.2），而不是按 OJ 分目录；并给出「第 3 / 8 题」这类进度。
 
 **坑**：
 
@@ -747,7 +762,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **要做的**：排版精修 + 逐条过文案。
 
-**进度**（2026-09-28）：~~排版重构与逐条文案已落地~~。设置行改成「无边框 + 悬浮底色」的卡片式层级：三级灰度（`__label` 用 `--text` / `__hint` 用 `--text-dim` / `__key` 用 `--text-faint` 等宽）；版式按控件类型分流（`--select` / `--number` 上下结构、`--switch` / `--action` 左右结构）；`.is-modified::before` 在偏离 `EDITOR_SETTINGS_DEFAULTS` 时亮一条 3px `--accent` 线。`EDITOR_GROUPS` 的 27 条文案全部重写并按「用户视角」补了 hint。仍是 8 个分类，`verify-ui.mjs` 的导航断言未动。剩余：等 14.5 落地（8 → 9 个分类）时再顺一次目录与文案。
+**进度**（2026-09-28）：~~排版重构与逐条文案已落地~~。设置行改成「无边框 + 悬浮底色」的卡片式层级：三级灰度（`__label` 用 `--text` / `__hint` 用 `--text-dim` / `__key` 用 `--text-faint` 等宽）；版式按控件类型分流（`--select` / `--number` 上下结构、`--switch` / `--action` 左右结构）；`.is-modified::before` 在偏离 `EDITOR_SETTINGS_DEFAULTS` 时亮一条 3px `--accent` 线。仍是 8 个分类，`verify-ui.mjs` 的导航断言未动。
+
+**「代码辅助」整组已删**（同日）：`quickSuggestions` / `parameterHints` / `linkedEditing` / `inlineSuggest` 四个开关全部只透传给 Monaco，而**项目没有注册任何语言 provider**（`monaco.languages.register*` 零调用；`monaco-setup.js` 给所有 label 都返回同一个通用 `editorWorker`，而 `language.js` 里只会出现 `cpp` / `c` / `python` / `plaintext`——四种都只有 Monarch 高亮、没有语言服务）。所以这四个开关拨了没有任何反应，属于「接线接到一半」，直接删掉：面板少一个分组（`EDITOR_GROUPS` 4 小节 23 行）、`editorOptions.js` 少了 4 个默认值与 4 行 Monaco 选项透传。**以后再想加补全，得先有 provider**；老用户 localStorage 里的残留键会被 `normalizeEditorSetting` 自动丢掉（它只认 `EDITOR_SETTINGS_DEFAULTS` 里有的键）。
 
 **坑**：
 
@@ -766,7 +783,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **目标目录怎么来的**：页头两颗按钮**跟随树内聚焦的节点**（目录取自己、文件取父目录、没聚焦回落根目录，`headerCreateTarget()`）；右键**目录**则显式指定该目录（菜单项 `new-file` / `new-folder`）。状态里的 `targetId` / `targetPath` 决定落点 = `join(targetPath, name)`。
 - **`startCreate` 先展开目标目录**：`role="group"` 挂着 `v-if="expanded"`，目标目录折叠时输入行根本不存在，得先 `toggleExpand`（沿用 `expandedIds`，会一起被持久化）。
 - **默认名按目标目录查重**：`defaultName` 扫的是目标目录的兄弟，不是全库（见坑 12）。
-- **焦点与失焦提交**：句柄由 InlineCreateRow 挂载时注册进 `provide('creatingRow')`，`nextTick` 聚焦 + 全选；失焦提交要挡「打开刚建好的文件时 Monaco 抢焦点」的程序性失焦，用 `createFlights` 区分在途轮次（连点两次「新建文件」时必现的那种凭空多文件，就是这里的坑，详见坑 12）。
+- **焦点与失焦提交**：句柄由 InlineCreateRow 挂载时注册进 `provide('creatingRow')`，`nextTick` 聚焦 + 选中主干（不是全选，约定见坑 12）；失焦提交要挡「打开刚建好的文件时 Monaco 抢焦点」的程序性失焦，用 `createFlights` 区分在途轮次（连点两次「新建文件」时必现的那种凭空多文件，就是这里的坑，详见坑 12）。
 
 **阶段二（待做）**：**支持嵌套路径**（在输入框里敲 `a/b/c.cpp` 逐级建目录）。
 
