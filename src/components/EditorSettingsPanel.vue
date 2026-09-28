@@ -14,6 +14,7 @@ import {
   CURSOR_BLINKINGS,
   CURSOR_STYLES,
   EDITOR_SETTING_RANGES,
+  EDITOR_SETTINGS_DEFAULTS,
   FONT_FAMILIES,
   LINE_HEIGHT_RATIOS,
   LINE_HIGHLIGHTS,
@@ -55,19 +56,37 @@ const EDITOR_GROUPS = [
   {
     title: '外观',
     rows: [
-      { key: 'theme', label: '主题', control: 'select', options: THEMES },
-      { key: 'fontFamily', label: '字体', control: 'select', options: FONT_FAMILIES },
-      { key: 'fontSize', label: '字体大小', control: 'number' },
+      {
+        key: 'theme',
+        label: '主题',
+        hint: '切换深色与浅色两套配色（默认：深色）',
+        control: 'select',
+        options: THEMES,
+      },
+      {
+        key: 'fontFamily',
+        label: '字体',
+        hint: '代码编辑器使用的等宽字体',
+        control: 'select',
+        options: FONT_FAMILIES,
+      },
+      {
+        key: 'fontSize',
+        label: '字体大小',
+        hint: '代码主字体大小（默认：14px，范围 8–32）',
+        control: 'number',
+      },
       {
         key: 'lineHeightRatio',
         label: '行高',
+        hint: '行间距相对字号的倍数',
         control: 'select',
         options: LINE_HEIGHT_RATIOS.map((ratio) => ({ id: ratio, label: `${ratio} 倍` })),
       },
       {
         key: 'fontLigatures',
-        label: '连字',
-        hint: '要选带连字功能的字体（如 Fira Code）才看得出来',
+        label: '字体连写',
+        hint: '将 => 或 != 等符号渲染为连贯的数学符号（需当前字体支持，如 Fira Code）',
         control: 'switch',
       },
     ],
@@ -77,39 +96,105 @@ const EDITOR_GROUPS = [
     rows: [
       {
         key: 'tabSize',
-        label: 'Tab 宽度',
+        label: '缩进宽度',
+        hint: '制表符的视觉宽度，也用于自动缩进的空格数（默认：4）',
         control: 'select',
         options: [2, 4, 8].map((size) => ({ id: size, label: `${size} 空格` })),
       },
-      { key: 'insertSpaces', label: '用空格代替 Tab', hint: '关掉后按 Tab 键输入制表符', control: 'switch' },
-      { key: 'wordWrap', label: '自动换行', control: 'select', options: WRAP_MODES },
-      { key: 'wordWrapColumn', label: '换行列宽', hint: '只在「按列宽换行」下生效', control: 'number' },
-      { key: 'bracketPairColorization', label: '括号对着色', control: 'switch' },
-      { key: 'indentGuides', label: '缩进参考线', control: 'switch' },
-      { key: 'bracketGuides', label: '括号对参考线', hint: '只画光标所在的那一层', control: 'switch' },
+      {
+        key: 'insertSpaces',
+        label: '空格代替 Tab',
+        hint: '开启后按 Tab 插入空格、关闭则插入制表符（默认：关闭，按 Tab 出制表符）',
+        control: 'switch',
+      },
+      {
+        key: 'wordWrap',
+        label: '自动换行',
+        hint: '代码超长时自动折行显示，避免横向滚动',
+        control: 'select',
+        options: WRAP_MODES,
+      },
+      {
+        key: 'wordWrapColumn',
+        label: '换行列宽',
+        hint: '仅在「按列宽换行」模式下生效，超过该列数即折行（默认：80）',
+        control: 'number',
+      },
+      {
+        key: 'bracketPairColorization',
+        label: '括号配色',
+        hint: '为嵌套的括号对分配不同颜色，便于区分层级',
+        control: 'switch',
+      },
+      {
+        key: 'indentGuides',
+        label: '缩进参考线',
+        hint: '在缩进层级的左侧绘制竖向引导线',
+        control: 'switch',
+      },
+      {
+        key: 'bracketGuides',
+        label: '括号引导线',
+        hint: '在光标所在的括号对之间绘制连接线，仅当前层级',
+        control: 'switch',
+      },
       {
         key: 'stickyScroll',
         label: '粘性滚动',
-        hint: '滚动时把外层作用域钉在顶部',
+        hint: '滚动时把当前代码所在的外层函数 / 类钉在编辑器顶部',
         control: 'switch',
       },
       {
         key: 'scrollBeyondLastLine',
-        label: '允许滚过最后一行',
-        hint: '关掉后到底即停',
+        label: '滚过最后一行',
+        hint: '开启后可在最后一行下方继续滚动出空白区域（默认：关闭）',
         control: 'switch',
       },
-      { key: 'smoothScrolling', label: '平滑滚动', control: 'switch' },
+      {
+        key: 'smoothScrolling',
+        label: '平滑滚动',
+        hint: '滚动时启用过渡动画，避免内容瞬间跳变',
+        control: 'switch',
+      },
     ],
   },
   {
     title: '光标与高亮',
     rows: [
-      { key: 'cursorStyle', label: '光标样式', control: 'select', options: CURSOR_STYLES },
-      { key: 'cursorBlinking', label: '光标闪烁', control: 'select', options: CURSOR_BLINKINGS },
-      { key: 'cursorSmoothCaretAnimation', label: '光标平滑移动', control: 'switch' },
-      { key: 'renderLineHighlight', label: '当前行突出', control: 'select', options: LINE_HIGHLIGHTS },
-      { key: 'renderWhitespace', label: '空白字符', control: 'select', options: WHITESPACE_MODES },
+      {
+        key: 'cursorStyle',
+        label: '光标样式',
+        hint: '文本插入点的形状',
+        control: 'select',
+        options: CURSOR_STYLES,
+      },
+      {
+        key: 'cursorBlinking',
+        label: '光标闪烁方式',
+        hint: '文本插入点的闪烁动画样式',
+        control: 'select',
+        options: CURSOR_BLINKINGS,
+      },
+      {
+        key: 'cursorSmoothCaretAnimation',
+        label: '光标平滑移动',
+        hint: '打字时启用光标移动的过渡动画',
+        control: 'switch',
+      },
+      {
+        key: 'renderLineHighlight',
+        label: '当前行突出',
+        hint: '高亮显示光标所在行',
+        control: 'select',
+        options: LINE_HIGHLIGHTS,
+      },
+      {
+        key: 'renderWhitespace',
+        label: '空白字符',
+        hint: '显示空格与制表符等不可见字符',
+        control: 'select',
+        options: WHITESPACE_MODES,
+      },
     ],
   },
   {
@@ -117,21 +202,12 @@ const EDITOR_GROUPS = [
     rows: [
       {
         key: 'minimap',
-        label: '缩略图 (Minimap)',
-        hint: '在编辑器右侧显示代码地图',
+        label: '代码缩略图',
+        hint: '在编辑器右侧展示全局代码结构的微缩导航（默认：关闭）',
         control: 'switch',
       },
-      { key: 'padding', label: '内边距', control: 'select', options: PADDINGS },
-      { key: 'scrollbarSize', label: '滚动条粗细', control: 'select', options: SCROLLBAR_SIZES },
-    ],
-  },
-  {
-    title: '代码辅助',
-    rows: [
-      { key: 'quickSuggestions', label: '输入时补全', control: 'switch' },
-      { key: 'parameterHints', label: '参数提示', control: 'switch' },
-      { key: 'linkedEditing', label: '标签联动编辑', hint: '改开标签时同步改闭合标签', control: 'switch' },
-      { key: 'inlineSuggest', label: '行内建议', control: 'switch' },
+      { key: 'padding', label: '内边距', hint: '编辑器内容与边框之间的留白', control: 'select', options: PADDINGS },
+      { key: 'scrollbarSize', label: '滚动条粗细', hint: '编辑器滚动条的宽度', control: 'select', options: SCROLLBAR_SIZES },
     ],
   },
 ]
@@ -386,6 +462,11 @@ function rangeOf(row) {
   return EDITOR_SETTING_RANGES[row.key] ?? [0, 1000]
 }
 
+/** 该行是否偏离默认值——决定行左侧那条「已改动」指示线亮不亮 */
+function isModified(row) {
+  return props.settings[row.key] !== EDITOR_SETTINGS_DEFAULTS[row.key]
+}
+
 function setNumber(row, event) {
   const value = Number.parseInt(event.target.value, 10)
   if (!Number.isFinite(value)) return
@@ -442,46 +523,56 @@ function setTimeLimit(event) {
             {{ group.title }}
           </p>
 
-          <label v-for="row in group.rows" :key="row.key" class="setting-row">
-            <span class="setting-row__label">
-              {{ row.label }}
+          <label
+            v-for="row in group.rows"
+            :key="row.key"
+            class="setting-row"
+            :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
+          >
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ row.label }}</span>
+                <span class="setting-row__key">{{ row.key }}</span>
+              </span>
               <span v-if="row.hint" class="setting-row__hint">{{ row.hint }}</span>
             </span>
 
-            <input
-              v-if="row.control === 'number'"
-              class="number-input"
-              type="number"
-              step="1"
-              :min="rangeOf(row)[0]"
-              :max="rangeOf(row)[1]"
-              :value="settings[row.key]"
-              @change="setNumber(row, $event)"
-            />
-
-            <span v-else-if="row.control === 'select'" class="select">
-              <select
+            <span class="setting-row__control">
+              <input
+                v-if="row.control === 'number'"
+                class="number-input"
+                type="number"
+                step="1"
+                :min="rangeOf(row)[0]"
+                :max="rangeOf(row)[1]"
                 :value="settings[row.key]"
-                @change="set(row.key, coerce(row, $event.target.value))"
-              >
-                <option v-for="item in row.options" :key="item.id" :value="item.id">
-                  {{ item.label }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
+                @change="setNumber(row, $event)"
+              />
 
-            <button
-              v-else
-              class="switch"
-              :class="{ 'is-on': settings[row.key] }"
-              role="switch"
-              :aria-checked="settings[row.key]"
-              :aria-label="row.label"
-              @click="set(row.key, !settings[row.key])"
-            >
-              <span class="switch__thumb"></span>
-            </button>
+              <span v-else-if="row.control === 'select'" class="select">
+                <select
+                  :value="settings[row.key]"
+                  @change="set(row.key, coerce(row, $event.target.value))"
+                >
+                  <option v-for="item in row.options" :key="item.id" :value="item.id">
+                    {{ item.label }}
+                  </option>
+                </select>
+                <AppIcon name="chevron" :size="12" class="select__chevron" />
+              </span>
+
+              <button
+                v-else
+                class="switch"
+                :class="{ 'is-on': settings[row.key] }"
+                role="switch"
+                :aria-checked="settings[row.key]"
+                :aria-label="row.label"
+                @click="set(row.key, !settings[row.key])"
+              >
+                <span class="switch__thumb"></span>
+              </button>
+            </span>
           </label>
         </template>
       </section>
@@ -489,18 +580,22 @@ function setTimeLimit(event) {
       <section v-else-if="activeSection === 'layout'" class="setting-group">
         <p class="setting-group__title">布局</p>
 
-        <label class="setting-row">
-          <span class="setting-row__label">
-            侧边栏位置
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">侧边栏位置</span>
+            </span>
             <span class="setting-row__hint">资源管理器与评测样例放在编辑区的左侧还是右侧</span>
           </span>
-          <span class="select">
-            <select :value="panelPosition" @change="setPanelPosition">
-              <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
-                {{ item.label }}
-              </option>
-            </select>
-            <AppIcon name="chevron" :size="12" class="select__chevron" />
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="panelPosition" @change="setPanelPosition">
+                <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
+                  {{ item.label }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
           </span>
         </label>
       </section>
@@ -512,41 +607,57 @@ function setTimeLimit(event) {
           与浏览器自带快捷键或其他功能冲突时会拒绝绑定并给出原因。
         </p>
 
-        <div v-for="action in SHORTCUT_ACTIONS" :key="action.id" class="setting-row">
-          <span class="setting-row__label">
-            {{ action.label }}
+        <div
+          v-for="action in SHORTCUT_ACTIONS"
+          :key="action.id"
+          class="setting-row setting-row--action"
+        >
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ action.label }}</span>
+            </span>
             <span v-if="action.hint" class="setting-row__hint">{{ action.hint }}</span>
           </span>
-          <HotkeyRecorder :action-id="action.id" />
+          <span class="setting-row__control">
+            <HotkeyRecorder :action-id="action.id" />
+          </span>
         </div>
 
-        <div class="setting-row">
-          <span class="setting-row__label">
-            恢复默认
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">恢复默认</span>
+            </span>
             <span class="setting-row__hint">把上面所有快捷键还原成初始设置</span>
           </span>
-          <button class="download-button" title="恢复默认快捷键" @click="resetAll">
-            <AppIcon name="reset" :size="13" />
-            <span>恢复默认</span>
-          </button>
+          <span class="setting-row__control">
+            <button class="download-button" title="恢复默认快捷键" @click="resetAll">
+              <AppIcon name="reset" :size="13" />
+              <span>恢复默认</span>
+            </button>
+          </span>
         </div>
       </section>
 
       <section v-else-if="activeSection === 'judge'" class="setting-group">
         <p class="setting-group__title">评测</p>
 
-        <label class="setting-row">
-          <span class="setting-row__label">
-            运行时限
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">运行时限</span>
+            </span>
             <span class="setting-row__hint">只计程序运行阶段，不含编译</span>
           </span>
-          <span class="select">
-            <select :value="timeLimit" @change="setTimeLimit">
-              <option v-for="ms in TIME_LIMIT_OPTIONS" :key="ms" :value="ms">
-                {{ limitLabel(ms) }}
-              </option>
-            </select>
-            <AppIcon name="chevron" :size="12" class="select__chevron" />
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="timeLimit" @change="setTimeLimit">
+                <option v-for="ms in TIME_LIMIT_OPTIONS" :key="ms" :value="ms">
+                  {{ limitLabel(ms) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
           </span>
         </label>
 
@@ -600,9 +711,11 @@ function setTimeLimit(event) {
           装到这台设备后，可以从主屏幕 / 桌面直接以独立窗口打开，离线也能用。
         </p>
 
-        <div class="setting-row">
-          <span class="setting-row__label">
-            安装到设备
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">安装到设备</span>
+            </span>
             <span class="setting-row__hint">
               {{
                 canInstall
@@ -611,10 +724,12 @@ function setTimeLimit(event) {
               }}
             </span>
           </span>
-          <button class="download-button" :disabled="!canInstall" title="安装到设备" @click="install">
-            <AppIcon name="install" :size="15" />
-            <span>{{ canInstall ? '安装' : '已安装' }}</span>
-          </button>
+          <span class="setting-row__control">
+            <button class="download-button" :disabled="!canInstall" title="安装到设备" @click="install">
+              <AppIcon name="install" :size="15" />
+              <span>{{ canInstall ? '安装' : '已安装' }}</span>
+            </button>
+          </span>
         </div>
       </section>
 
@@ -624,34 +739,42 @@ function setTimeLimit(event) {
           装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站，不用手抄。
         </p>
 
-        <div class="setting-row">
-          <span class="setting-row__label">
-            安装状态
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">安装状态</span>
+            </span>
             <span class="setting-row__hint">{{ extensionStatusHint }}</span>
           </span>
-          <button
-            class="download-button"
-            :disabled="extensionChecking"
-            title="重新检测插件"
-            @click="refreshExtension"
-          >
-            <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
-            <span>{{ extensionChecking ? '检测中' : '重新检测' }}</span>
-          </button>
+          <span class="setting-row__control">
+            <button
+              class="download-button"
+              :disabled="extensionChecking"
+              title="重新检测插件"
+              @click="refreshExtension"
+            >
+              <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
+              <span>{{ extensionChecking ? '检测中' : '重新检测' }}</span>
+            </button>
+          </span>
         </div>
 
-        <div class="setting-row">
-          <span class="setting-row__label">
-            下载插件
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">下载插件</span>
+            </span>
             <span class="setting-row__hint">
               装上后需在 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。
               插件不在应用商店里，所以没法一键安装。
             </span>
           </span>
-          <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
-            <AppIcon name="download" :size="15" />
-            <span>下载</span>
-          </a>
+          <span class="setting-row__control">
+            <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
+              <AppIcon name="download" :size="15" />
+              <span>下载</span>
+            </a>
+          </span>
         </div>
 
         <template v-if="extensionInfo">
@@ -670,17 +793,21 @@ function setTimeLimit(event) {
             （浏览器会拦掉指向 chrome:// 的跳转）。只能复制地址后自己到地址栏粘贴打开。
           </p>
 
-          <div class="setting-row">
-            <span class="setting-row__label">
-              快捷键设置页
+          <div class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">快捷键设置页</span>
+              </span>
               <span class="setting-row__hint">
                 {{ shortcutsCopied ? '已复制，粘贴到地址栏回车即可' : '复制后在地址栏粘贴打开' }}
               </span>
             </span>
-            <button class="download-button" title="复制 chrome://extensions/shortcuts" @click="copyShortcutsUrl">
-              <AppIcon name="copy" :size="13" />
-              <span>{{ shortcutsCopied ? '已复制' : '复制地址' }}</span>
-            </button>
+            <span class="setting-row__control">
+              <button class="download-button" title="复制 chrome://extensions/shortcuts" @click="copyShortcutsUrl">
+                <AppIcon name="copy" :size="13" />
+                <span>{{ shortcutsCopied ? '已复制' : '复制地址' }}</span>
+              </button>
+            </span>
           </div>
         </template>
       </section>
@@ -826,29 +953,97 @@ function setTimeLimit(event) {
   color: var(--text-faint);
 }
 
+/* 设置行：不画边框，靠内边距与悬浮底色划分边界（几十行都描边会像 Excel 表格）。
+   文字走三级灰度：标题 --text / 描述 --text-dim / 键名 --text-faint 等宽。
+   行的版式由控件类型决定（见下面三个修饰类）。 */
 .setting-row {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  min-height: 46px;
-  padding: 0 18px;
+  padding: 10px 18px 12px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
 }
 
-.setting-row + .setting-row {
-  border-top: 1px solid var(--border-soft);
+.setting-row:hover {
+  background: var(--bg-hover);
 }
 
-.setting-row__label {
+/* 「已改动」指示线：只有当前值偏离默认值时才出现，小圆角贴在行左侧 */
+.setting-row.is-modified::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 12px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.setting-row__main {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.setting-row__hint {
+.setting-row__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* 第一级：主标题 —— 这是什么 */
+.setting-row__label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* 第三级：底层键名 —— 极低频的参考信息，等宽 + 最弱灰度 */
+.setting-row__key {
+  font-family: var(--mono-font);
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* 第二级：描述 —— 有什么用 */
+.setting-row__hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.setting-row__control {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+/* 输入框 / 下拉：文本在上、控件独立成行落在左下，避免控件把标签挤窄。
+   不写 align-items，让文本块默认 stretch 撑满，长描述才能在窄面板里换行。 */
+.setting-row--select,
+.setting-row--number {
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 开关：标签在左、开关孤立地靠右上 */
+.setting-row--switch {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.setting-row--switch .setting-row__control {
+  margin-top: 1px;
+}
+
+/* 动作行（按钮 / 录制框 / 链接）：标签在左、控件在右并垂直居中 */
+.setting-row--action {
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
 }
 
 .select {
