@@ -13,7 +13,7 @@
 
 /** 主题决定整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套 */
 export const THEMES = [
-  { id: 'cph-dark', label: '深色（默认）' },
+  { id: 'cph-dark', label: '深色' },
   { id: 'cph-light', label: '浅色' },
 ]
 

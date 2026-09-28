@@ -5,7 +5,7 @@ import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import { usePersistentRef } from './composables/usePersistentRef.js'
-import { applyUiScale, normalizeUiScale, uiScale } from './composables/useUiScale.js'
+import { applyUiScale, DEFAULT_UI_SCALE, normalizeUiScale, uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
@@ -44,9 +44,9 @@ const effectiveTimeLimitMs = computed(() => {
   return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
 })
 
-// 全局界面缩放（100% / 110% / 125% / 150%）。CSS 的 px 已由 postcss-pxtorem
+// 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 110%）。CSS 的 px 已由 postcss-pxtorem
 // 转成 rem，所以这里只需要写一次根字号；物理尺寸与拖拽数学都不受影响（见 useUiScale.js）。
-const uiScalePref = usePersistentRef('cph.uiScale', 1, { revive: normalizeUiScale })
+const uiScalePref = usePersistentRef('cph.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })
 // setup 期就落地：早于首帧渲染，不会先按 100% 画一帧再跳到目标档位
 applyUiScale(uiScalePref.value)
 watch(uiScalePref, applyUiScale)
@@ -330,6 +330,32 @@ function nudgeShare(delta) {
   applyShare(virtualShare, measureLimits())
 }
 
+// 面板最低宽度会随缩放变化（minTests 里的面板下限要乘 scale），窗口一窄 50% 那一项也会接手，
+// 两者都让 maxShare 变小；而持久化里的比例不会自己跟着变回来。于是它一直是个「越界值」：
+// 面板被 CSS 的 min-width 撑着，JS 眼里的合法区间却已经挪走了 —— 第一次拖拽时 applyShare
+// 会一口气把它夹进新区间，表现就是「拖一下就猛地跳一段」。
+// 这里只做收敛：越界才写回，本来就合法则原样不动。
+function reclampShare() {
+  if (!panelVisible.value) return
+  applyShare(editorShare.value, measureLimits())
+  virtualShare = editorShare.value
+}
+
+let layoutObserver = null
+let reclampTimer = 0
+
+// 缩放的收敛是确定性的（一次跳变由一个 nextTick 接住）；视口变化不能照搬：
+// ResizeObserver 在拖窗口 / 切换视口的途中会喂进一串「过渡尺寸」，拿它们夹取会把用户的比例
+// 永久改小 —— 夹取是单向的（Math.min 只压不放），尺寸涨回去也不会自己长回来。
+// 所以等尺寸停稳 150ms 再收敛。
+function scheduleReclamp() {
+  window.clearTimeout(reclampTimer)
+  reclampTimer = window.setTimeout(reclampShare, 150)
+}
+
+// 缩放一变，派生的面板最低宽度就变；nextTick 是为了让 --ui-scale 与新一轮排版都已生效
+watch(uiScale, () => nextTick(reclampShare))
+
 // 双击折叠 / 展开。折叠期间 editorShare 不动，所以展开回到的就是折叠前的宽度。
 function togglePanel() {
   panelVisible.value = !panelVisible.value
@@ -598,12 +624,20 @@ onMounted(async () => {
   } catch {
     /* 存储不可用时静默；界面仍可使用 */
   }
+  // 首帧排版稳定后先收敛一次（视口很窄时连默认的 60 都可能越界），之后交给 ResizeObserver
+  // 盯住视口尺寸变化（它自己也会立刻回调一次，走 debounce 那条路）。
+  nextTick(reclampShare)
+  layoutObserver = new ResizeObserver(scheduleReclamp)
+  if (workspace.value) layoutObserver.observe(workspace.value)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true)
   window.clearTimeout(staleTimer)
+  window.clearTimeout(reclampTimer)
   abortController?.abort()
+  layoutObserver?.disconnect()
+  layoutObserver = null
 })
 </script>
 
