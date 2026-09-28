@@ -218,7 +218,7 @@ try {
       state.cardCount === 2 &&
       state.stdinBoxes === 4 &&
       state.readonlyOuts === 2 &&
-      state.storedPanel === 'right' &&
+      state.storedPanel === 'left' &&
       !state.horizontalScroll
     record('A. 首屏：Monaco 与评测面板真实渲染', ok, state)
     process.stdout.write('')
@@ -231,7 +231,7 @@ try {
       return el.dataset.marker
     })
     // 新架构：换边入口在「设置」页签里。打开设置（侧栏页头的齿轮图标 → 编辑区里多一个页签）
-    // → 选「左侧」→ 关掉页签回到代码。
+    // → 选「右侧」→ 关掉页签回到代码。
     await page.evaluate(() => {
       const panel = [...document.querySelectorAll('.sidebar__panel')].find(
         (el) => el.getClientRects().length > 0,
@@ -254,7 +254,7 @@ try {
       }
     })
     // 设置是「目录 + 内容」两栏：默认停在「编辑器」那一组，换边入口在「布局」里。
-    // 先点目录里的「布局」，右侧才会渲染出含「左侧」选项的那组设置。
+    // 先点目录里的「布局」，右侧才会渲染出含「侧边栏位置」的那组设置。
     await page.evaluate(() => {
       const item = [...document.querySelectorAll('.settings-nav__item')].find((el) =>
         el.textContent.includes('布局'),
@@ -264,9 +264,9 @@ try {
     await wait(200)
     await page.evaluate(() => {
       const select = [...document.querySelectorAll('.settings-view select')].find((s) =>
-        [...s.options].some((o) => o.textContent.trim() === '左侧'),
+        [...s.options].some((o) => o.textContent.trim() === '右侧'),
       )
-      select.value = 'left'
+      select.value = 'right'
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
     await wait(600)
@@ -286,13 +286,13 @@ try {
     })
     const state = await probe(page)
     const markerAlive = await page.evaluate(() => document.querySelector('.monaco-editor')?.dataset.marker)
-    await page.screenshot({ path: `${SHOTS}cph-2-swapped-left.png` })
-    // 新契约：flex-direction 恒为 row；靠 order 让测试面板跑到左边；Monaco 实例与 DOM 不重建；
+    await page.screenshot({ path: `${SHOTS}cph-2-swapped-right.png` })
+    // 新契约：flex-direction 恒为 row；靠 order 让测试面板跑到右边；Monaco 实例与 DOM 不重建；
     // 设置是个页签（开时铺满编辑区、关时视图与页签一起消失）
     const ok =
       state.flexDirection === 'row' &&
-      state.testsPane.x < state.editorPane.x &&
-      state.storedPanel === 'left' &&
+      state.testsPane.x > state.editorPane.x &&
+      state.storedPanel === 'right' &&
       markerAlive === monacoBefore &&
       state.codeLineCount > 3 &&
       settingsShown.viewVisible &&
@@ -313,8 +313,8 @@ try {
     await page.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
     await wait(600)
     const state = await probe(page)
-    await page.screenshot({ path: `${SHOTS}cph-3-persisted-left.png` })
-    record('C. 刷新后偏好仍在 localStorage', state.storedPanel === 'left' && state.flexDirection === 'row', {
+    await page.screenshot({ path: `${SHOTS}cph-3-persisted-right.png` })
+    record('C. 刷新后偏好仍在 localStorage', state.storedPanel === 'right' && state.flexDirection === 'row', {
       storedPanel: state.storedPanel,
       flexDirection: state.flexDirection,
     })

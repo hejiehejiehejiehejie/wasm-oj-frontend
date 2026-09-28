@@ -26,8 +26,8 @@ import {
 } from './services/editorOptions.js'
 
 // ---------------------------------------------------------------- 持久化状态
-// panelPosition 是本项目的核心偏好：'right' | 'left'，默认在右侧。
-const panelPosition = usePersistentRef('cph.panelPosition', 'right')
+// panelPosition 是本项目的核心偏好：'left' | 'right'，默认在左侧。
+const panelPosition = usePersistentRef('cph.panelPosition', 'left')
 // 是否显示统一侧边栏（只影响显隐，文件树展开态与用例数据都不丢）
 const panelVisible = usePersistentRef('cph.panelVisible', true)
 // 语言不独立持久化：由活跃文件扩展名派生（activeLanguage），顶栏已无语言下拉
