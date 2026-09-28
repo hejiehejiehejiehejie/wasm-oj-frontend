@@ -573,6 +573,57 @@ export function runtimeAssetURLs(language) {
 }
 
 /**
+ * 卸载某个本地运行时：清掉持久层里的资产，并丢掉内存里已加载的那份，
+ * 让下一次运行 / 下载都退回「从零开始」。设置页的「本地运行环境」卸载按钮走这里。
+ *
+ * 持久层分两块，只有第一块删得掉：
+ * - Cache Storage（SW 的 `cph-toolchain-*`）：SW 控制页面时资产的实际落点，逐个删条目；
+ * - HTTP 缓存：浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只能改变取值策略），
+ *   删不掉。所以 probeRuntime 在 SW 控制时改以 Cache Storage 为准 —— 否则前脚卸载、
+ *   后脚就被 HTTP 缓存里那份残留判回「已就绪」（见 wasmRuntime 的 isAssetCached）。
+ *
+ * 内存里那份必须一起丢：留着的话本次会话照样能编译，用户会以为卸载没生效。
+ * @param {string} language 'cpp' | 'python'
+ */
+export async function unloadRuntime(language) {
+  if (language !== 'cpp' && language !== 'python') return
+  await purgeRuntimeCache(language)
+  if (language === 'python') {
+    pythonRuntime = null
+    pythonRuntimePromise = null
+    return
+  }
+  toolchain = null
+  toolchainPromise = null
+  // 编译产物是纯内存缓存，依附工具链存在，一起丢
+  compileCache = null
+  // PCH（十几 MB）存在 IndexedDB 里，不在 /wasm/ 缓存清单内，单独清
+  pchBytes = null
+  pchPromise = null
+  await deletePch(pchCacheId())
+}
+
+/**
+ * 从所有 `cph-toolchain-*` 缓存里删掉该语言的资产条目。
+ * 缓存名带 VERSION，迭代中可能同时存在多代，所以按前缀全扫，不只认当前那一个。
+ */
+async function purgeRuntimeCache(language) {
+  const urls = runtimeAssetURLs(language)
+  if (!urls.length || typeof caches === 'undefined') return
+  try {
+    const names = (await caches.keys()).filter((name) => name.startsWith('cph-toolchain'))
+    await Promise.all(
+      names.map(async (name) => {
+        const cache = await caches.open(name)
+        await Promise.all(urls.map((url) => cache.delete(url)))
+      }),
+    )
+  } catch {
+    /* 删不掉（隐私模式等）不阻断卸载：内存那份已经丢了，探针也不会再把它判成已装 */
+  }
+}
+
+/**
  * 直接解释执行一段 Python（不编译）。
  *
  * fs 的叠放顺序就是优先级：标准库垫底 → 用户 VFS 整棵树 → 入口文件用入参内容覆盖。

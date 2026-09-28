@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
@@ -8,7 +8,7 @@ import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { SHORTCUT_ACTIONS, useShortcutManager } from '../composables/useShortcutManager.js'
-import { preload, probeRuntime, subscribeStatus } from '../services/wasmRuntime.js'
+import { preload, probeRuntime, subscribeStatus, uninstallRuntime } from '../services/wasmRuntime.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
   CURSOR_BLINKINGS,
@@ -307,6 +307,7 @@ const RUNTIMES = [
     readyFlag: 'cph.localRuntime.clangReady',
     idleHint: 'clang 8 + libc++，约 50MB，只下一次',
     downloadTitle: '下载 clang 工具链',
+    uninstallHint: '将从本机删除已缓存的 clang 工具链（约 50MB，另含编译加速用的预编译头）。下次运行 C++ 代码时需要重新下载。',
   },
   {
     id: 'python',
@@ -315,6 +316,7 @@ const RUNTIMES = [
     readyFlag: 'cph.localRuntime.pythonReady',
     idleHint: 'CPython 3.11 + 标准库，约 24MB，只下一次',
     downloadTitle: '下载 Python 运行时',
+    uninstallHint: '将从本机删除已缓存的 Python 运行时（解释器 + 标准库，约 24MB）。下次运行 Python 代码时需要重新下载。',
   },
 ]
 
@@ -381,6 +383,46 @@ async function downloadRuntime(entry) {
   entry.state.value = 'failed'
   entry.failureReason.value = message.message || '下载失败'
 }
+
+// ------------------------------------------------------------ 卸载
+
+/** 待确认卸载的运行时；null = 没有待确认的卸载。
+ *  必须用 shallowRef：运行时项自己带着 state / elapsedMs 这些 ref，放进 ref() 会被深度
+ *  转成 reactive 并**自动拆包**（`entry.state` 直接变成字符串），后面 `entry.state.value = 'idle'`
+ *  就会抛「Cannot create property 'value' on string」——卸载看起来毫无反应。 */
+const pendingUninstall = shallowRef(null)
+/** 卸载确认弹窗里的「卸载」按钮：弹窗打开时把焦点送进去 */
+const uninstallBtn = ref(null)
+
+function requestUninstall(entry) {
+  if (downloadingAny.value || entry.state.value !== 'ready') return
+  pendingUninstall.value = entry
+}
+
+function cancelUninstall() {
+  pendingUninstall.value = null
+}
+
+/**
+ * 真卸载。先从服务层清缓存 / 内存（失败也不报错，见 uninstallRuntime），
+ * 再把面板状态打回「未下载」——标记、用时、失败原因一并复位，
+ * 之后 reconcile() 也会以探针为准（SW 控制时只看 Cache Storage，不会残留判回已就绪）。
+ */
+async function confirmUninstall() {
+  const entry = pendingUninstall.value
+  pendingUninstall.value = null
+  if (!entry) return
+  await uninstallRuntime(entry.id)
+  entry.state.value = 'idle'
+  entry.elapsedMs.value = 0
+  entry.failureReason.value = ''
+  entry.readyFlagRef.value = false
+}
+
+// 弹窗一出现就把焦点放到「卸载」上：Enter 确认、Esc 取消都能纯键盘走完
+watch(pendingUninstall, (entry) => {
+  if (entry) nextTick(() => uninstallBtn.value?.focus())
+})
 
 /**
  * 用真实缓存情况校正两个语言的状态（探针只读本地缓存，不触网）：
@@ -684,23 +726,37 @@ function setTimeLimit(event) {
               <span class="runtime-row__title">{{ entry.title }}</span>
               <span class="runtime-row__hint">{{ hintFor(entry) }}</span>
             </span>
-            <button
-              class="download-button"
-              :class="{
-                'is-ready': entry.state.value === 'ready',
-                'is-failed': entry.state.value === 'failed',
-              }"
-              :disabled="downloadingAny || entry.state.value === 'ready'"
-              :title="entry.state.value === 'ready' ? '本地运行环境已就绪' : entry.downloadTitle"
-              @click="downloadRuntime(entry)"
-            >
-              <AppIcon
-                :name="buttonIcon(entry)"
-                :size="13"
-                :class="{ 'is-spinning': entry.state.value === 'downloading' }"
-              />
-              <span>{{ buttonLabel(entry) }}</span>
-            </button>
+            <div class="runtime-row__actions">
+              <button
+                class="download-button"
+                :class="{
+                  'is-ready': entry.state.value === 'ready',
+                  'is-failed': entry.state.value === 'failed',
+                }"
+                :disabled="downloadingAny || entry.state.value === 'ready'"
+                :title="entry.state.value === 'ready' ? '本地运行环境已就绪' : entry.downloadTitle"
+                @click="downloadRuntime(entry)"
+              >
+                <AppIcon
+                  :name="buttonIcon(entry)"
+                  :size="13"
+                  :class="{ 'is-spinning': entry.state.value === 'downloading' }"
+                />
+                <span>{{ buttonLabel(entry) }}</span>
+              </button>
+              <!-- 卸载只在已就绪时出现：没装就没有可卸的（下载中也不能卸，会和在途的写入打架） -->
+              <button
+                v-if="entry.state.value === 'ready'"
+                type="button"
+                class="download-button is-uninstall"
+                :disabled="downloadingAny"
+                :title="`卸载${entry.title}运行环境`"
+                @click="requestUninstall(entry)"
+              >
+                <AppIcon name="trash" :size="13" />
+                <span>卸载</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -817,6 +873,35 @@ function setTimeLimit(event) {
         <HelpPanel />
       </section>
     </div>
+
+    <!-- 卸载确认：自绘弹窗，与文件树删除确认同款（不用 window.confirm，见 FileExplorer.requestDelete）。
+         点遮罩 / Esc = 取消，只有点「卸载」才会真的清缓存。 -->
+    <Teleport to="body">
+      <div v-if="pendingUninstall" class="confirm" @pointerdown.self="cancelUninstall">
+        <div
+          class="confirm__card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="uninstall-title"
+          aria-describedby="uninstall-desc"
+          @keydown.esc.stop.prevent="cancelUninstall"
+        >
+          <p id="uninstall-title" class="confirm__title">卸载 {{ pendingUninstall.title }} 运行环境？</p>
+          <p id="uninstall-desc" class="confirm__desc">{{ pendingUninstall.uninstallHint }}</p>
+          <div class="confirm__actions">
+            <button type="button" class="confirm__btn" @click="cancelUninstall">取消</button>
+            <button
+              ref="uninstallBtn"
+              type="button"
+              class="confirm__btn confirm__btn--danger"
+              @click="confirmUninstall"
+            >
+              卸载
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1179,6 +1264,14 @@ function setTimeLimit(event) {
   color: var(--text-faint);
 }
 
+/* 已就绪时右侧是「已就绪 + 卸载」两颗，窄面板下文字先让位、按钮不折行 */
+.runtime-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .download-button {
   display: inline-flex;
   align-items: center;
@@ -1215,6 +1308,18 @@ function setTimeLimit(event) {
   border-color: transparent;
   color: var(--fail);
   background: transparent;
+}
+
+/* 卸载：中性描边，悬停才转成危险色，免得和旁边的「已就绪」抢注意力 */
+.download-button.is-uninstall {
+  color: var(--text-dim);
+  background: transparent;
+}
+
+.download-button.is-uninstall:hover:not(:disabled) {
+  color: var(--danger-text);
+  border-color: var(--danger-text);
+  background: var(--danger-bg);
 }
 
 .is-spinning {
@@ -1279,5 +1384,80 @@ a.download-button {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------------------------------------------------------------- 卸载确认
+   与 FileExplorer 的删除确认同款（那份是自绘弹窗的样板）：Teleport 到 body，
+   所以这里的定位与色值只依赖主题变量，跟设置视图自己的容器查询互不相干。 */
+.confirm {
+  position: fixed;
+  inset: 0;
+  /* 高于右键菜单（120），低于顶栏下拉之类的系统级浮层 */
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.confirm__card {
+  width: min(340px, 100%);
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+
+.confirm__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.confirm__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.confirm__btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 500 12.5px/1.5 var(--font-sans, system-ui);
+  cursor: pointer;
+}
+
+.confirm__btn:hover {
+  background: var(--bg-hover);
+}
+
+.confirm__btn--danger {
+  border-color: transparent;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.confirm__btn--danger:hover {
+  background: var(--danger-bg-hover);
+}
+
+.confirm__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 </style>

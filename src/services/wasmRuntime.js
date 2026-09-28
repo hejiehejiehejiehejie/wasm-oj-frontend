@@ -27,6 +27,7 @@ import {
   runCpp,
   runPython,
   runtimeAssetURLs,
+  unloadRuntime,
 } from './runnoSandbox.js'
 import { vfsToRunnoFs } from './vfs/runnoFs.js'
 
@@ -279,11 +280,13 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
  *
  * 三级判据，从最权威到兜底：
  * 1. 内存里已加载（isToolchainReady / isPythonRuntimeReady）——本次会话一定可用；
- * 2. 资产都在本地缓存里 —— Service Worker 控制页面时，fetch 会先被 SW 的 cacheFirst
- *    接住（Cache Storage 命中即返回）；SW 不命中时它内部再发的请求带着 only-if-cached，
- *    落到 HTTP 缓存；
- * 3. 没有 SW（dev 模式）时，only-if-cached 直接探 HTTP 缓存：缓存缺失浏览器以网络
+ * 2. SW 控制页面时，以 Cache Storage 为准（`caches.match`）：那里才是「当前安装」的
+ *    实体，也是卸载清得掉的那一层；
+ * 3. 没有 SW（dev 模式）时退回 only-if-cached 探 HTTP 缓存：缓存缺失浏览器以网络
  *    错误失败，于是「标记说下过、实际已被浏览器清掉」的情况能被如实识别。
+ *
+ * 为什么第 2 级不再顺带落到 HTTP 缓存：HTTP 缓存没有 JS 清除接口，卸载删不掉它，
+ * 若仍拿它当判据，刚卸载完的资产会被那份残留立刻判回「已就绪」（见 runnoSandbox.unloadRuntime）。
  *
  * @param {string} language 'cpp' | 'python'
  * @returns {Promise<boolean>}
@@ -298,6 +301,13 @@ export async function probeRuntime(language) {
 }
 
 async function isAssetCached(url) {
+  if (navigator.serviceWorker?.controller) {
+    try {
+      return Boolean(await caches.match(url))
+    } catch {
+      /* Cache Storage 用不了（隐私模式等）就退回下面的 HTTP 缓存探针 */
+    }
+  }
   try {
     // only-if-cached 要求 same-origin；这些资产本来就是同源自托管的
     const response = await fetch(url, { mode: 'same-origin', cache: 'only-if-cached' })
@@ -305,6 +315,20 @@ async function isAssetCached(url) {
   } catch {
     return false
   }
+}
+
+/**
+ * 卸载某个本地运行时的全部本地痕迹（设置页「本地运行环境」的卸载按钮）。
+ *
+ * 除 runnoSandbox 那边的缓存与内存，还要把本模块的 PCH 预热开关复位 ——
+ * 否则工具链卸载之后再跑 C++，warmupPch() 会因为「已经预热过」直接跳过，
+ * 白白丢掉本该重建的那份加速。
+ *
+ * @param {string} language 'cpp' | 'python'
+ */
+export async function uninstallRuntime(language) {
+  if (language === 'cpp') pchWarmupStarted = false
+  await unloadRuntime(language)
 }
 
 /**
