@@ -112,11 +112,6 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   padding: 'normal',
   scrollbarSize: 'normal',
   stickyScroll: false,
-  // 代码辅助
-  quickSuggestions: true,
-  parameterHints: true,
-  linkedEditing: true,
-  inlineSuggest: true,
 }
 
 /** 整数型偏好的取值范围（读盘时越界就退回默认值；面板上的数字输入框也用它的 min/max） */
@@ -207,13 +202,6 @@ export function editorOptions(settings) {
       useShadows: false,
     },
     stickyScroll: { enabled: settings.stickyScroll },
-    // 代码辅助
-    quickSuggestions: settings.quickSuggestions
-      ? { other: true, comments: false, strings: false }
-      : false,
-    parameterHints: { enabled: settings.parameterHints },
-    linkedEditing: settings.linkedEditing,
-    inlineSuggest: { enabled: settings.inlineSuggest },
   }
 }
 
