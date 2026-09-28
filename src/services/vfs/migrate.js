@@ -15,9 +15,9 @@ const MIGRATION_KEY = 'cph.vfsMigrated'
 /**
  * 工作区初始就有的顶层目录（都留空，内容由后续操作填充）：
  *   /Problems —— 抓题落盘的根（格式 /Problems/<年月>/<OJ>/<难度>/，见 problemImport.js）
- *   /contest  —— 比赛模式的比赛目录根
+ *   /Contest  —— 比赛模式的比赛目录根
  */
-const SEED_DIRS = ['/Problems', '/contest']
+const SEED_DIRS = ['/Problems', '/Contest']
 
 /** 目录不存在才建（幂等）；已存在的同名 **文件** 交给 createDirectory 抛错，不静默造怪结构 */
 async function ensureDirectory(vfs, path) {
