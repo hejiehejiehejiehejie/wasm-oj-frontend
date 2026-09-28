@@ -123,7 +123,8 @@ function startCreate(type, target = null) {
     error: '',
   }
   // autofocus 属性对动态插入的节点不生效（浏览器只在解析 HTML 时认它），得自己把焦点送进去。
-  // 与 FileTreeItem 的重命名同款：聚焦 + 全选，默认名字可以直接敲回车接受，也可以直接打字替换。
+  // 与 FileTreeItem 的重命名同款：聚焦 + 只选中主干（后缀留在选中区外），
+  // 默认名字可以直接敲回车接受，也可以直接打字替换主干。选中范围在 InlineCreateRow.focus() 里定。
   nextTick(focusCreateInput)
 }
 
@@ -147,6 +148,8 @@ function cancelCreate() {
  * 创建完成后会自动打开新文件，Monaco 顺势 focus() 把焦点抢走（EditorPane 里换 model 后
  * 的那行 instance.focus()）。那不是用户要离开输入框 —— 照常提交的话，会凭空多出一个
  * 用默认名建出来的文件（连点两次「新建文件」时最明显：第二轮输入框刚聚焦就被提交掉）。
+ * 触屏上抢不走：那行 focus() 被 isTouchPointer() 挡了（见 HANDOFF 第 3 节触摸屏那节），
+ * 所以这条只对鼠标设备生效；触屏下要提交得按回车或真的点到别处去。
  *
  * 分两种：
  * - 屏幕上这个输入框自己就在提交中：这次失焦正来自「打开刚建好的文件」，跳过重复提交，

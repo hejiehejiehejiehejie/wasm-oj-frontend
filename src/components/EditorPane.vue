@@ -14,6 +14,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
+import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { langMeta } from '../services/templates.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
@@ -141,7 +142,10 @@ watch(
     disposeInMemoryOrphans()
     const saved = viewStates.get(nextId)
     if (saved) instance.restoreViewState(saved)
-    instance.focus()
+    // 触屏上不抢焦点：点页签 / 点文件树只是「要看这个文件」，不该把软键盘唤起来。
+    // 焦点本来就留在编辑器里（键盘弹着在改代码）的那种不受影响——这里只是不再主动 focus()，
+    // 并没有 blur()，所以「键盘不许被自己收掉」那条口径照旧。
+    if (!isTouchPointer()) instance.focus()
   },
 )
 
@@ -177,8 +181,14 @@ watch(
 )
 
 // focus 给「从外部把焦点送回编辑区」用（扩展导入题目后 activeId 可能没变，
-// 上面那个 watch 不会响，只能由调用方补一次）
-defineExpose({ layout: () => editor.value?.layout(), focus: () => editor.value?.focus() })
+// 上面那个 watch 不会响，只能由调用方补一次）。触屏上同样不抢焦点，理由见上。
+defineExpose({
+  layout: () => editor.value?.layout(),
+  focus: () => {
+    if (isTouchPointer()) return
+    editor.value?.focus()
+  },
+})
 </script>
 
 <template>

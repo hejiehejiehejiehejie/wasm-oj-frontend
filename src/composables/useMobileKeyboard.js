@@ -40,8 +40,12 @@ const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOC
 // 隐藏的 textarea.inputarea，两者都在 .monaco-editor 里面）
 const isInEditor = (node) => node instanceof Element && Boolean(node.closest('.monaco-editor'))
 
+// 触屏判定。单独导出一份，是给「不许程序化抢焦点」那类调用点（EditorPane）复用同一口径用的：
+// 那里不能整体调 useMobileKeyboard()，否则 onMounted 会把下面一整套 document 监听再挂一遍。
+export const isTouchPointer = () => window.matchMedia('(pointer: coarse)').matches
+
 export function useMobileKeyboard() {
-  const active = ref(window.matchMedia('(pointer: coarse)').matches)
+  const active = ref(isTouchPointer())
   // 可视高度矮于 SHORT_VIEWPORT（含键盘弹起的压缩）时为 true，App.vue 拿它挂 .app.is-short
   const shortViewport = ref(false)
 
