@@ -58,27 +58,14 @@ const emit = defineEmits([
 // Monaco 真正吃到的选项共用同一份，免得面板里能选、编辑器却不认。
 const EDITOR_GROUPS = [
   {
-    title: '外观',
+    title: '字体',
     rows: [
-      {
-        key: 'theme',
-        label: '主题',
-        hint: '切换深色与浅色两套配色（默认：深色）',
-        control: 'select',
-        options: THEMES,
-      },
       {
         key: 'fontFamily',
         label: '字体',
         hint: '代码编辑器使用的等宽字体',
         control: 'select',
         options: FONT_FAMILIES,
-      },
-      {
-        key: 'fontSize',
-        label: '字体大小',
-        hint: '代码主字体大小（默认：14px，范围 8–32）',
-        control: 'number',
       },
       {
         key: 'lineHeightRatio',
@@ -216,6 +203,25 @@ const EDITOR_GROUPS = [
   },
 ]
 
+// 「外观」是独立的一级分类（排在最前）：主题与字体大小原先挂在编辑器组里，
+// 现在和布局偏好（侧边栏位置 / 界面缩放）一起收到这里；编辑器组只剩字体排版。
+// 两行仍是 editorSettings 的键，所以照搬编辑器那套行渲染（键 / 校验 / Monaco 都同源）。
+const APPEARANCE_ROWS = [
+  {
+    key: 'theme',
+    label: '主题',
+    hint: '切换深色与浅色两套配色（默认：深色）',
+    control: 'select',
+    options: THEMES,
+  },
+  {
+    key: 'fontSize',
+    label: '字体大小',
+    hint: '代码主字体大小（默认：14px，范围 8–32）',
+    control: 'number',
+  },
+]
+
 // 统一侧边栏的位置偏好存在 App.vue 的 cph.panelPosition 里，这里只负责发起一次对调
 const PANEL_POSITIONS = [
   { id: 'right', label: '右侧' },
@@ -226,8 +232,8 @@ const PANEL_POSITIONS = [
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
 const SECTIONS = [
+  { id: 'appearance', title: '外观', icon: 'sliders' },
   { id: 'editor', title: '编辑器', icon: 'code' },
-  { id: 'layout', title: '布局', icon: 'sidebar' },
   { id: 'shortcuts', title: '快捷键', icon: 'keyboard' },
   { id: 'judge', title: '评测', icon: 'check' },
   { id: 'runtime', title: '本地运行环境', icon: 'download' },
@@ -566,7 +572,91 @@ function setTimeLimit(event) {
         </button>
       </nav>
 
-      <section v-if="activeSection === 'editor'" class="setting-group">
+      <!-- 外观：一级分类里排在最前。上面两行是 editorSettings 的键（与编辑器组同源），
+           下面两行是布局偏好，各有自己的出口（App 那边的 cph.panelPosition / cph.uiScale）。 -->
+      <section v-if="activeSection === 'appearance'" class="setting-group">
+        <p class="setting-group__title">外观</p>
+
+        <label
+          v-for="row in APPEARANCE_ROWS"
+          :key="row.key"
+          class="setting-row"
+          :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
+        >
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ row.label }}</span>
+              <span class="setting-row__key">{{ row.key }}</span>
+            </span>
+            <span v-if="row.hint" class="setting-row__hint">{{ row.hint }}</span>
+          </span>
+
+          <span class="setting-row__control">
+            <input
+              v-if="row.control === 'number'"
+              class="number-input"
+              type="number"
+              step="1"
+              :min="rangeOf(row)[0]"
+              :max="rangeOf(row)[1]"
+              :value="settings[row.key]"
+              @change="setNumber(row, $event)"
+            />
+
+            <span v-else class="select">
+              <select
+                :value="settings[row.key]"
+                @change="set(row.key, coerce(row, $event.target.value))"
+              >
+                <option v-for="item in row.options" :key="item.id" :value="item.id">
+                  {{ item.label }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">界面缩放</span>
+            </span>
+            <span class="setting-row__hint">整体放大或缩小界面，适合高分屏或投屏演示；编辑器也会一起缩放</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="uiScale" @change="setUiScale">
+                <option v-for="item in UI_SCALE_OPTIONS" :key="item.id" :value="item.id">
+                  {{ item.label }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">侧边栏位置</span>
+            </span>
+            <span class="setting-row__hint">资源管理器与评测样例放在编辑区的左侧还是右侧</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="panelPosition" @change="setPanelPosition">
+                <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
+                  {{ item.label }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+      </section>
+
+      <section v-else-if="activeSection === 'editor'" class="setting-group">
         <p class="setting-group__title">编辑器</p>
 
         <template v-for="(group, index) in EDITOR_GROUPS" :key="group.title">
@@ -626,48 +716,6 @@ function setTimeLimit(event) {
             </span>
           </label>
         </template>
-      </section>
-
-      <section v-else-if="activeSection === 'layout'" class="setting-group">
-        <p class="setting-group__title">布局</p>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">侧边栏位置</span>
-            </span>
-            <span class="setting-row__hint">资源管理器与评测样例放在编辑区的左侧还是右侧</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="panelPosition" @change="setPanelPosition">
-                <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
-                  {{ item.label }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">界面缩放</span>
-            </span>
-            <span class="setting-row__hint">整体放大或缩小界面，适合高分屏或投屏演示；编辑器也会一起缩放</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="uiScale" @change="setUiScale">
-                <option v-for="item in UI_SCALE_OPTIONS" :key="item.id" :value="item.id">
-                  {{ item.label }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
       </section>
 
       <section v-else-if="activeSection === 'shortcuts'" class="setting-group">
