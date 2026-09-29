@@ -26,6 +26,7 @@
  * 会让老题在新结构下永远找不到，旧题解变孤儿。这也意味着目录结构一旦定下就跟着题走：
  * 用户后来填了难度、或跨月再抓，都不会把已有文件搬走（搬动 = 丢题解）。
  */
+import { t } from '../../i18n/index.js'
 import { OJ_LIST, normalizeMeta, todayISO } from '../problemMeta.js'
 import { deactivateSettingsTab } from '../settingsTab.js'
 import { dirname, join, normalize } from './paths.js'
@@ -228,12 +229,13 @@ async function resolveFreeName(vfs, dir, baseName) {
  * @returns {Promise<{ name: string, ojDir: string, codePath: string, created: boolean, config: Record<string, any>, node: import('./BaseVFSProvider.js').VFSNode }>}
  */
 export async function importProblem(task) {
-  if (!task || typeof task !== 'object') throw new Error('题目数据为空')
+  if (!task || typeof task !== 'object') throw new Error(t('error.importEmpty'))
 
   const vfs = getVFS()
   const url = typeof task.url === 'string' ? task.url.trim() : ''
   const ojId = detectOj(url) ?? 'other'
-  const ojLabel = OJ_LIST.find((item) => item.id === ojId)?.label ?? '其它'
+  // 目录名刻意用 language-invariant 的 dirName，不是显示名（见 problemMeta 里那段说明）
+  const ojLabel = OJ_LIST.find((item) => item.id === ojId)?.dirName ?? '其它'
   const baseName = sanitizeName(task.name)
   // 落盘与回传给调用方的是同一份（调用方要拿它里面的 tests 灌评测面板）
   const config = buildConfig(task, ojId)

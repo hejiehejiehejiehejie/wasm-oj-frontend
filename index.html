@@ -15,35 +15,38 @@
     />
     <meta
       name="description"
-      content="CPH IDE 是一个在浏览器里编译运行 C++ 与 Python 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+      content="unnamed 是一个在浏览器里编译运行 C++ 与 Python 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
     />
-    <title>CPH IDE</title>
+    <title>unnamed</title>
     <!-- 独立窗口的标题栏底色；跟着主题走，由 App.vue 在切换主题时改写 -->
     <meta name="theme-color" content="#323233" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="CPH IDE" />
+    <meta name="apple-mobile-web-app-title" content="unnamed" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
     <!-- 社交分享：图片必须是绝对地址，1200×630 是各平台推荐的 1.91:1 -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="CPH IDE" />
+    <meta property="og:site_name" content="unnamed" />
     <meta property="og:locale" content="zh_CN" />
+    <!-- 界面语言跟随浏览器，同一个 URL 服务两种语言；这里只声明还有一套英文，
+         不写 hreflang —— 那是 guide.html / guide.en.html 这种「一页一语言」才需要的 -->
+    <meta property="og:locale:alternate" content="en_US" />
     <meta property="og:url" content="https://www.998244353.best/" />
-    <meta property="og:title" content="CPH IDE · 在线 C++ 编译器与评测，浏览器本地运行、离线可用" />
+    <meta property="og:title" content="unnamed · 在线 C++ 编译器与评测，浏览器本地运行、离线可用" />
     <meta
       property="og:description"
-      content="CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+      content="unnamed 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
     />
     <meta property="og:image" content="https://www.998244353.best/og-cover.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="CPH IDE 界面：左侧 Monaco 编辑器，右侧测试样例与判定结果" />
+    <meta property="og:image:alt" content="unnamed 界面：左侧 Monaco 编辑器，右侧测试样例与判定结果" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="CPH IDE · 在线 C++ 编译器与评测，浏览器本地运行、离线可用" />
+    <meta name="twitter:title" content="unnamed · 在线 C++ 编译器与评测，浏览器本地运行、离线可用" />
     <meta
       name="twitter:description"
-      content="CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
+      content="unnamed 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
     />
     <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" />
 
@@ -52,21 +55,28 @@
       {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "CPH IDE",
+        "name": "unnamed",
         "url": "https://www.998244353.best/",
-        "description": "CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。",
+        "description": "unnamed 是一个在浏览器里编译运行 C++ 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Web",
-        "inLanguage": "zh-CN",
+        "inLanguage": ["zh-CN", "en"],
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
         "image": "https://www.998244353.best/og-cover.png",
         "featureList": [
-          "在浏览器里编译运行 C++，代码不出本机（本地 WASM 沙箱）",
+          "在浏览器里编译运行 C++ 与 Python，代码不出本机（本地 WASM 沙箱）",
           "多测试样例批量运行与判定，支持时限（TLE）检测",
+          "配合浏览器插件一键抓取 OJ 题目，样例自动填入评测面板",
           "Monaco 编辑器，多语言草稿与编辑器偏好可持久化",
           "可切换 Piston / Judge0 远端评测服务",
-          "可安装为独立窗口应用，断网也能编译运行"
+          "可安装为独立窗口应用，断网也能编译运行",
+          "Compile and run C++ and Python in the browser, without your code leaving the machine (local WASM sandbox)",
+          "Run and judge multiple test cases in one go, with time limit (TLE) detection",
+          "Grab a problem from an online judge with the browser extension; samples land in the test panel automatically",
+          "A Monaco editor, with multi-language drafts and persistent editor preferences",
+          "Switch to a remote Piston / Judge0 judge service",
+          "Installable as a standalone window app that compiles and runs offline"
         ]
       }
     </script>
@@ -82,16 +92,17 @@
         链接因此一律写绝对地址。
       -->
       <noscript>
-        <h1>CPH IDE —— 浏览器里的在线 C++ 编译与评测环境</h1>
+        <h1>unnamed —— 浏览器里的在线 C++ / Python 编译与评测环境</h1>
         <p>
-          CPH IDE 是一个在线 IDE：右边是 Monaco 编辑器，左边是测试样例面板。它内置「本地 WASM
-          沙箱」，可以直接在浏览器里编译、运行并判定 C++ 代码，代码不出本机，断网也能用。
+          unnamed 是一个在线 IDE：左侧是资源管理器与评测样例，右侧是 Monaco 编辑器。它内置「本地 WASM
+          沙箱」，可以直接在浏览器里编译、运行并判定 C++ 与 Python 代码，代码不出本机，断网也能用。
         </p>
 
         <h2>能做什么</h2>
         <ul>
-          <li>在浏览器里编译运行 C++：编译与执行都在本机完成，代码不会被上传</li>
-          <li>多测试样例批量运行与判定，支持时限（TLE）检测</li>
+          <li>在浏览器里编译运行 C++，也能直接跑 Python 3：编译与执行都在本机完成，代码不会被上传</li>
+          <li>多测试样例批量运行与判定，支持时限（TLE）检测与逐用例耗时</li>
+          <li>配合浏览器插件一键抓取 OJ 题目，题面与样例直接送进工作区，不用手抄</li>
           <li>Monaco 编辑器，多语言草稿与编辑器偏好都存在浏览器本地</li>
           <li>可在本地 WASM 沙箱与 Piston / Judge0 远端评测服务之间切换</li>
           <li>可安装为独立窗口应用，装好之后断网也能编译运行</li>
@@ -106,26 +117,97 @@
 
         <h3>需要联网吗？</h3>
         <p>
-          第一次用本地沙箱要先下载约 50MB 的 C++ 工具链（clang + libc++），只下一次，之后常驻浏览器缓存；
-          下载过之后即可离线使用。清除了浏览器数据就要重新下载。
+          第一次用本地沙箱要先下载运行时：C++ 工具链（clang + libc++）约 50MB，Python 运行时约 24MB，
+          只下一次，之后常驻浏览器缓存；下载过之后即可离线使用。清除了浏览器数据就要重新下载。
         </p>
 
-        <h3>支持 Python 吗？</h3>
+        <h3>支持哪些语言？</h3>
         <p>
-          支持。本地 WASM 沙箱既能跑 C++，也能跑 Python 3（由 CPython 解释器直接执行，不需要编译）；
+          本地 WASM 沙箱支持 C++ 与 Python 3（Python 由 CPython 解释器直接执行，不需要编译）；
           其它语言请切到 Piston 或 Judge0 远端评测服务。
         </p>
 
         <h3>为什么第一次运行明显更慢？</h3>
         <p>
-          首次运行要先下载工具链，之后每一份新代码的第一个用例都要付一次编译开销，同一份代码连续跑多个用例只编译一次。
+          首次运行要先下载运行时，之后每一份新代码的第一个用例都要付一次编译开销，同一份代码连续跑多个用例只编译一次。
           卡片上的耗时只计「程序运行」那一段，不含编译与排队。
         </p>
 
+        <h3>在浏览器里跑，会比本机慢多少？</h3>
         <p>
-          完整说明见 <a href="https://www.998244353.best/guide.html">CPH IDE 使用指南</a>。
+          没有统一的缩放系数。同一台机器上实测，纯计算约慢 1.8 倍，排序 200 万个数约慢 6.7 倍——
+          倍率跟着访存密度走，不能外推。
+        </p>
+
+        <p>
+          完整说明见 <a href="https://www.998244353.best/guide.html">unnamed 使用指南</a>。
         </p>
         <p>以上为无脚本环境下的说明；完整的编辑器与测试面板界面需要浏览器启用 JavaScript。</p>
+
+        <!--
+          英文读者：同一段内容的英文版。用 lang="en" 标注，屏幕阅读器与抓取器才读得对。
+          无脚本时给不出语言切换器，所以两种语言直接并列，而不是二选一。
+        -->
+        <hr />
+        <div lang="en">
+          <h2>unnamed — an online C++ / Python compile-and-judge environment in your browser</h2>
+          <p>
+            unnamed is an online IDE: the Explorer and the test cases on the left, the Monaco editor on the right.
+            It ships a local WASM sandbox that compiles, runs and judges C++ and Python code right in your browser —
+            your code never leaves the machine, and it keeps working offline.
+          </p>
+
+          <h3>What it does</h3>
+          <ul>
+            <li>Compile and run C++ in the browser, or run Python 3 directly — both happen locally and your code is never uploaded</li>
+            <li>Run and judge several test cases in one go, with time limit (TLE) detection and per-case timing</li>
+            <li>Grab a problem from an online judge with the browser extension; the statement and samples land in your workspace, no copy-pasting</li>
+            <li>A Monaco editor, with multi-language drafts and editor preferences stored locally in your browser</li>
+            <li>Switch between the local WASM sandbox and remote Piston / Judge0 judge services</li>
+            <li>Installable as a standalone window app that compiles and runs offline once installed</li>
+          </ul>
+
+          <h3>Common questions</h3>
+          <h4>Does my code get uploaded to a server?</h4>
+          <p>
+            Not with the local WASM sandbox: compiling and running both happen in your own browser. Switch to a remote
+            engine such as Piston or Judge0 and your code is sent to the judge service URL you entered.
+          </p>
+
+          <h4>Do I need to be online?</h4>
+          <p>
+            The first local run has to download the runtime: the C++ toolchain (clang + libc++) is about 50MB and the
+            Python runtime about 24MB. Each is downloaded once and then stays in the browser cache, so offline use works
+            from then on. Clearing your browser data means downloading again.
+          </p>
+
+          <h4>Which languages are supported?</h4>
+          <p>
+            The local WASM sandbox supports C++ and Python 3 (Python runs straight in the CPython interpreter and is not
+            compiled). For other languages, switch to a remote Piston or Judge0 judge service.
+          </p>
+
+          <h4>Why is the first run so much slower?</h4>
+          <p>
+            The first run has to download the runtime; after that, the first case of every new piece of code pays the
+            compilation cost once, and running several cases against the same code compiles it only once. The timing on a
+            card covers the program run only, excluding compilation and queueing.
+          </p>
+
+          <h4>How much slower is the browser than native?</h4>
+          <p>
+            There is no single scaling factor. Measured on the same machine, pure computation is about 1.8× slower and
+            sorting 2 million numbers about 6.7× slower — the ratio follows memory density and cannot be extrapolated.
+          </p>
+
+          <p>
+            Read the <a href="https://www.998244353.best/guide.en.html">unnamed User Guide</a> for the full explanation.
+          </p>
+          <p>
+            The notes above are for environments without scripting. The full editor and test panel need JavaScript
+            enabled in your browser.
+          </p>
+        </div>
       </noscript>
     </div>
     <script type="module" src="/src/main.js"></script>

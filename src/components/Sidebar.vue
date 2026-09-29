@@ -14,14 +14,19 @@
  * （见 App.vue 的 .splitter 与 measureLimits）。
  */
 import { computed, provide, ref } from 'vue'
+import { t } from '../i18n/index.js'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { closeSettingsTab, openSettingsTab, settingsTab } from '../services/settingsTab.js'
 
-// 侧边栏里的两个面板。数组顺序就是页头胶囊里两段的顺序
+// 侧边栏里的两个面板。数组顺序就是页头胶囊里两段的顺序。
+// 只存 key：翻译必须发生在渲染那一刻（见 i18n 的调用纪律），下面的两个 computed 负责 t()。
 const PANEL_TABS = [
-  { id: 'explorer', label: '资源管理器', icon: 'files' },
-  { id: 'tests', label: '评测样例', icon: 'cases' },
+  { id: 'explorer', labelKey: 'app.sidebar.explorer', icon: 'files' },
+  { id: 'tests', labelKey: 'app.sidebar.tests', icon: 'cases' },
 ]
+
+/** 给一个页签补上当前语言的显示名 */
+const withLabel = (tab) => ({ ...tab, label: t(tab.labelKey) })
 
 // 当前页签：默认落在资源管理器，与改动前的默认视觉一致
 const activeTab = usePersistentRef('cph.sidebarTab', 'explorer')
@@ -37,12 +42,12 @@ if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'ex
 // - 设置那颗独立：它开关的是编辑区里的合成页签，与面板互不排斥（见第 5 节坑 7），
 //   不进胶囊（进同一个胶囊就暗示它也是面板之一，且是同一个单选组）。
 const panels = computed(() =>
-  PANEL_TABS.map((tab) => ({ ...tab, active: tab.id === activeTab.value })),
+  PANEL_TABS.map((tab) => ({ ...withLabel(tab), active: tab.id === activeTab.value })),
 )
 
 // 胶囊上要写的是「将要去的那一个」：整枚是一个动作按钮，文案得说清点下去会去哪
-const targetPanel = computed(
-  () => PANEL_TABS.find((tab) => tab.id !== activeTab.value) ?? PANEL_TABS[0],
+const targetPanel = computed(() =>
+  withLabel(PANEL_TABS.find((tab) => tab.id !== activeTab.value) ?? PANEL_TABS[0]),
 )
 
 // 滑动动画只在「用户点了胶囊」之后才放（见 SidebarSwitcher 的 data-switched）：
@@ -67,7 +72,7 @@ function toggleSettings() {
 // 下发给子组件后在模板里直接写 settings.active 就行（不用 .value）
 const settingsEntry = computed(() => ({
   icon: 'gear',
-  label: '设置',
+  label: t('app.settings'),
   active: settingsTab.active,
 }))
 

@@ -10,6 +10,7 @@
  * 目录改名时后代 id 全部保留（只重算 path），打开的 model 不受影响。
  */
 import { BaseVFSProvider } from './BaseVFSProvider.js'
+import { t } from '../../i18n/index.js'
 import { commitTransaction, openDatabase, withTransaction } from './idb.js'
 import { assertName, isWithin, normalize, splitPath } from './paths.js'
 
@@ -119,7 +120,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
   async readFile(path) {
     const id = this.#pathIndex.get(normalize(path))
     const node = id ? this.#nodes.get(id) : null
-    if (!node || node.type !== 'file') throw new Error(`文件不存在：${path}`)
+    if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path }))
     return this.#contents.get(id) ?? ''
   }
 
@@ -150,7 +151,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
 
   async createFile(path, initialContent = '') {
     const norm = normalize(path)
-    if (this.#pathIndex.has(norm)) throw new Error(`已存在：${norm}`)
+    if (this.#pathIndex.has(norm)) throw new Error(t('error.alreadyExists', { path: norm }))
     const { dir, name } = splitPath(norm)
     assertName(name)
     const parentId = this.#requireDirectory(dir)
@@ -189,7 +190,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
       // 「新建或覆盖」：文件不存在时等价 createFile
       return this.createFile(norm, content)
     }
-    if (existing.type !== 'file') throw new Error(`目标是目录，无法写入：${norm}`)
+    if (existing.type !== 'file') throw new Error(t('error.targetIsDirectory', { path: norm }))
 
     const text = String(content ?? '')
     const node = { ...existing, updatedAt: Date.now() }
@@ -209,7 +210,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
     const norm = normalize(path)
     const id = this.#pathIndex.get(norm)
     const node = id ? this.#nodes.get(id) : null
-    if (!node || node.type !== 'file') throw new Error(`文件不存在：${path}`)
+    if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path }))
 
     const next = { ...node, updatedAt: Date.now() }
     // meta 为 null / 空对象时把字段整个摘掉，不在节点上留空壳
@@ -243,11 +244,11 @@ export class LocalVFSProvider extends BaseVFSProvider {
     const target = normalize(newPath)
     const id = this.#pathIndex.get(norm)
     const node = id ? this.#nodes.get(id) : null
-    if (!node) throw new Error(`不存在：${path}`)
-    if (id === 'root') throw new Error('根目录不能改名')
+    if (!node) throw new Error(t('error.notFound', { path }))
+    if (id === 'root') throw new Error(t('error.rootRename'))
     if (target === norm) return
     // 不能把目录移进自己的后代
-    if (node.type === 'directory' && isWithin(norm, target)) throw new Error('不能移动到自己的子目录中')
+    if (node.type === 'directory' && isWithin(norm, target)) throw new Error(t('error.moveIntoChild'))
 
     const { dir, name } = splitPath(target)
     assertName(name)
@@ -274,8 +275,8 @@ export class LocalVFSProvider extends BaseVFSProvider {
   #deleteInBatch(path) {
     const norm = normalize(path)
     const id = this.#pathIndex.get(norm)
-    if (!id) throw new Error(`不存在：${path}`)
-    if (id === 'root') throw new Error('根目录不能删除')
+    if (!id) throw new Error(t('error.notFound', { path }))
+    if (id === 'root') throw new Error(t('error.rootDelete'))
 
     const ids = this.#collectSubtree(id)
     this.#ensureSnapshot()
@@ -382,7 +383,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
   #requireDirectory(dirPath) {
     const id = this.#pathIndex.get(normalize(dirPath))
     const node = id ? this.#nodes.get(id) : null
-    if (!node || node.type !== 'directory') throw new Error(`父目录不存在：${dirPath}`)
+    if (!node || node.type !== 'directory') throw new Error(t('error.parentMissing', { path: dirPath }))
     return id
   }
 
@@ -390,7 +391,9 @@ export class LocalVFSProvider extends BaseVFSProvider {
   #assertSiblingFree(parentId, name, exceptId = null) {
     for (const siblingId of this.#childrenIndex.get(parentId) ?? []) {
       if (siblingId === exceptId) continue
-      if (this.#nodes.get(siblingId)?.name === name) throw new Error(`同目录下已存在：${name}`)
+      if (this.#nodes.get(siblingId)?.name === name) {
+        throw new Error(t('error.duplicateName', { name }))
+      }
     }
   }
 

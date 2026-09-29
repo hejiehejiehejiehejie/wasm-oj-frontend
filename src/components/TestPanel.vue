@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
 import TestCaseCard from './TestCaseCard.vue'
+import { t } from '../i18n/index.js'
 
 const props = defineProps({
   cases: { type: Array, required: true },
@@ -29,13 +30,13 @@ const counts = computed(() => {
 // 上一轮通过不代表改完代码后仍通过。
 const verdict = computed(() => {
   const total = props.cases.length
-  if (!total) return { text: '还没有测试用例', tone: 'muted' }
-  if (counts.value.running) return { text: '运行中', tone: 'info' }
+  if (!total) return { text: t('tests.verdict.noCases'), tone: 'muted' }
+  if (counts.value.running) return { text: t('tests.verdict.running'), tone: 'info' }
   // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待刷新）
-  if (counts.value.stale) return { text: `?/${total} AC`, tone: 'warn' }
-  if (counts.value.passed === total) return { text: '全部 AC', tone: 'passed' }
+  if (counts.value.stale) return { text: t('tests.verdict.stale', { total }), tone: 'warn' }
+  if (counts.value.passed === total) return { text: t('tests.verdict.allPassed'), tone: 'passed' }
   const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
-  return { text: `${counts.value.passed}/${total} AC`, tone }
+  return { text: t('tests.verdict.partial', { passed: counts.value.passed, total }), tone }
 })
 
 // 有过期结论时，页头耗时同样来自上一轮，跟着藏掉，免得和「结果待刷新」自相矛盾
@@ -46,12 +47,16 @@ const elapsedText = computed(() => {
 </script>
 
 <template>
-  <section class="panel" aria-label="CPH 评测面板">
+  <section class="panel" :aria-label="t('tests.panel.ariaLabel')">
     <header class="panel__head">
       <SidebarSwitcher />
       <div class="panel__heading">
         <span class="verdict" :data-tone="verdict.tone">{{ verdict.text }}</span>
-        <span v-if="elapsedText" class="elapsed" :title="`最慢用例耗时 ${elapsedText}（只计运行段，不含编译）`">
+        <span
+          v-if="elapsedText"
+          class="elapsed"
+          :title="t('tests.elapsedTitle', { time: elapsedText })"
+        >
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
         </span>
       </div>
@@ -59,11 +64,11 @@ const elapsedText = computed(() => {
 
     <ul class="cases">
       <li v-if="!cases.length" class="empty">
-        <p class="empty__title">暂无测试用例</p>
-        <p class="empty__text">点击下方按钮新增一个用例，填写标准输入与期望输出。</p>
+        <p class="empty__title">{{ t('tests.empty.title') }}</p>
+        <p class="empty__text">{{ t('tests.empty.text') }}</p>
         <button class="add add--inline" @click="emit('add')">
           <AppIcon name="plus" :size="13" />
-          <span>添加第一个用例</span>
+          <span>{{ t('tests.panel.addFirst') }}</span>
         </button>
       </li>
 
@@ -81,9 +86,14 @@ const elapsedText = computed(() => {
     <footer class="panel__foot">
       <button class="add" @click="emit('add')" :disabled="running">
         <AppIcon name="plus" :size="14" />
-        <span>添加测试样例</span>
+        <span>{{ t('tests.panel.addCase') }}</span>
       </button>
-      <button class="run-inline" :disabled="running || !cases.length" title="运行全部测试用例" @click="emit('run-all')">
+      <button
+        class="run-inline"
+        :disabled="running || !cases.length"
+        :title="t('tests.panel.runAll')"
+        @click="emit('run-all')"
+      >
         <AppIcon name="play" :size="13" />
       </button>
     </footer>

@@ -1,0 +1,355 @@
+/**
+ * 内置帮助面板（设置 › 帮助）的全部正文。
+ *
+ * 这一份是**内容**不是界面：整棵树直接给 `HelpPanel.vue` 渲染，所以用
+ * `messages('help').groups` 取当前语言的那一棵，而不是逐条 `t()`。
+ *
+ * 【加粗标记】正文里的 `**…**` 由 HelpPanel 自己解析成 <strong>（没走 v-html，
+ * 因为文案里会出现 `<vector>` 这类头文件名）。两套语言都要保留这层标记。
+ *
+ * 【同步义务】这份内容的「完整版」是根目录的 guide.html（英文版 guide.en.html），
+ * 简版还有 docs/使用手册.md。改一处要检查另外几处是否还说得通。
+ *
+ * 【术语】下面 en 那一栏里的按钮名不是自由翻译，要与界面里真实的英文词条一致
+ * （出处是同目录下的 app.js / settings.js / explorer.js / engines.js / tests.js），
+ * 否则帮助面板说的按钮在界面上找不到。
+ *
+ * 【不翻的地名】`未分类` 是题目导入时真正建出来的 VFS 目录名（见 messages/engines.js
+ * 的文件头说明），英文正文里也照写 `未分类`。
+ */
+export default {
+  'zh-CN': {
+    help: {
+      groups: [
+        {
+          title: '开始使用',
+          items: [
+            {
+              name: '如何在浏览器里运行 C++ 或 Python？',
+              role: '编译与运行都在这台设备上完成。',
+              steps: [
+                '点侧边栏页头的**齿轮图标**，打开**设置**页签，进入**本地运行环境**',
+                '给 **C++** 或 **Python 3** 点**下载**，约 50MB / 24MB，只下一次',
+                '等按钮变成**已就绪**',
+                '确认**评测**里的引擎是**本地 WASM 沙箱**——新访客默认就是它，不用填服务地址',
+                '按 ⌘/Ctrl + Enter，或点**评测样例**面板页脚那颗 ▶',
+              ],
+              notes: [
+                '跑之前侧边栏会自动展开，并切到**评测样例**',
+                'Python 不编译，直接解释执行；C++ 只编译当前打开的这个文件，本地头文件不会被包含',
+                'Python 能 import 同目录的模块',
+                '沙箱里的文件读写都在内存里，不会写回工作区',
+                '运行时只下一次，之后刷新页面命中缓存；清掉浏览器数据就要重下',
+                '**已就绪**那行右侧有**卸载**，用来腾出空间',
+              ],
+            },
+            {
+              name: '评测引擎怎么选？',
+              role: '默认就是本地沙箱，不用填地址。',
+              notes: [
+                '**本地 WASM 沙箱**：在你的浏览器里跑，支持 C++ 与 Python 3',
+                '**Piston** / **Judge0**：你自建的评测服务，要填地址、要联网',
+                '**自检（不执行代码）**：只把标准输入原样回显，用来联调界面',
+                '切到远端引擎之后，代码会发到你填的那个地址',
+                '入口在**设置** › **评测**，下方有服务地址与自检',
+              ],
+            },
+          ],
+        },
+        {
+          title: '本地沙箱与性能',
+          items: [
+            {
+              name: '在浏览器里跑有多快？',
+              role: '没有统一的缩放系数，倍率随访存密度涨。',
+              table: {
+                head: ['用例', '沙箱', '本机', '倍率'],
+                rows: [
+                  ['纯计算 5×10⁷ 轮', '132 ms', '74.4 ms', '1.77×'],
+                  ['顺序访存 8×10⁶ int', '26 ms', '7.4 ms', '3.51×'],
+                  ['排序 50 万', '60 ms', '11.8 ms', '5.08×'],
+                  ['排序 200 万', '247 ms', '36.7 ms', '6.73×'],
+                ],
+              },
+              notes: [
+                '实测：Apple M5 + 无头 Chrome，两侧都开 **-O2**',
+                '沙箱那列取运行段，与卡片上的耗时同口径',
+                '倍率从约 1.8× 涨到约 6.7×，不能外推',
+                '5 次采样极差 ≤3 ms，输出与本机逐字一致',
+                '两列都含启动开销，耗时越短的用例倍率越会被拉平',
+                '空程序的对照是假象：本机那 4.4 ms 是进程启动，沙箱那 3.0 ms 是 WASI 实例化',
+                '换一台设备，绝对值与倍率都会变',
+              ],
+            },
+            {
+              name: '为什么第一次运行明显更慢？',
+              role: '首次要下运行时，每份新代码还要编译一次。',
+              notes: [
+                '同一份代码连续跑多个用例只编译一次，第 2 个起只付运行开销',
+                '后台会生成一份 STL 预编译头，排在空闲时间，不阻塞操作',
+                '预编译头只覆盖 5 个最常用的标准库头；生成失败也不影响正常编译',
+                '这部分受本机性能影响，不承诺固定倍率',
+              ],
+            },
+            {
+              name: '判定码与时限怎么算？',
+              role: '耗时只计运行段，不含编译；含沙箱启动开销。',
+              table: {
+                head: ['判定码', '含义'],
+                rows: [
+                  ['AC', '输出与期望输出一致'],
+                  ['WA', '输出与期望输出不一致'],
+                  ['CE', '编译失败'],
+                  ['TLE', '运行时间超过当前时限'],
+                  ['RE', '运行时错误，程序非正常退出'],
+                  ['ERR', '评测服务连不上之类的环境问题'],
+                ],
+              },
+              notes: [
+                '卡片与页头的耗时同口径：只计运行段，不含编译与排队',
+                '运行段含沙箱启动的固定开销，量级几毫秒',
+                '程序没跑起来时卡片不显示耗时',
+                '页头显示当轮**最慢**的那个用例',
+                '默认 1 秒。改：**设置** › **评测** › **运行时限**（1 / 2 / 5 / 10 秒）',
+                '题目自带时限时优先用它：右键文件 › **题目信息** › **时限（秒）**',
+                'Python 额外给 0.5 秒启动余量',
+                '卡片中间那条空白就是「只跑这一个用例」的按钮',
+              ],
+            },
+          ],
+        },
+        {
+          title: '抓题与文件',
+          items: [
+            {
+              name: '怎么把题目抓进来？',
+              role: '装一个插件，题面和样例自动送进来。',
+              steps: [
+                '打开**设置** › **浏览器插件**，点**下载**',
+                '解压下载到的压缩包',
+                '地址栏打开 chrome://extensions，打开右上角的**开发者模式**',
+                '点**加载已解压的扩展程序**，选中刚解压出来的目录',
+                '回到本站，点那一组的**重新检测**，状态里会显示版本号',
+                '打开任意 OJ 题目页，点浏览器工具栏上的插件图标',
+              ],
+              notes: [
+                '题目落进 /Problems/〈年月〉/〈OJ〉/未分类/，样例整体替换进**评测样例**',
+                '代码文件里只有一行占位注释，题解归你写',
+                '重抓同一道题只刷新样例与元数据，你的题解一个字都不动',
+                '认题靠**题目链接**，不靠文件名',
+                '难度要自己填；本站要开着，插件才送得进来',
+                '插件不在应用商店里，只能这样装',
+              ],
+            },
+            {
+              name: '文件树怎么用？',
+              role: '新建、重命名、删除，以及填写题目信息。',
+              steps: [
+                '页头有两颗按钮：**新建文件**与**新建文件夹**',
+                '建在哪个目录，看树里当前聚焦的那个节点',
+                '想指定目录：右键该目录 › **新建文件** / **新建文件夹**',
+                '输入名字后回车。输入框只选中主干，改完不用补后缀',
+              ],
+              notes: [
+                '右键文件还有**重命名**与**删除**',
+                '**题目信息**填五项：**题目链接**、**OJ**、**难度**、**日期**、**时限（秒）**',
+                '难度跟着 OJ 走：CF 与 AtCoder 用 800–3500 分数段，洛谷用官方八级',
+                '题目元数据存在隐藏的 **.cph** 目录里，树里看不见',
+              ],
+            },
+          ],
+        },
+        {
+          title: '界面',
+          items: [
+            {
+              name: '界面怎么调？',
+              role: '切面板、收发侧边栏、换配色与缩放。',
+              steps: [
+                '切面板：点侧边栏页头左侧那枚**胶囊开关**',
+                '开关设置页签：点页头那颗**齿轮**',
+                '收起整栏：双击两栏中间的分隔条',
+                '换边：**设置** › **外观** › **侧边栏位置**',
+                '缩放：**设置** › **外观** › **界面缩放**，默认 110%',
+                '配色：**设置** › **外观** › **主题**，深色 / 浅色',
+              ],
+              notes: [
+                '收起只是不显示，用例与文件树的展开状态都不会丢',
+                '分隔条：双击、拖到贴边，或 Tab 聚焦后按 ← / → 微调宽度',
+                '所有快捷键在**设置** › **快捷键**里改绑，默认运行是 ⌘/Ctrl + Enter',
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  en: {
+    help: {
+      groups: [
+        {
+          title: 'Getting started',
+          items: [
+            {
+              name: 'How do I run C++ or Python in the browser?',
+              role: 'Both compiling and running happen on this device.',
+              steps: [
+                'Click the **gear icon** in the sidebar header, open the **Settings** tab, then go to **Local runtime**',
+                'Click **Download** next to **C++** or **Python 3** — about 50MB / 24MB, downloaded once',
+                'Wait for the button to read **Ready**',
+                'Make sure the engine under **Judge** is **Local WASM sandbox** — that is the default for new visitors, and it needs no service URL',
+                'Press ⌘/Ctrl + Enter, or click the ▶ in the footer of the **Test cases** panel',
+              ],
+              notes: [
+                'The sidebar expands automatically and switches to **Test cases** before a run',
+                'Python is not compiled — it runs straight in the interpreter; C++ compiles only the file you have open, and local headers are not included',
+                'Python can import modules from the same folder',
+                'File reads and writes inside the sandbox stay in memory and never touch your workspace',
+                'The runtime is downloaded once and served from cache afterwards; clearing your browser data means downloading it again',
+                'The **Ready** line has an **Uninstall** button on the right if you need the space back',
+              ],
+            },
+            {
+              name: 'Which judge engine should I pick?',
+              role: 'The local sandbox is the default and needs no URL.',
+              notes: [
+                '**Local WASM sandbox**: runs in your browser, supports C++ and Python 3',
+                '**Piston** / **Judge0**: judge services you host yourself — you must enter a URL and be online',
+                '**Self-test (does not run code)**: echoes the standard input back, for exercising the UI only',
+                'Once you switch to a remote engine, your code is sent to the URL you entered',
+                'The setting lives under **Settings** › **Judge**, together with the service URL and the connection test',
+              ],
+            },
+          ],
+        },
+        {
+          title: 'Local sandbox & performance',
+          items: [
+            {
+              name: 'How fast is it in the browser?',
+              role: 'There is no single scaling factor — the ratio grows with memory density.',
+              table: {
+                head: ['Case', 'Sandbox', 'Native', 'Ratio'],
+                rows: [
+                  ['Pure compute, 5×10⁷ iterations', '132 ms', '74.4 ms', '1.77×'],
+                  ['Sequential access, 8×10⁶ ints', '26 ms', '7.4 ms', '3.51×'],
+                  ['Sorting 500k', '60 ms', '11.8 ms', '5.08×'],
+                  ['Sorting 2M', '247 ms', '36.7 ms', '6.73×'],
+                ],
+              },
+              notes: [
+                'Measured on an Apple M5 with headless Chrome, **-O2** on both sides',
+                'The sandbox column is the run phase — the same thing the card timing measures',
+                'The ratio climbs from about 1.8× to about 6.7× and cannot be extrapolated',
+                'Five samples spread over ≤3 ms, and the output matched the native run byte for byte',
+                'Both columns include startup cost, which flattens the ratio for short runs',
+                'The empty-program comparison is an illusion: that 4.4 ms native is process startup, and the 3.0 ms in the sandbox is WASI instantiation',
+                'Change the machine and both the absolute times and the ratios change',
+              ],
+            },
+            {
+              name: 'Why is the first run so much slower?',
+              role: 'The runtime is downloaded once, and every new piece of code is compiled once.',
+              notes: [
+                'One compilation covers every case you run for the same code; from the second case on you only pay for the run',
+                'A precompiled STL header is built in the background during idle time and never blocks you',
+                'It only covers the 5 most common standard library headers, and a failure to build it does not affect normal compilation',
+                'This part depends on your machine, so no fixed ratio is promised',
+              ],
+            },
+            {
+              name: 'How are verdicts and the time limit calculated?',
+              role: 'Timing covers the run phase only, excluding compilation, and includes sandbox startup.',
+              table: {
+                head: ['Verdict', 'Meaning'],
+                rows: [
+                  ['AC', 'Output matches the expected output'],
+                  ['WA', 'Output differs from the expected output'],
+                  ['CE', 'Compilation failed'],
+                  ['TLE', 'The program exceeded the current time limit'],
+                  ['RE', 'Runtime error — the program exited abnormally'],
+                  ['ERR', 'An environment problem, such as an unreachable judge service'],
+                ],
+              },
+              notes: [
+                'The card and the panel header measure the same thing: the run phase only, excluding compilation and queueing',
+                'The run phase includes a fixed sandbox startup cost of a few milliseconds',
+                'The card shows no timing when the program never got to run',
+                'The panel header shows the **slowest** case of the current run',
+                'The default is 1 second. To change it: **Settings** › **Judge** › **Time limit** (1 / 2 / 5 / 10 s)',
+                'A time limit stored on the problem takes priority: right-click the file › **Problem info** › **Time limit (s)**',
+                'Python gets an extra 0.5 s of startup allowance',
+                'The blank strip in the middle of a card is the “run this case only” button',
+              ],
+            },
+          ],
+        },
+        {
+          title: 'Importing problems & files',
+          items: [
+            {
+              name: 'How do I import a problem?',
+              role: 'Install an extension and the statement plus samples arrive on their own.',
+              steps: [
+                'Open **Settings** › **Browser extension** and click **Download**',
+                'Unzip the downloaded archive',
+                'Open chrome://extensions in the address bar and turn on **Developer mode** in the top right',
+                'Click **Load unpacked** and pick the folder you just unzipped',
+                'Back on this site, click **Check again** in that group — the status line will show the version',
+                'Open any problem page on an online judge and click the extension icon in the browser toolbar',
+              ],
+              notes: [
+                'The problem lands in /Problems/〈year-month〉/〈OJ〉/未分类/, and its samples replace the contents of **Test cases**',
+                'The code file holds nothing but a placeholder comment — the solution is yours to write',
+                'Importing the same problem again only refreshes the samples and metadata; not a character of your solution is touched',
+                'Problems are identified by **Problem URL**, not by file name',
+                'You fill in the difficulty yourself, and this site has to be open for the extension to deliver anything',
+                'The extension is not in any store, so this is the only way to install it',
+              ],
+            },
+            {
+              name: 'How do I use the file tree?',
+              role: 'Create, rename and delete files, and record problem metadata.',
+              steps: [
+                'The header has two buttons: **New file** and **New folder**',
+                'The new entry is created in whichever folder is currently focused in the tree',
+                'To place it somewhere specific: right-click that folder › **New file** / **New folder**',
+                'Type a name and press Enter. Only the stem is selected, so you do not need to retype the extension',
+              ],
+              notes: [
+                'Right-clicking a file also offers **Rename** and **Delete**',
+                '**Problem info** holds five fields: **Problem URL**, **Judge**, **Difficulty**, **Date** and **Time limit (s)**',
+                'Difficulty follows the judge: Codeforces and AtCoder use the 800–3500 rating scale, Luogu uses its eight official levels',
+                'Problem metadata lives in the hidden **.cph** folder, which the tree never shows',
+              ],
+            },
+          ],
+        },
+        {
+          title: 'Interface',
+          items: [
+            {
+              name: 'How do I tweak the interface?',
+              role: 'Switch panels, collapse the sidebar, change colours and scaling.',
+              steps: [
+                'Switch panels: click the **pill switch** on the left of the sidebar header',
+                'Toggle the Settings tab: click the **gear** in that header',
+                'Collapse the whole sidebar: double-click the divider between the two columns',
+                'Move it to the other side: **Settings** › **Appearance** › **Sidebar position**',
+                'Scale it: **Settings** › **Appearance** › **Interface scale** — 110% by default',
+                'Change colours: **Settings** › **Appearance** › **Theme** — dark / light',
+                'Change the language: **Settings** › **Appearance** › **Interface language**',
+              ],
+              notes: [
+                'Collapsing only hides the sidebar — expanded folders and test cases are never lost',
+                'The divider: double-click it, drag it to an edge, or focus it with Tab and nudge with ← / →',
+                'Every shortcut can be rebound under **Settings** › **Shortcuts**; Run is ⌘/Ctrl + Enter by default',
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
+}

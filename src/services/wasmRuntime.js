@@ -29,6 +29,7 @@ import {
   runtimeAssetURLs,
   unloadRuntime,
 } from './runnoSandbox.js'
+import { t } from '../i18n/index.js'
 import { vfsToRunnoFs } from './vfs/runnoFs.js'
 
 // Python 解释器的冷启动（wasm 实例化 + zipimport 找标准库）实测约 190ms，
@@ -80,9 +81,9 @@ export function subscribeStatus(listener) {
 function timeoutMessage(entry) {
   const seconds = Math.round((performance.now() - entry.stageStartedAt) / 1000)
   if (entry.stage === 'compile') {
-    return `本地编译超过 ${seconds} s 没有返回，已中断（正常编译只要几百毫秒，超时多半是这段代码触发了工具链的极端情况）。`
+    return t('error.compileTimeout', { seconds })
   }
-  return `本地运行环境准备超过 ${seconds} s 没有返回，已中断，请检查网络后重试。`
+  return t('error.prepareTimeout', { seconds })
 }
 
 /** 杀掉当前 WASI 实例。工具链是常驻内存的缓存，不受影响。 */

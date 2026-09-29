@@ -1,4 +1,4 @@
-/* CPH IDE 的 Service Worker。
+/* unnamed 的 Service Worker。
 
    目标：装完外壳即可离线打开，所以 install 阶段只预缓存「构建产物 + 静态资源」。
    **语言工具链不预缓存**（clang 52MB / CPython 24MB）：用户用哪个语言才拉哪个，

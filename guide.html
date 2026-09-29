@@ -1,313 +1,556 @@
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/src/styles/guide.css" />
-    <link rel="canonical" href="https://www.998244353.best/guide.html" />
-    <meta
-      name="robots"
-      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
-    />
-    <meta
-      name="description"
-      content="CPH IDE 完整使用指南：三种评测引擎的差别、如何在浏览器本地编译运行 C++、测试样例与时限（TLE）判定的口径、编辑器偏好与样例栏折叠、安装成独立窗口离线使用，以及常见问题解答。"
-    />
-    <title>CPH IDE 使用指南 · 本地运行 C++、测试样例与时限判定</title>
-    <meta property="og:type" content="article" />
-    <meta property="og:site_name" content="CPH IDE" />
-    <meta property="og:locale" content="zh_CN" />
-    <meta property="og:url" content="https://www.998244353.best/guide.html" />
-    <meta property="og:title" content="CPH IDE 使用指南 · 本地运行 C++、测试样例与时限判定" />
-    <meta
-      property="og:description"
-      content="三种评测引擎的差别、如何在浏览器本地编译运行 C++、测试样例与 TLE 判定的口径、编辑器偏好与样例栏折叠、安装成独立窗口离线使用，以及常见问题解答。"
-    />
-    <meta property="og:image" content="https://www.998244353.best/og-cover.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="CPH IDE 界面：左侧 Monaco 编辑器，右侧测试样例与判定结果" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="CPH IDE 使用指南 · 本地运行 C++、测试样例与时限判定" />
-    <meta
-      name="twitter:description"
-      content="三种评测引擎的差别、如何在浏览器本地编译运行 C++、测试样例与 TLE 判定的口径、编辑器偏好与样例栏折叠、安装成独立窗口离线使用，以及常见问题解答。"
-    />
-    <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" />
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="tYtZDXYkY1SFfSpkHyaYgj" data-dm-ref="1"><head data-page-node-id="COZyetENLPwq2JMIKavCns">
+    <meta charset="UTF-8" data-page-node-id="QC50BdPv8BXCioIA1nveY5">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="K71cuzIO5HwQY7ZqurDm4V">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" data-page-node-id="FiOBQ7v1z6JctZVFxovVjr">
+    <link rel="stylesheet" href="/src/styles/guide.css" data-page-node-id="rDyxwZdvKWRVEXzBQowSpS">
+    <link rel="canonical" href="https://www.998244353.best/guide.html" data-page-node-id="1rdpt6zbJGVXxwQEDmyEWA">
+    <!-- 双语互链：hreflang 告诉搜索引擎这两页是同一份内容的两套语言；
+         x-default 指本页（站点的主要受众）。guide.en.html 里有对称的三行，改一处要同步另一处。 -->
+    <link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/guide.html">
+    <link rel="alternate" hreflang="en" href="https://www.998244353.best/guide.en.html">
+    <link rel="alternate" hreflang="x-default" href="https://www.998244353.best/guide.html">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" data-page-node-id="jSys9sCvnu9l3VhcrYrMLJ">
+    <meta name="description" content="unnamed 完整使用指南：本地 WASM 沙箱怎么用、评测引擎怎么选、浏览器里跑代码的实测速度、判定码与时限（TLE）口径、用插件一键抓题、快捷键与界面偏好、安装成独立窗口离线使用，以及常见问题解答。" data-page-node-id="gBoRT6V6hiXrvjegZiNgnH">
+    <title>unnamed 使用指南 · 浏览器本地编译运行 C++ 与 Python</title>
+    <meta property="og:type" content="article" data-page-node-id="70IC6GzGHbVpfsHWO0KxKh">
+    <meta property="og:site_name" content="unnamed" data-page-node-id="x0KajGjwBRv4WG6IdGti0g">
+    <meta property="og:locale" content="zh_CN" data-page-node-id="hnjuYKWKMozGFceLHIeos0">
+    <meta property="og:locale:alternate" content="en_US">
+    <meta property="og:url" content="https://www.998244353.best/guide.html" data-page-node-id="iDnArpdrbFD2ikL2JfFl7y">
+    <meta property="og:title" content="unnamed 使用指南 · 浏览器本地编译运行 C++ 与 Python" data-page-node-id="eGoCOTvuZgVMECnEOC6MtC">
+    <meta property="og:description" content="本地 WASM 沙箱怎么用、评测引擎怎么选、浏览器里跑代码的实测速度、判定码与时限（TLE）口径、用插件一键抓题、快捷键与界面偏好、安装成独立窗口离线使用，以及常见问题解答。" data-page-node-id="DEEOhBAOWInvCDCLuUlAR6">
+    <meta property="og:image" content="https://www.998244353.best/og-cover.png" data-page-node-id="izDCsgnToKSfdc8ktlrMtA">
+    <meta property="og:image:width" content="1200" data-page-node-id="GY7nxYtAq5eKr4LjkfMwlq">
+    <meta property="og:image:height" content="630" data-page-node-id="63wdW7llrZ5S0Y3FsLtEDn">
+    <meta property="og:image:alt" content="unnamed 界面：左侧 Monaco 编辑器，右侧测试样例与判定结果" data-page-node-id="NktRnw7ecyqaFDLJO508iW">
+    <meta name="twitter:card" content="summary_large_image" data-page-node-id="4W8nSFuLUV7m6Cq9q0I2Aj">
+    <meta name="twitter:title" content="unnamed 使用指南 · 浏览器本地编译运行 C++ 与 Python" data-page-node-id="yfnX0N6mNLtpEkmE2rWksn">
+    <meta name="twitter:description" content="本地 WASM 沙箱怎么用、评测引擎怎么选、浏览器里跑代码的实测速度、判定码与时限（TLE）口径、用插件一键抓题、快捷键与界面偏好、安装成独立窗口离线使用，以及常见问题解答。" data-page-node-id="fjeaAViBFB3mStDcBClY6K">
+    <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" data-page-node-id="eMuVL63BedySIvMDQNAElK">
     <!--
       主题同步：和主应用读同一份 localStorage 契约（cph.editorSettings.theme）。
       不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
       故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
 
-      同步义务：本页是使用说明的「完整版」，应用内设置页签「帮助」分类的 GROUPS
-      （src/components/HelpPanel.vue）与仓库里的 docs/使用手册.md 是它的简版。
-      改任意一处都要检查另外两处是否还说得通。
+      同步义务：本页是使用说明的「中文完整版」，与 guide.en.html（英文完整版）逐条对应 ——
+      章节编号、条目顺序、表格数字与界面名称必须两边都对得上。应用内设置页签「帮助」分类的
+      GROUPS（src/components/HelpPanel.vue）与仓库里的 docs/使用手册.md 是它的简版。
+      改任意一处都要检查其余各处是否还说得通。
     -->
     <script>
       try {
         var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
-        if (saved && saved.theme === 'cph-light') {
-          document.documentElement.dataset.theme = 'cph-light'
+        var theme = saved && saved.theme
+        // 同时认旧 id（cph-light）：要等主应用跑过一次才会把存档迁成 'light'，
+        // 在此之前直接打开本页也不该闪成深色。
+        if (theme === 'light' || theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'light'
         }
       } catch (error) {
         /* 隐私模式或存档损坏：按默认深色渲染即可 */
       }
     </script>
-  </head>
-  <body>
-    <div class="page">
-      <header class="page__top">
-        <a class="brand" href="/">
-          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
-          <span class="brand__name">CPH IDE</span>
+  <style id="__dm_no_drag_style__">* { -webkit-user-drag: none !important; }</style><style id="__dm_bindable_badge_style__">[data-sp-bindable="database"]{outline:1px dashed #0088ff;outline-offset:2px;border-radius:4px;}[data-sp-bindable="database"] *{pointer-events:none !important;transition:none !important;animation:none !important;}[data-sp-bindable="database"]{transition:none !important;animation:none !important;}</style></head>
+  <body data-page-node-id="vatt3Z4gNtDNaNwcvgn0XH" style="">
+    <div class="page" data-page-node-id="08rstMK9YhtKV8NFFTvQty">
+      <header class="page__top" data-page-node-id="z8dpa1X3OcOEesIIKgijg4">
+        <a class="brand" href="/" data-page-node-id="05aBuRAsacTruSk9oL4cQT">
+          <span class="brand__mark" aria-hidden="true" data-page-node-id="vC7VPNX51rRunuoiTqq07P">&lt;/&gt;</span>
+          <span class="brand__name" data-page-node-id="Yryq4gbRCwfV2Nipw4ngws">unnamed</span>
         </a>
-        <a class="cta" href="/">打开 CPH IDE</a>
+        <div class="page__top-actions">
+          <!-- lang 属性让屏幕阅读器用英文读这颗链接本身，与它指向的页面一致 -->
+          <a class="lang-link" href="/guide.en.html" hreflang="en" lang="en">English</a>
+          <a class="cta" href="/" data-page-node-id="1C8lYquOKUlNxHtaSQQTdC">打开 unnamed</a>
+        </div>
       </header>
 
-      <main class="doc">
-        <h1>CPH IDE 使用指南</h1>
-        <p class="doc__lead">
-          CPH IDE 是一个在浏览器里写、跑、判 C++ 的在线 IDE：右边是 Monaco
-          编辑器，左边是测试样例面板。它内置「本地 WASM 沙箱」，编译与运行都在你自己的设备上完成，代码不出本机，
-          把工具链下载下来之后断网也能用。这份指南覆盖引擎选择、本地运行流程、判定的口径与常见问题。
-        </p>
+      <main class="doc" data-page-node-id="QOLd7TShZ2nbTycHCWyFgl">
+        <h1 data-page-node-id="FNRlVH5gghN9iKKOZ9kytb">unnamed 使用指南</h1>
 
-        <nav class="toc" aria-label="本页目录">
-          <span class="toc__title">本页内容</span>
-          <ul>
-            <li><a href="#engines">三种评测引擎</a></li>
-            <li><a href="#local-cpp">在本地编译运行 C++</a></li>
-            <li><a href="#test-cases">测试样例与时限判定</a></li>
-            <li><a href="#editor">编辑器与界面偏好</a></li>
-            <li><a href="#install">安装到设备、离线使用</a></li>
-            <li><a href="#faq">常见问题</a></li>
+        <nav class="toc" aria-label="本页目录" data-page-node-id="jcroPT8LRWRPqaIusgABIQ">
+          <span class="toc__title" data-page-node-id="k6HHCzpiyEmHYpDYhOqJIV">本页内容</span>
+          <ul data-page-node-id="Bi197suXTIl4xdHY4Zdgro">
+            <li data-page-node-id="zpCYEIrYfzLqUCaYDEFKUE"><a href="#what" data-page-node-id="s7oiDZZYUlbvaemSD9iBnN">1. 这是一个什么站点？</a></li>
+            <li data-page-node-id="0VmiC1olnasq82XaCEUYTt"><a href="#run" data-page-node-id="IuJa7dvmy02nIbw2OHzn6n">2. 怎么在浏览器里跑代码？</a></li>
+            <li data-page-node-id="AIy4qOvjaSxQFYCRfszZnN"><a href="#engines" data-page-node-id="szoexRIuwZu65dsInIFUoh">3. 评测引擎怎么选？</a></li>
+            <li data-page-node-id="XxsNT5lf0gOmhEs6KzVGgU"><a href="#perf" data-page-node-id="Hh95rvGg2ghy2ww5D4dvAb">4. 在浏览器里跑有多快？</a></li>
+            <li data-page-node-id="E5jitEUESWFtMBJVzYoyfU"><a href="#import" data-page-node-id="SJ4aEYCYLTvoBwAnUxOT2E">5. 怎么把题目抓进来？</a></li>
+            <li data-page-node-id="jGil3yL4kml2h6XcjH4sHZ"><a href="#judge" data-page-node-id="3ECUlAYGgZcCVh7xLNcWd1">6. 判定码和时限怎么算？</a></li>
+            <li data-page-node-id="46aLsrWrBHdgtTligmdzqe"><a href="#files" data-page-node-id="XXanuEjrjoHyFNUBMx5RqU">7. 文件树怎么用？</a></li>
+            <li data-page-node-id="KCoV7kP5Wi5M7maA4IDDpl"><a href="#keys" data-page-node-id="At9xqhF5QDU0m2eeLYgjFS">8. 有哪些快捷键？</a></li>
+            <li data-page-node-id="zs8BtiTAVAi0GnCHALA7Ki"><a href="#ui" data-page-node-id="0rO3NZ5MLUPLky5Yzz1zE3">9. 界面怎么调？</a></li>
+            <li data-page-node-id="UhCrGhSERL5CZsHSO0MPoh"><a href="#install" data-page-node-id="ZoxnEUbRwACJtjrwIULXJp">10. 怎么装到设备、离线用？</a></li>
+            <li data-page-node-id="XNv0YAFyWaaapIEaGS9ITg"><a href="#faq" data-page-node-id="s1A0gSCjXm6BAKov7wO32o">11. 常见问题</a></li>
+            <li data-page-node-id="Mw7DnWeYm9i94FegQ4K3jy"><a href="#credits" data-page-node-id="GI3onFi1D0B0JyZmE5sFF7">12. 致谢与开源许可</a></li>
           </ul>
         </nav>
 
-        <h2 id="engines">1. 三种评测引擎</h2>
-        <p>
-          打开顶栏齿轮的「设置」页签，在「评测」分类里可以切换引擎。它们跑代码的位置完全不同，这决定了代码会不会离开你的设备、以及离线时还能不能用。
-        </p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>引擎</th>
-                <th>在哪里运行</th>
-                <th>要不要填服务地址</th>
-                <th>要不要联网</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>本地 WASM 沙箱</td>
-                <td>你自己的浏览器（支持 C++ 与 Python 3）</td>
-                <td>不用，它是内置引擎</td>
-                <td>首次要下载工具链，之后离线可用</td>
-              </tr>
-              <tr>
-                <td>Piston（默认）</td>
-                <td>你自建的评测服务</td>
-                <td>要</td>
-                <td>要</td>
-              </tr>
-              <tr>
-                <td>Judge0</td>
-                <td>你自建的评测服务</td>
-                <td>要</td>
-                <td>要</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="note">
-          本地沙箱支持 C++ 与 Python 3：C++ 走「编译 + 链接 + 运行」全在浏览器里完成，Python 由 CPython
-          解释器直接执行，不需要编译。两者的工具链都要先在设置的「本地运行环境」里下载一次。
-        </p>
+        <h2 id="what" data-page-node-id="ogMeJ1ELHPm2Xv31C3SAwU">1. 这是一个什么站点？</h2>
+        <ul data-page-node-id="Bx9BcQCFjJNStBPcxUNHYs">
+          <li data-page-node-id="JTWm69rMQQb5FRWnvSzuPx">在浏览器里写代码、编译、运行、判题。</li>
+          <li data-page-node-id="q9NmxUgx4nG5txtBlWYTwK">本地沙箱支持 <strong data-page-node-id="WgrB47fa37h8lCnwdCBZOt">C++</strong> 与 <strong data-page-node-id="dP50SlrdvKcJELPIzk6dCg">Python 3</strong>。</li>
+          <li data-page-node-id="IHumr2ffxAlx9MHWmhI7Ps">编译与运行都在你的设备上，代码不出本机。</li>
+          <li data-page-node-id="kNqbUEJ6hlWwPaP5AEJCkU">不用注册，不用登录。</li>
+          <li data-page-node-id="V8qEgi4CrHKld2y9bTeJ3r">可以装成独立窗口的应用，断网也能用。</li>
+        </ul>
+        <p data-page-node-id="MIZ0PdhIGJzTTUu2pS6KSJ">默认：侧边栏在左，编辑器在右。</p>
+        <p data-page-node-id="vI26dtwiJznZPTSXaLb8Ib">侧边栏里放着<strong data-page-node-id="A91muMe03tws2MA5gOGCnm">资源管理器</strong>与<strong data-page-node-id="P3x55xgGYb9YwVhhgwyJk1">评测样例</strong>两个面板。</p>
 
-        <h2 id="local-cpp">2. 在本地（浏览器里）编译运行 C++</h2>
-        <p>
-          「本地运行」指把编译和运行都放在你自己的浏览器里完成：代码不出本机，断网也能跑，不需要任何服务器。
-        </p>
-        <ol>
-          <li>
-            <strong>下载本地工具链。</strong>打开顶栏齿轮的「设置」页签，看左侧目录里的「本地运行环境」。<code>C++</code>
-            一行写着 clang + libc++，约 50MB、只下一次，点它右侧的「下载」，等按钮变成「已就绪」。
-            已就绪后右侧会多出一颗「卸载」，点它会先弹确认框，确认后清掉本机缓存，下次运行再重新下载。
+        <h2 id="run" data-page-node-id="weufOnjSJJVwWef6mLPFps">2. 怎么在浏览器里跑代码？</h2>
+        <ol data-page-node-id="BdIuA0DD2DUvrRn88kFLlD">
+          <li data-page-node-id="h6iGPRvjuQlFnurc4q2Lhq">
+            <strong data-page-node-id="p8wEQra3IISrpIKIfGTiIQ">下载本地运行时。</strong>点侧边栏页头的<strong data-page-node-id="IYFDUu0SSsLZXlG9F5F9Zf">齿轮图标</strong>，打开<strong data-page-node-id="xPDtsdS2gtXc6Jr2t2mIIO">设置</strong>页签，
+            进入<strong data-page-node-id="fnxTGPGY52VNx80fTbQznc">本地运行环境</strong>。
           </li>
-          <li>
-            <strong>切换到本地沙箱。</strong>在设置页签的「评测」分类里选「本地 WASM 沙箱」。它是内置引擎，
-            不需要填服务地址。
+          <li data-page-node-id="OXuCOefxq40uZFA50vY9JX">
+            给 <strong data-page-node-id="h17nsobcGZvJunNApAD14S">C++</strong> 或 <strong data-page-node-id="gcQNKmsoeC9HsuouB0FuKb">Python 3</strong> 点<strong data-page-node-id="Jr2E6rDsXPkRE0m52ZRNpu">下载</strong>。
+            分别约 50MB 与 24MB，只下一次。
           </li>
-          <li>
-            <strong>运行。</strong>按 <kbd>⌘</kbd>/<kbd>Ctrl</kbd> +
-            <kbd>Enter</kbd>，或点右侧「评测样例」面板页脚那颗 <strong>▶</strong>。
-            编译与执行都在本机完成，卡片上会给出判定码。
+          <li data-page-node-id="81WJlrpAxAoNmakr956miF">等按钮变成<strong data-page-node-id="iMxCk1l7ibXJVanwc2niRF">已就绪</strong>。下载期间会播报当前阶段。</li>
+          <li data-page-node-id="pTv5Cq6lphkiF6CVhrQw2i">
+            确认<strong data-page-node-id="ttNSp6403bRT3T4pv0Li1f">评测</strong>里的引擎是<strong data-page-node-id="SZKolIK7WUYJUEDUZvt30b">本地 WASM 沙箱</strong>。新访客默认就是它，
+            不用填服务地址。
+          </li>
+          <li data-page-node-id="PKFENhBrVuFpYRaxpGM90n">
+            按 <kbd data-page-node-id="WoKkTLqO0Uxz7hDwAvlxjq">⌘</kbd>/<kbd data-page-node-id="gbLLrhOovGPFPdodO5M23m">Ctrl</kbd> + <kbd data-page-node-id="LoaeigI6YmhmzSHyGusNPH">Enter</kbd>，或点<strong data-page-node-id="NDc1gzAtKAeS0XZOZD77IC">评测样例</strong>面板页脚的
+            <strong data-page-node-id="rpLF0xEEkQA81wklqojZoy">▶</strong>。
           </li>
         </ol>
-        <ul>
-          <li>工具链只需下载一次，之后刷新页面会命中浏览器缓存，不再重复下载。</li>
-          <li>下载成功过一次之后即可离线使用：编辑器、测试面板、本地沙箱在断网状态下都能工作。</li>
-          <li>清除浏览器数据会把缓存一并清掉，此时第一次编译要重新拉取工具链，慢一些属正常。</li>
+        <p data-page-node-id="aeCcp24GIAoUXGUT2JQ8W6">跑之前侧边栏会自动展开，并切到<strong data-page-node-id="sl0VwsnLKPgWNPmmtSL4SP">评测样例</strong>。</p>
+        <p data-page-node-id="APBgj1Byif0zmgD2GrgW4V">想腾出空间：<strong data-page-node-id="uhFDhcM4to01Q36CxCkB2G">已就绪</strong>那行右侧有<strong data-page-node-id="K3velbT03ftHwhVND320SR">卸载</strong>。</p>
+        <ul data-page-node-id="1iZd8sNdtYqXCLkXzpzE3M">
+          <li data-page-node-id="1GndMgNrNTYfchzDL6vPb5">运行时只用下一次，之后刷新页面命中缓存。</li>
+          <li data-page-node-id="VQu41BwUxRPeIXhbDjD8Gn">下载过一次就能离线跑：编辑器、样例、沙箱都在本机。</li>
+          <li data-page-node-id="zptTCMP45m2ujx8K86stM5">清掉浏览器数据后要重新下载。</li>
+          <li data-page-node-id="Vn8HaeMYmvLKQJANqV7KKn">Python 不编译，直接解释执行。</li>
+          <li data-page-node-id="3FTUhxddRrjlQMmmEaWZ3G">C++ 只编译当前打开的这个文件，本地头文件不会被包含。</li>
+          <li data-page-node-id="kUOsNTaVz2ZrIHS06ZZFIl">Python 能 import 同目录的模块。</li>
+          <li data-page-node-id="Iu0WzexWZD2FaBppquwEhb">沙箱里的文件读写都在内存里，不会写回工作区。</li>
         </ul>
 
-        <h2 id="test-cases">3. 测试样例与时限判定</h2>
-        <p>
-          右侧的「测试面板」就是样例栏，每个样例一张卡片：上面是输入框，下面是程序输出的只读块。用面板底部的「添加测试样例」增加用例，
-          卡片头右侧的按钮可以删除或折叠单个用例。跑完每张卡片会显示一个判定码。
-        </p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>判定码</th>
-                <th>含义</th>
+        <h2 id="engines" data-page-node-id="y3rVLHNL2PDqIYETjeqmiT">3. 评测引擎怎么选？</h2>
+        <p data-page-node-id="G6mOyNlJj6ajbGJ9sVVIVk">在<strong data-page-node-id="Uyjb6CQEqvya9rFESndTYv">设置</strong> › <strong data-page-node-id="gwybM0PVjpvTeXYApYdCla">评测</strong> 里切换。</p>
+        <div class="table-wrap" data-page-node-id="ZQQaYdTvyn9eDtuuixrYwV">
+          <table data-page-node-id="zCzNGqG5faqAajzbXtKRLN">
+            <thead data-page-node-id="XADGwSZgYYEyx2GfKczBBQ">
+              <tr data-page-node-id="POSsLtE6skdbRgEEbNoUNC">
+                <th data-page-node-id="AuRKv9AYD0HtJ7G2pg1wt1">引擎</th>
+                <th data-page-node-id="duLWdX0IM0uMAmKeCCItlK">在哪里运行</th>
+                <th data-page-node-id="6B7L0ECfvW0oLGQim6sKYs">要填服务地址吗</th>
+                <th data-page-node-id="EQpzTEENDfoIPohgVsLGlN">要联网吗</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td><code>AC</code></td>
-                <td>程序正常结束，且输出与期望输出一致</td>
+            <tbody data-page-node-id="f1Cp9Gtzqm5DMm6cczl35y">
+              <tr data-page-node-id="ntjUAzJ3A9Wmqh6yyoqylZ">
+                <td data-page-node-id="y2LbdJZam4Pj9jreEdIWtZ">本地 WASM 沙箱（默认）</td>
+                <td data-page-node-id="CkFMdbhrqAHJkkEvEJE89Q">你自己的浏览器，支持 C++ 与 Python 3</td>
+                <td data-page-node-id="3FpqFUaHpm4q9lYPrdvKEl">不用，它是内置引擎</td>
+                <td data-page-node-id="OAWhQBMRh7BJwp4PfB7e6M">首次要下运行时，之后离线可用</td>
               </tr>
-              <tr>
-                <td><code>WA</code></td>
-                <td>程序正常结束，但输出与期望输出不一致</td>
+              <tr data-page-node-id="jDvIyXH0KWaGzXMXfcD0VV">
+                <td data-page-node-id="SKF4I7wmCkSARnoUZRyDQF">Piston</td>
+                <td data-page-node-id="jD2if3VPtSwx8UuzrLb4hE">你自建的评测服务</td>
+                <td data-page-node-id="ZskC2fna5DfDzxS1rXoBzt">要</td>
+                <td data-page-node-id="C74CVDV9IZXW2hFgrvKs9K">要</td>
               </tr>
-              <tr>
-                <td><code>CE</code></td>
-                <td>编译失败（编译错误）</td>
+              <tr data-page-node-id="moI8qCFhPN4G04ycyX00X7">
+                <td data-page-node-id="kSx4PzIlgRBpAitqf1lWca">Judge0</td>
+                <td data-page-node-id="4TCWKp8SJ7jUvRnBPdkngD">你自建的评测服务</td>
+                <td data-page-node-id="noatNkTE0Ab9S14Bis76kC">要</td>
+                <td data-page-node-id="M72BBF6cc12HxbDkrq4qt7">要</td>
               </tr>
-              <tr>
-                <td><code>TLE</code></td>
-                <td>运行时间超过当前时限</td>
-              </tr>
-              <tr>
-                <td><code>RE</code></td>
-                <td>运行时错误，程序非正常退出</td>
-              </tr>
-              <tr>
-                <td><code>ERR</code></td>
-                <td>评测服务连不上之类的环境问题，不是你的代码有问题</td>
+              <tr data-page-node-id="OBnJyDy9roBuJX3HP498VC">
+                <td data-page-node-id="1jiQSkNyig6lidRMrtBNwY">自检（不执行代码）</td>
+                <td data-page-node-id="kApL8GIJdF2Gaax2zFsato">本机演示</td>
+                <td data-page-node-id="sCf1sjLfgd0N4id58vmhDb">不用</td>
+                <td data-page-node-id="G5fK21hnwyF7G6fSA3yjIF">不要</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <h3>时限与耗时的口径</h3>
-        <ul>
-          <li>
-            面板页头的「时限」（1 / 2 / 5 / 10 秒，默认 1 秒）只计<strong>程序运行那一段</strong>，不含编译时间。
-            超时靠终止当前运行的沙箱实例实现。
-          </li>
-          <li>
-            卡片上的耗时和时限是同一个口径，也只算程序运行段。程序没跑起来时（比如编译失败）卡片不显示耗时。
-          </li>
-          <li>面板页头显示的是<strong>当轮所有用例里最慢的那个</strong>的耗时。</li>
+        <p class="note" data-page-node-id="QzT1PQH0Hs07l9JbaxpVFx">远端引擎要你自己部署服务，并把地址填进<strong data-page-node-id="fPHhls5AVJqIvATPGI1CFP">评测</strong>。</p>
+        <ul data-page-node-id="7US5JhlVjzMUjP9dliMaYB">
+          <li data-page-node-id="bfZCzRxmYXZAlTtDsgIrYB">切到 Piston 或 Judge0 之后，代码会发到你填的那个地址。</li>
+          <li data-page-node-id="R0eyaYzfSH7EEYtfGGBLsj"><strong data-page-node-id="w20ftOo5zDm7tMR6yZuiIT">自检</strong>不执行代码，只把标准输入原样回显，用来联调界面。</li>
         </ul>
 
-        <h2 id="editor">4. 编辑器与界面偏好</h2>
-        <p>
-          打开顶栏齿轮的「设置」页签：在「外观」分类里可以调整套界面的主题（深色 / 浅色）、字号与界面缩放；在「编辑器」分类里可以调字体、缩进宽度、自动换行、小地图等。
-          这些设置与代码草稿、测试样例、两栏比例一样，都存在你浏览器的本地存储里，换台设备不会跟着走。
-        </p>
-        <h3>样例栏的展开与折叠</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>方式</th>
-                <th>操作</th>
+        <h2 id="perf" data-page-node-id="3J783aWslkkkBcT2YfoAG6">4. 在浏览器里跑有多快？</h2>
+        <p data-page-node-id="FobDnXhZ8sYJ6L0QXPkTBz">没有统一的缩放系数。</p>
+        <p data-page-node-id="zoLVxaNh7AVIW3B7aERHGg">下面是实测数据：Apple M5，无头 Chrome。</p>
+        <p data-page-node-id="KIW28JGzMtwDjx7GA6iMeu">两侧都开 <code data-page-node-id="UR31QQHTdC1T0ln6TfGmON">-O2</code>。</p>
+        <p data-page-node-id="wKohVV7gI8gAnAVuMEJEO3">沙箱是 clang 8.0.1，本机是 clang。</p>
+        <p data-page-node-id="x3Miex4MPVE13YfFUQ16jM">沙箱那一列取运行段，与卡片上的耗时同口径。</p>
+        <div class="table-wrap" data-page-node-id="Vfl57YRctUf7zq0NugQuC7">
+          <table data-page-node-id="5WW6mImIsswy3DYknGTFr9">
+            <thead data-page-node-id="rk1beDlabMgBRs9KoyyqqA">
+              <tr data-page-node-id="D1NF0QLxlzniwhC556SjuH">
+                <th data-page-node-id="v97jEROHXgq3bLWyCFohou">用例</th>
+                <th data-page-node-id="TEtpP6MxKbvqqMst2h3Aqd">沙箱运行段</th>
+                <th data-page-node-id="tF9SrNkm3iAsungMIm6mbV">本机原生</th>
+                <th data-page-node-id="aX23Mw07M2FrVDNC9sU8nJ">倍率</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td>双击</td>
-                <td>双击两栏中间的分隔条，收起 / 展开样例栏</td>
+            <tbody data-page-node-id="W14ZpJo1qNCKCK81fcS8OH">
+              <tr data-page-node-id="4Gj0Y3J5uXC9jstKueJOae">
+                <td data-page-node-id="X6phOEdDCGaztgyiIlfKwu">纯计算 5×10⁷ 轮 xorshift</td>
+                <td data-page-node-id="QajMOuXs7GUk0lptrRhp00">132 ms</td>
+                <td data-page-node-id="2JKSZ3ySsvAdSLJnoVrj7k">74.4 ms</td>
+                <td data-page-node-id="BMuwDDWM0IPRiOXiEPEvNi">1.77×</td>
               </tr>
-              <tr>
-                <td>拖到边缘</td>
-                <td>按住分隔条一直往边缘拖，拖到贴边即自动收起</td>
+              <tr data-page-node-id="E5pDbN7GLbfXX5gIU0x3jp">
+                <td data-page-node-id="IUGKZ1ecDcrq7i3o79KaeV">顺序访存 8×10⁶ 个 int</td>
+                <td data-page-node-id="JROX1Hxo16QRMM4u9fma9S">26 ms</td>
+                <td data-page-node-id="IteISakANIsZ2Hjhi1cPbJ">7.4 ms</td>
+                <td data-page-node-id="3czVj4bVo0jtBy0Sa2onD6">3.51×</td>
               </tr>
-              <tr>
-                <td>拖回</td>
-                <td>收起后把分隔条往外拖出，样例栏重新展开</td>
+              <tr data-page-node-id="n2LEqt3Xf2JUDzZXi9s8q9">
+                <td data-page-node-id="xQSGRjysOLk84Al2JJ6CuD">排序 50 万个数</td>
+                <td data-page-node-id="Oza7vz60eNaS0rhfaxFP7L">60 ms</td>
+                <td data-page-node-id="l12GiHDlsMiCnDl4V3C4br">11.8 ms</td>
+                <td data-page-node-id="F6xEmOJcDOKHZXSzzAx1eO">5.08×</td>
               </tr>
-              <tr>
-                <td>键盘</td>
-                <td>用 <kbd>Tab</kbd> 聚焦分隔条，按 <kbd>←</kbd> / <kbd>→</kbd> 微调两栏宽度</td>
-              </tr>
-              <tr>
-                <td>触屏</td>
-                <td>分隔条的触摸热区会加宽，手指更好抓</td>
+              <tr data-page-node-id="Id7zpwOer75CAV69tEHhtT">
+                <td data-page-node-id="wqNkNubqVQkWjVdzYJG8C4">排序 200 万个数</td>
+                <td data-page-node-id="fiRv5DoUBPOFVEBPS6pSaP">247 ms</td>
+                <td data-page-node-id="tkMoGHKWAPdp14I8voJ1oC">36.7 ms</td>
+                <td data-page-node-id="MKPg607JgtuVaDwMEqqSII">6.73×</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p>
-          折叠只是不显示，测试用例本身不会丢。想让样例栏换到右侧，在设置页签的「外观」分类里把「侧边栏位置」换成「右侧」。
-        </p>
+        <ul data-page-node-id="n01irZbWPIw0joyealcNey">
+          <li data-page-node-id="fTuUxvfGrooxSXHV3IByCv">倍率随访存密度涨，从约 1.8× 到约 6.7×。</li>
+          <li data-page-node-id="6BN1jSDwA9OqYtQhfi0jzH">越吃内存带宽，慢得越多。</li>
+          <li data-page-node-id="I6uf9V7wfWbT9cIGChnO6P">倍率不能外推，别拿 5× 去估别的代码。</li>
+          <li data-page-node-id="KDNDTKALA4PqD7NilzZ0lD">5 次采样极差 ≤3 ms，输出与本机逐字一致，不是噪声。</li>
+          <li data-page-node-id="gAtVQvuTU9en5RJMbwQqCK">两列都含启动开销：本机是进程启动，沙箱是 WASI 实例化。</li>
+          <li data-page-node-id="OVV8SN5MJlNwZuGsTa6DRW">耗时越短的用例，倍率越会被这两个常数拉平。</li>
+          <li data-page-node-id="l1XCTYRByt4wYHA57KCedj">换一台设备，绝对值与倍率都会变。</li>
+        </ul>
+        <h3 data-page-node-id="GttfZQrBgz0YY5yDtoK2xr">空程序那个对照为什么不算数？</h3>
+        <p data-page-node-id="F2Qtn792k1HG3bMAF1K3lR">空程序的对照是假象。</p>
+        <p data-page-node-id="Rpcpo6JvgKMO4koxLCAbDy">本机那 4.4 ms 全是进程启动开销。</p>
+        <p data-page-node-id="eOF9xU08DjQpUf2iIL9JEw">沙箱那 3.0 ms 是 WASI 实例化。</p>
+        <p data-page-node-id="DVPPD4Bar0WE0QnGmZOmRW">两个数都不含计算，比了也没意义。</p>
+        <p data-page-node-id="wAjdXJpoGsIVBKG7u8pqAl">要对照，就只看真在算的那几行。</p>
 
-        <h2 id="install">5. 安装到设备、离线使用</h2>
-        <p>
-          CPH IDE 可以当作一个独立窗口的应用安装到电脑或手机上。浏览器判定当前站点可以安装时，顶栏会出现「安装」按钮，
-          点它按提示确认即可；装好之后按钮会自动消失，再从桌面图标打开就是独立窗口，没有地址栏。
-        </p>
-        <ul>
-          <li>
-            iPhone / iPad 上的 Safari 没有这个按钮，需要手动走「分享 → 添加到主屏幕」。
+        <h2 id="import" data-page-node-id="EDS3JcJL9FJlrHBOIG6sPv">5. 怎么把题目抓进来？</h2>
+        <p data-page-node-id="vg0XLQ1rD7O7KDxnueiZpa">用本站分发的浏览器插件 <strong data-page-node-id="Ir0Wb1me0E9uFKhpd6IKFx">CC for Web</strong>。</p>
+        <ol data-page-node-id="B1DD204VeTz56NxiecDujw">
+          <li data-page-node-id="X7cEyUGRf1EsN4pKOwks1S">打开<strong data-page-node-id="Pemb0sXZChXwTn43mObE3I">设置</strong> › <strong data-page-node-id="ZGHQr4BzkMRFqfYvoas25y">浏览器插件</strong>，点<strong data-page-node-id="yek5mubIhBWvMrrfATlQJz">下载</strong>。</li>
+          <li data-page-node-id="s0oXKOIw280ViDkn5CSS7G">解压下载到的压缩包。</li>
+          <li data-page-node-id="uWH2UQ89h0jx2e2bMthbYt">
+            地址栏打开 <code data-page-node-id="0DWCdORTWi0Qsas27hUhHV">chrome://extensions</code>，打开右上角的<strong data-page-node-id="Cr4KRXf0SOte8R52iQLBxk">开发者模式</strong>。
           </li>
-          <li>
-            安装后浏览器会缓存界面外壳和本地工具链，<strong>断网状态</strong>下编辑器、测试面板与本地沙箱都照常工作。
-          </li>
-          <li>离线时只有 Piston 与 Judge0 这两种远端引擎会失效，因为它们需要联网。</li>
+          <li data-page-node-id="cVTRs7tqmi0YP3ngmjvyPu">点<strong data-page-node-id="AZoZn47mIfFIERXTMmSqGt">加载已解压的扩展程序</strong>，选中刚解压出来的目录。</li>
+          <li data-page-node-id="Dvl0xfVjxt0wOgmuCTvLyW">回到本站，点那一组的<strong data-page-node-id="vqQdHtOkRbLPYf5oPsQ4Bf">重新检测</strong>。状态会显示版本号。</li>
+          <li data-page-node-id="hc9X1ddHRcGgjAGLCg6GEh">打开任意 OJ 题目页，点浏览器工具栏上的插件图标。</li>
+        </ol>
+        <ul data-page-node-id="ChOrC7BSC8oknW0N6GHEjG">
+          <li data-page-node-id="RYH0KgchCS4n9FMamDDXug">题目落进 <code data-page-node-id="Z1U4bllraanyRWv1DUTGd5">/Problems/&lt;年月&gt;/&lt;OJ&gt;/未分类/</code>。</li>
+          <li data-page-node-id="byX9lp94BTS7IaFZpPkibY">样例整体替换进<strong data-page-node-id="RjcN6tt7pNUNGdaRVkzzBF">评测样例</strong>面板，不用手抄。</li>
+          <li data-page-node-id="CVCr1ksQKxdl4pW1SgQnX7">代码文件里只有一行 <code data-page-node-id="2AuSlIHpCFOnrR4Ty6QTVo">// your code here</code>，题解归你写。</li>
+          <li data-page-node-id="Z3lnLlmk8Fxq9Q9VFpa3TQ">难度要自己填：右键文件 › <strong data-page-node-id="s9R8btIFDMVM8KyBQFi4th">题目信息</strong>。</li>
+          <li data-page-node-id="0Yc8oH7wiYAyRzP7j7dnPo">重抓同一道题只刷新样例与元数据，你的题解一个字都不动。</li>
+          <li data-page-node-id="z9ctzbbupBP6oF2XSJ3nqL">认题靠<strong data-page-node-id="UAHp7LpuO0QPdDNfIzZgsD">题目链接</strong>，不靠文件名。</li>
+          <li data-page-node-id="sEm6IYBcSuGnNAqyKglr4A">本站要开着，插件才送得进来。</li>
+          <li data-page-node-id="FFpIoLwERHhMruNlSJMF9q">插件不在应用商店里，只能这样装。</li>
         </ul>
 
-        <h2 id="faq">6. 常见问题</h2>
-        <h3>代码会上传到服务器吗？</h3>
-        <p>
-          用本地 WASM 沙箱时不会：编译与运行都在你自己的浏览器里完成，代码不离开这台设备。切到 Piston 或 Judge0
-          这类远端引擎时，代码会发送到你填写的评测服务地址。
-        </p>
+        <h2 id="judge" data-page-node-id="mEAFayf6re9Iy1wkeTH6PH">6. 判定码和时限怎么算？</h2>
+        <p data-page-node-id="Nyv3n26BnRzih9OZXq0vp6">每个用例一张卡片，内有输入与期望输出。</p>
+        <p data-page-node-id="8VepDaOq5lOwFy4I4XncKI">下方那块实际输出只读，右上角可以复制。</p>
+        <p data-page-node-id="04RhWZvD4R2n05BW3vkFqF">卡片中间那条空白就是「只跑这一个用例」的按钮。</p>
+        <div class="table-wrap" data-page-node-id="kx4pqz7VfrTHc2UTShdpc0">
+          <table data-page-node-id="KDoZL9hUeRVsswGnXkOgRe">
+            <thead data-page-node-id="4r9HpxEZMSKTlBxXLexAGj">
+              <tr data-page-node-id="KgkGIFnRw0h3nQxfceYC6l">
+                <th data-page-node-id="jyBYFnflntva6LUNzWqs9R">判定码</th>
+                <th data-page-node-id="0u2uyVpadnycAUg97F0skl">含义</th>
+              </tr>
+            </thead>
+            <tbody data-page-node-id="BuXFBFC6f0gvgSeHtmjFyd">
+              <tr data-page-node-id="6ckCmXyzfNEUrny1KbtaIq">
+                <td data-page-node-id="jOK9igmbWcdiNNQAYArpyA"><code data-page-node-id="FyqyNqzU97GyTz1puFwrRD">AC</code></td>
+                <td data-page-node-id="A1arDRYXIIGKaHJYaSBmIy">程序正常结束，输出与期望输出一致</td>
+              </tr>
+              <tr data-page-node-id="Z48cuaLppEQSBfikJLIPgc">
+                <td data-page-node-id="es45zNf4BBYoCKoimwQ7T2"><code data-page-node-id="zCDBlAvMl5LzthgnqSiywB">WA</code></td>
+                <td data-page-node-id="ZYtVXLO5aGAUWolGLMntpJ">程序正常结束，输出与期望输出不一致</td>
+              </tr>
+              <tr data-page-node-id="EMpqEcILfTQZ41ZYYoiRHQ">
+                <td data-page-node-id="XqBHsE6uWyCiNvHzMWG9JR"><code data-page-node-id="KI05BB3i5K22scLf2jtgTg">CE</code></td>
+                <td data-page-node-id="E3B7JJy3guKEkvG9VueOV0">编译失败</td>
+              </tr>
+              <tr data-page-node-id="CV18XZGDYu3rBQUhHM8o9v">
+                <td data-page-node-id="JFuLZJGphOzXdi2IjiDAyT"><code data-page-node-id="QNMGz3hw1XGT1ZgOZDcZyA">TLE</code></td>
+                <td data-page-node-id="urubhLKDxrlbIB0KSHqXor">运行时间超过当前时限</td>
+              </tr>
+              <tr data-page-node-id="cjeoicJrOVQv8ufpancxhI">
+                <td data-page-node-id="hy7eAcQ559vzT3Ps3cdi2k"><code data-page-node-id="ZmpQeqh6xuFzEiXTxGqFYs">RE</code></td>
+                <td data-page-node-id="Fz7ErFx3FFDbVResfGV7Fr">运行时错误，程序非正常退出</td>
+              </tr>
+              <tr data-page-node-id="VZ8xHiS9BVRlhx703bOlnz">
+                <td data-page-node-id="Yw1o9N7Eryz9Km3Rfg699i"><code data-page-node-id="kdIM47ZxkFkmMOqtTSHMLD">ERR</code></td>
+                <td data-page-node-id="nv7rLEdDDyJZKSvmIddoeR">评测服务连不上之类的环境问题，不是你的代码有问题</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p data-page-node-id="VohP4RpcYC1vZiUT1FHvLn">改动代码或输入后，上一轮结论会标成「结果待刷新」。</p>
 
-        <h3>需要联网吗？</h3>
-        <p>
-          第一次用本地沙箱要先下载约 50MB 的 C++ 工具链，只下一次，之后常驻浏览器缓存。下载过之后即可离线使用；
-          清除了浏览器数据就要重新下载。
-        </p>
+        <h3 data-page-node-id="yRfIcE2Yd8g4dGy9LVaLMZ">时限与耗时的口径是什么？</h3>
+        <ul data-page-node-id="eZCAYneUoqKvCtgC6kF1Rc">
+          <li data-page-node-id="GcpyTDspjDKt7mfkSiF0K2">只计运行段，不含编译与排队。</li>
+          <li data-page-node-id="TmasMd6GOQJuiG5a1Jeh3h">运行段含沙箱启动的固定开销，量级几毫秒。</li>
+          <li data-page-node-id="bHrUCtf892vxbhnGwyerU8">卡片上的耗时同口径。程序没跑起来就不显示耗时。</li>
+          <li data-page-node-id="KMce93ipa7DwLZ49CRTV04">面板页头显示当轮<strong data-page-node-id="gY2oyaYlgOwzAFIo1aZzEs">最慢</strong>的那个用例。</li>
+          <li data-page-node-id="t5aAsqHtvSvo3t9KIyKWJg">
+            默认 1 秒。改它：<strong data-page-node-id="XOI10ec1jVMkcEejR25YSE">设置</strong> › <strong data-page-node-id="et5Fe0yBsENyRmUX9nmegT">评测</strong> › <strong data-page-node-id="9WOn6gi4zg33NmSEZ9l892">运行时限</strong>，
+            档位 1 / 2 / 5 / 10 秒。
+          </li>
+          <li data-page-node-id="PwGfyKjTEiNrrBFnMlGpZw">
+            题目自带时限时优先用它：右键文件 › <strong data-page-node-id="bkQDaFsnZwFOjNf8gZr5J0">题目信息</strong> › <strong data-page-node-id="9roCMN76lXusEv57Nprku1">时限（秒）</strong>。
+          </li>
+          <li data-page-node-id="8KKRsPvXHvK3Y5wYEWDrdi">Python 额外给 0.5 秒启动余量，所以 TLE 最多晚半秒报出来。</li>
+        </ul>
 
-        <h3>支持哪些语言？</h3>
-        <p>
-          本地 WASM 沙箱支持 C++ 与 Python 3。其它语言要切到 Piston 或 Judge0 远端评测服务，具体支持范围取决于你所连的服务。
-        </p>
+        <h2 id="files" data-page-node-id="Uo2svKjvbcpgqiA5asBZwu">7. 文件树怎么用？</h2>
+        <ol data-page-node-id="Y0WLYSKC71zltbD6hVMUX1">
+          <li data-page-node-id="w7IRCtg3arZZRpMvk30Ycn">页头有两颗按钮：<strong data-page-node-id="EMtByvzMje2ERvFwLYOAFy">新建文件</strong>与<strong data-page-node-id="4XigUSE09QCSni6bBL2RXP">新建文件夹</strong>。</li>
+          <li data-page-node-id="zCyairjLXwRJ8AmiJWYGv6">建在哪个目录，看树里当前聚焦的那个节点。</li>
+          <li data-page-node-id="JC760Ps8QTXrZxyEL5Qdsl">
+            想指定目录：右键该目录 › <strong data-page-node-id="bi37PPXVbeudHv2tbKUD0n">新建文件</strong> / <strong data-page-node-id="HAuw3AKDbsP2eQ8700y70J">新建文件夹</strong>。
+          </li>
+          <li data-page-node-id="dSqx4Y4lKf6elF1Y3NdHYZ">输入名字后回车。输入框只选中主干，改完不用补后缀。</li>
+        </ol>
+        <p data-page-node-id="esSU8qp3wWeQBPLfTEYaEx">右键文件还有<strong data-page-node-id="3eaxdzwie07Iq9BUlJS5PK">重命名</strong>与<strong data-page-node-id="SVWSxenAegMWDu08apcFUa">删除</strong>。</p>
+        <h3 data-page-node-id="Dc8BOcz4FSSjEBmtCL70FA">题目信息填什么？</h3>
+        <ul data-page-node-id="8ipB2mdhvzQSnOBQ5j2xy6">
+          <li data-page-node-id="pxW48C4bQqC39uhdkl3bKS">五项：<strong data-page-node-id="0jqzFIC0Rz6riVEb9wSHPh">题目链接</strong>、<strong data-page-node-id="4k5xAkJeCx3tG61131xgIU">OJ</strong>、<strong data-page-node-id="451XCf5GqViIUkDFMwcArb">难度</strong>、<strong data-page-node-id="BnMatkxtaJJhGdqSqQZsMK">日期</strong>、<strong data-page-node-id="ZEIm15YXmRtVnzVGKniirG">时限（秒）</strong>。</li>
+          <li data-page-node-id="CqUo4nctbxtPgEGu2epnBa">难度跟着 OJ 走，两套口径不通用。</li>
+          <li data-page-node-id="SidQ7DGbr37eodCTGeknOO">Codeforces 与 AtCoder 用分数段，800 到 3500。</li>
+          <li data-page-node-id="jwRyAgZbaqNxQ44sjAMGqg">洛谷用官方八级。</li>
+          <li data-page-node-id="8ViO1slDVAHXxhqiIhDgER">牛客、LeetCode 与其它是自由文本。</li>
+          <li data-page-node-id="JMdl8nvho250IpBcJUvd3e">换 OJ 会清空难度，省得留下对不上的值。</li>
+        </ul>
+        <p data-page-node-id="ZYQXDeWhBRJzYMQ4n7Lgct">工作区自带 <code data-page-node-id="DXVapGF6EnTSKkYzaZUTtA">/Problems</code> 与 <code data-page-node-id="Q0DsGN4EBquVpEH9BgMFYl">/Contest</code> 两个目录。</p>
+        <p data-page-node-id="6OPVFt9CMpYGLRBWpLRrQJ">题目元数据存在隐藏的 <code data-page-node-id="EF6mGcQ1itZx0fBKCvSrgL">.cph</code> 目录里，树里看不见。</p>
 
-        <h3>为什么第一次运行明显更慢？</h3>
-        <p>
-          首次运行要先下载工具链；之后每一份新代码的第一个用例都要付一次编译开销，同一份代码连续跑多个用例只编译一次，
-          第 2 个起只付运行开销。另外后台会在这台设备上生成一份 STL 预编译头，用来省掉每次编译反复解析标准库头的开销，
-          它安排在首次运行之后的空闲时间进行，不阻塞操作，失败也不影响正常编译。
-        </p>
+        <h2 id="keys" data-page-node-id="VTanqcFYn4wzctVfyaPF6g">8. 有哪些快捷键？</h2>
+        <p data-page-node-id="uIBuEEXmEbGWcFJttEB1Gq">macOS 上 <kbd data-page-node-id="eBK69u4O38bHeb5yFEGz1q">Mod</kbd> 是 <kbd data-page-node-id="BZwfGTpmfWHgLFSJFGWUzg">⌘</kbd>，其它平台是 <kbd data-page-node-id="NiYEe6IlFKWB5JCgxgPW9k">Ctrl</kbd>。</p>
+        <div class="table-wrap" data-page-node-id="laZzZTra7kOaXBWh01Cs0y">
+          <table data-page-node-id="Fc8WFMbILvEyVoT891ABiH">
+            <thead data-page-node-id="pHCWn5pUGhVLnAESiV1djJ">
+              <tr data-page-node-id="iqZBrOVtNY7N51f54nSNZb">
+                <th data-page-node-id="E59QOGOeLFz59tQuzTjKme">动作</th>
+                <th data-page-node-id="UtPso4JL3HBPD7XpIqjZrc">默认组合键</th>
+              </tr>
+            </thead>
+            <tbody data-page-node-id="9thpDRt1lptkc3yvHbrj3i">
+              <tr data-page-node-id="Eo7S35EsNSCoauhvIQnbpv">
+                <td data-page-node-id="oL01xbqAIAvdIY0Ifjja0G">运行全部用例</td>
+                <td data-page-node-id="C0yaDXhiDuJFs6lsIFZIBG"><kbd data-page-node-id="NYkrgrpmD5bEVHUvNclKtp">Mod</kbd> + <kbd data-page-node-id="hfq0GmRc2sscHMyfhHjfYr">Enter</kbd></td>
+              </tr>
+              <tr data-page-node-id="jb1ucUQorfxZMjh0nTuua1">
+                <td data-page-node-id="nkeFyMXnc3ShpohYrxjHy0">显示 / 隐藏侧边栏</td>
+                <td data-page-node-id="o1ZssDljIwTuYCOxRkIVbf"><kbd data-page-node-id="bYakcL0wHNr3A8Qxpj3nFl">Mod</kbd> + <kbd data-page-node-id="hxPZfZ3hlEQHyLhB0dCFqP">B</kbd></td>
+              </tr>
+              <tr data-page-node-id="ACBs9V9H8ChhFm5HDEOzBb">
+                <td data-page-node-id="lF6No554Ape2knxWNGTIdp">切换侧栏面板</td>
+                <td data-page-node-id="2IJ7jyeRExxTubHxLTuLVc"><kbd data-page-node-id="93aDpz0LiA5UaimeevE8GR">Mod</kbd> + <kbd data-page-node-id="r7yE6biHjS807wkII553py">Shift</kbd> + <kbd data-page-node-id="JOHKxqBWQYpxCOysSOoW1e">E</kbd></td>
+              </tr>
+              <tr data-page-node-id="0OqHrwxE2tS2JohuMbcsPX">
+                <td data-page-node-id="ZVTAPfnmI8pEYNe45Tdy7e">侧边栏左右对调</td>
+                <td data-page-node-id="sr2uQj07tSO2IMD4PA5RRJ"><kbd data-page-node-id="QC8y6TxVGG7eb9UTUp6voO">Mod</kbd> + <kbd data-page-node-id="XS59QpWFHmVqYNCRO1sRtY">Shift</kbd> + <kbd data-page-node-id="TBTaIhZIHhPmedhnYBKV5w">B</kbd></td>
+              </tr>
+              <tr data-page-node-id="tSC2L5lqcknVlASx1a8WkG">
+                <td data-page-node-id="wgoBtQl91SvfetzmC3ya06">新增一条测试用例</td>
+                <td data-page-node-id="gvqp0FYFt3l47pURiYvioT"><kbd data-page-node-id="QfVFCnOWqOaXQ4I2mk8xqi">Mod</kbd> + <kbd data-page-node-id="OkXJRhsqeGnkuvIx5ZINC5">Alt</kbd> + <kbd data-page-node-id="nbcUVAjPcFE5ohCohp7bPM">Enter</kbd></td>
+              </tr>
+              <tr data-page-node-id="HQWreGjuqLNtTs2oW0VH25">
+                <td data-page-node-id="sHX4F9ei2aYyaiBfLzBwuN">打开 / 收起设置</td>
+                <td data-page-node-id="iktoPSX6tl5ty1E3sGSgD8"><kbd data-page-node-id="jjOt5pCcSLtFmsRwXimVNy">Mod</kbd> + <kbd data-page-node-id="EnOCgXPKeAaz3wO48PvcZb">,</kbd></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul data-page-node-id="FapOW0sPgkMU9pvDPfyW3A">
+          <li data-page-node-id="qLfr19tsNLD8wlu6tzd8xA">这些键在编辑器里也生效，会抢过编辑器自己的同款键位。</li>
+          <li data-page-node-id="aQpRR90G03WSKodT9gKuHm">
+            改绑：<strong data-page-node-id="JUSlGTJoXqYJpxHAC6W5Oo">设置</strong> › <strong data-page-node-id="wVlbQSFEuE8w0N2pEcHKRF">快捷键</strong>，点右侧输入框后按下新组合键。
+          </li>
+          <li data-page-node-id="ljxidYWnI1UCGhExW8L0gF">按 <kbd data-page-node-id="yeLzFNLsBcEYjUYdNMwtdO">Delete</kbd> 清除绑定，按 <kbd data-page-node-id="bGtZEQpDIqYgDlHc4TGDPC">Esc</kbd> 取消录制。</li>
+          <li data-page-node-id="quxO0JntgKi3AK3jAFTruF">与浏览器自带快捷键冲突时会拒绝绑定，并给出原因。</li>
+          <li data-page-node-id="hAdUJ4VORGBI2RXtZAFctF"><strong data-page-node-id="FVc6mUnVGZ9YlfGQZnXHfu">恢复默认</strong>把上表整个还原。</li>
+          <li data-page-node-id="MYTgnGDCjRvCqicYv42NvY">改过之后，编辑器底部状态栏的运行提示会跟着变。</li>
+        </ul>
 
-        <h3>为什么耗时和别的评测服务对不上？</h3>
-        <p>
-          这里的耗时只计程序运行段，不含编译与排队，所以看起来会比按总耗时统计的平台小。不同引擎和不同设备之间也不适合直接比较。
-        </p>
+        <h2 id="ui" data-page-node-id="lJFU8ATNFkPg2AvpYvfeTi">9. 界面怎么调？</h2>
+        <ol data-page-node-id="LkvWLymMEWVFxPTCQVJmtL">
+          <li data-page-node-id="RD99kAe3eOSyvj0GguWuM4">切面板：点侧边栏页头左侧那枚<strong data-page-node-id="pdMU0j9RJiXmGfx2HPzsIf">胶囊开关</strong>。</li>
+          <li data-page-node-id="gDCMQHKPEYw3Nf3d1Zv3wN">开关设置页签：点页头那颗<strong data-page-node-id="VgF0pCX1hr5L9pwuodOFaf">齿轮</strong>。</li>
+          <li data-page-node-id="nRrFp96Hb0LylxvdkEBWQe">收起侧边栏：双击两栏中间的分隔条。</li>
+          <li data-page-node-id="vsZvddSU5sH4uhQXEdFOt9">也可以按住分隔条拖到贴边，往外拖回来即展开。</li>
+          <li data-page-node-id="HHg8WsspJDRWvQQFVBzaoA">换边：<strong data-page-node-id="5OXKMXgK2I8Ux8HMNiAVjz">设置</strong> › <strong data-page-node-id="GXeR3gZIHkRbBt48PSijnY">外观</strong> › <strong data-page-node-id="C1KBvBIX0oE4djZhSFtk6q">侧边栏位置</strong>。</li>
+          <li data-page-node-id="AhtFs5ByY2JXZOo0tm8GcC">放大界面：<strong data-page-node-id="x1sl3XvySXXZg3S5hWCh68">设置</strong> › <strong data-page-node-id="h2OmxtEFuGH9N7JDYae8ca">外观</strong> › <strong data-page-node-id="YLOYb1ANvw2hGXHIy3iqlz">界面缩放</strong>，默认 110%。</li>
+          <li data-page-node-id="cxwzTHmm7bo5CEW8dEGVwT">换配色：<strong data-page-node-id="sZLSBzYgCA1uWk9xFxNQJ8">设置</strong> › <strong data-page-node-id="LTEqwI08Y6BZeULHaLX4Nk">外观</strong> › <strong data-page-node-id="R1f00UTdv6SgPkJLFnGRS9">主题</strong>，深色 / 浅色。</li>
+        </ol>
+        <p data-page-node-id="0J3g0Gzy0rnBAreJbEhiOq">收起只是不显示。用例与文件树的展开状态都不会丢。</p>
+        <p data-page-node-id="vjjtFSw3WrJcM7U68nBlHi">键盘：<kbd data-page-node-id="qQPCb3EjmTUiEPFrGOz4Yb">Tab</kbd> 聚焦分隔条后，用 <kbd data-page-node-id="vweAxFb8eiRsb28xv1X2Ay">←</kbd> / <kbd data-page-node-id="XJRzPdc6DCC6zyoeIkx91d">→</kbd> 微调宽度。</p>
+        <p data-page-node-id="hL2wx5Y5I4lsiOK00D9pk0">触屏上分隔条的热区会自动加宽，手指更好抓。</p>
+        <p data-page-node-id="yTaHJq5q9HL7PxDD3ziTWK">拖到贴边才折叠，离开边缘 60px 才展开，两个阈值错开。</p>
 
-        <h3>数据存在哪里？</h3>
-        <p>
-          代码草稿、测试样例、编辑器偏好、两栏比例这类状态存在浏览器的 localStorage 里；本地工具链的预编译头存在
-          IndexedDB 里。它们都只在这台设备的这个浏览器里，清除浏览器数据会一并清掉。
-        </p>
+        <h2 id="install" data-page-node-id="vQtnEdKb2TC1m2146rmjSu">10. 怎么装到设备、离线用？</h2>
+        <ol data-page-node-id="ZxmyFn0b5GI4ZOZsZdhzTc">
+          <li data-page-node-id="lCFcHH5HEU5fsVk2tIKzoO">打开<strong data-page-node-id="B4lQNqu8KcE2AxyVQKSCF8">设置</strong> › <strong data-page-node-id="fvb6Darx0Wyg9iD3XZmcT3">应用</strong>。</li>
+          <li data-page-node-id="TpwNPpPWsIfnxIteQfGrGh">浏览器判定可安装时，<strong data-page-node-id="DxVLr3Jeu4z4TRWvIdKDd8">安装</strong>按钮才是亮的。</li>
+          <li data-page-node-id="HhWRn63ZZrxhLMFJ5XgNFv">点<strong data-page-node-id="cGSJCPvjSqy2YZT1dz2bAq">安装</strong>，按提示确认。</li>
+          <li data-page-node-id="Aly147oCW8QJsFWwbXIO0G">之后从桌面或主屏图标打开，就是独立窗口，没有地址栏。</li>
+        </ol>
+        <ul data-page-node-id="8yxx0hG6ohuDWXi7tyUzIn">
+          <li data-page-node-id="G5fYE76qNn4KQ8eV6w4lI9">装好之后按钮变成<strong data-page-node-id="n2r9dbCWq1tyPIlPEOXTLV">已安装</strong>，不会再提示。</li>
+          <li data-page-node-id="Or1jFQVkm9iSoJSB3kOBs6">iPhone / iPad 的 Safari 没有这个按钮，要手动走「分享 → 添加到主屏幕」。</li>
+          <li data-page-node-id="HK3z2Fn8RqJa4cGndUrqnD">工具链按需缓存：用过一次的那种语言才能离线跑。</li>
+          <li data-page-node-id="gdYkNdZRRLiSYDfpmMDg2r">离线时编辑器、样例、本地沙箱照常；只有 Piston 与 Judge0 会失效。</li>
+        </ul>
 
-        <h2 id="more">7. 还有问题？</h2>
-        <p>
-          打开 CPH IDE 后，点顶栏齿轮打开「设置」页签，看「帮助」分类即可随时查看精简版的使用帮助，内容与这份指南同源。
+        <h2 id="faq" data-page-node-id="NLPf8IXEB4p2vMaDJs99me">11. 常见问题</h2>
+        <h3 data-page-node-id="YxVra0C2P6Npi56FAFfAWs">代码会上传到服务器吗？</h3>
+        <p data-page-node-id="HwndoeidEQ2pTXKnMm4hWB">用本地沙箱不会，代码不离开这台设备。</p>
+        <p data-page-node-id="zj5H7xowbj6IEfiGc43OAF">切到 Piston 或 Judge0 时，代码会发到你填的地址。</p>
+
+        <h3 data-page-node-id="a0JEwH5hALshG2bOj6hejb">需要联网吗？</h3>
+        <p data-page-node-id="xXbyatZJBE9RB9kZ01m3Ci">第一次要下运行时，约 50MB。</p>
+        <p data-page-node-id="NnDi7wt5EzXYg22AbcoexT">下过之后常驻缓存，可以断网用。</p>
+        <p data-page-node-id="Cd1imhFEAfJtfOs08jOy8b">清了浏览器数据就要重下一次。</p>
+
+        <h3 data-page-node-id="lDoGnFyMW96vPPHGZeBqjM">支持哪些语言？</h3>
+        <p data-page-node-id="91pggFHmLQ7mB5Cxqef06L">本地沙箱支持 C++ 与 Python 3。</p>
+        <p data-page-node-id="AdWjTAUbH0R3164MXyvUCw">其它语言请切到 Piston 或 Judge0。</p>
+        <p data-page-node-id="EHMn2sGP3SHTV1HDVeuX5v">支持范围取决于你所连的那台服务。</p>
+
+        <h3 data-page-node-id="XSjGGeBKZ1r0RTgz1D4odi">为什么第一次运行明显更慢？</h3>
+        <p data-page-node-id="m1h7dTI9rKWS0uTz9Ig2xG">首次要下运行时。</p>
+        <p data-page-node-id="nnfEl2BEEJ8fhOo7V68RND">之后每份新代码的第一个用例要付一次编译开销。</p>
+        <p data-page-node-id="4IuAxbOrZ8lpH2dowHnd8g">同一份代码连续跑多个用例只编译一次。</p>
+        <p data-page-node-id="wMKBUX0ZCH47Dw8mjFcArm">后台还会生成一份 STL 预编译头，排在空闲时间，不阻塞操作。</p>
+        <p data-page-node-id="rWao34vU2erefVWRmVPHxZ">它只覆盖最常用的 5 个标准库头，失败也不影响正常编译。</p>
+
+        <h3 data-page-node-id="4PP01gY22OCV4r8S10PTIC">为什么耗时和别的评测服务对不上？</h3>
+        <p data-page-node-id="trw6XMztyFPtMtQJOeCinE">这里的耗时只计运行段，不含编译与排队。</p>
+        <p data-page-node-id="mtxHTG1ibfCkEEzM9tRgn6">所以数字比按总耗时统计的平台小。</p>
+        <p data-page-node-id="V5eLMxD3TAgvzcqQN3SN6P">不同引擎与不同设备之间也不适合直接比。</p>
+
+        <h3 data-page-node-id="fDxnjtbTc1INE9sCYzJdzn">数据存在哪里？</h3>
+        <p data-page-node-id="qsO2XUtlV1dprqP2dE3unc">偏好、草稿、样例与两栏比例存在 localStorage 里。</p>
+        <p data-page-node-id="5ntV1BV5OfqkgBXfLqB1C7">文件树与文件正文在 IndexedDB 里。</p>
+        <p data-page-node-id="SGjscCAksAfPu1kMw5jpk5">预编译头也在 IndexedDB 里。</p>
+        <p data-page-node-id="wylE7ikyyWnHPZMUkhvmMy">都只在这台设备的这个浏览器里，清除浏览器数据会一并清掉。</p>
+
+        <h3 data-page-node-id="8VqJY9WbGqz1vS2Ls5U0me">插件抓不到题目怎么办？</h3>
+        <p data-page-node-id="XqQyTpJsEpBDyXrP3Lzrr9">先确认本站这个页面是开着的。</p>
+        <p data-page-node-id="e5Wkw5xgpZ9wxi24LJtMf2">再看<strong data-page-node-id="l3OYieOmABE44iHEOh92ul">浏览器插件</strong>里是否显示了版本号。</p>
+        <p data-page-node-id="srgYCADSJCDOeDg34i4Ysk">没显示就点<strong data-page-node-id="KEnF7TikVVlEd6UX1EPTam">重新检测</strong>；仍不行就刷新本页。</p>
+        <p data-page-node-id="v264cyRHGxgWq5avoyyqWv">插件被重载过而页面一直没刷新时，会失联。</p>
+
+        <h2 id="credits" data-page-node-id="XUGmb0s6VxA3dkbL6S286M">12. 致谢与开源许可</h2>
+        <p data-page-node-id="zL6dHrKtA0MKyAm3FwpcW4">感谢下面这些项目的作者与维护者。</p>
+        <p data-page-node-id="6QeJhl8XjKK6K64lSm6ZTQ">本站自己写的只有界面、交互与判题逻辑。</p>
+        <p data-page-node-id="DnAw35ubeJOogYGthxrrad" style="cursor: text;">
+          完整授权文档（含每个组件的版本号、许可证与落点）：
+          <a href="/notice.html" data-page-node-id="Xd7EWz5ocnexoeuZJDMA3W">第三方开源组件与许可</a>。
         </p>
+        <div class="table-wrap" data-page-node-id="hQoVjVMqKX0WlVxGFcoARG">
+          <table data-page-node-id="Ugx70JsTFOGe9iq4jGW8Dv">
+            <thead data-page-node-id="7L0B6N3WT7zMCCbkKoyxIL">
+              <tr data-page-node-id="U8cU8OKV6zX4NlJFbeXDFJ">
+                <th data-page-node-id="RtGJOyOCQjDQe6CilupkML">组件</th>
+                <th data-page-node-id="Qs0truvF5R4DAGh0AqSIvC">许可</th>
+                <th data-page-node-id="DJoKIa6ynGM25M0dq0SjRi">在这里负责什么</th>
+              </tr>
+            </thead>
+            <tbody data-page-node-id="wj5IhCwptDPR7GxO39YAKt">
+              <tr data-page-node-id="AcBG6HrCGNedZ9xy6k4Wkh">
+                <td data-page-node-id="IFGu3J60NtLftfK7mTqYQp">Vue</td>
+                <td data-page-node-id="VE4eDOvrKhHHyEyfMADwoM">MIT</td>
+                <td data-page-node-id="EDdgjftdbYwVKZb8nQwrW0">界面的框架</td>
+              </tr>
+              <tr data-page-node-id="wHnr0EzAiHKyJpS9M4Nqbn">
+                <td data-page-node-id="dzJfjEOT6a2iufv8nae0DK">Monaco Editor（微软，VS Code 的编辑器内核）</td>
+                <td data-page-node-id="O0x5preljrU2ij7IDu6HXb">MIT</td>
+                <td data-page-node-id="D8x2Dno1u8wlkAdV6MMs9O">代码编辑器；随它一并分发进来的还有 marked（MIT）与 DOMPurify（MPL-2.0 或 Apache-2.0 双许可）</td>
+              </tr>
+              <tr data-page-node-id="Ok1x248a8TjvrqesPrHGRS">
+                <td data-page-node-id="EwcxhQfGqKTPUOftR2szXz">runno（<code data-page-node-id="lYO6X8mjGrycgU2lZrxDMC">@runno/wasi</code>）</td>
+                <td data-page-node-id="COwFiNSujN1xczdjs7INOJ">MIT</td>
+                <td data-page-node-id="KKApfumlirW2EsUL1H37nh">本地沙箱的 WASI 运行时：起实例、喂输入，以及超时（TLE）时把它中断掉</td>
+              </tr>
+              <tr data-page-node-id="u3IH9MUc1UoGHneWHUtnD5">
+                <td data-page-node-id="tF1VxaqFdTjCuUuwGEvVa3">LLVM / clang 与 lld</td>
+                <td data-page-node-id="sitGBW6omF1es0rKHYretI">Apache-2.0 WITH LLVM-exception</td>
+                <td data-page-node-id="AQMXe2SsgtxZTsR1sQFKi1">本地编译 C++ 的编译器与链接器（wasm 版，8.0.1）</td>
+              </tr>
+              <tr data-page-node-id="vh6Q481rLxdSSSL1Z3z7Xc">
+                <td data-page-node-id="kEdjjG2HjM6uf8pMhh2NWN">wasi-libc</td>
+                <td data-page-node-id="H4gVa83yfk1mqc3ES4W1SI">Apache-2.0 WITH LLVM-exception</td>
+                <td data-page-node-id="XxATp0xpYVLJ1bY9h1HuVJ">上面那套 clang 用的 C 标准库与启动代码</td>
+              </tr>
+              <tr data-page-node-id="L6Y9Dx0FqKswYS65ymi9Iw">
+                <td data-page-node-id="z7CFw9eHEObSoEdpGvf8Ff">libc++ / libc++abi</td>
+                <td data-page-node-id="nG511Gv5gUb7RoAU2wd4ry">MIT</td>
+                <td data-page-node-id="AkmmKVEkW1gt3koCNbrgGE">C++ 标准库（<code data-page-node-id="Ye0ZOsKY4aH8GfRENU2aWZ">&lt;vector&gt;</code>、<code data-page-node-id="3kDEJEEJXq0016VpoCd0Sm">&lt;string&gt;</code> 这些）</td>
+              </tr>
+              <tr data-page-node-id="XwFU2LK6uCdia6lwWEYQ3j">
+                <td data-page-node-id="1q5oreETEoIfy9kKoeyiCe">compiler-rt</td>
+                <td data-page-node-id="5uYwDKJQy4ZwMSebVFfo6N">Apache-2.0 WITH LLVM-exception</td>
+                <td data-page-node-id="7XLpS9RmaaTUPfQAhPtluD">编译器运行时里那些内建函数</td>
+              </tr>
+              <tr data-page-node-id="16BuN5yPuKDiDKeYs9uCiM">
+                <td data-page-node-id="geGh32ZOA60jXXSwcmdk3r">CPython</td>
+                <td data-page-node-id="w3wpwklsvZJU42o0giEOjE">PSF License</td>
+                <td data-page-node-id="sM896VusGpJgkJkOhoyY79">本地跑 Python 3.11（wasm 构建）</td>
+              </tr>
+              <tr data-page-node-id="Dj9zFveqTL2FwnqZA1gSEA">
+                <td data-page-node-id="kaqvhV6fQF1NcxdDp3BYtP">seti-ui</td>
+                <td data-page-node-id="h8vPAwVVtzcYRV7fUPLwZU">MIT</td>
+                <td data-page-node-id="7cAyDaipsQsEj0tZbsyk0y">文件树里的 C++ 图标</td>
+              </tr>
+              <tr data-page-node-id="8vzgXMsHHAAKS9ZqhbTj0o">
+                <td data-page-node-id="Rro3AH3U6YAAwHQ308aJWc">Competitive Companion</td>
+                <td data-page-node-id="HPlB5h7PvUqBATes3AQiWB">MIT</td>
+                <td data-page-node-id="rSGehXtEkYgkxfWwCU1XZ4">浏览器插件 CC for Web 的上游项目（本站用的是改造版）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul data-page-node-id="qvhlWjCvj0TOCXgAMkzFub">
+          <li data-page-node-id="pQBIKMxaDXcUKpb8HvC9e1">界面全部使用你设备上的系统字体，没有自托管或第三方的网络字体。</li>
+          <li data-page-node-id="9Rg108dJt40xf5uEH6RtY9">应用图标与分享图是本站自制。</li>
+          <li data-page-node-id="zopfXO8sVNNcgvLkC3Os6E">
+            上表里的 C++ 工具链与 Python 解释器都是<strong data-page-node-id="0Miu1UtrDY4CV03YF8rOAE">上游现成的预编译产物</strong>（分别出自 binji 的 wasm-clang 与
+            CPython 官方构建，经 runno 的项目分发），本站只是把它们放到自己服务器上供下载，没有改动。
+          </li>
+          <li data-page-node-id="tkwm9a53dGERnHRmzLdxxB">
+            Piston（MIT）与 Judge0（GPL-3.0）是本站<strong data-page-node-id="udchPR9B2hQC0Hu60tPaCy">对接</strong>的外部评测服务，它们的代码不在本站里，
+            服务端要你自己部署。你填的服务地址决定了代码会被发到哪里。
+          </li>
+          <li data-page-node-id="CE0xbGYl3jsxTAwpCSkSDE">
+            完整清单在 <a href="/notice.html" data-page-node-id="1sj7GHVcoUshnkrG1dEcbs">第三方开源组件与许可</a> 那一页（由仓库根目录的
+            <code data-page-node-id="yBY58C16yB2b7b2yhOZKZt">NOTICE.md</code> 生成），含每个组件的版本号、许可证与落点。
+          </li>
+          <li data-page-node-id="AopbikJn3VUD3XY4HmWQKJ">想把这里的工具链、图标或代码用到别处，请遵守上表对应上游项目的许可条款。</li>
+        </ul>
       </main>
 
-      <footer class="page__foot">
-        <a class="cta" href="/">打开 CPH IDE</a>
-        <p>本页与界面内设置页签的「帮助」分类同源。CPH IDE 是一个在浏览器里编译运行 C++ 的在线 IDE。</p>
+      <footer class="page__foot" data-page-node-id="qlCON7KFxi6uZWF6Phm8MZ">
+        <a class="cta" href="/" data-page-node-id="NFgAmwCvxa6hakBRYSLqq1">打开 unnamed</a>
+        <p data-page-node-id="r3r5bnjRFgE1tey3jpswIn">本页与设置页签的「帮助」分类同源。</p>
+        <p data-page-node-id="NfAJIP0ARVSK5zx9ovCKlS">在浏览器里编译运行 C++ 与 Python 的在线 IDE。</p>
       </footer>
     </div>
-  </body>
-</html>
+  
+
+</body></html>

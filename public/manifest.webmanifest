@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "CPH IDE",
-  "short_name": "CPH IDE",
-  "description": "CPH IDE：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++",
+  "name": "unnamed",
+  "short_name": "unnamed",
+  "description": "unnamed：Monaco 编辑器 + 本地 WASM 沙箱，可离线编译运行 C++",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "/",

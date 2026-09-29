@@ -1,4 +1,5 @@
 import { pickReason, requestJson, trimBase } from './http.js'
+import { t } from '../../i18n/index.js'
 
 const RUN_TIMEOUT_MS = 5000
 const COMPILE_TIMEOUT_MS = 10000
@@ -27,8 +28,8 @@ async function executeOnce({ base, languageId, code, stdin, signal, runTimeout }
 
 export const pistonEngine = {
   id: 'piston',
-  label: 'Piston',
-  hint: '推荐自建：docker run -p 2000:2000 ghcr.io/piston-cli/piston:stable，然后填 http://localhost:2000',
+  labelKey: 'engine.piston.label',
+  hintKey: 'engine.piston.hint',
   executesIntialized: true,
   executesCode: true,
   defaultBase: 'http://localhost:2000',
@@ -47,15 +48,20 @@ export const pistonEngine = {
       signal,
       runTimeout: 2000,
     })
-    if (response.aborted) return { ok: false, message: '已取消' }
+    if (response.aborted) return { ok: false, message: t('engine.piston.cancelled') }
     if (response.unreachable) {
-      return { ok: false, message: `连不上 ${trimBase(base)}（${response.text}）` }
+      return {
+        ok: false,
+        message: t('engine.piston.unreachable', { base: trimBase(base), text: response.text }),
+      }
     }
     if (!response.ok) {
       return { ok: false, message: pickReason(response.text, response.status) }
     }
     const stdout = (response.data?.run?.stdout ?? '').trim()
-    return stdout === '1' ? { ok: true, message: `服务可用，${response.durationMs}ms` } : { ok: false, message: '响应格式不是 Piston' }
+    return stdout === '1'
+      ? { ok: true, message: t('engine.piston.available', { ms: response.durationMs }) }
+      : { ok: false, message: t('engine.piston.notPiston') }
   },
 
   async execute({ base, languageId, code, stdin, signal, timeLimitMs }) {
@@ -69,7 +75,7 @@ export const pistonEngine = {
         outcome: 'unreachable',
         stdout: '',
         stderr: '',
-        detail: `无法连接评测服务 ${trimBase(base)}/execute。用左上角设置改成自建 Piston 地址即可。`,
+        detail: t('error.pistonConnect', { base: trimBase(base) }),
         durationMs: response.durationMs,
       }
     }
@@ -90,13 +96,23 @@ export const pistonEngine = {
     const stderr = (run.stderr ?? '').trim()
 
     if ((typeof compile.code === 'number' && compile.code !== 0) || (compileOutput && !stdout && !stderr)) {
-      return { outcome: 'compile-error', stdout, stderr: compileOutput || '编译失败', durationMs: response.durationMs }
+      return {
+        outcome: 'compile-error',
+        stdout,
+        stderr: compileOutput || t('error.pistonCompileFailed'),
+        durationMs: response.durationMs,
+      }
     }
     if (run.signal === 'SIGKILL' || run.signal === 'SIGXCPU' || run.code === 137) {
       return { outcome: 'timeout', stdout, stderr, durationMs: response.durationMs }
     }
     if ((typeof run.code === 'number' && run.code !== 0) || stderr) {
-      return { outcome: 'runtime-error', stdout, stderr: stderr || `退出码 ${run.code}`, durationMs: response.durationMs }
+      return {
+        outcome: 'runtime-error',
+        stdout,
+        stderr: stderr || t('error.pistonExitCode', { code: run.code }),
+        durationMs: response.durationMs,
+      }
     }
     return { outcome: 'ok', stdout, stderr: '', durationMs: response.durationMs }
   },

@@ -1,66 +1,31 @@
 <script setup>
+import { computed } from 'vue'
+import { locale, messages, t } from '../i18n/index.js'
+
 /**
  * HelpPanel —— 「帮助」这一组设置的正文。
  *
  * 原先是顶栏「?」按钮打开的右侧抽屉（按钮 + Teleport + 遮罩 + 滑入动画 + 「完成」按钮），
- * 2026-09 并入设置视图后只留正文：内容是 GROUPS 里的问答列表 + 完整指南链接。
+ * 2026-09 并入设置视图后只留正文：内容是 i18n 里的问答列表 + 完整指南链接。
  * 没有 props / emits —— 开关归设置页签管，所以这里也不再有 Esc 关闭那套键盘逻辑。
+ *
+ * 【文案体例】正文本身在 messages/help.js，体例说明也搬到了那个文件的文件头。
  */
 
-// 帮助的全部内容。每条 = 问题名称 / 核心答案 / 操作要点。
-// 文案与界面上的措辞保持一致（设置目录的分类名、按钮 title 都按实际 UI 抄），
-// 改动 UI 文案时这里要跟着改；同一份内容也写在仓库 docs/使用手册.md 里。
-// 另外根目录的 guide.html 是它的「完整版」，改这里要检查那一页是否还说得通。
-const GROUPS = [
-  {
-    title: '常见操作',
-    items: [
-      {
-        name: '如何在本地运行 C++',
-        role: '把编译与运行搬到本机浏览器里：代码不出本机，断网也能跑。',
-        points: [
-          '点侧边栏页头的齿轮图标打开「设置」页签，在「本地运行环境」里给 C++ 点「下载」，等按钮变成「已就绪」（约 50MB，只下一次）',
-          '已就绪后右侧会多出一颗「卸载」，点它会先弹确认框，确认后清掉本机缓存，下次运行再重新下载',
-          '在设置的「评测」里把评测引擎选成「本地 WASM 沙箱」——它不需要填服务地址',
-          '按 ⌘/Ctrl + Enter，或点「评测样例」面板页脚那颗 ▶',
-          'C++ 与 Python 3 都走本地运行时；Python 直接解释执行，不需要编译',
-        ],
-      },
-      {
-        name: '如何切换侧边栏面板 / 折叠侧边栏',
-        role: '侧边栏把「资源管理器」与「评测样例」收在同一栏里，页头左侧的图标按钮切换（第三颗齿轮打开编辑器里的设置页签）；整栏可以收起，把空间让给编辑器。',
-        points: [
-          '点侧边栏页头左侧的「资源管理器」/「评测样例」图标按钮切换内容，文件树的展开状态与样例输入都不会丢',
-          '点页头左侧的齿轮图标打开 / 关闭编辑器里的「设置」页签',
-          '双击两栏中间的分隔条：收起 / 展开整栏',
-          '按住分隔条往边缘拖，拖到贴边即自动收起；收起后往外拖出展开',
-          '用 Tab 聚焦分隔条后按 ← / → 微调宽度',
-          '点运行（⌘/Ctrl + Enter，或「评测样例」面板页脚那颗 ▶）时，侧边栏会自己展开并切到「评测样例」，确保看得到结果',
-          '想把侧边栏换到右侧，在设置的「外观」里把「侧边栏位置」换成「右侧」',
-        ],
-      },
-      {
-        name: '本地运行代码性能的说明',
-        role: '首次最慢，之后只付运行开销；耗时只计「程序运行」那一段，不含编译与排队，页头取当轮最慢用例。',
-        points: [
-          '首次运行先下载约 50MB 工具链，只下一次；之后常驻本机，断网也能编译运行',
-          '同一份代码跑多个用例只编译一次，第 2 个起只付运行开销；改完代码的第一枪会明显慢些，属正常。**这部分受本机性能影响，不承诺固定倍率**',
-          '预编译头（PCH）开销：后台把最常用的 5 个 STL 头预先编译好，省掉每次编译重复解析它们的时间。生成排在首次运行之后的空闲时间，且等当前编译跑完才开工，会额外占用十几 MB 内存和一份约 9MB 的系统头文件副本',
-          'PCH 生成预算 3 分钟；机器扛不住（内存不足 / cc1 卡死）会在本机记为不支持、此后不再尝试，用例照常走普通编译',
-          'PCH 存在本机（约 10–20MB）；与当前编译选项对不上时自动退回普通编译、不会报错；换工具链版本后旧存档自动作废并重新生成',
-          '以上只发生在本地沙箱；切到 Piston / Judge0 时速度取决于所连服务与网络',
-        ],
-      },
-    ],
-  },
-]
+// 帮助的全部正文来自 i18n（messages/help.js），按当前语言取**整棵树**：
+// 这份内容是「数据」而不是界面，逐条 t() 反而更绕。改文案去 messages/help.js，
+// 它同时也是 guide.html / docs/使用手册.md 的同步义务方。
+const GROUPS = computed(() => messages('help').groups)
+
+/** 完整指南是中 / 英两份静态页，跟着界面语言跳（英文那份见 Task: guide.en.html） */
+const guideHref = computed(() => (locale.value === 'en' ? '/guide.en.html' : '/guide.html'))
 
 // 正文里用 **…** 标记加粗。不走 v-html：文案里会出现 <vector> 这类头文件名，
 // 交给 HTML 解析会被当成标签吃掉。
-function segments(point) {
-  return String(point)
+function segments(text) {
+  return String(text)
     .split(/\*\*(.+?)\*\*/g)
-    .map((text, index) => ({ text, bold: index % 2 === 1 }))
+    .map((part, index) => ({ text: part, bold: index % 2 === 1 }))
     .filter((part) => part.text !== '')
 }
 </script>
@@ -74,13 +39,41 @@ function segments(point) {
         <li v-for="item in group.items" :key="item.name" class="help-item">
           <p class="help-item__name">{{ item.name }}</p>
           <p class="help-item__role">{{ item.role }}</p>
-          <ul class="help-item__points">
-            <li v-for="point in item.points" :key="point">
+
+          <!-- 操作指南：数字列表（1. 2. 3.） -->
+          <ol v-if="item.steps?.length" class="help-item__steps">
+            <li v-for="(step, index) in item.steps" :key="index">
+              <span
+                v-for="(part, partIndex) in segments(step)"
+                :key="partIndex"
+                :class="{ 'is-bold': part.bold }"
+              >{{ part.text }}</span>
+            </li>
+          </ol>
+
+          <div v-if="item.table" class="help-table-wrap">
+            <table class="help-table">
+              <thead>
+                <tr>
+                  <th v-for="(cell, index) in item.table.head" :key="index">{{ cell }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, rowIndex) in item.table.rows" :key="rowIndex">
+                  <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 要点 / 口径 / 限制：圆点列表 -->
+          <ul v-if="item.notes?.length" class="help-item__points">
+            <li v-for="(note, index) in item.notes" :key="index">
               <!-- 正文里用 **…** 标记加粗。不走 v-html：文案里会出现 <vector> 这类
                    头文件名，交给 HTML 解析会被当成标签吃掉 -->
               <span
-                v-for="(part, index) in segments(point)"
-                :key="index"
+                v-for="(part, partIndex) in segments(note)"
+                :key="partIndex"
                 :class="{ 'is-bold': part.bold }"
               >{{ part.text }}</span>
             </li>
@@ -89,7 +82,7 @@ function segments(point) {
       </ul>
     </section>
 
-    <a class="guide-link" href="/guide.html">完整使用指南</a>
+    <a class="guide-link" :href="guideHref">{{ t('settings.help.guideLink') }}</a>
   </div>
 </template>
 
@@ -126,6 +119,7 @@ function segments(point) {
   background: var(--bg-panel);
 }
 
+/* 小标题一律是疑问句（见 GROUPS 的体例说明） */
 .help-item__name {
   margin: 0 0 3px;
   font-size: 12.5px;
@@ -140,22 +134,74 @@ function segments(point) {
   color: var(--text-dim);
 }
 
+/* 操作步骤：必须是有序列表（1. 2. 3.） */
+.help-item__steps,
 .help-item__points {
   margin: 6px 0 0;
-  padding-left: 15px;
-  list-style: disc;
   font-size: 11px;
   line-height: 1.6;
   color: var(--text-faint);
 }
 
+.help-item__steps {
+  padding-left: 18px;
+  list-style: decimal;
+}
+
+.help-item__points {
+  padding-left: 15px;
+  list-style: disc;
+}
+
+.help-item__steps li + li,
 .help-item__points li + li {
   margin-top: 2px;
 }
 
-.help-item__points .is-bold {
+.help-item .is-bold {
   font-weight: 700;
   color: var(--text-dim);
+}
+
+/* 口径表：判定码、性能实测这类「多列短值」。窄宽度下整张表自己横向滚，
+   不挤压所在的设置分组（同 guide.html 的 .table-wrap 思路）。 */
+.help-table-wrap {
+  margin-top: 7px;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.help-table th,
+.help-table td {
+  padding: 4px 7px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.help-table th {
+  background: var(--bg-panel-head);
+  color: var(--text-dim);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.help-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 第一列是名字，允许折行；后面几列都是短值，禁止折行 */
+.help-table th:not(:first-child),
+.help-table td:not(:first-child) {
+  white-space: nowrap;
 }
 
 /* 指向根目录 guide.html：设置里只放精简版，完整版是那一页 */

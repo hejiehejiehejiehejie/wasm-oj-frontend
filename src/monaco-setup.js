@@ -17,7 +17,7 @@ self.MonacoEnvironment = {
 
 // 卡片式布局要求编辑器内芯与卡片底色一致，否则圆角卡片的四角会露出主题自带的方角。
 // gutter / minimap 必须一起改：它们在原主题里被写死成了别的底色。
-monaco.editor.defineTheme('cph-dark', {
+monaco.editor.defineTheme('dark', {
   base: 'vs-dark',
   inherit: true,
   rules: [],
@@ -29,7 +29,7 @@ monaco.editor.defineTheme('cph-dark', {
 })
 
 // 浅色版与之对应：内芯 = 浅色主题的 --bg-panel
-monaco.editor.defineTheme('cph-light', {
+monaco.editor.defineTheme('light', {
   base: 'vs',
   inherit: true,
   rules: [],

@@ -27,13 +27,12 @@ export const DEFAULT_UI_SCALE = 1.1
 /** 当前缩放比例。模块级单例：任何组件都能读，App.vue 负责把它同步成持久化偏好。 */
 export const uiScale = ref(DEFAULT_UI_SCALE)
 
-/** 可选档位（id 就是比例本身，便于直接落进 localStorage） */
-export const UI_SCALE_OPTIONS = [
-  { id: 1, label: '100%' },
-  { id: 1.1, label: '110%（默认）' },
-  { id: 1.25, label: '125%' },
-  { id: 1.5, label: '150%' },
-]
+/**
+ * 可选档位（id 就是比例本身，便于直接落进 localStorage）。
+ * 只有数字：显示名要跟着界面语言变（默认那档挂着「（默认）」），所以由消费处
+ * 用 t('settings.uiScale.default') 拼 —— 表里写死字符串就跟着语言走了（见 i18n 的调用纪律）。
+ */
+export const UI_SCALE_OPTIONS = [1, 1.1, 1.25, 1.5]
 
 /**
  * 设计 px → 真实 px。只有「逻辑尺寸」才需要过这一层：喂给 Monaco API 的尺寸、
@@ -58,5 +57,5 @@ export function applyUiScale(scale) {
 /** 读盘时把来路不明的值夹回合法档位（认不出来的退回默认档 110%） */
 export function normalizeUiScale(value) {
   const number = Number(value)
-  return UI_SCALE_OPTIONS.some((item) => item.id === number) ? number : DEFAULT_UI_SCALE
+  return UI_SCALE_OPTIONS.includes(number) ? number : DEFAULT_UI_SCALE
 }

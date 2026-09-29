@@ -10,6 +10,7 @@
  * 展开并切到「评测样例」，所以删掉页签栏这颗不会出现「点了看不到结果」。
  */
 import AppIcon from './AppIcon.vue'
+import { t } from '../i18n/index.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import {
   activateSettingsTab,
@@ -49,7 +50,7 @@ function onMouseDown(event, id) {
 
 <template>
   <div class="editor-tabs">
-    <div class="editor-tabs__strip" role="tablist" aria-label="打开的文件">
+    <div class="editor-tabs__strip" role="tablist" :aria-label="t('app.tabs.listLabel')">
       <button
         v-for="id in workspace.openTabIds"
         :key="id"
@@ -62,13 +63,17 @@ function onMouseDown(event, id) {
         @click="activate(id)"
         @mousedown="onMouseDown($event, id)"
       >
-        <span v-if="modelManager.isDirty(id)" class="editor-tabs__dot" title="未保存"></span>
+        <span
+          v-if="modelManager.isDirty(id)"
+          class="editor-tabs__dot"
+          :title="t('app.tabs.dirty')"
+        ></span>
         <AppIcon v-else name="code" :size="12" class="editor-tabs__icon" />
-        <span class="editor-tabs__label">{{ getNodeById(id)?.name ?? '未命名' }}</span>
+        <span class="editor-tabs__label">{{ getNodeById(id)?.name ?? t('app.tabs.untitled') }}</span>
         <span
           class="editor-tabs__close"
           role="button"
-          aria-label="关闭标签"
+          :aria-label="t('app.tabs.closeTab')"
           @click.stop="closeTab(id)"
         >
           <AppIcon name="close" :size="12" />
@@ -84,16 +89,16 @@ function onMouseDown(event, id) {
         :class="{ 'editor-tabs__item--active': settingsTab.active }"
         role="tab"
         :aria-selected="settingsTab.active"
-        title="设置"
+        :title="t('app.settings')"
         @click="activateSettingsTab"
         @mousedown="onSettingsMouseDown"
       >
         <AppIcon name="gear" :size="12" class="editor-tabs__icon" />
-        <span class="editor-tabs__label">设置</span>
+        <span class="editor-tabs__label">{{ t('app.settings') }}</span>
         <span
           class="editor-tabs__close"
           role="button"
-          aria-label="关闭设置"
+          :aria-label="t('app.tabs.closeSettings')"
           @click.stop="closeSettingsTab"
         >
           <AppIcon name="close" :size="12" />

@@ -1,3 +1,5 @@
+import { t } from '../../i18n/index.js'
+
 /**
  * IVFSProvider —— 虚拟文件系统的抽象接口（VFS Adapter Pattern）。
  *
@@ -50,7 +52,8 @@
  * @typedef {(event: VFSChangeEvent) => void} VFSChangeListener
  */
 
-const NOT_IMPLEMENTED = 'IVFSProvider 子类未实现该方法'
+/** 惰性取：模块求值那一刻还不能 t()，否则会定格在首帧语言 */
+const notImplemented = () => t('error.notImplemented')
 
 export class BaseVFSProvider {
   /** @type {Set<VFSChangeListener>} */
@@ -66,7 +69,7 @@ export class BaseVFSProvider {
    * @returns {Promise<void>}
    */
   async init() {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -74,7 +77,7 @@ export class BaseVFSProvider {
    * @returns {Promise<string>}
    */
   async readFile(path) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -84,7 +87,7 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode>}
    */
   async writeFile(path, content) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -93,7 +96,7 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode>}
    */
   async createFile(path, initialContent = '') {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -101,7 +104,7 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode>}
    */
   async createDirectory(path) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -111,7 +114,7 @@ export class BaseVFSProvider {
    * @returns {Promise<void>}
    */
   async rename(path, newPath) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -120,7 +123,7 @@ export class BaseVFSProvider {
    * @returns {Promise<void>}
    */
   async delete(path) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -130,7 +133,7 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode>}
    */
   async setMeta(path, meta) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -138,7 +141,7 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode|null>}
    */
   async stat(path) {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   /**
@@ -146,7 +149,7 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode[]>}
    */
   async getTree() {
-    throw new Error(NOT_IMPLEMENTED)
+    throw new Error(notImplemented())
   }
 
   // ------------------------------------------------------------ 事件

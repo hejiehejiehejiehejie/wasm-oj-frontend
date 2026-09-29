@@ -4,6 +4,7 @@ import EditorPane from './components/EditorPane.vue'
 import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import FileExplorer from './components/FileExplorer.vue'
+import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { applyUiScale, DEFAULT_UI_SCALE, normalizeUiScale, uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
@@ -55,7 +56,7 @@ watch(uiScalePref, applyUiScale)
 const EDITOR_SETTINGS_KEY = 'cph.editorSettings'
 // 存档版本号只用于一次性迁移主题（见 readEditorSettings）
 const EDITOR_SETTINGS_VERSION_KEY = 'cph.editorSettingsVersion'
-const EDITOR_SETTINGS_VERSION = 3
+const EDITOR_SETTINGS_VERSION = 4
 // 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
 const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
 
@@ -65,13 +66,12 @@ function readEditorSettings() {
     if (!raw) return { ...EDITOR_SETTINGS_DEFAULTS }
     const parsed = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object') return { ...EDITOR_SETTINGS_DEFAULTS }
-    // v3 之前主题只作用于编辑器（选项有 vs-dark / vs / hc-black），这里换算成新的两套：
-    // 原本选浅色 vs 的迁到浅色，其余一律回默认深色。只做一次，之后按键是白名单。
-    if (
-      Number(window.localStorage.getItem(EDITOR_SETTINGS_VERSION_KEY)) < EDITOR_SETTINGS_VERSION &&
-      parsed.theme === 'vs'
-    ) {
-      parsed.theme = 'cph-light'
+    // 主题 id 只做一次换算，之后按键走白名单：
+    // v3 之前主题只作用于编辑器（选项有 vs-dark / vs / hc-black），原本选浅色 vs 的迁到浅色；
+    // v4（2026-09-29）起主题 id 去掉了 `cph-` 前缀，旧存档的 cph-light 照样认。
+    // 其余旧值（vs-dark / hc-black / cph-dark）交给 normalizeEditorSetting 丢掉，回落到默认深色。
+    if (Number(window.localStorage.getItem(EDITOR_SETTINGS_VERSION_KEY)) < EDITOR_SETTINGS_VERSION) {
+      if (parsed.theme === 'vs' || parsed.theme === 'cph-light') parsed.theme = 'light'
     }
     // 只采纳已知字段，并且逐键夹成合法值：历史遗留的过期配置（如已移除的 keybinding）
     // 会被 normalizeEditorSetting 丢掉，越界 / 认不出来的值一律退回默认。
@@ -161,12 +161,12 @@ function updateBase(value) {
 async function testConnection() {
   if (connection.value.state === 'checking') return
   if (typeof engine.value.health !== 'function') {
-    connection.value = { state: 'idle', message: '该引擎未提供自检接口' }
+    connection.value = { state: 'idle', message: t('engine.selfTestUnsupported') }
     return
   }
   connectionProbe?.abort()
   connectionProbe = new AbortController()
-  connection.value = { state: 'checking', message: '探测中' }
+  connection.value = { state: 'checking', message: t('engine.checking') }
   const result = await engine.value.health(judgeBase.value, connectionProbe.signal)
   connection.value = { state: result.ok ? 'ok' : 'bad', message: result.message }
 }

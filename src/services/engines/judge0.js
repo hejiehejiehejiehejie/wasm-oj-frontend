@@ -1,4 +1,5 @@
 import { pickReason, requestJson, trimBase } from './http.js'
+import { t } from '../../i18n/index.js'
 
 // Judge0 的语言 id 会随部署漂移，所以先问一次 /languages，取不到再退回这组常量。
 const FALLBACK_IDS = { cpp: 105, python: 100 }
@@ -73,18 +74,29 @@ function classify({ stdout, stderr, compileOutput, statusId, description, durati
     return { outcome: 'compile-error', stdout, stderr: compileOutput, durationMs }
   }
   if (statusId === 4) {
-    return { outcome: 'rejected', stdout, stderr: '', detail: description || 'Judge0 内部错误', durationMs }
+    return {
+      outcome: 'rejected',
+      stdout,
+      stderr: '',
+      detail: description || t('engine.judge0.internal'),
+      durationMs,
+    }
   }
   if (stderr || (statusId !== null && statusId !== 3)) {
-    return { outcome: 'runtime-error', stdout, stderr: stderr || description || `状态码 ${statusId}`, durationMs }
+    return {
+      outcome: 'runtime-error',
+      stdout,
+      stderr: stderr || description || t('engine.judge0.statusCode', { code: statusId }),
+      durationMs,
+    }
   }
   return { outcome: 'ok', stdout, stderr: '', durationMs }
 }
 
 export const judge0Engine = {
   id: 'judge0',
-  label: 'Judge0',
-  hint: '填自建地址（https://ce.judge0.com 这类公共沙箱会吞掉标准输入，只适合试跑）',
+  labelKey: 'engine.judge0.label',
+  hintKey: 'engine.judge0.hint',
   executesCode: true,
   defaultBase: 'https://ce.judge0.com',
 
@@ -101,10 +113,15 @@ export const judge0Engine = {
       signal,
     })
     if (result.outcome === 'ok' && result.stdout.trim() === '1') {
-      return { ok: true, message: `服务可用，${result.durationMs}ms` }
+      return { ok: true, message: t('engine.judge0.available', { ms: result.durationMs }) }
     }
-    if (result.outcome === 'unreachable') return { ok: false, message: `连不上 ${trimBase(base)}` }
-    return { ok: false, message: result.detail || result.stderr || `返回 ${result.outcome}` }
+    if (result.outcome === 'unreachable') {
+      return { ok: false, message: t('engine.judge0.unreachable', { base: trimBase(base) }) }
+    }
+    return {
+      ok: false,
+      message: result.detail || result.stderr || t('engine.judge0.returned', { outcome: result.outcome }),
+    }
   },
 
   async execute({ base, languageId, code, stdin, signal, timeLimitMs = 5000 }) {
@@ -129,7 +146,7 @@ export const judge0Engine = {
         outcome: 'unreachable',
         stdout: '',
         stderr: '',
-        detail: `无法连接评测服务 ${trimBase(base)}。${judge0Engine.hint}`,
+        detail: t('error.judge0Connect', { base: trimBase(base), hint: t('engine.judge0.hint') }),
         durationMs: response.durationMs,
       }
     }

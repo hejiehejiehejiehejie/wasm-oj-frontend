@@ -5,7 +5,8 @@ import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
 import HotkeyRecorder from './HotkeyRecorder.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
-import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
+import { DEFAULT_UI_SCALE, UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
+import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { SHORTCUT_ACTIONS, useShortcutManager } from '../composables/useShortcutManager.js'
@@ -58,147 +59,167 @@ const emit = defineEmits([
 // Monaco 真正吃到的选项共用同一份，免得面板里能选、编辑器却不认。
 const EDITOR_GROUPS = [
   {
-    title: '字体',
+    titleKey: 'settings.editor.groupFont',
     rows: [
       {
         key: 'fontFamily',
-        label: '字体',
-        hint: '代码编辑器使用的等宽字体',
+        labelKey: 'settings.editor.fontFamily.label',
+        hintKey: 'settings.editor.fontFamily.hint',
         control: 'select',
         options: FONT_FAMILIES,
       },
       {
         key: 'lineHeightRatio',
-        label: '行高',
-        hint: '行间距相对字号的倍数',
+        labelKey: 'settings.editor.lineHeightRatio.label',
+        hintKey: 'settings.editor.lineHeightRatio.hint',
         control: 'select',
-        options: LINE_HEIGHT_RATIOS.map((ratio) => ({ id: ratio, label: `${ratio} 倍` })),
+        options: LINE_HEIGHT_RATIOS.map((ratio) => ({
+          id: ratio,
+          labelKey: 'settings.value.times',
+          labelParams: { n: ratio },
+        })),
       },
       {
         key: 'fontLigatures',
-        label: '字体连写',
-        hint: '将 => 或 != 等符号渲染为连贯的数学符号（需当前字体支持，如 Fira Code）',
+        labelKey: 'settings.editor.fontLigatures.label',
+        hintKey: 'settings.editor.fontLigatures.hint',
         control: 'switch',
       },
     ],
   },
   {
-    title: '编辑',
+    titleKey: 'settings.editor.groupEdit',
     rows: [
       {
         key: 'tabSize',
-        label: '缩进宽度',
-        hint: '制表符的视觉宽度，也用于自动缩进的空格数（默认：4）',
+        labelKey: 'settings.editor.tabSize.label',
+        hintKey: 'settings.editor.tabSize.hint',
         control: 'select',
-        options: [2, 4, 8].map((size) => ({ id: size, label: `${size} 空格` })),
+        options: [2, 4, 8].map((size) => ({
+          id: size,
+          labelKey: 'settings.value.spaces',
+          labelParams: { n: size },
+        })),
       },
       {
         key: 'insertSpaces',
-        label: '空格代替 Tab',
-        hint: '开启后按 Tab 插入空格、关闭则插入制表符（默认：关闭，按 Tab 出制表符）',
+        labelKey: 'settings.editor.insertSpaces.label',
+        hintKey: 'settings.editor.insertSpaces.hint',
         control: 'switch',
       },
       {
         key: 'wordWrap',
-        label: '自动换行',
-        hint: '代码超长时自动折行显示，避免横向滚动',
+        labelKey: 'settings.editor.wordWrap.label',
+        hintKey: 'settings.editor.wordWrap.hint',
         control: 'select',
         options: WRAP_MODES,
       },
       {
         key: 'wordWrapColumn',
-        label: '换行列宽',
-        hint: '仅在「按列宽换行」模式下生效，超过该列数即折行（默认：80）',
+        labelKey: 'settings.editor.wordWrapColumn.label',
+        hintKey: 'settings.editor.wordWrapColumn.hint',
         control: 'number',
       },
       {
         key: 'bracketPairColorization',
-        label: '括号配色',
-        hint: '为嵌套的括号对分配不同颜色，便于区分层级',
+        labelKey: 'settings.editor.bracketPairColorization.label',
+        hintKey: 'settings.editor.bracketPairColorization.hint',
         control: 'switch',
       },
       {
         key: 'indentGuides',
-        label: '缩进参考线',
-        hint: '在缩进层级的左侧绘制竖向引导线',
+        labelKey: 'settings.editor.indentGuides.label',
+        hintKey: 'settings.editor.indentGuides.hint',
         control: 'switch',
       },
       {
         key: 'bracketGuides',
-        label: '括号引导线',
-        hint: '在光标所在的括号对之间绘制连接线，仅当前层级',
+        labelKey: 'settings.editor.bracketGuides.label',
+        hintKey: 'settings.editor.bracketGuides.hint',
         control: 'switch',
       },
       {
         key: 'stickyScroll',
-        label: '粘性滚动',
-        hint: '滚动时把当前代码所在的外层函数 / 类钉在编辑器顶部',
+        labelKey: 'settings.editor.stickyScroll.label',
+        hintKey: 'settings.editor.stickyScroll.hint',
         control: 'switch',
       },
       {
         key: 'scrollBeyondLastLine',
-        label: '滚过最后一行',
-        hint: '开启后可在最后一行下方继续滚动出空白区域（默认：关闭）',
+        labelKey: 'settings.editor.scrollBeyondLastLine.label',
+        hintKey: 'settings.editor.scrollBeyondLastLine.hint',
         control: 'switch',
       },
       {
         key: 'smoothScrolling',
-        label: '平滑滚动',
-        hint: '滚动时启用过渡动画，避免内容瞬间跳变',
+        labelKey: 'settings.editor.smoothScrolling.label',
+        hintKey: 'settings.editor.smoothScrolling.hint',
         control: 'switch',
       },
     ],
   },
   {
-    title: '光标与高亮',
+    titleKey: 'settings.editor.groupCursor',
     rows: [
       {
         key: 'cursorStyle',
-        label: '光标样式',
-        hint: '文本插入点的形状',
+        labelKey: 'settings.editor.cursorStyle.label',
+        hintKey: 'settings.editor.cursorStyle.hint',
         control: 'select',
         options: CURSOR_STYLES,
       },
       {
         key: 'cursorBlinking',
-        label: '光标闪烁方式',
-        hint: '文本插入点的闪烁动画样式',
+        labelKey: 'settings.editor.cursorBlinking.label',
+        hintKey: 'settings.editor.cursorBlinking.hint',
         control: 'select',
         options: CURSOR_BLINKINGS,
       },
       {
         key: 'cursorSmoothCaretAnimation',
-        label: '光标平滑移动',
-        hint: '打字时启用光标移动的过渡动画',
+        labelKey: 'settings.editor.cursorSmoothCaretAnimation.label',
+        hintKey: 'settings.editor.cursorSmoothCaretAnimation.hint',
         control: 'switch',
       },
       {
         key: 'renderLineHighlight',
-        label: '当前行突出',
-        hint: '高亮显示光标所在行',
+        labelKey: 'settings.editor.renderLineHighlight.label',
+        hintKey: 'settings.editor.renderLineHighlight.hint',
         control: 'select',
         options: LINE_HIGHLIGHTS,
       },
       {
         key: 'renderWhitespace',
-        label: '空白字符',
-        hint: '显示空格与制表符等不可见字符',
+        labelKey: 'settings.editor.renderWhitespace.label',
+        hintKey: 'settings.editor.renderWhitespace.hint',
         control: 'select',
         options: WHITESPACE_MODES,
       },
     ],
   },
   {
-    title: '视图',
+    titleKey: 'settings.editor.groupView',
     rows: [
       {
         key: 'minimap',
-        label: '代码缩略图',
-        hint: '在编辑器右侧展示全局代码结构的微缩导航（默认：关闭）',
+        labelKey: 'settings.editor.minimap.label',
+        hintKey: 'settings.editor.minimap.hint',
         control: 'switch',
       },
-      { key: 'padding', label: '内边距', hint: '编辑器内容与边框之间的留白', control: 'select', options: PADDINGS },
-      { key: 'scrollbarSize', label: '滚动条粗细', hint: '编辑器滚动条的宽度', control: 'select', options: SCROLLBAR_SIZES },
+      {
+        key: 'padding',
+        labelKey: 'settings.editor.padding.label',
+        hintKey: 'settings.editor.padding.hint',
+        control: 'select',
+        options: PADDINGS,
+      },
+      {
+        key: 'scrollbarSize',
+        labelKey: 'settings.editor.scrollbarSize.label',
+        hintKey: 'settings.editor.scrollbarSize.hint',
+        control: 'select',
+        options: SCROLLBAR_SIZES,
+      },
     ],
   },
 ]
@@ -209,38 +230,42 @@ const EDITOR_GROUPS = [
 const APPEARANCE_ROWS = [
   {
     key: 'theme',
-    label: '主题',
-    hint: '切换深色与浅色两套配色（默认：深色）',
+    labelKey: 'settings.appearance.theme.label',
+    hintKey: 'settings.appearance.theme.hint',
     control: 'select',
     options: THEMES,
   },
   {
     key: 'fontSize',
-    label: '字体大小',
-    hint: '代码主字体大小（默认：14px，范围 8–32）',
+    labelKey: 'settings.appearance.fontSize.label',
+    hintKey: 'settings.appearance.fontSize.hint',
     control: 'number',
   },
 ]
 
 // 统一侧边栏的位置偏好存在 App.vue 的 cph.panelPosition 里，这里只负责发起一次对调
 const PANEL_POSITIONS = [
-  { id: 'right', label: '右侧' },
-  { id: 'left', label: '左侧' },
+  { id: 'right', labelKey: 'settings.option.sideRight' },
+  { id: 'left', labelKey: 'settings.option.sideLeft' },
 ]
+
+// 界面语言：与「判题语言」无关，后者由活跃文件的扩展名派生（见 HANDOFF 第 5 节坑 15）。
+// 状态在 src/i18n/index.js 里是模块级单例，自己读写 localStorage，所以不走 props / emits。
+const LOCALE_OPTIONS = LOCALES.map((item) => ({ id: item.id, label: item.label }))
 
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
 // 初值是目录里的第一项「外观」——第一次打开（或刷新后）就落在这里。
 const SECTIONS = [
-  { id: 'appearance', title: '外观', icon: 'sliders' },
-  { id: 'editor', title: '编辑器', icon: 'code' },
-  { id: 'shortcuts', title: '快捷键', icon: 'keyboard' },
-  { id: 'judge', title: '评测', icon: 'check' },
-  { id: 'runtime', title: '本地运行环境', icon: 'download' },
-  { id: 'extension', title: '浏览器插件', icon: 'plugin' },
-  { id: 'app', title: '应用', icon: 'install' },
-  { id: 'help', title: '帮助', icon: 'help' },
+  { id: 'appearance', titleKey: 'settings.section.appearance', icon: 'sliders' },
+  { id: 'editor', titleKey: 'settings.section.editor', icon: 'code' },
+  { id: 'shortcuts', titleKey: 'settings.section.shortcuts', icon: 'keyboard' },
+  { id: 'judge', titleKey: 'settings.section.judge', icon: 'check' },
+  { id: 'runtime', titleKey: 'settings.section.runtime', icon: 'download' },
+  { id: 'extension', titleKey: 'settings.section.extension', icon: 'plugin' },
+  { id: 'app', titleKey: 'settings.section.app', icon: 'install' },
+  { id: 'help', titleKey: 'settings.section.help', icon: 'help' },
 ]
 
 const activeSection = ref('appearance')
@@ -260,23 +285,25 @@ const EXTENSION_VERSION = '2.65.1'
 const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
 const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 
-// 扩展对外只暴露 _execute_action 这类内部 id，中文名只能在这边维护
-const EXTENSION_COMMAND_LABELS = {
-  _execute_action: '解析当前页面题目',
+// 扩展对外只暴露 _execute_action 这类内部 id，显示名只能在这边维护
+const EXTENSION_COMMAND_KEYS = {
+  _execute_action: 'settings.extension.commandParsePage',
 }
 
 const { extensionInfo, checking: extensionChecking, refresh: refreshExtension } = useCompanionBridge()
 
 const extensionStatusHint = computed(() => {
-  if (extensionChecking.value) return '检测中…'
-  if (!extensionInfo.value) return '未检测到；装好后需要刷新本页才会被检测到'
-  return `已安装 v${extensionInfo.value.version}`
+  if (extensionChecking.value) return t('settings.extension.checkingHint')
+  if (!extensionInfo.value) return t('settings.extension.missingHint')
+  return t('settings.extension.installedHint', { version: extensionInfo.value.version })
 })
 
 const extensionShortcuts = computed(() =>
   (extensionInfo.value?.commands ?? []).map((command) => ({
     name: command.name,
-    label: EXTENSION_COMMAND_LABELS[command.name] || command.description || command.name,
+    label: EXTENSION_COMMAND_KEYS[command.name]
+      ? t(EXTENSION_COMMAND_KEYS[command.name])
+      : command.description || command.name,
     shortcut: command.shortcut,
   })),
 )
@@ -313,21 +340,21 @@ onBeforeUnmount(() => window.clearTimeout(copyTimer))
 const RUNTIMES = [
   {
     id: 'cpp',
-    title: 'C++',
+    titleKey: 'runtime.cpp.title',
     icon: 'cpp',
     readyFlag: 'cph.localRuntime.clangReady',
-    idleHint: 'clang 8 + libc++，约 50MB，只下一次',
-    downloadTitle: '下载 clang 工具链',
-    uninstallHint: '将从本机删除已缓存的 clang 工具链（约 50MB，另含编译加速用的预编译头）。下次运行 C++ 代码时需要重新下载。',
+    idleHintKey: 'runtime.cpp.idleHint',
+    downloadTitleKey: 'runtime.cpp.downloadTitle',
+    uninstallHintKey: 'runtime.cpp.uninstallHint',
   },
   {
     id: 'python',
-    title: 'Python 3',
+    titleKey: 'runtime.python.title',
     icon: 'python',
     readyFlag: 'cph.localRuntime.pythonReady',
-    idleHint: 'CPython 3.11 + 标准库，约 24MB，只下一次',
-    downloadTitle: '下载 Python 运行时',
-    uninstallHint: '将从本机删除已缓存的 Python 运行时（解释器 + 标准库，约 24MB）。下次运行 Python 代码时需要重新下载。',
+    idleHintKey: 'runtime.python.idleHint',
+    downloadTitleKey: 'runtime.python.downloadTitle',
+    uninstallHintKey: 'runtime.python.uninstallHint',
   },
 ]
 
@@ -356,21 +383,21 @@ const downloadingAny = computed(() =>
 )
 
 function hintFor(entry) {
-  if (entry.state.value === 'downloading') return live.value.message || '正在下载…'
+  if (entry.state.value === 'downloading') return live.value.message || t('runtime.downloading')
   if (entry.state.value === 'ready') {
     return entry.elapsedMs.value
-      ? `运行环境已就绪，用时 ${(entry.elapsedMs.value / 1000).toFixed(1)} s`
-      : '运行环境已就绪'
+      ? t('runtime.readyWithTime', { seconds: (entry.elapsedMs.value / 1000).toFixed(1) })
+      : t('runtime.ready')
   }
-  if (entry.state.value === 'failed') return entry.failureReason.value || '下载失败'
-  return entry.idleHint
+  if (entry.state.value === 'failed') return entry.failureReason.value || t('runtime.failed')
+  return t(entry.idleHintKey)
 }
 
 function buttonLabel(entry) {
-  if (entry.state.value === 'downloading') return '下载中…'
-  if (entry.state.value === 'ready') return '已就绪'
-  if (entry.state.value === 'failed') return '重试'
-  return '下载'
+  if (entry.state.value === 'downloading') return t('runtime.button.downloading')
+  if (entry.state.value === 'ready') return t('runtime.button.ready')
+  if (entry.state.value === 'failed') return t('runtime.button.failed')
+  return t('runtime.button.idle')
 }
 
 function buttonIcon(entry) {
@@ -392,7 +419,7 @@ async function downloadRuntime(entry) {
     return
   }
   entry.state.value = 'failed'
-  entry.failureReason.value = message.message || '下载失败'
+  entry.failureReason.value = message.message || t('runtime.failed')
 }
 
 // ------------------------------------------------------------ 卸载
@@ -520,6 +547,29 @@ function isModified(row) {
   return props.settings[row.key] !== EDITOR_SETTINGS_DEFAULTS[row.key]
 }
 
+/** 归一化：只留字母数字、转小写，用来比较「标签」与「键名」是不是同一句话 */
+const normalizeForCompare = (text) => text.replace(/[^a-z0-9]/gi, '').toLowerCase()
+
+/**
+ * 这一行还要不要显示紧跟标签的那个内部键名。
+ *
+ * 英文界面里不少行的标签就是键名的「Title Case + 空格」写法（`Theme` / `theme`、
+ * `Minimap` / `minimap`、`Font size` / `fontSize`），那一小行等宽字纯属重复，收掉；
+ * 键名真的与标签不同时才留着——它是给「想直接查 Monaco 选项名」的人看的极低频参考信息
+ * （`Current line highlight` / `renderLineHighlight`、`Indent width` / `tabSize`）。
+ *
+ * 判据刻意做成**与语言无关**的归一化比较（相等即视为重复）：中文标签（`主题` / `缩略图` /
+ * `内边距`）永远不可能等于 ASCII 键名，所以中文界面一行都不会被收掉；英文界面里也只有那批
+ * 真正重复的行命中。好处是不用再维护一张「哪几行不显示键名」的名单——往编辑器组加新行时，
+ * 标签起得和键名重了它自然就藏起来。
+ *
+ * 注意这里是**函数**而不是预计算的 Set：模板里每次渲染都重算，但它读的是 `t()`（即 `locale`
+ * 这个 ref），放在函数里才能跟着切语言变——写成模块级常量会把语言冻结在那一刻。
+ */
+function showKey(row) {
+  return normalizeForCompare(t(row.labelKey)) !== normalizeForCompare(row.key)
+}
+
 function setNumber(row, event) {
   const value = Number.parseInt(event.target.value, 10)
   if (!Number.isFinite(value)) return
@@ -542,6 +592,17 @@ function setUiScale(event) {
   emit('update:ui-scale', Number(event.target.value))
 }
 
+/** 缩放档位的显示名：默认那一档后面挂一个「（默认）」，其余就是百分比本身 */
+function scaleLabel(scale) {
+  const value = `${Math.round(scale * 100)}%`
+  return scale === DEFAULT_UI_SCALE ? t('settings.uiScale.default', { value }) : value
+}
+
+/** 界面语言选中即生效。状态由 i18n 模块自己持久化（cph.uiLocale），不经 App 中转。 */
+function setUiLocale(event) {
+  setLocale(event.target.value)
+}
+
 function limitLabel(ms) {
   return `${ms / 1000} s`
 }
@@ -555,10 +616,10 @@ function setTimeLimit(event) {
   <!-- 设置是个普通页签，内容就铺在编辑区里（Monaco 被 v-show 让开）。
        原来是 Teleport 到 body 的右侧抽屉，改成视图后不再有遮罩、头部和「完成」按钮：
        关它靠页签上的 ×，改动本来就即时生效，不需要一个「确认」动作。 -->
-  <div class="settings-view" role="region" aria-label="设置">
+  <div class="settings-view" role="region" :aria-label="t('settings.ariaLabel')">
     <div class="settings-view__inner">
       <!-- 目录：点哪一项，右边就只渲染那一组设置（原来是四段纵向平铺） -->
-      <nav class="settings-nav" aria-label="设置分类">
+      <nav class="settings-nav" :aria-label="t('settings.navAriaLabel')">
         <button
           v-for="section in SECTIONS"
           :key="section.id"
@@ -569,14 +630,15 @@ function setTimeLimit(event) {
           @click="activeSection = section.id"
         >
           <AppIcon :name="section.icon" :size="14" />
-          <span class="settings-nav__label">{{ section.title }}</span>
+          <span class="settings-nav__label">{{ t(section.titleKey) }}</span>
         </button>
       </nav>
 
       <!-- 外观：一级分类里排在最前。上面两行是 editorSettings 的键（与编辑器组同源），
-           下面两行是布局偏好，各有自己的出口（App 那边的 cph.panelPosition / cph.uiScale）。 -->
+           下面三行是界面偏好，各有自己的出口（App 那边的 cph.panelPosition / cph.uiScale，
+           以及 i18n 模块自己管着的 cph.uiLocale）。 -->
       <section v-if="activeSection === 'appearance'" class="setting-group">
-        <p class="setting-group__title">外观</p>
+        <p class="setting-group__title">{{ t('settings.section.appearance') }}</p>
 
         <label
           v-for="row in APPEARANCE_ROWS"
@@ -586,10 +648,10 @@ function setTimeLimit(event) {
         >
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">{{ row.label }}</span>
-              <span class="setting-row__key">{{ row.key }}</span>
+              <span class="setting-row__label">{{ t(row.labelKey) }}</span>
+              <span v-if="showKey(row)" class="setting-row__key">{{ row.key }}</span>
             </span>
-            <span v-if="row.hint" class="setting-row__hint">{{ row.hint }}</span>
+            <span v-if="row.hintKey" class="setting-row__hint">{{ t(row.hintKey) }}</span>
           </span>
 
           <span class="setting-row__control">
@@ -610,7 +672,7 @@ function setTimeLimit(event) {
                 @change="set(row.key, coerce(row, $event.target.value))"
               >
                 <option v-for="item in row.options" :key="item.id" :value="item.id">
-                  {{ item.label }}
+                  {{ item.labelKey ? t(item.labelKey, item.labelParams) : item.label }}
                 </option>
               </select>
               <AppIcon name="chevron" :size="12" class="select__chevron" />
@@ -621,14 +683,33 @@ function setTimeLimit(event) {
         <label class="setting-row setting-row--select">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">界面缩放</span>
+              <span class="setting-row__label">{{ t('settings.appearance.uiScale.label') }}</span>
             </span>
-            <span class="setting-row__hint">整体放大或缩小界面，适合高分屏或投屏演示；编辑器也会一起缩放</span>
+            <span class="setting-row__hint">{{ t('settings.appearance.uiScale.hint') }}</span>
           </span>
           <span class="setting-row__control">
             <span class="select">
               <select :value="uiScale" @change="setUiScale">
-                <option v-for="item in UI_SCALE_OPTIONS" :key="item.id" :value="item.id">
+                <option v-for="scale in UI_SCALE_OPTIONS" :key="scale" :value="scale">
+                  {{ scaleLabel(scale) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.appearance.locale.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.appearance.locale.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="locale" @change="setUiLocale">
+                <option v-for="item in LOCALE_OPTIONS" :key="item.id" :value="item.id">
                   {{ item.label }}
                 </option>
               </select>
@@ -640,15 +721,15 @@ function setTimeLimit(event) {
         <label class="setting-row setting-row--select">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">侧边栏位置</span>
+              <span class="setting-row__label">{{ t('settings.appearance.panelPosition.label') }}</span>
             </span>
-            <span class="setting-row__hint">资源管理器与评测样例放在编辑区的左侧还是右侧</span>
+            <span class="setting-row__hint">{{ t('settings.appearance.panelPosition.hint') }}</span>
           </span>
           <span class="setting-row__control">
             <span class="select">
               <select :value="panelPosition" @change="setPanelPosition">
                 <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
-                  {{ item.label }}
+                  {{ t(item.labelKey) }}
                 </option>
               </select>
               <AppIcon name="chevron" :size="12" class="select__chevron" />
@@ -658,11 +739,11 @@ function setTimeLimit(event) {
       </section>
 
       <section v-else-if="activeSection === 'editor'" class="setting-group">
-        <p class="setting-group__title">编辑器</p>
+        <p class="setting-group__title">{{ t('settings.section.editor') }}</p>
 
-        <template v-for="(group, index) in EDITOR_GROUPS" :key="group.title">
+        <template v-for="(group, index) in EDITOR_GROUPS" :key="group.titleKey">
           <p class="setting-subtitle" :class="{ 'setting-subtitle--first': index === 0 }">
-            {{ group.title }}
+            {{ t(group.titleKey) }}
           </p>
 
           <label
@@ -673,10 +754,10 @@ function setTimeLimit(event) {
           >
             <span class="setting-row__main">
               <span class="setting-row__head">
-                <span class="setting-row__label">{{ row.label }}</span>
-                <span class="setting-row__key">{{ row.key }}</span>
+                <span class="setting-row__label">{{ t(row.labelKey) }}</span>
+                <span v-if="showKey(row)" class="setting-row__key">{{ row.key }}</span>
               </span>
-              <span v-if="row.hint" class="setting-row__hint">{{ row.hint }}</span>
+              <span v-if="row.hintKey" class="setting-row__hint">{{ t(row.hintKey) }}</span>
             </span>
 
             <span class="setting-row__control">
@@ -697,7 +778,7 @@ function setTimeLimit(event) {
                   @change="set(row.key, coerce(row, $event.target.value))"
                 >
                   <option v-for="item in row.options" :key="item.id" :value="item.id">
-                    {{ item.label }}
+                    {{ item.labelKey ? t(item.labelKey, item.labelParams) : item.label }}
                   </option>
                 </select>
                 <AppIcon name="chevron" :size="12" class="select__chevron" />
@@ -709,7 +790,7 @@ function setTimeLimit(event) {
                 :class="{ 'is-on': settings[row.key] }"
                 role="switch"
                 :aria-checked="settings[row.key]"
-                :aria-label="row.label"
+                :aria-label="t(row.labelKey)"
                 @click="set(row.key, !settings[row.key])"
               >
                 <span class="switch__thumb"></span>
@@ -720,10 +801,9 @@ function setTimeLimit(event) {
       </section>
 
       <section v-else-if="activeSection === 'shortcuts'" class="setting-group">
-        <p class="setting-group__title">快捷键</p>
+        <p class="setting-group__title">{{ t('settings.section.shortcuts') }}</p>
         <p class="setting-group__note">
-          点右侧输入框后按下组合键即可改绑；按 Delete 清除绑定，按 Esc 取消录制。
-          与浏览器自带快捷键或其他功能冲突时会拒绝绑定并给出原因。
+          {{ t('settings.shortcut.note') }}
         </p>
 
         <div
@@ -733,9 +813,9 @@ function setTimeLimit(event) {
         >
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">{{ action.label }}</span>
+              <span class="setting-row__label">{{ t(action.labelKey) }}</span>
             </span>
-            <span v-if="action.hint" class="setting-row__hint">{{ action.hint }}</span>
+            <span v-if="action.hintKey" class="setting-row__hint">{{ t(action.hintKey) }}</span>
           </span>
           <span class="setting-row__control">
             <HotkeyRecorder :action-id="action.id" />
@@ -745,28 +825,32 @@ function setTimeLimit(event) {
         <div class="setting-row setting-row--action">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">恢复默认</span>
+              <span class="setting-row__label">{{ t('settings.shortcut.restore.label') }}</span>
             </span>
-            <span class="setting-row__hint">把上面所有快捷键还原成初始设置</span>
+            <span class="setting-row__hint">{{ t('settings.shortcut.restore.hint') }}</span>
           </span>
           <span class="setting-row__control">
-            <button class="download-button" title="恢复默认快捷键" @click="resetAll">
+            <button
+              class="download-button"
+              :title="t('settings.shortcut.restore.title')"
+              @click="resetAll"
+            >
               <AppIcon name="reset" :size="13" />
-              <span>恢复默认</span>
+              <span>{{ t('settings.shortcut.restore.label') }}</span>
             </button>
           </span>
         </div>
       </section>
 
       <section v-else-if="activeSection === 'judge'" class="setting-group">
-        <p class="setting-group__title">评测</p>
+        <p class="setting-group__title">{{ t('settings.section.judge') }}</p>
 
         <label class="setting-row setting-row--select">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">运行时限</span>
+              <span class="setting-row__label">{{ t('settings.judge.timeLimit.label') }}</span>
             </span>
-            <span class="setting-row__hint">只计程序运行阶段，不含编译</span>
+            <span class="setting-row__hint">{{ t('settings.judge.timeLimit.hint') }}</span>
           </span>
           <span class="setting-row__control">
             <span class="select">
@@ -780,7 +864,7 @@ function setTimeLimit(event) {
           </span>
         </label>
 
-        <p class="setting-subtitle">评测引擎</p>
+        <p class="setting-subtitle">{{ t('settings.judge.engines') }}</p>
         <EngineSettingsPanel
           :judge="judge"
           :connection="connection"
@@ -791,8 +875,8 @@ function setTimeLimit(event) {
       </section>
 
       <section v-else-if="activeSection === 'runtime'" class="setting-group">
-        <p class="setting-group__title">本地运行环境</p>
-        <p class="setting-group__note">在浏览器里直接编译运行，代码不出本机。</p>
+        <p class="setting-group__title">{{ t('settings.section.runtime') }}</p>
+        <p class="setting-group__note">{{ t('runtime.groupNote') }}</p>
 
         <div class="runtime-list">
           <div v-for="entry in runtimeEntries" :key="entry.id" class="runtime-row">
@@ -800,7 +884,7 @@ function setTimeLimit(event) {
               <AppIcon :name="entry.icon" :size="15" />
             </span>
             <span class="runtime-row__text">
-              <span class="runtime-row__title">{{ entry.title }}</span>
+              <span class="runtime-row__title">{{ t(entry.titleKey) }}</span>
               <span class="runtime-row__hint">{{ hintFor(entry) }}</span>
             </span>
             <div class="runtime-row__actions">
@@ -811,7 +895,9 @@ function setTimeLimit(event) {
                   'is-failed': entry.state.value === 'failed',
                 }"
                 :disabled="downloadingAny || entry.state.value === 'ready'"
-                :title="entry.state.value === 'ready' ? '本地运行环境已就绪' : entry.downloadTitle"
+                :title="
+                  entry.state.value === 'ready' ? t('runtime.readyTitle') : t(entry.downloadTitleKey)
+                "
                 @click="downloadRuntime(entry)"
               >
                 <AppIcon
@@ -827,11 +913,11 @@ function setTimeLimit(event) {
                 type="button"
                 class="download-button is-uninstall"
                 :disabled="downloadingAny"
-                :title="`卸载${entry.title}运行环境`"
+                :title="t('runtime.uninstallActionTitle', { title: t(entry.titleKey) })"
                 @click="requestUninstall(entry)"
               >
                 <AppIcon name="trash" :size="13" />
-                <span>卸载</span>
+                <span>{{ t('runtime.uninstall') }}</span>
               </button>
             </div>
           </div>
@@ -839,43 +925,40 @@ function setTimeLimit(event) {
       </section>
 
       <section v-else-if="activeSection === 'app'" class="setting-group">
-        <p class="setting-group__title">应用</p>
-        <p class="setting-group__note">
-          装到这台设备后，可以从主屏幕 / 桌面直接以独立窗口打开，离线也能用。
-        </p>
+        <p class="setting-group__title">{{ t('settings.section.app') }}</p>
+        <p class="setting-group__note">{{ t('settings.app.groupNote') }}</p>
 
         <div class="setting-row setting-row--action">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">安装到设备</span>
+              <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
             </span>
             <span class="setting-row__hint">
-              {{
-                canInstall
-                  ? '当前浏览器支持安装，点右侧按钮即可'
-                  : '当前浏览器不支持安装，或已经装好了'
-              }}
+              {{ t(canInstall ? 'settings.app.installHint' : 'settings.app.installedHint') }}
             </span>
           </span>
           <span class="setting-row__control">
-            <button class="download-button" :disabled="!canInstall" title="安装到设备" @click="install">
+            <button
+              class="download-button"
+              :disabled="!canInstall"
+              :title="t('settings.app.install.title')"
+              @click="install"
+            >
               <AppIcon name="install" :size="15" />
-              <span>{{ canInstall ? '安装' : '已安装' }}</span>
+              <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
             </button>
           </span>
         </div>
       </section>
 
       <section v-else-if="activeSection === 'extension'" class="setting-group">
-        <p class="setting-group__title">浏览器插件</p>
-        <p class="setting-group__note">
-          装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站，不用手抄。
-        </p>
+        <p class="setting-group__title">{{ t('settings.section.extension') }}</p>
+        <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
         <div class="setting-row setting-row--action">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">安装状态</span>
+              <span class="setting-row__label">{{ t('settings.extension.status') }}</span>
             </span>
             <span class="setting-row__hint">{{ extensionStatusHint }}</span>
           </span>
@@ -883,11 +966,11 @@ function setTimeLimit(event) {
             <button
               class="download-button"
               :disabled="extensionChecking"
-              title="重新检测插件"
+              :title="t('settings.extension.recheckTitle')"
               @click="refreshExtension"
             >
               <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
-              <span>{{ extensionChecking ? '检测中' : '重新检测' }}</span>
+              <span>{{ t(extensionChecking ? 'settings.extension.checking' : 'settings.extension.recheck') }}</span>
             </button>
           </span>
         </div>
@@ -895,50 +978,59 @@ function setTimeLimit(event) {
         <div class="setting-row setting-row--action">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">下载插件</span>
+              <span class="setting-row__label">{{ t('settings.extension.download.label') }}</span>
             </span>
-            <span class="setting-row__hint">
-              装上后需在 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。
-              插件不在应用商店里，所以没法一键安装。
-            </span>
+            <span class="setting-row__hint">{{ t('settings.extension.downloadHint') }}</span>
           </span>
           <span class="setting-row__control">
             <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
               <AppIcon name="download" :size="15" />
-              <span>下载</span>
+              <span>{{ t('app.download') }}</span>
             </a>
           </span>
         </div>
 
         <template v-if="extensionInfo">
-          <p class="setting-subtitle">插件快捷键</p>
+          <p class="setting-subtitle">{{ t('settings.extension.commandShortcuts') }}</p>
 
           <ul class="shortcut-list">
             <li v-for="command in extensionShortcuts" :key="command.name" class="shortcut-list__item">
               <span class="shortcut-list__label">{{ command.label }}</span>
-              <kbd class="shortcut-list__keys">{{ command.shortcut || '未设置' }}</kbd>
+              <kbd class="shortcut-list__keys">
+                {{ command.shortcut || t('settings.extension.shortcutUnset') }}
+              </kbd>
             </li>
           </ul>
 
           <p class="setting-group__note">
-            插件快捷键由浏览器管理，网页没有权限改写，也没有权限跳转到
+            {{ t('settings.extension.shortcutsManagedPrefix') }}
             <code class="setting-code">chrome://extensions/shortcuts</code>
-            （浏览器会拦掉指向 chrome:// 的跳转）。只能复制地址后自己到地址栏粘贴打开。
+            {{ t('settings.extension.shortcutsManagedSuffix') }}
           </p>
 
           <div class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__head">
-                <span class="setting-row__label">快捷键设置页</span>
+                <span class="setting-row__label">{{ t('settings.extension.shortcutsPage') }}</span>
               </span>
               <span class="setting-row__hint">
-                {{ shortcutsCopied ? '已复制，粘贴到地址栏回车即可' : '复制后在地址栏粘贴打开' }}
+                {{
+                  t(
+                    shortcutsCopied
+                      ? 'settings.extension.shortcutsCopiedHint'
+                      : 'settings.extension.shortcutsHint',
+                  )
+                }}
               </span>
             </span>
             <span class="setting-row__control">
-              <button class="download-button" title="复制 chrome://extensions/shortcuts" @click="copyShortcutsUrl">
+              <button
+                class="download-button"
+                :title="t('settings.extension.shortcutsTitle')"
+                @click="copyShortcutsUrl"
+              >
                 <AppIcon name="copy" :size="13" />
-                <span>{{ shortcutsCopied ? '已复制' : '复制地址' }}</span>
+                <span>{{ t(shortcutsCopied ? 'settings.extension.copied' : 'settings.extension.copyUrl') }}</span>
               </button>
             </span>
           </div>
@@ -946,7 +1038,7 @@ function setTimeLimit(event) {
       </section>
 
       <section v-else-if="activeSection === 'help'" class="setting-group">
-        <p class="setting-group__title">帮助</p>
+        <p class="setting-group__title">{{ t('settings.section.help') }}</p>
         <HelpPanel />
       </section>
     </div>
@@ -963,17 +1055,23 @@ function setTimeLimit(event) {
           aria-describedby="uninstall-desc"
           @keydown.esc.stop.prevent="cancelUninstall"
         >
-          <p id="uninstall-title" class="confirm__title">卸载 {{ pendingUninstall.title }} 运行环境？</p>
-          <p id="uninstall-desc" class="confirm__desc">{{ pendingUninstall.uninstallHint }}</p>
+          <p id="uninstall-title" class="confirm__title">
+            {{ t('runtime.uninstallTitle', { title: t(pendingUninstall.titleKey) }) }}
+          </p>
+          <p id="uninstall-desc" class="confirm__desc">
+            {{ t(pendingUninstall.uninstallHintKey) }}
+          </p>
           <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelUninstall">取消</button>
+            <button type="button" class="confirm__btn" @click="cancelUninstall">
+              {{ t('app.cancel') }}
+            </button>
             <button
               ref="uninstallBtn"
               type="button"
               class="confirm__btn confirm__btn--danger"
               @click="confirmUninstall"
             >
-              卸载
+              {{ t('runtime.uninstall') }}
             </button>
           </div>
         </div>

@@ -23,6 +23,7 @@
  * Monaco 键位的做法反而踩了坑：Monaco 0.56 的 ICodeEditor 根本没有 removeCommand。
  */
 import { ref, watch } from 'vue'
+import { t } from '../i18n/index.js'
 
 const STORAGE_KEY = 'cph.shortcuts'
 
@@ -31,17 +32,23 @@ export const IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)
 
 /**
- * 可绑定的动作。id 是给 App.vue 的处理表当键用的，label 只用于界面。
+ * 可绑定的动作。id 是给 App.vue 的处理表当键用的，label/hint 只用于界面 ——
+ * 所以这里存 key，界面（EditorSettingsPanel / HotkeyRecorder）再 t()。
  * 这里只登记「本应用真的做得到」的动作：格式化没有进来，因为 Monaco 内置的
  * Shift+Alt+F 在 C++ / Python 下没有注册 formatter，绑了也是空按。
  */
 export const SHORTCUT_ACTIONS = [
-  { id: 'run', label: '运行全部用例', hint: '光标在编辑器里也生效', default: 'Mod+Enter' },
-  { id: 'toggle-panel', label: '显示 / 隐藏侧边栏', default: 'Mod+KeyB' },
-  { id: 'switch-panel', label: '切换侧栏面板', hint: '资源管理器 ↔ 评测样例', default: 'Mod+Shift+KeyE' },
-  { id: 'toggle-layout', label: '侧边栏左右对调', default: 'Mod+Shift+KeyB' },
-  { id: 'new-case', label: '新增一条测试用例', default: 'Mod+Alt+Enter' },
-  { id: 'open-settings', label: '打开 / 收起设置', default: 'Mod+Comma' },
+  { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
+  { id: 'toggle-panel', labelKey: 'settings.shortcut.togglePanel.label', default: 'Mod+KeyB' },
+  {
+    id: 'switch-panel',
+    labelKey: 'settings.shortcut.switchPanel.label',
+    hintKey: 'settings.shortcut.switchPanel.hint',
+    default: 'Mod+Shift+KeyE',
+  },
+  { id: 'toggle-layout', labelKey: 'settings.shortcut.toggleLayout.label', default: 'Mod+Shift+KeyB' },
+  { id: 'new-case', labelKey: 'settings.shortcut.newCase.label', default: 'Mod+Alt+Enter' },
+  { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
 ]
 
 /** 单按修饰键时 keydown 也会来，这时还没到真正的键码，先不处理 */
@@ -240,12 +247,12 @@ export function actionForCombo(combo) {
  */
 export function shortcutConflict(actionId, combo) {
   if (!combo) return null
-  if (BROWSER_RESERVED.has(combo)) return '浏览器已经占用了这个组合，网页里拦不住它'
+  if (BROWSER_RESERVED.has(combo)) return t('settings.shortcut.reserved')
   if (!hasModifier(combo)) {
-    return '至少要带一个 Ctrl / ⌘ / Alt，否则打字时会不停误触发'
+    return t('settings.shortcut.needModifier')
   }
   const owner = SHORTCUT_ACTIONS.find((action) => action.id !== actionId && bindings.value[action.id] === combo)
-  if (owner) return `已经绑给「${owner.label}」了`
+  if (owner) return t('settings.shortcut.alreadyBound', { name: t(owner.labelKey) })
   return null
 }
 

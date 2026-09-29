@@ -1,4 +1,5 @@
 import { compareOutput } from './compare.js'
+import { t } from '../i18n/index.js'
 
 /**
  * 编排层：把引擎返回的 outcome 翻译成测试卡片需要的状态补丁。
@@ -9,7 +10,8 @@ import { compareOutput } from './compare.js'
  * @typedef {{status: CaseStatus, verdict: Verdict|'', actualOutput: string, detail: string, durationMs: number|null}} CasePatch
  */
 
-const LANGUAGE_UNSUPPORTED = (engine) => `${engine.label} 引擎当前不支持这个语言，换一个引擎或改用 C++ / Python`
+const LANGUAGE_UNSUPPORTED = (engine) =>
+  t('tests.outcome.unsupportedLanguage', { engine: t(engine.labelKey) })
 
 // 全局时限（毫秒），只计程序运行段，不含编译。
 // 本地沙箱靠它 kill 掉跑不完的程序（TLE），远端引擎各自换算成自己的参数。
@@ -59,7 +61,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         status: 'error',
         verdict: 'CE',
         actualOutput: result.stdout ?? '',
-        detail: result.stderr || '编译未通过',
+        detail: result.stderr || t('tests.outcome.compileFailed'),
         durationMs,
       }
 
@@ -68,7 +70,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         status: 'error',
         verdict: 'TLE',
         actualOutput: result.stdout ?? '',
-        detail: '运行超时 (TLE)',
+        detail: t('tests.outcome.timeout'),
         durationMs,
       }
 
@@ -77,15 +79,18 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         status: 'error',
         verdict: 'RE',
         actualOutput: result.stdout ?? '',
-        detail: result.stderr || '运行期出错',
+        detail: result.stderr || t('tests.outcome.runtimeError'),
         durationMs,
       }
 
     case 'unreachable':
-      return failed(result.detail || '评测服务不可达', durationMs)
+      return failed(result.detail || t('tests.outcome.serviceUnreachable'), durationMs)
 
     default:
-      return failed(result.detail || result.stderr || `评测失败（${result.outcome}）`, durationMs)
+      return failed(
+        result.detail || result.stderr || t('tests.outcome.failed', { outcome: result.outcome }),
+        durationMs,
+      )
   }
 }
 

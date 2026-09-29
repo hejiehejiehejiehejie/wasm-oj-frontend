@@ -1,11 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 全站只有两条 URL。故意不写 lastmod：静态写死的日期会变成假信息；
-     changefreq / priority 已被 Google 忽略。 -->
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<!-- 全站只有三条 URL。故意不写 lastmod：静态写死的日期会变成假信息；
+     changefreq / priority 已被 Google 忽略。
+     指南页的两种语言不算重复内容：用 xhtml:link 互指（含 x-default 指中文页），
+     Google 才会把它们当成同一页的两套语言，而不是两个互相竞争的页面。 -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://www.998244353.best/</loc>
   </url>
   <url>
     <loc>https://www.998244353.best/guide.html</loc>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/guide.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.998244353.best/guide.en.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.998244353.best/guide.html"/>
+  </url>
+  <url>
+    <loc>https://www.998244353.best/guide.en.html</loc>
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/guide.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.998244353.best/guide.en.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.998244353.best/guide.html"/>
   </url>
 </urlset>

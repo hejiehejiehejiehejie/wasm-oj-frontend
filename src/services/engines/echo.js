@@ -5,10 +5,12 @@
  * 未通过 / 报错）走一遍；以及在没有网络的环境里跑 UI 回归。界面会显式标出
  * 这是演示模式，不会伪造真实执行结果。
  */
+import { t } from '../../i18n/index.js'
+
 export const echoEngine = {
   id: 'echo',
-  label: '自检（不执行代码）',
-  hint: '把标准输入原样回显成输出，仅用于联调界面与状态流转',
+  labelKey: 'engine.echo.label',
+  hintKey: 'engine.echo.hint',
   executesCode: false,
   defaultBase: 'local',
 
@@ -17,7 +19,7 @@ export const echoEngine = {
   },
 
   async health() {
-    return { ok: true, message: '内置引擎，无需服务' }
+    return { ok: true, message: t('engine.echo.ready') }
   },
 
   async execute({ stdin }) {

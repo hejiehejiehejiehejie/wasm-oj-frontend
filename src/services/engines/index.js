@@ -18,8 +18,8 @@ import { wasmEngine } from './wasm.js'
  *
  * @typedef {Object} JudgeEngine
  * @property {string} id                   localStorage 里存的引擎标识
- * @property {string} label                设置面板中的名称
- * @property {string} hint                 设置面板中的一行说明
+ * @property {string} labelKey             设置面板中的名称（i18n key，**不是算好的字符串**）
+ * @property {string} hintKey              设置面板中的一行说明（i18n key）
  * @property {boolean} executesCode        false 时界面要标出"不执行代码"
  * @property {string} defaultBase          默认服务地址；内置引擎填 'local'
  * @property {(languageId: string) => boolean} [supports]
@@ -42,11 +42,15 @@ export function getEngine(id) {
   return BY_ID.get(id) ?? ENGINES[0]
 }
 
+/**
+ * 给设置面板用的引擎列表。只透出 key，**不在这里 t()**：这张表求值一次就定格了，
+ * 在这里翻译会在切语言后留下上一轮语言的字符串（见 i18n 的调用纪律）。
+ */
 export function engineChoices() {
-  return ENGINES.map(({ id, label, hint, executesCode, defaultBase }) => ({
+  return ENGINES.map(({ id, labelKey, hintKey, executesCode, defaultBase }) => ({
     id,
-    label,
-    hint,
+    labelKey,
+    hintKey,
     executesCode,
     defaultBase,
   }))

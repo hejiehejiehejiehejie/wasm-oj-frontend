@@ -12,6 +12,7 @@
  *   实例和 model 都留着），设置视图铺在同一层。
  */
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { t } from '../i18n/index.js'
 import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
@@ -236,7 +237,7 @@ defineExpose({
 
       <div v-if="!activeNode && !settingsTab.active" class="editor-pane__empty">
         <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
-        <p>在侧边栏的「资源管理器」里打开或新建文件</p>
+        <p>{{ t('app.emptyEditor') }}</p>
       </div>
     </div>
 
@@ -246,14 +247,16 @@ defineExpose({
       <span class="dot opt-file"></span>
       <span class="opt-utf8">UTF-8</span>
       <span class="dot opt-utf8"></span>
-      <span>空格: {{ settings.tabSize }}</span>
+      <span>{{ t('app.status.spaces', { count: settings.tabSize }) }}</span>
       <span class="grow"></span>
-      <span v-if="selectedChars" class="picked">已选中 {{ selectedChars }} 字符</span>
-      <span>行 {{ cursor.lineNumber }}，列 {{ cursor.column }}</span>
+      <span v-if="selectedChars" class="picked">
+        {{ t('app.status.selected', { count: selectedChars }) }}
+      </span>
+      <span>{{ t('app.status.cursor', { line: cursor.lineNumber, column: cursor.column }) }}</span>
       <span class="dot opt-lang"></span>
       <span class="opt-lang">{{ meta()?.label }}</span>
       <span class="dot"></span>
-      <span title="运行全部测试用例">{{ formatCombo(bindings.run) }}</span>
+      <span :title="t('app.runAllTests')">{{ formatCombo(bindings.run) }}</span>
     </footer>
   </div>
 </template>

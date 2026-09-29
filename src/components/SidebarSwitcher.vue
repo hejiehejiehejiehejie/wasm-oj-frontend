@@ -22,21 +22,22 @@
  */
 import { inject } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { t } from '../i18n/index.js'
 
 const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings } =
   inject('sidebarTabs')
 </script>
 
 <template>
-  <nav class="sidebar-switcher" aria-label="侧边栏面板与设置">
+  <nav class="sidebar-switcher" :aria-label="t('app.sidebar.switcherLabel')">
     <!-- 整枚胶囊＝一颗按钮。两段是 span（纯指示），不接点击，
          也不带 tabindex —— 键盘用户按一次空格/回车就翻过去，不需要在胶囊里再 Tab 一轮 -->
     <button
       type="button"
       class="sidebar-switcher__pill"
       :data-switched="hasSwitched ? '' : null"
-      :title="`切换到${targetPanel.label}`"
-      :aria-label="`切换到${targetPanel.label}`"
+      :title="t('app.sidebar.switchTo', { panel: targetPanel.label })"
+      :aria-label="t('app.sidebar.switchTo', { panel: targetPanel.label })"
       @click="togglePanel"
     >
       <span

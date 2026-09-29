@@ -9,6 +9,7 @@
 import { computed, inject, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
+import { t } from '../i18n/index.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { openFile, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, join, stem } from '../services/vfs/paths.js'
@@ -98,7 +99,7 @@ async function commitRename() {
     renameMode.value = false
     emit('rename-done')
   } catch (error) {
-    renameError.value = error.message || '重命名失败'
+    renameError.value = error.message || t('explorer.renameFailed')
   }
 }
 
@@ -184,7 +185,7 @@ function onKeyDown(event) {
       </span>
       <AppIcon class="tree-item__icon" :name="iconName" :size="15" />
       <span v-if="!renameMode" class="tree-item__label">{{ node.name }}</span>
-      <span v-if="!renameMode && dirty" class="tree-item__dot" title="未保存"></span>
+      <span v-if="!renameMode && dirty" class="tree-item__dot" :title="t('app.tabs.dirty')"></span>
       <input
         v-if="renameMode"
         ref="renameInput"

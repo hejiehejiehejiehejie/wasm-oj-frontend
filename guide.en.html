@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/src/styles/guide.css">
+    <link rel="canonical" href="https://www.998244353.best/guide.en.html">
+    <!-- 双语互链：hreflang 告诉搜索引擎这两页是同一份内容的两套语言；
+         x-default 指中文页（站点的主要受众）。guide.html 里有对称的三行，改一处要同步另一处。 -->
+    <link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/guide.html">
+    <link rel="alternate" hreflang="en" href="https://www.998244353.best/guide.en.html">
+    <link rel="alternate" hreflang="x-default" href="https://www.998244353.best/guide.html">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="description" content="The complete unnamed user guide: how the local WASM sandbox works, which judge engine to pick, measured browser performance, verdicts and the time limit (TLE), one-click problem import, shortcuts and interface preferences, installing as a standalone offline window, and answers to common questions.">
+    <title>unnamed User Guide · Compile and run C++ and Python locally in your browser</title>
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="unnamed">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:locale:alternate" content="zh_CN">
+    <meta property="og:url" content="https://www.998244353.best/guide.en.html">
+    <meta property="og:title" content="unnamed User Guide · Compile and run C++ and Python locally in your browser">
+    <meta property="og:description" content="How the local WASM sandbox works, which judge engine to pick, measured browser performance, verdicts and the time limit (TLE), one-click problem import, shortcuts and interface preferences, installing as a standalone offline window, and answers to common questions.">
+    <meta property="og:image" content="https://www.998244353.best/og-cover.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="The unnamed interface: a Monaco editor on the left, test cases and verdicts on the right">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="unnamed User Guide · Compile and run C++ and Python locally in your browser">
+    <meta name="twitter:description" content="How the local WASM sandbox works, which judge engine to pick, measured browser performance, verdicts and the time limit (TLE), one-click problem import, shortcuts and interface preferences, installing as a standalone offline window, and answers to common questions.">
+    <meta name="twitter:image" content="https://www.998244353.best/og-cover.png">
+    <!--
+      主题同步：和主应用读同一份 localStorage 契约（cph.editorSettings.theme）。
+      不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
+      故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
+
+      同步义务：本页是使用说明的「英文完整版」，与 guide.html（中文完整版）逐条对应 ——
+      章节编号、条目顺序、表格数字与按钮名必须两边都对得上；按钮名要跟界面里真实的英文
+      词条一致（出处是 src/i18n/messages/ 下那六个域文件，别凭印象翻）。
+      应用内设置页签「帮助」分类的 GROUPS（src/components/HelpPanel.vue）与仓库里的
+      docs/使用手册.md 是它的简版。改任意一处都要检查其余各处是否还说得通。
+    -->
+    <script>
+      try {
+        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        var theme = saved && saved.theme
+        // 同时认旧 id（cph-light）：要等主应用跑过一次才会把存档迁成 'light'，
+        // 在此之前直接打开本页也不该闪成深色。
+        if (theme === 'light' || theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch (error) {
+        /* 隐私模式或存档损坏：按默认深色渲染即可 */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page__top">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
+          <span class="brand__name">unnamed</span>
+        </a>
+        <div class="page__top-actions">
+          <!-- lang 属性让屏幕阅读器用中文读这颗链接本身，与它指向的页面一致 -->
+          <a class="lang-link" href="/guide.html" hreflang="zh-CN" lang="zh-CN">简体中文</a>
+          <a class="cta" href="/">Open unnamed</a>
+        </div>
+      </header>
+
+      <main class="doc">
+        <h1>unnamed User Guide</h1>
+
+        <nav class="toc" aria-label="On this page">
+          <span class="toc__title">On this page</span>
+          <ul>
+            <li><a href="#what">1. What is this site?</a></li>
+            <li><a href="#run">2. How do I run code in the browser?</a></li>
+            <li><a href="#engines">3. Which judge engine should I pick?</a></li>
+            <li><a href="#perf">4. How fast is it in the browser?</a></li>
+            <li><a href="#import">5. How do I import a problem?</a></li>
+            <li><a href="#judge">6. How are verdicts and the time limit calculated?</a></li>
+            <li><a href="#files">7. How do I use the file tree?</a></li>
+            <li><a href="#keys">8. What shortcuts are there?</a></li>
+            <li><a href="#ui">9. How do I tweak the interface?</a></li>
+            <li><a href="#install">10. How do I install it and use it offline?</a></li>
+            <li><a href="#faq">11. Common questions</a></li>
+            <li><a href="#credits">12. Credits and open-source licences</a></li>
+          </ul>
+        </nav>
+
+        <h2 id="what">1. What is this site?</h2>
+        <ul>
+          <li>Write, compile, run and judge code in your browser.</li>
+          <li>The local sandbox supports <strong>C++</strong> and <strong>Python 3</strong>.</li>
+          <li>Compiling and running both happen on your device. Your code never leaves this machine.</li>
+          <li>No sign-up, no login.</li>
+          <li>You can install it as a standalone window app and use it offline.</li>
+        </ul>
+        <p>Default layout: sidebar on the left, editor on the right.</p>
+        <p>The sidebar holds two panels: <strong>Explorer</strong> and <strong>Test cases</strong>.</p>
+
+        <h2 id="run">2. How do I run code in the browser?</h2>
+        <ol>
+          <li>
+            <strong>Download the local runtime.</strong> Click the <strong>gear icon</strong> in the sidebar header,
+            open the <strong>Settings</strong> tab, then go to <strong>Local runtime</strong>.
+          </li>
+          <li>
+            Click <strong>Download</strong> next to <strong>C++</strong> or <strong>Python 3</strong>.
+            Roughly 50MB and 24MB, downloaded once each.
+          </li>
+          <li>Wait for the button to read <strong>Ready</strong>. The current stage is announced while it downloads.</li>
+          <li>
+            Make sure the engine under <strong>Judge</strong> is <strong>Local WASM sandbox</strong>. That is the default
+            for new visitors, and it needs no service URL.
+          </li>
+          <li>
+            Press <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd>, or click the
+            <strong>▶</strong> in the footer of the <strong>Test cases</strong> panel.
+          </li>
+        </ol>
+        <p>The sidebar expands automatically before a run and switches to <strong>Test cases</strong>.</p>
+        <p>Need the space back? The <strong>Ready</strong> row has <strong>Uninstall</strong> on the right.</p>
+        <ul>
+          <li>The runtime is downloaded once, and later page loads hit the cache.</li>
+          <li>One download is enough to run offline: the editor, the test cases and the sandbox all live on your machine.</li>
+          <li>Clear your browser data and you will have to download it again.</li>
+          <li>Python is not compiled — it runs straight in the interpreter.</li>
+          <li>C++ compiles only the file you have open, and local headers are not included.</li>
+          <li>Python can import modules from the same folder.</li>
+          <li>File reads and writes inside the sandbox stay in memory. They are never written back to your workspace.</li>
+        </ul>
+
+        <h2 id="engines">3. Which judge engine should I pick?</h2>
+        <p>Switch it under <strong>Settings</strong> › <strong>Judge</strong>.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Engine</th>
+                <th>Where it runs</th>
+                <th>Needs a service URL?</th>
+                <th>Needs the network?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Local WASM sandbox (default)</td>
+                <td>Your own browser; supports C++ and Python 3</td>
+                <td>No — it is a built-in engine</td>
+                <td>Downloads the runtime once, then works offline</td>
+              </tr>
+              <tr>
+                <td>Piston</td>
+                <td>A judge service you host yourself</td>
+                <td>Yes</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>Judge0</td>
+                <td>A judge service you host yourself</td>
+                <td>Yes</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td>Self-test (does not run code)</td>
+                <td>A local demo</td>
+                <td>No</td>
+                <td>No</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">A remote engine means hosting the service yourself and entering its URL under <strong>Judge</strong>.</p>
+        <ul>
+          <li>Once you switch to Piston or Judge0, your code is sent to the URL you entered.</li>
+          <li><strong>Self-test</strong> does not run code. It echoes the standard input back, for exercising the UI.</li>
+        </ul>
+
+        <h2 id="perf">4. How fast is it in the browser?</h2>
+        <p>There is no single scaling factor.</p>
+        <p>These are measurements: Apple M5, headless Chrome.</p>
+        <p>Both sides run with <code>-O2</code>.</p>
+        <p>The sandbox uses clang 8.0.1; the native column uses the system clang.</p>
+        <p>The sandbox column is the run phase — the same thing the card timing measures.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Sandbox run phase</th>
+                <th>Native</th>
+                <th>Ratio</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Pure compute, 5×10⁷ rounds of xorshift</td>
+                <td>132 ms</td>
+                <td>74.4 ms</td>
+                <td>1.77×</td>
+              </tr>
+              <tr>
+                <td>Sequential access, 8×10⁶ ints</td>
+                <td>26 ms</td>
+                <td>7.4 ms</td>
+                <td>3.51×</td>
+              </tr>
+              <tr>
+                <td>Sorting 500k numbers</td>
+                <td>60 ms</td>
+                <td>11.8 ms</td>
+                <td>5.08×</td>
+              </tr>
+              <tr>
+                <td>Sorting 2M numbers</td>
+                <td>247 ms</td>
+                <td>36.7 ms</td>
+                <td>6.73×</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>The ratio climbs with memory density, from about 1.8× to about 6.7×.</li>
+          <li>The more a workload leans on memory bandwidth, the more it slows down.</li>
+          <li>The ratio cannot be extrapolated. Do not use 5× to guess at other code.</li>
+          <li>Five samples spread over ≤3 ms, and the output matched native byte for byte. This is not noise.</li>
+          <li>Both columns include startup cost: process launch on the native side, WASI instantiation in the sandbox.</li>
+          <li>The shorter the run, the more those two constants flatten the ratio.</li>
+          <li>On a different machine, both the absolute times and the ratios change.</li>
+        </ul>
+        <h3>Why doesn't the empty-program comparison count?</h3>
+        <p>The empty-program comparison is an illusion.</p>
+        <p>That 4.4 ms on the native side is all process startup.</p>
+        <p>The 3.0 ms in the sandbox is WASI instantiation.</p>
+        <p>Neither number contains any computation, so comparing them means nothing.</p>
+        <p>For a real comparison, look only at the rows that actually compute.</p>
+
+        <h2 id="import">5. How do I import a problem?</h2>
+        <p>Use the <strong>CC for Web</strong> extension distributed from this site.</p>
+        <ol>
+          <li>Open <strong>Settings</strong> › <strong>Browser extension</strong> and click <strong>Download</strong>.</li>
+          <li>Unzip the downloaded archive.</li>
+          <li>
+            Open <code>chrome://extensions</code> in the address bar and turn on <strong>Developer mode</strong> in the top right.
+          </li>
+          <li>Click <strong>Load unpacked</strong> and select the folder you just unzipped.</li>
+          <li>Back on this site, click <strong>Check again</strong> in that group. The status will show the version.</li>
+          <li>Open any problem page on an online judge and click the extension icon in the browser toolbar.</li>
+        </ol>
+        <ul>
+          <li>The problem lands in <code>/Problems/&lt;year-month&gt;/&lt;OJ&gt;/未分类/</code>.</li>
+          <li>The samples replace the contents of the <strong>Test cases</strong> panel wholesale. No manual copying.</li>
+          <li>The code file holds a single line, <code>// your code here</code>. The solution is yours to write.</li>
+          <li>Difficulty is yours to fill in: right-click the file › <strong>Problem info</strong>.</li>
+          <li>Re-importing the same problem only refreshes the samples and metadata. Not a character of your solution is touched.</li>
+          <li>Problems are identified by <strong>Problem URL</strong>, not by file name.</li>
+          <li>This site has to be open for the extension to deliver anything.</li>
+          <li>The extension is not in any extension store, so this is the only way to install it.</li>
+        </ul>
+
+        <h2 id="judge">6. How are verdicts and the time limit calculated?</h2>
+        <p>One card per test case, holding the input and the expected output.</p>
+        <p>The actual-output field below is read-only, with a copy button in its top right.</p>
+        <p>The blank strip in the middle of a card is the “run this case only” button.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Verdict</th>
+                <th>Meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>AC</code></td>
+                <td>The program finished normally and its output matches the expected output</td>
+              </tr>
+              <tr>
+                <td><code>WA</code></td>
+                <td>The program finished normally and its output differs from the expected output</td>
+              </tr>
+              <tr>
+                <td><code>CE</code></td>
+                <td>Compilation failed</td>
+              </tr>
+              <tr>
+                <td><code>TLE</code></td>
+                <td>The run exceeded the current time limit</td>
+              </tr>
+              <tr>
+                <td><code>RE</code></td>
+                <td>Runtime error — the program exited abnormally</td>
+              </tr>
+              <tr>
+                <td><code>ERR</code></td>
+                <td>An environment problem such as an unreachable judge service. Not a problem with your code</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>After you change your code or the input, the previous verdict is marked <strong>Result stale</strong>.</p>
+
+        <h3>What exactly do the time limit and the elapsed time measure?</h3>
+        <ul>
+          <li>The run phase only — not compilation, not queueing.</li>
+          <li>The run phase includes a fixed sandbox startup cost of a few milliseconds.</li>
+          <li>The card timing measures the same thing. No timing is shown if the program never got to run.</li>
+          <li>The panel header shows the <strong>slowest</strong> case of the current run.</li>
+          <li>
+            Default: 1 second. To change it: <strong>Settings</strong> › <strong>Judge</strong> › <strong>Time limit</strong>
+            — 1 / 2 / 5 / 10 seconds.
+          </li>
+          <li>A time limit stored on the problem takes priority: right-click the file › <strong>Problem info</strong> › <strong>Time limit (s)</strong>.</li>
+          <li>Python gets an extra 0.5 s of startup allowance, so a TLE can arrive up to half a second late.</li>
+        </ul>
+
+        <h2 id="files">7. How do I use the file tree?</h2>
+        <ol>
+          <li>The header has two buttons: <strong>New file</strong> and <strong>New folder</strong>.</li>
+          <li>The new entry goes into whichever node is currently focused in the tree.</li>
+          <li>To place it somewhere specific: right-click that folder › <strong>New file</strong> / <strong>New folder</strong>.</li>
+          <li>Type a name and press Enter. Only the stem is selected, so you do not have to retype the extension.</li>
+        </ol>
+        <p>Right-clicking a file also offers <strong>Rename</strong> and <strong>Delete</strong>.</p>
+        <h3>What goes into Problem info?</h3>
+        <ul>
+          <li>Five fields: <strong>Problem URL</strong>, <strong>Judge</strong>, <strong>Difficulty</strong>, <strong>Date</strong> and <strong>Time limit (s)</strong>.</li>
+          <li>Difficulty follows the judge — the two scales are not interchangeable.</li>
+          <li>Codeforces and AtCoder use the 800–3500 rating band.</li>
+          <li>Luogu uses its eight official levels.</li>
+          <li>NowCoder, LeetCode and Other take free text.</li>
+          <li>Changing the judge clears the difficulty, so a mismatched value cannot linger.</li>
+        </ul>
+        <p>The workspace ships with two folders: <code>/Problems</code> and <code>/Contest</code>.</p>
+        <p>
+          Problem metadata lives in the hidden <code>.cph</code> folder, which the tree never shows.
+          The importing extension creates the <code>未分类</code> folder under its Chinese name in either interface language.
+        </p>
+
+        <h2 id="keys">8. What shortcuts are there?</h2>
+        <p>On macOS <kbd>Mod</kbd> is <kbd>⌘</kbd>; on every other platform it is <kbd>Ctrl</kbd>.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Default combination</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Run all test cases</td>
+                <td><kbd>Mod</kbd> + <kbd>Enter</kbd></td>
+              </tr>
+              <tr>
+                <td>Show / hide the sidebar</td>
+                <td><kbd>Mod</kbd> + <kbd>B</kbd></td>
+              </tr>
+              <tr>
+                <td>Switch sidebar panel</td>
+                <td><kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd></td>
+              </tr>
+              <tr>
+                <td>Swap the sidebar side</td>
+                <td><kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd></td>
+              </tr>
+              <tr>
+                <td>Add a test case</td>
+                <td><kbd>Mod</kbd> + <kbd>Alt</kbd> + <kbd>Enter</kbd></td>
+              </tr>
+              <tr>
+                <td>Open / close settings</td>
+                <td><kbd>Mod</kbd> + <kbd>,</kbd></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>These also fire while the editor has focus, and they win over the editor's own bindings.</li>
+          <li>
+            To rebind: <strong>Settings</strong> › <strong>Shortcuts</strong>, click the field on the right, then press the new combination.
+          </li>
+          <li>Press <kbd>Delete</kbd> to clear a binding, <kbd>Esc</kbd> to cancel recording.</li>
+          <li>A combination that clashes with a browser shortcut is rejected, with the reason given.</li>
+          <li><strong>Restore defaults</strong> puts the whole table above back.</li>
+          <li>Once you change them, the run hint in the editor's status bar follows.</li>
+        </ul>
+
+        <h2 id="ui">9. How do I tweak the interface?</h2>
+        <ol>
+          <li>Switch panels: click the <strong>pill switch</strong> on the left of the sidebar header.</li>
+          <li>Toggle the settings tab: click the <strong>gear</strong> in that header.</li>
+          <li>Collapse the sidebar: double-click the divider between the two columns.</li>
+          <li>You can also drag the divider to the edge; drag it back out to expand again.</li>
+          <li>Move it to the other side: <strong>Settings</strong> › <strong>Appearance</strong> › <strong>Sidebar position</strong>.</li>
+          <li>Scale the interface: <strong>Settings</strong> › <strong>Appearance</strong> › <strong>Interface scale</strong> — 110% by default.</li>
+          <li>Change the colours: <strong>Settings</strong> › <strong>Appearance</strong> › <strong>Theme</strong> — dark / light.</li>
+        </ol>
+        <p>Collapsing only hides the sidebar. Neither the test cases nor the expanded folders are lost.</p>
+        <p>Keyboard: focus the divider with <kbd>Tab</kbd>, then nudge the width with <kbd>←</kbd> / <kbd>→</kbd>.</p>
+        <p>On touch screens the divider's hit area widens on its own, which makes it easier to grab.</p>
+        <p>It only collapses at the very edge and only expands 60px away from it — the two thresholds are deliberately staggered.</p>
+
+        <h2 id="install">10. How do I install it and use it offline?</h2>
+        <ol>
+          <li>Open <strong>Settings</strong> › <strong>App</strong>.</li>
+          <li>The <strong>Install</strong> button only lights up once the browser considers the site installable.</li>
+          <li>Click <strong>Install</strong> and confirm the prompt.</li>
+          <li>After that, opening it from the desktop or home-screen icon gives you a standalone window with no address bar.</li>
+        </ol>
+        <ul>
+          <li>Once it is installed the button reads <strong>Installed</strong> and the prompt stops appearing.</li>
+          <li>Safari on iPhone / iPad has no such button — use Share → Add to Home Screen instead.</li>
+          <li>Toolchains are cached on demand: a language only runs offline once you have used it at least once.</li>
+          <li>Offline, the editor, the test cases and the local sandbox keep working. Only Piston and Judge0 stop.</li>
+        </ul>
+
+        <h2 id="faq">11. Common questions</h2>
+        <h3>Does my code get uploaded to a server?</h3>
+        <p>With the local sandbox, no. Your code never leaves this device.</p>
+        <p>Switch to Piston or Judge0 and your code is sent to the URL you entered.</p>
+
+        <h3>Do I need to be online?</h3>
+        <p>Only the first time, to download the runtime — about 50MB.</p>
+        <p>After that it stays in the cache and works with no network.</p>
+        <p>Clear your browser data and you will have to download it again.</p>
+
+        <h3>Which languages are supported?</h3>
+        <p>The local sandbox supports C++ and Python 3.</p>
+        <p>For anything else, switch to Piston or Judge0.</p>
+        <p>What you get depends on the service you connect to.</p>
+
+        <h3>Why is the first run so much slower?</h3>
+        <p>The runtime is downloaded on the first run.</p>
+        <p>After that, the first case of every new piece of code pays the compilation cost once.</p>
+        <p>Running several cases against the same code compiles it only once.</p>
+        <p>A precompiled STL header is built in the background during idle time and never blocks you.</p>
+        <p>It covers only the 5 most common standard library headers. A failure to build it does not affect normal compilation.</p>
+
+        <h3>Why doesn't the timing match other judges?</h3>
+        <p>The timing here covers the run phase only, excluding compilation and queueing.</p>
+        <p>So the numbers come out smaller than on platforms that report total time.</p>
+        <p>Different engines and different machines are not directly comparable either.</p>
+
+        <h3>Where is my data stored?</h3>
+        <p>Preferences, drafts, test cases and the column split live in localStorage.</p>
+        <p>The file tree and the file contents live in IndexedDB.</p>
+        <p>The precompiled header lives in IndexedDB too.</p>
+        <p>All of it is confined to this browser on this device. Clearing your browser data clears it as well.</p>
+
+        <h3>What if the extension cannot grab the problem?</h3>
+        <p>First make sure this site is open in a tab.</p>
+        <p>Then check whether <strong>Browser extension</strong> shows a version number.</p>
+        <p>If it does not, click <strong>Check again</strong>; if that still fails, reload this page.</p>
+        <p>A reloaded extension loses touch with a page that has not been refreshed since.</p>
+
+        <h2 id="credits">12. Credits and open-source licences</h2>
+        <p>Thanks to the authors and maintainers of the projects below.</p>
+        <p>The only things written for this site are the interface, the interactions and the judging logic.</p>
+        <p style="cursor: text;">
+          Full licence documentation (with the version, licence and placement of every component):
+          <a href="/notice.html">Third-party open-source components and licences</a>.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Licence</th>
+                <th>What it does here</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Vue</td>
+                <td>MIT</td>
+                <td>The interface framework</td>
+              </tr>
+              <tr>
+                <td>Monaco Editor (Microsoft; the editor core of VS Code)</td>
+                <td>MIT</td>
+                <td>The code editor; bundled alongside it are marked (MIT) and DOMPurify (dual-licensed MPL-2.0 or Apache-2.0)</td>
+              </tr>
+              <tr>
+                <td>runno (<code>@runno/wasi</code>)</td>
+                <td>MIT</td>
+                <td>The WASI runtime behind the local sandbox: starts the instance, feeds it input, and interrupts it on a timeout (TLE)</td>
+              </tr>
+              <tr>
+                <td>LLVM / clang and lld</td>
+                <td>Apache-2.0 WITH LLVM-exception</td>
+                <td>The compiler and linker that build C++ locally (wasm build, 8.0.1)</td>
+              </tr>
+              <tr>
+                <td>wasi-libc</td>
+                <td>Apache-2.0 WITH LLVM-exception</td>
+                <td>The C standard library and startup code for that clang</td>
+              </tr>
+              <tr>
+                <td>libc++ / libc++abi</td>
+                <td>MIT</td>
+                <td>The C++ standard library (<code>&lt;vector&gt;</code>, <code>&lt;string&gt;</code> and friends)</td>
+              </tr>
+              <tr>
+                <td>compiler-rt</td>
+                <td>Apache-2.0 WITH LLVM-exception</td>
+                <td>The built-in functions in the compiler's runtime</td>
+              </tr>
+              <tr>
+                <td>CPython</td>
+                <td>PSF License</td>
+                <td>Runs Python 3.11 locally (wasm build)</td>
+              </tr>
+              <tr>
+                <td>seti-ui</td>
+                <td>MIT</td>
+                <td>The C++ icon in the file tree</td>
+              </tr>
+              <tr>
+                <td>Competitive Companion</td>
+                <td>MIT</td>
+                <td>The upstream project of the CC for Web extension (this site uses a fork)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>The interface uses only the system fonts on your device — no self-hosted or third-party web fonts.</li>
+          <li>The app icon and the share image are made for this site.</li>
+          <li>
+            The C++ toolchain and the Python interpreter in the table above are <strong>upstream prebuilt artefacts</strong>
+            (from binji's wasm-clang and the official CPython builds respectively, distributed through runno's project).
+            This site only serves them from its own server and has not modified them.
+          </li>
+          <li>
+            Piston (MIT) and Judge0 (GPL-3.0) are external judge services this site <strong>talks to</strong>. Their code is not
+            part of this site, and you have to deploy the server yourself. The service URL you enter decides where your code is sent.
+          </li>
+          <li>
+            The complete list is on the <a href="/notice.html">Third-party open-source components and licences</a> page (generated
+            from <code>NOTICE.md</code> in the repository root), with the version, licence and placement of every component.
+          </li>
+          <li>To reuse the toolchains, icons or code from here somewhere else, follow the licence terms of the corresponding upstream projects above.</li>
+        </ul>
+      </main>
+
+      <footer class="page__foot">
+        <a class="cta" href="/">Open unnamed</a>
+        <p>This page and the <strong>Help</strong> category in the settings tab share one source.</p>
+        <p>An online IDE that compiles and runs C++ and Python in your browser.</p>
+      </footer>
+    </div>
+  </body>
+</html>

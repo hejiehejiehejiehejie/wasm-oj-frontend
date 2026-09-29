@@ -23,6 +23,9 @@ npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# 协作工具的工作目录（交接笔记 / 每日日志），是本地资料不是站点内容，别跟着产物一起发出去
+.workbuddy/
+
 # 编辑器与系统
 .DS_Store
 .idea/

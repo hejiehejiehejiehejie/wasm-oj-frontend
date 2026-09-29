@@ -1,3 +1,5 @@
+import { t } from '../../i18n/index.js'
+
 /**
  * VFS 的 POSIX 路径工具。
  *
@@ -13,7 +15,7 @@
  */
 export function normalize(path) {
   const text = String(path ?? '')
-  if (!text.startsWith('/')) throw new Error(`VFS 只支持绝对路径：${path}`)
+  if (!text.startsWith('/')) throw new Error(t('error.pathNotAbsolute', { path }))
   const segments = []
   for (const part of text.split('/')) {
     if (!part || part === '.') continue
@@ -106,10 +108,10 @@ export function splitPath(path) {
  */
 export function assertName(name) {
   const text = String(name ?? '')
-  if (!text) throw new Error('名称不能为空')
-  if (text === '.' || text === '..') throw new Error('非法名称')
-  if (text.includes('/')) throw new Error('名称不能包含 “/”')
-  if (text.includes('\0')) throw new Error('名称不能包含空字符')
+  if (!text) throw new Error(t('error.nameEmpty'))
+  if (text === '.' || text === '..') throw new Error(t('error.nameInvalid'))
+  if (text.includes('/')) throw new Error(t('error.nameHasSlash'))
+  if (text.includes('\0')) throw new Error(t('error.nameHasNull'))
   return text
 }
 

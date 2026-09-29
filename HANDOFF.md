@@ -1,4 +1,4 @@
-# CPH IDE · 交接文档
+# unnamed · 交接文档
 
 面向「接下来要改前端样式」的接手人。当前代码**已跑通并上线**：本地 WASM 沙箱能编译运行 C++、也能解释运行 Python（含多文件 import）、判题（含 TLE）、主题与布局都能用；前端已推到 GitHub 并由 Vercel 托管（见第 10 节）；也能作为 PWA 装到设备上独立窗口运行、断网可用（见第 9 节）；还能配合改造版浏览器插件**一键抓题**（题目直接落进工作区、样例自动填进评测面板，见第 13 节）。
 
@@ -8,21 +8,23 @@
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
 - 其他命令：`npm run verify` 跑无头回归（**B–G 应当是绿的**，A 步有一条已知竞态，见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
-- 两个 HTML 入口：`index.html`（主应用）与 `guide.html`（使用指南，给搜索引擎抓取的静态长文）。改文案 / 样式时**两页连同 docs/使用手册.md、HelpPanel.vue 一共四处要一起看**（见第 12 节）。
+- 三个 HTML 入口：`index.html`（主应用）与 `guide.html` / `guide.en.html`（使用指南的**中文版与英文版**，给搜索引擎抓取的静态长文，两版共用 `src/styles/guide.css`）。改文案 / 样式时，`guide.html` 与 `guide.en.html` **两版必须同时改**，再加 `src/i18n/messages/help.js`（应用内「设置 → 帮助」那份内容）、`docs/使用手册.md`、`index.html` 的 `<noscript>`，一共五处要一起看（见第 12 节）。
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`（难度导入时为空，先落「未分类」），并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`）。详见第 13 节。
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
+- **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cph.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 8 项：VFS 优化 / 题目时限接入 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 右键打开题目链接 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 7 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 右键打开题目链接 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。
+- **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**别顺手改另外两样**：① `cph.*` 开头的 localStorage 键名；② `.cph/` 隐藏在题库目录名与 `cph-vfs` / `cph-pch` 的 IndexedDB 库名 —— 都是持久化契约，改了等于把用户的偏好与题解全丢掉。**能改的只有主题 id**（`dark` / `light`，同日已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cph-ide` 是 npm 标识、与展示无关，未动。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
 | 约束 | 说明 |
 | --- | --- |
-| 只有两套主题 | `cph-dark`（默认）/ `cph-light`，主题 id 同时用于 Monaco 自定义主题名 |
+| 只有两套主题 | 主题 id 是 `dark`（默认）/ `light`（2026-09-29 去掉 `cph-` 前缀）。这一个串**有四处身份**：Monaco 自定义主题名（`src/monaco-setup.js`）、`<html data-theme>` 的值（`base.css` 的选择器）、`services/editorOptions.js` 里 `THEMES` 的 id 与默认值、以及**存档里 `theme` 字段的取值**（`guide.html` 的首帧内联脚本也读它）。改它必须四处同步 + 抬一次 `EDITOR_SETTINGS_VERSION` 做迁移，见第 6 节 |
 | 颜色只走 CSS 变量 | 组件里**不许**出现写死的十六进制颜色；所有色值定义在 `src/styles/base.css` |
-| 新增变量必须定义两遍 | `:root` 和 `:root[data-theme='cph-light']` 都要给值，否则浅色主题下会串色 |
+| 新增变量必须定义两遍 | `:root` 和 `:root[data-theme='light']` 都要给值，否则浅色主题下会串色 |
 | 禁止第三方 UI 库 | 抽屉 / 弹层 / 下拉全部原生 CSS + Vue + `Teleport` |
 | 侧边栏页头的图标不许溢出 | 页头左侧是一枚**面板胶囊开关**（两段，共 60px）+ 一颗独立的设置钮（26px）+ 4px 间距 = 90px，渲染在**两个面板各自的页头**里；最窄的面板下限是 158px（320px 视口），实测仍留 64px 给右侧的动作按钮（新建文件 / 文件夹）。**别给图标加文字、别加大 `gap`、别加第三段/第三颗**——页头没有折行兜底（`FileExplorer` 的 `.explorer__head` 是固定 `height: 35px`），撑不下就直接溢出。整枚胶囊是一颗 toggle 按钮（点它任意位置都翻到另一个面板），里面的两段是纯视觉指示——**别把点击下放回某一段**，那会在胶囊里留出点不动的边 |
 | 运行入口只剩两处 | 编辑器页签栏右端那颗「运行 / 停止」按钮已于 **2026-09-28 删除**（它当时是侧栏收起后唯一的点击入口）。现在只剩：全局快捷键 `Mod+Enter`（捕获阶段监听，见坑 21）、评测样例面板页脚那颗 ▶。两个入口都并到 `App.vue` 的 `runAll()`，跑之前都会 `revealTestsPanel()` 把侧栏亮出来（见第 3 节「开跑必亮结果」）。**别再往页签栏加运行按钮**：`.editor-tabs` 现在只有 `.editor-tabs__strip` 一个子元素、`flex: 1 1 auto` 铺满整行 |
@@ -40,32 +42,39 @@
 | 录制快捷键时全局监听必须让路 | 开录时置 `recordingActive = true`（录制框自己的监听在按钮的目标阶段，捕获永远先跑），否则按下新组合键的瞬间功能会先被执行一遍 |
 | 禁止引第三方快捷键库 | 规范化只需要「读 `event.code` + 四个修饰键」，`useShortcutManager.js` 里一个纯函数就够（Mousetrap 之类一律不引） |
 | px / rem 的边界纪律 | CSS 里写 `px`，构建时由 `postcss-pxtorem` 统一转 `rem`（配置在 `vite.config.js` 的 `css.postcss`），全局缩放只改根字号。但**转换只发生在 CSS 声明值上**：JS 内联样式、JS 常量、`@media` / `@container` 断点参数都不受影响（见第 5 节坑 24）。三条判据：① 物理尺寸（鼠标坐标 / DOM 原生测量 / 手势阈值）永远保持 `px`；② 逻辑尺寸里，喂给 Monaco 的 `fontSize / lineHeight / scrollbarSize / padding`、以及 JS 写死的容器上限必须自己乘 `scale`（见 `composables/useUiScale.js` 的 `px()`）；③ 被 JS `parseFloat` 读的 CSS 变量（`--tests-min-*`）必须在 `propList` 排除名单里留在 px 坐标系，**不要**在 JS 里对 parseFloat 结果做 rem 反向换算——代价是它们吃不到 rem 的自动缩放，所以这类「以物理 px 存放、但语义上是逻辑尺寸」的值要在**使用处**乘一次缩放倍数（JS 用 `uiScale.value`，CSS 用 `--ui-scale`），见第 5 节坑 24 |
+| 界面文案不许写死 | 组件、composable、service 里**一律不许出现中文字面量**（现在只剩注释里有中文）。模板与 computed 里写 `t('域.组.键')`，整棵内容树（应用内帮助）走 `messages('help')`。加新文案 = 在 `src/i18n/messages/<域>.js` 里**中英两栏同时补**（同一文件里并排），缺哪一栏会静默退到中文。唯一例外是**写进文件系统的名字**（见下一条）与 `[unnamed]` 这类控制台前缀（见第 5 节坑 28 第 5 条） |
+| 数据表只存 key，不存译文 | `EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` 都只存 `labelKey` / `hintKey` / `titleKey`（可带 `labelParams`），由消费处再 `t()`。**在模块顶层或 `<script setup>` 顶层调 `t()` 会冻结成那一刻的语言**——切语言不跟着变，是最容易漏的一类（第 5 节坑 28 第 1 条） |
+| 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cph.*` 键名、`.cph/` 目录名、IndexedDB 库名、主题 id 都不随语言变 |
 
 ## 2. 与界面相关的文件
 
 ```
 index.html                      # 主应用入口：挂载点 + PWA（manifest / apple-touch-icon / theme-color，见第 9 节）+ 一整套 SEO 头（canonical / og / ld+json）+ 服务无脚本抓取器的 noscript 兜底正文（见第 12 节；那块正文**是给搜索引擎看的文案**，改界面能力时别忘了它）
 guide.html                      # 第二个 Vite 入口：使用指南长文（静态、无 Vue、无 JS），给搜索引擎直接抓取；样式在 src/styles/guide.css（见第 12 节）
-vite.config.js                  # 两个 rollup 入口（index / guide）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
+guide.en.html                   # 第三个 Vite 入口：上面那页的**英文版**，逐条对应（同为 12 节、同序、同数字），共用同一份 guide.css；两页用 hreflang 互链 + 页头各有一颗语言切换链接。**内容改了必须两版一起改**（见第 12 节）
+vite.config.js                  # 四个 rollup 入口（index / guide / guideEn / notice）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头 + sitemap.xml 的 MIME（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
 public/sw.js                    # Service Worker：预缓存外壳（工具链不预缓存、改为按需落缓存），导航网络优先（见第 9 节）
 public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
 public/favicon.svg              # 站点图标（唯一进 STATIC_ASSETS 的 svg）
-public/og-cover.png             # 社交分享大图 1200×630（被 index.html / guide.html 的 og:image 引用）
+public/og-cover.png             # 社交分享大图 1200×630（被 index.html / guide.html / guide.en.html 的 og:image 引用）
 public/extension/               # 站内分发的浏览器扩展安装包：cc-for-web-<版本>.zip（文件名带版本号是刻意的，见第 1 节与第 13 节）
 public/robots.txt               # 抓取规则 + 指向 sitemap
-public/sitemap.xml              # 站点地图（两个入口：/ 与 /guide.html）
+public/sitemap.xml              # 站点地图（三条 URL：/ 与 guide 的中英两版，两版之间用 xhtml:link hreflang 互指）
 public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
 scripts/verify-ui.mjs           # 无头回归脚本（B–G 应当是绿的，A 是已知竞态，见第 8 节；B 步走的是「设置页签」）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
-docs/使用手册.md                # 面向新用户的说明：目前只回答「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」，与 HelpPanel.vue 内容同源（**精简版**；完整版是 guide.html）
+NOTICE.md                       # 第三方开源组件清单（致谢 + 许可声明）：一、随产物分发的 npm 运行时依赖（Vue / Monaco / @runno/wasi，含 Monaco 带来的 marked 与 DOMPurify）；二、public/wasm/ 下自托管的上游预编译产物（LLVM clang + lld 8.0.1 / wasi-libc / libc++ / compiler-rt / CPython 3.11.3）；三、图标与字体（字体全是系统字体）；四、扩展 CC for Web 及其打包的库；五、构建期工具；六、外部评测服务（Piston / Judge0，本仓不含其代码）。**改 package.json / 换 public/wasm/ 的目录 / 换 public/extension/ 的包，三件事任一发生都要回来同步**，版本号要实机核（文件末尾附了核对命令）；面向用户的精简版是两版 guide 的「致谢与开源许可」一节（现落在第 12 节；见第 12 节）
+docs/使用手册.md                # 面向新用户的说明：目前只回答「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」，与 src/i18n/messages/help.js 内容同源（**精简版**，且只有中文；完整版是 guide.html / guide.en.html）
 src/
   main.js                       # 挂载 + 生产构建里注册 Service Worker
-  monaco-setup.js               # Monaco 的 cph-dark / cph-light 两套自定义主题
+  monaco-setup.js               # Monaco 的 dark / light 两套自定义主题
+  i18n/index.js                 # ★ 界面双语的唯一权威：locale（模块级 ref 单例）/ setLocale / t(key, params) / useI18n() / messages(域) + LOCALES（id 与**自称**标签）/ DEFAULT_LOCALE / LOCALE_STORAGE_KEY。**刻意不走 usePersistentRef**——界面语言必须在任何组件挂载之前就定下来（首帧不能先闪中文），所以自己同步读写 localStorage、初值在第 0 帧算好；`applyLocale()` 同时维护 `<html lang>`。缺词条先退中文、再原样露出 key
+  i18n/messages/{app,engines,explorer,help,settings,tests}.js  # 六个域的词条表：**同一文件里中英两栏并排**，改一处就看得见另一处（help.js 整棵是「应用内帮助」的正文内容树，走 messages('help') 整棵取，不是逐条 t()）
   styles/base.css               # ★ 所有 CSS 变量 + 全局元素样式，改配色只改这里
-  styles/guide.css              # 使用指南页（guide.html）的样式：**`@import './base.css'` 后再加长文排版**，两套主题的配色 / 字体 / 滚动条仍来自 base.css，这里一律 `var(--…)` 引用、不写十六进制（见第 12 节）。唯一要小心的：base.css 是为「满屏 IDE」写的（`html/body` 高度 100%、body 锁死滚动），内容页必须把那两条放开，否则长页滚不动
+  styles/guide.css              # 使用指南页（guide.html 与 guide.en.html 共用）的样式：**`@import './base.css'` 后再加长文排版**，两套主题的配色 / 字体 / 滚动条仍来自 base.css，这里一律 `var(--…)` 引用、不写十六进制（见第 12 节）。唯一要小心的：base.css 是为「满屏 IDE」写的（`html/body` 高度 100%、body 锁死滚动），内容页必须把那两条放开，否则长页滚不动
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态；另外挂两件全局事：window 捕获阶段的 keydown（快捷键，`SHORTCUT_HANDLERS` 把动作 id 接上真函数）与 `useCompanionImport()`（接扩展投来的题目）
   composables/usePersistentRef.js
   composables/useUiScale.js       # ★ 全局界面缩放的唯一权威：uiScale 单例 + 档位表 UI_SCALE_OPTIONS + px()（设计 px → 真实 px）+ applyUiScale()（落根字号）+ normalizeUiScale()（读盘校验）。三条边界见文件头与第 5 节坑 24
@@ -80,7 +89,7 @@ src/
     EditorTabs.vue              # 编辑器标签栏：只有一条 `strip`（文件页签 + 「设置」合成页签，横向滚动）。右端那颗「运行 / 停止」按钮已于 2026-09-28 删除（运行入口见第 1 节硬约束表）
     EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 外观 / 编辑器 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 21 行）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
-    HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）
+    HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）。**体例（2026-09-29 定）**：`GROUPS` 是「分组 → 条目」两层，每条 = `name`（**必须是疑问句**，它就是小标题）/ `role`（一句话答案）/ `steps`（操作步骤，渲染成 `<ol>` 1. 2. 3.）/ `notes`（要点与口径，渲染成圆点）/ 可选 `table`（判定码、性能实测这类多列短值）；正文里用 `**…**` 标出界面上的按钮名与页面名，`segments()` 负责拆成加粗片段（**不走 `v-html`**：文案里会出现 `<vector>` 这类头文件名，交给 HTML 解析会被当标签吃掉）
     Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cph.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
     SidebarSwitcher.vue         # 侧栏页头里的两组入口（2026-09 加）：面板胶囊开关 + 设置。不再独占一行页签栏，而是渲染进两个面板各自的页头里（同一时刻只有一个面板可见，视觉上只有一份）；只画 logo 不写字，名字在 `title` / `aria-label`；状态从 Sidebar 的 provide 取（`panels` / `targetPanel` / `togglePanel` / `settings` / `toggleSettings`），自己不存状态。面板那枚：`.sidebar-switcher__pill` **本身是一颗 `<button>`**（点任意位置 toggle，高度 26 / 13px 圆角 / 底色 `--bg-control`），里面 `v-for` 出两段 `<span class="sidebar-switcher__seg">` 作纯视觉指示（28×22、11px 圆角，当前段 `.is-active` 填 `--accent` + `--text-on-accent`，并打 `data-panel` 与 `data-current`）。设置那颗 `gear`（开关编辑区里的设置页签，`settingsTab`，不落盘）在轨道外，是独立的圆形按钮。切换时选中段播一次滑动动画（见第 4 节类名表与第 5 节坑 5c），只在 `[data-switched]` 下放
     FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随树内聚焦的节点，右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）
@@ -88,14 +97,14 @@ src/
     FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）；目录展开时还会在 `role="group"` 内、递归 `v-for` 之前渲染一份 InlineCreateRow（见第 5 节坑 12）
     ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前只有文件树在用（文件节点给「题目信息 / 重命名 / 删除」，目录节点给「新建文件 / 新建文件夹 / 重命名 / 删除」、不给「题目信息」）
     TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头左侧是 SidebarSwitcher、右侧是 verdict（「全部 AC / n/m AC」）与耗时 + 用例列表 + 页脚运行按钮
-    TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块
+    TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时也要提示**，两种成因共用底边虚线；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「已省略 N 个字符」说明**（它时有时无的两条原因见第 5 节坑 26）
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加，见 14.8）同表
   services/                     # 判题逻辑，改样式基本不碰
     runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
     compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
     templates.js                # 各语言默认模板
     editorOptions.js            # 编辑器偏好的单一出处：默认值 23 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24
-    problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()（见第 5 节坑 17）
+    problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()。meta **五项**：url / oj / difficulty / date / **timeLimit**（毫秒，100–60000，0 = 未设置；判题时优先于全局档位，见 14.3 与第 5 节坑 17）
     engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
     wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
     runnoSandbox.js             # runno 双管线：C++ 编译（工具链地址、编译产物缓存、PCH 生成）+ Python 解释运行
@@ -189,7 +198,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 50% 的来历：面板与编辑器在窄屏各占一半，两边都还放得下；320px 要到工作区内容宽 ≈640px 才够，所以 **≥652px 的视口行为与改版前完全一致**，桌面端零影响。
 - 160px 是实测硬底：面板固定到 160px 时面板与卡片都无横向溢出（到 150px 时 `.card__head` 才开始超 5px）。320px 视口正好卡在地板上。
 - 拖拽路径也同步：`measureLimits()` 的 `maxShare` 读同一组值，所以「一直往右拖」停在面板下限上（375px 下编辑器 167 / 面板 190，触屏因热区 24px 再让 18px），再往外才是折叠。
-- 面板头必须能**折行**（`TestPanel.vue` 的 `.panel__head` 加了 `flex-wrap: wrap` + `row-gap`，`.limit` 加 `margin-left: auto`）：标题 + 徽标 + 耗时 + 时限一行要约 250px，挤不下时若不换行，`.verdict`（`white-space: nowrap`）会溢出自己的盒子、直接压在时限选择器上（实测面板 160px 时压过去 82px，面板 320px 带上耗时时也会压过去 ~33px）。折行后时限整组落到第二行并仍贴右，一行放得下时与改版前逐像素一致。
+- 面板头必须能**折行**（`TestPanel.vue` 的 `.panel__head` 加了 `flex-wrap: wrap` + `row-gap`，`.panel__heading` 加 `margin-left: auto`）：不折行时 `.verdict`（`white-space: nowrap`）会溢出自己的盒子、直接压到左边的胶囊上。**2026-09-29 复核**：页头现在只有「侧栏胶囊 + verdict + 耗时」三项；下面这两个数字是**还含时限下拉**时的实测（面板 160px 时压过去 82px、面板 320px 带上耗时压过去 ~33px），时限当天已搬进设置视图的「评测」组，所以它们只能当**历史上限**看——改页头时按当前 DOM 重新量一次。
 - 已知窄极限（2026-09-18 收紧过一次，**改完未逐档复测**，动卡片头部后按第 8 节重量）：头部那句失败提示（「输出多 N 行」「编译失败」）已删除；跑完卡片的徽标改成两字母判定码 AC/WA/CE/TLE/RE/ERR（不再竖排，未跑的「待运行」在 320px 档仍可能竖排）；`.card__title` / `.badge` / `.metric` 都加了 `flex: 0 0 auto; white-space: nowrap`，耗时不再折成两行。面板 ≤174px 且**跑过一轮**时，耗时文字仍可能被卡片横向裁掉几个字符（旧实测约 32px）；想要更干净就上容器查询（`container-type: inline-size` + `@container`）按面板宽度摘掉耗时或标题。
 
 ### 触摸屏的键盘适配（2026-09-18 加）
@@ -238,7 +247,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 ## 4. 主题与 CSS 变量
 
 - 主题落在 `<html data-theme="...">` 上（`App.vue:79` 的 watch），由 `base.css` 的变量接管；不带 `data-theme` 时即深色。
-- Monaco 侧用同一批 id 的自定义主题（`src/monaco-setup.js`），`cph-light` 的底色要和 `--bg-panel` 对齐，否则编辑区和面板会出现两块不同的白。
+- Monaco 侧用同一批 id 的自定义主题（`src/monaco-setup.js`），`light` 的底色要和 `--bg-panel` 对齐，否则编辑区和面板会出现两块不同的白。
 - 变量分组（`src/styles/base.css`）：
 
 | 分组 | 变量 |
@@ -264,9 +273,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | （原 `TopBar.vue`） | **已删除**（2026-09-28）：`.topbar` / `.brand*` / `.tool` / `.primary` / `.popover--menu` / `.menu__item--*` 和三档响应式断点整块没了。对应的三处去处见第 3 节「无顶栏后的两条宽度线」 |
 | `Sidebar.vue`（style@72） | `.sidebar`（column）`.sidebar__body` `.sidebar__panel`（`flex: 1 1 auto; min-height: 0`）。**面板内部的滚动归各面板自己**，这里只保证「不限高、不撑破外层」。原 `.sidebar__tabs` / `.sidebar__tab`（独占一行的页签栏）已在 2026-09 删除，改成下面那套 |
 | `SidebarSwitcher.vue`（style@40） | `.sidebar-switcher`（`inline-flex; gap: 4px`，高 26px，`flex: 0 0 auto`）`.sidebar-switcher__pill`（**本身是 `<button>`**：胶囊轨道 + 那颗 toggle，`padding: 2px`、`border-radius: 13px`、底色 `--bg-control`，hover 提亮到 `--bg-control-hover`）`.sidebar-switcher__seg`（胶囊里的两段，`<span>` 纯视觉、不接点击也没 `tabindex`，28×22 / `border-radius: 11px`，带 `data-panel` 与 `data-current`；段自己是 `position: relative; isolation: isolate`，**只放图标**）与它的 `::before`（**蓝色高亮本体**：`inset: 0` + `border-radius: 11px` + `--accent`，`z-index: -1` 所以压在图标下面、又靠 `isolation` 不会钻到轨道背景后面；默认 `opacity: 0`，`.is-active::before` 才 `opacity: 1`）——两层是给动画拆的，见下）`.sidebar-switcher__tab`（胶囊**外**那颗设置钮，26×26 圆形；`.is-active` 同样填 `--accent`——**不能**退回 `--bg-hover`，那色与隔壁轨道 `--bg-control` 几乎同色，实测两个控件会糊成一块）。只画 logo 不写字，名字放 `title` / `aria-label`（胶囊那颗写「将要去的那一个」）。切换动画**拆成两层、分别挂在不同选择器上**：位移只挂在选中段的 `::before` 上（`sidebar-indicator-from-left` / `sidebar-indicator-from-right`，260ms，house 缓动 `cubic-bezier(0.22, 0.61, 0.36, 1)`，起点是一段宽 `var(--seg-w)`，与段的宽高同源、只在上面的 `--seg-w` 写一次），**段自己不参与 transform，图标因此钉在原格不动**；段的 `color` 另走 `sidebar-icon-light-up`（200ms + 90ms `delay` + `backwards`，只碰颜色不碰位移）——高亮先滑到位、图标随后在原地点亮。四条规则都只挂在 `.sidebar-switcher__pill[data-switched]` 下，首屏不放（见第 5 节坑 5c）。断言时先落到当前可见的那个 `.sidebar__panel` 里，再认 `aria-label` / `data-current` / `data-panel`（`textContent` 都是空的） |
-| `TestPanel.vue`（style@93） | `.panel`（`flex: 1 1 auto; min-height: 0`，不再写 `height: 100%`）`.panel__head`（`min-height: 35px` + 上下 4px 内边距，左侧放 `SidebarSwitcher`，`flex-wrap: wrap`）`.panel__heading`（`margin-left: auto`，折行后仍贴右）`.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.select` `.panel__foot` `.run-inline` |
+| `TestPanel.vue`（style@93） | `.panel`（`flex: 1 1 auto; min-height: 0`，不再写 `height: 100%`）`.panel__head`（`min-height: 35px` + 上下 4px 内边距，左侧放 `SidebarSwitcher`，`flex-wrap: wrap`）`.panel__heading`（`margin-left: auto`，折行后仍贴右）`.verdict[data-tone]`（文案「全部 AC / n/m AC」）`.elapsed` `.panel__foot` `.run-inline`。**`.select` 已随时限下拉一起移出**（2026-09-29）：时限改在设置视图的「评测」组里，页头不再有下拉 |
 | `FileExplorer.vue`（style@330） | `.explorer`（column，`flex: 1 1 auto`）`.explorer__head`（`height: 35px`，左侧放 `SidebarSwitcher`、右上角两颗按钮；两边加起来离面板下限还远，所以**不折行**）`.explorer__actions`（`flex: 0 0 auto`）`.explorer__btn` `.explorer__tree` `.explorer__input` `.explorer__error`；删除确认弹窗（Teleport 到 body，`z-index: 130`）：`.confirm`（遮罩）`.confirm__card` `.confirm__title` `.confirm__desc` `.confirm__path` `.confirm__actions` `.confirm__btn`（`--danger` 用 `--danger-bg` / `--danger-bg-hover` / `--danger-text`） |
-| `TestCaseCard.vue`（style@202） | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。旧的 `.hint` 已随 2026-09-18 改动删除 |
+| `TestCaseCard.vue`（style@202） | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。超长样例相关的 `.ta--truncated` / `.out.is-truncated`（只换底边为虚线，**两种成因共用**：真被截断的、以及只是超出框高要滚动的）与 `.ionote` / `.ionote__text` / `.ionote__btn`（框下面那行提示：「已省略 N 个字符 + 复制全部」；**两种成因共用这一句**，但**纯溢出态没有按钮**（一个字符都没少、没有「全部」可复制），用 `.ionote--truncated` 区分）见第 5 节坑 26。框内的截断标记**没有文案**，就是 `MARKER_SEED = '\n\n……'`。旧的 `.hint` 已随 2026-09-18 改动删除 |
 | `EditorTabs.vue`（style@106） | `.editor-tabs`（`flex: 0 0 35px`）`.editor-tabs__strip`（`flex: 1 1 auto; min-width: 0`，**横向滚动在这里**，现在铺满整行）`.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式）。原 `.editor-tabs__run`（64×25 的运行 / 停止按钮，以及它的 `.is-running`）2026-09-28 已随按钮一起删除 |
 | `EditorPane.vue`（style@231） | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
 | `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，8 项，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.runtime-row__actions`（已就绪时右侧「已就绪 + 卸载」两颗的容器）`.download-button*`（本地运行环境下载 / 卸载 / 「应用」组安装按钮 / 扩展包下载共用；`.is-uninstall` 悬停才转危险色）`.shortcut-list*`（插件快捷键只读清单）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`，以及卸载确认弹窗那一组 `.confirm*`（与 `FileExplorer` 同款，Teleport 到 body，见坑 23）（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
@@ -302,7 +311,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **它原始网格是 32×32**，直接套 `0 0 24 24` 会明显偏小，所以方框取边长 22（15px 下墨迹约 12.1×11.0px，与 `folder` 的 12.5×11.25 齐平）。
     - **方框的 `min-x` 被刻意右移到 `4.733`**（= 6.2 − 22/15，正好让 15px 尺寸下右移 1px）：这枚字形左边是大块实心的「C」、右边是两个细「+」，外框虽然几何居中（实测 cpp 与 python 的墨迹中点重合在同一条竖线上），但墨迹重心比中点偏左约 0.7px，排到 python 旁边看着不齐。**别改回 6.2**，也别想着去动 python 的 viewBox——python / folder / file / header 都是几何居中的，动它们会让整列图标一起偏。
     图标本身不带颜色，一律 `currentColor` 跟主题走（没照搬 Seti 蓝）。
-17. **题目元数据挂在 VFS 节点上（`node.meta`），不是单独一张表**（2026-09 加）：四项——题目链接 / OJ / 难度 / 日期。入口是文件树右键的「题目信息」，弹窗与删除确认同款自绘（不要 `window.confirm`、不要引 UI 库），目录节点不给这一项（`buildMenuItems(node)` 里按 `node.type === 'file'` 判断）。三条纪律：
+17. **题目元数据挂在 VFS 节点上（`node.meta`），不是单独一张表**（2026-09 加）：**五项**——题目链接 / OJ / 难度 / 日期 / 时限（毫秒，2026-09-29 加，见 14.3）。入口是文件树右键的「题目信息」，弹窗与删除确认同款自绘（不要 `window.confirm`、不要引 UI 库），目录节点不给这一项（`buildMenuItems(node)` 里按 `node.type === 'file'` 判断）。三条纪律：
     - **不动 `DB_VERSION`**：`LocalVFSProvider` 本来就整条记录持久化（`_commit` / `#persistPuts` 只剥掉 `children`），`writeFile` / `rename` 又是 `{...node}` 展开，所以 `meta` 天然跟着走。新增的 `setMeta(path, meta)` 用 `#schedulePut(node, null)` 落库（`content === null` = 只写 nodes store、不碰正文）。
     - **难度跟着 OJ 走**，口径表、合法值、悬停文案全在 `services/problemMeta.js` 一处：Codeforces / AtCoder → 分数段 `800…3500`（步长 100），洛谷 → 官方八级，牛客 / LeetCode / 其它 → 自由文本。换 OJ 时**必须清空当前难度**（`onOjChange`）——两套口径的 id 互不相通，留着会存下一个对不上的值（比如 `1200` 混进洛谷）。
     - **全空存 `null`**：`normalizeMeta()` 逐键校验后四项全空就返回 `null`，`setMeta` 据此把 `meta` 字段整个摘掉，不在节点上留空壳；`formatMetaTooltip()` 对空 meta 返回空串，`FileTreeItem` 此时不设 `title`（避免弹出空提示）。
@@ -331,17 +340,53 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **挂载期回写会与外部写入抢同一个 key**：`usePersistentRef` 在 `onMounted` 无条件回写一次，`reclampShare` 越界时再回写一次。用脚本往 localStorage 塞测试值时必须等挂载回写跑完，否则会被覆盖（曾据此误判成「过夹」）。
     - 只在面板可见时收敛（折叠态下 `virtualShare` 恒为 100，不参与）。
 
+26. **超过 6000 字符的样例字段只截断「显示」，框仍可编辑，省略行是省略段的化身**（`TestCaseCard.vue`，2026-09-29 加、当天迭代三轮）：超长样例有两个问题——① 用户根本看不过来；② 每敲一个字符都要让**整段文本重新排版**（实测 10 万 3.5ms / 50 万 18ms / 100 万 37ms / 200 万 75ms；根因不是 `autoGrow`，文本排好版后 `autoGrow` 净开销是 0）。所以 `IO_PREVIEW_TRIGGER = 6000` 之上的字段只**渲染**开头 `IO_PREVIEW_CHARS = 4000` 个字符（在最后一个换行处收尾），后面接 `MARKER_SEED = '\n\n……'`；真值一个字节都不动。十一条纪律：
+    - **真值始终是 `testCase.input` / `expectedOutput`，显示只是渲染层**：`inputModel` / `expectedModel` 是可写 computed，`get` 给「可编辑段 + 省略行」、`set` 走 `commitEdit()` 把省略段拼回。**别把截断文本直接写回字段**，那是静默的数据丢失。
+    - **省略段长度在「进入长文本」那一刻冻结，掉出长文本时归零**（`inputHidden` / `expectedHidden` + `watch(longRef, …, { immediate: true })`，回调写 `long ? hiddenOf(值) : 0`）：预览段是按「4000 字符内最后一个换行」收尾的，边界要是每敲一下都重算，收尾位置就跟着挪，用户会看到文字随着自己打字凭空消失或冒出来。但**不能只写 `if (long)`** —— 用户把可编辑段全删光后真值只剩那截尾巴（实测 4505 字符，不算长），冻结值留着的话界面会一直摆着「已省略 4,505 个字符」而其实一个字符都没省（实测踩过）。watch 只在「长 ↔ 不长」那一次跳变上重算，长文本内部的打字不触发。（用例对象只在 `createCase` 造一次、此后没有外部写入路径，所以这个实例级缓存不会被别处改脏。）
+    - **`commitEdit()` 的分支只有三种，第三种是血换来的**：① `hidden <= 0`（短文本）→ 直接写；② `raw` 里还找得到省略行 → 取省略行之前的部分 + 原真值的尾部 `hidden` 个字符；③ **`raw` 里找不到省略行了 → 省略段跟着一起走，同时按新内容重算 `hidden`**。第 ③ 条踩过的坑：早先写成「找不到就取整段 raw、再接回旧尾部」，于是用户**全选粘一份新样例进来**（选区含省略行、被一起覆盖）时，旧的 4500 个字符会被悄悄缀在新内容后面 —— 实测粘 12 个字符得到 4517 个字符，而框里看不出来。**改这段前先把这两种编辑分开想清楚**：省略行还在 = 局部编辑，省略行没了 = 整段替换。
+    - **`displayOf()` 要防 `value.length < hidden`**：整段换掉后 `hidden` 归零/重算这一帧之间可能对不上，按字符数切会切出空串 + 一行假的省略行。宁可返回完整内容。
+    - **复制靠 `copy` 事件接管，判据是「选区里含省略行」**：`onLongCopy(event, 完整内容)` 里 textarea 走 `selectionStart/End`、`<pre>` 走 `window.getSelection()`，命中就 `clipboardData.setData('text/plain', 全文)` + `preventDefault()`。**只选了一段、没碰省略行时一律不接管**——那时浏览器给的本来就是准确的那一段，替换成全文会让「复制我选的这几个字」变成复制 120 万字符。判据用 `MARKER_KEY = '……'`（不含前导换行与数字）：从省略行中间开始拖选时选区里没有开头那两个换行。⚠️ **省略行在 2026-09-29 缩成了一个光秃秃的省略号**（原来是 `…… 以下省略 N 个字符`），撞号概率因此变大了：**样例正文里只要出现「空行 + `……`」就会被 `commitEdit` 的 `indexOf(MARKER_SEED)` 误判成省略行**，出现 `……` 的选区也会触发全文复制。竞程输入里这种组合极罕见，接受这个代价；**改这两个字面量前必须把 `commitEdit` 的三个分支再读一遍**。另给一颗「复制全部」按钮兜底（移动端 / 不派发 copy 事件的场景）。三个框（标准输入 / 期望输出 / 实际输出）共用同一条逻辑，所以**文案与行为必须三处同时改**。
+    - **`autoGrow` 的 watch 挂的是渲染值（`inputModel` / `expectedModel`），不是字段本身**：内容越过阈值时显示文本会整段换掉（4000 字 ↔ 120 万字），高度必须跟着重算。同时 `.field` 从 `<label>` 换成了 `<div>` + `for`/`id`（`case-<id>-input` / `-expected`）——字段里多了按钮，不能再让 `<label>` 包住整个字段（按钮的点击会被转发给 textarea）。
+    - **长文本态不能 `disabled`**：只有 `locked`（正在跑）才禁用。框是可编辑的，长文本不是「另一套控件」。
+    - **样式：底边虚线，不是整框虚框**。框能打字，整框虚线会被读成「这里不能编辑」；`.ta--truncated` / `.out.is-truncated` 只把 `border-bottom-style` 换成 `dashed`，**边框色必须从 `--border-soft` 提到 `--border`**——1px 虚线在浅色主题下没有对比度就等于没画（这条踩过两次，`.ionote__btn` 的边框同理）。说明行的文案是「已省略 N 个字符」（2026-09-29 删掉了后半句「· 全选可复制全文」——那句是在解释「全选能拿到全文」，而「复制全部」按钮的 `title`（`tests.card.copyFull`）里已经说了一遍，提示行再说一次是噪音），窄容器（`@container (max-width: 15.625rem)`）下只让文字让位、按钮留下。**框内不再重复这个数字**：框里那行标记就是一个 `……`（它本来就要滚动才看得见，写两遍数字是噪音），数字统一由下面那行承担。
+    - **「框里装不下」有两种成因，提示行对两者都要给**（2026-09-29 补，用户报的「字符多的时候输入框下方没有小字」）：① 被截断 —— 框里根本没有那部分字符，判据 `xxxHidden > 0`；② **只是超出框高**（`autoGrow` 把上限压在 `MAX_IO_HEIGHT = 320`，约 15 行就满）—— 字符一个不少、全在框里，只是要滚动才看得见。**最早只做了 ①，于是「十几行到 6000 字符」这一段是静默的**：框被内容撑满、底边还是实线、一行提示都没有（实测 200 行 ≈ 3000 字符就是如此，而 >6000 的样例反而有提示，看着像「越长的才有」）。现在 `autoGrow(el, overflowingRef, overflowHiddenRef)` 顺手把「`full > cap`」写进 `inputOverflow` / `expectedOverflow`，模板用 `hidden > 0 || overflow` 同时点亮**虚线底边**与提示行。四条不能破：**(a) 两种成因共用一句「已省略 N 个字符」，但 N 的来源不同**（`omittedCount()`）。术语（这两个词在本文与代码注释里到处出现，先钉死）：**截断态** = 字符数过 `IO_PREVIEW_TRIGGER`，显示只留开头 `IO_PREVIEW_CHARS` 个字符，剩下的字符**根本不在框里**；**纯溢出态** = 字符数没过阈值、**一个字符都没少**，只是框不够高（上限 `MAX_IO_HEIGHT` ≈ 15 行）要滚动才看得见。截断态是「真值里没进框的那截」（`xxxHidden`，精确），纯溢出态是「框里当前看不见的那截」（比例估算：`框内文本长度 × (1 − 可见内容高 / 内容总高)`，两个高都要先减掉内边距；只报给提示行，**不参与显示文本的切分**，所以打字时数字变一下无所谓）。⚠️ **两个数字的稳定性天生不同，别当成 bug 去「修」**：截断态是纯字符数、**恒定**；纯溢出态依赖布局、**会随面板宽度变**（40 行 × 120 字符实测：框宽 503px → 4,257 / 385px → 4,403 / 206px → 4,546）。链条是「面板变窄 → 长行折行 → 内容总高变大 → 看不见的比例变大」，外加 `.io` 的 `@container (min-width: 35rem)` 在单列 ↔ 双列之间切换时框宽会跳一档（385 ↔ 503，而且非单调：面板 847px 是双列 385px、更窄的 571px 反而是单列 503px）。**这个变化是诚实的** —— 它报的就是「现在看不见多少」，框多大当然影响看得见多少。⚠️ **有一处已知的不一致，用户 2026-09-29 知情并要求保留，别再自动改**：纯溢出态一个字符都没省，那行却写着「已省略 N 个字符」，而框尾**找不到** `……`（`displayOf()` 只在真截断时追加 `MARKER_SEED`）。用户当面撞过一次（原话「有的时候显示已省略多少字，输入文本的底部仍然没有省略号」），我据此拆成两句 —— 纯溢出态改说「还有 N 个字符未显示 · 可滚动查看」；**同一天用户又要求改回统一一句**，也就是接受这个不一致。**别再第三次拆开**：两次改动的取舍都记在这里了（`tests.card.overflow` 那条消息键已删，要恢复得连代码一起）。**(b) 只有截断态才给「复制全部」按钮**：纯溢出态一个字符都没少、全在框里，没有「全部」可复制。**(c) 窄容器下只让 *截断态* 的文字让位**（`.ionote--truncated .ionote__text { display: none }`）—— 纯溢出态那一行只有这一句话，藏掉就剩一条空行，等于什么都没说。**(d) 纯溢出态框内不插省略号**：字符一个都不少，插了就是把正文改了；那种状态只有虚线底边 + 下面那行数字。`autoGrow` 里给 `overflowingRef` 赋值不会造成 ResizeObserver 回调环：赋同一个布尔值不触发重渲染，且虚线底边与提示行都不改宽度。
+    - ⚠️ **`omittedCount()` 收的是值，不是 ref**：模板里 `inputHidden` 这类 ref 会被 Vue 自动解包，函数签名要是写成 `(hiddenRef, …)` 再去 `.value`，拿到的是 `undefined`，一路传到 `fmt()` 就是 `Cannot read properties of undefined (reading 'toLocaleString')` —— **而这次抛错发生在渲染期，整张卡片会一起渲染失败，连框里的省略号都出不来**（症状极具误导性：看着像「截断逻辑坏了」，其实是翻译函数炸了）。
+    - **文本结尾那个 `……` 时有时无，是两条独立的线**（2026-09-29，用户问过）：**① 字符数有没有过 6000** —— `displayOf()` 只在 `long && hidden > 0` 时追加 `MARKER_SEED`，≤6000 字符显示的就是完整内容，结尾**根本没有**省略号（哪怕超出框高要滚动也没有，那是纯溢出态）；**② 截断态下有没有滚到底** —— `……` 是文本的最后一行，不滚到底就在视口外，所以**同一个样例**也会看着时有时无。下面的提示行不受这两条影响：只要框里装不下它就出现（两种成因都给，但**文案不同**，见 (a)）。⚠️ **别为了「让它稳定出现」把 `……` 做成画在框上的浮层**：2026-09-29 试过（`.ta-wrap` / `.ta-wrap--more::after`，条件「真截断 + 还没滚到底」、滚到底时让位给正文那颗），**用户当天否掉了** —— 他要的就是文本结尾那个 `……`，别再提这个方案。（那次尝试留下的两个技术点仍成立：textarea 放不了伪元素所以要包一层定位；`@scroll` 只能挂具名 handler —— 模板里 `@scroll="onTaScroll($event.target, someRef)"` 传进去的是**解包后的布尔值**，函数里再 `.value = …` 就是 `Cannot create property 'value' on boolean 'false'`，与 `omittedCount` 那次是同一类坑的两个方向：**读** ref 拿到 `undefined`、**写** ref 直接抛错。）
+    - ⚠️ **不要再改回「只读预览」**：用户明确要的就是「过长时仍然能编辑，只是只能改未被省略的部分」。第二版曾整体改成 `readonly` 并用一颗「编辑完整内容」按钮兜底，当天就被这条要求推翻。反过来，**删掉省略行里的一两个字也会连省略段一起丢** —— 这是第 ③ 条分支刻意选的代价，与「选中省略号就等于选中被省略的那段内容」是同一个心智模型，别再为了「救回那几个字」把分支逻辑搞复杂。
+27. **localStorage 每个源大约只装得下 520 万 ASCII 字符，而 `cph.testCases` 是 deep watch + 全量 `JSON.stringify` 写入**（实测：100 万字符的输入 + 100 万字符的期望输出 = JSON 220 万字符 ≈ 源的 40%）。写入本身不慢（stringify 0.9ms + setItem 1.2ms），可怕的是 `usePersistentRef` 的 `catch` 会把配额错误**吞掉**：超限以后界面一切正常，**刷新却回退到旧版本**。目前刻意没修（用户 2026-09-29 决定本轮不动，见第 14 节），但写任何「要不要把大数据放进用例」的功能前先想清楚这条。
+28. **界面双语：`t()` 读的是 ref，所以「在哪里调」比「翻得对不对」更容易出错**（`src/i18n/`，2026-09-29 加）：机制是模块级单例 `locale = ref(...)` + `t(key, params)`，`t()` 每次调用都读当前 ref。由此推出下面几条，**第 1 条是这一整套设计里唯一真正的陷阱**：
+    - **模块顶层 / `<script setup>` 顶层调 `t()` = 冻结语言**：那时只取到「那一刻」的语言，切了语言这些字符串不会变。模板里、computed 里、函数体（事件处理 / 生命周期）里调都没问题。所以**数据驱动的表一律只存 key**——`EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` / `Sidebar.vue` 的 `PANEL_TABS` 都改成 `labelKey` + `hintKey` + `labelParams`，由消费处（模板 / computed / 一处 `labelOf()` 小工具）再 `t()`。漏一个的症状很隐蔽：设置面板切语言后大部分变了、某一处的下拉项还是中文。**顺带一条**：调用纪律也适用于 `runner.js` / `engines/*` / `vfs/*` 这些 service——它们的 `t()` 都在函数体里（跑起来才调），所以正确；但**模块级常量**（如 `BaseVFSProvider` 原先的 `NOT_IMPLEMENTED`）必须改成惰性的 `const notImplemented = () => t(...)`。
+    - **语言要在任何组件挂载之前定下来，所以不走 `usePersistentRef`**：那个 composable 靠 `onMounted` 播种首次写入，而界面语言的首帧不能先闪一下中文再切英文。`i18n/index.js` 因此自己读写 localStorage，初值在第 0 帧同步算出（存档优先，没有存档才探测 `navigator.languages`：任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）。`switchPanel` 那种「切了当场生效、不重载」的效果落在这里：`locale` 是 ref，模板 / computed 全是响应式的。`applyLocale()` 负责同步 `<html lang>`（模块加载时一次 + `watch(locale)` 跟随），**别在别处再写一份**。
+    - **新键是 `cph.uiLocale`，不是 `cph.language`**：`cph.language` 是「编辑器判题语言」的死键（顶栏下拉删除后作废，见坑 15 与第 6 节），两者语义完全不同，别再合并。界面上的文案刻意写成「**界面语言**」，用来与「判题语言（由文件扩展名派生）」区分。**别把语言选择器当成「把判题语言加回来」的借口**。
+    - **写进文件系统的名字不翻译**（第 1 节有这条硬约束）：`problemImport.js` 的 `未分类` / `未命名题目`，以及 `OJ_LIST` 上新加的 `dirName`（洛谷 / Codeforces / 牛客…）。**`labelKey` 与 `dirName` 是两个字段、刻意不合并**——显示名跟着语言走、落盘名永远固定，否则用户切一次语言就会在同一个逻辑位置看到两个目录（`/Problems/2026-09/洛谷/` 与 `/Problems/2026-09/Luogu/`），老题解直接变孤儿。`formatMetaTooltip()` / `difficultyLabel()` 走 `labelOf()` 拿显示名，导入路径走 `dirName`。
+    - **标签自称用哪种语言是有讲究的**：`LOCALES` 里 `简体中文` 与 `English` 都是**自称**，不跟着界面语言变（中文界面里也显示「English」而不是「英文」）。同理 `guide.html` 页头的语言链接写 `English`、`guide.en.html` 那侧写 `简体中文`（各带 `lang` 属性让屏幕阅读器读对）。`fmt` 的千分位也必须跟随语言（`n.toLocaleString(locale.value)`，原先是写死的 `'en-US'`），否则英文界面里的「1,234」在中文界面下也不该变、但 `… 个字符` 的量词要跟着变——两件事别混。
+    - **超长样例的省略行干脆没有文案**（与坑 26 配套，2026-09-29 改）：框里那行截断标记就是一个光秃秃的 `……`，定位与判据用两个**语言无关**的字面量 `MARKER_SEED = '\n\n……'` / `MARKER_KEY = '……'`；具体省略了多少由框下面那行说明承担，它走 `tests.card.omitted`（`以下省略 {n} 个字符` / `{n} characters omitted`）。**别把省略号挪进消息表**——`commitEdit()` 靠 `raw.indexOf(MARKER_SEED)` 认「省略行还在不在」，`onLongCopy()` 靠 `MARKER_KEY` 认「选区里有没有省略行」，两者一进消息表就会跟着语言变、历史文本也会失配。
+    - **漏网之鱼要往两个方向查**：上一轮迁移的复查只搜了「硬编码中文」，结果**硬编码英文**漏了三处——
+      `TestCaseCard.vue` 三个字段的小标题（`Standard Input` / `Expected Output` / `Actual Output`）
+      一直是写死的，中文界面里也显示英文（2026-09-29 用户报了输入框那处才挖出来）。
+      **复查脚本要对称**：既要搜中文字面量、也要搜「模板文本节点里裸露的 ASCII 词」。
+      别把 `UTF-8` / `OJ` / `chrome://extensions/shortcuts` 这类专有名词、URL、缩写当成要翻的——它们刻意不翻。
+      ⚠️ **挖出来不等于一定要翻，而且要问到什么粒度**：那三处**一个都没留下 i18n**。
+      输入框那条先按用户当轮的原话接了 zh `输入` / en `input`，用户随即指出「应该也是 `input`」——
+      因为三个标签并排、另一个已经改回英文，混着写成中英两种看着不齐。于是全部退回写死的
+      `input` / `Expected Output` / `Actual Output`（2026-09-29 同日，两次来回）。
+      **现在的口径**：这三个小标题**中英界面都是英文**，只有期望输出的空框占位跟着语言走
+      （前两个框的首行已经被标签说明了，占位再重复一遍是噪音）。
+      **别再去翻它们，也别再把 `input` 那条接回 i18n。**
+    - **无头探针里 `navigator.clipboard.readText()` 恒返回空串**（见第 8 节与本仓的探针技能），验证语言切换要走 localStorage + DOM 文本；且**同一个 browser 里 localStorage 跨页共享**，探针第 0 帧必须先 `localStorage.clear()`，否则前一组用例种下的 `cph.uiLocale = 'en'` 会污染后面所有页面（实测踩过，表现为一整组假失败）。
+
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
 | key | 内容 | 位置 |
 | --- | --- | --- |
-| `App.vue`（`EDITOR_SETTINGS_KEY` / `readEditorSettings()` / `updateEditorSettings()`，约 38–112 行；定义在 `services/editorOptions.js`） | `cph.editorSettings` + `cph.editorSettingsVersion` | 编辑器偏好共 23 项（主题、字体族 / 字号 / 行高 / 连字、Tab 宽度 / 空格代替 Tab / 自动换行 / 换行列宽、光标样式 / 闪烁 / 平滑移动、当前行突出、空白字符、缩略图、括号对着色 / 缩进参考线 / 括号参考线、粘性滚动 / 滚过最后一行 / 平滑滚动、内边距、滚动条粗细）。**默认值、可选项表、逐键校验、偏好 → Monaco 选项的映射全部在 `src/services/editorOptions.js` 一处**，面板下拉、读盘校验、Monaco 吃到的选项三者共用，加新项只改这一个文件（面板加一行描述即可，见 `EditorSettingsPanel.vue` 的 `EDITOR_GROUPS`）。`Version` 只用于一次性把 v3 之前的 `vs` 主题迁成 `cph-light`，不参与其余键 |
-| `cph.panelVisible` / `cph.panelPosition`（`App.vue:27-29`） | 统一侧边栏是否展开 / 侧边栏在左还是右（键名是历史沿革，语义已从「测试面板」扩到整栏） |
+| `App.vue`（`EDITOR_SETTINGS_KEY` / `readEditorSettings()` / `updateEditorSettings()`，约 38–112 行；定义在 `services/editorOptions.js`） | `cph.editorSettings` + `cph.editorSettingsVersion` | 编辑器偏好共 23 项（主题、字体族 / 字号 / 行高 / 连字、Tab 宽度 / 空格代替 Tab / 自动换行 / 换行列宽、光标样式 / 闪烁 / 平滑移动、当前行突出、空白字符、缩略图、括号对着色 / 缩进参考线 / 括号参考线、粘性滚动 / 滚过最后一行 / 平滑滚动、内边距、滚动条粗细）。**默认值、可选项表、逐键校验、偏好 → Monaco 选项的映射全部在 `src/services/editorOptions.js` 一处**，面板下拉、读盘校验、Monaco 吃到的选项三者共用，加新项只改这一个文件（面板加一行描述即可，见 `EditorSettingsPanel.vue` 的 `EDITOR_GROUPS`）。`Version` 只用于一次性换主题 id：v3 之前是 Monaco 原生 id（`vs-dark` / `vs` / `hc-black`，原本选浅色 `vs` 的迁到浅色），v4（2026-09-29）起主题 id 去掉 `cph-` 前缀、旧存档的 `cph-light` 照样认；认不出的旧值一律交给白名单丢掉、回落到默认深色。**这个计数器只管主题这一件事，不参与其余键** |
+| `cph.panelVisible` / `cph.panelPosition`（`App.vue:31-33`） | 统一侧边栏是否展开 / 侧边栏在左还是右（键名是历史沿革，语义已从「测试面板」扩到整栏） |
 | `cph.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
-| `cph.editorShare`（`App.vue:31`） | 两栏比例（%） |
-| `cph.timeLimitMs`（`App.vue:35`） | 全局时限（毫秒，只计运行段） |
+| `cph.editorShare`（`App.vue:35`） | 两栏比例（%） |
+| `cph.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`，见 14.3） |
 | `cph.uiScale`（`App.vue:49`） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1.1`（110%），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见 14.12 与第 5 节坑 24 |
-| `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases`（`App.vue:32-33` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
+| `cph.uiLocale` | 界面语言，取值 `zh-CN` / `en`（`i18n/index.js` 的 `LOCALE_STORAGE_KEY`，**权威定义在那一处**）。**刻意不走 `usePersistentRef`**：界面语言必须在任何组件挂载之前定下来（首帧不能先闪中文再跳成英文），所以 `i18n/index.js` 自己同步读写 localStorage。**没有存档时跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）——注意「跟随探测」的结果**不写回存档**，「跟随浏览器的默认」与「用户显式选过」是两件事，别在首帧替用户落一个值。设置页「外观」组的「界面语言」下拉是唯一写入方，切了当场生效、不重载 | `src/i18n/index.js`（消费方散布在全仓，读的是 `locale` 这个 ref） |
+| `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases`（`App.vue:36-37` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
 | ~~`cph.language`~~ | **已作废**（2026-09 顶栏语言下拉移除后成为死键，全仓不再读写）；残留在 localStorage 里无害。判题语言现在一律由活跃文件的扩展名派生，见第 5 节坑 15 | — |
 | `cph.mobileKeyboard` / `cph.mobileInputDock` | 都已作废（两个版本的键盘适配都不再持久化）；残留在 localStorage 里无害 | `composables/useMobileKeyboard.js` |
 | `cph.localRuntime.clangReady` / `cph.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
@@ -356,15 +401,18 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 写值统一走 `usePersistentRef(key, defaultValue)`；`editorSettings` 因为要版本迁移，单独用 deep watch 存。加编辑器设置项时**必须**两道校验都过：读盘（`readEditorSettings()`）与面板回写（`updateEditorSettings()`）都逐键走 `editorOptions.js` 的 `normalizeEditorSetting()`，不在默认值表里的键直接丢弃、越界数字退回默认——所以 localStorage 里手改出来的 `fontSize: 999`、认不出的 `cursorStyle`、乃至早已移除的旧键都不会漏进编辑器。
 
+**「必须早于组件挂载就能读到」的状态有两处先例，加第三处前先想清楚**：`cph.shortcuts`（App 的全局 keydown 与状态栏提示都要用）与 `cph.uiLocale`（首帧的语言）。这两处的做法一致——**绕开 `usePersistentRef`，在模块里直接读写 localStorage**，因为那个 composable 的读写时机挂在组件生命周期上。代价是「读盘校验 / 默认值打底」得自己写（`useShortcutManager.js` 是「默认值打底再套已存键」，`i18n/index.js` 是「`isLocale()` 白名单 + 探测兜底」），两处都别省。
+
 ## 7. 现在的功能边界（写文案时别夸大）
 
-- 引擎：Piston（默认，需自建服务）/ Judge0 / **本地 WASM 沙箱**。本地沙箱支持 **C++ 与 Python**，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载**只有一个入口**：设置视图目录里的「本地运行环境」（C++ / Python 两行同一套数据驱动渲染，下载中另一行按钮自动禁用；状态在 `EditorSettingsPanel.vue` 里，直接调 `wasmRuntime.preload(language)`）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
+- 引擎：**本地 WASM 沙箱（默认，`DEFAULT_ENGINE_ID = wasmEngine.id`，新访客打开就能跑，不需要外部服务）** / Piston / Judge0 / 自检（不执行代码，只回显标准输入，用来联调界面）。本地沙箱支持 **C++ 与 Python**，首次运行要下载工具链（`public/wasm/8.0.1/` 自托管的 clang + wasm-ld + sysroot，裸文件约 52MB、由 Vercel 边缘压缩传输，之后工具链常驻 HTTP 缓存）。下载**只有一个入口**：设置视图目录里的「本地运行环境」（C++ / Python 两行同一套数据驱动渲染，下载中另一行按钮自动禁用；状态在 `EditorSettingsPanel.vue` 里，直接调 `wasmRuntime.preload(language)`）。编译产物按源码原文缓存一份，所以成批跑用例时只有第一个用例付编译开销。
 - **本地沙箱的 Python（2026-09 加）**：走 CPython 3.11.3 的 wasm32-wasi 构建（`public/wasm/python-3.11.3/`，约 24MB，来源与 C++ 工具链一致，都取自 `taybenlor/runno` 的 `langs/`）。没有编译段：`runPython()` 直接把整棵 VFS 拍成 fs、以 `args: ['python', 入口文件]` 拉起解释器，多文件 `import` 靠 `sys.path[0] = '/'` 找到同目录的模块。标准库打包在 `/usr/local/lib/python311.zip`（zipimport），`sys.prefix` 编译期写死为 `/usr/local`，所以 **env 必须留空**（不要自作聪明加 `PYTHONHOME`）。语言路由在 `wasmRuntime.runCase()`：`language === 'python'` 走解释分支，其余原样走 C++ 分支；`entryPath` 由 App 从当前激活文件传下来。Python 与 C++ 互不影响，改一边不用管另一边。
 - Vim 键位已移除（与 Monaco 0.56 不兼容），别再被试着重加。
-- TLE：面板页头的「时限」（1/2/5/10 s，默认 1 s）只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。Python 没有编译段，它的「运行段」包含解释器冷启动（实测约 190ms），因此 `wasmRuntime.js` 给 Python 的 run 时限额外加 `PYTHON_STARTUP_ALLOWANCE_MS = 500` 余量——不加的话 1s 时限会被启动开销吃掉一大截，跑得再快的程序也可能被判 TLE。代价是 TLE 最多晚 0.5s 报出来。
+- TLE：时限在**设置视图「评测」组里的「运行时限」**（1/2/5/10 s，默认 1 s；2026-09-29 从面板页头搬进这里，见 14.3），只计**程序运行段**，不含编译；超时靠 `kill()` 当前 WASI 实例实现。卡片上的耗时**同样是运行段**（与时限同口径），程序没跑起来时（编译失败 / 编译错误）卡片不显示耗时。Python 没有编译段，它的「运行段」包含解释器冷启动（实测约 190ms），因此 `wasmRuntime.js` 给 Python 的 run 时限额外加 `PYTHON_STARTUP_ALLOWANCE_MS = 500` 余量——不加的话 1s 时限会被启动开销吃掉一大截，跑得再快的程序也可能被判 TLE。代价是 TLE 最多晚 0.5s 报出来。
 - **耗时口径（2026-09 改过，别改回去）**：卡片数字 = `runCpp` 里只包住 `runWasi` 的那一段（Python 同理，是 `runPython` 里只包住 `runWasi` 的那一段），编译时间不计入。原先取的是 `runCase()` 入口到结束的墙钟，于是第一个用例含编译、命中编译缓存的后续用例只含运行，**同一份代码下第一个卡片能比其余大好几倍**（修前 3 个用例是「数百 ms + 9ms + 12ms」，修后 10/11/7ms），很容易被误读成「程序在第一个用例上特别慢」。面板页头那个 `elapsed` 现在也是同一口径：取当轮所有卡片耗时的**最大值**（`App.vue` 里是 computed，单独跑一个用例也会跟着更新），标题写明「最慢用例耗时」。TLE 消息里的 `durationMs` 与卡片同口径（`wasmRuntime.js` 在进入 `run` 段时重置 `stageStartedAt`）。
 - 判定词表：引擎 outcome 是 `ok / compile-error / runtime-error / timeout / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）；`runner.js` 再把它翻译成卡片徽标上的 **verdict 判定码**：`ok` + 比对一致 → `AC`，`ok` + 不一致 → `WA`，`compile-error` → `CE`，`timeout` → `TLE`，`runtime-error` → `RE`，`unreachable` 等基础设施失败 → `ERR`。徽标颜色仍按 `status`（passed 绿 / failed 红 / error 琥珀）。`compare.js` 只返回布尔，**不再**产出「输出多 N 行 / 第 N 行不匹配」这类 hint 文案（2026-09-18 起，卡片头部不再显示它）。
 - 判题流程：先编译运行出实际输出，再与期望输出比对（`src/services/compare.js`）。
+- **样例可以很大，但「能跑多大」有两个上限**（2026-09-29 实测）：本地沙箱的 stdin 走分块推送（`runnoSandbox.js` 的 `pushStdinInChunks`），已实测到 100 万字节以上一致，所以「大样例能跑」这条**只对本地 WASM 沙箱成立**；Piston / Judge0 是把 stdin 内联进 JSON POST 的（Judge0 还要 base64），1MB 级别的 stdin 很可能被对方拒绝或超时。**别在文案里无条件承诺「多大的样例都能跑」。** 界面上超过 6000 字符的字段会把显示切成「开头一段 + 省略行」（见第 5 节坑 26），那只是显示层——复制与运行用的都是完整内容，全选即可拿到全文。另外整个用例集受 localStorage 配额约束（约 520 万字符），见第 5 节坑 27。
 - 工具链是静态自托管的（`public/wasm/8.0.1/`），但 `clang-fs.tar.gz` 这个扩展名会让静态服务器补上 `Content-Encoding: gzip`，浏览器已替我们解过一层，所以 `runnoSandbox.js` 里用**魔数判断**要不要 gunzip。换托管方时别把 `unpackSysroot` 改回无条件 `gunzip`（失败时 Chrome 只会报一句 "Failed to fetch"，很难查）。
 - 工具链地址里的 `8.0.1` 是**目录版本号**：升级工具链就换目录名，旧的 immutable 缓存自然失效；别在原地覆盖同名文件（浏览器会继续用缓存里的旧版本）。
 - 编译产物缓存只留**最近一份源码**（`runnoSandbox.js` 的 `compileCache`）：命中时连工具链都不碰，第 2..N 个用例只付运行开销；编译失败的结论同样会被缓存，改代码即失效。别把它改成常驻多份——用例总是成批跑的，代码一改全都作废。
@@ -378,7 +426,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
 - **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
 - **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（难度导入时为空、先落「未分类」；元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
-- **全局快捷键（2026-09 加）**：可绑定的只有 5 个动作——运行全部用例 / 显示隐藏侧边栏 / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
+- **界面双语（2026-09-29 加）**：界面、应用内帮助与使用指南都有**中文 / 英文**两套，语言默认跟随浏览器、可在设置视图「外观」组的「界面语言」里改，**切了当场生效、不重载**。写文案时注意两条边界：① **判题语言与界面语言无关**——判题语言仍由活跃文件的扩展名派生（第 5 节坑 15），界面语言只管文案，别把两者写成一回事；② **没有第三方本地化机制**（没引 vue-i18n，没有 `.po` / `.json` 语言包，没有 URL 前缀 `/en/`），词条就是 `src/i18n/messages/` 下六个 JS 文件里中英并排的对象，加语言 = 加一栏 + 在 `LOCALES` 里加一项。另外 `guide.html` 与 `guide.en.html` 是**两个独立的静态页**（各自的 `guide.html` 级别 SEO 头、互相 `hreflang`），不做客户端语言跳转——抓取器拿到什么就是什么。
+- **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
 
 ## 8. 验证方式
 
@@ -410,6 +459,14 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   6. 抓完后编辑器打开的是这道题的代码文件（`.editor-tabs__item--active` 与 `workspace.activeId` 对得上）。
   写这个探针时踩过两个坑，别再踩：**（a）** 点树上的箭头展开目录时，只点 `.tree-item__row[aria-expanded="false"]`——`.tree-item__arrow` 这个 span 在**每一行**都有（文件行的箭头是空的），而点击处理挂在父级 `.tree-item__row` 上，所以「点所有箭头」实际会把每个文件都 `openFile` 一遍，最后点到的文件抢走 `activeId`，断言就会误报「打开的标题不对」；**（b）** 动态 `import('/src/services/…')` 拿到的可能是**另一个空实例**——Vite dev 给源码模块 URL 加了 `?t=<时间戳>`，裸路径 import 与 app 真正加载的那份不是同一个模块（症状是 `workspace.tree.length === 0` 但界面明明渲染出来了）。正确姿势是用 `performance.getEntriesByType('resource')` 找到 app 真实加载过的那条 URL 再 import。
 - 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cph.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面），按 `Mod+Shift+KeyE` 应翻到另一个侧栏面板（等价于点页头那枚胶囊）；开录状态下按同一个键**不应**触发功能。
+- 界面双语专项（动过 `src/i18n/` 任一文件 / 任何含 `t()` 的组件或 service 后必做），临时探针、用完即删。四条要覆盖：
+  1. **跟随浏览器**：第 0 帧不种任何存档，用 `--lang=zh-CN` 与 `--lang=en-US` 各起一次 Chrome，前者应中文 + `<html lang="zh-CN">`，后者应英文 + `<html lang="en">`，且**两种情况下都不写 `cph.uiLocale`**（跟随探测不等于用户显式选择）；
+  2. **存档覆盖探测**：种 `cph.uiLocale = 'en'` 配中文浏览器 → 应英文；种 `zh-CN` 配英文浏览器 → 应中文；
+  3. **切换当场生效 + 落盘**：设置视图「外观」组的「界面语言」下拉切一下，**同一 document 内不重载**就应看到目录八项（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助）全变、`html lang` 跟着变、`localStorage['cph.uiLocale']` 落成 `"en"`。**顺带验「数据表存 key」这条设计**：编辑器组里数据表驱动的行（`Font family` / `Minimap` / `Padding`）也必须跟着变——只验目录项验不出坑 28 第 1 条；
+  4. **英文下的超长样例**（守住坑 26 × 坑 28 的交叉）：**框内那个 `……` 不翻译**（语言无关常量，见坑 26），只有框下面那行走 `t()` —— 英文是 `{n} characters omitted`；且**改语言后「选中省略行 = 选中被省略内容」依然生效**（按第 8 节的合成 `ClipboardEvent` 法测，`clipboardData` 是只读 null，要 `Object.defineProperty`）。最后截两套主题各一张图**真的看一眼**。
+  探针注意：**同一个 browser 里 localStorage 跨页共享**，每一组用例前都要先 `localStorage.clear()`，否则前一组种下的 `cph.uiLocale` 会污染后面所有页面（实测踩过，表现是一整组假失败）；无头 Chrome 里 `navigator.clipboard.readText()` 恒返回空串，别拿它当断言。
+- guide 双语专项（动过任一版 guide / `guide.css` / `sitemap.xml` 后必做），临时探针、用完即删。**机械可复核的四条**：两页都跑一遍，断言 ① `html lang` 各是 `zh-CN` / `en`；② `canonical` 各指向自己、两页都恰好有三条 `link[rel=alternate][hreflang]`；③ **h2 数 = 目录条目数 = 12**（这条是「两版没走偏」的廉价判据，改了章节数记得同步改期望值）；④ 页头 `.page__top-actions` 里 `.lang-link` 的 `href` / `hreflang` / `lang` 三属性。
+  再加两条容易忽略的：**页头加了这颗链接之后不许换行**——断言 `.page__top` 高度 < 70px、`.brand` 与 `.page__top-actions` 的 `top` 差 < 6px、`documentElement.scrollWidth === clientWidth`；以及**英文页的表格**（英文文案比中文长约 30%）在 1400px 与 700px 两档下 `.table-wrap` 的 `scrollWidth === clientWidth`、表头没被压到换行（表头是 `white-space: nowrap`，真挤不下会直接溢出容器）。两档都要截元素级截图看一眼——页面级「无横向溢出」不会告诉你表格自己在容器里滚。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–G 应当是绿的**，跑之前先知道这几条：
   - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（整份 C++ 模板，行数随模板改而变，别把行数写死进断言）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
   - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项、2026-09-28 后把「布局」并成「外观」并置顶，**加删分类时这个数字要跟着改**） → **点目录里的「外观」**（设置是「目录 + 内容」两栏，默认就停在第一项「外观」，右侧只渲染当前那一组；这一步仍显式点一下，默认分类以后再变也不坏）→ 在页签里选「右侧」（2026-09-28 起面板默认在**左**，所以这一步反过来选「右侧」）→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
@@ -492,40 +549,58 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ## 12. SEO 与第二个入口 guide.html
 
-2026-09 加。主应用是纯前端 SPA，抓取器拿到空壳壳；为此补了**一个真正的静态 HTML 入口** `guide.html`（使用指南长文，不带 Vue、不带任何 JS 逻辑），并在 `index.html` 里给不执行 JS 的抓取器留了一段正文。全程零新增依赖。
+2026-09 加。主应用是纯前端 SPA，抓取器拿到空壳壳；为此补了**真正的静态 HTML 入口**——使用指南长文（不带 Vue、不带任何 JS 逻辑），并在 `index.html` 里给不执行 JS 的抓取器留了一段正文。全程零新增依赖。2026-09-29 起指南页有**中英两版**（`guide.html` / `guide.en.html`）。
 
-**两个 Vite 入口**（`vite.config.js` 的 `build.rollupOptions.input`）：`main` → `index.html`、`guide` → `guide.html`。加第三个静态页时照抄 `guide` 那一行即可。
+**四个 Vite 入口**（`vite.config.js` 的 `build.rollupOptions.input`）：`main` → `index.html`、`guide` → `guide.html`、`guideEn` → `guide.en.html`、`notice` → `notice.html`。加新的静态页时照抄 `guide` 那一行即可——**`.html` 不列进 `input` 就不会被构建**（它不在 `public/` 下，不会被原样拷贝）。
 
-**`guide.css`（`src/styles/guide.css`）的两条硬约束**：
+**`guide.css`（`src/styles/guide.css`）的两条硬约束**（两版 guide 共用这一份，别为英文版另起一个）：
 
 - 必须 `@import './base.css'` 打头——两套主题的配色、字体、滚动条都只在 `base.css` 里定义（第 1 节「颜色只走 CSS 变量」），指南页只准 `var(--…)` 引用、不写十六进制。底色 / 前景色靠 `base.css` 的 `:root` 变量直接落在 `html/body` 上，所以指南页天然跟随主题，不用自己写一套。
 - `base.css` 是为「满屏 IDE」写的：`html/body` 高度 100%、`body` 锁死滚动（第 3 节）。内容页要在 `guide.css` 里把这两条**放开**（`height: auto; overflow: visible` 之类），否则长页滚不动。
 
-**主题不闪**：`guide.html` 第 47–56 行有一段内联脚本，读同一份 `localStorage` 契约（`cph.editorSettings.theme`），只有存的是 `cph-light` 时才给 `<html data-theme="cph-light">`（不写即默认深色）。它**故意不加 `type="module"`**——普通内联脚本不会被打包器挪走或包起来，才能在首帧前同步执行、避免暗→亮闪一下。
+**主题不闪**：两版 guide 的 `<head>` 里都有一段内联脚本，读同一份 `localStorage` 契约（`cph.editorSettings.theme`），存的是 `light`（或主应用还没跑过、尚未迁过的旧值 `cph-light`）时才给 `<html data-theme="light">`（不写即默认深色）。它**故意不加 `type="module"`**——普通内联脚本不会被打包器挪走或包起来，才能在首帧前同步执行、避免暗→亮闪一下。**两段脚本内容一致、两边都要留**，改一处要同步另一处。
 
-**四处文案要一起看**（能力 / 口径变了先搜这四处）：
+**中英两版是一对，必须逐条对照**（2026-09-29 加）：
+
+| | `guide.html` | `guide.en.html` |
+| --- | --- | --- |
+| `<html lang>` | `zh-CN` | `en` |
+| 章节 | 12 节，`#what` … `#credits` | **同 12 节、同 id、同顺序**（h2 数 = 目录条目数 = 12） |
+| `canonical` | 指向自己 | 指向自己 |
+| 页头右侧 | `.page__top-actions` 里一颗 `.lang-link`（写 `English`，带 `hreflang="en" lang="en"`）+ 主按钮 | 同结构，链接写 `简体中文`（带 `hreflang="zh-CN" lang="zh-CN"`） |
+| 按钮名 | 与中文界面词条一致 | **必须与英文界面词条一致**（出处是 `src/i18n/messages/` 那六个文件），否则指南说的按钮在界面上找不到 |
+
+三条纪律：
+1. **改一版等于改两版**。加一节 / 改一条事实 / 动一个数字，两边同时改。判据是「h2 数 = 目录条目数 = 12」这类可机械复核的量，别靠 eyeball。
+2. **`hreflang` 三行两边都要有**（`zh-CN` → 中文页、`en` → 英文页、`x-default` → **中文页**，因为站点主要受众是中文）。`public/sitemap.xml` 里两条 URL 也得用 `xhtml:link` 互指同一组值，**三处必须一致**。
+3. **正文里 `未分类` 不译**——它是导入时真正建出来的目录名（见第 1 节与第 5 节坑 28 第 4 条）。英文版照写 `未分类`，可以在正文里补一句解释，**但不能把它「翻」成 `Uncategorised`**。
+
+**五处文案要一起看**（能力 / 口径变了先搜这五处）：
 
 | 位置 | 形态 |
 | --- | --- |
-| `guide.html` | **完整版**（长文、表格、FAQ、目录） |
-| `src/components/HelpPanel.vue` 的 `GROUPS` | 应用内「设置 → 帮助」的简版（条目式） |
-| `docs/使用手册.md` | 仓库内的简版，只回答最常问的两三个问题 |
-| `index.html` 的 `<noscript>` | 给不跑 JS 的抓取器的摘要，内容与上面几处对齐 |
+| `guide.html` + `guide.en.html` | **完整版**（长文、表格、FAQ、目录），**中英两版** |
+| `src/i18n/messages/help.js` | 应用内「设置 → 帮助」的简版（条目式），**中英两栏在同一个文件里**（`HelpPanel.vue` 已瘦身成纯渲染组件，正文全在这里） |
+| `docs/使用手册.md` | 仓库内的简版，只回答最常问的两三个问题（**只有中文**） |
+| `index.html` 的 `<noscript>` | 给不跑 JS 的抓取器的摘要，内容与上面几处对齐；**中英两半并列**（`<div lang="en">`） |
 
-其中 `guide.html` 的首段、`guide.html` 的折叠小节、`index.html` 的 `<noscript>` 首段会**点名描述侧边栏在哪一侧**（「左边是 Monaco 编辑器，右边是测试样例面板」）。面板默认位置 2026-09-28 从右改成左时，这三处跟着翻过一遍——**它描述的是「默认」，不是「唯一」**，所以别再往里面加「（可配置）」之类的补丁，也别让它们和 §8 的 A/B/C 断言各说各话。`og:image:alt` 是例外：它描述的是 `og-cover.png` **那张实际截图**，只有重新截图时才该改。
+其中 `guide.html` 第 1 节末那两句、`guide.html` 第 9 节的折叠小节、`index.html` 的 `<noscript>` 首段会**点名描述侧边栏在哪一侧**（「左侧是资源管理器与评测样例，右侧是编辑器」）。面板默认位置 2026-09-28 从右改成左时，这几处跟着翻过一遍——**它描述的是「默认」，不是「唯一」**，所以别再往里面加「（可配置）」之类的补丁，也别让它们和 §8 的 A/B/C 断言各说各话。`og:image:alt` 是例外：它描述的是 `og-cover.png` **那张实际截图**，只有重新截图时才该改。
 
-**`index.html` 的 `<noscript>` 正文有硬约束**（注释里也写了）：构建期的 HTML 解析按「脚本未启用」遍历 `<noscript>`，`<style>` / `<link>` / `<script>` 与**相对路径的 `<img>`** 会被特殊处理而在浏览器里失效，所以这块只放纯语义标签（`h1/h2/h3/ul/li/p/a`），**链接一律写绝对地址**（如导向 `https://www.998244353.best/guide.html`）。用户端零影响（JS 开启时不渲染、不进无障碍树），Vue 挂载时 `#app` 内容也会被清空。
+**致谢那一节不走上面那张表**（2026-09-29 加）：两版 guide 的「12. 致谢与开源许可」是仓库根目录 `NOTICE.md` 的**面向用户精简版**——上面那张表管的是「能力 / 口径」的几处同步，致谢管的是许可义务，两者别混。**注意节号**：2026-09-29 重写指南页后 guide 变成 12 节（新增了「在浏览器里跑有多快？」「怎么把题目抓进来？」「有哪些快捷键？」等节），致谢落在第 12 节；引用它时按**小标题文字**找，别按节号。**两版要一起改**（英文版的许可证名是法定名称，如 `Apache-2.0 WITH LLVM-exception` / `PSF License`，**原样照抄不译**）。它与 `NOTICE.md` 是**一对**：改依赖、换 `public/wasm/` 的工具链目录、换 `public/extension/` 的扩展包时**这三处一起改**，完整清单以 `NOTICE.md` 为准（那边记着每个组件的版本、许可与落在哪个文件）。精简版故意只列「跑在哪里、什么许可、负责什么」，不放版本号与文件路径——那些会过时，放在 `NOTICE.md` 里一处维护。
+
+**`index.html` 的 `<noscript>` 正文有硬约束**（注释里也写了）：构建期的 HTML 解析按「脚本未启用」遍历 `<noscript>`，`<style>` / `<link>` / `<script>` 与**相对路径的 `<img>`** 会被特殊处理而在浏览器里失效，所以这块只放纯语义标签（`h1/h2/h3/h4/ul/li/p/a/div/section/hr`），**链接一律写绝对地址**（如导向 `https://www.998244353.best/guide.html` 与 `.../guide.en.html`）。用户端零影响（JS 开启时不渲染、不进无障碍树），Vue 挂载时 `#app` 内容也会被清空。**中英两半并列**（`<hr />` + `<div lang="en">`）而不是二选一——无脚本环境给不出语言切换器，而中文那半的 `<h1>` 是全页唯一的 h1，所以英文那半从 `<h2>` 起（两半各自内部 h2→h3→h4 自洽）。
 
 **其余 SEO 落点**（都在 `public/`，直接进产物）：
 
 - `public/robots.txt`：`Allow: /`，`Disallow: /wasm/`（52MB 工具链只在用户点下载时才请求，别占抓取预算）与 `/precache-manifest.json`；**不要** Disallow `/assets/`（Google 需要抓 JS/CSS 才能渲染页面）；末尾指 `Sitemap:` 绝对地址。
-- `public/sitemap.xml`：只有两条 URL（`/` 与 `/guide.html`），**故意不写 `lastmod`**（写死的日期会变成假信息；`changefreq` / `priority` 已被 Google 忽略）。
-- `public/og-cover.png`：1200×630 的分享大图，被 `index.html` / `guide.html` 的 `og:image` 引用（`og:image` 必须是绝对地址）。
+- `public/sitemap.xml`：只有三条 URL（`/`、`/guide.html`、`/guide.en.html`），**故意不写 `lastmod`**（写死的日期会变成假信息；`changefreq` / `priority` 已被 Google 忽略）。指南页两条 URL 上各挂一组 `<xhtml:link rel="alternate" hreflang=…>` 互指（含 `x-default` 指中文页），`urlset` 因此要带 `xmlns:xhtml`——**不加这组互指，Google 会把两版当成互相竞争的重复内容**。
+- `public/og-cover.png`：1200×630 的分享大图，被 `index.html` / `guide.html` / `guide.en.html` 的 `og:image` 引用（`og:image` 必须是绝对地址）。
 - canonical / `og:*` / `twitter:*` / `ld+json` 都写在各自的 HTML `<head>` 里；站点主地址是**带 `www`** 的 `https://www.998244353.best`（apex 会 308 跳过来，canonical 用来收掉 Vercel 预览域等重复地址）。
+- **主应用与两版 guide 的语言声明方式不同，别套用**：主应用是**同一个 URL 服务两种语言**（`cph.uiLocale` 存档优先、否则跟随浏览器），所以 `index.html` 里只写 `og:locale` + `og:locale:alternate`、`ld+json` 的 `inLanguage` 给成数组，**刻意不写 hreflang**（没有「另一语言版本的 URL」这回事，写了反而错）；两版 guide 是**一页一语言**，那边才需要 hreflang 三件套。
 
 **部署侧的 MIME**（`vercel.json`，见第 10 节）：`/robots.txt` 补 `text/plain; charset=utf-8`、`/sitemap.xml` 补 `application/xml; charset=utf-8`，两者都禁缓存（`max-age=0, must-revalidate`）。
 
-**已知取舍**：`guide.html` **不进 Service Worker 预缓存**（`vite.config.js` 的 `precacheManifest` 在 `generateBundle` 阶段从 `bundle` 生成，而 `.html` 是 `vite:build-html` 之后才产出的，清单里只有 guide 的 js/css）。所以断网访问 `/guide.html` 时，导航的兜底（`sw.js` 里 `caches.match('/index.html')`）会把**主应用外壳**顶上来——指南页离线不可用，但至少不会白屏。要改就在 `sw.js` 里单独缓存它。
+**已知取舍**：两版 guide **都不进 Service Worker 预缓存**（`vite.config.js` 的 `precacheManifest` 在 `generateBundle` 阶段从 `bundle` 生成，而 `.html` 是 `vite:build-html` 之后才产出的，清单里只有它们的 js/css）。所以断网访问 `/guide.html` 或 `/guide.en.html` 时，导航的兜底（`sw.js` 里 `caches.match('/index.html')`）会把**主应用外壳**顶上来——指南页离线不可用，但至少不会白屏。要改就在 `sw.js` 里单独缓存它们（两版都要）。
 
 ## 13. 浏览器插件抓题（CC for Web）与全局快捷键
 
@@ -599,7 +674,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ## 14. 后续计划与待解决问题
 
-这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**14.1 已落地**；**14.5 的固定结构 + 身份索引提级那一半也已落地（2026-09-28），剩下的配置 UI 仍待做**（两者都保留在下面只作记录）。剩下 9 项里靠前的都是站点侧小改动，越往后越重：14.3 / 14.6 会动用户数据，14.2 是 14.5 剩余部分的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
+这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**已落地：14.1、14.3（2026-09-29）、14.8、14.12，以及 14.5 的固定结构 + 身份索引提级那一半、14.11 的阶段一**（这些条目保留在下面只作记录）。仍待做 7 项里靠前的都是站点侧小改动，越往后越重：14.6 会动用户数据，14.2 是 14.5 剩余部分的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
 
 ### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28，做成胶囊开关）
 
@@ -650,18 +725,23 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **不能破的约定**：`.cph` 在 UI 里必须仍然不可见（第 5 节坑 19 的 `changed` 标志别搞丢）、代码文件正文永不覆盖、题目身份认 `url`。
 
-### 14.3 把 CC for Web 的时限接到评测时限上
+### 14.3 把 CC for Web 的时限接到评测时限上 —— ✅ 已落地（2026-09-29，走的是「挪进节点 meta」那条路）
 
-**现状**：扩展送来的 `timeLimit`（毫秒）被 `problemImport.buildConfig()` 原样存进 `.cph/<题名>.json`，**但从来没被用过**——面板跑的始终是全局 `cph.timeLimitMs`（设置里 1/2/5/10 s 的下拉，见 `EditorSettingsPanel.vue`）。
+**做法**：题目时限不再当成「全局档位的替代品」，而是**每道题各自一份**：
+`problemImport.js` 在落盘时把扩展送来的 `timeLimit`（毫秒）写进节点 `meta.timeLimit`（`normalizeMeta()` 校验，合法区间 100ms–60s，越界归 0 = 未设置），
+`App.vue` 的 `effectiveTimeLimitMs` 再按「活跃文件的 `meta.timeLimit` 非 0 就用它、否则退回全局 `cph.timeLimitMs`」算出真正生效的值，`runAll()` / `runOne()` 都喂这个 computed。
+UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`FileExplorer.vue`，step 0.5、留空用默认），全局档位仍是设置视图「评测」组的四档下拉。
+顺带把**时限从面板页头搬进了设置视图**（页头只剩胶囊 + verdict + 耗时），面板页头因此不再有 `.select`。
+**判定口径没动**：仍然只计运行段、Python 仍多给 `PYTHON_STARTUP_ALLOWANCE_MS = 500`。
 
-**要做的**：导入题目时把这道题的时限应用到面板上。
+**当初列的四个坑怎么解的**：
 
-**坑**：
+- **枚举 vs 任意值** → 绕开了：全局档位保持四档枚举，题目侧走任意毫秒（UI 输入秒、0.5 步进），两条路各管各的。
+- **口径不一样**（面板只计运行段、OJ 给整段 wall-clock）→ 照旧按本机口径判，**文档里写明白了**（`guide.html` 第 6 节「时限与耗时的口径是什么？」），不做整段 wall-clock 的近似。
+- **要不要覆盖用户的选择** → 不需要区分了：题目时限进 `meta`，全局档位一个字节都不碰。
+- **这是全局量，不是每道题一份** → 正是因此才把它挪进 `meta`（节点元数据的第 5 个字段，`problemMeta.js` 的 `emptyMeta()` / `formatMetaTooltip()` 一起加了它）。
 
-- **枚举 vs 任意值**：面板时限是四档枚举，题目时限是任意毫秒（1000 / 2000 / 4000 都常见）。要么把下拉改成「档位 + 自定义数值」，要么做「取最接近但不小于」的映射（1000→1s、2000→2s、4000→5s）。
-- **口径本来就不一样**：面板的时限**只计运行段**、不含编译（第 7 节「耗时口径」），而 OJ 给的是整段 wall-clock。直接照搬 1s 对本地沙箱偏紧，Python 还额外背着 `PYTHON_STARTUP_ALLOWANCE_MS = 500`。
-- **要不要覆盖用户的选择**：若沿用 `cph.timeLimitMs` 这个全局键，就必须区分「用户自己设过」与「导入时播种的」，否则每抓一道题都会把用户手调的档位顶掉。
-- **这是全局量，不是每道题一份**。真要做成「每道题各自一个时限」，值得把值挪进节点 `meta` 或题目 config——那是更大的改动，得先想清楚 UI 放哪（现在面板页头只有一处时限）。
+**还没做的**：`.cph/<题名>.json` 里也留着原始 `timeLimit` 字段（每次抓取刷新），目前只有 `meta.timeLimit` 参与判题；两者是「来源备份」与「生效值」的关系，别顺手删掉前者。
 
 ### 14.4 默认模板功能
 
@@ -783,7 +863,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 - **`scripts/verify-ui.mjs` 里对设置分类数的断言**要同步改（第 8 节 B 步已经踩过一次）。
 - **文案不只在这一个文件**：第 12 节列了「能力 / 口径变了先搜这四处」——`guide.html`、`HelpPanel.vue` 的 `GROUPS`、`docs/使用手册.md`、`index.html` 的 `<noscript>`。设置页里的词如果和它们叫得不一样，用户会以为说的是两个功能。
-- **两套主题都要过一遍**（`cph-dark` / `cph-light`），色值只能来自 `base.css` 变量。
+- **两套主题都要过一遍**（`dark` / `light`），色值只能来自 `base.css` 变量。
 - **窄面板靠容器查询隐藏元素**，改布局时要连着容器查询一起看，否则窄屏会挤成一团。
 
 ### 14.11 VS Code 式目录内新建 —— 🟡 阶段一已落地（2026-09-28），嵌套路径阶段二待做
@@ -817,5 +897,37 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **越界比例的收敛**：`App.vue` 的 `reclampShare()` 在三个时机把持久化里的 `editorShare` 夹回当前合法区间（挂载 `nextTick`、`watch(uiScale)`、`ResizeObserver` 去抖 150ms 后），消除「第一次拖拽猛地跳一段」（完整背景见第 5 节坑 25）。它只做收敛：越界才写回，本来就合法则原样不动。
 - **陷阱**（完整版见第 5 节坑 24）：JS 内联样式 / JS 常量 / `@container`·`@media` 断点参数**都不经过转换**，所以本仓 7 处 `@container` 阈值是手工写成 rem 的；被 `measureLimits()` 用 `parseFloat` 读的 `--tests-min-*` 必须留在 `propList` 排除名单里（否则 `240` 会变成 `15`）；`--seg-w` / `--seg-h` 反过来必须一起随 rem 缩放，否则胶囊扭形；`minPixelValue: 3` 保住 1px / 2px 细线。
 - **验证**：`npm run verify` A–G 全 PASS（scale=1 的几何与第 8 节记录逐像素一致）；125% / 150% 下实测根字号 20px / 24px、Monaco 字号与行高同步、拖拽仍 1:1 跟手。`--tests-min-cap` 变量本身恒为 240px（`parseFloat` 量纲不变），乘过 scale 后实际生效是 300 / 360。越界收敛实测（按下只挪 40px 取样）：150% + 存档 82 → 加载即收敛为 77.3（恰为该布局 `maxShare`）、视口 600px + 存档 60 → 57.1、本就合法的值原样不动，四个 case 拖拽均 1:1 跟手，控制台无 `ResizeObserver loop` 告警。
+
+### 14.13 超长样例（百万字符级）—— 🟡 显示层已落地（2026-09-29 三轮迭代），存储与远程引擎未动
+
+**背景**：用户问「上百万字符的样例会不会把输入框撑爆」。实测结论是**不会崩，会卡在打字上**（每敲一个字符：10 万 3.5ms / 50 万 18ms / 100 万 37ms / 200 万 75ms），根因是「每次 value 变更都让整段文本重新排版」——与 `autoGrow` 无关，文本已排好版时 `autoGrow` 净开销是 0ms。
+
+**已落地（显示层，当天迭代过三轮）**：超过 6000 字符的字段把**显示**切成「开头一段 + 省略行」，真值一个字节不动；框**仍然可编辑**，但只能改省略行之前的那一段。复制靠 `copy` 事件接管：**选区里带上省略行就等于连省略段一起选中**，直接给完整内容（Ctrl+A 天然带上）。三个框（标准输入 / 期望输出 / 实际输出）同一套行为。迭代史：第一版阈值 2 万 + 「编辑完整内容」按钮 → 第二版阈值收到 6000 并撤掉编辑入口（整体 `readonly`）→ 第三版按用户要求**恢复局部编辑**，并用「省略行 = 省略段的化身」取代那颗按钮。第三版收尾时**顺手挖出一个真 bug**：按「取省略行之前的部分 + 原尾部」拼回的话，用户全选粘一份新样例进来时旧的 4500 个字符会被悄悄缀在新内容后面（实测粘 12 个字符得到 4517 个字符，界面上看不出来）——已改成「省略行没了，省略段就跟着走」。完整约定见第 5 节坑 26。
+
+**刻意未做（用户 2026-09-29 决定本轮不动）**：
+
+- **localStorage 配额**（见坑 27）：约 520 万 ASCII 字符的上限，「输入 100 万 + 期望 100 万」就吃掉 40%；超了以后 `usePersistentRef` 的 `catch` 静默吞掉，**界面正常、刷新回退**。两条修法——轻的：写入加节流 + 失败时明确提示「用例太大，未能保存」；重的：复用 `services/vfs/idb.js` 把超长字段挪进 IndexedDB，`cph.testCases` 只留摘要（要动持久化结构 + 写迁移）。
+- **远程引擎的大 stdin**：Piston / Judge0 把 stdin 内联进 JSON POST，1MB 级别的输入很可能被拒或超时。可选做法是超阈值时提示「该引擎可能吃不下这么大的输入」。
+- **Python 的性能画像**：C++ 侧的倍率与固定开销已测全（见第 7 节），Python 目前只有「a+b 67~81ms」一个数据点。
+
+### 14.14 界面双语（中 / 英）—— ✅ 已落地（2026-09-29）
+
+**背景**：用户要「翻译一套英语版本的，添加一个语言设置选项」。
+
+**选型（用户当场定的三条）**：① **自写轻量模块，不引 vue-i18n**——词条是扁平的 `'域.组.键'` 字符串，只需要 `t(key, params)` + 一个 ref，vue-i18n 的复数规则 / 日期本地化 / 组件插值一样用不上，多一个重量级依赖不值（与「新增 npm 包要先讨论」那条纪律一致）；② 翻译范围是 **UI + 应用内帮助 + `guide.html` 整页**（不含 `NOTICE.md` 与 `docs/使用手册.md`）；③ 首次打开**跟随浏览器语言**。
+
+**已落地**：
+- **基础设施** `src/i18n/`：`index.js`（`locale` ref 单例 / `setLocale` / `t()` / `messages(域)` / `LOCALES` / `applyLocale`）+ `messages/` 下六个域文件（`app` / `engines` / `explorer` / `help` / `settings` / `tests`），**同一文件里中英两栏并排**。缺词条先退中文、再原样露出 key（不抛错）。
+- **持久化**：`cph.uiLocale`，**刻意绕开 `usePersistentRef`**（界面语言必须早于任何组件挂载就定下来，首帧不能先闪中文）。跟随浏览器的探测结果**不写回存档**。见第 6 节。
+- **设置项**：设置视图「外观」组新增「**界面语言**」下拉（在「主题 / 字体大小 / 界面缩放 / 侧边栏位置」之后），切了当场生效、不重载。文案刻意叫「界面语言」以区分「判题语言（由文件扩展名派生）」——`cph.language` 那个死键别复用（坑 15 / 坑 28）。
+- **迁移规模**：UI 文案硬编码中文从 **434 处降到 130 处，且全部落在注释里**（构建通过 + 脚本复查确认残余「中文」都是 `/* */` 与 `<!-- -->`）。改动面覆盖 `App.vue` 与全部 14 个组件、9 个 service / composable。**顺带为 i18n 做的一次重构是这次最有价值的副产品**：`EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的显示名全部从「存字面量」改成「**只存 key**」，由消费处再 `t()`（见第 1 节与坑 28 第 1 条）。
+- **写进文件系统的名字不译**：`未分类` / `未命名题目` 照旧，`OJ_LIST` 因此新增与 `labelKey` 并列的 `dirName`（显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意不合并**）。
+- **`guide.en.html`**：`guide.html` 的逐条对照版（同 12 节、同 id、同序），共用 `guide.css`；两页 `hreflang` 三件套互链 + 页头各一颗语言切换链接；`public/sitemap.xml` 加第三条 URL 并用 `xhtml:link` 互指；`index.html` 的 `<noscript>` 补英文半篇、`og:locale:alternate`、`ld+json` 的 `inLanguage` 改成数组。详见第 12 节。
+- **验证**：`npm run build` 通过（产物含 `dist/guide.en.html`）；两轮无头探针共 **29 + 10 条断言全 PASS**（跟随浏览器 / 存档覆盖 / 切换当场生效与落盘 / 英文下的超长样例 / 两版 guide 的 hreflang 与页头布局 / 英文表格在 1400px 与 700px 两档不溢出）；两套主题的截图肉眼核对过。`npm run verify` 的 A 步仍是既有竞态（基线同样失败，与本轮无关）。
+
+**刻意未做**：
+- **`NOTICE.md` 与两版 guide 的致谢部分只列了组件名与许可证，没有英文正文需要维护**；`docs/使用手册.md` 保持单语（它是仓库内文档，不是站点内容）。
+- **没做 URL 前缀式的语言路由**（没有 `/en/`）。主应用是「一个 URL 服务两种语言」，两版 guide 是「一页一语言」，两种形态并存是刻意的（见第 12 节最后一条）。
+- **没做 `manifest.webmanifest` 的语言分流**：清单是单份静态文件，`lang` 只能写一个值。PWA 的名字是品牌名 `unnamed`（语言无关），唯一的中文是 `description` 与 `lang: "zh-CN"`。真要分流得挂多份 manifest + `hreflang`，收益（安装后的应用名描述）不值这个复杂度。
 
 **建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → 14.7 → 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。

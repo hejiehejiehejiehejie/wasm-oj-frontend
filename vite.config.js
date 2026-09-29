@@ -71,14 +71,19 @@ export default defineConfig({
     // Monaco ships a few large chunks; raise the warning threshold instead of
     // splitting the editor across many lazy chunks.
     chunkSizeWarningLimit: 4000,
-    // 两个入口：主应用 + 使用指南（guide.html）。指南页被搜索引擎直接抓取，
-    // 所以要作为真正的 HTML 入口构建，才能复用 base.css 的两套主题配色（色值只定义在那里）。
+    // 四个入口：主应用 + 使用指南（guide.html + guide.en.html）+ 第三方许可清单（notice.html）。
+    // 指南页被搜索引擎直接抓取，所以要作为真正的 HTML 入口构建，才能复用 base.css 的两套主题配色（色值只定义在那里）；
+    // 英文版 guide.en.html 与中文版共用同一份 guide.css，也必须单独列进来，否则不会被构建。
+    // notice.html 同理，而且它**是生成物**——由 scripts/render-notice.mjs 从 NOTICE.md 生成（npm run notice），
+    // 不要手改那一页，改 NOTICE.md 后重新生成。
     // 注意：precacheManifest 在 generateBundle 阶段从 bundle 生成、早于 vite:build-html，
-    // 所以清单里只有 guide 的 js/css，永远不含 .html，这一页不进 Service Worker 预缓存。
+    // 所以清单里只有 guide / notice 的 js/css，永远不含 .html，这三个内容页都不进 Service Worker 预缓存。
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         guide: fileURLToPath(new URL('./guide.html', import.meta.url)),
+        guideEn: fileURLToPath(new URL('./guide.en.html', import.meta.url)),
+        notice: fileURLToPath(new URL('./notice.html', import.meta.url)),
       },
     },
   },

@@ -1,5 +1,5 @@
 /* 全局配色。
-   深色是默认（不带 data-theme 时也用深色），浅色通过 <html data-theme="cph-light"> 切换。
+   深色是默认（不带 data-theme 时也用深色），浅色通过 <html data-theme="light"> 切换。
    所有组件只允许引用这里的变量，不要再写死十六进制颜色。 */
 :root {
   /* 告诉浏览器这套配色的明暗。UA 自己绘制的地方（橡皮筋回弹、滚动条、原生下拉）
@@ -89,7 +89,7 @@
 }
 
 /* 浅色主题：层次与深色一致，只是整体翻转 */
-:root[data-theme='cph-light'] {
+:root[data-theme='light'] {
   color-scheme: light;
 
   --bg-editor: #f3f3f3;

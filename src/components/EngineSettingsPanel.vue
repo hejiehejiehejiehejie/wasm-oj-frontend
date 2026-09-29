@@ -8,6 +8,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { t } from '../i18n/index.js'
 import { engineChoices } from '../services/engines/index.js'
 
 const props = defineProps({
@@ -64,25 +65,27 @@ function applyBase() {
         @click="chooseEngine(item.id)"
       >
         <span class="engine__head">
-          <span class="engine__label">{{ item.label }}</span>
-          <span v-if="!item.executesCode" class="engine__badge">不执行代码</span>
+          <span class="engine__label">{{ t(item.labelKey) }}</span>
+          <span v-if="!item.executesCode" class="engine__badge">{{ t('engine.notExecutes') }}</span>
           <AppIcon v-if="item.id === judge.id" name="check" :size="13" />
         </span>
-        <span class="engine__hint">{{ item.hint }}</span>
+        <span class="engine__hint">{{ t(item.hintKey) }}</span>
       </button>
     </div>
 
     <div v-if="!localEngine" class="engine-field">
-      <span class="engine-field__label">服务地址</span>
+      <span class="engine-field__label">{{ t('engine.baseLabel') }}</span>
       <input
         v-model="draftBase"
         class="engine-field__input"
         spellcheck="false"
         @keyup.enter="applyBase"
       />
-      <button class="engine-button engine-button--solid" @click="applyBase">保存</button>
+      <button class="engine-button engine-button--solid" @click="applyBase">
+        {{ t('app.save') }}
+      </button>
     </div>
-    <p v-else class="engine-note">本地沙箱在浏览器里跑，不需要服务地址。</p>
+    <p v-else class="engine-note">{{ t('engine.localNoBase') }}</p>
 
     <div class="engine-probe">
       <button
@@ -91,7 +94,7 @@ function applyBase() {
         @click="emit('test-connection')"
       >
         <AppIcon name="reset" :size="13" />
-        <span>{{ connection.state === 'checking' ? '探测中…' : '自检' }}</span>
+        <span>{{ t(connection.state === 'checking' ? 'engine.checking' : 'engine.selfTest') }}</span>
       </button>
       <span v-if="connection.message" class="engine-probe__message" :class="probeTone">
         {{ connection.message }}

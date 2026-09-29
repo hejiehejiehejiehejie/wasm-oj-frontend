@@ -16,6 +16,7 @@ import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
+import { t } from '../i18n/index.js'
 import {
   activeLanguage,
   createDirectory,
@@ -76,7 +77,8 @@ function defaultName(type, targetId) {
   const siblings =
     targetId === 'root' ? workspace.tree : (getNodeById(targetId)?.children ?? [])
   const taken = new Set(siblings.map((node) => basename(node.path)))
-  if (type !== 'file') return uniqueName(taken, '新建文件夹')
+  const labelOf = (item) => (item.labelKey ? t(item.labelKey) : (item.label ?? ''))
+  if (type !== 'file') return uniqueName(taken, t('explorer.defaultFolderName'))
   return uniqueName(taken, 'new', activeLanguage.value === 'python' ? '.py' : '.cpp')
 }
 
@@ -183,7 +185,7 @@ async function commitCreate() {
     // （blur 会先提交上一轮），无条件清空会把刚打开的新输入框一起抹掉。
     if (creating.value === state) creating.value = null
   } catch (error) {
-    state.error = error.message || '创建失败'
+    state.error = error.message || t('explorer.createFailed')
   } finally {
     createFlights.delete(state)
   }
@@ -203,13 +205,13 @@ function openContextMenu(event, node) {
  */
 function buildMenuItems(node) {
   const items = []
-  if (node?.type === 'file') items.push({ id: 'meta', label: '题目信息' })
+  if (node?.type === 'file') items.push({ id: 'meta', label: t('explorer.menu.meta') })
   else if (node?.type === 'directory') {
-    items.push({ id: 'new-file', label: '新建文件' })
-    items.push({ id: 'new-folder', label: '新建文件夹' })
+    items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
+    items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
   }
-  items.push({ id: 'rename', label: '重命名' })
-  items.push({ id: 'delete', label: '删除' })
+  items.push({ id: 'rename', label: t('explorer.menu.rename') })
+  items.push({ id: 'delete', label: t('explorer.menu.delete') })
   return items
 }
 
@@ -307,7 +309,7 @@ async function confirmMeta() {
     await updateFileMeta(node.path, normalizeMeta(form))
     metaTarget.value = null
   } catch (error) {
-    metaError.value = error.message || '保存失败'
+    metaError.value = error.message || t('explorer.saveFailed')
   }
 }
 
@@ -359,7 +361,7 @@ provide('onCreateBlur', onCreateBlur)
         <button
           type="button"
           class="explorer__btn"
-          title="新建文件"
+          :title="t('explorer.menu.newFile')"
           @click="startCreate('file', headerCreateTarget())"
         >
           <AppIcon name="file-plus" :size="14" />
@@ -367,7 +369,7 @@ provide('onCreateBlur', onCreateBlur)
         <button
           type="button"
           class="explorer__btn"
-          title="新建文件夹"
+          :title="t('explorer.menu.newFolder')"
           @click="startCreate('directory', headerCreateTarget())"
         >
           <AppIcon name="folder-plus" :size="14" />
@@ -388,7 +390,7 @@ provide('onCreateBlur', onCreateBlur)
       />
 
       <p v-if="!workspace.tree.length && !creating" class="explorer__empty">
-        还没有文件，点上方按钮新建
+        {{ t('explorer.emptyTree') }}
       </p>
     </div>
 
@@ -413,22 +415,24 @@ provide('onCreateBlur', onCreateBlur)
           aria-describedby="confirm-desc"
           @keydown.esc.stop.prevent="cancelDelete"
         >
-          <p id="confirm-title" class="confirm__title">确定删除？</p>
+          <p id="confirm-title" class="confirm__title">{{ t('explorer.deleteConfirm.title') }}</p>
           <p id="confirm-desc" class="confirm__desc">
             <span class="confirm__path">{{ pendingDelete.path }}</span>
             <template v-if="pendingDelete.type === 'directory'">
-              ，目录内的全部内容将一并删除。
+              {{ t('explorer.deleteConfirm.directoryNote') }}
             </template>
           </p>
           <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelDelete">取消</button>
+            <button type="button" class="confirm__btn" @click="cancelDelete">
+              {{ t('app.cancel') }}
+            </button>
             <button
               ref="confirmBtn"
               type="button"
               class="confirm__btn confirm__btn--danger"
               @click="confirmDelete"
             >
-              删除
+              {{ t('explorer.menu.delete') }}
             </button>
           </div>
         </div>
@@ -445,28 +449,30 @@ provide('onCreateBlur', onCreateBlur)
           aria-labelledby="meta-title"
           @keydown.esc.stop.prevent="cancelMeta"
         >
-          <p id="meta-title" class="meta__title">题目信息</p>
+          <p id="meta-title" class="meta__title">{{ t('explorer.meta.title') }}</p>
           <p class="meta__file">{{ metaTarget.path }}</p>
 
           <label class="meta__field">
-            <span class="meta__label">题目链接</span>
+            <span class="meta__label">{{ t('explorer.meta.url') }}</span>
             <input v-model="metaForm.url" class="meta__input" type="url" placeholder="https://…" />
           </label>
 
           <label class="meta__field">
             <span class="meta__label">OJ</span>
             <select ref="metaFirstField" v-model="metaForm.oj" class="meta__input" @change="onOjChange">
-              <option value="">未选择</option>
-              <option v-for="item in OJ_LIST" :key="item.id" :value="item.id">{{ item.label }}</option>
+              <option value="">{{ t('explorer.meta.ojUnset') }}</option>
+              <option v-for="item in OJ_LIST" :key="item.id" :value="item.id">
+                {{ labelOf(item) }}
+              </option>
             </select>
           </label>
 
           <label class="meta__field">
-            <span class="meta__label">难度</span>
+            <span class="meta__label">{{ t('explorer.meta.difficulty') }}</span>
             <select v-if="metaDifficultyOptions" v-model="metaForm.difficulty" class="meta__input">
-              <option value="">未设置</option>
+              <option value="">{{ t('explorer.meta.difficultyUnset') }}</option>
               <option v-for="item in metaDifficultyOptions" :key="item.id" :value="item.id">
-                {{ item.label }}
+                {{ labelOf(item) }}
               </option>
             </select>
             <input
@@ -474,25 +480,31 @@ provide('onCreateBlur', onCreateBlur)
               v-model="metaForm.difficulty"
               class="meta__input"
               type="text"
-              placeholder="自定义难度"
+              :placeholder="t('explorer.meta.difficultyCustom')"
             />
-            <input v-else class="meta__input" type="text" disabled placeholder="先选择 OJ" />
+            <input
+              v-else
+              class="meta__input"
+              type="text"
+              disabled
+              :placeholder="t('explorer.meta.difficultyPickOj')"
+            />
           </label>
 
           <label class="meta__field">
-            <span class="meta__label">日期</span>
+            <span class="meta__label">{{ t('explorer.meta.date') }}</span>
             <input v-model="metaForm.date" class="meta__input" type="date" />
           </label>
 
           <label class="meta__field">
-            <span class="meta__label">时限（秒）</span>
+            <span class="meta__label">{{ t('explorer.meta.timeLimit') }}</span>
             <input
               v-model="metaForm.timeLimit"
               class="meta__input"
               type="number"
               min="0.1"
               step="0.5"
-              placeholder="留空用默认"
+              :placeholder="t('explorer.meta.timeLimitPlaceholder')"
               inputmode="decimal"
             />
           </label>
@@ -500,8 +512,12 @@ provide('onCreateBlur', onCreateBlur)
           <p v-if="metaError" class="meta__error">{{ metaError }}</p>
 
           <div class="meta__actions">
-            <button type="button" class="meta__btn" @click="cancelMeta">取消</button>
-            <button type="button" class="meta__btn meta__btn--primary" @click="confirmMeta">保存</button>
+            <button type="button" class="meta__btn" @click="cancelMeta">
+              {{ t('app.cancel') }}
+            </button>
+            <button type="button" class="meta__btn meta__btn--primary" @click="confirmMeta">
+              {{ t('app.save') }}
+            </button>
           </div>
         </div>
       </div>

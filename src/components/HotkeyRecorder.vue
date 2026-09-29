@@ -12,6 +12,7 @@
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { t } from '../i18n/index.js'
 import {
   comboFromEvent,
   formatCombo,
@@ -31,8 +32,10 @@ const error = ref('')
 
 const combo = computed(() => bindings.value[props.actionId] ?? '')
 const label = computed(() => {
-  if (recording.value) return draft.value ? formatCombo(draft.value) : '按下组合键…'
-  return combo.value ? formatCombo(combo.value) : '未绑定'
+  if (recording.value) {
+    return draft.value ? formatCombo(draft.value) : t('settings.shortcut.recorder.placeholder')
+  }
+  return combo.value ? formatCombo(combo.value) : t('settings.shortcut.recorder.unbound')
 })
 
 function start() {
@@ -101,7 +104,7 @@ function onKeydown(event) {
         v-if="combo && !recording"
         type="button"
         class="hotkey-clear"
-        title="清除绑定"
+        :title="t('settings.shortcut.recorder.clear')"
         @click="clearBinding(actionId)"
       >
         <AppIcon name="close" :size="11" />
@@ -111,7 +114,9 @@ function onKeydown(event) {
         type="button"
         class="hotkey"
         :class="{ 'is-recording': recording, 'is-conflict': !!error, 'is-empty': !combo && !recording }"
-        :title="recording ? '按 Esc 取消，按 Delete 清除绑定' : '点一下开始录制'"
+        :title="
+          t(recording ? 'settings.shortcut.recorder.hint' : 'settings.shortcut.recorder.idle')
+        "
         @click="start"
         @keydown="onKeydown"
         @blur="stop"
@@ -124,7 +129,9 @@ function onKeydown(event) {
       <AppIcon name="alert" :size="12" />
       <span>{{ error }}</span>
     </p>
-    <p v-else-if="recording && !draft" class="hotkey-tip">Esc 取消，Delete 清除绑定</p>
+    <p v-else-if="recording && !draft" class="hotkey-tip">
+      {{ t('settings.shortcut.recorder.tip') }}
+    </p>
   </div>
 </template>
 

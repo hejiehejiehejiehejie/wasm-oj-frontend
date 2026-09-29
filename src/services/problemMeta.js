@@ -10,27 +10,40 @@
  * - 牛客 / LeetCode / 其它 → 自由文本（这些站点没有统一难度口径）。
  */
 
-/** 全部支持的 OJ。id 持久化进 VFS 节点，不许随意改字面量 */
+import { t } from '../i18n/index.js'
+
+/**
+ * 全部支持的 OJ。**id 持久化进 VFS 节点，不许随意改字面量**。
+ * 显示名走 labelKey（i18n 的调用纪律：数据表只存 key，消费处再 t()）。
+ *
+ * 【dirName 为什么另立一份且不翻译】题目导入会把它建成真实目录
+ * （/Problems/〈年月〉/〈dirName〉/未分类/）。跟着界面语言变的话，同一道题在中文界面
+ * 导入建出「洛谷/」、切到英文再导入又建出「Luogu/」，同一个逻辑位置出现两个目录。
+ * 所以这一列**语言无关**，值刻意保持改造前的中文字面量，老用户的目录结构一个都不动。
+ */
 export const OJ_LIST = [
-  { id: 'luogu', label: '洛谷' },
-  { id: 'codeforces', label: 'Codeforces' },
-  { id: 'atcoder', label: 'AtCoder' },
-  { id: 'nowcoder', label: '牛客' },
-  { id: 'leetcode', label: 'LeetCode' },
-  { id: 'other', label: '其它' },
+  { id: 'luogu', labelKey: 'oj.luogu', dirName: '洛谷' },
+  { id: 'codeforces', labelKey: 'oj.codeforces', dirName: 'Codeforces' },
+  { id: 'atcoder', labelKey: 'oj.atcoder', dirName: 'AtCoder' },
+  { id: 'nowcoder', labelKey: 'oj.nowcoder', dirName: '牛客' },
+  { id: 'leetcode', labelKey: 'oj.leetcode', dirName: 'LeetCode' },
+  { id: 'other', labelKey: 'oj.other', dirName: '其它' },
 ]
 
-/** 洛谷官方八级，按由易到难排列 */
+/** 洛谷官方八级，按由易到难排列。英文名是意译，见 messages/explorer.js 的文件头 */
 export const LUOGU_LEVELS = [
-  { id: 'rumen', label: '入门' },
-  { id: 'puji-', label: '普及-' },
-  { id: 'puji', label: '普及' },
-  { id: 'tigao', label: '提高' },
-  { id: 'tigao+', label: '提高+' },
-  { id: 'shengxuan', label: '省选' },
-  { id: 'noi', label: 'NOI' },
-  { id: 'ctsc', label: 'CTSC' },
+  { id: 'rumen', labelKey: 'oj.luoguLevels.rumen' },
+  { id: 'puji-', labelKey: 'oj.luoguLevels.puji-' },
+  { id: 'puji', labelKey: 'oj.luoguLevels.puji' },
+  { id: 'tigao', labelKey: 'oj.luoguLevels.tigao' },
+  { id: 'tigao+', labelKey: 'oj.luoguLevels.tigao+' },
+  { id: 'shengxuan', labelKey: 'oj.luoguLevels.shengxuan' },
+  { id: 'noi', labelKey: 'oj.luoguLevels.noi' },
+  { id: 'ctsc', labelKey: 'oj.luoguLevels.ctsc' },
 ]
+
+/** 表里的显示名：有 labelKey 就翻译，否则用字面量（分数段那种纯数字） */
+const labelOf = (item) => (item.labelKey ? t(item.labelKey) : (item.label ?? ''))
 
 /** Codeforces / AtCoder 分数段：800…3500，步长 100 */
 export const RATING_VALUES = (() => {
@@ -82,7 +95,8 @@ export function difficultyLabel(oj, difficulty) {
   if (system === 'free') return difficulty
   const table = system === 'rating' ? RATING_VALUES : system === 'luogu' ? LUOGU_LEVELS : null
   if (!table) return ''
-  return table.find((item) => item.id === difficulty)?.label ?? ''
+  const found = table.find((item) => item.id === difficulty)
+  return found ? labelOf(found) : ''
 }
 
 /** 全空的初始值（对话框绑定用）。timeLimit 为 0 = 未设置，单位毫秒 */
@@ -162,11 +176,13 @@ export function formatMetaTooltip(meta) {
   if (!meta) return ''
   const lines = []
   const oj = OJ_LIST.find((item) => item.id === meta.oj)
-  if (oj) lines.push(`OJ：${oj.label}`)
+  if (oj) lines.push(t('explorer.tooltip.oj', { value: labelOf(oj) }))
   const difficulty = difficultyLabel(meta.oj, meta.difficulty)
-  if (difficulty) lines.push(`难度：${difficulty}`)
-  if (meta.timeLimit && meta.timeLimit > 0) lines.push(`时限：${meta.timeLimit / 1000}s`)
-  if (meta.date) lines.push(`日期：${meta.date}`)
+  if (difficulty) lines.push(t('explorer.tooltip.difficulty', { value: difficulty }))
+  if (meta.timeLimit && meta.timeLimit > 0) {
+    lines.push(t('explorer.tooltip.timeLimit', { value: meta.timeLimit / 1000 }))
+  }
+  if (meta.date) lines.push(t('explorer.tooltip.date', { value: meta.date }))
   if (meta.url) lines.push(meta.url)
   return lines.join('\n')
 }

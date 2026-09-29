@@ -11,6 +11,7 @@
  */
 import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { t } from '../i18n/index.js'
 import { stem } from '../services/vfs/paths.js'
 
 defineOptions({ name: 'InlineCreateRow' })
@@ -60,7 +61,7 @@ onBeforeUnmount(() => {
       ref="input"
       v-model="state.value"
       class="create-row__input"
-      :placeholder="state.type === 'file' ? 'new.cpp' : '新建文件夹'"
+      :placeholder="state.type === 'file' ? 'new.cpp' : t('explorer.menu.newFolder')"
       @keydown.enter.prevent="commitCreate"
       @keydown.esc.prevent="cancelCreate"
       @blur="onCreateBlur"

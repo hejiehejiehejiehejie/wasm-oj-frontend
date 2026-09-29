@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/styles/guide.css" />
+    <link rel="canonical" href="https://www.998244353.best/notice.html" />
+    <meta
+      name="description"
+      content="unnamed 的完整第三方开源组件清单：运行时分发依赖、本地沙箱工具链、界面素材、浏览器扩展、构建期工具与外部评测服务的版本、许可证与落点。"
+    />
+    <title>unnamed 第三方开源组件与许可（完整清单）</title>
+    <!--
+      本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。
+      改完 NOTICE.md 后跑：npm run notice
+      generated-from-notice.md sha256:f57d776f001d
+    -->
+    <script>
+      try {
+        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        var theme = saved && saved.theme
+        if (theme === 'light' || theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch (error) {
+        /* 隐私模式或存档损坏：按默认深色渲染即可 */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page__top">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
+          <span class="brand__name">unnamed</span>
+        </a>
+        <a class="cta" href="/guide.html">返回使用指南</a>
+      </header>
+
+      <main class="doc">
+        <h1>第三方开源组件致谢（NOTICE）</h1>
+        <p>本站（unnamed，仓库 <code>wasm-oj-frontend</code>）自己写的只有界面、交互与判题逻辑；能跑起来靠的是一批开源项目。 这份文件是<strong>第三方组件的唯一清单</strong>，目的有两个：<strong>致谢</strong>，以及在分发时<strong>保留各项目要求的版权与许可声明</strong>。</p>
+        <p>面向用户的精简版在 <code>guide.html</code> 的「致谢与开源许可」一节，<strong>完整版（就是本文件）会自动生成成站点上的 <code>notice.html</code></strong>（<code>npm run notice</code>，那一页从 <code>guide.html</code> 链接过去）；<strong>以本文件为准</strong>。</p>
+        <h2>维护约定</h2>
+        <ul><li>改 <code>package.json</code>（增删依赖 / 升级大版本）、换 <code>public/wasm/</code> 下的工具链目录、换 <code>public/extension/</code> 里的扩展包 —— 三件事任一发生，都要回来同步这份文件。</li><li><strong>版本号一律实机核出来，不要凭记忆手写</strong>（末尾附了核对命令）。</li><li>站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。</li><li>本文件只列<strong>别人的</strong>项目。本仓库自己目前没有 <code>LICENSE</code> 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。</li></ul>
+        <p class="note">最后核对：<strong>2026-09-29</strong>（<code>package-lock.json</code> 的 <code>lockfileVersion: 3</code>，共 92 条依赖：28 条生产、64 条开发）。</p>
+        <hr />
+        <h2>一、站点运行时依赖（随产物分发）</h2>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>用途</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/vuejs/core" target="_blank" rel="noopener noreferrer">Vue</a></td><td>3.5.42</td><td>MIT</td><td>整个界面的框架</td></tr>
+              <tr><td><a href="https://github.com/microsoft/monaco-editor" target="_blank" rel="noopener noreferrer">Monaco Editor</a></td><td>0.56.0</td><td>MIT</td><td>代码编辑器（VS Code 的编辑器内核）</td></tr>
+              <tr><td>├─ <a href="https://github.com/markedjs/marked" target="_blank" rel="noopener noreferrer">marked</a></td><td>14.0.0</td><td>MIT</td><td>Monaco 的传递依赖（Markdown 渲染）</td></tr>
+              <tr><td>└─ <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener noreferrer">DOMPurify</a></td><td>3.4.8</td><td><strong>MPL-2.0 OR Apache-2.0</strong>（双许可）</td><td>Monaco 的传递依赖（HTML 净化）。<strong>这是本站唯一一个非宽松许可的运行时依赖</strong></td></tr>
+              <tr><td><a href="https://github.com/taybenlor/runno" target="_blank" rel="noopener noreferrer">@runno/wasi</a></td><td>0.10.0</td><td>MIT</td><td>本地沙箱的 WASI 运行时：起实例、喂 stdin、<code>kill()</code>（TLE 靠它）</td></tr></tbody>
+  </table>
+</div>
+        <p>已实测它们确实随产物分发（<code>dist/assets/main-*.js</code> 里能搜到 <code>DOMPurify</code> / <code>marked</code> 的字样），不是只挂在依赖树上。</p>
+        <p><code>package-lock.json</code> 里那 28 条「生产依赖」的其余部分（<code>@vue/compiler-*</code>、<code>@babel/*</code>、<code>entities</code>、<code>postcss</code>、<code>magic-string</code>、<code>source-map-js</code>、<code>estree-walker</code>、<code>csstype</code>、<code>nanoid</code>、<code>picocolors</code> 等）是 Vue 的编译器链，只在<strong>构建期</strong>使用，不进产物。</p>
+        <h2>二、本地沙箱工具链（<code>public/wasm/</code>，自托管二进制，约 76MB）</h2>
+        <p>这些是<strong>上游的预编译产物被原样收进本仓库</strong>（本站没有改动），所以上游的版权声明随文件一并分发；完整许可文本在对应上游仓库里。</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>落点与用途</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">LLVM / clang</a></td><td>8.0.1</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>public/wasm/8.0.1/clang.wasm</code>（31.2MB）—— 本地编译 C++。预编译产物出自 <a href="https://github.com/binji/wasm-clang" target="_blank" rel="noopener noreferrer">binji/wasm-clang</a>，经 runno 的 <code>langs/</code> 分发</td></tr>
+              <tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">LLVM lld</a>（wasm-ld）</td><td>与上同世代</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>public/wasm/8.0.1/wasm-ld.wasm</code>（19.5MB）—— 链接</td></tr>
+              <tr><td><a href="https://github.com/WebAssembly/wasi-libc" target="_blank" rel="noopener noreferrer">wasi-libc</a></td><td>随上述 wasi-sysroot</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>clang-fs.tar.gz</code> 里的 <code>libc.a</code>、<code>libm.a</code>、<code>libpthread.a</code>、<code>libdl.a</code>、<code>librt.a</code>、<code>libutil.a</code>、<code>libxnet.a</code>、<code>libcrypt.a</code>、<code>libresolv.a</code>、<code>libwasi-emulated-mman.a</code>、<code>crt1.o</code> —— C 标准库与启动代码</td></tr>
+              <tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">libc++ / libc++abi</a></td><td>同上</td><td>MIT（University of Illinois / NCSA 系）</td><td>同上 tar 里的 <code>libc++.a</code>、<code>libc++abi.a</code> —— C++ 标准库（<code>&lt;vector&gt;</code> / <code>&lt;string&gt;</code> 这些）</td></tr>
+              <tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">compiler-rt</a></td><td>同上</td><td>Apache-2.0 WITH LLVM-exception</td><td>同上 tar 里的 <code>libclang_rt.builtins-wasm32.a</code> —— 编译器运行时内建函数</td></tr>
+              <tr><td><a href="https://github.com/python/cpython" target="_blank" rel="noopener noreferrer">CPython</a></td><td>3.11.3</td><td>PSF License</td><td><code>public/wasm/python-3.11.3/python.wasm</code> + <code>python-fs.tar.gz</code> —— 本地跑 Python。wasm32-wasi 构建，标准库在 <code>usr/local/lib/python311.zip</code>；构建同样取自 runno 的 <code>langs/</code></td></tr></tbody>
+  </table>
+</div>
+        <h2>三、界面素材</h2>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>素材</th><th>许可</th><th>出处</th></tr></thead>
+    <tbody><tr><td>seti-ui 的 <code>icons/cpp.svg</code></td><td>MIT</td><td><a href="https://github.com/jesseweed/seti-ui" target="_blank" rel="noopener noreferrer">jesseweed/seti-ui</a>（VS Code 默认文件图标主题，字形 <code>\E01A</code>）。用在 <code>src/components/AppIcon.vue</code> 的 <code>SOLID_PATHS.cpp</code>，文件内注释已记出处</td></tr></tbody>
+  </table>
+</div>
+        <ul><li>其余图标（<code>play</code> / <code>gear</code> / <code>files</code> / <code>cases</code> / <code>file-plus</code> / <code>folder-plus</code> / <code>python</code> 等）都是本站自绘的内联 SVG，形状参考 lucide 的 24×24 描边风格，<strong>没有引入图标依赖</strong>。</li><li><strong>字体全部走系统字体栈</strong>（<code>-apple-system</code> / PingFang SC / SF Mono / JetBrains Mono 回退），没有自托管或 CDN webfont。</li><li>PWA 图标（<code>public/icons/*.png</code>）、<code>favicon.svg</code>、<code>og-cover.png</code> 均为本站自制。</li><li>⚠️ <strong>待确认</strong>：<code>SOLID_PATHS.python</code> 那枚 Python 双蛇标志在代码里<strong>没有写出处</strong>（形状与 simple-icons 的 Python 标志一致）。谁加的、从哪儿取的，确认后再往本表补一行。</li></ul>
+        <h2>四、浏览器扩展 CC for Web</h2>
+        <p>安装包由本站分发（<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code>），源码在另一个仓库（<code>cph-companion</code>）。</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>说明</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/jmerle/competitive-companion" target="_blank" rel="noopener noreferrer">Competitive Companion</a></td><td>上游主版本 2.x</td><td>MIT（© 2017 Jasper van Merle）</td><td>本项目的改造版（改名 CC for Web、改为向网页投递）。zip 内附上游 <code>LICENSE</code></td></tr>
+              <tr><td><a href="https://github.com/Stuk/jszip" target="_blank" rel="noopener noreferrer">jszip</a></td><td>3.10.1</td><td><strong>MIT OR GPL-3.0-or-later</strong>（双许可，本项目按 MIT 一支使用）</td><td>扩展运行时</td></tr>
+              <tr><td><a href="https://github.com/mozilla/pdf.js" target="_blank" rel="noopener noreferrer">pdfjs-dist</a></td><td>4.2.67</td><td>Apache-2.0</td><td>扩展运行时（PDF 题面）</td></tr>
+              <tr><td><a href="https://github.com/jacoborus/nanobar" target="_blank" rel="noopener noreferrer">nanobar</a></td><td>0.4.2</td><td>MIT</td><td>扩展运行时</td></tr>
+              <tr><td><a href="https://github.com/developit/snarkdown" target="_blank" rel="noopener noreferrer">snarkdown</a></td><td>2.0.0</td><td>MIT</td><td>扩展运行时</td></tr>
+              <tr><td><a href="https://github.com/sindresorhus/p-limit" target="_blank" rel="noopener noreferrer">p-limit</a></td><td>7.3.0</td><td>MIT</td><td>扩展运行时</td></tr>
+              <tr><td><a href="https://github.com/gerigo/cyrillic-to-translit-js" target="_blank" rel="noopener noreferrer">cyrillic-to-translit-js</a></td><td>3.2.1</td><td>MIT</td><td>扩展运行时</td></tr></tbody>
+  </table>
+</div>
+        <p>以上都被打进 <code>js/content.js</code>（约 2MB），随扩展包分发。</p>
+        <h2>五、构建期工具（不进产物，一并致谢）</h2>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>用途</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/vitejs/vite" target="_blank" rel="noopener noreferrer">Vite</a></td><td>8.3.0</td><td>MIT</td><td>构建与 dev server</td></tr>
+              <tr><td><a href="https://github.com/rolldown/rolldown" target="_blank" rel="noopener noreferrer">Rolldown</a></td><td>1.2.8</td><td>MIT</td><td>Vite 8 的打包内核</td></tr>
+              <tr><td><a href="https://github.com/parcel-bundler/lightningcss" target="_blank" rel="noopener noreferrer">Lightning CSS</a></td><td>1.33.0</td><td>MPL-2.0</td><td>CSS 处理</td></tr>
+              <tr><td><a href="https://github.com/vitejs/vite-plugin-vue" target="_blank" rel="noopener noreferrer">@vitejs/plugin-vue</a></td><td>6.0.9</td><td>MIT</td><td>SFC 编译</td></tr>
+              <tr><td><a href="https://github.com/postcss/postcss" target="_blank" rel="noopener noreferrer">PostCSS</a> + <a href="https://github.com/cuth/postcss-pxtorem" target="_blank" rel="noopener noreferrer">postcss-pxtorem</a></td><td>8.5.28 / 6.1.0</td><td>MIT</td><td>全局界面缩放的 px→rem 转换</td></tr>
+              <tr><td><a href="https://github.com/puppeteer/puppeteer" target="_blank" rel="noopener noreferrer">puppeteer-core</a></td><td>25.11.0</td><td>Apache-2.0</td><td>无头回归脚本（<code>npm run verify</code>）</td></tr>
+              <tr><td><a href="https://github.com/WebAssembly/binaryen" target="_blank" rel="noopener noreferrer">Binaryen</a></td><td>132.0.0</td><td>Apache-2.0</td><td><code>npm run wasm:opt</code>（当前结论是不用跑）</td></tr></tbody>
+  </table>
+</div>
+        <h2>六、外部评测服务（本仓库<strong>不含</strong>其代码）</h2>
+        <p>这两者是本站<strong>通过 HTTP 对接</strong>的外部服务，服务端要你自己部署；本站只实现协议客户端，没有复制或链接它们的代码。</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>服务</th><th>许可</th><th>说明</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/engineer-man/piston" target="_blank" rel="noopener noreferrer">Piston</a></td><td>MIT</td><td>默认引擎，推荐 <code>docker run -p 2000:2000 ghcr.io/piston-cli/piston:stable</code></td></tr>
+              <tr><td><a href="https://github.com/judge0/judge0" target="_blank" rel="noopener noreferrer">Judge0</a></td><td><strong>GPL-3.0</strong></td><td>可选引擎。GPL 的义务跟着它的服务端走，与本站前端无关；但<strong>若将来把 Judge0 的代码搬进本项目</strong>，许可就变了，届时必须重新评估</td></tr></tbody>
+  </table>
+</div>
+        <h2>七、许可全文在哪</h2>
+        <ul><li><strong>npm 包</strong>：<code>node_modules/&lt;包名&gt;/LICENSE*</code>；归属（生产 / 开发）看 <code>package-lock.json</code>。</li><li><strong>工具链二进制</strong>：见第二节表格里对应的上游仓库（LLVM / wasi-libc / CPython / runno）。</li><li><strong>扩展</strong>：<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code> 里的 <code>LICENSE</code>。</li></ul>
+        <h2>附：怎么重新核对这份清单</h2>
+        <pre><code class="language-bash"># 1) 直接依赖
+cat package.json
+
+# 2) 全部依赖的版本与许可证（区分生产 / 开发）
+node -e &quot;const l=require('./package-lock.json');for(const [k,v] of Object.entries(l.packages))if(k)console.log((v.dev?'dev ':'prd ')+k.replace('node_modules/','')+' '+v.version+' '+(v.license||'?'))&quot;
+
+# 3) 工具链版本（实测串，不是靠目录名猜）
+LC_ALL=C grep -a -o -E &quot;clang version [0-9][0-9a-zA-Z. ()-]*&quot; public/wasm/8.0.1/clang.wasm | sort -u
+LC_ALL=C grep -a -o -E &quot;3\.11\.[0-9]+&quot; public/wasm/python-3.11.3/python.wasm | sort -u
+
+# 4) sysroot 里到底有哪些库（确认 wasi-libc / libc++ / compiler-rt 的落点）
+tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep &quot;sys/lib/&quot;
+
+# 5) 产物里是否真的带上了某个依赖
+grep -l DOMPurify dist/assets/*.js</code></pre>
+        <p class="note">改完这份清单，做两件事：跑 <code>npm run notice</code> 把站点上的 <code>notice.html</code> 重新生成一遍（不跑就是过期页面，<code>node scripts/render-notice.mjs --check</code> 能查出来）， 再看一眼 <code>guide.html</code> 的「致谢与开源许可」一节是否还说得通——那边是给用户看的精简版。</p>
+      </main>
+
+      <footer class="page__foot">
+        <a class="cta" href="/">打开 unnamed</a>
+        <p>本页由仓库根目录的 NOTICE.md 生成，以该文件为准。</p>
+        <p>面向用户的精简版在使用指南的「致谢与开源许可」一节。</p>
+      </footer>
+    </div>
+  </body>
+</html>

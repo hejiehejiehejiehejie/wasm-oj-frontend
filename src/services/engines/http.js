@@ -1,3 +1,5 @@
+import { t } from '../../i18n/index.js'
+
 export function trimBase(base) {
   return String(base ?? '').replace(/\/+$/, '')
 }
@@ -47,7 +49,7 @@ export async function requestJson(url, { method = 'GET', body, signal, headers }
 /** 从错误响应里挑一句人话出来，避免把整段 JSON 甩到卡片上。 */
 export function pickReason(text, status) {
   const raw = String(text ?? '').trim()
-  if (!raw) return status ? `HTTP ${status}` : '服务无响应'
+  if (!raw) return status ? `HTTP ${status}` : t('error.noResponse')
   let parsed = null
   try {
     parsed = JSON.parse(raw)

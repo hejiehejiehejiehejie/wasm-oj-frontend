@@ -7,13 +7,15 @@
  */
 
 import { runCase } from '../wasmRuntime.js'
+import { t } from '../../i18n/index.js'
 
 const SUPPORTED_LANGUAGES = new Set(['cpp', 'python'])
 
 export const wasmEngine = {
   id: 'wasm',
-  label: '本地 WASM 沙箱',
-  hint: '在浏览器里编译运行，代码不出本机；支持 C++ 与 Python，首次需下载本地运行时（C++ 约 50MB / Python 约 24MB）',
+  // 引擎注册表里只放 key：label / hint 是数据，必须在渲染那一刻才求值（见 i18n 调用纪律）
+  labelKey: 'engine.wasm.label',
+  hintKey: 'engine.wasm.hint',
   executesCode: true,
   // 内置引擎没有服务地址，按注册表约定固定填 'local'
   defaultBase: 'local',
@@ -25,12 +27,9 @@ export const wasmEngine = {
   async health() {
     // 唯一的硬前提是跨域隔离：没有它 WASI 的 SharedArrayBuffer 起不来
     if (typeof SharedArrayBuffer !== 'function' || !globalThis.crossOriginIsolated) {
-      return {
-        ok: false,
-        message: '页面没有跨域隔离，SharedArrayBuffer 不可用：确认 dev server 已注入 COOP / COEP 响应头',
-      }
+      return { ok: false, message: t('engine.wasm.noIsolation') }
     }
-    return { ok: true, message: '本地沙箱可用，首次运行需下载本地运行时（C++ 约 50MB / Python 约 24MB，之后常驻缓存）' }
+    return { ok: true, message: t('engine.wasm.ready') }
   },
 
   async execute({ languageId, entryPath, code, stdin, signal, timeLimitMs }) {
@@ -56,7 +55,7 @@ export const wasmEngine = {
         outcome: 'unreachable',
         stdout: '',
         stderr: '',
-        detail: `本地沙箱不可用：${message.message}`,
+        detail: t('engine.wasm.unavailable', { message: message.message }),
         durationMs,
       }
     }
@@ -66,10 +65,15 @@ export const wasmEngine = {
 
     // Worker 的 stage 说明停在哪一步：'compile' 是编译器没过，'run' 是程序跑起来了但退出异常
     if (message.stage === 'compile') {
-      return { outcome: 'compile-error', stdout, stderr: stderr || '编译未通过', durationMs }
+      return { outcome: 'compile-error', stdout, stderr: stderr || t('error.compileFailed'), durationMs }
     }
     if (!message.ok) {
-      return { outcome: 'runtime-error', stdout, stderr: stderr || `程序退出码 ${message.exitCode}`, durationMs }
+      return {
+        outcome: 'runtime-error',
+        stdout,
+        stderr: stderr || t('error.programExitCode', { code: message.exitCode }),
+        durationMs,
+      }
     }
     return { outcome: 'ok', stdout, stderr: '', durationMs }
   },

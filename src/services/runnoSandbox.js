@@ -23,6 +23,7 @@
  *    fetch 回来的是裸 tar，再 gunzip 直接失败（原因见 unpackSysroot）。
  */
 import { WASIWorkerHost } from '@runno/wasi'
+import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
@@ -199,7 +200,7 @@ const MICRO_STDCXX_H = `#ifndef OJ_SANDBOX_MICRO_STDCXX_H
 /** 浏览器原生 gzip 解压，省掉 pako 依赖 */
 async function gunzip(bytes) {
   if (typeof DecompressionStream !== 'function') {
-    throw new Error('当前浏览器不支持 DecompressionStream，无法解包本地工具链')
+    throw new Error(t('error.noDecompressionStream'))
   }
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
   return new Uint8Array(await new Response(stream).arrayBuffer())
@@ -279,18 +280,18 @@ let toolchainPromise = null
  */
 async function warmCache(url, label) {
   const response = await fetch(url)
-  if (!response.ok) throw new Error(`${label} 下载失败（HTTP ${response.status}）`)
+  if (!response.ok) throw new Error(t('error.downloadFailed', { label, status: response.status }))
   await response.arrayBuffer()
 }
 
 function loadToolchain(onStatus) {
   if (!toolchainPromise) {
     toolchainPromise = (async () => {
-      onStatus('download', '正在获取本地工具链（编译器 + 系统头文件，约 50MB，只下一次）…')
+      onStatus('download', t('stage.toolchain'))
       const [sysroot] = await Promise.all([
         (async () => {
           const response = await fetch(SYSROOT_URL)
-          if (!response.ok) throw new Error(`系统头文件下载失败（HTTP ${response.status}）`)
+          if (!response.ok) throw new Error(t('error.sysrootFailed', { status: response.status }))
           return unpackSysroot(new Uint8Array(await response.arrayBuffer()))
         })(),
         warmCache(CLANG_URL, 'clang'),
@@ -331,6 +332,43 @@ function releaseStdinWaiter(host) {
 }
 
 /**
+ * stdin 槽位的容量：runno 那边是 `new SharedArrayBuffer(8 * 1024)`，前 4 字节存长度，
+ * 所以真正能装下的载荷只有 8188 字节。
+ *
+ * 为什么必须分块：`host.pushStdin` 是一次性把整串编码后塞进去的，超过 8188 字节
+ * 会在 `Uint8Array.set` 上抛 RangeError。而它是被 `void` 掉的，异常变成一条
+ * unhandled rejection —— 界面上什么都不显示，程序却立刻读到 EOF，算出一个
+ * 错误的答案并以退出码 0 结束。也就是说：输入一大，用户拿到的是**静默错答**，
+ * 而不是报错。（实测 8188 字节正常，8189 字节起复现。）
+ *
+ * 为什么分块是安全的：worker 侧的读取是滑动窗口 —— 它按程序这次请求的长度取走一段、
+ * 把剩余部分写回槽位并更新长度，所以宿主可以「等槽位被抽干 → 再补一块」地循环推进。
+ * 两侧语义正好对上，不需要改动 runno。
+ *
+ * @param {() => boolean} isDone 本次运行是否已经结束。程序提前退出、不再读 stdin 时
+ *   必须靠它跳出循环，否则剩下的块会一直等一个永远不来的消费者。
+ */
+const STDIN_CHUNK_BYTES = 8 * 1024 - 4
+
+async function pushStdinInChunks(host, text, isDone) {
+  const bytes = new TextEncoder().encode(text)
+  if (bytes.length === 0) {
+    // 空输入也推一次：保持原有行为（把槽位置 0 并通知），免得依赖「什么都不做」的等价性
+    await host.pushStdin('')
+    return
+  }
+  const decoder = new TextDecoder()
+  for (let at = 0; at < bytes.length; ) {
+    if (isDone()) return
+    let end = Math.min(at + STDIN_CHUNK_BYTES, bytes.length)
+    // UTF-8 续字节以 10 开头：退到本字符的首字节，别把一个多字节字符切成两半
+    while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end -= 1
+    await host.pushStdin(decoder.decode(bytes.subarray(at, end)))
+    at = end
+  }
+}
+
+/**
  * 跑一个 WASI 模块，收回 stdout / stderr / 退出码，以及跑完之后的文件系统。
  * onHost 用来把当前 WASIWorkerHost 交给上层，卡死或被取消时靠它 kill()。
  *
@@ -340,6 +378,7 @@ function releaseStdinWaiter(host) {
 async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
   let stdout = ''
   let stderr = ''
+  let done = false
   const host = new WASIWorkerHost(binaryURL, {
     // argv[0] 是程序名，不能省（见文件头的坑 1）
     args: [name, ...args],
@@ -356,8 +395,11 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
   try {
     // 必须推 stdin 再推 EOF，否则读 stdin 的程序会一直等。
     // pushEOF 要等程序真去读 stdin 才会返回，所以这里不能 await。
-    void host.pushStdin(stdin ?? '')
-    void host.pushEOF()
+    //
+    // EOF 必须**接在最后一块之后**，不能与推块并行：两者都是在空转等同一个「槽位被抽干」
+    // 信号，谁先轮询到谁先写。EOF 先写进去的话，程序在 8188 字节处就读到了文件末尾，
+    // 剩下的块全被丢掉 —— 而且不报错。（踩过：并行调用的写法实测每次都只进 8188 字节。）
+    void pushStdinInChunks(host, stdin ?? '', () => done).then(() => host.pushEOF())
     const result = await host.start()
     return { exitCode: result.exitCode, fs: result.fs ?? {}, stdout, stderr }
   } catch (error) {
@@ -369,6 +411,9 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
     }
     throw error
   } finally {
+    // 先立旗再解锁：分块循环可能正卡在 pushStdin 的空转里，写回槽位把它放出来后，
+    // 它会看到 done 并就此收手，不会再补下一块
+    done = true
     releaseStdinWaiter(host)
     onHost(null)
   }
@@ -392,7 +437,7 @@ async function compileAndLink(code, onStatus, onHost) {
   const tool = await loadToolchain(onStatus)
   const pch = await loadPchBytes()
 
-  onStatus('compile', '正在编译…')
+  onStatus('compile', t('stage.compile'))
   const baseFs = {
     ...tool.sysroot,
     [UNIVERSAL_HEADER_PATH]: wasiFile(UNIVERSAL_HEADER_PATH, UNIVERSAL_HEADER),
@@ -409,7 +454,12 @@ async function compileAndLink(code, onStatus, onHost) {
   }
 
   if (!compiled.fs[OBJECT_PATH]) {
-    return { ok: false, exitCode: compiled.exitCode, stdout: compiled.stdout, stderr: compiled.stderr || '编译未通过' }
+    return {
+      ok: false,
+      exitCode: compiled.exitCode,
+      stdout: compiled.stdout,
+      stderr: compiled.stderr || t('error.compileFailed'),
+    }
   }
 
   // 链接只需要 .o 和运行库。PCH 是给 clang 用的，留着它就会被整体克隆进 wasm-ld
@@ -426,7 +476,12 @@ async function compileAndLink(code, onStatus, onHost) {
   const binary = linked.fs[BINARY_PATH]
   if (!binary) {
     // 链接失败在语义上还是「这段代码编译不过」，跟原来的 clang driver 表现一致
-    return { ok: false, exitCode: linked.exitCode, stdout: linked.stdout, stderr: linked.stderr || '链接失败' }
+    return {
+      ok: false,
+      exitCode: linked.exitCode,
+      stdout: linked.stdout,
+      stderr: linked.stderr || t('error.linkFailed'),
+    }
   }
 
   return { ok: true, binary }
@@ -480,7 +535,7 @@ export async function runCpp({ code, stdin, onStatus = () => {}, onHost = () => 
     }
   }
 
-  onStatus('run', '正在运行…')
+  onStatus('run', t('stage.run'))
   const binaryURL = URL.createObjectURL(new Blob([outcome.binary.content], { type: 'application/wasm' }))
   const runStartedAt = performance.now()
   try {
@@ -526,11 +581,11 @@ let pythonRuntimePromise = null
 function loadPythonRuntime(onStatus) {
   if (!pythonRuntimePromise) {
     pythonRuntimePromise = (async () => {
-      onStatus('download', '正在获取 Python 运行时（解释器 + 标准库，约 24MB，只下一次）…')
+      onStatus('download', t('stage.pythonRuntime'))
       const [stdlib] = await Promise.all([
         (async () => {
           const response = await fetch(PYTHON_FS_URL)
-          if (!response.ok) throw new Error(`Python 标准库下载失败（HTTP ${response.status}）`)
+          if (!response.ok) throw new Error(t('error.pythonLibFailed', { status: response.status }))
           return unpackSysroot(new Uint8Array(await response.arrayBuffer()))
         })(),
         warmCache(PYTHON_BINARY_URL, 'python'),
@@ -651,7 +706,7 @@ export async function runPython({
     [path]: wasiFile(path, String(code ?? '')),
   }
 
-  onStatus('run', '正在运行…')
+  onStatus('run', t('stage.run'))
   const startedAt = performance.now()
   const ran = await runWasi(runtime.binaryURL, {
     // argv = ['python', '<入口文件>']：解释器把 sys.argv[1] 当脚本路径执行
@@ -821,7 +876,7 @@ export function generatePch() {
 
       const file = compiled.fs[PCH_PATH]
       if (!file) {
-        throw new Error(compiled.stderr || `预编译头生成失败（clang 退出码 ${compiled.exitCode}）`)
+        throw new Error(compiled.stderr || t('error.pchFailed', { code: compiled.exitCode }))
       }
       const bytes = new Uint8Array(file.content)
       // 先落内存再落库：存档失败（配额不足 / 隐私模式）不该影响本会话，

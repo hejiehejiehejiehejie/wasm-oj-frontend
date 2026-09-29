@@ -11,17 +11,20 @@
  * 这里按用户口径刻意改掉，不是疏漏。
  */
 
-/** 主题决定整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套 */
+/** 主题决定整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套。
+ *  这个 id 有三重身份，改名时必须一起动：Monaco 自定义主题名（src/monaco-setup.js）、
+ *  <html data-theme> 的值（src/styles/base.css 的选择器）、以及存档里 theme 字段的取值
+ *  （迁移见 src/App.vue 的 readEditorSettings），另加 guide.html 的首帧内联脚本。 */
 export const THEMES = [
-  { id: 'cph-dark', label: '深色' },
-  { id: 'cph-light', label: '浅色' },
+  { id: 'dark', labelKey: 'settings.option.themeDark' },
+  { id: 'light', labelKey: 'settings.option.themeLight' },
 ]
 
 /** 字体栈：末尾都留一个 monospace 兜底，首选字体没装也不会退化成非等宽 */
 export const FONT_FAMILIES = [
   {
     id: 'default',
-    label: '默认等宽栈',
+    labelKey: 'settings.option.fontDefault',
     stack: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
   },
   { id: 'sf-mono', label: 'SF Mono', stack: '"SF Mono", ui-monospace, Menlo, monospace' },
@@ -34,50 +37,50 @@ export const FONT_FAMILIES = [
 export const LINE_HEIGHT_RATIOS = [1.2, 1.4, 1.5, 1.6, 1.8]
 
 export const WRAP_MODES = [
-  { id: 'off', label: '不换行' },
-  { id: 'on', label: '按视口换行' },
-  { id: 'wordWrapColumn', label: '按列宽换行' },
+  { id: 'off', labelKey: 'settings.option.wrapOff' },
+  { id: 'on', labelKey: 'settings.option.wrapOn' },
+  { id: 'wordWrapColumn', labelKey: 'settings.option.wrapColumn' },
 ]
 
 export const CURSOR_STYLES = [
-  { id: 'line', label: '竖线' },
-  { id: 'block', label: '方块' },
-  { id: 'underline', label: '下划线' },
+  { id: 'line', labelKey: 'settings.option.cursorLine' },
+  { id: 'block', labelKey: 'settings.option.cursorBlock' },
+  { id: 'underline', labelKey: 'settings.option.cursorUnderline' },
 ]
 
 export const CURSOR_BLINKINGS = [
-  { id: 'smooth', label: '平滑' },
-  { id: 'blink', label: '闪烁' },
-  { id: 'phase', label: '呼吸' },
-  { id: 'expand', label: '展开' },
-  { id: 'solid', label: '常亮' },
+  { id: 'smooth', labelKey: 'settings.option.blinkSmooth' },
+  { id: 'blink', labelKey: 'settings.option.blinkBlink' },
+  { id: 'phase', labelKey: 'settings.option.blinkPhase' },
+  { id: 'expand', labelKey: 'settings.option.blinkExpand' },
+  { id: 'solid', labelKey: 'settings.option.blinkSolid' },
 ]
 
 /** 空白字符：none 不显示 / boundary 只显示词边界 / selection 只在选中行显示 / trailing 行尾 / all 全部 */
 export const WHITESPACE_MODES = [
-  { id: 'none', label: '不显示' },
-  { id: 'selection', label: '仅选中行（默认）' },
-  { id: 'trailing', label: '行尾空白' },
-  { id: 'boundary', label: '词边界' },
-  { id: 'all', label: '全部' },
+  { id: 'none', labelKey: 'settings.option.wsNone' },
+  { id: 'selection', labelKey: 'settings.option.wsSelection' },
+  { id: 'trailing', labelKey: 'settings.option.wsTrailing' },
+  { id: 'boundary', labelKey: 'settings.option.wsBoundary' },
+  { id: 'all', labelKey: 'settings.option.wsAll' },
 ]
 
 export const LINE_HIGHLIGHTS = [
-  { id: 'all', label: '行与行号（默认）' },
-  { id: 'line', label: '仅行背景' },
-  { id: 'gutter', label: '仅行号' },
-  { id: 'none', label: '不突出' },
+  { id: 'all', labelKey: 'settings.option.lhAll' },
+  { id: 'line', labelKey: 'settings.option.lhLine' },
+  { id: 'gutter', labelKey: 'settings.option.lhGutter' },
+  { id: 'none', labelKey: 'settings.option.lhNone' },
 ]
 
 export const PADDINGS = [
-  { id: 'compact', label: '紧凑', top: 8, bottom: 6 },
-  { id: 'normal', label: '标准（默认）', top: 14, bottom: 10 },
+  { id: 'compact', labelKey: 'settings.option.padCompact', top: 8, bottom: 6 },
+  { id: 'normal', labelKey: 'settings.option.padNormal', top: 14, bottom: 10 },
 ]
 
 export const SCROLLBAR_SIZES = [
-  { id: 'thin', label: '细', size: 8 },
-  { id: 'normal', label: '标准（默认）', size: 11 },
-  { id: 'thick', label: '粗', size: 15 },
+  { id: 'thin', labelKey: 'settings.option.sbThin', size: 8 },
+  { id: 'normal', labelKey: 'settings.option.sbNormal', size: 11 },
+  { id: 'thick', labelKey: 'settings.option.sbThick', size: 15 },
 ]
 
 /**
@@ -85,7 +88,7 @@ export const SCROLLBAR_SIZES = [
  * 键名即 localStorage 里 `cph.editorSettings` 的字段名，加新项就往这里加一条。
  */
 export const EDITOR_SETTINGS_DEFAULTS = {
-  theme: 'cph-dark',
+  theme: 'dark',
   // 外观
   fontFamily: 'default',
   fontSize: 14,

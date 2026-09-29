@@ -12,6 +12,7 @@
  */
 import * as monaco from 'monaco-editor'
 import { reactive } from 'vue'
+import { t } from '../../i18n/index.js'
 import { getVFS } from '../vfs/vfsFactory.js'
 import { languageForPath } from './language.js'
 
@@ -83,7 +84,7 @@ class ModelManager {
    */
   retain(fileId) {
     const entry = this.#entries.get(fileId)
-    if (!entry) throw new Error(`retain 失败：model 尚未创建（${fileId}）`)
+    if (!entry) throw new Error(t('error.retainFailed', { id: fileId }))
     entry.refs += 1
   }
 

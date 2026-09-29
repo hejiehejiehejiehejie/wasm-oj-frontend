@@ -11,6 +11,7 @@
  * - reset 后清理已不存在的 tab（并 release model），同步存活 model 的节点元数据。
  */
 import { computed, reactive, watch } from 'vue'
+import { t } from '../../i18n/index.js'
 import { modelManager } from '../monaco/modelManager.js'
 import { languageForPath } from '../monaco/language.js'
 import { defaultCode } from '../templates.js'
@@ -278,7 +279,7 @@ export async function openFile(id, nodeHint = null) {
   }
   // nodeIndex 由事件异步重建，刚写完的文件可能还没进索引：用调用方给的节点兜底
   const node = nodeIndex.get(id) ?? (nodeHint?.id === id ? nodeHint : null)
-  if (!node || node.type !== 'file') throw new Error(`文件不存在：${id}`)
+  if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path: id }))
   await modelManager.getModel(node)
   modelManager.retain(id)
   workspace.openTabIds.push(id)
