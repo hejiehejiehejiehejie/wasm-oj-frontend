@@ -19,6 +19,7 @@ export default {
 
       menu: {
         meta: '题目信息',
+        openUrl: '打开题目链接',
         newFile: '新建文件',
         newFolder: '新建文件夹',
         rename: '重命名',
@@ -88,6 +89,7 @@ export default {
 
       menu: {
         meta: 'Problem info',
+        openUrl: 'Open problem link',
         newFile: 'New file',
         newFolder: 'New folder',
         rename: 'Rename',

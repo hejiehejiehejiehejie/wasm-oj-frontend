@@ -1,6 +1,6 @@
 <script setup>
 /**
- * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（题目信息 / 新建 / 重命名 / 删除）。
+ * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（题目信息 / 打开题目链接 / 新建 / 重命名 / 删除）。
  *
  * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
  * 新建的目标目录可以是任意已存在目录：页头按钮跟随树内聚焦的目录（没聚焦时回落根目录），
@@ -200,13 +200,33 @@ function openContextMenu(event, node) {
 }
 
 /**
+ * 取出可安全打开的题目链接，拿不到就返回空串。
+ *
+ * `meta.url` 是不可信输入（一半来自扩展解析结果、一半来自用户手输），`javascript:` 这类
+ * 伪协议会被 window.open 当代码执行，所以只放行 http / https，且返回归一化后的 href。
+ * 菜单项与开链接共用这一个判据：拿不到链接就不给这一项，免得出现点了没反应的菜单。
+ */
+function problemUrl(node) {
+  const raw = node?.meta?.url
+  if (!raw) return ''
+  try {
+    const target = new URL(raw)
+    return target.protocol === 'http:' || target.protocol === 'https:' ? target.href : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 题目信息只对文件有意义；新建只对目录有意义——目标就是被右键的那个目录。
  * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
  */
 function buildMenuItems(node) {
   const items = []
-  if (node?.type === 'file') items.push({ id: 'meta', label: t('explorer.menu.meta') })
-  else if (node?.type === 'directory') {
+  if (node?.type === 'file') {
+    items.push({ id: 'meta', label: t('explorer.menu.meta') })
+    if (problemUrl(node)) items.push({ id: 'open-url', label: t('explorer.menu.openUrl') })
+  } else if (node?.type === 'directory') {
     items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
     items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
   }
@@ -220,7 +240,10 @@ async function onMenuSelect(id) {
   menu.value = null
   if (!node) return
   if (id === 'meta') beginEditMeta(node)
-  else if (id === 'new-file') startCreate('file', node)
+  else if (id === 'open-url') {
+    const url = problemUrl(node)
+    if (url) window.open(url, '_blank', 'noopener')
+  } else if (id === 'new-file') startCreate('file', node)
   else if (id === 'new-folder') startCreate('directory', node)
   else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node)
