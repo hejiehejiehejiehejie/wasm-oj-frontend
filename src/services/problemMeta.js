@@ -42,8 +42,10 @@ export const LUOGU_LEVELS = [
   { id: 'ctsc', labelKey: 'oj.luoguLevels.ctsc' },
 ]
 
-/** 表里的显示名：有 labelKey 就翻译，否则用字面量（分数段那种纯数字） */
-const labelOf = (item) => (item.labelKey ? t(item.labelKey) : (item.label ?? ''))
+/** 表里的显示名：有 labelKey 就翻译，否则用字面量（分数段那种纯数字）。
+ *  导出是因为组件模板里也要用它渲染 OJ / 难度下拉：数据表只存 key、消费处再 t() 这条纪律
+ *  在这里的具体落点，两边共用同一份，免得各写一份迟早漂移。 */
+export const labelOf = (item) => (item.labelKey ? t(item.labelKey) : (item.label ?? ''))
 
 /** Codeforces / AtCoder 分数段：800…3500，步长 100 */
 export const RATING_VALUES = (() => {

@@ -33,6 +33,7 @@ import {
   difficultyOptionsFor,
   difficultySystemFor,
   emptyMeta,
+  labelOf,
   normalizeMeta,
   todayISO,
 } from '../services/problemMeta.js'
@@ -77,7 +78,6 @@ function defaultName(type, targetId) {
   const siblings =
     targetId === 'root' ? workspace.tree : (getNodeById(targetId)?.children ?? [])
   const taken = new Set(siblings.map((node) => basename(node.path)))
-  const labelOf = (item) => (item.labelKey ? t(item.labelKey) : (item.label ?? ''))
   if (type !== 'file') return uniqueName(taken, t('explorer.defaultFolderName'))
   return uniqueName(taken, 'new', activeLanguage.value === 'python' ? '.py' : '.cpp')
 }
