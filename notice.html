@@ -6,6 +6,10 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/styles/guide.css" />
     <link rel="canonical" href="https://www.998244353.best/notice.html" />
+    <!-- 语言版本：x-default 指本页（站点的主要受众）。notice.en.html 里有对称的三行，改一处要同步另一处。 -->
+    <link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/notice.html">
+    <link rel="alternate" hreflang="en" href="https://www.998244353.best/notice.en.html">
+    <link rel="alternate" hreflang="x-default" href="https://www.998244353.best/notice.html">
     <meta
       name="description"
       content="unnamed 的完整第三方开源组件清单：运行时分发依赖、本地沙箱工具链、界面素材、浏览器扩展、构建期工具与外部评测服务的版本、许可证与落点。"
@@ -14,7 +18,7 @@
     <!--
       本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。
       改完 NOTICE.md 后跑：npm run notice
-      generated-from-notice.md sha256:036b664770aa
+      generated-from-NOTICE.md sha256:0a860a20d6c4
     -->
     <script>
       try {
@@ -35,13 +39,20 @@
           <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
           <span class="brand__name">unnamed</span>
         </a>
-        <a class="cta" href="/guide.html">返回使用指南</a>
+        <div class="page__top-actions">
+          <!-- lang 属性让屏幕阅读器用该语言读这颗链接本身，与它指向的页面一致 -->
+          <a class="lang-link" href="/notice.en.html" hreflang="en" lang="en">English</a>
+          <a class="cta" href="/guide.html">返回使用指南</a>
+        </div>
       </header>
 
       <main class="doc">
+        <!-- 同步义务：本页是第三方组件清单的「中文完整版」，与 notice.en.html（英文完整版）逐条对应 ——
+           两页的正文各自由对应语言的源文件生成，语言相关的外壳文案在 scripts/render-notice.mjs 的 PAGES 表里。 -->
         <h1>第三方开源组件致谢（NOTICE）</h1>
         <p>本站（unnamed，仓库 <code>wasm-oj-frontend</code>）自己写的只有界面、交互与判题逻辑；能跑起来靠的是一批开源项目。 这份文件是<strong>第三方组件的唯一清单</strong>，目的有两个：<strong>致谢</strong>，以及在分发时<strong>保留各项目要求的版权与许可声明</strong>。</p>
         <p>面向用户的精简版在 <code>guide.html</code> 的「致谢与开源许可」一节，<strong>完整版（就是本文件）会自动生成成站点上的 <code>notice.html</code></strong>（<code>npm run notice</code>，那一页从 <code>guide.html</code> 链接过去）；<strong>以本文件为准</strong>。</p>
+        <p>英文版是 <code>NOTICE.en.md</code> → <code>notice.en.html</code>（同样从 <code>guide.en.html</code> 链接过去）。<strong>两份源文件之间没有自动同步</strong>：章节与表格行逐条对应，改一份就要手改另一份。</p>
         <h2>维护约定</h2>
         <ul><li>改 <code>package.json</code>（增删依赖 / 升级大版本）、换 <code>public/wasm/</code> 下的工具链目录、换 <code>public/extension/</code> 里的扩展包 —— 三件事任一发生，都要回来同步这份文件。</li><li><strong>版本号一律实机核出来，不要凭记忆手写</strong>（末尾附了核对命令）。</li><li>站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。</li><li>本文件只列<strong>别人的</strong>项目。本仓库自己目前没有 <code>LICENSE</code> 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。</li></ul>
         <p class="note">最后核对：<strong>2026-09-30</strong>（本次只换了 <code>public/extension/</code> 里的扩展包 → <code>cc-for-web-2.65.2.zip</code>，包内第三方组件的版本与许可<strong>未变</strong>； 依赖清单一栏仍是 <strong>2026-09-29</strong> 的核对结果：<code>package-lock.json</code> 的 <code>lockfileVersion: 3</code>，共 92 条依赖：28 条生产、64 条开发）。</p>
@@ -135,7 +146,7 @@ tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep &quot;sys/lib/&quot;
 
 # 5) 产物里是否真的带上了某个依赖
 grep -l DOMPurify dist/assets/*.js</code></pre>
-        <p class="note">改完这份清单，做两件事：跑 <code>npm run notice</code> 把站点上的 <code>notice.html</code> 重新生成一遍（不跑就是过期页面，<code>node scripts/render-notice.mjs --check</code> 能查出来）， 再看一眼 <code>guide.html</code> 的「致谢与开源许可」一节是否还说得通——那边是给用户看的精简版。</p>
+        <p class="note">改完这份清单，做两件事：跑 <code>npm run notice</code> 把站点上的 <code>notice.html</code> 与 <code>notice.en.html</code> 重新生成一遍（不跑就是过期页面，<code>node scripts/render-notice.mjs --check</code> 能查出来）， 再看一眼 <code>guide.html</code> 的「致谢与开源许可」一节是否还说得通——那边是给用户看的精简版。<strong>别忘了同步改 <code>NOTICE.en.md</code>（英文版是人工对应的，没有自动同步）。</strong></p>
       </main>
 
       <footer class="page__foot">

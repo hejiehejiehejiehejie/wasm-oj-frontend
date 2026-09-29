@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/styles/guide.css" />
+    <link rel="canonical" href="https://www.998244353.best/notice.en.html" />
+    <!-- 语言版本：x-default 指中文页（站点的主要受众）。notice.html 里有对称的三行，改一处要同步另一处。 -->
+    <link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/notice.html">
+    <link rel="alternate" hreflang="en" href="https://www.998244353.best/notice.en.html">
+    <link rel="alternate" hreflang="x-default" href="https://www.998244353.best/notice.html">
+    <meta
+      name="description"
+      content="The complete list of third-party open-source components used by unnamed: runtime dependencies, the local sandbox toolchain, UI assets, the browser extension, build-time tools and external judging services, with versions, licences and where they land."
+    />
+    <title>unnamed — third-party open-source components and licences (complete list)</title>
+    <!--
+      本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.en.md 生成，请勿手改。
+      改完 NOTICE.en.md 后跑：npm run notice
+      generated-from-NOTICE.en.md sha256:6871da8a4ba9
+    -->
+    <script>
+      try {
+        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        var theme = saved && saved.theme
+        if (theme === 'light' || theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch (error) {
+        /* 隐私模式或存档损坏：按默认深色渲染即可 */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page__top">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
+          <span class="brand__name">unnamed</span>
+        </a>
+        <div class="page__top-actions">
+          <!-- lang 属性让屏幕阅读器用该语言读这颗链接本身，与它指向的页面一致 -->
+          <a class="lang-link" href="/notice.html" hreflang="zh-CN" lang="zh-CN">简体中文</a>
+          <a class="cta" href="/guide.en.html">Back to the guide</a>
+        </div>
+      </header>
+
+      <main class="doc">
+        <!-- 同步义务：本页是第三方组件清单的「英文完整版」，与 notice.html（中文完整版）逐条对应 ——
+           两页的正文各自由对应语言的源文件生成，语言相关的外壳文案在 scripts/render-notice.mjs 的 PAGES 表里。 -->
+        <h1>Third-party open-source notices (NOTICE)</h1>
+        <p>This site (unnamed, repository <code>wasm-oj-frontend</code>) wrote only the interface, the interaction and the judging logic itself; what actually makes it run is a batch of open-source projects. This file is the <strong>single list of third-party components</strong>, for two purposes: <strong>giving credit</strong>, and <strong>keeping the copyright and licence notices each project requires</strong> when the site is distributed.</p>
+        <p>The short, user-facing version is the &quot;Acknowledgements and open-source licences&quot; section of <code>guide.en.html</code> — <strong>the complete version (this file) is generated into <code>notice.en.html</code> on the site</strong> (<code>npm run notice</code>), and that page is linked from the guide; <strong>this file is the one that counts</strong>.</p>
+        <p class="note">The Chinese version of this list is <code>NOTICE.md</code> → <code>notice.html</code>. <strong>The two are kept in step by hand</strong>: whenever you change one, change the other. Sections and table rows correspond one to one.</p>
+        <h2>Maintenance rules</h2>
+        <ul><li>Three things force a return to this file: changing <code>package.json</code> (adding/removing a dependency, or a major-version bump), replacing a toolchain directory under <code>public/wasm/</code>, or replacing the extension package in <code>public/extension/</code>.</li><li><strong>Always verify version numbers on the real artifact — never write them from memory</strong> (the commands are at the end of this file).</li><li>The site is publicly deployed and its output carries other people's code, so this list is not a &quot;local memo&quot; but part of the distribution obligation.</li><li>This file lists <strong>other people's</strong> projects only. This repository currently has no <code>LICENSE</code> file (i.e. &quot;all rights reserved&quot; by default); that does not affect the obligations of the third-party licences above, but it is a separate decision if the site's own code is ever open-sourced.</li></ul>
+        <p class="note">Last verified: <strong>2026-09-30</strong> (this round only replaced the extension package under <code>public/extension/</code> → <code>cc-for-web-2.65.2.zip</code>; the version numbers and licences of the third-party components inside it are <strong>unchanged</strong>; the dependency figures are still the <strong>2026-09-29</strong> verification: <code>package-lock.json</code> at <code>lockfileVersion: 3</code>, 92 dependencies in total: 28 production, 64 development).</p>
+        <hr />
+        <h2>1. Site runtime dependencies (shipped with the build)</h2>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Purpose</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/vuejs/core" target="_blank" rel="noopener noreferrer">Vue</a></td><td>3.5.42</td><td>MIT</td><td>The framework behind the whole interface</td></tr>
+              <tr><td><a href="https://github.com/microsoft/monaco-editor" target="_blank" rel="noopener noreferrer">Monaco Editor</a></td><td>0.56.0</td><td>MIT</td><td>The code editor (VS Code's editor core)</td></tr>
+              <tr><td>├─ <a href="https://github.com/markedjs/marked" target="_blank" rel="noopener noreferrer">marked</a></td><td>14.0.0</td><td>MIT</td><td>Transitive dependency of Monaco (Markdown rendering)</td></tr>
+              <tr><td>└─ <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener noreferrer">DOMPurify</a></td><td>3.4.8</td><td><strong>MPL-2.0 OR Apache-2.0</strong> (dual-licensed)</td><td>Transitive dependency of Monaco (HTML sanitising). <strong>The only non-permissive runtime dependency on this site</strong></td></tr>
+              <tr><td><a href="https://github.com/taybenlor/runno" target="_blank" rel="noopener noreferrer">@runno/wasi</a></td><td>0.10.0</td><td>MIT</td><td>The local sandbox's WASI runtime: instantiate, feed stdin, <code>kill()</code> (TLE relies on it)</td></tr></tbody>
+  </table>
+</div>
+        <p>These were verified to actually ship in the build (searching <code>dist/assets/main-*.js</code> turns up <code>DOMPurify</code> and <code>marked</code>), rather than merely sitting in the dependency tree.</p>
+        <p>The rest of the 28 &quot;production dependencies&quot; in <code>package-lock.json</code> (<code>@vue/compiler-*</code>, <code>@babel/*</code>, <code>entities</code>, <code>postcss</code>, <code>magic-string</code>, <code>source-map-js</code>, <code>estree-walker</code>, <code>csstype</code>, <code>nanoid</code>, <code>picocolors</code> and so on) are Vue's compiler chain: used at <strong>build time</strong> only, and not shipped in the output.</p>
+        <h2>2. Local sandbox toolchain (<code>public/wasm/</code>, self-hosted binaries, about 76MB)</h2>
+        <p>These are <strong>upstream prebuilt artifacts taken into this repository as-is</strong> (this site changed nothing), so the upstream notices are distributed along with the files; the full licence texts live in the corresponding upstream repositories.</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Where it lands and what it is for</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">LLVM / clang</a></td><td>8.0.1</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>public/wasm/8.0.1/clang.wasm</code> (31.2MB) —— compiling C++ locally. The prebuilt artifact comes from <a href="https://github.com/binji/wasm-clang" target="_blank" rel="noopener noreferrer">binji/wasm-clang</a>, distributed via runno's <code>langs/</code></td></tr>
+              <tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">LLVM lld</a> (wasm-ld)</td><td>same generation as above</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>public/wasm/8.0.1/wasm-ld.wasm</code> (19.5MB) —— linking</td></tr>
+              <tr><td><a href="https://github.com/WebAssembly/wasi-libc" target="_blank" rel="noopener noreferrer">wasi-libc</a></td><td>with the wasi-sysroot above</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>libc.a</code>, <code>libm.a</code>, <code>libpthread.a</code>, <code>libdl.a</code>, <code>librt.a</code>, <code>libutil.a</code>, <code>libxnet.a</code>, <code>libcrypt.a</code>, <code>libresolv.a</code>, <code>libwasi-emulated-mman.a</code>, <code>crt1.o</code> inside <code>clang-fs.tar.gz</code> —— the C standard library and startup code</td></tr>
+              <tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">libc++ / libc++abi</a></td><td>same as above</td><td>MIT (University of Illinois / NCSA family)</td><td><code>libc++.a</code>, <code>libc++abi.a</code> in the same tar —— the C++ standard library (the likes of <code>&lt;vector&gt;</code> / <code>&lt;string&gt;</code>)</td></tr>
+              <tr><td><a href="https://github.com/llvm/llvm-project" target="_blank" rel="noopener noreferrer">compiler-rt</a></td><td>same as above</td><td>Apache-2.0 WITH LLVM-exception</td><td><code>libclang_rt.builtins-wasm32.a</code> in the same tar —— compiler runtime builtins</td></tr>
+              <tr><td><a href="https://github.com/python/cpython" target="_blank" rel="noopener noreferrer">CPython</a></td><td>3.11.3</td><td>PSF License</td><td><code>public/wasm/python-3.11.3/python.wasm</code> + <code>python-fs.tar.gz</code> —— running Python locally. A wasm32-wasi build with the standard library in <code>usr/local/lib/python311.zip</code>; the build likewise comes from runno's <code>langs/</code></td></tr></tbody>
+  </table>
+</div>
+        <h2>3. UI assets</h2>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Asset</th><th>Licence</th><th>Source</th></tr></thead>
+    <tbody><tr><td>seti-ui's <code>icons/cpp.svg</code></td><td>MIT</td><td><a href="https://github.com/jesseweed/seti-ui" target="_blank" rel="noopener noreferrer">jesseweed/seti-ui</a> (VS Code's default file icon theme, glyph <code>\E01A</code>). Used in <code>SOLID_PATHS.cpp</code> of <code>src/components/AppIcon.vue</code>; the source is recorded in a comment in that file</td></tr></tbody>
+  </table>
+</div>
+        <ul><li>The other icons (<code>play</code> / <code>gear</code> / <code>files</code> / <code>cases</code> / <code>file-plus</code> / <code>folder-plus</code> / <code>python</code> and so on) are inline SVGs drawn for this site in the 24×24 stroked style of lucide; <strong>no icon dependency was introduced</strong>.</li><li><strong>All fonts go through the system font stack</strong> (<code>-apple-system</code> / PingFang SC / SF Mono / JetBrains Mono fallbacks); there is no self-hosted or CDN webfont.</li><li>The PWA icons (<code>public/icons/*.png</code>), <code>favicon.svg</code> and <code>og-cover.png</code> are all made for this site.</li><li>⚠️ <strong>To be confirmed</strong>: the Python two-snake mark in <code>SOLID_PATHS.python</code> has <strong>no recorded source</strong> in the code (its shape matches the Python mark in simple-icons). Once it is confirmed who added it and where it came from, add a row to this table.</li></ul>
+        <h2>4. Browser extension CC for Web</h2>
+        <p>The package is distributed from this site (<code>public/extension/cc-for-web-&lt;version&gt;.zip</code>, currently <strong>2.65.2</strong>; re-versioned on 2026-09-30, the behaviour change being &quot;deliver to the web page and to local IDE tools at the same time&quot;, with the third-party components inside unchanged from the table below), and its source lives in another repository (<code>cph-companion</code>).</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Notes</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/jmerle/competitive-companion" target="_blank" rel="noopener noreferrer">Competitive Companion</a></td><td>upstream major 2.x</td><td>MIT (© 2017 Jasper van Merle)</td><td>This project's fork (renamed CC for Web, changed to deliver to the web page and to local IDE tools at the same time). The upstream <code>LICENSE</code> is included in the zip</td></tr>
+              <tr><td><a href="https://github.com/Stuk/jszip" target="_blank" rel="noopener noreferrer">jszip</a></td><td>3.10.1</td><td><strong>MIT OR GPL-3.0-or-later</strong> (dual-licensed; this project uses the MIT branch)</td><td>Extension runtime</td></tr>
+              <tr><td><a href="https://github.com/mozilla/pdf.js" target="_blank" rel="noopener noreferrer">pdfjs-dist</a></td><td>4.2.67</td><td>Apache-2.0</td><td>Extension runtime (PDF statements)</td></tr>
+              <tr><td><a href="https://github.com/jacoborus/nanobar" target="_blank" rel="noopener noreferrer">nanobar</a></td><td>0.4.2</td><td>MIT</td><td>Extension runtime</td></tr>
+              <tr><td><a href="https://github.com/developit/snarkdown" target="_blank" rel="noopener noreferrer">snarkdown</a></td><td>2.0.0</td><td>MIT</td><td>Extension runtime</td></tr>
+              <tr><td><a href="https://github.com/sindresorhus/p-limit" target="_blank" rel="noopener noreferrer">p-limit</a></td><td>7.3.0</td><td>MIT</td><td>Extension runtime</td></tr>
+              <tr><td><a href="https://github.com/gerigo/cyrillic-to-translit-js" target="_blank" rel="noopener noreferrer">cyrillic-to-translit-js</a></td><td>3.2.1</td><td>MIT</td><td>Extension runtime</td></tr></tbody>
+  </table>
+</div>
+        <p>All of these are bundled into <code>js/content.js</code> (about 2MB) and distributed with the extension package.</p>
+        <h2>5. Build-time tools (not shipped, credited all the same)</h2>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Purpose</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/vitejs/vite" target="_blank" rel="noopener noreferrer">Vite</a></td><td>8.3.0</td><td>MIT</td><td>Build and dev server</td></tr>
+              <tr><td><a href="https://github.com/rolldown/rolldown" target="_blank" rel="noopener noreferrer">Rolldown</a></td><td>1.2.8</td><td>MIT</td><td>Vite 8's bundling core</td></tr>
+              <tr><td><a href="https://github.com/parcel-bundler/lightningcss" target="_blank" rel="noopener noreferrer">Lightning CSS</a></td><td>1.33.0</td><td>MPL-2.0</td><td>CSS processing</td></tr>
+              <tr><td><a href="https://github.com/vitejs/vite-plugin-vue" target="_blank" rel="noopener noreferrer">@vitejs/plugin-vue</a></td><td>6.0.9</td><td>MIT</td><td>SFC compilation</td></tr>
+              <tr><td><a href="https://github.com/postcss/postcss" target="_blank" rel="noopener noreferrer">PostCSS</a> + <a href="https://github.com/cuth/postcss-pxtorem" target="_blank" rel="noopener noreferrer">postcss-pxtorem</a></td><td>8.5.28 / 6.1.0</td><td>MIT</td><td>Global UI scaling (px→rem conversion)</td></tr>
+              <tr><td><a href="https://github.com/puppeteer/puppeteer" target="_blank" rel="noopener noreferrer">puppeteer-core</a></td><td>25.11.0</td><td>Apache-2.0</td><td>The headless regression script (<code>npm run verify</code>)</td></tr>
+              <tr><td><a href="https://github.com/WebAssembly/binaryen" target="_blank" rel="noopener noreferrer">Binaryen</a></td><td>132.0.0</td><td>Apache-2.0</td><td><code>npm run wasm:opt</code> (currently not needed)</td></tr></tbody>
+  </table>
+</div>
+        <h2>6. External judging services (this repository contains <strong>none</strong> of their code)</h2>
+        <p>Both are external services this site talks to <strong>over HTTP</strong>; you have to deploy the server side yourself. The site implements only the protocol client, and has copied or linked none of their code.</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Service</th><th>Licence</th><th>Notes</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/engineer-man/piston" target="_blank" rel="noopener noreferrer">Piston</a></td><td>MIT</td><td>The default engine; recommended: <code>docker run -p 2000:2000 ghcr.io/piston-cli/piston:stable</code></td></tr>
+              <tr><td><a href="https://github.com/judge0/judge0" target="_blank" rel="noopener noreferrer">Judge0</a></td><td><strong>GPL-3.0</strong></td><td>Optional engine. GPL obligations follow its server side and have nothing to do with this front end; but <strong>if Judge0's code is ever moved into this project</strong>, the licence picture changes and must be re-evaluated at that point</td></tr></tbody>
+  </table>
+</div>
+        <h2>7. Where the full licence texts live</h2>
+        <ul><li><strong>npm packages</strong>: <code>node_modules/&lt;package&gt;/LICENSE*</code>; production vs. development is in <code>package-lock.json</code>.</li><li><strong>Toolchain binaries</strong>: the upstream repositories named in the table in section 2 (LLVM / wasi-libc / CPython / runno).</li><li><strong>Extension</strong>: the <code>LICENSE</code> inside <code>public/extension/cc-for-web-&lt;version&gt;.zip</code>.</li></ul>
+        <h2>Appendix: how to re-verify this list</h2>
+        <pre><code class="language-bash"># 1) direct dependencies
+cat package.json
+
+# 2) versions and licences of every dependency (production / development split)
+node -e &quot;const l=require('./package-lock.json');for(const [k,v] of Object.entries(l.packages))if(k)console.log((v.dev?'dev ':'prd ')+k.replace('node_modules/','')+' '+v.version+' '+(v.license||'?'))&quot;
+
+# 3) toolchain versions (strings measured from the artifacts, not guessed from directory names)
+LC_ALL=C grep -a -o -E &quot;clang version [0-9][0-9a-zA-Z. ()-]*&quot; public/wasm/8.0.1/clang.wasm | sort -u
+LC_ALL=C grep -a -o -E &quot;3\.11\.[0-9]+&quot; public/wasm/python-3.11.3/python.wasm | sort -u
+
+# 4) which libraries the sysroot actually contains (to confirm where wasi-libc / libc++ / compiler-rt landed)
+tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep &quot;sys/lib/&quot;
+
+# 5) whether a dependency really made it into the build
+grep -l DOMPurify dist/assets/*.js</code></pre>
+        <p class="note">After changing this list, do two things: run <code>npm run notice</code> to regenerate <code>notice.html</code> / <code>notice.en.html</code> (skipping it leaves a stale page; <code>node scripts/render-notice.mjs --check</code> will catch it), and take another look at the &quot;Acknowledgements and open-source licences&quot; section of <code>guide.en.html</code> (and <code>guide.html</code> for the Chinese side) to see whether it still holds — that is the short version users read. <strong>Do not forget to update <code>NOTICE.md</code> as well: the two language versions are kept in step by hand, with no automatic sync.</strong></p>
+      </main>
+
+      <footer class="page__foot">
+        <a class="cta" href="/">Open unnamed</a>
+        <p>Generated from NOTICE.en.md in the repository root; that file is the one that counts.</p>
+        <p>The short version for users is the &quot;Acknowledgements and open-source licences&quot; section of the guide.</p>
+      </footer>
+    </div>
+  </body>
+</html>

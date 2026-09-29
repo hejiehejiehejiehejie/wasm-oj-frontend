@@ -1,13 +1,18 @@
 /**
- * render-notice —— 把根目录的 `NOTICE.md` 生成成可部署、可打开的静态页 `notice.html`。
+ * render-notice —— 把根目录的 `NOTICE.md`（中文）与 `NOTICE.en.md`（英文）分别生成成可部署、
+ * 可打开的静态页 `notice.html` 与 `notice.en.html`。两页互为语言版本，与 guide.html / guide.en.html
+ * 的既有做法一致（各是完整版、逐条对应、页头互链、三行 hreflang）。
  *
- * 为什么要有这一步：`NOTICE.md` 是第三方组件清单的**唯一出处**（分发义务），
- * 但它躺在仓库里，站点访客打不开。手抄一份 HTML 等于多一个会漂移的副本，
- * 所以这里按「构建期从源文件生成」处理——改 `NOTICE.md` 之后跑一次 `npm run notice`
- * （或 `npm run build` 之前先跑），页面就跟着更新。**别手改 notice.html。**
+ * 为什么要有这一步：`NOTICE.md` / `NOTICE.en.md` 是第三方组件清单的**唯一出处**（分发义务），
+ * 但它们躺在仓库里，站点访客打不开。手抄一份 HTML 等于多一个会漂移的副本，
+ * 所以这里按「构建期从源文件生成」处理——改源文件之后跑一次 `npm run notice`
+ * （`npm run prebuild` 已挂着它），页面就跟着更新。**别手改这两个 html。**
+ *
+ * 两份源文件之间**没有自动同步**：改一份就要手改另一份（同 guide 的双语约定）。语言相关的
+ * 外壳文案（lang / canonical / 标题 / 描述 / 页头页脚）不写在 markdown 里，集中在本文件的 PAGES 表。
  *
  * 依赖纪律：不引第三方的 markdown 解析器（本项目新增 npm 包要先讨论）。
- * `NOTICE.md` 是我们自己维护的文件，语法固定在下面这个子集里，够用且不会被上游改坏：
+ * 源文件是我们自己维护的，语法固定在下面这个子集里，够用且不会被上游改坏：
  *
  *   标题 (# / ## / ###)   段落   无序列表 (-)   有序列表 (1.)
  *   表格（GFM 管道语法）   围栏代码块 (``` 带语言名)   引用块 (>)   分隔线 (---)
@@ -16,19 +21,69 @@
  * 除此之外的语法一律按纯文本原样输出（会转义），不会吞内容。
  *
  * 用法：
- *   node scripts/render-notice.mjs          # 写 notice.html
- *   node scripts/render-notice.mjs --check  # 只校验 notice.html 是否是最新的（不一致就退出码 1）
+ *   node scripts/render-notice.mjs          # 写 notice.html 与 notice.en.html
+ *   node scripts/render-notice.mjs --check  # 只校验两页是否最新（任一过期就退出码 1）
  */
 
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const SOURCE = fileURLToPath(new URL('../NOTICE.md', import.meta.url))
-const TARGET = fileURLToPath(new URL('../notice.html', import.meta.url))
+const SITE = 'https://www.998244353.best'
+
+/**
+ * 两份页面。语言相关的外壳文案都在这里，markdown 源文件里只有正文。
+ * `x-default` 指中文页（站点的主要受众），两页的 hreflang 三行完全相同。
+ */
+const PAGES = [
+  {
+    lang: 'zh-CN',
+    sourceName: 'NOTICE.md',
+    targetName: 'notice.html',
+    title: 'unnamed 第三方开源组件与许可（完整清单）',
+    description:
+      'unnamed 的完整第三方开源组件清单：运行时分发依赖、本地沙箱工具链、界面素材、浏览器扩展、构建期工具与外部评测服务的版本、许可证与落点。',
+    // 另一语言版本的入口（与 guide 一样做成低调的文字链）
+    langLink: { href: '/notice.en.html', hreflang: 'en', lang: 'en', label: 'English' },
+    back: { href: '/guide.html', label: '返回使用指南' },
+    footCta: { href: '/', label: '打开 unnamed' },
+    footLines: ['本页由仓库根目录的 NOTICE.md 生成，以该文件为准。', '面向用户的精简版在使用指南的「致谢与开源许可」一节。'],
+    generatedComment: [
+      '本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。',
+      '改完 NOTICE.md 后跑：npm run notice',
+    ],
+    alternateComment: 'x-default 指本页（站点的主要受众）。notice.en.html 里有对称的三行，改一处要同步另一处。',
+    syncComment: '同步义务：本页是第三方组件清单的「中文完整版」，与 notice.en.html（英文完整版）逐条对应 ——',
+  },
+  {
+    lang: 'en',
+    sourceName: 'NOTICE.en.md',
+    targetName: 'notice.en.html',
+    title: 'unnamed — third-party open-source components and licences (complete list)',
+    description:
+      'The complete list of third-party open-source components used by unnamed: runtime dependencies, the local sandbox toolchain, UI assets, the browser extension, build-time tools and external judging services, with versions, licences and where they land.',
+    langLink: { href: '/notice.html', hreflang: 'zh-CN', lang: 'zh-CN', label: '简体中文' },
+    back: { href: '/guide.en.html', label: 'Back to the guide' },
+    footCta: { href: '/', label: 'Open unnamed' },
+    footLines: [
+      'Generated from NOTICE.en.md in the repository root; that file is the one that counts.',
+      'The short version for users is the "Acknowledgements and open-source licences" section of the guide.',
+    ],
+    generatedComment: [
+      '本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.en.md 生成，请勿手改。',
+      '改完 NOTICE.en.md 后跑：npm run notice',
+    ],
+    alternateComment: 'x-default 指中文页（站点的主要受众）。notice.html 里有对称的三行，改一处要同步另一处。',
+    syncComment: '同步义务：本页是第三方组件清单的「英文完整版」，与 notice.html（中文完整版）逐条对应 ——',
+  },
+]
+
+const sourcePath = (page) => fileURLToPath(new URL(`../${page.sourceName}`, import.meta.url))
+const targetPath = (page) => fileURLToPath(new URL(`../${page.targetName}`, import.meta.url))
 
 /** 生成标记：源文件摘要写进 HTML 注释，--check 靠它判断有没有过期 */
-const HASH_RE = /generated-from-notice\.md sha256:([0-9a-f]{12})/
+const markerRe = (page) =>
+  new RegExp(`generated-from-${page.sourceName.replace(/\./g, '\\.')} sha256:([0-9a-f]{12})`)
 
 const escapeHtml = (text) =>
   String(text)
@@ -74,7 +129,7 @@ const isDelimiterRow = (line) => /^\|[\s:|-]+\|$/.test(line.trim())
 const isTableRow = (line) => /^\|.*\|$/.test(line.trim())
 
 /**
- * NOTICE.md → `<main class="doc">` 的内含 HTML。
+ * 清单 markdown → `<main class="doc">` 的内含 HTML。
  * @param {string} markdown
  * @returns {string}
  */
@@ -161,7 +216,7 @@ export function renderNoticeBody(markdown) {
       continue
     }
 
-    // 列表（不嵌套；NOTICE.md 里的列表都是平铺的）
+    // 列表（不嵌套；源文件里的列表都是平铺的）
     const bullet = /^[-*]\s+/.test(trimmed)
     const numbered = /^\d+\.\s+/.test(trimmed)
     if (bullet || numbered) {
@@ -202,25 +257,28 @@ export function renderNoticeBody(markdown) {
   return out.join('\n        ')
 }
 
-/** 整页外壳：与 guide.html 同一套类名与主题同步脚本，两页观感一致 */
-function renderPage(body, hash) {
+/** 整页外壳：与 guide.html / guide.en.html 同一套类名与主题同步脚本，几页观感一致 */
+function renderPage(body, hash, page) {
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="${page.lang}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/styles/guide.css" />
-    <link rel="canonical" href="https://www.998244353.best/notice.html" />
+    <link rel="canonical" href="${SITE}/${page.targetName}" />
+    <!-- 语言版本：${page.alternateComment} -->
+    <link rel="alternate" hreflang="zh-CN" href="${SITE}/notice.html">
+    <link rel="alternate" hreflang="en" href="${SITE}/notice.en.html">
+    <link rel="alternate" hreflang="x-default" href="${SITE}/notice.html">
     <meta
       name="description"
-      content="unnamed 的完整第三方开源组件清单：运行时分发依赖、本地沙箱工具链、界面素材、浏览器扩展、构建期工具与外部评测服务的版本、许可证与落点。"
+      content="${escapeHtml(page.description)}"
     />
-    <title>unnamed 第三方开源组件与许可（完整清单）</title>
+    <title>${escapeHtml(page.title)}</title>
     <!--
-      本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。
-      改完 NOTICE.md 后跑：npm run notice
-      generated-from-notice.md sha256:${hash}
+      ${page.generatedComment.join('\n      ')}
+      generated-from-${page.sourceName} sha256:${hash}
     -->
     <script>
       try {
@@ -241,17 +299,22 @@ function renderPage(body, hash) {
           <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
           <span class="brand__name">unnamed</span>
         </a>
-        <a class="cta" href="/guide.html">返回使用指南</a>
+        <div class="page__top-actions">
+          <!-- lang 属性让屏幕阅读器用该语言读这颗链接本身，与它指向的页面一致 -->
+          <a class="lang-link" href="${page.langLink.href}" hreflang="${page.langLink.hreflang}" lang="${page.langLink.lang}">${escapeHtml(page.langLink.label)}</a>
+          <a class="cta" href="${page.back.href}">${escapeHtml(page.back.label)}</a>
+        </div>
       </header>
 
       <main class="doc">
+        <!-- ${page.syncComment}
+           两页的正文各自由对应语言的源文件生成，语言相关的外壳文案在 scripts/render-notice.mjs 的 PAGES 表里。 -->
         ${body}
       </main>
 
       <footer class="page__foot">
-        <a class="cta" href="/">打开 unnamed</a>
-        <p>本页由仓库根目录的 NOTICE.md 生成，以该文件为准。</p>
-        <p>面向用户的精简版在使用指南的「致谢与开源许可」一节。</p>
+        <a class="cta" href="${page.footCta.href}">${escapeHtml(page.footCta.label)}</a>
+        ${page.footLines.map((text) => `<p>${escapeHtml(text)}</p>`).join('\n        ')}
       </footer>
     </div>
   </body>
@@ -260,13 +323,16 @@ function renderPage(body, hash) {
 }
 
 /**
- * 生成整页 HTML。
- * @param {string} markdown NOTICE.md 的内容
+ * 生成某一语言的整页 HTML。
+ * @param {string} markdown 源文件内容
+ * @param {string} [lang] 语言，取 PAGES 里的 `lang`
  * @returns {string}
  */
-export function renderNoticePage(markdown) {
+export function renderNoticePage(markdown, lang = 'zh-CN') {
+  const page = PAGES.find((item) => item.lang === lang)
+  if (!page) throw new Error(`未知语言：${lang}`)
   const hash = createHash('sha256').update(markdown).digest('hex').slice(0, 12)
-  return renderPage(renderNoticeBody(markdown), hash)
+  return renderPage(renderNoticeBody(markdown), hash, page)
 }
 
 /** 源文件摘要，写在生成标记里 */
@@ -275,31 +341,38 @@ export function sourceHash(markdown) {
 }
 
 function main() {
-  const markdown = readFileSync(SOURCE, 'utf8')
-  const page = renderNoticePage(markdown)
   const check = process.argv.includes('--check')
 
-  if (check) {
+  for (const page of PAGES) {
+    const markdown = readFileSync(sourcePath(page), 'utf8')
+    const hash = sourceHash(markdown)
+
+    if (!check) {
+      writeFileSync(targetPath(page), renderNoticePage(markdown, page.lang))
+      console.log(`${page.targetName} 已生成（来自 ${page.sourceName}，摘要 ${hash}）`)
+      continue
+    }
+
     let current = ''
     try {
-      current = readFileSync(TARGET, 'utf8')
+      current = readFileSync(targetPath(page), 'utf8')
     } catch {
-      console.error('notice.html 不存在，先跑 npm run notice')
-      process.exit(1)
+      console.error(`${page.targetName} 不存在，先跑 npm run notice`)
+      process.exitCode = 1
+      continue
     }
-    const found = current.match(HASH_RE)?.[1]
-    if (found !== sourceHash(markdown)) {
-      console.error(
-        `notice.html 已过期（页面里是 ${found ?? '无标记'}，NOTICE.md 现在是 ${sourceHash(markdown)}）：跑 npm run notice 重新生成`,
-      )
-      process.exit(1)
-    }
-    console.log('notice.html 与 NOTICE.md 一致')
-    return
-  }
 
-  writeFileSync(TARGET, page)
-  console.log(`notice.html 已生成（来自 NOTICE.md，摘要 ${sourceHash(markdown)}）`)
+    const found = current.match(markerRe(page))?.[1]
+    if (found !== hash) {
+      console.error(
+        `${page.targetName} 已过期（页面里是 ${found ?? '无标记'}，${page.sourceName} 现在是 ${hash}）：跑 npm run notice 重新生成`,
+      )
+      process.exitCode = 1
+      continue
+    }
+
+    console.log(`${page.targetName} 与 ${page.sourceName} 一致`)
+  }
 }
 
 // 只有直接被 node 执行时才写文件；被 import 时只导出纯函数

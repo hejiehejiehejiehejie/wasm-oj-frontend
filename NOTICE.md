@@ -5,6 +5,8 @@
 
 面向用户的精简版在 `guide.html` 的「致谢与开源许可」一节，**完整版（就是本文件）会自动生成成站点上的 `notice.html`**（`npm run notice`，那一页从 `guide.html` 链接过去）；**以本文件为准**。
 
+英文版是 `NOTICE.en.md` → `notice.en.html`（同样从 `guide.en.html` 链接过去）。**两份源文件之间没有自动同步**：章节与表格行逐条对应，改一份就要手改另一份。
+
 ## 维护约定
 
 - 改 `package.json`（增删依赖 / 升级大版本）、换 `public/wasm/` 下的工具链目录、换 `public/extension/` 里的扩展包 —— 三件事任一发生，都要回来同步这份文件。
@@ -118,5 +120,5 @@ tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep "sys/lib/"
 grep -l DOMPurify dist/assets/*.js
 ```
 
-> 改完这份清单，做两件事：跑 `npm run notice` 把站点上的 `notice.html` 重新生成一遍（不跑就是过期页面，`node scripts/render-notice.mjs --check` 能查出来），
-> 再看一眼 `guide.html` 的「致谢与开源许可」一节是否还说得通——那边是给用户看的精简版。
+> 改完这份清单，做两件事：跑 `npm run notice` 把站点上的 `notice.html` 与 `notice.en.html` 重新生成一遍（不跑就是过期页面，`node scripts/render-notice.mjs --check` 能查出来），
+> 再看一眼 `guide.html` 的「致谢与开源许可」一节是否还说得通——那边是给用户看的精简版。**别忘了同步改 `NOTICE.en.md`（英文版是人工对应的，没有自动同步）。**

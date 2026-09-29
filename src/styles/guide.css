@@ -198,7 +198,7 @@ html body {
   color: var(--text);
 }
 
-/* 围栏代码块：只在 notice.html（由 NOTICE.md 生成）上出现，guide.html 目前没有。
+/* 围栏代码块：只在 notice.html / notice.en.html（由 NOTICE.md / NOTICE.en.md 生成）上出现，guide.html 目前没有。
    必须覆盖掉上面 .doc code 的「行内」那套（内边距 / 边框 / nowrap），
    否则长命令行会在 pre 里横向撑出页面。 */
 .doc pre {
