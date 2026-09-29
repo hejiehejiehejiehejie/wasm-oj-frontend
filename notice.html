@@ -14,7 +14,7 @@
     <!--
       本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。
       改完 NOTICE.md 后跑：npm run notice
-      generated-from-notice.md sha256:f57d776f001d
+      generated-from-notice.md sha256:036b664770aa
     -->
     <script>
       try {
@@ -44,7 +44,7 @@
         <p>面向用户的精简版在 <code>guide.html</code> 的「致谢与开源许可」一节，<strong>完整版（就是本文件）会自动生成成站点上的 <code>notice.html</code></strong>（<code>npm run notice</code>，那一页从 <code>guide.html</code> 链接过去）；<strong>以本文件为准</strong>。</p>
         <h2>维护约定</h2>
         <ul><li>改 <code>package.json</code>（增删依赖 / 升级大版本）、换 <code>public/wasm/</code> 下的工具链目录、换 <code>public/extension/</code> 里的扩展包 —— 三件事任一发生，都要回来同步这份文件。</li><li><strong>版本号一律实机核出来，不要凭记忆手写</strong>（末尾附了核对命令）。</li><li>站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。</li><li>本文件只列<strong>别人的</strong>项目。本仓库自己目前没有 <code>LICENSE</code> 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。</li></ul>
-        <p class="note">最后核对：<strong>2026-09-29</strong>（<code>package-lock.json</code> 的 <code>lockfileVersion: 3</code>，共 92 条依赖：28 条生产、64 条开发）。</p>
+        <p class="note">最后核对：<strong>2026-09-30</strong>（本次只换了 <code>public/extension/</code> 里的扩展包 → <code>cc-for-web-2.65.2.zip</code>，包内第三方组件的版本与许可<strong>未变</strong>； 依赖清单一栏仍是 <strong>2026-09-29</strong> 的核对结果：<code>package-lock.json</code> 的 <code>lockfileVersion: 3</code>，共 92 条依赖：28 条生产、64 条开发）。</p>
         <hr />
         <h2>一、站点运行时依赖（随产物分发）</h2>
         <div class="table-wrap">
@@ -81,11 +81,11 @@
 </div>
         <ul><li>其余图标（<code>play</code> / <code>gear</code> / <code>files</code> / <code>cases</code> / <code>file-plus</code> / <code>folder-plus</code> / <code>python</code> 等）都是本站自绘的内联 SVG，形状参考 lucide 的 24×24 描边风格，<strong>没有引入图标依赖</strong>。</li><li><strong>字体全部走系统字体栈</strong>（<code>-apple-system</code> / PingFang SC / SF Mono / JetBrains Mono 回退），没有自托管或 CDN webfont。</li><li>PWA 图标（<code>public/icons/*.png</code>）、<code>favicon.svg</code>、<code>og-cover.png</code> 均为本站自制。</li><li>⚠️ <strong>待确认</strong>：<code>SOLID_PATHS.python</code> 那枚 Python 双蛇标志在代码里<strong>没有写出处</strong>（形状与 simple-icons 的 Python 标志一致）。谁加的、从哪儿取的，确认后再往本表补一行。</li></ul>
         <h2>四、浏览器扩展 CC for Web</h2>
-        <p>安装包由本站分发（<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code>），源码在另一个仓库（<code>cph-companion</code>）。</p>
+        <p>安装包由本站分发（<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code>，当前 <strong>2.65.2</strong>；2026-09-30 换版，行为改动是「同时向网页与本机 IDE 工具投递」，包里第三方组件的版本与上表一致），源码在另一个仓库（<code>cph-companion</code>）。</p>
         <div class="table-wrap">
   <table>
     <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>说明</th></tr></thead>
-    <tbody><tr><td><a href="https://github.com/jmerle/competitive-companion" target="_blank" rel="noopener noreferrer">Competitive Companion</a></td><td>上游主版本 2.x</td><td>MIT（© 2017 Jasper van Merle）</td><td>本项目的改造版（改名 CC for Web、改为向网页投递）。zip 内附上游 <code>LICENSE</code></td></tr>
+    <tbody><tr><td><a href="https://github.com/jmerle/competitive-companion" target="_blank" rel="noopener noreferrer">Competitive Companion</a></td><td>上游主版本 2.x</td><td>MIT（© 2017 Jasper van Merle）</td><td>本项目的改造版（改名 CC for Web、改为同时向网页与本机 IDE 工具投递）。zip 内附上游 <code>LICENSE</code></td></tr>
               <tr><td><a href="https://github.com/Stuk/jszip" target="_blank" rel="noopener noreferrer">jszip</a></td><td>3.10.1</td><td><strong>MIT OR GPL-3.0-or-later</strong>（双许可，本项目按 MIT 一支使用）</td><td>扩展运行时</td></tr>
               <tr><td><a href="https://github.com/mozilla/pdf.js" target="_blank" rel="noopener noreferrer">pdfjs-dist</a></td><td>4.2.67</td><td>Apache-2.0</td><td>扩展运行时（PDF 题面）</td></tr>
               <tr><td><a href="https://github.com/jacoborus/nanobar" target="_blank" rel="noopener noreferrer">nanobar</a></td><td>0.4.2</td><td>MIT</td><td>扩展运行时</td></tr>

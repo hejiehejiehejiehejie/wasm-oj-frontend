@@ -15,7 +15,7 @@
 - **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cph.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 7 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 右键打开题目链接 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 6 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。
 - **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**别顺手改另外两样**：① `cph.*` 开头的 localStorage 键名；② `.cph/` 隐藏在题库目录名与 `cph-vfs` / `cph-pch` 的 IndexedDB 库名 —— 都是持久化契约，改了等于把用户的偏好与题解全丢掉。**能改的只有主题 id**（`dark` / `light`，同日已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cph-ide` 是 npm 标识、与展示无关，未动。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
@@ -95,7 +95,7 @@ src/
     FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随树内聚焦的节点，右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）
     InlineCreateRow.vue         # 内联新建的输入行（2026-09-28 从 FileExplorer 里抽出来）：根目录那份由 FileExplorer 渲染、某个目录里那份由 FileTreeItem 渲染，两处共用。挂载时把 `{ focus }` 注册进 `provide('creatingRow')`，供「程序性失焦后把焦点抢回来」用（见第 5 节坑 12）
     FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）；目录展开时还会在 `role="group"` 内、递归 `v-for` 之前渲染一份 InlineCreateRow（见第 5 节坑 12）
-    ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前只有文件树在用（文件节点给「题目信息 / 重命名 / 删除」，目录节点给「新建文件 / 新建文件夹 / 重命名 / 删除」、不给「题目信息」）
+    ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前只有文件树在用（文件节点给「题目信息 / 打开题目链接（仅当 `meta.url` 是 http(s) 链接）/ 重命名 / 删除」，目录节点给「新建文件 / 新建文件夹 / 重命名 / 删除」、不给题目相关的两项）
     TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头左侧是 SidebarSwitcher、右侧是 verdict（「全部 AC / n/m AC」）与耗时 + 用例列表 + 页脚运行按钮
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时没有任何标记**（字符一个没少、拖滚动条就能看全，底边仍是实线、框下也没有小字）；底边虚线与小字**只给真被截断的那种**；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「还有 N 个字符未显示 + 复制全部」说明**（那行只在真截断时出现；这个 `……` 时有时无的两条原因见第 5 节坑 26）
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加，见 14.8）同表
@@ -305,7 +305,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - 焦点靠 `nextTick(focusCreateInput)`（聚焦 + 选中主干，见下）送进去，`autofocus` 属性对动态插入的节点不生效、指望不上；句柄由 InlineCreateRow 挂载时注册进 `provide('creatingRow')`。真正阴的地方是失焦提交：创建成功后会自动**打开**新文件，`EditorPane` 在 `activeId` 变化时会 `instance.focus()`（打开文件抢焦点本身是正常行为，别删它），这一抢就落在内联输入框头上 → 输入框 `blur` → 失焦提交 → **凭空多出一个默认名的文件**（连点两次「新建文件」时必现：第二轮输入框刚聚焦就被提交掉）。所以绑的是 `onCreateBlur()` 而不是直接 `commitCreate()`，用 `createFlights`（在途创建轮次的 state 集合）分两种：屏幕上这个输入框自己正在提交（失焦正来自「打开刚建好的文件」）→ 跳过重复提交、也不抢焦点，让焦点留在 Monaco；在途的是上一轮、屏幕上这个是新一轮被误伤的 → `nextTick` 把焦点抢回来（Monaco 的 focus 在 pre-flush watcher 里，抢得赢）并放弃提交。
     - **进去时不是「全选」，是「只选中主干」**（2026-09-28 改）：两个输入框（这里的 InlineCreateRow 与 `FileTreeItem` 的重命名）都用 `setSelectionRange(0, 主干长度)`，落点是 `new.cpp → 'new'`、`main.cpp → 'main'`，后缀留在选中区外——全选的话，改个文件名会顺手把 `.cpp` 打没，用户还得手动补回去。**目录名没有后缀这回事，整段选中**（所以两处都要判 `type === 'file'` / `type === 'directory'`，别无条件套 `stem`）。主干长度取自 `paths.js` 的 `stem(name)`，**它收的是单级名称而不是路径**——`stem('main.cpp')` 对，`stem('/src/main.cpp')` 会返回 `'/src/main'` 这种垃圾，因为它不剥目录（`extname` 那边收的是路径、内部走 `basename`，两者签名刻意不同）。判定规则与 `extname` 保持一致：没有点或点是前导点都算没有后缀，所以 `.gitignore` 与 `Makefile` 是整段选中。
 13. **`tabSize` / `insertSpaces` 是 model 级选项，不是编辑器选项**（`services/editorOptions.js` 的 `editorModelOptions` + `EditorPane.vue` 的 `applyModelOptions`）：monaco 0.56 的 `EditorOption` 枚举里**根本没有这两项**（整个 `esm/vs/editor/common/editorOptions.js` 里搜不到 `tabSize`），真实定义在 `ITextModelCreationOptions` / `ITextModelUpdateOptions`。把 `tabSize: 2` 塞进 `editor.create()` 或 `editor.updateOptions()`，`EditorOptionsUtil.validateOptions()` 会当成未知键**静默丢掉**——面板看起来改了、localStorage 也存了，编辑器却一直按 4 空格渲染，而且 `getOption(EditorOption.tabSize)` 返回 `undefined`，不细看根本发现不了。正确姿势是 `model.updateOptions({ tabSize, insertSpaces })`，并且**每挂一个 model 都要补一次**（`setModel()` 之后、切文件 / 新建文件都算），否则新 model 立刻退回默认值。校验这类「改了没生效」的选项时，要读 `editor.getModel().getOptions()`，不是 `editor.getOption()`。顺带记一句默认值：`tabSize` 沿用改造前的 4，`insertSpaces` 刻意是 **`false`（关闭，按 Tab 出制表符）**——Monaco 自己的默认是 `true`，这是全表唯一一处刻意偏离 Monaco 默认的项（`editorOptions.js` 文件头也写了）。
-14. **文件树的右键事件必须 `.stop`**（`FileTreeItem.vue` 的 `@contextmenu.stop="onContextMenu"`）：树根 `.explorer__tree` 上也挂了一个 `@contextmenu`（`onTreeContextMenu`，负责屏蔽空白处右键的原生菜单），而节点的右键**会冒泡到树根**——不 `.stop` 的话节点菜单会被树根那一次覆盖掉，症状是「右键文件/文件夹没反应、右键空白处反而正常」。菜单项在 2026-09-28 变成「题目信息（仅文件）」/「新建文件 · 新建文件夹（仅目录）」/「重命名」/「删除」——目录上那两项是**刻意加回来**的：新建的目标目录可以是任意目录，而页头按钮只能跟随聚焦节点、表达不了「建在哪个目录」（见坑 12）。
+14. **文件树的右键事件必须 `.stop`**（`FileTreeItem.vue` 的 `@contextmenu.stop="onContextMenu"`）：树根 `.explorer__tree` 上也挂了一个 `@contextmenu`（`onTreeContextMenu`，负责屏蔽空白处右键的原生菜单），而节点的右键**会冒泡到树根**——不 `.stop` 的话节点菜单会被树根那一次覆盖掉，症状是「右键文件/文件夹没反应、右键空白处反而正常」。菜单项在 2026-09-28 变成「题目信息（仅文件）」/「新建文件 · 新建文件夹（仅目录）」/「重命名」/「删除」，2026-09-29 又给有 `meta.url` 的文件加了「打开题目链接」（`problemUrl()` 只放行 http / https，见 14.7）——目录上那两项是**刻意加回来**的：新建的目标目录可以是任意目录，而页头按钮只能跟随聚焦节点、表达不了「建在哪个目录」（见坑 12）。
 15. **判题语言没有独立状态，由活跃文件的扩展名派生**（`App.vue` 的 `activeLanguage`）：2026-09-28 顶栏整体删除时那颗语言下拉也一并删了，`cph.language` 随之成为死键（见第 6 节）。现在 `runAll()` / `runOne()` 直接拿 `activeLanguage` + `activeNode.path` 调 `wasmRuntime.runCase()`（`.py` 走解释分支、其余走 C++ 分支），`workspaceStore.initWorkspaceStore()` 里那句 `openLanguage()` 只剩「首次启动给 `/main.cpp` 兜底」这一个作用。**别把语言选择器加回来**——它与「一个页签 = 一个真实文件」这套模型天然冗余，加回来就得再造一份语言状态去和活跃文件抢口径。想加「新建 Python 文件」入口也不用碰状态层，改 `FileExplorer` 的默认名规则即可（见坑 12）。
 16. **语言图标有两处不能随手改的地方**（`AppIcon.vue`）：图标分两张表——`PATHS`（24×24 描边线性图标，主力）与 `SOLID_PATHS`（整块实心路径，`fill: currentColor` 且不描边，`solid` 由 `name in SOLID_PATHS` 判定）；另有 `VIEWBOX` 表存放「不在 24 网格上」的图标的专用方框（模板是 `:viewBox="VIEWBOX[name] ?? '0 0 24 24'"`，目前只有 `cpp` 一项）。C++ 用的是 seti-ui 的 `icons/cpp.svg`（MIT）——**VS Code 默认的 Seti 文件图标主题**（字形 `\E01A`，Seti 配色 `#519aba`）用的就是它，2026-09 从 simple-icons 那枚实心六边形字标换过来（那个在 15px 下糊成一团）。两个坑：
     - **它原始网格是 32×32**，直接套 `0 0 24 24` 会明显偏小，所以方框取边长 22（15px 下墨迹约 12.1×11.0px，与 `folder` 的 12.5×11.25 齐平）。
@@ -608,16 +608,18 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 13.1 两端怎么接上
 
-改造的插件在**另一个仓库**：`/Users/hejie/Code/cph-companion`（上游 jmerle/competitive-companion 的 fork，`package.json` 的 `productName` 已改成 **CC for Web**、版本 `2.65.x`，图标与宣传图的主色换成了与本站一致的蓝 `#0e639c`）。原版是把题目 POST 到用户本机的 `localhost` 端口（CP Editor / CPH 那套），改造后改成——
+改造的插件在**另一个仓库**：`/Users/hejie/Code/cph-companion`（上游 jmerle/competitive-companion 的 fork，`package.json` 的 `productName` 已改成 **CC for Web**、版本 `2.65.x`，图标与宣传图的主色换成了与本站一致的蓝 `#0e639c`）。原版是把题目 POST 到用户本机的 `localhost` 端口（CP Editor / CPH 那套），fork 先是改成只推给本站，2026-09-30 又改成**两边同时投**——网站标签页与本地工具是并列的两个接收端，各有一个开关（选项页 `Destinations` 分组，默认都开），单侧失败不影响另一侧。
 
-**扩展侧**（`cph-companion`，改动集中在 5 个文件）：
+**扩展侧**（`cph-companion`，改动集中在 6 个文件）：
 
 | 文件 | 职责 |
 | --- | --- |
 | `src/hosts/targetSites.ts` | 目标网站白名单 `TARGET_SITE_PATTERNS`：`localhost:5199` / `127.0.0.1:5199`（**必须与 `vite.config.js` 的开发端口一致**，见第 0 节）+ `www.998244353.best` / `998244353.best`。少了哪条就等于「网站没打开」 |
-| `src/hosts/WebPageHost.ts` | 查已打开的标签页、把任务投过去（替代原版往端口 POST 的 host） |
-| `src/hosts/hosts.ts` | 原版返回各种 host 的 `getHosts()` 改为只返回网页 host |
-| `src/background.ts` | `sendTask()` 投递 + 失败时发系统通知（`notifyNoTargetTab()`，标题 `CC for Web`）；**消息处理必须用 `sendResponse` 回调式**，不要返回 Promise（Chrome 原生 API 不认） |
+| `src/hosts/WebPageHost.ts` | 查已打开的标签页、把任务投过去（**接收端之一**，与本地工具并列） |
+| `src/hosts/hosts.ts` | `getHosts()` 按两个开关拼接收端列表：`WebPageHost` + `CHelperHost`(4243，body 带 `json\n` 前缀) + `CustomHost`(上游 7 个默认端口 + 选项页 `customPorts`)；`LOCAL_TOOL_ORIGINS` 是 manifest 的 host 权限来源，**匹配模式不带端口即覆盖所有端口** |
+| `src/background.ts` | `sendTask()` 用 `allSettled` 并发投所有接收端，**全部失败才**发系统通知（`notifyNoReceiver()`，标题 `CC for Web`）；两侧都关（接收端列表为空）时静默，不拿「没有接收端」打扰用户；**消息处理必须用 `sendResponse` 回调式**，不要返回 Promise（Chrome 原生 API 不认） |
+| `src/options.html` + `src/options.ts` | `Destinations` 分组两个勾选框，`config` 持久化 |
+| `src/utils/config.ts` | 新增 `sendToWebPage` / `sendToLocalTools`（**默认 true**）。坑：`Config.get` 的兜底必须用 `??` 而不是 `||`——默认 true 的开关存了 `false` 会被 `||` 当成「没设置」回退成 true，开关等于关不掉（2026-09-30 实测踩到） |
 | `src/bridge.ts` | **注入目标网站的内容脚本**：扩展拿不到网页的 JS 作用域，只能靠它做 `window.postMessage` 中转 |
 
 **站点侧**两个 composable + 一个服务：`useCompanionBridge.js`（收消息）→ `useCompanionImport.js`（订阅 + 兜异常）→ `services/vfs/problemImport.js`（落盘）。`App.vue` 里只有一句 `useCompanionImport({ setTestCases, onImported })`。
@@ -656,6 +658,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 包放在 `public/extension/cc-for-web-<版本>.zip`，站内直接给下载（`<a download>`），**不做自动更新机制**：装完要升级就重新下载解压、再在 `chrome://extensions` 里点一次刷新。
 - 发新版的三步：`cph-companion` 里 `pnpm build:chrome` 构建 → 把 `build-chrome/` 打包成 `cc-for-web-<新版本>.zip` → 拷进本站 `public/extension/`，**同时**改 `EditorSettingsPanel.vue` 里的 `EXTENSION_VERSION` / `EXTENSION_FILE`。文件名必须换（第 5 节坑 20），「原地覆盖同名文件」能坑掉所有已下载过的用户。
 - 卸载 / 重装提示写在设置视图那一组里：下载 → 解压 → `chrome://extensions` 打开「开发者模式」→「加载已解压的扩展程序」选中解压出来的目录。这是**未上架**插件的唯一安装方式，别改文案说成「一键安装」。
+- **当前在站的版本：`2.65.2`**（2026-09-30 换版，行为改动就是「双投」）。这次换版按上面三步走了一遍：`package.json` → `2.65.2`、`node scripts/build/extension.ts chrome true false`（本机没装 `pnpm`，直接 `node node_modules/tsx/dist/cli.mjs` 等价调用）→ `web-ext build -s build-chrome/ -a dist/ -n cc-for-web-2.65.2.zip` → 拷进 `public/extension/`、删掉旧的 `cc-for-web-2.65.1.zip`、站点 `EXTENSION_VERSION` 改 `2.65.2`。`NOTICE.md` 第四节与 `notice.html` 同步改过（那份文件自己规定「换 `public/extension/` 里的包」就要回来核对）。
 
 ### 13.4 全局快捷键
 
@@ -674,7 +677,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ## 14. 后续计划与待解决问题
 
-这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**已落地：14.1、14.3（2026-09-29）、14.8、14.12，以及 14.5 的固定结构 + 身份索引提级那一半、14.11 的阶段一**（这些条目保留在下面只作记录）。仍待做 7 项里靠前的都是站点侧小改动，越往后越重：14.6 会动用户数据，14.2 是 14.5 剩余部分的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
+这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**已落地：14.1、14.3（2026-09-29）、14.7（2026-09-29）、14.8、14.12，以及 14.5 的固定结构 + 身份索引提级那一半、14.11 的阶段一**（这些条目保留在下面只作记录）。仍待做 6 项里靠前的都是站点侧小改动，越往后越重：14.6 会动用户数据，14.2 是 14.5 剩余部分的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
 
 ### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28，做成胶囊开关）
 
@@ -805,18 +808,20 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **与 14.5 的目录规则冲突**：比赛模式要的「用比赛名新建一层」和 14.5 的「时间/OJ/难度」是两套规则，得明确比赛模式是否**绕过**归类设置（建议绕过：比赛场景下比赛名就是最自然的顶层）。
 - **同一场比赛再抓一次要复用已有目录**，不能新建出「比赛名-2」（与 13.2「身份认 url」一致）。
 
-### 14.7 右键菜单加「打开题目链接」
+### 14.7 右键菜单加「打开题目链接」 —— ✅ 已落地（2026-09-29）
 
-**现状**：`FileExplorer.vue` 的 `buildMenuItems(node)` 现在按节点类型分支——文件给 `题目信息` / `重命名` / `删除`，目录给 `新建文件` / `新建文件夹` / `重命名` / `删除`（后两项是 2026-09-28 加的，见坑 14）；`onMenuSelect(id)` 按 id 分发。题目链接存在节点 `meta.url`（题目信息弹窗里可编辑，`beginEditMeta` 读的就是它）。
+**做法（2026-09-29）**：`FileExplorer.vue` 新增 `problemUrl(node)` —— `new URL()` 解析后只放行 `http:` / `https:` 并返回归一化的 `href`，解析失败或伪协议一律返回空串。**菜单项与开链接共用这一个判据**：`buildMenuItems()` 里「有链接才 push 这一项」（排在「题目信息」后面，两者都是题目相关），`onMenuSelect()` 里 `window.open(url, '_blank', 'noopener')`。这样「点了没反应」与「伪协议被执行」两个问题一起避开：`meta.url` 只做 trim + 截 500 字（`problemMeta.js`），协议没有任何约束。文案是 `explorer.menu.openUrl`（中英两栏）。
+
+**现状**：`FileExplorer.vue` 的 `buildMenuItems(node)` 现在按节点类型分支——文件给 `题目信息` / `打开题目链接`（有 `meta.url` 时才给，2026-09-29 加）/ `重命名` / `删除`，目录给 `新建文件` / `新建文件夹` / `重命名` / `删除`（后两项是 2026-09-28 加的，见坑 14）；`onMenuSelect(id)` 按 id 分发。题目链接存在节点 `meta.url`（题目信息弹窗里可编辑，`beginEditMeta` 读的就是它）。
 
 **要做的**：给**有 `meta.url` 的节点**加一项「打开题目链接」。
 
-**坑**：
+**坑**（落地时都按这条做了，留档）：
 
 - **只对带 `url` 的节点出现**：导入的题目才有；用户自建文件、所有目录都没有。别无条件下发一项，否则点了没反应。
 - **`url` 是不可信输入**（一半来自扩展解析结果，一半来自用户手输），`window.open` 之前**必须校验协议是 `http:` / `https:`**，否则 `javascript:` 这类伪协议会被当链接执行。
 - 用 `window.open(url, '_blank', 'noopener')`，别让新页面拿到 `window.opener`。
-- 位置建议挨着「题目信息」（两者都是题目相关的），别塞在「删除」后面。
+- 位置挨着「题目信息」（两者都是题目相关的），没塞在「删除」后面。
 
 ### 14.8 换掉「新建文件 / 新建文件夹」的图标 —— ✅ 已落地（2026-09-28）
 
@@ -930,4 +935,4 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **没做 URL 前缀式的语言路由**（没有 `/en/`）。主应用是「一个 URL 服务两种语言」，两版 guide 是「一页一语言」，两种形态并存是刻意的（见第 12 节最后一条）。
 - **没做 `manifest.webmanifest` 的语言分流**：清单是单份静态文件，`lang` 只能写一个值。PWA 的名字是品牌名 `unnamed`（语言无关），唯一的中文是 `description` 与 `lang: "zh-CN"`。真要分流得挂多份 manifest + `hreflang`，收益（安装后的应用名描述）不值这个复杂度。
 
-**建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → 14.7 → 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。
+**建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → ~~14.7~~（✅ 已落地，2026-09-29）→ 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。

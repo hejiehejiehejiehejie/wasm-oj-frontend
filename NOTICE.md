@@ -12,7 +12,8 @@
 - 站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。
 - 本文件只列**别人的**项目。本仓库自己目前没有 `LICENSE` 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。
 
-> 最后核对：**2026-09-29**（`package-lock.json` 的 `lockfileVersion: 3`，共 92 条依赖：28 条生产、64 条开发）。
+> 最后核对：**2026-09-30**（本次只换了 `public/extension/` 里的扩展包 → `cc-for-web-2.65.2.zip`，包内第三方组件的版本与许可**未变**；
+> 依赖清单一栏仍是 **2026-09-29** 的核对结果：`package-lock.json` 的 `lockfileVersion: 3`，共 92 条依赖：28 条生产、64 条开发）。
 
 ---
 
@@ -56,11 +57,11 @@
 
 ## 四、浏览器扩展 CC for Web
 
-安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`），源码在另一个仓库（`cph-companion`）。
+安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.65.2**；2026-09-30 换版，行为改动是「同时向网页与本机 IDE 工具投递」，包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
 
 | 组件 | 版本 | 许可 | 说明 |
 | --- | --- | --- | --- |
-| [Competitive Companion](https://github.com/jmerle/competitive-companion) | 上游主版本 2.x | MIT（© 2017 Jasper van Merle） | 本项目的改造版（改名 CC for Web、改为向网页投递）。zip 内附上游 `LICENSE` |
+| [Competitive Companion](https://github.com/jmerle/competitive-companion) | 上游主版本 2.x | MIT（© 2017 Jasper van Merle） | 本项目的改造版（改名 CC for Web、改为同时向网页与本机 IDE 工具投递）。zip 内附上游 `LICENSE` |
 | [jszip](https://github.com/Stuk/jszip) | 3.10.1 | **MIT OR GPL-3.0-or-later**（双许可，本项目按 MIT 一支使用） | 扩展运行时 |
 | [pdfjs-dist](https://github.com/mozilla/pdf.js) | 4.2.67 | Apache-2.0 | 扩展运行时（PDF 题面） |
 | [nanobar](https://github.com/jacoborus/nanobar) | 0.4.2 | MIT | 扩展运行时 |
