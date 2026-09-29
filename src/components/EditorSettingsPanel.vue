@@ -281,7 +281,7 @@ const { canInstall, install } = useInstallPrompt()
 // 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
 // cacheFirst 且从不重新校验，不带版本号的 URL 会把旧包一直喂给已经来过的用户。
 // 发新版插件时只需改这两个常量，再把新 zip 拷进 public/extension/。
-const EXTENSION_VERSION = '2.65.2'
+const EXTENSION_VERSION = '2.65.3'
 const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
 const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 
@@ -290,7 +290,12 @@ const EXTENSION_COMMAND_KEYS = {
   _execute_action: 'settings.extension.commandParsePage',
 }
 
-const { extensionInfo, checking: extensionChecking, refresh: refreshExtension } = useCompanionBridge()
+const {
+  extensionInfo,
+  checking: extensionChecking,
+  refresh: refreshExtension,
+  setExtensionConfig,
+} = useCompanionBridge()
 
 const extensionStatusHint = computed(() => {
   if (extensionChecking.value) return t('settings.extension.checkingHint')
@@ -307,6 +312,41 @@ const extensionShortcuts = computed(() =>
     shortcut: command.shortcut,
   })),
 )
+
+// 投递目标：这两个开关的真值存在扩展的 chrome.storage 里，网页只读写镜像。
+// 键名与扩展 background.ts 的白名单一一对应，改了那边也得同步改这里。
+const EXTENSION_DESTINATIONS = [
+  {
+    key: 'sendToWebPage',
+    labelKey: 'settings.extension.destinationWebPage',
+    hintKey: 'settings.extension.destinationWebPageHint',
+  },
+  {
+    key: 'sendToLocalTools',
+    labelKey: 'settings.extension.destinationLocalTools',
+    hintKey: 'settings.extension.destinationLocalToolsHint',
+  },
+]
+
+/** 正在写的那一行（键名），写盘期间禁用它避免连点 */
+const destinationSaving = ref('')
+const destinationFailed = ref(false)
+
+/** 扩展没上报 config（旧版）或该项缺失时按默认开处理，与扩展侧默认值一致 */
+function destinationOn(key) {
+  return extensionInfo.value?.config?.[key] !== false
+}
+
+async function toggleDestination(key) {
+  if (destinationSaving.value) return
+
+  destinationSaving.value = key
+  destinationFailed.value = false
+  // 回执成功后 useCompanionBridge 会把新值并进 extensionInfo.config，开关自己就翻转了
+  const ok = await setExtensionConfig(key, !destinationOn(key))
+  if (!ok) destinationFailed.value = true
+  destinationSaving.value = ''
+}
 
 const shortcutsCopied = ref(false)
 let copyTimer = 0
@@ -991,6 +1031,42 @@ function setTimeLimit(event) {
         </div>
 
         <template v-if="extensionInfo">
+          <!-- 旧版扩展不上报 config，写也写不动，整组藏起来比亮出一排假开关好 -->
+          <template v-if="extensionInfo.config">
+            <p class="setting-subtitle">{{ t('settings.extension.destinations') }}</p>
+            <p class="setting-group__note">{{ t('settings.extension.destinationsNote') }}</p>
+
+            <div
+              v-for="destination in EXTENSION_DESTINATIONS"
+              :key="destination.key"
+              class="setting-row setting-row--switch"
+            >
+              <span class="setting-row__main">
+                <span class="setting-row__head">
+                  <span class="setting-row__label">{{ t(destination.labelKey) }}</span>
+                </span>
+                <span class="setting-row__hint">{{ t(destination.hintKey) }}</span>
+              </span>
+              <span class="setting-row__control">
+                <button
+                  class="switch"
+                  :class="{ 'is-on': destinationOn(destination.key) }"
+                  role="switch"
+                  :aria-checked="destinationOn(destination.key)"
+                  :aria-label="t(destination.labelKey)"
+                  :disabled="destinationSaving === destination.key"
+                  @click="toggleDestination(destination.key)"
+                >
+                  <span class="switch__thumb"></span>
+                </button>
+              </span>
+            </div>
+
+            <p v-if="destinationFailed" class="setting-group__note setting-group__note--warn">
+              {{ t('settings.extension.configSaveFailed') }}
+            </p>
+          </template>
+
           <p class="setting-subtitle">{{ t('settings.extension.commandShortcuts') }}</p>
 
           <ul class="shortcut-list">
@@ -1212,6 +1288,11 @@ function setTimeLimit(event) {
   font-size: 11.5px;
   line-height: 1.55;
   color: var(--text-faint);
+}
+
+/* 写扩展配置失败的提示：排版与说明一致，只换警示色 */
+.setting-group__note--warn {
+  color: var(--warn);
 }
 
 /* 设置行：不画边框，靠内边距与悬浮底色划分边界（几十行都描边会像 Excel 表格）。

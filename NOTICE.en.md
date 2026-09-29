@@ -14,7 +14,7 @@ The short, user-facing version is the "Acknowledgements and open-source licences
 - The site is publicly deployed and its output carries other people's code, so this list is not a "local memo" but part of the distribution obligation.
 - This file lists **other people's** projects only. This repository currently has no `LICENSE` file (i.e. "all rights reserved" by default); that does not affect the obligations of the third-party licences above, but it is a separate decision if the site's own code is ever open-sourced.
 
-> Last verified: **2026-09-30** (this round only replaced the extension package under `public/extension/` → `cc-for-web-2.65.2.zip`; the version numbers and licences of the third-party components inside it are **unchanged**;
+> Last verified: **2026-09-30** (this round replaced the extension package under `public/extension/` → `cc-for-web-2.65.3.zip`, the behaviour change being "the delivery targets can now be switched straight from this site's settings page"; the version numbers and licences of the third-party components inside it are **unchanged**;
 > the dependency figures are still the **2026-09-29** verification: `package-lock.json` at `lockfileVersion: 3`, 92 dependencies in total: 28 production, 64 development).
 
 ---
@@ -59,7 +59,7 @@ These are **upstream prebuilt artifacts taken into this repository as-is** (this
 
 ## 4. Browser extension CC for Web
 
-The package is distributed from this site (`public/extension/cc-for-web-<version>.zip`, currently **2.65.2**; re-versioned on 2026-09-30, the behaviour change being "deliver to the web page and to local IDE tools at the same time", with the third-party components inside unchanged from the table below), and its source lives in another repository (`cph-companion`).
+The package is distributed from this site (`public/extension/cc-for-web-<version>.zip`, currently **2.65.3**; re-versioned on 2026-09-30, the behaviour changes being "deliver to the web page and to local IDE tools at the same time" and "the delivery targets can be switched straight from this site's settings page", with the third-party components inside unchanged from the table below), and its source lives in another repository (`cph-companion`).
 
 | Component | Version | Licence | Notes |
 | --- | --- | --- | --- |

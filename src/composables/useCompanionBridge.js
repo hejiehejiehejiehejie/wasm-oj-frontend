@@ -26,6 +26,9 @@ const extensionInfo = ref(null)
 /** 正在探测。设置面板据此显示「检测中」，而不是一上来就断言「未安装」 */
 const checking = ref(false)
 
+/** 改配置的回执超时：扩展开着通常几毫秒就回 */
+const CONFIG_TIMEOUT = 1000
+
 const taskHandlers = new Set()
 const seenTaskIds = new Set()
 
@@ -33,6 +36,10 @@ let pingSeq = 0
 let pingTimers = []
 let currentRequestId = null
 let attached = false
+
+let configSeq = 0
+/** requestId -> { resolve, timer }：等待扩展对某次改配置的确认 */
+const pendingConfigs = new Map()
 
 function clearPingTimers() {
   for (const timer of pingTimers) window.clearTimeout(timer)
@@ -69,6 +76,32 @@ export function refreshExtensionInfo() {
   )
 }
 
+/**
+ * 让扩展改一个投递目标开关（sendToWebPage / sendToLocalTools）。
+ * 回执 cph-config 到达后就地更新 extensionInfo.value.config —— 刻意不重跑 refresh，
+ * 否则设置面板会闪一下「检测中」。返回是否写成功。
+ */
+export function setExtensionConfig(key, value) {
+  return new Promise((resolve) => {
+    if (!extensionInfo.value) {
+      resolve(false)
+      return
+    }
+
+    const requestId = `cph-set-${++configSeq}`
+    const timer = window.setTimeout(() => {
+      pendingConfigs.delete(requestId)
+      resolve(false)
+    }, CONFIG_TIMEOUT)
+
+    pendingConfigs.set(requestId, { resolve, timer })
+    window.postMessage(
+      { source: PAGE_SOURCE, type: 'cph-set-config', requestId, key, value },
+      window.location.origin,
+    )
+  })
+}
+
 function dispatchTask(data) {
   if (typeof data.payload !== 'string') return
 
@@ -97,6 +130,25 @@ function onMessage(event) {
 
   if (data.type === 'cph-task') {
     dispatchTask(data)
+    return
+  }
+
+  if (data.type === 'cph-config') {
+    const pending = pendingConfigs.get(data.requestId)
+    if (!pending) return
+
+    window.clearTimeout(pending.timer)
+    pendingConfigs.delete(data.requestId)
+
+    // 写成功才把新值并进快照，面板读的就是这份
+    if (data.ok && extensionInfo.value) {
+      extensionInfo.value = {
+        ...extensionInfo.value,
+        config: { ...extensionInfo.value.config, [data.key]: data.value },
+      }
+    }
+
+    pending.resolve(Boolean(data.ok))
     return
   }
 
@@ -131,5 +183,5 @@ export function useCompanionBridge(onTask) {
     onBeforeUnmount(() => taskHandlers.delete(onTask))
   }
 
-  return { extensionInfo, checking, refresh: refreshExtensionInfo }
+  return { extensionInfo, checking, refresh: refreshExtensionInfo, setExtensionConfig }
 }

@@ -10,7 +10,7 @@
 - 其他命令：`npm run verify` 跑无头回归（**B–G 应当是绿的**，A 步有一条已知竞态，见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
 - HTML 入口：`index.html`（主应用）与四个内容页——`guide.html` / `guide.en.html`（使用指南的**中文版与英文版**，给搜索引擎抓取的静态长文）、`notice.html` / `notice.en.html`（第三方组件清单的中英文版，**生成物**，见第 12 节），各语言两页共用 `src/styles/guide.css`。改文案 / 样式时，`guide.html` 与 `guide.en.html` **两版必须同时改**，再加 `src/i18n/messages/help.js`（应用内「设置 → 帮助」那份内容）、`docs/使用手册.md`、`index.html` 的 `<noscript>`，一共五处要一起看（见第 12 节）。
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
-- 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`（难度导入时为空，先落「未分类」），并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`）。详见第 13 节。
+- 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`（难度导入时为空，先落「未分类」），并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`），同一组里还有「投递目标」两个开关，可以直接把「发到本网站 / 发到本地工具」任一关掉（2026-09-30 加，真值写在扩展的 `chrome.storage`，见 13.1）。详见第 13 节。
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
 - **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cph.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
@@ -403,6 +403,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 写值统一走 `usePersistentRef(key, defaultValue)`；`editorSettings` 因为要版本迁移，单独用 deep watch 存。加编辑器设置项时**必须**两道校验都过：读盘（`readEditorSettings()`）与面板回写（`updateEditorSettings()`）都逐键走 `editorOptions.js` 的 `normalizeEditorSetting()`，不在默认值表里的键直接丢弃、越界数字退回默认——所以 localStorage 里手改出来的 `fontSize: 999`、认不出的 `cursorStyle`、乃至早已移除的旧键都不会漏进编辑器。
 
+**唯一不落站点 localStorage 的「设置项」是扩展的投递目标两个开关**（设置 → 浏览器插件）：真值存在扩展自己的 `chrome.storage.local` 里，站点这边只有一份内存镜像（`useCompanionBridge` 的 `extensionInfo.config`，随 `cph-ping` 握手刷新）。所以别按上面这套给它加 localStorage 存档——那样会出现「站点存档说开、扩展实际关」的两份真相。
+
 **「必须早于组件挂载就能读到」的状态有两处先例，加第三处前先想清楚**：`cph.shortcuts`（App 的全局 keydown 与状态栏提示都要用）与 `cph.uiLocale`（首帧的语言）。这两处的做法一致——**绕开 `usePersistentRef`，在模块里直接读写 localStorage**，因为那个 composable 的读写时机挂在组件生命周期上。代价是「读盘校验 / 默认值打底」得自己写（`useShortcutManager.js` 是「默认值打底再套已存键」，`i18n/index.js` 是「`isLocale()` 白名单 + 探测兜底」），两处都别省。
 
 ## 7. 现在的功能边界（写文案时别夸大）
@@ -614,6 +616,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 改造的插件在**另一个仓库**：`/Users/hejie/Code/cph-companion`（上游 jmerle/competitive-companion 的 fork，`package.json` 的 `productName` 已改成 **CC for Web**、版本 `2.65.x`，图标与宣传图的主色换成了与本站一致的蓝 `#0e639c`）。原版是把题目 POST 到用户本机的 `localhost` 端口（CP Editor / CPH 那套），fork 先是改成只推给本站，2026-09-30 又改成**两边同时投**——网站标签页与本地工具是并列的两个接收端，各有一个开关（选项页 `Destinations` 分组，默认都开），单侧失败不影响另一侧。
 
+**投递目标可以在本站设置里直接切**（2026-09-30 加）：设置 → 浏览器插件 那一组多了「投递目标」两个开关，它们**只是扩展 `chrome.storage` 的镜像**——网页点一下发 `cph-set-config` 给扩展，扩展写盘后再回一条 `cph-config`，站点拿回执就地更新 `extensionInfo.config`（刻意不重跑 `refresh()`，否则面板会闪一下「检测中」）。写盘的真值是扩展存的，所以刷新页面后开关状态来自扩展的上报而不是站点自己的 localStorage。
+
+**唯一能在网页里改的配置就是这两个键**：扩展 `background.ts` 里的 `WRITABLE_CONFIG_KEYS` 白名单只放 `sendToWebPage` / `sendToLocalTools`，且值必须是 boolean，其余一律回 `{ ok: false }`。**快捷键改不了**——Chrome 的 `chrome.commands` 只有 `getAll` / `onCommand`，没有任何写接口，站点只能展示 + 让人去 `chrome://extensions/shortcuts` 手动改（网页也不许跳 `chrome://`）。
+
 **扩展侧**（`cph-companion`，改动集中在 6 个文件）：
 
 | 文件 | 职责 |
@@ -621,10 +627,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `src/hosts/targetSites.ts` | 目标网站白名单 `TARGET_SITE_PATTERNS`：`localhost:5199` / `127.0.0.1:5199`（**必须与 `vite.config.js` 的开发端口一致**，见第 0 节）+ `www.998244353.best` / `998244353.best`。少了哪条就等于「网站没打开」 |
 | `src/hosts/WebPageHost.ts` | 查已打开的标签页、把任务投过去（**接收端之一**，与本地工具并列） |
 | `src/hosts/hosts.ts` | `getHosts()` 按两个开关拼接收端列表：`WebPageHost` + `CHelperHost`(4243，body 带 `json\n` 前缀) + `CustomHost`(上游 7 个默认端口 + 选项页 `customPorts`)；`LOCAL_TOOL_ORIGINS` 是 manifest 的 host 权限来源，**匹配模式不带端口即覆盖所有端口** |
-| `src/background.ts` | `sendTask()` 用 `allSettled` 并发投所有接收端，**全部失败才**发系统通知（`notifyNoReceiver()`，标题 `CC for Web`）；两侧都关（接收端列表为空）时静默，不拿「没有接收端」打扰用户；**消息处理必须用 `sendResponse` 回调式**，不要返回 Promise（Chrome 原生 API 不认） |
+| `src/background.ts` | `sendTask()` 用 `allSettled` 并发投所有接收端，**全部失败才**发系统通知（`notifyNoReceiver()`，标题 `CC for Web`）；两侧都关（接收端列表为空）时静默，不拿「没有接收端」打扰用户；**消息处理必须用 `sendResponse` 回调式**，不要返回 Promise（Chrome 原生 API 不认）。另外两件事：`cph-get-info` 的 `getExtensionInfo()` 现在还要 `Promise.all` 把 `sendToWebPage` / `sendToLocalTools` 读出来塞进 `config` 字段（站点据此渲染开关）；`cph-set-config` 分支走 `WRITABLE_CONFIG_KEYS` 白名单写盘并回 `{ ok, key, value }` |
 | `src/options.html` + `src/options.ts` | `Destinations` 分组两个勾选框，`config` 持久化 |
 | `src/utils/config.ts` | 新增 `sendToWebPage` / `sendToLocalTools`（**默认 true**）。坑：`Config.get` 的兜底必须用 `??` 而不是 `||`——默认 true 的开关存了 `false` 会被 `||` 当成「没设置」回退成 true，开关等于关不掉（2026-09-30 实测踩到） |
-| `src/bridge.ts` | **注入目标网站的内容脚本**：扩展拿不到网页的 JS 作用域，只能靠它做 `window.postMessage` 中转 |
+| `src/bridge.ts` | **注入目标网站的内容脚本**：扩展拿不到网页的 JS 作用域，只能靠它做 `window.postMessage` 中转。页面→扩展的两条路：`cph-ping` → `cph-get-info` → 回 `cph-info`；`cph-set-config` → 转发给 background 写盘 → 回 `cph-config`（合法性由 background 把关，bridge 只转发不校验） |
 
 **站点侧**两个 composable + 一个服务：`useCompanionBridge.js`（收消息）→ `useCompanionImport.js`（订阅 + 兜异常）→ `services/vfs/problemImport.js`（落盘）。`App.vue` 里只有一句 `useCompanionImport({ setTestCases, onImported })`。
 
@@ -634,9 +640,11 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | --- | --- | --- |
 | `cph-task` | 扩展 → 页面 | `taskId`（每次抓取现生成的 uuid，**只用来去重**）+ `payload`（题目 JSON 字符串） |
 | `cph-ping` | 页面 → 扩展 | `requestId`（站点自增，用来认领回包） |
-| `cph-info` | 扩展 → 页面 | 同一个 `requestId` + `info`（`{ version, commands }`，`commands` 是插件自己的快捷键） |
+| `cph-info` | 扩展 → 页面 | 同一个 `requestId` + `info`（`{ version, commands, config }`，`commands` 是插件自己的快捷键，`config` 是投递目标两项的当前值） |
+| `cph-set-config` | 页面 → 扩展 | `requestId` + `key` + `value`（只认 `sendToWebPage` / `sendToLocalTools` 两个键 + boolean） |
+| `cph-config` | 扩展 → 页面 | 同一个 `requestId` + `key` + `ok` + `value`（写失败时 `ok: false`，站点在那一组下面显示一行警示文案） |
 
-站点侧的纪律：**只认本窗口、同源**的消息（`event.source === window && event.origin === location.origin`，挡掉 iframe 与外部页面伪造）；回包只认自己那一轮的 `requestId`；`taskId` 进 `seenTaskIds` 去重（同站多开标签页时扩展会广播）。握手会按 `PING_DELAYS = [0, 400, 1500]` 连探三次——内容脚本只在页面加载时注入一次，扩展被重载过而页面一直没刷新时会失联，多探几次能救回来；最后一次仍无回音才判定「未安装」（`PING_TIMEOUT = 500`）。
+站点侧的纪律：**只认本窗口、同源**的消息（`event.source === window && event.origin === location.origin`，挡掉 iframe 与外部页面伪造）；回包只认自己那一轮的 `requestId`（改配置的那一路回包同样按 `requestId` 在 `pendingConfigs` 里认领，`CONFIG_TIMEOUT = 1000` 没等到就当失败）；`taskId` 进 `seenTaskIds` 去重（同站多开标签页时扩展会广播）。握手会按 `PING_DELAYS = [0, 400, 1500]` 连探三次——内容脚本只在页面加载时注入一次，扩展被重载过而页面一直没刷新时会失联，多探几次能救回来；最后一次仍无回音才判定「未安装」（`PING_TIMEOUT = 500`）。
 
 ### 13.2 落盘结构（**动之前先想清楚**）
 
@@ -662,7 +670,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 包放在 `public/extension/cc-for-web-<版本>.zip`，站内直接给下载（`<a download>`），**不做自动更新机制**：装完要升级就重新下载解压、再在 `chrome://extensions` 里点一次刷新。
 - 发新版的三步：`cph-companion` 里 `pnpm build:chrome` 构建 → 把 `build-chrome/` 打包成 `cc-for-web-<新版本>.zip` → 拷进本站 `public/extension/`，**同时**改 `EditorSettingsPanel.vue` 里的 `EXTENSION_VERSION` / `EXTENSION_FILE`。文件名必须换（第 5 节坑 20），「原地覆盖同名文件」能坑掉所有已下载过的用户。
 - 卸载 / 重装提示写在设置视图那一组里：下载 → 解压 → `chrome://extensions` 打开「开发者模式」→「加载已解压的扩展程序」选中解压出来的目录。这是**未上架**插件的唯一安装方式，别改文案说成「一键安装」。
-- **当前在站的版本：`2.65.2`**（2026-09-30 换版，行为改动就是「双投」）。这次换版按上面三步走了一遍：`package.json` → `2.65.2`、`node scripts/build/extension.ts chrome true false`（本机没装 `pnpm`，直接 `node node_modules/tsx/dist/cli.mjs` 等价调用）→ `web-ext build -s build-chrome/ -a dist/ -n cc-for-web-2.65.2.zip` → 拷进 `public/extension/`、删掉旧的 `cc-for-web-2.65.1.zip`、站点 `EXTENSION_VERSION` 改 `2.65.2`。`NOTICE.md` 第四节与 `notice.html` 同步改过（那份文件自己规定「换 `public/extension/` 里的包」就要回来核对）。
+- **当前在站的版本：`2.65.3`**（2026-09-30 换版，行为改动是「可在本站设置页直接切换投递目标」；`2.65.2` 是同一天上一次换版，行为改动是「双投」）。两次换版都按上面三步走：`package.json` 改版本号 → `node scripts/build/extension.ts chrome true false`（本机没装 `pnpm`，直接 `node node_modules/tsx/dist/cli.mjs` 等价调用）→ `node_modules/.bin/web-ext build -s build-chrome/ -a dist/ -o -n cc-for-web-<版本>.zip` → 拷进 `public/extension/`、删掉旧包、站点 `EXTENSION_VERSION` 改同号。`NOTICE.md` / `NOTICE.en.md` 第四节与两页 `notice.html` 同步改过（那份文件自己规定「换 `public/extension/` 里的包」就要回来核对；改完跑 `npm run notice` 重新生成 HTML）。
+- **换包会牵动站点侧的几个常量/文件**（一次别落下一个）：`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION`（`EXTENSION_FILE` / `EXTENSION_DOWNLOAD_URL` 都是从它派生的）、`public/extension/` 下的 zip、`NOTICE.md` + `NOTICE.en.md`。`public/extension/` 不在 SW 的 `STATIC_ASSETS` 里，靠换文件名让老用户拿到新包。
 
 ### 13.4 全局快捷键
 
@@ -678,6 +687,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 改落盘结构 → 老用户已导入的题目不会迁移（当初的决策就是「不迁移，只对新抓取生效」），别顺手写个迁移把人家的题解搬丢了。
 - 改设置视图的分类 → `scripts/verify-ui.mjs` 里 `navItems` 那个数字要跟着改（第 8 节 B 步），否则无头回归直接红。
 - 改扩展的 `TARGET_SITE_PATTERNS` / 开发端口 → 插件与网站是对着 `5199` 写死的，**两边必须一起改**（改了端口插件就再也找不到网站了）。
+- 加/改「网页能改的扩展配置」→ 三处要一起动：扩展 `background.ts` 的 `WRITABLE_CONFIG_KEYS`、`getExtensionInfo()` 里读出来的 `config` 字段、站点 `EditorSettingsPanel.vue` 的 `EXTENSION_DESTINATIONS`（键名与文案），以及 `useCompanionBridge.js` 里 `cph-config` 回包的处理。网页端**没有**写扩展存储的能力，只能走这条消息通路。
+- 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
 
 ## 14. 后续计划与待解决问题
 
