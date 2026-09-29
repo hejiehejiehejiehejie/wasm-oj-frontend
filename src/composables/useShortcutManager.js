@@ -228,6 +228,103 @@ export function formatCombo(combo) {
     .join(' + ')
 }
 
+/** Chrome 在 macOS 上回的键串是符号前缀（`⇧⌘U`），其它平台是 `Ctrl+Shift+U` 这种词 */
+const CHROME_MODS_MAC = { '⌘': 'Mod', '⇧': 'Shift', '⌥': 'Alt', '⌃': 'Ctrl' }
+const CHROME_MODS_OTHER = {
+  Ctrl: 'Mod',
+  Control: 'Mod',
+  Command: 'Mod',
+  Cmd: 'Mod',
+  Shift: 'Shift',
+  Alt: 'Alt',
+  Option: 'Alt',
+  MacCtrl: 'Ctrl',
+}
+
+/** Chrome 的键名 → KeyboardEvent.code。没登记的一律当「认不出」 */
+const CHROME_KEY_CODES = {
+  Up: 'ArrowUp',
+  Down: 'ArrowDown',
+  Left: 'ArrowLeft',
+  Right: 'ArrowRight',
+  // macOS 上方向键回的是符号，不是 Up / Down 这些名字
+  '↑': 'ArrowUp',
+  '↓': 'ArrowDown',
+  '←': 'ArrowLeft',
+  '→': 'ArrowRight',
+  Comma: 'Comma',
+  Period: 'Period',
+  Slash: 'Slash',
+  Semicolon: 'Semicolon',
+  Quote: 'Quote',
+  Backquote: 'Backquote',
+  Minus: 'Minus',
+  Equal: 'Equal',
+  BracketLeft: 'BracketLeft',
+  BracketRight: 'BracketRight',
+  Backslash: 'Backslash',
+  Space: 'Space',
+  Enter: 'Enter',
+  Escape: 'Escape',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  Insert: 'Insert',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+}
+
+/**
+ * 浏览器扩展报回来的快捷键串 → 本模块的组合键写法。
+ *
+ * `chrome.commands.getAll()` 给的是浏览器自己那套写法（macOS 上是 `⇧⌘U`），
+ * 和站点自己的 `Mod+Shift+KeyE` 对不上，直接显示会让同一个界面出现两种键位格式。
+ * 所以按浏览器写法拆开，再按本模块固定的修饰键顺序拼回去，最后交给 formatCombo 出字符串：
+ * 这样两处快捷键的写法、符号、平台差异永远是同一套。
+ * 认不出的键返回 ''，调用方原样显示就行。
+ *
+ * @param {string} raw
+ * @returns {string} 组合键串，或 ''
+ */
+export function comboFromChromeShortcut(raw) {
+  if (!raw) return ''
+
+  const mods = new Set()
+  let key = ''
+
+  if (IS_MAC) {
+    // macOS：修饰键是连续的前缀符号，剥完剩下的就是键名
+    let rest = raw
+    while (rest && CHROME_MODS_MAC[rest[0]]) {
+      mods.add(CHROME_MODS_MAC[rest[0]])
+      rest = rest.slice(1)
+    }
+    key = rest
+  } else {
+    const parts = raw.split('+')
+    key = (parts.pop() ?? '').trim()
+    for (const part of parts) {
+      const mod = CHROME_MODS_OTHER[part.trim()]
+      if (mod) mods.add(mod)
+    }
+  }
+
+  const code = /^[A-Z]$/.test(key)
+    ? `Key${key}`
+    : /^\d$/.test(key)
+      ? `Digit${key}`
+      : /^F\d{1,2}$/.test(key)
+        ? key
+        : CHROME_KEY_CODES[key]
+
+  if (!code) return ''
+
+  const ordered = ['Mod', 'Ctrl', 'Alt', 'Shift'].filter((mod) => mods.has(mod))
+  return [...ordered, code].join('+')
+}
+
 // ------------------------------------------------------------ 读写绑定
 
 /** @param {string} combo @returns {string|null} 命中的动作 id */

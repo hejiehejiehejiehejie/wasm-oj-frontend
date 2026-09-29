@@ -158,7 +158,9 @@ function onKeydown(event) {
   border: 1px solid var(--border);
   background: var(--bg-input);
   color: var(--text);
-  font-family: var(--mono-font);
+  /* 用 --ui-font 而不是 --mono-font：等宽字体没有 ⌘ ⇧ ⌥ 这几个字形，浏览器会逐个回退到
+     别的字体，符号和字母的大小/粗细就对不齐了（一枚徽标里看着参差不齐） */
+  font-family: var(--ui-font);
   font-size: 12px;
   white-space: nowrap;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;

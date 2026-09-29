@@ -9,7 +9,12 @@ import { DEFAULT_UI_SCALE, UI_SCALE_OPTIONS } from '../composables/useUiScale.js
 import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
-import { SHORTCUT_ACTIONS, useShortcutManager } from '../composables/useShortcutManager.js'
+import {
+  comboFromChromeShortcut,
+  formatCombo,
+  SHORTCUT_ACTIONS,
+  useShortcutManager,
+} from '../composables/useShortcutManager.js'
 import { preload, probeRuntime, subscribeStatus, uninstallRuntime } from '../services/wasmRuntime.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
@@ -304,13 +309,20 @@ const extensionStatusHint = computed(() => {
 })
 
 const extensionShortcuts = computed(() =>
-  (extensionInfo.value?.commands ?? []).map((command) => ({
-    name: command.name,
-    label: EXTENSION_COMMAND_KEYS[command.name]
-      ? t(EXTENSION_COMMAND_KEYS[command.name])
-      : command.description || command.name,
-    shortcut: command.shortcut,
-  })),
+  (extensionInfo.value?.commands ?? []).map((command) => {
+    // 扩展回的是浏览器自己那套写法（macOS 上是 `⇧⌘U`），转成站点这套再交给 formatCombo，
+    // 免得同一个界面里两种键位格式并存；认不出的键就原样显示，不做二次加工
+    const combo = comboFromChromeShortcut(command.shortcut)
+
+    return {
+      name: command.name,
+      label: EXTENSION_COMMAND_KEYS[command.name]
+        ? t(EXTENSION_COMMAND_KEYS[command.name])
+        : command.description || command.name,
+      // 空串 = 浏览器没给它分配键，模板据此显示「未设置」
+      keys: combo ? formatCombo(combo) : command.shortcut,
+    }
+  }),
 )
 
 // 投递目标：这两个开关的真值存在扩展的 chrome.storage 里，网页只读写镜像。
@@ -1069,14 +1081,22 @@ function setTimeLimit(event) {
 
           <p class="setting-subtitle">{{ t('settings.extension.commandShortcuts') }}</p>
 
-          <ul class="shortcut-list">
-            <li v-for="command in extensionShortcuts" :key="command.name" class="shortcut-list__item">
-              <span class="shortcut-list__label">{{ command.label }}</span>
-              <kbd class="shortcut-list__keys">
-                {{ command.shortcut || t('settings.extension.shortcutUnset') }}
+          <div
+            v-for="command in extensionShortcuts"
+            :key="command.name"
+            class="setting-row setting-row--action"
+          >
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ command.label }}</span>
+              </span>
+            </span>
+            <span class="setting-row__control">
+              <kbd class="shortcut-key" :class="{ 'is-empty': !command.keys }">
+                {{ command.keys || t('settings.extension.shortcutUnset') }}
               </kbd>
-            </li>
-          </ul>
+            </span>
+          </div>
 
           <p class="setting-group__note">
             {{ t('settings.extension.shortcutsManagedPrefix') }}
@@ -1588,45 +1608,26 @@ a.download-button {
   text-decoration: none;
 }
 
-.shortcut-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.shortcut-list__item {
-  display: flex;
+/* 插件快捷键的键位徽标：与 HotkeyRecorder 的录制框同观感（描边、同高、同圆角），
+   区别只在只读展示，所以不带悬浮态。未分配时用最弱灰度，与录制框的 is-empty 一致。
+   字体用 --ui-font 而不是 --mono-font：等宽字体没有 ⌘ ⇧ ⌥ 这几个字形，浏览器会逐个
+   回退到别的字体，符号和字母的大小/粗细就对不齐了（徽标里看着参差不齐） */
+.shortcut-key {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 28px;
+  height: 28px;
   padding: 0 11px;
   border: 1px solid var(--border);
   border-radius: 5px;
-  background: var(--bg-control);
-}
-
-.shortcut-list__label {
-  min-width: 0;
-  overflow: hidden;
+  background: var(--bg-input);
   color: var(--text);
+  font-family: var(--ui-font);
   font-size: 12px;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.shortcut-list__keys {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-control-hover);
+.shortcut-key.is-empty {
   color: var(--text-faint);
-  font-family: inherit;
-  font-size: 11px;
 }
 
 .setting-code {
