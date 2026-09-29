@@ -189,6 +189,8 @@ export default {
         missingHint: '未检测到；装好后需要刷新本页才会被检测到',
         installedHint: '已安装 v{version}',
         download: { label: '下载插件' },
+        /** 下载那一行标题后面的版本号：标的是这个网站提供的安装包版本，用户可与上面「已安装 v…」对照 */
+        downloadVersion: '最新版本 v{version}',
         destinations: '投递目标',
         destinationsNote:
           '插件解析出的题目要送到哪里。两项可以同时打开；关掉后插件仍会正常解析，只是不再往那一侧发送。',
@@ -411,6 +413,8 @@ export default {
         missingHint: 'Not detected. Reload this page after installing it.',
         installedHint: 'Installed v{version}',
         download: { label: 'Download the extension' },
+        /** Version of the package this site ships, meant to be compared with the "Installed v…" line above */
+        downloadVersion: 'Latest v{version}',
         destinations: 'Delivery targets',
         destinationsNote:
           'Where the extension sends the problems it parses. Both can be on at once; turning one off still parses normally, it just stops sending to that side.',

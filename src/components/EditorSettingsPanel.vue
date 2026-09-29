@@ -1031,6 +1031,9 @@ function setTimeLimit(event) {
           <span class="setting-row__main">
             <span class="setting-row__head">
               <span class="setting-row__label">{{ t('settings.extension.download.label') }}</span>
+              <span class="setting-row__key">
+                {{ t('settings.extension.downloadVersion', { version: EXTENSION_VERSION }) }}
+              </span>
             </span>
             <span class="setting-row__hint">{{ t('settings.extension.downloadHint') }}</span>
           </span>
