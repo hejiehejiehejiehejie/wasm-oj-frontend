@@ -29,6 +29,7 @@ import {
   runtimeAssetURLs,
   unloadRuntime,
 } from './runnoSandbox.js'
+import { preloadMdRuntime, probeMdRuntime, uninstallMdRuntime } from './mdRuntime.js'
 import { t } from '../i18n/index.js'
 import { vfsToRunnoFs } from './vfs/runnoFs.js'
 
@@ -289,10 +290,12 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
  * 为什么第 2 级不再顺带落到 HTTP 缓存：HTTP 缓存没有 JS 清除接口，卸载删不掉它，
  * 若仍拿它当判据，刚卸载完的资产会被那份残留立刻判回「已就绪」（见 runnoSandbox.unloadRuntime）。
  *
- * @param {string} language 'cpp' | 'python'
+ * @param {string} language 'cpp' | 'python' | 'markdown'
  * @returns {Promise<boolean>}
  */
 export async function probeRuntime(language) {
+  // markdown 渲染器的资产在 Cache Storage 里，判据与工具链不同，交给它自己的模块
+  if (language === 'markdown') return probeMdRuntime()
   if (language !== 'cpp' && language !== 'python') return false
   if (language === 'python' ? isPythonRuntimeReady() : isToolchainReady()) return true
   const urls = runtimeAssetURLs(language)
@@ -325,9 +328,10 @@ async function isAssetCached(url) {
  * 否则工具链卸载之后再跑 C++，warmupPch() 会因为「已经预热过」直接跳过，
  * 白白丢掉本该重建的那份加速。
  *
- * @param {string} language 'cpp' | 'python'
+ * @param {string} language 'cpp' | 'python' | 'markdown'
  */
 export async function uninstallRuntime(language) {
+  if (language === 'markdown') return uninstallMdRuntime()
   if (language === 'cpp') pchWarmupStarted = false
   await unloadRuntime(language)
 }
@@ -335,10 +339,14 @@ export async function uninstallRuntime(language) {
 /**
  * 只把指定语言的运行时拉到本地（不发评测任务），用于「本地运行环境」面板的下载按钮。
  *
- * @param {string} [language='cpp'] 'cpp' | 'python'
+ * @param {string} [language='cpp'] 'cpp' | 'python' | 'markdown'
  * @param {AbortSignal} [signal]
+ * @param {(status: { stage: string, message: string }) => void} [onStatus]
+ *   进度回调。工具链的进度走 subscribeStatus 那条总线，渲染器没有总线可挂，
+ *   由面板把回调透传进来（见 EditorSettingsPanel 的 downloadRuntime）
  */
-export function preload(language = 'cpp', signal) {
+export function preload(language = 'cpp', signal, onStatus) {
+  if (language === 'markdown') return preloadMdRuntime(signal, onStatus)
   const isPython = language === 'python'
   return enqueue(async () => {
     if (signal?.aborted) return { type: 'cancelled' }

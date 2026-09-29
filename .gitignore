@@ -6,6 +6,9 @@ dist/
 tools/
 # wasm-opt 的候选产物：实测收益为负，不接运行时路径，也别让它进仓库
 public/wasm/8.0.1/clang_opt.wasm
+# 题解渲染器（katex + marked 的副本）：由 scripts/prepare-md-runtime.mjs 从 node_modules 生成，
+# 是构建输入而不是源码，跟着 katex 版本走，不进仓库（见 npm run md:runtime）
+public/md/
 
 # 环境变量（后端地址 / API Key 一律不进仓库）
 .env

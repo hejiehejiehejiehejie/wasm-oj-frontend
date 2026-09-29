@@ -42,6 +42,7 @@ const iconName = computed(() => {
   const name = props.node.name.toLowerCase()
   if (/\.(h|hpp|hh|hxx)$/.test(name)) return 'header'
   if (name.endsWith('.py')) return 'python'
+  if (name.endsWith('.md') || name.endsWith('.markdown')) return 'markdown'
   if (/\.(cpp|cc|cxx|c)$/.test(name)) return 'cpp'
   return 'file'
 })
@@ -183,7 +184,7 @@ function onKeyDown(event) {
       <span class="tree-item__arrow">
         <AppIcon v-if="node.type === 'directory'" :name="expanded ? 'chevron' : 'chevron-right'" :size="12" />
       </span>
-      <AppIcon class="tree-item__icon" :name="iconName" :size="15" />
+      <AppIcon class="tree-item__icon" :class="`is-${iconName}`" :name="iconName" :size="15" />
       <span v-if="!renameMode" class="tree-item__label">{{ node.name }}</span>
       <span v-if="!renameMode && dirty" class="tree-item__dot" :title="t('app.tabs.dirty')"></span>
       <input
@@ -249,6 +250,20 @@ function onKeyDown(event) {
 .tree-item__icon {
   flex: 0 0 auto;
   margin-right: 6px;
+}
+
+/* 语言标志沿用 VS Code（Seti）的配色：三类字标各用各自的蓝，跟设置里的「本地运行环境」
+   和页签栏是同一套变量。文件夹、头文件与通用文件仍是单色，不参与「这是哪种语言」的表达。 */
+.tree-item__icon.is-cpp {
+  color: var(--icon-cpp);
+}
+
+.tree-item__icon.is-python {
+  color: var(--icon-python);
+}
+
+.tree-item__icon.is-markdown {
+  color: var(--icon-markdown);
 }
 
 .tree-item__label {

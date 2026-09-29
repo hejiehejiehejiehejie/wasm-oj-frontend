@@ -115,6 +115,10 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   padding: 'normal',
   scrollbarSize: 'normal',
   stickyScroll: false,
+  // 底下这条不是 Monaco 选项（editorOptions() 里没有它），是编辑器面板自己的开关：
+  // 攒在同一个存档里只是图「新增一项偏好不用再开一份 localStorage」。
+  // 默认开＝改造前就有状态栏，老用户升上来零变化。
+  statusBar: true,
 }
 
 /** 整数型偏好的取值范围（读盘时越界就退回默认值；面板上的数字输入框也用它的 min/max） */

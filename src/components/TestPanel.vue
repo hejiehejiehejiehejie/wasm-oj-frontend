@@ -10,6 +10,11 @@ const props = defineProps({
   running: Boolean,
   // 最慢的那张用例卡片耗时（毫秒，只计运行段，与卡片同口径）
   elapsed: { type: Number, default: 0 },
+  /**
+   * 不可运行的原因（由 App 按活跃文件算好）。空串＝可运行。
+   * 它同时是三处地方：页脚那行说明、两个 ▶ 的 title、以及「置灰」这件事的判据。
+   */
+  runBlocked: { type: String, default: '' },
 })
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all'])
@@ -78,24 +83,30 @@ const elapsedText = computed(() => {
         :test-case="item"
         :index="index"
         :locked="running"
+        :run-blocked="runBlocked"
         @remove="emit('remove', $event)"
         @run="emit('run-one', $event)"
       />
     </ul>
 
     <footer class="panel__foot">
-      <button class="add" @click="emit('add')" :disabled="running">
-        <AppIcon name="plus" :size="14" />
-        <span>{{ t('tests.panel.addCase') }}</span>
-      </button>
-      <button
-        class="run-inline"
-        :disabled="running || !cases.length"
-        :title="t('tests.panel.runAll')"
-        @click="emit('run-all')"
-      >
-        <AppIcon name="play" :size="13" />
-      </button>
+      <!-- 置灰的按钮在浏览器里收不到鼠标事件，title 也就悬不出来 ——
+           所以「为什么不能运行」必须写成一行看得见的字，不能只塞进 title -->
+      <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
+      <div class="panel__foot-row">
+        <button class="add" @click="emit('add')" :disabled="running">
+          <AppIcon name="plus" :size="14" />
+          <span>{{ t('tests.panel.addCase') }}</span>
+        </button>
+        <button
+          class="run-inline"
+          :disabled="running || !cases.length || Boolean(runBlocked)"
+          :title="runBlocked || t('tests.panel.runAll')"
+          @click="emit('run-all')"
+        >
+          <AppIcon name="play" :size="13" />
+        </button>
+      </div>
     </footer>
   </section>
 </template>
@@ -253,10 +264,24 @@ const elapsedText = computed(() => {
 .panel__foot {
   flex: 0 0 auto;
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--border-soft);
   background: var(--bg-panel-head);
+}
+
+.panel__foot-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* 不可运行的原因：说清楚就行，别用告警色 —— 编辑题解本来就不该有什么「出错」感 */
+.run-blocked {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
 }
 
 .run-inline {

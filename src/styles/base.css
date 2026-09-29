@@ -71,6 +71,8 @@
   /* 语言标志：深色底上取官方色的亮一档（浅色主题里换回官方深色，见下） */
   --icon-cpp: #659ad2;
   --icon-python: #4b8bbe;
+  /* 题解（Markdown）：seti-ui 的 @blue —— VS Code 的 Seti 图标主题给 .md 的就是这抹蓝 */
+  --icon-markdown: #519aba;
 
   --scrollbar-thumb: #4a4a4f;
   --scrollbar-thumb-hover: #5a5a60;
@@ -149,6 +151,8 @@
   /* 语言标志：浅底上用官方原色，否则蓝色在浅色下对比不足 */
   --icon-cpp: #00599c;
   --icon-python: #3776ab;
+  /* 题解（Markdown）：seti-ui 的 @blue-highlight —— 原色 #519aba 压在白底上太淡 */
+  --icon-markdown: #1d5b91;
 
   --scrollbar-thumb: #c4c4c4;
   --scrollbar-thumb-hover: #adadad;

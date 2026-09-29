@@ -9,13 +9,14 @@ The short, user-facing version is the "Acknowledgements and open-source licences
 
 ## Maintenance rules
 
-- Three things force a return to this file: changing `package.json` (adding/removing a dependency, or a major-version bump), replacing a toolchain directory under `public/wasm/`, or replacing the extension package in `public/extension/`.
+- Four things force a return to this file: changing `package.json` (adding/removing a dependency, or a major-version bump), replacing a toolchain directory under `public/wasm/`, replacing the rendering runtime under `public/md/` (it tracks the katex / marked versions), or replacing the extension package in `public/extension/`.
 - **Always verify version numbers on the real artifact — never write them from memory** (the commands are at the end of this file).
 - The site is publicly deployed and its output carries other people's code, so this list is not a "local memo" but part of the distribution obligation.
 - This file lists **other people's** projects only. This repository currently has no `LICENSE` file (i.e. "all rights reserved" by default); that does not affect the obligations of the third-party licences above, but it is a separate decision if the site's own code is ever open-sourced.
 
-> Last verified: **2026-09-30** (this round replaced the extension package under `public/extension/` → `cc-for-web-2.65.3.zip`, the behaviour change being "the delivery targets can now be switched straight from this site's settings page"; the version numbers and licences of the third-party components inside it are **unchanged**;
-> the dependency figures are still the **2026-09-29** verification: `package-lock.json` at `lockfileVersion: 3`, 92 dependencies in total: 28 production, 64 development).
+> Last verified: **2026-09-30** (two things the same day: ① the extension package under `public/extension/` was replaced → `cc-for-web-2.65.3.zip`, the behaviour change being "the delivery targets can now be switched straight from this site's settings page", with the version numbers and licences of the third-party components inside it **unchanged**;
+> ② the notes feature shipped, adding a self-hosted Markdown / LaTeX rendering runtime under `public/md/` (KaTeX 0.18.9 + marked 14.0.0), and consequently promoting `marked` / `dompurify` / `katex` to **direct dependencies** of this site.
+> The dependency figures were re-verified against the same day's `package-lock.json`: `lockfileVersion: 3`, **94** dependencies in total: **30** production, **64** development).
 
 ---
 
@@ -27,15 +28,20 @@ The short, user-facing version is the "Acknowledgements and open-source licences
 | [Monaco Editor](https://github.com/microsoft/monaco-editor) | 0.56.0 | MIT | The code editor (VS Code's editor core) |
 | ├─ [marked](https://github.com/markedjs/marked) | 14.0.0 | MIT | Transitive dependency of Monaco (Markdown rendering) |
 | └─ [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.8 | **MPL-2.0 OR Apache-2.0** (dual-licensed) | Transitive dependency of Monaco (HTML sanitising). **The only non-permissive runtime dependency on this site** |
+| [KaTeX](https://github.com/KaTeX/KaTeX) | 0.18.9 | MIT | LaTeX math rendering for the notes. **Not in the main bundle** — only downloaded on demand from `public/md/` (see 2.2) |
 | [@runno/wasi](https://github.com/taybenlor/runno) | 0.10.0 | MIT | The local sandbox's WASI runtime: instantiate, feed stdin, `kill()` (TLE relies on it) |
 
-These were verified to actually ship in the build (searching `dist/assets/main-*.js` turns up `DOMPurify` and `marked`), rather than merely sitting in the dependency tree.
+The notes feature (shipped 2026-09-30) also promoted those two Monaco transitive dependencies to **direct dependencies of this site**: `mdRenderer.js` imports DOMPurify directly (it was already in the main bundle via Monaco), while marked is self-hosted in `public/md/` for on-demand download in addition to the copy Monaco pulls into the main bundle. What was verified to actually ship in the build (by searching `dist/assets/main-*.js`):
+`DOMPurify` ✓, `marked` ✓ (the copy from Monaco's dependency tree), `katex` ✗ (the main bundle contains only the word "katex" in UI copy and file names).
+So "downloaded on demand" does not mean "a user who never downloaded anything has no marked in the shell" — **marked is in the main bundle already**; the copy under `public/md/` keeps the renderer aligned with the site's own version, and keeps katex out of first paint entirely.
 
-The rest of the 28 "production dependencies" in `package-lock.json` (`@vue/compiler-*`, `@babel/*`, `entities`, `postcss`, `magic-string`, `source-map-js`, `estree-walker`, `csstype`, `nanoid`, `picocolors` and so on) are Vue's compiler chain: used at **build time** only, and not shipped in the output.
+The rest of the 30 "production dependencies" in `package-lock.json` (`@vue/compiler-*`, `@babel/*`, `entities`, `postcss`, `magic-string`, `source-map-js`, `estree-walker`, `csstype`, `nanoid`, `picocolors` and so on) are Vue's compiler chain: used at **build time** only, and not shipped in the output.
 
-## 2. Local sandbox toolchain (`public/wasm/`, self-hosted binaries, about 76MB)
+## 2. Self-hosted runtimes (under `public/`, none of them reaches the browser until the user clicks "download")
 
-These are **upstream prebuilt artifacts taken into this repository as-is** (this site changed nothing), so the upstream notices are distributed along with the files; the full licence texts live in the corresponding upstream repositories.
+What the two have in common: both are **upstream artifacts taken into this repository as-is** (this site changed nothing; the copy under `public/md/` is produced by `scripts/prepare-md-runtime.mjs` from `node_modules`), and neither is **in the Service Worker precache manifest** —— a user who never clicked download has not a single byte of them in the shell. The upstream notices are therefore distributed along with the files; the full licence texts live in the corresponding upstream repositories.
+
+### 2.1 Local sandbox toolchain (`public/wasm/`, about 76MB)
 
 | Component | Version | Licence | Where it lands and what it is for |
 | --- | --- | --- | --- |
@@ -45,6 +51,18 @@ These are **upstream prebuilt artifacts taken into this repository as-is** (this
 | [libc++ / libc++abi](https://github.com/llvm/llvm-project) | same as above | MIT (University of Illinois / NCSA family) | `libc++.a`, `libc++abi.a` in the same tar —— the C++ standard library (the likes of `<vector>` / `<string>`) |
 | [compiler-rt](https://github.com/llvm/llvm-project) | same as above | Apache-2.0 WITH LLVM-exception | `libclang_rt.builtins-wasm32.a` in the same tar —— compiler runtime builtins |
 | [CPython](https://github.com/python/cpython) | 3.11.3 | PSF License | `public/wasm/python-3.11.3/python.wasm` + `python-fs.tar.gz` —— running Python locally. A wasm32-wasi build with the standard library in `usr/local/lib/python311.zip`; the build likewise comes from runno's `langs/` |
+
+### 2.2 Notes rendering runtime (`public/md/`, about 578KB)
+
+Parsing Markdown and rendering LaTeX for the notes takes the same "download on demand" route (`src/services/mdRuntime.js`): before the download there is only a hint line, afterwards it lands in the `cph-md-runtime-v1` Cache Storage bucket, and the "local runtimes" section of the settings page can uninstall it together with the cache and the globals it put on the browser.
+
+| Component | Version | Licence | Where it lands and what it is for |
+| --- | --- | --- | --- |
+| [KaTeX](https://github.com/KaTeX/KaTeX) | 0.18.9 | MIT | `katex.min.js` + `katex.min.css` + `fonts/KaTeX_*.woff2` (20 weights) —— the bulk of the size |
+| [marked](https://github.com/markedjs/marked) | 14.0.0 | MIT | `marked.min.js` —— Markdown parsing (same version as the copy in the main bundle from section 1) |
+
+- **woff2 only**: KaTeX's CSS references both woff and ttf fallbacks; copying everything would be 1.1MB, whereas woff2 comes to 296KB, so the script strips the fallbacks (and asserts no leftovers afterwards).
+- `public/md/assets.json` is the **single source of truth** for the download manifest (`{ katex, marked, bytes, assets[] }`, written by the script), so the versions need not be transcribed here —— but this file's rule is "measure it on the artifact", so the table above still defers to `public/md/assets.json`.
 
 ## 3. UI assets
 
@@ -98,6 +116,7 @@ Both are external services this site talks to **over HTTP**; you have to deploy 
 
 - **npm packages**: `node_modules/<package>/LICENSE*`; production vs. development is in `package-lock.json`.
 - **Toolchain binaries**: the upstream repositories named in the table in section 2 (LLVM / wasi-libc / CPython / runno).
+- **Self-hosted rendering runtime**: these are `dist` artifacts from npm packages copied over verbatim (KaTeX / marked), so their full licence texts are likewise under `node_modules/<package>/LICENSE*`.
 - **Extension**: the `LICENSE` inside `public/extension/cc-for-web-<version>.zip`.
 
 ## Appendix: how to re-verify this list
@@ -116,8 +135,12 @@ LC_ALL=C grep -a -o -E "3\.11\.[0-9]+" public/wasm/python-3.11.3/python.wasm | s
 # 4) which libraries the sysroot actually contains (to confirm where wasi-libc / libc++ / compiler-rt landed)
 tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep "sys/lib/"
 
-# 5) whether a dependency really made it into the build
+# 5) whether a dependency really made it into the build (NB: katex / marked take the on-demand route, so the library itself is not searchable in the main bundle)
 grep -l DOMPurify dist/assets/*.js
+grep -c "marked" dist/assets/main-*.js
+
+# 6) versions and byte size of the notes rendering runtime
+cat public/md/assets.json
 ```
 
 > After changing this list, do two things: run `npm run notice` to regenerate `notice.html` / `notice.en.html` (skipping it leaves a stale page; `node scripts/render-notice.mjs --check` will catch it),

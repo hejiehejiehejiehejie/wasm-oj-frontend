@@ -21,6 +21,14 @@ import {
   saveAll,
 } from './services/vfs/workspaceStore.js'
 import { modelManager } from './services/monaco/modelManager.js'
+import {
+  MD_VIEW_SHORTCUT,
+  cycleMdView,
+  exitFullscreen,
+  mdActive,
+  mdFullscreen,
+} from './services/mdView.js'
+import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/settingsTab.js'
 import {
   EDITOR_SETTINGS_DEFAULTS,
@@ -214,9 +222,11 @@ const running = ref(false)
 
 // order 换序：splitter 恒 2；统一侧边栏在右时 editor 1 / tests 3，反之对调。
 // flexBasis 两栏之和恒为 100%（折叠时编辑器不设 basis，撑满剩余空间）。
+// 全屏编辑与「折叠侧栏」是同一种情形（另一栏整个不参与排版），处理方式也照抄：
+// 编辑器不设 basis，由 flex-grow 撑满剩下的全部宽度
 const editorPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 1 : 3,
-  ...(panelVisible.value ? { flexBasis: `${editorShare.value}%` } : {}),
+  ...(panelVisible.value && !mdFullscreen.value ? { flexBasis: `${editorShare.value}%` } : {}),
 }))
 const testsPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 3 : 1,
@@ -483,12 +493,26 @@ function switchSidebarPanel() {
   sidebarRef.value?.switchPanel()
 }
 
+/**
+ * 运行闸门：只有认得出来的判题语言（C++ / Python）才跑得动。
+ * 题解（.md）这类非代码文件 activeLanguage 是 null，引擎根本没有对应语言可编，
+ * 于是把它变成**入口上的禁用态**而不是「点了没反应」——
+ * 非空字符串即「不可运行」，这句话同时充当提示行文案与两个 ▶ 的 title。
+ * 「一个文件都没打开」与「打开的不是代码」是两回事，别混成一句话说。
+ */
+const runBlockedReason = computed(() => {
+  if (activeLanguage.value) return ''
+  return activeNode.value ? t('tests.panel.runBlocked') : t('tests.panel.runBlockedNoFile')
+})
+
 async function runAll() {
   if (running.value) {
     abortController?.abort()
     return
   }
   if (!testCases.value.length) return
+  // 兜底：入口已经按 runBlockedReason 置灰（含快捷键那条），这里再挡一次，
+  // 保证「没有判题语言就绝不进编译」这条不依赖 UI 是否画对
   if (!activeLanguage.value) return
 
   revealTestsPanel()
@@ -521,7 +545,7 @@ async function runAll() {
 
 async function runOne(target) {
   if (running.value || !target) return
-  if (!activeLanguage.value) return
+  if (!activeLanguage.value) return // 同 runAll：UI 已置灰，这里是兜底
   running.value = true
   const controller = new AbortController()
   target.status = 'running'
@@ -580,11 +604,28 @@ watch(
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
 const SHORTCUT_HANDLERS = {
   run: () => runAll(),
-  'toggle-panel': () => togglePanel(),
-  'switch-panel': () => switchSidebarPanel(),
+  // 全屏编辑时侧栏整块让位，这两条按下去什么也看不见 —— 先退出全屏再执行，
+  // 免得看起来像快捷键失灵（与 runAll 里 revealTestsPanel 的思路一致）
+  'toggle-panel': () => {
+    exitFullscreen()
+    togglePanel()
+  },
+  'switch-panel': () => {
+    exitFullscreen()
+    switchSidebarPanel()
+  },
   'toggle-layout': () => toggleLayout(),
   'new-case': () => addCase(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
+}
+
+/** 题解在编辑器里生效的那 14 条键位（注册在 Monaco，见 EditorPane 的 registerMarkdownActions） */
+const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
+
+/** 这一发按键是不是发生在 Monaco 编辑器内部 */
+function inMonacoEditor(event) {
+  const target = event.target
+  return target instanceof Element && target.closest('.monaco-editor') !== null
 }
 
 function onKeydown(event) {
@@ -593,7 +634,27 @@ function onKeydown(event) {
   // 正在录制快捷键：全局这条在捕获阶段，永远早于录制框自己的监听，得主动让路
   if (recordingActive.value) return
 
-  const actionId = actionForCombo(comboFromEvent(event))
+  const combo = comboFromEvent(event)
+  const actionId = actionForCombo(combo)
+
+  // 编辑器优先。题解里 ⌘B（加粗）与 ⌘⇧E（行内代码）和全局的「收侧栏」「翻侧栏面板」
+  // 撞了同一个组合，而这条监听在捕获阶段，拦下来 Monaco 就永远收不到 ——
+  // 所以焦点在编辑器的题解里时那 14 条一律不拦，原样放行给 Monaco 按 precondition 处理。
+  // 让路的判据取「焦点在编辑器里」而不是「活跃文件是 .md」：在题解旁边摸着测试面板按 ⌘B，
+  // 该收的还是侧栏；只有真在写字的时候，⌘B 才是加粗（VS Code 也是这个口径）。
+  if (mdActive.value && inMonacoEditor(event) && MD_EDITOR_COMBOS.has(combo)) return
+
+  // ⌘\ 轮换视图模式。它改的是「编辑区怎么摆」，与光标在哪无关，所以没跟着上面那 14 条
+  // 进 Monaco：切到「仅预览」时编辑器整块被藏起来、焦点已经不在里面，Monaco 就再也收不到
+  // 那一发了（走出去回不来）。作用域照样钉在题解上，只是判断从「焦点在编辑器里」换成
+  // 「活跃文件是 .md」。用户要是把这个组合显式绑给了别的动作，以那条为准。
+  if (mdActive.value && combo === MD_VIEW_SHORTCUT && !actionId) {
+    event.preventDefault()
+    event.stopPropagation()
+    cycleMdView()
+    return
+  }
+
   const handler = actionId ? SHORTCUT_HANDLERS[actionId] : null
   if (!handler) return
   event.preventDefault()
@@ -668,6 +729,7 @@ onBeforeUnmount(() => {
       </section>
 
       <div
+        v-show="!mdFullscreen"
         class="splitter"
         role="separator"
         aria-orientation="vertical"
@@ -686,7 +748,7 @@ onBeforeUnmount(() => {
       <!-- 统一侧边栏：资源管理器与评测样例合并成一个页签容器，
            整体仍按原来的 .pane--tests 参与分屏拖拽与折叠（宽度 / 阈值逻辑不变） -->
       <section
-        v-show="panelVisible"
+        v-show="panelVisible && !mdFullscreen"
         class="pane pane--tests"
         :style="testsPaneStyle"
       >
@@ -699,6 +761,7 @@ onBeforeUnmount(() => {
               :cases="testCases"
               :running="running"
               :elapsed="elapsed"
+              :run-blocked="runBlockedReason"
               @add="addCase"
               @remove="removeCase"
               @run-one="runOne"

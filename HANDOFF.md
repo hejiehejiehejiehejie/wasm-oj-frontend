@@ -7,15 +7,16 @@
 - 目录：`/Users/hejie/Code/BISHE`（仓库名是 `wasm-oj-frontend`）。
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
-- 其他命令：`npm run verify` 跑无头回归（**B–G 应当是绿的**，A 步有一条已知竞态，见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）。
+- 其他命令：`npm run verify` 跑无头回归（**B–H 应当是绿的**，A 步有一条已知竞态，见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）；`npm run md:runtime` 把题解渲染器（katex + marked）从 `node_modules` 抄进 `public/md/`，**已挂在 `predev` / `prebuild` 上，平时不用手动跑**（第 15 节）。
 - HTML 入口：`index.html`（主应用）与四个内容页——`guide.html` / `guide.en.html`（使用指南的**中文版与英文版**，给搜索引擎抓取的静态长文）、`notice.html` / `notice.en.html`（第三方组件清单的中英文版，**生成物**，见第 12 节），各语言两页共用 `src/styles/guide.css`。改文案 / 样式时，`guide.html` 与 `guide.en.html` **两版必须同时改**，再加 `src/i18n/messages/help.js`（应用内「设置 → 帮助」那份内容）、`docs/使用手册.md`、`index.html` 的 `<noscript>`，一共五处要一起看（见第 12 节）。
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`、元数据收在同级隐藏目录 `.cph/`（难度导入时为空，先落「未分类」），并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`），同一组里还有「投递目标」两个开关，可以直接把「发到本网站 / 发到本地工具」任一关掉（2026-09-30 加，真值写在扩展的 `chrome.storage`，见 13.1）。详见第 13 节。
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
+- **题解（Markdown / LaTeX，2026-09-30 加）**：`.md` / `.markdown` 走 Monaco 内置的 markdown 分词器，只用于**写题解、不参与判题**（两个运行入口都会给禁用态）。编辑区为此多了一行工具栏（14 项：加粗 / 标题 / 列表 / 链接 / 图片 / 公式 / 表格 / 分割线…）、`N 字 · M 行` 统计、三态视图胶囊（仅编辑 / 双栏 / 仅预览）与一颗全屏按钮，另有 15 条题解专用快捷键（`Mod+\` 轮换视图、`Esc` 退全屏）。预览用的 marked + KaTeX **按需下载**（设置视图「本地运行环境」的第三行，缓存桶 `cph-md-runtime-v1`，约 578KB），与 C++ / Python 工具链同一套路数。**完整说明与坑都在第 15 节。**
 - **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cph.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 6 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 6 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。
 - **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、致谢页（**页头品牌名与标题里的 `unnamed` 在 `scripts/render-notice.mjs` 的 PAGES 表 / `NOTICE*.md` 里，不是在生成物里改**——`notice.html` / `notice.en.html` 是生成物，改完跑 `npm run notice`）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**别顺手改另外两样**：① `cph.*` 开头的 localStorage 键名；② `.cph/` 隐藏在题库目录名与 `cph-vfs` / `cph-pch` 的 IndexedDB 库名 —— 都是持久化契约，改了等于把用户的偏好与题解全丢掉。**能改的只有主题 id**（`dark` / `light`，同日已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cph-ide` 是 npm 标识、与展示无关，未动。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
@@ -55,7 +56,7 @@ guide.en.html                   # 第三个 Vite 入口：上面那页的**英�
 vite.config.js                  # 五个 rollup 入口（index / guide / guideEn / notice / noticeEn）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头 + sitemap.xml 的 MIME（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
-public/sw.js                    # Service Worker：预缓存外壳（工具链不预缓存、改为按需落缓存），导航网络优先（见第 9 节）
+public/sw.js                    # Service Worker：预缓存外壳（工具链与题解渲染器都不预缓存、改为按需落缓存），导航网络优先（见第 9 节）。`MD_CACHE = 'cph-md-runtime-v1'` 与 services/mdRuntime.js 的 CACHE_NAME **必须逐字一致**（见第 15 节）
 public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
 public/favicon.svg              # 站点图标（唯一进 STATIC_ASSETS 的 svg）
 public/og-cover.png             # 社交分享大图 1200×630（被 index.html / guide.html / guide.en.html 的 og:image 引用）
@@ -64,12 +65,14 @@ public/robots.txt               # 抓取规则 + 指向 sitemap
 public/sitemap.xml              # 站点地图（三条 URL：/ 与 guide 的中英两版，两版之间用 xhtml:link hreflang 互指）
 public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
-scripts/verify-ui.mjs           # 无头回归脚本（B–G 应当是绿的，A 是已知竞态，见第 8 节；B 步走的是「设置页签」）
+public/md/                      # 自托管的题解渲染器：katex.min.js / katex.min.css / marked.min.js / fonts/*.woff2（20 个字重）/ assets.json（清单，约 578KB）。**不进仓库**（.gitignore 已忽略）——它是构建输入而不是源码，由 `npm run md:runtime` 从 node_modules 生成，跟着 katex 版本走；同样不在 SW 预缓存清单里，用户点了「下载」才进 `cph-md-runtime-v1`（见第 15 节）
+scripts/verify-ui.mjs           # 无头回归脚本（B–H 应当是绿的，A 是已知竞态，见第 8 节；B 步走的是「设置页签」；H 步是 2026-09-30 加的题解回归，见第 15 节）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
+scripts/prepare-md-runtime.mjs  # 把 node_modules 里的 katex / marked 抄进 public/md/（裁掉 CSS 里的 woff / ttf 回退、写 assets.json），挂在 predev / prebuild 上（见第 15 节）
 scripts/render-notice.mjs       # NOTICE.md / NOTICE.en.md → notice.html / notice.en.html（`npm run notice`，已挂在 prebuild 上；`--check` 校验两页是否最新）。语言相关的外壳文案（lang / canonical / 标题 / 描述 / 页头语言链 / 页脚）在文件内的 PAGES 表里，**不写进 markdown**；自写的极简 markdown 子集渲染，不引第三方解析器
-NOTICE.md                       # 第三方开源组件清单（致谢 + 许可声明）：一、随产物分发的 npm 运行时依赖（Vue / Monaco / @runno/wasi，含 Monaco 带来的 marked 与 DOMPurify）；二、public/wasm/ 下自托管的上游预编译产物（LLVM clang + lld 8.0.1 / wasi-libc / libc++ / compiler-rt / CPython 3.11.3）；三、图标与字体（字体全是系统字体）；四、扩展 CC for Web 及其打包的库；五、构建期工具；六、外部评测服务（Piston / Judge0，本仓不含其代码）。**改 package.json / 换 public/wasm/ 的目录 / 换 public/extension/ 的包，三件事任一发生都要回来同步**，版本号要实机核（文件末尾附了核对命令）；面向用户的精简版是两版 guide 的「致谢与开源许可」一节（现落在第 12 节；见第 12 节）。**英文对照版是 `NOTICE.en.md`**（2026-09-30 加，人工逐条对应，没有自动同步）
+NOTICE.md                       # 第三方开源组件清单（致谢 + 许可声明）：一、随产物分发的 npm 运行时依赖（Vue / Monaco / @runno/wasi + 直接依赖的 marked 与 DOMPurify，KaTeX 不在主包里、列在第二节）；二、`public/` 下自托管的上游产物（**2.1** 本地沙箱工具链：LLVM clang + lld 8.0.1 / wasi-libc / libc++ / compiler-rt / CPython 3.11.3；**2.2** 题解渲染运行时 public/md/ 的 KaTeX 0.18.9 + marked 14.0.0）；三、图标与字体（字体全是系统字体）；四、扩展 CC for Web 及其打包的库；五、构建期工具；六、外部评测服务（Piston / Judge0，本仓不含其代码）。**四件事任一发生都要回来同步**：改 package.json / 换 `public/wasm/` 的目录 / **换 `public/md/` 下的渲染运行时** / 换 `public/extension/` 的包；版本号要实机核（文件末尾附了核对命令，第 6 条就是查 `public/md/assets.json`）；面向用户的精简版是两版 guide 的「致谢与开源许可」一节（见第 12 节）。**英文对照版是 `NOTICE.en.md`**（2026-09-30 加，人工逐条对应，没有自动同步）
 notice.html / notice.en.html    # **生成物，别手改**：上面两份源文件各自生成的静态页（中 / 英各一页），页头互链 + 三行 hreflang（x-default 指中文页），与两版 guide 同一套类名与主题脚本；两页都不进 SW 预缓存（见第 12 节）
-docs/使用手册.md                # 面向新用户的说明：目前只回答「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」，与 src/i18n/messages/help.js 内容同源（**精简版**，且只有中文；完整版是 guide.html / guide.en.html）
+docs/使用手册.md                # 面向新用户的说明：回答三个问题——「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」「如何写题解（Markdown / LaTeX）」，与 src/i18n/messages/help.js 内容同源（**精简版**，且只有中文；完整版是 guide.html / guide.en.html）
 src/
   main.js                       # 挂载 + 生产构建里注册 Service Worker
   monaco-setup.js               # Monaco 的 dark / light 两套自定义主题
@@ -87,11 +90,12 @@ src/
   composables/useShortcutManager.js # ★ 全局快捷键的唯一权威：动作表 SHORTCUT_ACTIONS + 绑定表 + comboFromEvent 规范化 + 冲突检测 + localStorage。**刻意不挂组件生命周期**（App 的全局 keydown 与 EditorPane 的状态栏提示都要在任何组件挂载前就可用）
   components/
     HotkeyRecorder.vue          # 单个动作的快捷键录制框：点一下开录、冲突红字且拒绝写入、Esc 放弃、Delete 清除绑定；开录时置 recordingActive 让全局监听让路（见第 13 节）
-    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图（运行状态不再透传——页签栏那颗运行按钮已删）
+    EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图（运行状态不再透传——页签栏那颗运行按钮已删）。**题解那一行（工具栏 / 插入行 / 字数 / 视图胶囊 / 全屏按钮 / 预览面板）与 Monaco 侧那 14 条 `addAction` 也都在这个文件里**，见第 15.6 / 15.7 节；状态栏的四道闸门在样式表末尾（第 15.8 节）
     EditorTabs.vue              # 编辑器标签栏：只有一条 `strip`（文件页签 + 「设置」合成页签，横向滚动）。右端那颗「运行 / 停止」按钮已于 2026-09-28 删除（运行入口见第 1 节硬约束表）
-    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 外观 / 编辑器 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 21 行）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
+    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 外观 / 编辑器 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 22 行；2026-09-30 在「视图」小节末尾加了 `statusBar`）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「本地运行环境」那组按 `RUNTIMES` 表渲染**三行运行时**（C++ / Python / 题解渲染器，同一套代码，`language === 'markdown'` 时由 wasmRuntime 转给 mdRuntime，见第 15.3 节）；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
     HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）。**体例（2026-09-29 定）**：`GROUPS` 是「分组 → 条目」两层，每条 = `name`（**必须是疑问句**，它就是小标题）/ `role`（一句话答案）/ `steps`（操作步骤，渲染成 `<ol>` 1. 2. 3.）/ `notes`（要点与口径，渲染成圆点）/ 可选 `table`（判定码、性能实测这类多列短值）；正文里用 `**…**` 标出界面上的按钮名与页面名，`segments()` 负责拆成加粗片段（**不走 `v-html`**：文案里会出现 `<vector>` 这类头文件名，交给 HTML 解析会被当标签吃掉）
+    MarkdownPreview.vue         # 题解预览面板（2026-09-30 加）：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载渲染器」入口、与编辑器的**双向滚动同步**（比例 + 回音吃掉 + 重渲染后按 lastRatio 复位）。只接受 source 字符串、不认识 Monaco（见第 15.4 / 15.5 节）
     Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cph.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
     SidebarSwitcher.vue         # 侧栏页头里的两组入口（2026-09 加）：面板胶囊开关 + 设置。不再独占一行页签栏，而是渲染进两个面板各自的页头里（同一时刻只有一个面板可见，视觉上只有一份）；只画 logo 不写字，名字在 `title` / `aria-label`；状态从 Sidebar 的 provide 取（`panels` / `targetPanel` / `togglePanel` / `settings` / `toggleSettings`），自己不存状态。面板那枚：`.sidebar-switcher__pill` **本身是一颗 `<button>`**（点任意位置 toggle，高度 26 / 13px 圆角 / 底色 `--bg-control`），里面 `v-for` 出两段 `<span class="sidebar-switcher__seg">` 作纯视觉指示（28×22、11px 圆角，当前段 `.is-active` 填 `--accent` + `--text-on-accent`，并打 `data-panel` 与 `data-current`）。设置那颗 `gear`（开关编辑区里的设置页签，`settingsTab`，不落盘）在轨道外，是独立的圆形按钮。切换时选中段播一次滑动动画（见第 4 节类名表与第 5 节坑 5c），只在 `[data-switched]` 下放
     FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随树内聚焦的节点，右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）
@@ -100,15 +104,20 @@ src/
     ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前只有文件树在用（文件节点给「打开题目链接（仅当 `meta.url` 是 http(s) 链接）/ 题目信息 / 重命名 / 删除」，目录节点给「新建文件 / 新建文件夹 / 重命名 / 删除」、不给题目相关的两项）
     TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头左侧是 SidebarSwitcher、右侧是 verdict（「全部 AC / n/m AC」）与耗时 + 用例列表 + 页脚运行按钮
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时没有任何标记**（字符一个没少、拖滚动条就能看全，底边仍是实线、框下也没有小字）；底边虚线与小字**只给真被截断的那种**；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「还有 N 个字符未显示 + 复制全部」说明**（那行只在真截断时出现；这个 `……` 时有时无的两条原因见第 5 节坑 26）
-    AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加，见 14.8）同表
+    AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16（`.md` / `.markdown` → `markdown`，2026-09-30 加，配色 `--icon-markdown`）；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加，见 14.8）同表；**题解工具栏那 13 个线性图标与全屏用的 `expand` / `collapse`（2026-09-30 加）** 同样在 PATHS 里，键名与 `services/mdFormat.js` 的 `MD_TOOL_GROUPS` 一一对应（见第 15.6 节）
   services/                     # 判题逻辑，改样式基本不碰
     runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
     compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
-    templates.js                # 各语言默认模板
-    editorOptions.js            # 编辑器偏好的单一出处：默认值 23 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24
+    templates.js                # 各语言默认模板；`LANGUAGES` 里 **markdown 是「非判题语言」**（只有展示标签与默认扩展名，没有 piston 字段，引擎不认它），`MARKDOWN_TEMPLATE` 是新建 .md 的题解骨架（见第 15.2 节）
+    monaco/language.js          # 文件路径 → Monaco languageId（`.md` / `.markdown` → 内置 markdown 分词器；头文件统一按 cpp 高亮）；语言路由只在扩展名这一处
+    mdView.js                   # ★ 题解视图状态的唯一权威：视图模式 / 全屏 / 滚动同步的前提判断（见第 15.5 节）
+    mdFormat.js                 # 题解工具栏的纯变换层：MD_TOOL_GROUPS / MD_SHORTCUTS / formatMarkdown / markdownStats（见第 15.6 节）
+    mdRenderer.js               # 题解渲染管线：marked（含 $…$ / $$…$$ 扩展）→ DOMPurify → KaTeX 填公式（见第 15.4 节）
+    mdRuntime.js                # 题解渲染运行时的本地侧：/md/assets.json 清单 + cph-md-runtime-v1 缓存桶 + 探针 / 下载 / 卸载 / 注入（见第 15.3 节）
+    editorOptions.js            # 编辑器偏好的单一出处：默认值 24 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24。最后一项 `statusBar`（默认开，2026-09-30 加）**不是 Monaco 选项**、不进 `editorOptions()`，它只管编辑区底部那条状态栏的显隐（见第 15.8 节）
     problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()。meta **五项**：url / oj / difficulty / date / **timeLimit**（毫秒，100–60000，0 = 未设置；判题时优先于全局档位，见 14.3 与第 5 节坑 17）
     engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
-    wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热
+    wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热。**另外它还兼着「运行时」这个概念的三个出口**（probeRuntime / preload / uninstallRuntime），`language === 'markdown'` 时转给 mdRuntime —— 设置视图「本地运行环境」才能用同一套代码渲染三行（见第 15.3 节）
     runnoSandbox.js             # runno 双管线：C++ 编译（工具链地址、编译产物缓存、PCH 生成）+ Python 解释运行
     vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
@@ -392,6 +401,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | ~~`cph.language`~~ | **已作废**（2026-09 顶栏语言下拉移除后成为死键，全仓不再读写）；残留在 localStorage 里无害。判题语言现在一律由活跃文件的扩展名派生，见第 5 节坑 15 | — |
 | `cph.mobileKeyboard` / `cph.mobileInputDock` | 都已作废（两个版本的键盘适配都不再持久化）；残留在 localStorage 里无害 | `composables/useMobileKeyboard.js` |
 | `cph.localRuntime.clangReady` / `cph.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
+| `cph.localRuntime.markdownReady` | **题解渲染器**（katex + marked）是否已拉取。与上面两条同一个键前缀、同一套「首帧播种 + 探针校正」的口径（权威判据是 `probeMdRuntime()` 的 Cache Storage 探针，见第 15.3 节）。它在**设置面板那一行**与**预览面板的「下载渲染器」**之间共用，否则从预览下的那一次，下次打开设置会先闪一下「未下载」 | `services/mdRuntime.js`（`MD_READY_FLAG_KEY`） |
+| `cph.mdView` | 题解的**视图模式**：`{ mode, fullscreen }`（`edit` / `split` / `preview` + 是否全屏）。**刻意不走 `usePersistentRef`**：App 在 setup 期（首帧之前）就得知道该不该把侧栏收起来。旧存档是一个字符串（`'fullscreen'` 等），读盘时换算，认不出来一律回默认 `edit`——换算逻辑与理由见第 15.5 节 | `services/mdView.js`（**不是**组件；与 `settingsTab.js` 同一体例的模块级单例，区别是这份要跨会话记住） |
 | `cph.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
 | `cph.shortcuts` | 全局快捷键：动作 id → 组合键串（`{"run":"Mod+Enter", …}`，内部写法见第 5 节坑 22）。**刻意不走 `usePersistentRef`**——那个 composable 靠 `onMounted` 播种首次写入、必须挂在组件上，而这份状态要在任何组件挂载之前就能被读到（App 的全局 keydown 与 EditorPane 的状态栏提示都要用），所以 `useShortcutManager.js` 里直接读写 localStorage。读盘以默认值打底再套已存键：以后新增动作时老用户自动拿到它的默认键，已删动作与手改坏的值自然丢掉 | `composables/useShortcutManager.js` |
 
@@ -430,8 +441,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
 - **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
 - **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/Problems/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（难度导入时为空、先落「未分类」；元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
+- **题解（Markdown / LaTeX，2026-09-30 加，全流程见第 15 节）**：`.md` / `.markdown` 能写、能预览、能排版，**但只是文本，不参与判题** —— 两个运行入口在题解下都是禁用态并给出一句提示（不是「点了没反应」）。预览依赖**按需下载**的 marked + KaTeX（约 578KB，缓存桶 `cph-md-runtime-v1`，与本地工具链同一套路数）：**没下载时预览面板显示的是「去下载」入口而不是空白页**，下完当场渲染，设置视图「本地运行环境」里可以整体卸载（清缓存 + 删全局 + 删标记三件一起做）。三条边界：① `.md` **不进**判题链路（`activeLanguage` 为 `null`，外部引擎也没有 markdown 语言）；② 公式只在预览里渲染，编辑器里就是 `$…$` 原文；③ 题解与代码文件共用同一套 VFS / IndexedDB 存储，没有「题解专用表」，重命名 / 移动 / 删除走的都是既有路径。
 - **界面双语（2026-09-29 加）**：界面、应用内帮助与使用指南都有**中文 / 英文**两套，语言默认跟随浏览器、可在设置视图「外观」组的「界面语言」里改，**切了当场生效、不重载**。写文案时注意两条边界：① **判题语言与界面语言无关**——判题语言仍由活跃文件的扩展名派生（第 5 节坑 15），界面语言只管文案，别把两者写成一回事；② **没有第三方本地化机制**（没引 vue-i18n，没有 `.po` / `.json` 语言包，没有 URL 前缀 `/en/`），词条就是 `src/i18n/messages/` 下六个 JS 文件里中英并排的对象，加语言 = 加一栏 + 在 `LOCALES` 里加一项。另外 `guide.html` 与 `guide.en.html` 是**两个独立的静态页**（各自的 `guide.html` 级别 SEO 头、互相 `hreflang`），不做客户端语言跳转——抓取器拿到什么就是什么。
-- **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
+- **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。**题解那 14 条格式键位刻意不在这个表里**（它们不可改、也只在 `.md` 里说得通，注册在 Monaco 上，见第 15.7 节）。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
 
 ## 8. 验证方式
 
@@ -471,7 +483,15 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   探针注意：**同一个 browser 里 localStorage 跨页共享**，每一组用例前都要先 `localStorage.clear()`，否则前一组种下的 `cph.uiLocale` 会污染后面所有页面（实测踩过，表现是一整组假失败）；无头 Chrome 里 `navigator.clipboard.readText()` 恒返回空串，别拿它当断言。
 - guide 双语专项（动过任一版 guide / `guide.css` / `sitemap.xml` 后必做），临时探针、用完即删。**机械可复核的四条**：两页都跑一遍，断言 ① `html lang` 各是 `zh-CN` / `en`；② `canonical` 各指向自己、两页都恰好有三条 `link[rel=alternate][hreflang]`；③ **h2 数 = 目录条目数 = 12**（这条是「两版没走偏」的廉价判据，改了章节数记得同步改期望值）；④ 页头 `.page__top-actions` 里 `.lang-link` 的 `href` / `hreflang` / `lang` 三属性。
   再加两条容易忽略的：**页头加了这颗链接之后不许换行**——断言 `.page__top` 高度 < 70px、`.brand` 与 `.page__top-actions` 的 `top` 差 < 6px、`documentElement.scrollWidth === clientWidth`；以及**英文页的表格**（英文文案比中文长约 30%）在 1400px 与 700px 两档下 `.table-wrap` 的 `scrollWidth === clientWidth`、表头没被压到换行（表头是 `white-space: nowrap`，真挤不下会直接溢出容器）。两档都要截元素级截图看一眼——页面级「无横向溢出」不会告诉你表格自己在容器里滚。
-- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–G 应当是绿的**，跑之前先知道这几条：
+- 题解专项（动过 `mdView.js` / `mdFormat.js` / `mdRenderer.js` / `mdRuntime.js` / `MarkdownPreview.vue` / EditorPane 的题解段后必做），临时探针、用完即删。`npm run verify` 的 **H 步**（2026-09-30 加）只钉静态的那几条（`.md` 下工具栏与字数出现、状态栏消失、运行入口禁用、**⌘B 在 `.md` 里是加粗、在 `main.cpp` 里仍是收侧栏**），**渲染正确性仍然要人看**：
+  1. 树里点开 `.md`（新建时模板就是题解骨架）→ 工具栏出现、`N 字 · M 行` 有数、底部状态栏消失；
+  2. 切「双栏」——未下载时会先看到「下载渲染器」入口（不是空白页）→ 点它，进度按 `(当前/总数)` 走 → 下完当场渲染；
+  3. 写一段含 `$E=mc^2$`、`$$…$$`、表格、任务列表、删除线、`<script>alert(1)</script>` 的正文：公式要变成公式、表格要成表、`<script>` 要被洗掉（**不许**弹出来）——这一条是 15.4 那条管线的唯一验收点；
+  4. 滚动同步：在编辑器里滚，预览跟着滚；把预览滚到底再继续打字，位置**不该跳回顶部**（`lastRatio` 那一条）；
+  5. `Mod+\` 四态轮换（仅编辑 → 双栏 → 仅预览 → 仅编辑；最后一步在「仅预览」下按得动，就是它当初搬去全局监听的原因）；全屏按钮收掉侧栏与页签栏、`Esc` 退出且**模式不变**；
+  6. 设置视图「本地运行环境」卸载渲染器 → 回预览应重新显示「去下载」入口，控制台不该有 `MD_RUNTIME_MISSING` 之外的报错。
+  探针注意：VFS model 的 uri 是 `vfs://file/<uuid>`，**认不出文件名**，要读编辑器内容就用 `monaco.editor.getEditors()[0].getValue()`；动态 `import('/src/services/…')` 在 dev 下可能拿到另一个空实例（见插件那节的两个坑）。
+- 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–H 应当是绿的**，跑之前先知道这几条：
   - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（整份 C++ 模板，行数随模板改而变，别把行数写死进断言）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
   - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项、2026-09-28 后把「布局」并成「外观」并置顶，**加删分类时这个数字要跟着改**） → **点目录里的「外观」**（设置是「目录 + 内容」两栏，默认就停在第一项「外观」，右侧只渲染当前那一组；这一步仍显式点一下，默认分类以后再变也不坏）→ 在页签里选「右侧」（2026-09-28 起面板默认在**左**，所以这一步反过来选「右侧」）→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
   - **F 步（Python 模板与判题语言）走的是「资源管理器 → 点 main.py」这条路**（2026-09 改）：顶栏语言下拉已移除，语言只跟活跃文件的扩展名走。所以步骤是——先把面板切回「资源管理器」（用脚本里的 `showPanel(page, 'explorer')`，它点胶囊那颗 toggle；先判当前面板不是目标再点，否则会翻过头。该 helper 必须把 `page` 当参数传进来，`const page` 在 `try {}` 块里，模块级函数直接引用会 `page is not defined`）→ DOM click 标签为 `main.py` 的 `.tree-item__row` → 断言 `.view-lines` 文本（NBSP 已归一）含 `def solve`、`.editor-tabs__item--active` 是 `main.py`、动态 `import('/src/services/vfs/workspaceStore.js')` 后 `activeLanguage === 'python'` 且 `activeNode.path === '/main.py'`、`[...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view'))`（钉住「顶栏语言下拉不会复活」——现在全站只剩设置视图里那几个原生下拉）。
@@ -483,6 +503,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 2026-09 修掉的三处**恒假断言**（探针自己写错，别再踩）：偏好存的是 JSON 字符串（`"left"`）必须 `JSON.parse` 才能比；`.minimap` 节点常驻 DOM（宽度 0），可见性只能看渲染宽度；D 步拖拽方向要按当前 `flexDirection` 推导——前序 B/C 已把面板切到右侧，写死向左会让测试栏反向变宽。
   - **A / B / C 三步把「面板默认在哪一侧」写进了断言**（A 断言 `storedPanel === 'left'` 首屏默认、B 选「右侧」并断言 `testsPane.x > editorPane.x`、C 断言刷新后仍是 `'right'`）。2026-09-28 默认从右改成左时这四处一起翻过；**再改默认就把它们一起改**，并顺手过一遍 §12 那四处文案里描述左右的那几句（`guide.html` 首段与折叠小节、`index.html` 的 `<noscript>`）。`og-cover.png` 那张截图里的面板位置不会跟着变，`og:image:alt` 描述的是**那张图**、不是当前默认，别跟着翻。
   - **G 步（快捷键切换侧栏面板，2026-09-28 加）** 守的是 `switch-panel` 这条链路（第 13.4 节）：交替按两次 `Mod+Shift+KeyE` 断言 `data-panel` 走 `explorer → tests → explorer`（等价于点胶囊，走的是同一个 `Sidebar.vue` 的 `togglePanel`）；再双击 `.splitter` 折叠侧栏、按第三次，断言 `.pane--tests` 又可见**且**当前面板变成「评测样例」——「收起时按一下 = 先捞回来再翻面」这条契约就在这一句里。收尾记得把侧栏恢复成「可见 + 资源管理器」。修饰键用模块级常量 `MOD`（`process.platform === 'darwin' ? 'Meta' : 'Control'`），E 步那个运行快捷键也复用它，别再造一份。
+  - **H 步（题解回归，2026-09-30 加）** 只钉静态的那几条（第 15 节）：走资源管理器页头那颗「新建文件」（`.explorer__btn` 的第一颗）把预填的 `new.cpp` 全选改成 `notes.md`（**必须先 `.select()` 再打字**——预填名只选中主干、后缀留在选区外，直接敲会得到 `notes.cpp`）→ Enter 后 `createFile → openFile` 会自己打开它，等 `.md-tools` 可见即算到位 → 断言 `.md-tools` 与 `.md-stats`（`N 字 · M 行`，正则同时收中英文）出现、`.editor-pane__status` **不可见**（它是 `v-if` 存在、靠 `.editor-pane.is-md` 收掉，所以只能看渲染盒）、`.run-inline` 为 `disabled` 且 `.run-blocked` 有字（此刻有用例、没在运行，唯一能置灰它的就是题解这条闸门）→ 再验「让路」那一对：先用 `monaco.editor.getEditors()[0].focus()` 把焦点**确定地**送进编辑器（让路判据正是「焦点在不在编辑器里」，别靠上一步顺手留下的焦点），按 ⌘B 断言正文多出一对 `**`（新建的文件是空的、题解模板里也没有 `**`，所以这条不会假过）**且侧栏没收起来**；点回 `main.cpp` 再按 ⌘B，断言 `.pane--tests` 被收起来了（同一个键在 `.cpp` 里落回全局的「收侧栏」）。收尾再按一次把侧栏放回来。探针里读编辑器全文用模块级 `editorValue(page)`（`monaco.editor.getEditors()[0].getValue()`，VFS 的 uri 认不出文件名）、按键用 `pressMod(page, 'KeyB')`。
   - 临时探针的第三个坑：**边改源码边跑着 dev server** 时，探针会服务到旧的 transform（改完文件、刷新了页面，行为却还是旧的，断言照旧失败）。停掉 server → `rm -rf node_modules/.vite` → 重启，再跑一遍。
   - 各步之间有状态耦合（B/C 切布局会影响 D 的期望方向），改断言时顺着看一遍。
 - 回归脚本会把截图写到仓库根目录的 `cph-*.png`（可用 `SHOT_DIR` 改路径），`.gitignore` 已忽略它们，不用管。
@@ -950,4 +971,131 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **没做 URL 前缀式的语言路由**（没有 `/en/`）。主应用是「一个 URL 服务两种语言」，两版 guide 是「一页一语言」，两种形态并存是刻意的（见第 12 节最后一条）。
 - **没做 `manifest.webmanifest` 的语言分流**：清单是单份静态文件，`lang` 只能写一个值。PWA 的名字是品牌名 `unnamed`（语言无关），唯一的中文是 `description` 与 `lang: "zh-CN"`。真要分流得挂多份 manifest + `hreflang`，收益（安装后的应用名描述）不值这个复杂度。
 
+### 14.15 题解（Markdown / LaTeX）编辑 —— ✅ 已落地（2026-09-30）
+
+**背景**：用户要「编辑器支持 Markdown 和 LaTeX，用来写题解」，参照洛谷的文章编辑器、**只做编辑区**（不做发布 / 列表 / 评论）。选型当场定三条：marked + DOMPurify + KaTeX（不引 md 编辑器组件库）；渲染器按需下载（与 `public/wasm/` 同一套路数）；工具栏 / 预览 / 视图切换全原生 CSS（与硬约束「禁第三方 UI 库」一致）。
+
+**七步全部落地**：s1 语言接入与题解模板 → s2 渲染器按需下载 → s3 预览骨架（双栏 / 三态视图 / 全屏 / 滚动同步）→ s4 工具栏 14 项 + 字数统计 → s5 运行闸门（.md 不触发编译）→ s6 15 条快捷键 → s7 文档与回归断言（NOTICE 补 `public/md/`、本文件第 15 节、`verify-ui.mjs` 的 .md 断言、五处用户文案）。**实现细节与坑一律见第 15 节**，这里只留结论。
+
 **建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → ~~14.7~~（✅ 已落地，2026-09-29）→ 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。
+
+## 15. 题解（Markdown / LaTeX）
+
+2026-09-30 加，**七步做完**（背景与结论见 14.15）。范围只有**编辑区**：写一份 `.md` 题解，能预览、能排版、能插公式，**不参与判题**（见 15.8）。这一节按「读到什么改什么」分小节。
+
+### 15.1 文件与职责
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/services/mdView.js` | ★ 题解视图状态的唯一权威：`mdView`（`{ mode, fullscreen }` 单例）+ `MD_VIEW_MODES` / `MD_VIEW_SHORTCUT` / `cycleMdView()` / `toggleMdFullscreen()` / `exitFullscreen()` + 六个派生 computed（`mdFileActive` / `mdActive` / `mdViewMode` / `mdViewSplit` / `mdViewPreview` / `mdFullscreen`）。与 `settingsTab.js` 同一体例（纯 UI 状态的模块级单例），区别是这份**要跨会话记住**、自带 localStorage 读写（见 15.5） |
+| `src/services/mdFormat.js` | 工具栏的**纯变换层**：`MD_TOOL_GROUPS`（编排）/ `MD_SHORTCUTS`（14 条键位）/ `formatMarkdown(action, text, ranges, options)`（给定全文 + 绝对偏移选区 → `{ edits, selections }`）/ `markdownStats(text)`。不碰 Monaco、不碰 DOM，每条变换都能脱离编辑器单独验 |
+| `src/services/mdRenderer.js` | 渲染管线：`renderMarkdown(source, container)` = marked（含两个自定义数学扩展）→ DOMPurify → `hydrateMath()` 填公式。见 15.4 |
+| `src/services/mdRuntime.js` | ★ 渲染运行时的本地侧：清单 `/md/assets.json`、缓存桶 `cph-md-runtime-v1`、`probeMdRuntime()` / `preloadMdRuntime()` / `uninstallMdRuntime()` / `loadMdRenderer()` / `MD_READY_FLAG_KEY`。见 15.3 |
+| `src/components/MarkdownPreview.vue` | 预览面板：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载」入口、与编辑器的滚动同步（含回音吃掉）。见 15.5 |
+| `src/components/EditorPane.vue` | 题解那一行全部落在这里：工具栏（`.md-tools`）、链接 / 图片的填写行（`.md-insert`）、字数（`.md-stats`）、视图三态胶囊（`.view-switch`）、全屏按钮、预览面板的挂载与布局，以及 Monaco 侧那 14 条 `addAction` |
+| `scripts/prepare-md-runtime.mjs` | 构建期把 `node_modules` 里的 katex / marked 抄进 `public/md/`（裁掉 woff / ttf 回退、写 `assets.json`）。挂在 `predev` / `prebuild` 上，不用手跑 |
+| `public/md/` | 渲染运行时的落点（约 578KB）。**不进仓库**（`.gitignore` 里躺着）：它是构建输入而不是源码，跟着 katex 版本走 |
+| `public/sw.js` | `MD_CACHE = 'cph-md-runtime-v1'`（与 `mdRuntime.js` 的 `CACHE_NAME` **必须逐字一致**）；`/md/` 走 `cacheFirst` 的按需落点，**不在 install 预缓存里** |
+| `src/services/monaco/language.js` | `.md` / `.markdown` → Monaco 的 `markdown` 分词器（第 4 行有注释写明「题解用，不参与判题」） |
+| `src/services/templates.js` | `LANGUAGES.markdown`：只有展示标签与默认扩展名 `md`，**没有 `piston` 字段**（引擎不认它）；`MARKDOWN_TEMPLATE` 是新建 `.md` 时的题解骨架 |
+| `src/components/AppIcon.vue` | `markdown`（seti-ui 的 `icons/markdown.svg`，MIT，与 `cpp` 同一图标主题）+ 工具栏那 13 个线性图标 + `expand` / `collapse` |
+| `src/components/FileTreeItem.vue` | 树里 `.md` / `.markdown` 认成 `markdown`，配色 `--icon-markdown` |
+
+### 15.2 `.md` 是「非判题语言」
+
+三条链路刻意各写一份、互不牵连，加新语言时别把 `markdown` 混进判题那条：
+
+- **判题语言由扩展名派生**（第 5 节坑 15）：`markdown` 在 `LANGUAGES` 里有条目，但 `App.vue` 的 `activeLanguage` 只在引擎认得时才给值，`.md` 拿到的是 `null` —— 这就是运行闸门（15.8）的判据。
+- **引擎不认识它**：`engines/wasm.js` 没有 markdown 分支，`runner.js` 也不会被走到（闸门挡在前面）。
+- **状态栏**读不到判题语言，于是退回「按扩展名反查展示标签」的 `langMetaByMonaco(monacoId)`（`templates.js`）—— 不过 `.md` 下这条栏本来就被收掉了，见 15.8。
+
+### 15.3 渲染运行时：与工具链同一套路数，按需下载
+
+「没下载过的用户，外壳里没有它任何一份」这句在题解这边是**真的**（与 `public/wasm/` 同）：`public/` 下的文件不进 rollup 产物、也就进不了 `cph-precache-manifest`，唯一入口是设置面板或预览面板那颗「下载」。
+
+| 产物 | 说明 |
+| --- | --- |
+| `public/md/katex.min.js` / `katex.min.css` | 公式渲染与样式；**CSS 里的 woff / ttf 回退被脚本裁掉**（全拷 1.1MB → 只留 woff2 的 296KB，现代浏览器都支持），裁完脚本还会断言没有残留 |
+| `public/md/marked.min.js` | Markdown 解析（与主包里 Monaco 依赖树带进来的那份**同版本**） |
+| `public/md/fonts/*.woff2` | 20 个公式字体，体积的大头 |
+| `public/md/assets.json` | `{ katex, marked, bytes, assets[] }` —— **下载清单的唯一出处**（构建期生成），所以 katex 升版不用改任何一行代码，也不用手抄版本号进文档 |
+
+与 C++ / Python 工具链**不同的三处**（`mdRuntime.js` 文件头写了原因，都是因为渲染器是 JS 而不是 WASM）：① 下载就是 `fetch` + `cache.put`，没有 IndexedDB 落盘、也不解压；② 清单来自构建期生成的 `assets.json`；③ 「已下载」的判据**只看 Cache Storage**（页面自己能读写，不需要 SW 控制），所以 dev 模式下的「已下载」同样成立 —— 不像 `wasmRuntime` 那样还得退回 HTTP 缓存，而那层没有 API 可清，卸载后会把资产立刻判回「已就绪」。
+
+- **入口只有一处实现、三个调用点**：`wasmRuntime.js` 的 `probeRuntime` / `preload` / `uninstallRuntime` 在 `language === 'markdown'` 时转给 `mdRuntime`，所以设置视图「本地运行环境」那一行与 C++ / Python 共用同一套数据驱动渲染（`EditorSettingsPanel.vue` 的 `RUNTIMES` 表，三行同一份代码），预览面板那颗「下载」走的也是同一个 `preload`。加第四行运行时照抄这张表。
+- **存档标记只是首帧播种值**：`cph.localRuntime.markdownReady`（`MD_READY_FLAG_KEY`，与设置面板那一行共用同一个键）。真正的判据永远是缓存探针 —— 浏览器随时可能清缓存而标记还留着；反过来「直接跑代码落了缓存」也会在下次探针时被正回来。探针同样**只在切到设置视图时跑一次**（`watch(() => props.active)` → `reconcile()`），别改成页面加载就探（未命中会在控制台记 `ERR_CACHE_MISS`，等于白刷一屏红字）。
+- **卸载**是「清缓存 + 删全局 + 删标记」三件一起做（`uninstallMdRuntime()`），缺一件就会出现「界面说卸了、预览还能渲」。
+- **升级 katex / marked**：改 `package.json` → `npm run md:runtime` 重跑（`predev` / `prebuild` 本来也会跑）→ `assets.json` 自己就对了 → 回来同步 `NOTICE.md` 与 `NOTICE.en.md` 的第二节 2.2（那是「四件事」里的一件，见 NOTICE 的维护约定）。
+
+### 15.4 渲染管线：marked → DOMPurify → KaTeX
+
+`renderMarkdown(source, container)` 三步，**顺序是刻意的**：
+
+1. **marked**（`gfm: true` 保表格 / 任务列表 / 删除线，`breaks: true` 让单个换行就当换行 —— 中文题解里一行一句是常态，CommonMark 默认会把这整段挤成一行），外加两个自定义扩展 `INLINE_MATH` / `BLOCK_MATH`：只把 `$…$` / `$$…$$` 认出来，**渲染成一个空的占位壳**（`.md-math`，带 `data-display`）。
+2. **DOMPurify.sanitize**（`USE_PROFILES: { html: true }`）：这一步**看不到任何 MathML** —— 公式此刻还只是空壳，所以不存在「DOMPurify 把 KaTeX 生成的 MathML 与内联样式洗掉」那个经典冲突（第 5 节「经验教训」里那条）。SVG / MathML 两套命名空间一律不留，少开几扇 XSS 的门。
+3. **`hydrateMath()`** 拿 `katex.render()` 按壳里的 TeX 就地填（`displayMode` 读壳上的 `data-display`，`throwOnError: false`、`strict: 'ignore'` 免得公式里混进中文就刷满控制台），单个公式抛错就把它退回原始 TeX —— 一个公式炸掉整篇预览是不可接受的。
+
+另外两条不能删的约定：
+
+- `DOMPurify.addHook('afterSanitizeAttributes')` 给所有 `<a>` 写死 `target="_blank"` + `rel="noopener noreferrer"`：题解里放的是题面与参考博客，原页跳走会把未保存的正文一起丢掉。
+- 数学扩展按**实例**装（`configured` 是 `WeakSet` 而不是布尔量）：卸载渲染器会把 `window.marked` 整个删掉，重新下载拿到的是**新实例**，布尔量留着 `true` 就永远装不上扩展，`$\LaTeX$` 会原地变成纯文本。
+
+### 15.5 视图模式、全屏与滚动同步
+
+**两个互不相干的维度**，刻意不做成四个枚举（「全屏的仅预览」「全屏的双栏」都是正当诉求，塞进一个枚举就得翻一倍）：
+
+- `mode`：`edit`（仅编辑）→ `split`（双栏）→ `preview`（仅预览），说的是「编辑区里摆什么」；
+- `fullscreen`：是否让编辑区独占整个窗口 —— 全屏时 **App 收掉侧栏与分隔条**（`v-show="panelVisible && !mdFullscreen"`）、**EditorPane 收掉页签栏**（`<EditorTabs v-show="!mdFullscreen" />`），**Esc 退出**（EditorPane 里的 keydown，`exitFullscreen()` 只关全屏、模式原样留着）。
+
+- **存档**：`cph.mdView` = `{ mode, fullscreen }`。旧存档是**一个字符串**（`'edit' | 'split' | 'preview' | 'fullscreen'`），读盘时换算：`'fullscreen'` → `edit + fullscreen`，其余原样，认不出来一律回默认（`edit`）。**刻意不走 `usePersistentRef`**：那个 composable 要等组件 `onMounted` 才播种，而 App 在 **setup 期（首帧之前）**就得知道该不该把侧栏收起来 —— 与 `cph.shortcuts` / `cph.uiLocale` 是同一类先例（第 6 节末）。
+- **`mdActive` 是两个条件的与**：`!settingsTab.active && mdFileActive`。两个回落条件都属于「这次不算数、但**存档别动**」：设置视图盖在编辑器上时分栏 / 全屏无从谈起；活跃文件不是 `.md` 时（用户点了旁边的 `.cpp`）视图照旧留着、切回题解原样恢复 —— 否则会出现「在全屏里点开一个 `.cpp`，侧栏和测试面板一起消失」。`mdViewMode` / `mdViewSplit` / `mdViewPreview` / `mdFullscreen` 都从它派生，所以**判「此刻算不算数」只有这一处**，App 与 EditorPane 各写一份迟早漂移。
+- **切换后要 `layout()`**：`watch([mdViewMode, mdFullscreen])` → `nextTick(() => editor.value?.layout())`，Monaco 不会自己发现容器宽度变了。
+- **滚动同步**按**比例**而不是像素（两栏内容高度本来就不同），关键是**吃掉回音**：设 `scrollTop` 前记一个 `programmatic` 比例，随后那一发 scroll 事件的比例几乎相等（容差 `ECHO_EPSILON = 0.01`，盖住整数取整）就当作自己的回音吞掉、不再往回发 —— 判据比数值而不是挂布尔标志，因为 Monaco 与浏览器派发滚动事件的时机并不一致（第 5 节经验教训里那条）。
+- **重渲染会把预览 `scrollTop` 归零**（本质是 `innerHTML = …`），所以还存一个 `lastRatio`：渲染完照着它把位置放回去。少了这一条，典型症状是「一边打字一边被自动带到文末」时预览孤零零停在顶部 —— 那些滚动事件发生在正文还没重排完的时候（此刻预览还不够高，同步过来是空转），等正文渲染好，编辑器已经不滚了。
+- 渲染**防抖 160ms**（`MarkdownPreview.vue` 的 `schedule`）：打字时正文逐字在变，每个字符都重排整篇 markdown 与全部公式会明显拖手；这 160ms 也顺手把「切文件」带起的一串变更合成一次。缺渲染器 / 正在下载时**不再自动重试**（每次重渲染都要翻一遍 Cache Storage，而结论不会变）。
+
+### 15.6 工具栏 14 项与字数统计
+
+`MD_TOOL_GROUPS` 三组，共 **14** 项：`bold / italic / strike / code` ｜ `heading / quote / list / orderedList / codeBlock` ｜ `link / image / math / table / hr`。键名**一身三职** —— 动作名、`AppIcon` 的图标名、i18n 的 `app.md.tool.<键>`，改名要一起动。
+
+- **工具栏按钮用 `@mousedown.prevent`**：不 prevent 的话焦点会先跑到按钮上，编辑器的选区随之丢掉，点一下加粗就变成「在光标处插占位符」。插入类的两个（链接 / 图片）在按钮正下方弹一条填写行（`.md-insert`，不是弹层：省掉了点外部关闭与层级打架两件事）；地址走 `new URL()` 校验、只允许 http / https，不合法就在行内标红、不写入。
+- **开关语义收在 `mdFormat.js` 一处**：同一个按钮按第二次退回原样。包裹类（加粗 / 斜体 / 删除线 / 行内代码 / 公式）要辨四种情形 —— 光标卡在 `**|**` 当中、选区正好卡在一对 marker 内侧、选区自己带一对 marker、其余才加 marker；行级类（标题 / 引用 / 列表）逐行加前缀、整段都带前缀就全脱掉。这类判断写在十几个按钮回调里必然走形。
+- **回位口径**：无选区就插入占位文案并**选中占位文案**（接着打字正好替换掉）；有选区就把 marker 加在外侧、选区留在内容上。插入类（表格 / 分割线）光标落到插入内容之后，表格额外选中第一格（接着打字就是改表头）。
+- **块级插入要自己补空行**：`---` 紧跟在文字下面会被当成 setext 标题（上一行变 h2），表格同样不能打断段落，两者都要求前面有一个真正的空行 —— `blankGap()` 负责这件事。
+- **多光标**：每个选区各算各的编辑，再按前面几段的净位移把后面几段的光标挪一下（`combine()`）；不挪的话第二处之后的光标会全落在原地（前面插进去的 marker 把它顶偏了）。
+- **一次按键 = 一步 ⌘Z**：`applyTool()` 在 `executeEdits` **前后各推一个撤销点**（`instance.pushUndoStop()`），不让中间态（只有 marker 没有内容）成为独立的一步。
+- **字数**：`markdownStats()` 返回「**不含空白**的字数」与行数（题解里换行与缩进是排版手段，不该算进篇幅），面板右端渲染成 `N 字 · M 行`（`app.md.stats.chars` / `lines`，**不是 words**）。它跟着 `mdSource` 走 —— EditorPane 订阅了活跃 model 的变更，不必再单独订阅一次。
+- **插入行 / 工具栏跟随 `mdActive`**：`watch(mdActive)` 在不再是题解时把填了一半的插入行收掉（否则状态留着，下次进题解会平白冒出来一条上次的残留）。
+
+### 15.7 15 条快捷键：14 条格式 + 1 条视图
+
+| 键位 | 动作 |  | 键位 | 动作 |
+| --- | --- | --- | --- | --- |
+| `Mod+B` | 加粗 |  | `Mod+K` | 链接 |
+| `Mod+I` | 斜体 |  | `Mod+Shift+P` | 图片 |
+| `Mod+Shift+X` | 删除线 |  | `Mod+Shift+M` | 行内公式 |
+| `Mod+Shift+E` | 行内代码 |  | `Mod+Alt+T` | 表格 |
+| `Mod+Shift+H` | 标题 |  | `Mod+Alt+R` | 分割线 |
+| `Mod+Shift+Q` | 引用 |  | `Mod+Shift+U` | 无序列表 |
+| `Mod+Shift+K` | 代码块 |  | `Mod+Shift+O` | 有序列表 |
+| `Mod+\` | **轮换视图模式**（`MD_VIEW_SHORTCUT`，在 `mdView.js` 里） | | | |
+
+- **键位对齐 VS Code / 洛谷的习惯**，写法与全局那套完全一致（`Mod+Ctrl+Alt+Shift+<KeyboardEvent.code>`）。
+- **14 条注册进 Monaco**（`EditorPane.vue` 的 `registerMarkdownActions`，`onMounted` 里只调一次），作用域交给 `precondition: editorLangId == markdown`。**刻意不登记进全局快捷键系统**：那套表是「全应用一份、用户可改」，而这几条只在题解里说得通 —— 在 `.cpp` 里按 `Mod+K` 冒出一个 Markdown 链接显然不对。代价是它们**不可改、也不出现在设置面板的快捷键列表里**，键位只能写在工具栏按钮的 `title` 上（`toolTitle()`，i18n 的 `app.md.toolHint`）。Monaco 0.56 **没有 `removeCommand`**（第 5 节经验教训），所以只注册一次、靠 precondition 划作用域是唯一可行解。
+- **两条「自私」的键位与全局撞车**：`Mod+B` = 全局「收侧栏」、`Mod+Shift+E` = 全局「翻侧栏面板」。解法定成**编辑器优先**：`App.vue` 的 `onKeydown` 在捕获阶段先判「`mdActive` + 事件目标在 `.monaco-editor` 里 + 这个组合是那 14 条之一」→ **原样放行给 Monaco**。判据取「焦点在编辑器里」而不是「活跃文件是 `.md`」：在题解旁边摸着测试面板按 `Mod+B`，该收的还是侧栏；只有真在写字的时候它才是加粗（VS Code 也是这个口径）。**副作用**：写题解时这两条全局动作暂时按不动。
+- **`Mod+\` 不跟着那 14 条进 Monaco，走 App 的全局监听**：它改的是「编辑区怎么摆」，与光标在哪无关，而切到「仅预览」时编辑器整块被藏、焦点已经不在里面，Monaco 就再也收不到那一发（症状是**走出去回不来**）。作用域照样钉在题解上，判断换成「活跃文件是 `.md`」；用户若把这个组合显式绑给了别的动作，**以用户那条为准**（`!actionId` 才走轮换）。
+- 全局监听挂着 `if (recordingActive.value) return` 与 `event.isComposing`：录制中让路、输入法组字期间不算快捷键。
+
+### 15.8 运行闸门与状态栏
+
+- **`.md` 不触发编译**，做法是「入口上的禁用态」而不是「点了没反应」：`activeLanguage` 为 `null`，于是 `App.vue` 的 `runBlockedReason` 给出一句提示（**「一个文件都没打开」与「打开的不是代码」是两句话**，别混成一句），评测面板页脚那颗 ▶ 据此 `disabled` + `title`；`runAll()` 里**再兜一次**（`if (!activeLanguage.value) return`），保证「没有判题语言就绝不进编译」这条不依赖 UI 是否画对。快捷键那条没有独立判据，走的就是 `runAll` —— 所以它天然是同一个态。
+- **状态栏的四道闸门**统一写在 `EditorPane.vue` 样式表末尾（都是「这 22px 此刻不值得占」，不必分两种写法）：① `.editor-pane.is-md` —— 题解下恒收掉（这条栏说的全是代码的事，而且它是一整条实心蓝，压在一屏散文底下太抢眼）；② `.is-status-off` —— 设置里关掉了（`editorOptions.js` 的 `statusBar` 偏好，**默认开**、不进 Monaco，只是面板自己的开关，见 15.1）；③ `@media (max-height: 479px)`；④ `.app.is-short`（`useMobileKeyboard` 按 visualViewport 写）。写 **479** 而不是 480：口径是「高度**小于** 480」，与 JS 那边的 `< 480` 等价。
+
+### 15.9 改这块时的几条纪律
+
+- **缓存桶名两处一致**：`mdRuntime.js` 的 `CACHE_NAME` 与 `sw.js` 的 `MD_CACHE`（`cph-md-runtime-v1`）。那里管保留与清理（`keep` 集合），这里管读写。
+- **`public/md/` 不进仓库**（`.gitignore` 已忽略）：它是 `node_modules` 里 dist 产物的副本，由 `npm run md:runtime` 生成。别手改里面的文件，改的是 `scripts/prepare-md-runtime.mjs`。
+- **换 katex / marked 版本**：三件事连着 —— 重跑 `md:runtime`（`assets.json` 自己就对）、回来同步 `NOTICE.md` + `NOTICE.en.md` 第二节 2.2 与第一节的版本号（NOTICE 的规则是「版本号必须实机核，不许凭记忆写」）、再确认预览真能渲出公式。
+- **别把 `.md` 接进判题链路**（`activeLanguage` / 引擎表 / `LANGUAGE_IDS` 的用法），那条边界是闸门与状态栏的共同前提。
+- **新加工具栏动作**要同时改：`MD_TOOL_GROUPS`（编排）+ `formatMarkdown`（变换）+ `AppIcon`（图标）+ `app.md.tool.<键>`（中英两栏）+ 可选 `MD_SHORTCUTS`（键位）。漏掉图标会在工具栏里留一块空白。
+- **文案五处一起看**（第 12 节那张表）：题解能力落在 `guide.html` / `guide.en.html` 第 7 节末的 h3「题解（Markdown / LaTeX）怎么写？」（英文版同位置）、`src/i18n/messages/help.js` 「抓题与文件 / Importing problems & files」组的**最后一条**、`docs/使用手册.md` 第 3 节、`index.html` `<noscript>` 「能做什么」清单里的那一条（中英各一条）。改题解的口径——键位数、渲染器体积、哪个入口被禁用——这五处都要过一遍。

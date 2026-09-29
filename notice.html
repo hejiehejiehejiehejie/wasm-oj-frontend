@@ -18,7 +18,7 @@
     <!--
       本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。
       改完 NOTICE.md 后跑：npm run notice
-      generated-from-NOTICE.md sha256:835fcc8f85db
+      generated-from-NOTICE.md sha256:4625d5101b28
     -->
     <script>
       try {
@@ -54,8 +54,8 @@
         <p>面向用户的精简版在 <code>guide.html</code> 的「致谢与开源许可」一节，<strong>完整版（就是本文件）会自动生成成站点上的 <code>notice.html</code></strong>（<code>npm run notice</code>，那一页从 <code>guide.html</code> 链接过去）；<strong>以本文件为准</strong>。</p>
         <p>英文版是 <code>NOTICE.en.md</code> → <code>notice.en.html</code>（同样从 <code>guide.en.html</code> 链接过去）。<strong>两份源文件之间没有自动同步</strong>：章节与表格行逐条对应，改一份就要手改另一份。</p>
         <h2>维护约定</h2>
-        <ul><li>改 <code>package.json</code>（增删依赖 / 升级大版本）、换 <code>public/wasm/</code> 下的工具链目录、换 <code>public/extension/</code> 里的扩展包 —— 三件事任一发生，都要回来同步这份文件。</li><li><strong>版本号一律实机核出来，不要凭记忆手写</strong>（末尾附了核对命令）。</li><li>站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。</li><li>本文件只列<strong>别人的</strong>项目。本仓库自己目前没有 <code>LICENSE</code> 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。</li></ul>
-        <p class="note">最后核对：<strong>2026-09-30</strong>（本次换扩展包 → <code>cc-for-web-2.65.3.zip</code>，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可<strong>未变</strong>； 依赖清单一栏仍是 <strong>2026-09-29</strong> 的核对结果：<code>package-lock.json</code> 的 <code>lockfileVersion: 3</code>，共 92 条依赖：28 条生产、64 条开发）。</p>
+        <ul><li>改 <code>package.json</code>（增删依赖 / 升级大版本）、换 <code>public/wasm/</code> 下的工具链目录、换 <code>public/md/</code> 下的渲染运行时（跟着 katex / marked 的版本走）、换 <code>public/extension/</code> 里的扩展包 —— 四件事任一发生，都要回来同步这份文件。</li><li><strong>版本号一律实机核出来，不要凭记忆手写</strong>（末尾附了核对命令）。</li><li>站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。</li><li>本文件只列<strong>别人的</strong>项目。本仓库自己目前没有 <code>LICENSE</code> 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。</li></ul>
+        <p class="note">最后核对：<strong>2026-09-30</strong>（同日两件事：① 换扩展包 → <code>cc-for-web-2.65.3.zip</code>，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可<strong>未变</strong>； ② 题解功能上线，新增自托管的 Markdown / LaTeX 渲染运行时 <code>public/md/</code>（KaTeX 0.18.9 + marked 14.0.0），并因此把 <code>marked</code> / <code>dompurify</code> / <code>katex</code> 提为本站的<strong>直接依赖</strong>。 依赖清单按同一天的 <code>package-lock.json</code> 重核：<code>lockfileVersion: 3</code>，共 <strong>94</strong> 条依赖：<strong>30</strong> 条生产、<strong>64</strong> 条开发）。</p>
         <hr />
         <h2>一、站点运行时依赖（随产物分发）</h2>
         <div class="table-wrap">
@@ -65,13 +65,15 @@
               <tr><td><a href="https://github.com/microsoft/monaco-editor" target="_blank" rel="noopener noreferrer">Monaco Editor</a></td><td>0.56.0</td><td>MIT</td><td>代码编辑器（VS Code 的编辑器内核）</td></tr>
               <tr><td>├─ <a href="https://github.com/markedjs/marked" target="_blank" rel="noopener noreferrer">marked</a></td><td>14.0.0</td><td>MIT</td><td>Monaco 的传递依赖（Markdown 渲染）</td></tr>
               <tr><td>└─ <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener noreferrer">DOMPurify</a></td><td>3.4.8</td><td><strong>MPL-2.0 OR Apache-2.0</strong>（双许可）</td><td>Monaco 的传递依赖（HTML 净化）。<strong>这是本站唯一一个非宽松许可的运行时依赖</strong></td></tr>
+              <tr><td><a href="https://github.com/KaTeX/KaTeX" target="_blank" rel="noopener noreferrer">KaTeX</a></td><td>0.18.9</td><td>MIT</td><td>题解的 LaTeX 公式渲染。<strong>不在主包里</strong>，只在 <code>public/md/</code> 按需下载（见 2.2）</td></tr>
               <tr><td><a href="https://github.com/taybenlor/runno" target="_blank" rel="noopener noreferrer">@runno/wasi</a></td><td>0.10.0</td><td>MIT</td><td>本地沙箱的 WASI 运行时：起实例、喂 stdin、<code>kill()</code>（TLE 靠它）</td></tr></tbody>
   </table>
 </div>
-        <p>已实测它们确实随产物分发（<code>dist/assets/main-*.js</code> 里能搜到 <code>DOMPurify</code> / <code>marked</code> 的字样），不是只挂在依赖树上。</p>
-        <p><code>package-lock.json</code> 里那 28 条「生产依赖」的其余部分（<code>@vue/compiler-*</code>、<code>@babel/*</code>、<code>entities</code>、<code>postcss</code>、<code>magic-string</code>、<code>source-map-js</code>、<code>estree-walker</code>、<code>csstype</code>、<code>nanoid</code>、<code>picocolors</code> 等）是 Vue 的编译器链，只在<strong>构建期</strong>使用，不进产物。</p>
-        <h2>二、本地沙箱工具链（<code>public/wasm/</code>，自托管二进制，约 76MB）</h2>
-        <p>这些是<strong>上游的预编译产物被原样收进本仓库</strong>（本站没有改动），所以上游的版权声明随文件一并分发；完整许可文本在对应上游仓库里。</p>
+        <p>题解功能（2026-09-30 上线）把上面那两条 Monaco 的传递依赖也提成了<strong>本站的直接依赖</strong>：<code>mdRenderer.js</code> 直接 <code>import</code> DOMPurify（本来就随 Monaco 进主包），marked 则除了 Monaco 拉进主包的那一份之外，还在 <code>public/md/</code> 里自托管一份按需下载。已实测（在主包 <code>dist/assets/main-*.js</code> 里搜）： <code>DOMPurify</code> ✓、<code>marked</code> ✓（Monaco 依赖树那一份）、<code>katex</code> ✗（主包里只有「katex」字样的文案与文件名）。 所以「按需下载」不等于「没下载过的用户外壳里一份 marked 都没有」—— <strong>marked 早在主包里了</strong>；<code>public/md/</code> 那一份是为了让渲染器与站点版本对齐，同时把 katex 整个挡在首屏之外。</p>
+        <p><code>package-lock.json</code> 里那 30 条「生产依赖」的其余部分（<code>@vue/compiler-*</code>、<code>@babel/*</code>、<code>entities</code>、<code>postcss</code>、<code>magic-string</code>、<code>source-map-js</code>、<code>estree-walker</code>、<code>csstype</code>、<code>nanoid</code>、<code>picocolors</code> 等）是 Vue 的编译器链，只在<strong>构建期</strong>使用，不进产物。</p>
+        <h2>二、自托管运行时（<code>public/</code> 下，都只在用户点过「下载」之后才进浏览器）</h2>
+        <p>两处共同点：都是<strong>上游的产物被原样收进本仓库</strong>（本站没有改动；<code>public/md/</code> 那份由 <code>scripts/prepare-md-runtime.mjs</code> 从 <code>node_modules</code> 抄出来），并且都<strong>不在 Service Worker 的预缓存清单里</strong> —— 没点过下载的用户，外壳里一份都没有。所以上游的版权声明随文件一并分发；完整许可文本在对应上游仓库里。</p>
+        <h3>2.1 本地沙箱工具链（<code>public/wasm/</code>，约 76MB）</h3>
         <div class="table-wrap">
   <table>
     <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>落点与用途</th></tr></thead>
@@ -83,6 +85,16 @@
               <tr><td><a href="https://github.com/python/cpython" target="_blank" rel="noopener noreferrer">CPython</a></td><td>3.11.3</td><td>PSF License</td><td><code>public/wasm/python-3.11.3/python.wasm</code> + <code>python-fs.tar.gz</code> —— 本地跑 Python。wasm32-wasi 构建，标准库在 <code>usr/local/lib/python311.zip</code>；构建同样取自 runno 的 <code>langs/</code></td></tr></tbody>
   </table>
 </div>
+        <h3>2.2 题解渲染运行时（<code>public/md/</code>，约 578KB）</h3>
+        <p>题解的 Markdown 解析与 LaTeX 公式渲染走的也是同一条「按需下载」的路（<code>src/services/mdRuntime.js</code>）：下载前只有一句提示，下载后落进 Cache Storage 的 <code>cph-md-runtime-v1</code>，设置页「本地运行环境」里可以连同缓存与浏览器上的全局变量一起卸载。</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>落点与用途</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/KaTeX/KaTeX" target="_blank" rel="noopener noreferrer">KaTeX</a></td><td>0.18.9</td><td>MIT</td><td><code>katex.min.js</code> + <code>katex.min.css</code> + <code>fonts/KaTeX_*.woff2</code>（20 个字重）—— 体积的大头</td></tr>
+              <tr><td><a href="https://github.com/markedjs/marked" target="_blank" rel="noopener noreferrer">marked</a></td><td>14.0.0</td><td>MIT</td><td><code>marked.min.js</code> —— Markdown 解析（与第一节里主包中的那一份同版本）</td></tr></tbody>
+  </table>
+</div>
+        <ul><li><strong>只留 woff2</strong>：KaTeX 的 CSS 同时引 woff / ttf 两套回退，全拷是 1.1MB，woff2 一共 296KB，所以脚本把回退项裁掉了（改完会断言没有残留）。</li><li><code>public/md/assets.json</code> 是下载清单的<strong>唯一出处</strong>（<code>{ katex, marked, bytes, assets[] }</code>，由脚本写入），所以版本号不必在这里手抄——但本文件的规矩是「实机核出来」，所以上表仍以 <code>public/md/assets.json</code> 为准。</li></ul>
         <h2>三、界面素材</h2>
         <div class="table-wrap">
   <table>
@@ -129,7 +141,7 @@
   </table>
 </div>
         <h2>七、许可全文在哪</h2>
-        <ul><li><strong>npm 包</strong>：<code>node_modules/&lt;包名&gt;/LICENSE*</code>；归属（生产 / 开发）看 <code>package-lock.json</code>。</li><li><strong>工具链二进制</strong>：见第二节表格里对应的上游仓库（LLVM / wasi-libc / CPython / runno）。</li><li><strong>扩展</strong>：<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code> 里的 <code>LICENSE</code>。</li></ul>
+        <ul><li><strong>npm 包</strong>：<code>node_modules/&lt;包名&gt;/LICENSE*</code>；归属（生产 / 开发）看 <code>package-lock.json</code>。</li><li><strong>工具链二进制</strong>：见第二节表格里对应的上游仓库（LLVM / wasi-libc / CPython / runno）。</li><li><strong>自托管的渲染运行时</strong>：本质是 npm 包里的 <code>dist</code> 产物被抄了一份（KaTeX / marked），所以许可全文同样看 <code>node_modules/&lt;包名&gt;/LICENSE*</code>。</li><li><strong>扩展</strong>：<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code> 里的 <code>LICENSE</code>。</li></ul>
         <h2>附：怎么重新核对这份清单</h2>
         <pre><code class="language-bash"># 1) 直接依赖
 cat package.json
@@ -144,8 +156,12 @@ LC_ALL=C grep -a -o -E &quot;3\.11\.[0-9]+&quot; public/wasm/python-3.11.3/pytho
 # 4) sysroot 里到底有哪些库（确认 wasi-libc / libc++ / compiler-rt 的落点）
 tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep &quot;sys/lib/&quot;
 
-# 5) 产物里是否真的带上了某个依赖
-grep -l DOMPurify dist/assets/*.js</code></pre>
+# 5) 产物里是否真的带上了某个依赖（注意：katex / marked 走的是按需下载，主包里搜不到库本身）
+grep -l DOMPurify dist/assets/*.js
+grep -c &quot;marked&quot; dist/assets/main-*.js
+
+# 6) 题解渲染运行时的版本与字节数
+cat public/md/assets.json</code></pre>
         <p class="note">改完这份清单，做两件事：跑 <code>npm run notice</code> 把站点上的 <code>notice.html</code> 与 <code>notice.en.html</code> 重新生成一遍（不跑就是过期页面，<code>node scripts/render-notice.mjs --check</code> 能查出来）， 再看一眼 <code>guide.html</code> 的「致谢与开源许可」一节是否还说得通——那边是给用户看的精简版。<strong>别忘了同步改 <code>NOTICE.en.md</code>（英文版是人工对应的，没有自动同步）。</strong></p>
       </main>
 

@@ -138,6 +138,36 @@ const showPanel = (page, id) =>
     panel.querySelector('.sidebar-switcher__pill')?.click()
   }, id)
 
+// 主修饰键 + 一个键码。题解那 14 条格式键与几条全局键同键，所以按下之前
+// 必须知道焦点在哪，见 focusEditor。
+const pressMod = async (page, code) => {
+  await page.keyboard.down(MOD)
+  await page.keyboard.press(code)
+  await page.keyboard.up(MOD)
+  await wait(150)
+}
+
+/**
+ * 把焦点确定地送进 Monaco。
+ * 题解那 14 条（⌘B / ⌘⇧E …）与全局的「收侧栏」「翻面板」同键，App.vue 的让路判据
+ * 正是「焦点在不在编辑器里」—— 靠上一步顺手留下的焦点太看运气，这里显式点一把。
+ */
+const focusEditor = (page) =>
+  page.evaluate(async () => {
+    const { monaco } = await import('/src/monaco-setup.js')
+    monaco.editor.getEditors()[0]?.focus()
+  })
+
+/**
+ * 活跃 model 的全文。VFS 的 model uri 是 `vfs://file/<uuid>`，认不出文件名，
+ * 所以不问「哪个文件」只问「这个编辑器现在挂着什么」——本应用只有一个编辑器组。
+ */
+const editorValue = (page) =>
+  page.evaluate(async () => {
+    const { monaco } = await import('/src/monaco-setup.js')
+    return monaco.editor.getEditors()[0]?.getValue() ?? ''
+  })
+
 const results = []
 const logs = []
 
@@ -520,6 +550,90 @@ try {
         revealed,
         afterCollapsedPress,
       },
+    )
+  })
+
+  // H. 题解（.md）回归（2026-09-30 加）。.md 是非判题语言，编辑器里多出一行工具栏、
+  //    状态栏收掉、运行入口整体置灰；同在编辑器里按 ⌘B，题解里是加粗、回到 .cpp 仍是收侧栏。
+  await step('H. 题解（.md）：工具栏、运行闸门与快捷键让路', async () => {
+    // G 步收尾把侧栏留在「资源管理器」上，正好从这里开工。
+    await showPanel(page, 'explorer')
+    await page.waitForSelector('.explorer__btn', { visible: true, timeout: 10000 })
+    // 页头第一颗就是「新建文件」（第二颗是新建文件夹）
+    await page.evaluate(() => document.querySelector('.explorer__btn')?.click())
+    await page.waitForSelector('.create-row__input', { timeout: 5000 })
+    // 预填名（new.cpp）只选中主干、后缀留在选区外，直接打字会得到 notes.cpp ——
+    // 全选再敲，才是连扩展名一起换掉
+    await page.evaluate(() => {
+      const input = document.querySelector('.create-row__input')
+      input.focus()
+      input.select()
+    })
+    await page.keyboard.type('notes.md')
+    await page.keyboard.press('Enter')
+    // 建完会自动打开它（createFile → openFile）。题解那行工具栏就是「.md 真被当成题解」的信号
+    await page.waitForSelector('.md-tools', { visible: true, timeout: 20000 })
+    await wait(400)
+
+    const mdState = await page.evaluate(() => {
+      const visible = (selector) => {
+        const el = document.querySelector(selector)
+        return !!el && el.getClientRects().length > 0
+      }
+      const runButton = document.querySelector('.run-inline')
+      return {
+        toolsVisible: visible('.md-tools'),
+        stats: document.querySelector('.md-stats')?.textContent.trim() ?? null,
+        // 状态栏是 v-if 存在、靠 .editor-pane.is-md 收掉，所以只能看渲染盒
+        statusVisible: visible('.editor-pane__status'),
+        // 运行按钮在「评测样例」页签里（v-show 藏着，但节点在 DOM 里，disabled 读得到）；
+        // 此刻有用例（E 步加的 3 条）、没在运行，唯一能置灰它的就是题解这条闸门
+        runDisabled: runButton ? runButton.disabled : null,
+        runBlocked: document.querySelector('.run-blocked')?.textContent.trim() ?? '',
+        sidebarVisible: document.querySelector('.pane--tests').getClientRects().length > 0,
+      }
+    })
+
+    // ⌘B：焦点在题解编辑器里时这一发归 Monaco 的「加粗」，不该去收侧栏
+    const mdTextBefore = await editorValue(page)
+    await focusEditor(page)
+    await pressMod(page, 'KeyB')
+    await wait(300)
+    const mdTextAfter = await editorValue(page)
+    const mdSidebarAfter = await page.evaluate(
+      () => document.querySelector('.pane--tests').getClientRects().length > 0,
+    )
+
+    // 回到 .cpp 按同一个键：题解那 14 条只认 .md，这一发应当落回全局的「收侧栏」
+    await page.evaluate(() => {
+      const label = [...document.querySelectorAll('.tree-item__label')].find(
+        (el) => el.textContent.trim() === 'main.cpp',
+      )
+      label?.closest('.tree-item__row')?.click()
+    })
+    await wait(400)
+    await pressMod(page, 'KeyB')
+    await wait(400)
+    const cppSidebarCollapsed = await page.evaluate(
+      () => document.querySelector('.pane--tests').getClientRects().length === 0,
+    )
+    // 收尾：把侧栏再打开，别给后续留个折叠状态
+    await pressMod(page, 'KeyB')
+    await wait(400)
+    await page.screenshot({ path: `${SHOTS}cph-8-markdown.png` })
+
+    record(
+      'H. 题解（.md）：工具栏、运行闸门与快捷键让路',
+      mdState.toolsVisible &&
+        /\d+ (字|chars) · \d+ (行|lines)/.test(mdState.stats ?? '') &&
+        !mdState.statusVisible &&
+        mdState.runDisabled === true &&
+        mdState.runBlocked.length > 0 &&
+        !mdTextBefore.includes('**') &&
+        mdTextAfter.includes('**') &&
+        mdSidebarAfter &&
+        cppSidebarCollapsed,
+      { ...mdState, mdTextBefore, mdTextAfter, mdSidebarAfter, cppSidebarCollapsed },
     )
   })
 

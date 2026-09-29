@@ -9,13 +9,14 @@
 
 ## 维护约定
 
-- 改 `package.json`（增删依赖 / 升级大版本）、换 `public/wasm/` 下的工具链目录、换 `public/extension/` 里的扩展包 —— 三件事任一发生，都要回来同步这份文件。
+- 改 `package.json`（增删依赖 / 升级大版本）、换 `public/wasm/` 下的工具链目录、换 `public/md/` 下的渲染运行时（跟着 katex / marked 的版本走）、换 `public/extension/` 里的扩展包 —— 四件事任一发生，都要回来同步这份文件。
 - **版本号一律实机核出来，不要凭记忆手写**（末尾附了核对命令）。
 - 站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。
 - 本文件只列**别人的**项目。本仓库自己目前没有 `LICENSE` 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。
 
-> 最后核对：**2026-09-30**（本次换扩展包 → `cc-for-web-2.65.3.zip`，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可**未变**；
-> 依赖清单一栏仍是 **2026-09-29** 的核对结果：`package-lock.json` 的 `lockfileVersion: 3`，共 92 条依赖：28 条生产、64 条开发）。
+> 最后核对：**2026-09-30**（同日两件事：① 换扩展包 → `cc-for-web-2.65.3.zip`，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可**未变**；
+> ② 题解功能上线，新增自托管的 Markdown / LaTeX 渲染运行时 `public/md/`（KaTeX 0.18.9 + marked 14.0.0），并因此把 `marked` / `dompurify` / `katex` 提为本站的**直接依赖**。
+> 依赖清单按同一天的 `package-lock.json` 重核：`lockfileVersion: 3`，共 **94** 条依赖：**30** 条生产、**64** 条开发）。
 
 ---
 
@@ -27,15 +28,20 @@
 | [Monaco Editor](https://github.com/microsoft/monaco-editor) | 0.56.0 | MIT | 代码编辑器（VS Code 的编辑器内核） |
 | ├─ [marked](https://github.com/markedjs/marked) | 14.0.0 | MIT | Monaco 的传递依赖（Markdown 渲染） |
 | └─ [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.8 | **MPL-2.0 OR Apache-2.0**（双许可） | Monaco 的传递依赖（HTML 净化）。**这是本站唯一一个非宽松许可的运行时依赖** |
+| [KaTeX](https://github.com/KaTeX/KaTeX) | 0.18.9 | MIT | 题解的 LaTeX 公式渲染。**不在主包里**，只在 `public/md/` 按需下载（见 2.2） |
 | [@runno/wasi](https://github.com/taybenlor/runno) | 0.10.0 | MIT | 本地沙箱的 WASI 运行时：起实例、喂 stdin、`kill()`（TLE 靠它） |
 
-已实测它们确实随产物分发（`dist/assets/main-*.js` 里能搜到 `DOMPurify` / `marked` 的字样），不是只挂在依赖树上。
+题解功能（2026-09-30 上线）把上面那两条 Monaco 的传递依赖也提成了**本站的直接依赖**：`mdRenderer.js` 直接 `import` DOMPurify（本来就随 Monaco 进主包），marked 则除了 Monaco 拉进主包的那一份之外，还在 `public/md/` 里自托管一份按需下载。已实测（在主包 `dist/assets/main-*.js` 里搜）：
+`DOMPurify` ✓、`marked` ✓（Monaco 依赖树那一份）、`katex` ✗（主包里只有「katex」字样的文案与文件名）。
+所以「按需下载」不等于「没下载过的用户外壳里一份 marked 都没有」—— **marked 早在主包里了**；`public/md/` 那一份是为了让渲染器与站点版本对齐，同时把 katex 整个挡在首屏之外。
 
-`package-lock.json` 里那 28 条「生产依赖」的其余部分（`@vue/compiler-*`、`@babel/*`、`entities`、`postcss`、`magic-string`、`source-map-js`、`estree-walker`、`csstype`、`nanoid`、`picocolors` 等）是 Vue 的编译器链，只在**构建期**使用，不进产物。
+`package-lock.json` 里那 30 条「生产依赖」的其余部分（`@vue/compiler-*`、`@babel/*`、`entities`、`postcss`、`magic-string`、`source-map-js`、`estree-walker`、`csstype`、`nanoid`、`picocolors` 等）是 Vue 的编译器链，只在**构建期**使用，不进产物。
 
-## 二、本地沙箱工具链（`public/wasm/`，自托管二进制，约 76MB）
+## 二、自托管运行时（`public/` 下，都只在用户点过「下载」之后才进浏览器）
 
-这些是**上游的预编译产物被原样收进本仓库**（本站没有改动），所以上游的版权声明随文件一并分发；完整许可文本在对应上游仓库里。
+两处共同点：都是**上游的产物被原样收进本仓库**（本站没有改动；`public/md/` 那份由 `scripts/prepare-md-runtime.mjs` 从 `node_modules` 抄出来），并且都**不在 Service Worker 的预缓存清单里** —— 没点过下载的用户，外壳里一份都没有。所以上游的版权声明随文件一并分发；完整许可文本在对应上游仓库里。
+
+### 2.1 本地沙箱工具链（`public/wasm/`，约 76MB）
 
 | 组件 | 版本 | 许可 | 落点与用途 |
 | --- | --- | --- | --- |
@@ -45,6 +51,18 @@
 | [libc++ / libc++abi](https://github.com/llvm/llvm-project) | 同上 | MIT（University of Illinois / NCSA 系） | 同上 tar 里的 `libc++.a`、`libc++abi.a` —— C++ 标准库（`<vector>` / `<string>` 这些） |
 | [compiler-rt](https://github.com/llvm/llvm-project) | 同上 | Apache-2.0 WITH LLVM-exception | 同上 tar 里的 `libclang_rt.builtins-wasm32.a` —— 编译器运行时内建函数 |
 | [CPython](https://github.com/python/cpython) | 3.11.3 | PSF License | `public/wasm/python-3.11.3/python.wasm` + `python-fs.tar.gz` —— 本地跑 Python。wasm32-wasi 构建，标准库在 `usr/local/lib/python311.zip`；构建同样取自 runno 的 `langs/` |
+
+### 2.2 题解渲染运行时（`public/md/`，约 578KB）
+
+题解的 Markdown 解析与 LaTeX 公式渲染走的也是同一条「按需下载」的路（`src/services/mdRuntime.js`）：下载前只有一句提示，下载后落进 Cache Storage 的 `cph-md-runtime-v1`，设置页「本地运行环境」里可以连同缓存与浏览器上的全局变量一起卸载。
+
+| 组件 | 版本 | 许可 | 落点与用途 |
+| --- | --- | --- | --- |
+| [KaTeX](https://github.com/KaTeX/KaTeX) | 0.18.9 | MIT | `katex.min.js` + `katex.min.css` + `fonts/KaTeX_*.woff2`（20 个字重）—— 体积的大头 |
+| [marked](https://github.com/markedjs/marked) | 14.0.0 | MIT | `marked.min.js` —— Markdown 解析（与第一节里主包中的那一份同版本） |
+
+- **只留 woff2**：KaTeX 的 CSS 同时引 woff / ttf 两套回退，全拷是 1.1MB，woff2 一共 296KB，所以脚本把回退项裁掉了（改完会断言没有残留）。
+- `public/md/assets.json` 是下载清单的**唯一出处**（`{ katex, marked, bytes, assets[] }`，由脚本写入），所以版本号不必在这里手抄——但本文件的规矩是「实机核出来」，所以上表仍以 `public/md/assets.json` 为准。
 
 ## 三、界面素材
 
@@ -98,6 +116,7 @@
 
 - **npm 包**：`node_modules/<包名>/LICENSE*`；归属（生产 / 开发）看 `package-lock.json`。
 - **工具链二进制**：见第二节表格里对应的上游仓库（LLVM / wasi-libc / CPython / runno）。
+- **自托管的渲染运行时**：本质是 npm 包里的 `dist` 产物被抄了一份（KaTeX / marked），所以许可全文同样看 `node_modules/<包名>/LICENSE*`。
 - **扩展**：`public/extension/cc-for-web-<版本>.zip` 里的 `LICENSE`。
 
 ## 附：怎么重新核对这份清单
@@ -116,8 +135,12 @@ LC_ALL=C grep -a -o -E "3\.11\.[0-9]+" public/wasm/python-3.11.3/python.wasm | s
 # 4) sysroot 里到底有哪些库（确认 wasi-libc / libc++ / compiler-rt 的落点）
 tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep "sys/lib/"
 
-# 5) 产物里是否真的带上了某个依赖
+# 5) 产物里是否真的带上了某个依赖（注意：katex / marked 走的是按需下载，主包里搜不到库本身）
 grep -l DOMPurify dist/assets/*.js
+grep -c "marked" dist/assets/main-*.js
+
+# 6) 题解渲染运行时的版本与字节数
+cat public/md/assets.json
 ```
 
 > 改完这份清单，做两件事：跑 `npm run notice` 把站点上的 `notice.html` 与 `notice.en.html` 重新生成一遍（不跑就是过期页面，`node scripts/render-notice.mjs --check` 能查出来），

@@ -18,7 +18,7 @@
     <!--
       本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.en.md 生成，请勿手改。
       改完 NOTICE.en.md 后跑：npm run notice
-      generated-from-NOTICE.en.md sha256:7f803df901b8
+      generated-from-NOTICE.en.md sha256:d664acebd90a
     -->
     <script>
       try {
@@ -54,8 +54,8 @@
         <p>The short, user-facing version is the &quot;Acknowledgements and open-source licences&quot; section of <code>guide.en.html</code> — <strong>the complete version (this file) is generated into <code>notice.en.html</code> on the site</strong> (<code>npm run notice</code>), and that page is linked from the guide; <strong>this file is the one that counts</strong>.</p>
         <p class="note">The Chinese version of this list is <code>NOTICE.md</code> → <code>notice.html</code>. <strong>The two are kept in step by hand</strong>: whenever you change one, change the other. Sections and table rows correspond one to one.</p>
         <h2>Maintenance rules</h2>
-        <ul><li>Three things force a return to this file: changing <code>package.json</code> (adding/removing a dependency, or a major-version bump), replacing a toolchain directory under <code>public/wasm/</code>, or replacing the extension package in <code>public/extension/</code>.</li><li><strong>Always verify version numbers on the real artifact — never write them from memory</strong> (the commands are at the end of this file).</li><li>The site is publicly deployed and its output carries other people's code, so this list is not a &quot;local memo&quot; but part of the distribution obligation.</li><li>This file lists <strong>other people's</strong> projects only. This repository currently has no <code>LICENSE</code> file (i.e. &quot;all rights reserved&quot; by default); that does not affect the obligations of the third-party licences above, but it is a separate decision if the site's own code is ever open-sourced.</li></ul>
-        <p class="note">Last verified: <strong>2026-09-30</strong> (this round replaced the extension package under <code>public/extension/</code> → <code>cc-for-web-2.65.3.zip</code>, the behaviour change being &quot;the delivery targets can now be switched straight from this site's settings page&quot;; the version numbers and licences of the third-party components inside it are <strong>unchanged</strong>; the dependency figures are still the <strong>2026-09-29</strong> verification: <code>package-lock.json</code> at <code>lockfileVersion: 3</code>, 92 dependencies in total: 28 production, 64 development).</p>
+        <ul><li>Four things force a return to this file: changing <code>package.json</code> (adding/removing a dependency, or a major-version bump), replacing a toolchain directory under <code>public/wasm/</code>, replacing the rendering runtime under <code>public/md/</code> (it tracks the katex / marked versions), or replacing the extension package in <code>public/extension/</code>.</li><li><strong>Always verify version numbers on the real artifact — never write them from memory</strong> (the commands are at the end of this file).</li><li>The site is publicly deployed and its output carries other people's code, so this list is not a &quot;local memo&quot; but part of the distribution obligation.</li><li>This file lists <strong>other people's</strong> projects only. This repository currently has no <code>LICENSE</code> file (i.e. &quot;all rights reserved&quot; by default); that does not affect the obligations of the third-party licences above, but it is a separate decision if the site's own code is ever open-sourced.</li></ul>
+        <p class="note">Last verified: <strong>2026-09-30</strong> (two things the same day: ① the extension package under <code>public/extension/</code> was replaced → <code>cc-for-web-2.65.3.zip</code>, the behaviour change being &quot;the delivery targets can now be switched straight from this site's settings page&quot;, with the version numbers and licences of the third-party components inside it <strong>unchanged</strong>; ② the notes feature shipped, adding a self-hosted Markdown / LaTeX rendering runtime under <code>public/md/</code> (KaTeX 0.18.9 + marked 14.0.0), and consequently promoting <code>marked</code> / <code>dompurify</code> / <code>katex</code> to <strong>direct dependencies</strong> of this site. The dependency figures were re-verified against the same day's <code>package-lock.json</code>: <code>lockfileVersion: 3</code>, <strong>94</strong> dependencies in total: <strong>30</strong> production, <strong>64</strong> development).</p>
         <hr />
         <h2>1. Site runtime dependencies (shipped with the build)</h2>
         <div class="table-wrap">
@@ -65,13 +65,15 @@
               <tr><td><a href="https://github.com/microsoft/monaco-editor" target="_blank" rel="noopener noreferrer">Monaco Editor</a></td><td>0.56.0</td><td>MIT</td><td>The code editor (VS Code's editor core)</td></tr>
               <tr><td>├─ <a href="https://github.com/markedjs/marked" target="_blank" rel="noopener noreferrer">marked</a></td><td>14.0.0</td><td>MIT</td><td>Transitive dependency of Monaco (Markdown rendering)</td></tr>
               <tr><td>└─ <a href="https://github.com/cure53/DOMPurify" target="_blank" rel="noopener noreferrer">DOMPurify</a></td><td>3.4.8</td><td><strong>MPL-2.0 OR Apache-2.0</strong> (dual-licensed)</td><td>Transitive dependency of Monaco (HTML sanitising). <strong>The only non-permissive runtime dependency on this site</strong></td></tr>
+              <tr><td><a href="https://github.com/KaTeX/KaTeX" target="_blank" rel="noopener noreferrer">KaTeX</a></td><td>0.18.9</td><td>MIT</td><td>LaTeX math rendering for the notes. <strong>Not in the main bundle</strong> — only downloaded on demand from <code>public/md/</code> (see 2.2)</td></tr>
               <tr><td><a href="https://github.com/taybenlor/runno" target="_blank" rel="noopener noreferrer">@runno/wasi</a></td><td>0.10.0</td><td>MIT</td><td>The local sandbox's WASI runtime: instantiate, feed stdin, <code>kill()</code> (TLE relies on it)</td></tr></tbody>
   </table>
 </div>
-        <p>These were verified to actually ship in the build (searching <code>dist/assets/main-*.js</code> turns up <code>DOMPurify</code> and <code>marked</code>), rather than merely sitting in the dependency tree.</p>
-        <p>The rest of the 28 &quot;production dependencies&quot; in <code>package-lock.json</code> (<code>@vue/compiler-*</code>, <code>@babel/*</code>, <code>entities</code>, <code>postcss</code>, <code>magic-string</code>, <code>source-map-js</code>, <code>estree-walker</code>, <code>csstype</code>, <code>nanoid</code>, <code>picocolors</code> and so on) are Vue's compiler chain: used at <strong>build time</strong> only, and not shipped in the output.</p>
-        <h2>2. Local sandbox toolchain (<code>public/wasm/</code>, self-hosted binaries, about 76MB)</h2>
-        <p>These are <strong>upstream prebuilt artifacts taken into this repository as-is</strong> (this site changed nothing), so the upstream notices are distributed along with the files; the full licence texts live in the corresponding upstream repositories.</p>
+        <p>The notes feature (shipped 2026-09-30) also promoted those two Monaco transitive dependencies to <strong>direct dependencies of this site</strong>: <code>mdRenderer.js</code> imports DOMPurify directly (it was already in the main bundle via Monaco), while marked is self-hosted in <code>public/md/</code> for on-demand download in addition to the copy Monaco pulls into the main bundle. What was verified to actually ship in the build (by searching <code>dist/assets/main-*.js</code>): <code>DOMPurify</code> ✓, <code>marked</code> ✓ (the copy from Monaco's dependency tree), <code>katex</code> ✗ (the main bundle contains only the word &quot;katex&quot; in UI copy and file names). So &quot;downloaded on demand&quot; does not mean &quot;a user who never downloaded anything has no marked in the shell&quot; — <strong>marked is in the main bundle already</strong>; the copy under <code>public/md/</code> keeps the renderer aligned with the site's own version, and keeps katex out of first paint entirely.</p>
+        <p>The rest of the 30 &quot;production dependencies&quot; in <code>package-lock.json</code> (<code>@vue/compiler-*</code>, <code>@babel/*</code>, <code>entities</code>, <code>postcss</code>, <code>magic-string</code>, <code>source-map-js</code>, <code>estree-walker</code>, <code>csstype</code>, <code>nanoid</code>, <code>picocolors</code> and so on) are Vue's compiler chain: used at <strong>build time</strong> only, and not shipped in the output.</p>
+        <h2>2. Self-hosted runtimes (under <code>public/</code>, none of them reaches the browser until the user clicks &quot;download&quot;)</h2>
+        <p>What the two have in common: both are <strong>upstream artifacts taken into this repository as-is</strong> (this site changed nothing; the copy under <code>public/md/</code> is produced by <code>scripts/prepare-md-runtime.mjs</code> from <code>node_modules</code>), and neither is <strong>in the Service Worker precache manifest</strong> —— a user who never clicked download has not a single byte of them in the shell. The upstream notices are therefore distributed along with the files; the full licence texts live in the corresponding upstream repositories.</p>
+        <h3>2.1 Local sandbox toolchain (<code>public/wasm/</code>, about 76MB)</h3>
         <div class="table-wrap">
   <table>
     <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Where it lands and what it is for</th></tr></thead>
@@ -83,6 +85,16 @@
               <tr><td><a href="https://github.com/python/cpython" target="_blank" rel="noopener noreferrer">CPython</a></td><td>3.11.3</td><td>PSF License</td><td><code>public/wasm/python-3.11.3/python.wasm</code> + <code>python-fs.tar.gz</code> —— running Python locally. A wasm32-wasi build with the standard library in <code>usr/local/lib/python311.zip</code>; the build likewise comes from runno's <code>langs/</code></td></tr></tbody>
   </table>
 </div>
+        <h3>2.2 Notes rendering runtime (<code>public/md/</code>, about 578KB)</h3>
+        <p>Parsing Markdown and rendering LaTeX for the notes takes the same &quot;download on demand&quot; route (<code>src/services/mdRuntime.js</code>): before the download there is only a hint line, afterwards it lands in the <code>cph-md-runtime-v1</code> Cache Storage bucket, and the &quot;local runtimes&quot; section of the settings page can uninstall it together with the cache and the globals it put on the browser.</p>
+        <div class="table-wrap">
+  <table>
+    <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Where it lands and what it is for</th></tr></thead>
+    <tbody><tr><td><a href="https://github.com/KaTeX/KaTeX" target="_blank" rel="noopener noreferrer">KaTeX</a></td><td>0.18.9</td><td>MIT</td><td><code>katex.min.js</code> + <code>katex.min.css</code> + <code>fonts/KaTeX_*.woff2</code> (20 weights) —— the bulk of the size</td></tr>
+              <tr><td><a href="https://github.com/markedjs/marked" target="_blank" rel="noopener noreferrer">marked</a></td><td>14.0.0</td><td>MIT</td><td><code>marked.min.js</code> —— Markdown parsing (same version as the copy in the main bundle from section 1)</td></tr></tbody>
+  </table>
+</div>
+        <ul><li><strong>woff2 only</strong>: KaTeX's CSS references both woff and ttf fallbacks; copying everything would be 1.1MB, whereas woff2 comes to 296KB, so the script strips the fallbacks (and asserts no leftovers afterwards).</li><li><code>public/md/assets.json</code> is the <strong>single source of truth</strong> for the download manifest (<code>{ katex, marked, bytes, assets[] }</code>, written by the script), so the versions need not be transcribed here —— but this file's rule is &quot;measure it on the artifact&quot;, so the table above still defers to <code>public/md/assets.json</code>.</li></ul>
         <h2>3. UI assets</h2>
         <div class="table-wrap">
   <table>
@@ -129,7 +141,7 @@
   </table>
 </div>
         <h2>7. Where the full licence texts live</h2>
-        <ul><li><strong>npm packages</strong>: <code>node_modules/&lt;package&gt;/LICENSE*</code>; production vs. development is in <code>package-lock.json</code>.</li><li><strong>Toolchain binaries</strong>: the upstream repositories named in the table in section 2 (LLVM / wasi-libc / CPython / runno).</li><li><strong>Extension</strong>: the <code>LICENSE</code> inside <code>public/extension/cc-for-web-&lt;version&gt;.zip</code>.</li></ul>
+        <ul><li><strong>npm packages</strong>: <code>node_modules/&lt;package&gt;/LICENSE*</code>; production vs. development is in <code>package-lock.json</code>.</li><li><strong>Toolchain binaries</strong>: the upstream repositories named in the table in section 2 (LLVM / wasi-libc / CPython / runno).</li><li><strong>Self-hosted rendering runtime</strong>: these are <code>dist</code> artifacts from npm packages copied over verbatim (KaTeX / marked), so their full licence texts are likewise under <code>node_modules/&lt;package&gt;/LICENSE*</code>.</li><li><strong>Extension</strong>: the <code>LICENSE</code> inside <code>public/extension/cc-for-web-&lt;version&gt;.zip</code>.</li></ul>
         <h2>Appendix: how to re-verify this list</h2>
         <pre><code class="language-bash"># 1) direct dependencies
 cat package.json
@@ -144,8 +156,12 @@ LC_ALL=C grep -a -o -E &quot;3\.11\.[0-9]+&quot; public/wasm/python-3.11.3/pytho
 # 4) which libraries the sysroot actually contains (to confirm where wasi-libc / libc++ / compiler-rt landed)
 tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep &quot;sys/lib/&quot;
 
-# 5) whether a dependency really made it into the build
-grep -l DOMPurify dist/assets/*.js</code></pre>
+# 5) whether a dependency really made it into the build (NB: katex / marked take the on-demand route, so the library itself is not searchable in the main bundle)
+grep -l DOMPurify dist/assets/*.js
+grep -c &quot;marked&quot; dist/assets/main-*.js
+
+# 6) versions and byte size of the notes rendering runtime
+cat public/md/assets.json</code></pre>
         <p class="note">After changing this list, do two things: run <code>npm run notice</code> to regenerate <code>notice.html</code> / <code>notice.en.html</code> (skipping it leaves a stale page; <code>node scripts/render-notice.mjs --check</code> will catch it), and take another look at the &quot;Acknowledgements and open-source licences&quot; section of <code>guide.en.html</code> (and <code>guide.html</code> for the Chinese side) to see whether it still holds — that is the short version users read. <strong>Do not forget to update <code>NOTICE.md</code> as well: the two language versions are kept in step by hand, with no automatic sync.</strong></p>
       </main>
 

@@ -157,6 +157,22 @@ export default {
                 '题目元数据存在隐藏的 **.cph** 目录里，树里看不见',
               ],
             },
+            {
+              name: '题解（Markdown / LaTeX）怎么写？',
+              role: '新建一个 .md 文件就是题解，边写边预览。',
+              steps: [
+                '页头点**新建文件**，把名字改成「题解.md」后回车',
+                '编辑器上方会多出一行工具栏：加粗、标题、列表、链接、图片、公式、表格等 14 颗按钮',
+                '点右上角那三颗**视图**按钮，或按 ⌘/Ctrl + \\，在**仅编辑 / 双栏 / 仅预览**之间轮换',
+                '公式写 $行内$ 与 $$独占一段$$，预览里会渲染成 LaTeX',
+              ],
+              notes: [
+                '预览要先下**渲染器**（marked + KaTeX，约 578KB），与**本地运行环境**一样只下一次、可随时卸载',
+                '题解不参与评测：打开 .md 时运行按钮会置灰，按 ⌘/Ctrl + Enter 也不会进编译',
+                '工具栏按钮悬停能看到键位，那 14 条键只在 .md 里生效',
+                '工具栏右端那颗**全屏**按钮让编辑区占满窗口，按 Esc 退出',
+              ],
+            },
           ],
         },
         {
@@ -322,6 +338,22 @@ export default {
                 '**Problem info** holds five fields: **Problem URL**, **Judge**, **Difficulty**, **Date** and **Time limit (s)**',
                 'Difficulty follows the judge: Codeforces and AtCoder use the 800–3500 rating scale, Luogu uses its eight official levels',
                 'Problem metadata lives in the hidden **.cph** folder, which the tree never shows',
+              ],
+            },
+            {
+              name: 'How do I write notes (Markdown / LaTeX)?',
+              role: 'A new .md file is a notes file — write on one side, preview on the other.',
+              steps: [
+                'Click **New file** in the header, rename it to something like “notes.md” and press Enter',
+                'A toolbar appears above the editor: 14 buttons for bold, headings, lists, links, images, formulas, tables and more',
+                'Click one of the three **view** buttons on the right, or press ⌘/Ctrl + \\, to cycle **editor only / split / preview only**',
+                'Write formulas as $inline$ and $$on their own line$$ — the preview renders them as LaTeX',
+              ],
+              notes: [
+                'The preview needs a **renderer** first (marked + KaTeX, about 578KB) — like **Local runtime**, it is downloaded once and can be uninstalled at any time',
+                'Notes are not judged: opening a .md greys out the run button, and ⌘/Ctrl + Enter will not start a compilation',
+                'Hover a toolbar button to see its shortcut; those 14 shortcuts only apply inside .md',
+                'The **full screen** button at the right end of the toolbar gives the editor the whole window — press Esc to leave',
               ],
             },
           ],

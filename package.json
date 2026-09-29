@@ -7,17 +7,22 @@
     "node": "22.x"
   },
   "scripts": {
+    "predev": "npm run md:runtime",
     "dev": "vite",
-    "prebuild": "npm run notice",
+    "prebuild": "npm run notice && npm run md:runtime",
     "build": "vite build",
     "preview": "vite preview",
     "verify": "node scripts/verify-ui.mjs",
     "notice": "node scripts/render-notice.mjs",
     "notice:check": "node scripts/render-notice.mjs --check",
-    "wasm:opt": "node scripts/optimize-wasm.mjs"
+    "wasm:opt": "node scripts/optimize-wasm.mjs",
+    "md:runtime": "node scripts/prepare-md-runtime.mjs"
   },
   "dependencies": {
     "@runno/wasi": "0.10.0",
+    "dompurify": "^3.4.8",
+    "katex": "^0.18.9",
+    "marked": "^14.0.0",
     "monaco-editor": "^0.56.0",
     "vue": "^3.5.42"
   },

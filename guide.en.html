@@ -338,6 +338,25 @@
           Problem metadata lives in the hidden <code>.cph</code> folder, which the tree never shows.
           The importing extension creates the <code>未分类</code> folder under its Chinese name in either interface language.
         </p>
+        <h3>How do I write notes (Markdown / LaTeX)?</h3>
+        <p>
+          Notes are just a <code>.md</code> file: click <strong>New file</strong> in the header, rename it to
+          “notes.md” and press Enter. Open it and a toolbar appears above the editor, with the word count and the
+          view buttons at its right end.
+        </p>
+        <ol>
+          <li>14 toolbar buttons: bold, italic, strikethrough, inline code, heading, quote, bullet list, numbered list, code block, link, image, formula, table and horizontal rule. Hover one to see its shortcut — bold is <kbd>Mod</kbd> + <kbd>B</kbd>.</li>
+          <li>The three view buttons at the right end (editor only / split / preview only) switch the layout at any time, and <kbd>Mod</kbd> + <kbd>\</kbd> cycles through them; the button next to them gives the editor the whole window, and <kbd>Esc</kbd> leaves it.</li>
+          <li>Write formulas as <code>$inline$</code> and <code>$$on their own line$$</code>; the preview renders them as LaTeX.</li>
+        </ol>
+        <p>
+          The preview needs a one-time renderer download (marked + KaTeX, about 578KB) — like the local runtime, it is
+          downloaded once and can be uninstalled at any time.
+        </p>
+        <p>
+          Notes are not judged: opening a <code>.md</code> greys out the run button, and <kbd>Mod</kbd> + <kbd>Enter</kbd>
+          will not start a compilation.
+        </p>
 
         <h2 id="keys">8. What shortcuts are there?</h2>
         <p>On macOS <kbd>Mod</kbd> is <kbd>⌘</kbd>; on every other platform it is <kbd>Ctrl</kbd>.</p>

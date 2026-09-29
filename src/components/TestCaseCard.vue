@@ -7,7 +7,14 @@ import { px, uiScale } from '../composables/useUiScale.js'
 const props = defineProps({
   testCase: { type: Object, required: true },
   index: { type: Number, required: true },
+  /** 正在运行：整张卡片锁定（运行、删除都按下不响） */
   locked: Boolean,
+  /**
+   * 不可运行的原因（活跃文件不是代码文件时由 App 给出）。空串＝可运行。
+   * 与 locked 分开：locked 是「等一下就好」，这个是「这个文件跑不了」——
+   * 两者都要置灰 ▶，但只有后者需要把原因说出来。
+   */
+  runBlocked: { type: String, default: '' },
 })
 
 const emit = defineEmits(['remove', 'run'])
@@ -294,9 +301,9 @@ function onLongCopy(event, full) {
       <!-- 判定区从状态徽标右侧一直延伸到删除按钮左侧：视觉不变，只把整条空白变成点得到的运行按钮 -->
       <button
         class="run-zone"
-        :title="t('tests.card.runOne')"
+        :title="runBlocked || t('tests.card.runOne')"
         :aria-label="t('tests.card.runOne')"
-        :disabled="locked"
+        :disabled="locked || Boolean(runBlocked)"
         @click="emit('run', testCase)"
       >
         <span

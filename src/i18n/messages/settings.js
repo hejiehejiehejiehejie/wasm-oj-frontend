@@ -93,6 +93,10 @@ export default {
         minimap: { label: '代码缩略图', hint: '在编辑器右侧展示全局代码结构的微缩导航（默认：关闭）' },
         padding: { label: '内边距', hint: '编辑器内容与边框之间的留白' },
         scrollbarSize: { label: '滚动条粗细', hint: '编辑器滚动条的宽度' },
+        statusBar: {
+          label: '底部状态栏',
+          hint: '显示编辑器底部的状态栏（文件名、光标位置、判题语言等）。题解（.md）下始终不显示',
+        },
       },
 
       /** 偏好选项的取值名（下拉里的那一项） */
@@ -316,6 +320,10 @@ export default {
         },
         padding: { label: 'Padding', hint: 'Space between the editor content and its border' },
         scrollbarSize: { label: 'Scrollbar width', hint: 'Width of the editor scrollbars' },
+        statusBar: {
+          label: 'Bottom status bar',
+          hint: 'Show the status bar at the bottom of the editor (file name, cursor position, judge language…). Never shown for editorials (.md)',
+        },
       },
 
       option: {

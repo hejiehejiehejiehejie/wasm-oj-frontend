@@ -68,6 +68,15 @@ export default {
         uninstallHint:
           '将从本机删除已缓存的 Python 运行时（解释器 + 标准库，约 24MB）。下次运行 Python 代码时需要重新下载。',
       },
+      markdown: {
+        title: 'Markdown / LaTeX',
+        idleHint: '题解预览与公式渲染（katex + marked，约 0.6MB），只下一次',
+        downloadTitle: '下载题解渲染器',
+        uninstallHint:
+          '将从本机删除已缓存的题解渲染器（公式排版与字形，约 0.6MB）。下次预览题解时需要重新下载。',
+        downloading: '正在下载题解渲染器…',
+        progress: '正在下载题解渲染器（{done}/{total}）…',
+      },
       /** 状态行（按钮左边那行说明） */
       downloading: '正在下载…',
       readyWithTime: '运行环境已就绪，用时 {seconds} s',
@@ -197,6 +206,15 @@ export default {
         downloadTitle: 'Download the Python runtime',
         uninstallHint:
           'Deletes the cached Python runtime from this device (interpreter + standard library, about 24MB). It will be downloaded again the next time you run Python code.',
+      },
+      markdown: {
+        title: 'Markdown / LaTeX',
+        idleHint: 'Editorial preview and math rendering (katex + marked, about 0.6MB), downloaded once',
+        downloadTitle: 'Download the editorial renderer',
+        uninstallHint:
+          'Deletes the cached editorial renderer from this device (math layout and glyphs, about 0.6MB). It will be downloaded again the next time you preview an editorial.',
+        downloading: 'Downloading the editorial renderer…',
+        progress: 'Downloading the editorial renderer ({done}/{total})…',
       },
       downloading: 'Downloading…',
       readyWithTime: 'Runtime ready, took {seconds} s',

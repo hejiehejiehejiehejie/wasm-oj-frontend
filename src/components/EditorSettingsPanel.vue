@@ -225,6 +225,12 @@ const EDITOR_GROUPS = [
         control: 'select',
         options: SCROLLBAR_SIZES,
       },
+      {
+        key: 'statusBar',
+        labelKey: 'settings.editor.statusBar.label',
+        hintKey: 'settings.editor.statusBar.hint',
+        control: 'switch',
+      },
     ],
   },
 ]
@@ -408,6 +414,17 @@ const RUNTIMES = [
     downloadTitleKey: 'runtime.python.downloadTitle',
     uninstallHintKey: 'runtime.python.uninstallHint',
   },
+  // 题解渲染器不是 WASM 运行时（不解压、不入 IndexedDB），但在用户眼里就是「同一张清单里
+  // 的一个可下载项」，所以挂在这里共用同一套状态机与增删按钮，下载逻辑走 services/mdRuntime.js
+  {
+    id: 'markdown',
+    titleKey: 'runtime.markdown.title',
+    icon: 'markdown',
+    readyFlag: 'cph.localRuntime.markdownReady',
+    idleHintKey: 'runtime.markdown.idleHint',
+    downloadTitleKey: 'runtime.markdown.downloadTitle',
+    uninstallHintKey: 'runtime.markdown.uninstallHint',
+  },
 ]
 
 /**
@@ -463,7 +480,11 @@ async function downloadRuntime(entry) {
   if (downloadingAny.value || entry.state.value === 'ready') return
   entry.state.value = 'downloading'
   entry.failureReason.value = ''
-  const message = await preload(entry.id)
+  // 第三个参数是进度回调：工具链的进度走 subscribeStatus 总线，题解渲染器没有总线，
+  // 由这里把播报塞进同一个 live，下载中那一行才能显示「已下载 n/m」而不是干等
+  const message = await preload(entry.id, undefined, (status) => {
+    live.value = status
+  })
   if (message.type === 'ready') {
     entry.state.value = 'ready'
     entry.elapsedMs.value = message.durationMs ?? 0
@@ -1524,6 +1545,10 @@ function setTimeLimit(event) {
 
 .runtime-row__icon.is-python {
   color: var(--icon-python);
+}
+
+.runtime-row__icon.is-markdown {
+  color: var(--icon-markdown);
 }
 
 .runtime-row__text {

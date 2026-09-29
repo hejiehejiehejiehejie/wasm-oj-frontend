@@ -39,6 +39,76 @@ export default {
         /** 胶囊开关的 title / aria-label，{panel} 是目标面板名 */
         switchTo: '切换到{panel}',
       },
+
+      /** 题解（.md）编辑区：视图模式与预览面板 */
+      md: {
+        view: {
+          label: '视图模式',
+          edit: '仅编辑',
+          split: '双栏（编辑 + 预览）',
+          preview: '仅预览',
+          fullscreen: '全屏',
+          exitFullscreen: '退出全屏（Esc）',
+          /** ⌘\ 那条轮换键的说明，挂在三段胶囊整组上（见 EditorPane） */
+          cycleHint: '轮换视图模式（{key}）',
+        },
+        preview: {
+          /** 预览面板当前状态的标题，key 即状态名 */
+          state: {
+            pending: '正在渲染…',
+            missing: '题解渲染器还没下载',
+            downloading: '正在下载渲染器',
+            failed: '渲染失败',
+          },
+          missingHint: '预览与公式渲染需要 katex + marked（约 0.6MB），只下一次，之后离线也能用。',
+          download: '下载渲染器',
+          downloading: '正在下载…',
+        },
+        toolGroup: '题解工具栏',
+        /** 工具栏按钮的悬浮提示：动作名 + 键位（键位不可改，只能靠提示说明） */
+        toolHint: '{name}（{key}）',
+        /** 各动作的名字，键即动作名（见 services/mdFormat.js 的 MD_TOOL_GROUPS） */
+        tool: {
+          bold: '加粗',
+          italic: '斜体',
+          strike: '删除线',
+          code: '行内代码',
+          heading: '标题',
+          quote: '引用',
+          list: '无序列表',
+          orderedList: '有序列表',
+          codeBlock: '代码块',
+          link: '链接',
+          image: '图片',
+          math: '公式',
+          table: '表格',
+          hr: '分割线',
+          /** 无选区时插进正文的占位文案，插完会选中它，接着打字正好替换 */
+          ph: {
+            bold: '加粗文字',
+            italic: '斜体文字',
+            strike: '删除线文字',
+            code: '代码',
+            math: '公式',
+          },
+          tableHead: '表头',
+          tableCell: '内容',
+        },
+        /** 链接 / 图片那颗按钮点开后的填写行 */
+        insert: {
+          link: '插入链接',
+          image: '插入图片',
+          label: '显示文字',
+          alt: '图片描述',
+          url: '链接地址',
+          confirm: '插入',
+          invalidUrl: '请填 http 或 https 开头的地址',
+        },
+        stats: {
+          chars: '{count} 字',
+          lines: '{count} 行',
+        },
+      },
     },
   },
 
@@ -72,6 +142,70 @@ export default {
         tests: 'Test cases',
         switcherLabel: 'Sidebar panels and settings',
         switchTo: 'Switch to {panel}',
+      },
+
+      md: {
+        view: {
+          label: 'View mode',
+          edit: 'Editor only',
+          split: 'Split (editor + preview)',
+          preview: 'Preview only',
+          fullscreen: 'Full screen',
+          exitFullscreen: 'Exit full screen (Esc)',
+          cycleHint: 'Cycle view mode ({key})',
+        },
+        preview: {
+          state: {
+            pending: 'Rendering…',
+            missing: 'The editorial renderer is not downloaded yet',
+            downloading: 'Downloading the renderer',
+            failed: 'Rendering failed',
+          },
+          missingHint:
+            'Preview and math rendering need katex + marked (about 0.6MB). Downloaded once, then it works offline.',
+          download: 'Download renderer',
+          downloading: 'Downloading…',
+        },
+        toolGroup: 'Editorial toolbar',
+        toolHint: '{name} ({key})',
+        tool: {
+          bold: 'Bold',
+          italic: 'Italic',
+          strike: 'Strikethrough',
+          code: 'Inline code',
+          heading: 'Heading',
+          quote: 'Blockquote',
+          list: 'Bulleted list',
+          orderedList: 'Numbered list',
+          codeBlock: 'Code block',
+          link: 'Link',
+          image: 'Image',
+          math: 'Math',
+          table: 'Table',
+          hr: 'Divider',
+          ph: {
+            bold: 'bold text',
+            italic: 'italic text',
+            strike: 'struck text',
+            code: 'code',
+            math: 'formula',
+          },
+          tableHead: 'Header',
+          tableCell: 'Cell',
+        },
+        insert: {
+          link: 'Insert link',
+          image: 'Insert image',
+          label: 'Text',
+          alt: 'Alt text',
+          url: 'URL',
+          confirm: 'Insert',
+          invalidUrl: 'Use an http or https address',
+        },
+        stats: {
+          chars: '{count} chars',
+          lines: '{count} lines',
+        },
       },
     },
   },
