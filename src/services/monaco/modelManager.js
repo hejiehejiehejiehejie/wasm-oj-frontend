@@ -30,6 +30,25 @@ class ModelManager {
   #entries = new Map()
   /** 当前未保存的文件 id（响应式，供标签圆点 / 文件树使用） */
   dirtyIds = reactive(new Set())
+  /**
+   * 编辑事件订阅者（自动保存用，见 services/autoSave.js）。
+   *
+   * 刻意做成「向外登记回调」而不是让 modelManager 去 import autoSave：那样会成环
+   * （autoSave 需要 saveAll，modelManager 需要 autoSave 的通知）。回调是运行时读集合，
+   * 所以订阅时机与 model 何时创建无关。
+   * @type {Set<(fileId: string) => void>}
+   */
+  #editListeners = new Set()
+
+  /**
+   * 订阅「正文被改动」（每个 tab 的每次输入都会调）。
+   * @param {(fileId: string) => void} listener
+   * @returns {() => void} 退订
+   */
+  onDidEdit(listener) {
+    this.#editListeners.add(listener)
+    return () => this.#editListeners.delete(listener)
+  }
 
   /**
    * 获取（必要时创建）文件的 model。调用方随后须 {@link ModelManager#retain}。
@@ -58,6 +77,7 @@ class ModelManager {
     const model = monaco.editor.createModel(content, languageForPath(node.path), uri)
     model.onDidChangeContent(() => {
       this.dirtyIds.add(node.id)
+      for (const listener of this.#editListeners) listener(node.id)
     })
     this.#entries.set(node.id, { model, node, refs: 0 })
     return model

@@ -250,7 +250,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 验证口径（临时 puppeteer 脚本，跑完即删；触屏要用 `page.setViewport({ hasTouch: true, isMobile: true })` 才命中 `pointer: coarse`，`emulateMediaFeatures` 不支持 `pointer`）。触屏 390×844：`.app` 带 `is-keyboard`、`--vvh=844px`；**轻点**编辑器 / 卡片 `.ta` → 焦点分别进 Monaco 输入面与那个 textarea；**手抖 4px** 拖动 → 仍聚焦（不误伤轻点）；**拖动 20px** 与**划出去再划回来** → 焦点仍 body（这两条是真机问题的靶子，改前必红：探针会在页面里给 `-monaco-gesturetap` 挂个计数器，先确认 Monaco 那时**确实派了 Tap**，再看焦点没进去）；拖动 72px → 焦点仍 body（Monaco 本就不派）；滑动后手动派一个 `mousedown` 给编辑器 → `defaultPrevented` 且焦点不进去；滑动期间手动 `focus()` 编辑器输入面 → 焦点被还回 body（这是 `focusin` 兜底那道闸）；焦点在 `.ta` 时滑动编辑器 → 焦点仍在 `.ta`；滑动后再轻点 → 焦点能进；焦点在 `.ta` 时点面板标题、输出区 `.out`、页签栏空白处 → activeElement 一字不变；视口 844→420 → `--vvh` 与 `.app` 高度都变 420。鼠标视口：无 `is-keyboard`、`--vvh` 为空、点输入框与点编辑器都照常聚焦。
   - **先点编辑器、再滑动 → 焦点必须被清掉**（这条是最后一个真机 bug 的靶子，改前实测焦点仍留在 `.native-edit-context`）；滑动期间再强行 `focus()` 编辑器 → 又被清掉；焦点在 `.ta` 时滑动编辑器 → `.ta` 焦点不动；滑动后轻点 → 焦点能进；手抖 4px → 不算滑动、焦点保留。
   - **轻点那条（2026-09-28 加）**：模拟「键盘收起但焦点还残留在编辑器里」（`visualViewport` 复位使 `keyboardUp` 为假，焦点仍 `.native-edit-context`）→ 只 `touchstart` 一次、不滑 → 焦点必须被清成 body（**改前必红**）；反过来「键盘弹着时轻点非可编辑处」→ 焦点一字不动（证明没破坏保焦设计）；轻点编辑器文本本身仍能重新聚焦（靠 Monaco 自己的 Tap）；焦点在卡片 `.ta` 时轻点别处 → 不动它；鼠标视口下整层不生效（`--vvh` 为空）。
-  - **切文件不抢焦点（2026-09-28 加）**：触屏 390×844，先把焦点 `blur()` 到 body → 轻点**文件树里另一个文件**、以及轻点**页签栏里另一个页签** → 两者都换文件成功（`openTabs` 增加、activeTab 改名）且 `activeElement` 仍是 `body`、不在 `.monaco-editor` 里（**改前必红**）；再轻点编辑器正文 → `activeElement` 进 `DIV.native-edit-context`（证明正常入口没被误伤）。鼠标视口 1680×950 下点页签 → `activeElement` 仍是 `.native-edit-context`（证明没回归桌面手感）。
+  - **切文件不抢焦点（2026-09-28 加）**：触屏 390×844，先把焦点 `blur()` 到 body → 轻点**文件树里另一个文件**、以及轻点**页签栏里另一个页签** → 两者都换文件成功（activeTab 改名；轻点文件树走的是**预览页签**，上一个预览会被顶替，所以「页签数增加」不再是判据，见 14.17）且 `activeElement` 仍是 `body`、不在 `.monaco-editor` 里（**改前必红**）；再轻点编辑器正文 → `activeElement` 进 `DIV.native-edit-context`（证明正常入口没被误伤）。鼠标视口 1680×950 下点页签 → `activeElement` 仍是 `.native-edit-context`（证明没回归桌面手感）。
     - **落点要落在编辑器「可视区」里**：`.view-lines` 的 `getBoundingClientRect()` 比 `.monaco-editor` 宽得多（它是内容全宽、被裁掉的），取它的中心点会打到编辑器外面——390px 档实测 `.monaco-editor` 只有 `x:7 w:181`，而 `.view-lines` 是 `x:75 w:314`。要取「两者矩形交集」再取中心，并用 `document.elementFromPoint()` 先确认 `closest('.monaco-editor')` 为真。
   - **本地探针验证不了「真滑动」**：`page.touchscreen` 的合成触摸在我们这个无头 Chrome 里**根本不会滚动**（实测拖动 200px 前后 `.monaco-scrollable-element` 的 `scrollTop` 都是 0）。所以凡是依赖「真的滚起来了」的用例（Safari 在 `touchstart` 就聚焦、系统的键盘重弹）本地一律复现不出，别把绿色当已验过——只能靠真机反馈。可验证的是「touchmove 位移判定」这一层，它不依赖滚动。
   - **选落点要避开本来就会改焦点的地方**，否则用例自己会测糊：卡片头左侧 30px 是折叠按钮（点了会把 `.card__body` 收起，输入框被 `v-show` 藏掉，焦点只能掉给 body）；面板头中部是时限的 `<label>`，点它会把 click 转给 `<select>`，焦点本来就会跟着走。
@@ -289,7 +289,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `TestCaseCard.vue`（style@202） | `.card[data-status]` `.card__head` `.badge[data-status]`（文字是 `verdict` 判定码，见第 5 节坑 1）`.metric` `.icon-btn` `.card__body` `.ta`（输入，高度随内容自增）`.out`（输出）`.run-zone`（撑满徽标到删除按钮之间的运行判定区，`.run-zone__icon` 才是那个 22px 的 ▶）。超长样例相关的 `.ta--truncated` / `.out.is-truncated`（只换底边为虚线，**只给真被截断的情形**，即 `xxxHidden > 0`；只是超出框高要滚动的那种字符一个没少，底边仍是实线）与 `.ionote` / `.ionote__text` / `.ionote__btn`（框下面那行提示：「还有 N 个字符未显示 + 复制全部」；**只在截断态出现** —— 纯溢出态一个字符都没少、没有「全部」可复制，这一行与虚线底边都不给；窄容器下靠 `.ionote:has(.ionote__btn)` 把输入框那行与输出块那行区分开）见第 5 节坑 26。框内的截断标记**没有文案**，就是 `MARKER_SEED = '\n\n……'`。旧的 `.hint` 已随 2026-09-18 改动删除 |
 | `EditorTabs.vue`（style@106） | `.editor-tabs`（`flex: 0 0 35px`）`.editor-tabs__strip`（`flex: 1 1 auto; min-width: 0`，**横向滚动在这里**，现在铺满整行）`.editor-tabs__item[--active]` `.editor-tabs__dot` `.editor-tabs__label` `.editor-tabs__close`（「设置」合成页签与文件页签共用这套样式）。原 `.editor-tabs__run`（64×25 的运行 / 停止按钮，以及它的 `.is-running`）2026-09-28 已随按钮一起删除 |
 | `EditorPane.vue`（style@231） | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
-| `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，8 项，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.runtime-row__actions`（已就绪时右侧「已就绪 + 卸载」两颗的容器）`.download-button*`（本地运行环境下载 / 卸载 / 「应用」组安装按钮 / 扩展包下载共用；`.is-uninstall` 悬停才转危险色）`.shortcut-key`（插件快捷键只读键位徽标，与 `HotkeyRecorder` 的 `.hotkey` 同观感；**字体必须用 `--ui-font`**，见下）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`，以及卸载确认弹窗那一组 `.confirm*`（与 `FileExplorer` 同款，Teleport 到 body，见坑 23）（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
+| `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size`）`.settings-view__inner`（目录 + 内容两栏）`.settings-nav*`（左栏分类目录，9 项，`--active` 是选中项）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.runtime-row__actions`（已就绪时右侧「已就绪 + 卸载」两颗的容器）`.download-button*`（本地运行环境下载 / 卸载 / 「应用」组安装按钮 / 扩展包下载共用；`.is-uninstall` 悬停才转危险色）`.shortcut-key`（插件快捷键只读键位徽标，与 `HotkeyRecorder` 的 `.hotkey` 同观感；**字体必须用 `--ui-font`**，见下）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`，以及卸载确认弹窗那一组 `.confirm*`（与 `FileExplorer` 同款，Teleport 到 body，见坑 23）（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
 | `HotkeyRecorder.vue` | `.hotkey-field`（右对齐一列）`.hotkey`（录制框，`--is-recording` 描边点亮 / `--is-conflict` 红描边红字 / `--is-empty` 未绑定置灰）`.hotkey-clear`（清除按钮）`.hotkey-error`（冲突红字）`.hotkey-tip`（录制中的 Esc / Delete 提示）。**键位徽标一律用 `var(--ui-font)`，不要图「像代码」改成 `--mono-font`**：等宽字体没有 `⌘` `⇧` `⌥` 这几个字形，浏览器会按字符逐个回退到别的字体，同一枚徽标里符号比字母大一圈、粗细也不一致（2026-09-30 修的就是这个）。同一条理由适用于 `EditorSettingsPanel` 的 `.shortcut-key`；状态栏里 `formatCombo` 那一处本来就是 `--ui-font`，所以改完三处一致 |
 | `EngineSettingsPanel.vue`（style@103） | `.engine-panel` `.engine-list` `.engine`（`--active` 是选中引擎，整块可点）`.engine__*` `.engine-field*`（服务地址）`.engine-button*`（自检 / 保存）`.engine-probe*`（自检结果文案，`--ok` / `--bad` 由 `is-*` 类控制） |
 | `HelpPanel.vue`（style@95） | `.help-content` `.help-group*` `.help-item*`（`.is-bold` 是 `**…**` 加粗片段）`.guide-link`。原 `.help-button` / `.panel-backdrop` / `.panel-drawer*` / `.done-button` 与两段 Transition 已随抽屉外壳一起删掉 |
@@ -385,6 +385,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
       （前两个框的首行已经被标签说明了，占位再重复一遍是噪音）。
       **别再去翻它们，也别再把 `input` 那条接回 i18n。**
     - **无头探针里 `navigator.clipboard.readText()` 恒返回空串**（见第 8 节与本仓的探针技能），验证语言切换要走 localStorage + DOM 文本；且**同一个 browser 里 localStorage 跨页共享**，探针第 0 帧必须先 `localStorage.clear()`，否则前一组用例种下的 `cph.uiLocale = 'en'` 会污染后面所有页面（实测踩过，表现为一整组假失败）。
+29. **预览页签的钉住手段有两条，但真正兜底的是「编辑即钉住」**（2026-09-30 加，实现见 14.17）：钉住入口是**双击文件树的行 / 双击页签栏的页签 / 在预览页签里敲第一个字**。前两条都靠浏览器原生 `dblclick`，而**原生 `dblclick` 在部分 Android / iOS 浏览器里压根合成不出来**（本仓另一次踩坑在分隔条双击吸附上，见第 3 节）。所以 `workspaceStore.js` 里那条 `watch(modelManager.isDirty(previewTabId))` 不是「顺手加的 VS Code 细节」，而是触屏唯一可靠的保命闸——少了它，用户在预览页签里正在改的内容会被下一次单击顶替掉。另外 `previewTabId` 刻意**不落 localStorage**（刷新后退化成普通页签，无害），它**没有**进第 6 节的表，别顺手补上，也别把它塞进 `cph.openTabs` 那一份存档格式里。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
@@ -442,6 +443,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
 - **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下；难度导入时为空、先落「未分类」；元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
 - **题解（Markdown / LaTeX，2026-09-30 加，全流程见第 15 节）**：`.md` / `.markdown` 能写、能预览、能排版，**但只是文本，不参与判题** —— 两个运行入口在题解下都是禁用态并给出一句提示（不是「点了没反应」）。预览依赖**按需下载**的 marked + KaTeX（约 578KB，缓存桶 `cph-md-runtime-v1`，与本地工具链同一套路数）：**没下载时预览面板显示的是「去下载」入口而不是空白页**，下完当场渲染，设置视图「本地运行环境」里可以整体卸载（清缓存 + 删全局 + 删标记三件一起做）。三条边界：① `.md` **不进**判题链路（`activeLanguage` 为 `null`，外部引擎也没有 markdown 语言）；② 公式只在预览里渲染，编辑器里就是 `$…$` 原文；③ 题解与代码文件共用同一套 VFS / IndexedDB 存储，没有「题解专用表」，重命名 / 移动 / 删除走的都是既有路径。
+- **把文件从资源管理器拖到编辑区（2026-09-30 加，见 14.18）**：拖过去时编辑区亮起与「拖到树空白处（根区域）」**同一个变量**（`--bg-drop-root`）的提示色，松手后**已经开着就切到那个页签、没开就常开一个新页签**（不是预览页签；顺带把它从预览槽里钉住）。三条边界：① 高亮范围是编辑器**内容区**（`.editor-pane__stage`），不含页签栏与状态栏；② **目录不接**（拖目录过去不亮、不动作——目录的语义是「移动」不是「打开」）；③ 触屏也走同一条路（长按起拖之后拖到编辑区即可），没有额外的触屏入口。
 - **界面双语（2026-09-29 加）**：界面、应用内帮助与使用指南都有**中文 / 英文**两套，语言默认跟随浏览器、可在设置视图「外观」组的「界面语言」里改，**切了当场生效、不重载**。写文案时注意两条边界：① **判题语言与界面语言无关**——判题语言仍由活跃文件的扩展名派生（第 5 节坑 15），界面语言只管文案，别把两者写成一回事；② **没有第三方本地化机制**（没引 vue-i18n，没有 `.po` / `.json` 语言包，没有 URL 前缀 `/en/`），词条就是 `src/i18n/messages/` 下六个 JS 文件里中英并排的对象，加语言 = 加一栏 + 在 `LOCALES` 里加一项。另外 `guide.html` 与 `guide.en.html` 是**两个独立的静态页**（各自的 `guide.html` 级别 SEO 头、互相 `hreflang`），不做客户端语言跳转——抓取器拿到什么就是什么。
 - **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。**题解那 14 条格式键位刻意不在这个表里**（它们不可改、也只在 `.md` 里说得通，注册在 Monaco 上，见第 15.7 节）。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
 
@@ -805,11 +807,11 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - 编排要**图形化**：三个维度做成可拖拽的卡片 / 标签，横向排列即层级顺序，各自带一个开关，旁边实时预览最终路径。
 - 在图形编排之外，**仍然允许自定义文件夹结构**（手写层级模板串，作为高级入口）。
 
-**现状**（2026-09-30 更新）：落盘**已经**按「时间 / OJ / 难度」分好层（见 13.2）——`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下），难度为空落 `未分类`；认题也已经**提级成全库按 url 查**（`findByUrl()` 扫全 `.cph`，并复用题目原目录），这是这条需求能不能做的**前提**，已完成。**还差的只有「让用户可配置」这一半**：`EditorSettingsPanel.vue` 的 `SECTIONS` 仍是 8 项，没有任何设置项与这套路径对应——三个维度的顺序与开关都还写死在 `problemImport.js` 里。难度在节点 `meta.difficulty`（**用户自己填**，导入时保留不覆盖），日期在 `meta.date`（只在首次导入时播种）。
+**现状**（2026-09-30 更新）：落盘**已经**按「时间 / OJ / 难度」分好层（见 13.2）——`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下），难度为空落 `未分类`；认题也已经**提级成全库按 url 查**（`findByUrl()` 扫全 `.cph`，并复用题目原目录），这是这条需求能不能做的**前提**，已完成。**还差的只有「让用户可配置」这一半**：`EditorSettingsPanel.vue` 的 `SECTIONS` 仍是 9 项（2026-09-30 加了「常用设置」，见 14.19），没有任何设置项与这套路径对应——三个维度的顺序与开关都还写死在 `problemImport.js` 里。难度在节点 `meta.difficulty`（**用户自己填**，导入时保留不覆盖），日期在 `meta.date`（只在首次导入时播种）。
 
 **要做的三块**：
 
-1. **新增设置分类**：`SECTIONS` 加一项（**8 → 9**），内容按现有设置面板「分组 + 行」的写法组织（`EDITOR_GROUPS` 那套）。
+1. **新增设置分类**：`SECTIONS` 加一项（**9 → 10**），内容按现有设置面板「分组 + 行」的写法组织（`EDITOR_GROUPS` 那套）。
 2. **图形编排 UI**：三个可拖拽的维度卡片 + 每张卡上的开关 + 旁边的路径预览。拖拽必须**原生实现**（第 1 节硬约束：不引第三方 UI 库），且要键盘可操作（左右箭头换序）+ `aria-label` 交代「第几层」，否则触屏 / 无鼠标用户用不了。
 3. **路径装配**：把 `problemImport.js` 里写死的那三段（`todayMonth()` / OJ 标签 / `未分类` 兜底）抽成「读设置 → 编译成分段数组」；自定义模板串那条高级入口复用同一套装配逻辑，别写两份。
 
@@ -995,9 +997,18 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **`workspaceStore.moveNode(path, targetDirPath)`**：`uniqueNameIn` + `vfs.rename` 的薄封装。**节点 id 不变**（provider 只改 path / parentId / name），所以移动一个已打开的文件不会打断页签、Monaco model 与 undo 栈——这是整件事能做得这么薄的根本原因。
 - **落点语义只有「拖进目录」一种**：目录行 → 该目录；文件行 → 它的父目录（跟 VS Code 一样，让可投递面积大一些）；树空白处 → 根 `/`。拖回原目录、拖到自己身上、把目录拖进自己的后代 → 无效，不高亮也不落盘。
 - **触屏的两条硬约束**（与第 3 节 `.splitter` 那条同源）：行上声明 `touch-action: pan-y`（保住纵向滚动，**不能是 `none`**）；armed 之后靠**非被动 `touchmove` + `preventDefault()`** 把滚动按住（`touch-action` 在手势开始时就读定了，中途改无效）。
-- **辅助体验**：拖到树上下边缘 24px 内自动滚动（rAF，每帧 8px）；悬停在折叠目录上 600ms 自动展开（触屏时手指腾不出来点它）；被拖的行变淡、落点行铺 `--bg-selection`；落点是根时整框虚线。幽灵 `Teleport` 到 body、**`pointer-events: none`**（否则 `elementFromPoint` 永远只命中它自己）。
+- **辅助体验**：拖到树上下边缘 24px 内自动滚动（rAF，每帧 8px）；悬停在折叠目录上 600ms 自动展开（触屏时手指腾不出来点它）；被拖的行变淡、落点行铺 `--bg-drop`；落点是根时整个树容器铺同一色（见下条）。幽灵 `Teleport` 到 body、**`pointer-events: none`**（否则 `elementFromPoint` 永远只命中它自己）。
 - **点击抑制**：松手与 `click` 是两次事件，不挡会把落点目录顺带折叠/展开。`consumeClickSuppression()` 读取即清零，另带 300ms 兜底定时器防止标记卡死吞掉下一次正常点击。
+- **目录范围线（缩进参考线）**：画在 `role="group"` 那个 div 上（`FileTreeItem.vue` 的 `.tree-item__children`），不画在行上——group 天然只包住这个目录的全部子节点，线的上下端正好是文件夹的起止，**收起时 group 不存在、线自动消失**，零 JS。x 取父行箭头中心 `calc(depth*10px + 16px)`。**常显**，不做 onHover：触屏没有 hover，而颜色只有 `--tree-guide` 一个变量（比 `--border-soft` 更淡）。用户提过「去掉文件夹图标换细线」，当时否决（图标是「一眼分辨文件/文件夹」的锚点，和范围线解决的不是同一个问题）——**2026-09-30 用户又要求「去掉文件夹的 logo 试一下」，已按新口径落地**：文件夹行只留折角箭头，`folder` / `folder-open` 两个字形只剩 `AppIcon.vue` 里的定义（拖动幽灵仍在用 `folder`），见下面「行的列位」那条。
+  - **必须用绝对定位的 `::before`，不能用 group 自己的 `background-image`**：子元素总画在父元素背景之上，行一有 hover / 选中底色（不透明）就把线盖掉了。`position: relative` + `::before` + `z-index: 1` + `pointer-events: none` 即可压在行之上，行本身没有 `position`，压得住。线的 x 落在行的左侧留白里，盖在行上也不会压到文字/图标。
+  - 也不用 `border-left`：那会把每层子节点整体右移 1px，层层累加会歪。
+  - **文件行的列位（2026-09-30 改过一轮）**：文件行**不再渲染那条 16px 的箭头槽**（`v-if="node.type === 'directory'"`）——槽是给折角箭头留的，文件没有箭头，留着就是名字前一块 16px 的空白。原先这块空当靠一枚 `tree-item__row--file::before` 的浅色小圆点（圆心落在箭头槽中心 `depth*10 + 16`，与范围线同列）填着，用户先要求去点、再要求把点占的这块空当一并去掉，于是圆点与 `.tree-item__row--file` 这个类一起删了（`.tree-item__dot` 是「未保存」小点，不受影响）。槽收掉后图标会直接贴到范围线上，所以 `.tree-item__icon` 给了 `margin-left: 3px`，同时把与名字之间的 `margin-right` 从 5px 收到 2px（两者相加仍是 20px）。**于是两边名字落在同一列**：文件行 `3 + 15 + 2`、文件夹行「箭头槽 16 + 4」，都从 `depth*10 + 8` 起算、名字在 `+20`；文件图标与文件夹的折角箭头同在槽的那一列上。文件夹的折角箭头同日记从 `size 12` 调到 `14`（`AppIcon` 的 chevron 在 24 网格里只占 12×6 单位，14px 时字形约 7×3.5px、描边约 1.1px；槽宽 16px 没动，所以范围线的 x 与名字列都不受影响，再大就要撑出槽）。`InlineCreateRow` 同步收掉了那条空槽，文件夹那行用 `margin-left: 20px` 补回同样的缝（错误提示的缩进随之从 30px 收到 28px），否则按「新建文件」时输入框会比树里的名字右移 16px。
+- **落点提示是半透明色块**（`--bg-drop`，dark `rgba(38,79,120,.55)` / light `rgba(173,214,255,.55)`，即 `--bg-selection` 的透明版）：实心会把范围线盖掉，半透明则「拖到哪儿」和「落在哪个文件夹」能同时看清。用户的原话是「拖动文件时预示文件放在什么位置的提示」。**铺满整个文件夹**：类挂在 `.tree-item` 根容器上（`.tree-item--drop`），而不在行上——容器就是这棵子树本身，于是色块覆盖「文件夹行 + 展开的全部后代」，「会落进这个文件夹」的边界一眼可见；折叠时容器只有一行高，悬停 600ms 自动展开后随之变高。落点那个文件夹自己的行则被 `.tree-item__row.tree-item__row--drop{, :hover} { background: transparent }` 清成透明（双类 + `:hover` 压过 `:hover` 与 `--active:hover`，拖拽时光标必然停在那一行），否则不透明的悬停色会在整块蓝中间压出一条深色带。行底下的 `--bg-hover-soft` / `--bg-hover` 是子元素、仍画在容器背景之上（容器铺色时它们照旧透出自己那一小块，不影响判断）。**根落点同款颜色、更淡的浓度**：`.explorer__tree.is-drop-root` 不再画虚线框，改成给树容器铺 `--bg-drop-root`（dark / light 都是同色 30%，行用的 `--bg-drop` 是 55%）+ `border-radius: 4px` —— 铺满一整个面板时，行上那个浓度会糊成一片蓝。
+- **缩进线亮起的两种情况共用一套样式**：`.tree-item__children--drop::before, .tree-item__children--active::before { background: var(--tree-guide-strong) }`。`--drop` 是拖拽落点所在文件夹（`isDropTarget`）；`--active` 是**当前选中文件的父目录**（`isActiveParent`，由 `activeParentId` 算出：`workspace.activeId` 指向的节点必须是 file，取其 `parentId`，目录自己选中不算——只有文件才有「它属于哪个文件夹」这回事）。指针停在文件行时落点就是它的父目录，所以两种情况的视觉完全一致，用户看到的都是「父目录那条线亮起」。**只亮直接父目录那一条，祖先不亮**：用户的原话是「选中某个文件时，其对应文件夹的竖线要亮起」，与上一条「落点对应文件夹的细线也要亮起」是同一种表述。若要改成「整条路径都亮」，把 `isActiveParent` 换成「向上走 parentId 能否走到本节点」即可。
+- **落点文件夹的缩进线跟着亮起**：`.tree-item__children` 上按 `isDropTarget` 挂 `--drop` 类，`::before` 由 `--tree-guide` 换成 `--tree-guide-strong`（dark `rgba(255,255,255,.45)` / light `rgba(0,0,0,.45)`）——**不换颜色**，仍是同一支白笔，只是按到底（用户明确要求「细线的颜色应该还是白色的」，最初那版给成了 `--focus` 的蓝，已改回）。1px 不变，避免宽度变化引起位移。规则必须**写在基础线那条之后**：两者特异性同为 (0,1,0)，靠源序压回来。落点是根时没有对应文件夹，自然不亮。
+- **行的悬停色要比选中色淡一档**：`.tree-item__row:hover` 用新的 `--bg-hover-soft`（dark `#2c2c2f` / light `#f2f2f2`），`--active` 仍是 `--bg-hover`（dark `#3a3d41` / light `#e8e8e8`）——两者原本同色，鼠标划过别的文件时根本分不出哪个才是打开的。注意 `.tree-item__row--active:hover` 那条**必须留在 `:hover` 之后**：两者特异性同为 (0,2,0)，靠源序压回来，否则悬停当前打开的那一行会把它淡成悬停色。
 - **失败提示**：拖拽/粘贴没有行内位置可放，新增 `.explorer__notice`（页头下一条，显示 `error.message`，4s 自动消失）。移动/复制的错误文案**本来就有**（`error.notFound` / `duplicateName` / `parentMissing` / `moveIntoChild`，见 `messages/engines.js`），只新增了一条 `explorer.moveFailed` 兜底。
+- **⚠️ 触屏可用性还没有验证过**（2026-09-30 记）：上面整套手势本来就是照触屏设计的——450ms 长按进 armed、非被动 `touchmove` + `preventDefault()` 按住滚动、行上 `touch-action: pan-y`、捕获阶段接管 `contextmenu`——但**只在桌面浏览器上用鼠标走过一遍，真机（iOS Safari / Android Chrome）一次都没点过**，所以「触屏文件管理可用」目前是**未验证状态**，别当成已知可用。本地也验不了：无头 Chrome 的合成触摸不会真的滚动，也不会触发系统长按菜单（同第 3 节末「本地探针验证不了真滑动」那条，**别把探针绿色读成触屏已验**）。上手真机时按这几条过一遍：长按不动 → 弹右键菜单；长按后拖动 → 起拖且列表不跟着滚；拖到树上下边缘 24px → 自动滚动；悬停折叠目录 600ms → 自动展开；把文件拖进折叠目录后松手 → 该目录展开、文件落进去；整个拖拽过程中系统的长按菜单不冒出来；松手那一下不顺手把落点目录折叠/展开。
 
 **第 2 步（待做）**：剪切 / 复制 / 粘贴（右键菜单 + `Mod+X/C/V`，剪贴板存 **id 不存 path**，复制递归时**跳过 `.cph` 但保留节点的 `meta`**）。
 **第 3 步（待做）**：新建时支持嵌套路径（`src/util/new.cpp` 逐级建目录）——即 14.11 的阶段二。
@@ -1008,6 +1019,86 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **`touch-action` 必须在元素上声明**，`pointerdown` 里的 `preventDefault()` 挡不住浏览器把拖动当滚动手势——不处理的话触屏按下会立刻 `pointercancel`，表现是「手机上完全拖不动」。与 `.splitter` 那条同一次踩坑。
 - **长按要接管 `contextmenu`**，否则触屏起手瞬间会同时弹系统菜单和拖拽。接管的是 window **捕获阶段**的 `contextmenu` + `preventDefault()`，而且**从 `pointerdown`（仅触屏）就挂上**，不是在 armed 时才挂——各家系统长按菜单的阈值并不一致（多数 ~500ms，某些 WebView / 系统设置更短），等 450ms 再拦可能已经晚一步，会出现「先弹系统菜单、随后进入拖拽、菜单残留到下次点击」的怪状态。接管权从头拿住后，触屏菜单的时机只由我们决定（抬手时弹），与系统阈值无关。鼠标右键不进这条路（`button !== 0` 直接 return），行为不变。
 - **`setPointerCapture` 只在真的进入拖拽时调用**并包 `try/catch`（与分隔条同款）：提前捕获会把普通点击和滚动一起搅进来。
+
+### 14.17 资源管理器预览页签（VS Code 式）—— ✅ 已落地（2026-09-30）
+
+**背景**：用户问「点资源管理器中多个文件，逻辑应该是每次新建窗口还是同一个窗口打开不同文件」。结论是**同一个窗口 + 页签**（真·多窗口走不通：浏览器多标签各持一份内存状态，但 VFS 写的是同一个 IndexedDB，`modelManager` / 快捷键监听也都是模块级单例），并选定照 VS Code 补**预览页签**——浏览式地「点开看一眼」不再往页签栏里堆常驻页签。
+
+**语义（就这三条）**
+
+- **单击文件树里的文件 = 预览**：占住全局唯一的预览槽 `workspace.previewTabId`，页签标签显示为**斜体**。再单击另一个文件 → 上一个预览页签被**顶替**（`closeTab` 走完整流程：splice + `modelManager.release`，refs 归零即 dispose model）。
+- **已开着的文件被再次单击 → 只切活跃，不动预览槽**（VS Code 亦然：顺手点一个已打开的文件不会让预览页签消失）。
+- **钉住（转正体）三条入口**：双击文件树的行、双击页签栏的页签、**在预览页签里敲下第一个字**（`watch(workspace.previewTabId → modelManager.isDirty)`）。第三条是主路径，理由见第 5 节坑 29。
+- `closeTab` 关掉预览页签时清槽；`rebuildTree` 清死页签时一并清槽；**预览状态不落 localStorage**（刷新后退化成普通页签）。
+
+**落点**
+
+- `workspaceStore.js`：`workspace.previewTabId` 字段、`openFile(id, nodeHint, { preview })`（**只有文件树单击传 `preview: true`**）、新导出 `pinTab(id)`、`closeTab` / `rebuildTree` 的清槽、那条「编辑即钉住」的 watch。
+- `FileTreeItem.vue`：`activate({ preview })`；`onClick` 走预览、**键盘 Enter 走常开**（Enter 是明确意图，不该只给临时页签）；行上 `@dblclick="onDblClick"`（先过 `consumeClickSuppression`，与拖拽抑制同一条口径）。
+- `EditorTabs.vue`：`:class` 加 `--preview`、`:data-preview`（探针用）、`@dblclick="pinTab(id)"`；样式只有一条 `.editor-tabs__item--preview .editor-tabs__label { font-style: italic }`——**不动图标 / 宽度 / 关闭按钮**，所以第 3 节那套页签栏宽度实测不受影响。
+
+**别的入口一律常开**：`createFile`（新建文件）、`problemImport.js`、启动兜底的 `openLanguage('cpp')` 都不传 `preview`，默认值 `false` 保证对老调用方零变化。
+
+**没做的**：多选、页签数量上限、「关闭其它」、钉住图标、预览状态的持久化（都不在这次的范围内）。
+
+### 14.18 把文件拖到编辑区（打开 / 跳转页签）—— ✅ 已落地（2026-09-30）
+
+**背景**：14.16 的拖拽只认树里的落点，拖到左边栏以外松手 = 什么都不发生。用户在左侧看着文件、右侧开着编辑器时，最自然的动作是把文件拖过去。
+
+**语义**：文件拖到编辑区上方 → 编辑区内容区亮起与「拖到根区域」**同款提示色**（复用 `.explorer__tree.is-drop-root` 的同一个变量 `--bg-drop-root`，**没有新增变量**）；松手后走 `openFile(node.id, null)`（默认 `preview: false` = 常开）—— 已开着就只切活跃 + reveal，没开就建 model 并推一个新页签，随后 `pinTab` 把它从预览槽里摘掉（它可能刚才是预览页签，落进来就是要固定）。落点自己还要先 `deactivateSettingsTab()`：settingsTab 只在 `activeId` **变化**时自动收回，拖进来的如果本来就是当前活跃文件，`activeId` 不变，不主动让位就会「点了文件还在看设置」。
+
+**跨面板怎么连线**（这是这一节的要点，以后要给别的面板加落点照这套抄）：`useTreeDrag.js` 的状态是**每次调用各一份**（FileExplorer 里那一个），编辑区既读不到 `dropTarget` 也没法把自己的元素塞进去，所以在该模块的**模块级**加了一个登记处：
+
+- `registerDropZone({ el, canDrop?, onDrop })` —— 面板在 `onMounted` 登记自己的根元素与落点回调，返回的注销函数在 `onBeforeUnmount` 里调（`EditorPane.vue`）。
+- `activeDropZone`（模块级 `shallowRef`）—— 当前指针命中的那块；落点拿它跟自己**比对象引用**，相等才亮（`isDropTarget`）。登记处只管算出「命中了谁」，命中之后干什么全由落点的 `onDrop` 说了算，本模块照旧不碰 VFS。
+- 命中顺序**永远先树内、后树外**：`updateDropTarget` 里 `activeDropZone.value = next ? null : hitDropZone(...)` —— 反过来的话，在树里划过时会把编辑区也点亮。
+- 外部落点用**矩形命中**而不是 `elementFromPoint`：拖拽时幽灵元素就贴在手底下，谁压谁上全靠 DOM 顺序，用 `elementFromPoint` 得先赌幽灵的 `pointer-events: none` 万无一失。宽 0 的面板（被折没了）不算落点。
+- `cancelPress()` 里统一把 `activeDropZone` 置空 —— 松手 / Esc / `pointercancel` / 组件卸载都汇到那里，一处收口。
+
+**顺带修掉的一个副作用**：`updateAutoScroll` 原先只看纵向位置，于是拖着文件在编辑区里晃时，左树会自己一路滚到底（新增落点让「拖出树」成了常见路径，这个毛病才露出来）。现在加了横向包含判断：指针不在树容器的水平范围内就不滚。树内的行为一字未改。
+
+**高亮层**：`.editor-pane__drop`（`position: absolute; inset: 0; background: var(--bg-drop-root); pointer-events: none`），写在 `.editor-pane__stage` 的**最后** —— stage 里那几层（`__host` / `__preview` / `__empty`）全是 `inset: 0` 的绝对定位且**没有 z-index**，谁在后面谁在上面；放前面会被 Monaco 盖住。`pointer-events: none` 是必须的，否则它会挡住命中测试与编辑器本身。
+
+**边界**：目录不接（`canDrop` 只认 `type === 'file'`）；不新增 i18n 文案 / CSS 变量 / localStorage key；落点只在「已经在拖」时命中（`updateDropTarget` 开头的 `press?.dragging` 闸门），普通悬停不会亮。
+
+### 14.19 设置分组调整：字体大小归位 + 新增「常用设置」—— ✅ 已落地（2026-09-30）
+
+**改了什么**（都在 `src/components/EditorSettingsPanel.vue`）：
+
+- 「**字体大小**」从「外观」组挪到「**编辑器 › 字体**」小节，紧跟「字体」（字体族）那一行。它本来就是代码区的字号，放外观里名不副实。词条沿用 `settings.appearance.fontSize.*`（**键没改**，换的只是它显示在哪一组），所以不用动 i18n；`control: 'number'` 走编辑器组模板里已有的 number 分支，`rangeOf` / `isModified` 都按 `key` 查，一行数据即可。
+- 新增一级分类「**常用设置**」`{ id: 'common', icon: 'star' }`，排在目录**最前**，并成为 `activeSection` 的初值（打开设置先落这里）。组内四行：主题 → 界面缩放 → 字体大小 → 侧边栏位置。
+- `AppIcon.vue` 加了一枚线性 `star`（新分类的导航图标，刻意不与「外观」的 `sliders` 共用）。
+- i18n 补 `settings.section.common` 与 `settings.common.note`（中英各一）。
+
+**为什么「常用设置」里的项和别处重复**：这几项是**同一份偏好**（`settings.theme` / `cph.uiScale` / `settings.fontSize` / `cph.panelPosition`），两个入口读写同一个值，改哪边另一处立刻同步，**不存在第二份数据**。刻意保留了「外观」组（用户要的），所以主题 / 界面缩放 / 侧边栏位置会同时出现在「外观」和「常用设置」、字体大小会同时出现在「编辑器」和「常用设置」——这是有意为之，不是漏删。实现上直接照搬各处的控件写法（内联 `<label>`），没有为「常用」另造一套数据表。
+
+**连带改的**：`scripts/verify-ui.mjs` 的 `navItems === 8` → `=== 9`（B 步仍显式点目录里的「外观」，不受默认分类变更影响）。
+
+### 14.20 自动保存 —— ✅ 已落地（2026-09-30）
+
+**为什么要做**：改造前只有两个时点会写盘 —— ⌘/Ctrl+S（还只在编辑器有焦点时生效）和点运行前的 `saveAll()`。于是 `closeTab()`（`release()` → dispose model）和刷新页面这两条路会**实打实丢内容**。自动保存既补了这个洞，也让「不按 Ctrl+S 也不丢」成为默认体验。
+
+**五个触发时点**（口径：停顿后 + 离开时点；新增设置项 `autoSave`，**默认开**）：
+
+| 时点 | 代码位置 |
+| --- | --- |
+| 编辑停顿 800ms（debounce，每次按键重置） | `services/autoSave.js` 的 `schedule()` |
+| 切页签 | `workspaceStore.js` 里 `watch(() => workspace.activeId)` 那句 `void flush()` |
+| 关页签前 | `workspaceStore.js` 的 `closeTab()` —— **必须在 `release()` 之前** |
+| 窗口失焦 | `App.vue` 的 `window` `blur` |
+| 页面切后台 | `App.vue` 的 `document` `visibilitychange`（`document.hidden`） |
+
+不做定时轮询（没 dirty 时 `saveAll()` 自己就返回了）；**不用 `beforeunload`** —— 卸载时异步写 IndexedDB 大概率来不及，`visibilitychange → hidden` 才是可靠的那个时点。
+
+**关键实现细节**：
+
+- `services/autoSave.js` 只管时机（debounce、开关、`flush()`），写盘仍然复用 `modelManager.save(id)` / `saveAll()`。关闭开关时**只丢挂起的计时器、不写盘**，语义干净地退回「只认 Ctrl+S」。
+- **开关是响应式的 `autoSaveEnabled` ref**（2026-09-30 由内部 `let enabled` 改来）：`setAutoSaveEnabled()` 写它，`isAutoSaveEnabled()` 读 `.value`（workspaceStore 那边接口不变）。开这个 ref 是为了 UI —— **开着自动保存时文件树与页签都不显示 dirty 圆点**（`FileTreeItem` 的 `dirty` computed、`EditorTabs` 的 `isDirtyTab()`，2026-09-30 加）：dirty 只存在 800ms，圆点基本只是闪一下，反倒像在说「这文件没保存」。`dirtyIds` 本身照常维护，只影响显示。
+- **`closeTab` 里为什么可以不 await**：`save()` 的 `getVFS().writeFile(entry.node.path, entry.model.getValue())` 两个实参都在 `await` 之前求值成字符串了，所以紧跟其后的 `release()`（dispose model）不会把正文弄丢。
+- **依赖方向是单向的** `autoSave → modelManager`：`modelManager` 用 `onDidEdit(cb)` 向外登记回调（运行时读 `#editListeners`），**不** import `autoSave`，否则会成环。订阅时机与 model 何时创建无关。
+- `autoSave` 不是 Monaco 选项（`editorOptions()` 里没有它，和 `statusBar` 一样只存不传），面板里是 `control: 'switch'` 的一行，摆在「编辑器 › 编辑」组首。
+
+**默认值是刻意的例外**：按「新默认值 = 改造前行为」的纪律它本该 `false`，但上面那条丢内容的路子是 bug，所以默认开 —— 这条写在 `editorOptions.js` 的默认值注释里（另一处例外是 `insertSpaces`）。
 
 ## 15. 题解（Markdown / LaTeX）
 

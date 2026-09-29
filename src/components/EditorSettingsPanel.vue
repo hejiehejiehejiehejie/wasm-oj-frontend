@@ -74,6 +74,14 @@ const EDITOR_GROUPS = [
         options: FONT_FAMILIES,
       },
       {
+        // 字号原挂在「外观」组里，但它就是编辑器的代码字号，挪到字体小节紧跟着字体族。
+        // 文案沿用 appearance 那套（键没变，换的只是它显示在哪一组）。
+        key: 'fontSize',
+        labelKey: 'settings.appearance.fontSize.label',
+        hintKey: 'settings.appearance.fontSize.hint',
+        control: 'number',
+      },
+      {
         key: 'lineHeightRatio',
         labelKey: 'settings.editor.lineHeightRatio.label',
         hintKey: 'settings.editor.lineHeightRatio.hint',
@@ -95,6 +103,14 @@ const EDITOR_GROUPS = [
   {
     titleKey: 'settings.editor.groupEdit',
     rows: [
+      {
+        // 不是 Monaco 选项，是「什么时候把正文写回 VFS」的行为开关（见 services/autoSave.js）。
+        // 摆在组首：它是这一组里唯一防丢数据的项。
+        key: 'autoSave',
+        labelKey: 'settings.editor.autoSave.label',
+        hintKey: 'settings.editor.autoSave.hint',
+        control: 'switch',
+      },
       {
         key: 'tabSize',
         labelKey: 'settings.editor.tabSize.label',
@@ -235,9 +251,9 @@ const EDITOR_GROUPS = [
   },
 ]
 
-// 「外观」是独立的一级分类（排在最前）：主题与字体大小原先挂在编辑器组里，
-// 现在和布局偏好（侧边栏位置 / 界面缩放）一起收到这里；编辑器组只剩字体排版。
-// 两行仍是 editorSettings 的键，所以照搬编辑器那套行渲染（键 / 校验 / Monaco 都同源）。
+// 「外观」是独立的一级分类：主题与布局偏好（侧边栏位置 / 界面缩放 / 界面语言）收在这里。
+// 字体大小本来就只对代码区有意义，已挪去「编辑器 › 字体」（见 EDITOR_GROUPS）。
+// 剩下这一行仍是 editorSettings 的键，所以照搬编辑器那套行渲染（键 / 校验 / Monaco 都同源）。
 const APPEARANCE_ROWS = [
   {
     key: 'theme',
@@ -245,12 +261,6 @@ const APPEARANCE_ROWS = [
     hintKey: 'settings.appearance.theme.hint',
     control: 'select',
     options: THEMES,
-  },
-  {
-    key: 'fontSize',
-    labelKey: 'settings.appearance.fontSize.label',
-    hintKey: 'settings.appearance.fontSize.hint',
-    control: 'number',
   },
 ]
 
@@ -267,8 +277,9 @@ const LOCALE_OPTIONS = LOCALES.map((item) => ({ id: item.id, label: item.label }
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
-// 初值是目录里的第一项「外观」——第一次打开（或刷新后）就落在这里。
+// 初值是目录里的第一项「常用设置」——第一次打开（或刷新后）就落在这里。
 const SECTIONS = [
+  { id: 'common', titleKey: 'settings.section.common', icon: 'star' },
   { id: 'appearance', titleKey: 'settings.section.appearance', icon: 'sliders' },
   { id: 'editor', titleKey: 'settings.section.editor', icon: 'code' },
   { id: 'shortcuts', titleKey: 'settings.section.shortcuts', icon: 'keyboard' },
@@ -279,7 +290,7 @@ const SECTIONS = [
   { id: 'help', titleKey: 'settings.section.help', icon: 'help' },
 ]
 
-const activeSection = ref('appearance')
+const activeSection = ref('common')
 
 // 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
 // 录制、冲突红字、阻止绑定都收在 HotkeyRecorder 内部（它要一边录一边校验）。
@@ -707,10 +718,102 @@ function setTimeLimit(event) {
         </button>
       </nav>
 
-      <!-- 外观：一级分类里排在最前。上面两行是 editorSettings 的键（与编辑器组同源），
-           下面三行是界面偏好，各有自己的出口（App 那边的 cph.panelPosition / cph.uiScale，
-           以及 i18n 模块自己管着的 cph.uiLocale）。 -->
-      <section v-if="activeSection === 'appearance'" class="setting-group">
+      <!-- 常用设置：一级分类里排在最前，打开设置默认落在这里。
+           这几项在别处也有（主题 / 界面缩放 / 侧边栏位置在「外观」、字体大小在「编辑器」），
+           它们读写的是同一份偏好，改哪一处另一处立刻跟着变，不存第二份数据。
+           所以这里直接照搬各处的控件写法（内联），不另外造一套数据表。 -->
+      <section v-if="activeSection === 'common'" class="setting-group">
+        <p class="setting-group__title">{{ t('settings.section.common') }}</p>
+        <p class="setting-group__note">{{ t('settings.common.note') }}</p>
+
+        <label
+          class="setting-row setting-row--select"
+          :class="{ 'is-modified': isModified({ key: 'theme' }) }"
+        >
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.appearance.theme.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.appearance.theme.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="settings.theme" @change="set('theme', $event.target.value)">
+                <option v-for="item in THEMES" :key="item.id" :value="item.id">
+                  {{ t(item.labelKey) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.appearance.uiScale.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.appearance.uiScale.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="uiScale" @change="setUiScale">
+                <option v-for="scale in UI_SCALE_OPTIONS" :key="scale" :value="scale">
+                  {{ scaleLabel(scale) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <label
+          class="setting-row setting-row--number"
+          :class="{ 'is-modified': isModified({ key: 'fontSize' }) }"
+        >
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.appearance.fontSize.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.appearance.fontSize.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <input
+              class="number-input"
+              type="number"
+              step="1"
+              :min="rangeOf({ key: 'fontSize' })[0]"
+              :max="rangeOf({ key: 'fontSize' })[1]"
+              :value="settings.fontSize"
+              @change="setNumber({ key: 'fontSize' }, $event)"
+            />
+          </span>
+        </label>
+
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.appearance.panelPosition.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.appearance.panelPosition.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="panelPosition" @change="setPanelPosition">
+                <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
+                  {{ t(item.labelKey) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+      </section>
+
+      <!-- 外观：主题（editorSettings 的键，与编辑器组同源）与界面偏好。
+           下面三行各有自己的出口（App 那边的 cph.panelPosition / cph.uiScale，
+           以及 i18n 模块自己管着的 cph.uiLocale）。字体大小已挪去编辑器组。 -->
+      <section v-else-if="activeSection === 'appearance'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.appearance') }}</p>
 
         <label

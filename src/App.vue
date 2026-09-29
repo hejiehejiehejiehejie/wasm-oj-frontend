@@ -10,6 +10,7 @@ import { applyUiScale, DEFAULT_UI_SCALE, normalizeUiScale, uiScale } from './com
 import { useCompanionImport } from './composables/useCompanionImport.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
+import { flush, initAutoSave, setAutoSaveEnabled } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
 import { initWorkspace } from './services/vfs/migrate.js'
@@ -115,6 +116,10 @@ watch(
   },
   { immediate: true },
 )
+
+// 自动保存的开关跟着偏好走。另外两个离开时点（切页签 / 关页签）在 workspaceStore 里，
+// 窗口失焦与页面切后台这两个只能挂在 DOM 上，见下面的 onMounted。
+watch(() => editorSettings.value.autoSave, setAutoSaveEnabled, { immediate: true })
 
 // 需求：深度持久化到 localStorage；immediate 让首次访问也落盘。
 watch(
@@ -675,9 +680,24 @@ useCompanionImport({
   onImported: () => editorPane.value?.focus(),
 })
 
+// ------------------------------------------------------------ 自动保存
+// 只剩两个离开时点要挂在这里：窗口失焦、页面切到后台。
+// 不用 beforeunload —— 卸载时异步写 IndexedDB 大概率来不及，visibilitychange 才可靠。
+let disposeAutoSave = null
+function onWindowBlur() {
+  void flush()
+}
+function onVisibilityChange() {
+  if (document.hidden) void flush()
+}
+
 onMounted(async () => {
   // 捕获阶段：见上面 onKeydown 的说明（要抢在 Monaco 之前）
   window.addEventListener('keydown', onKeydown, true)
+  // 订阅编辑事件（回调是运行时读集合，所以早于 / 晚于 model 创建都不影响）
+  disposeAutoSave = initAutoSave()
+  window.addEventListener('blur', onWindowBlur)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   // 初始化 VFS（含旧草稿迁移）→ 恢复上次会话的 tab 与 model
   try {
     await initWorkspace()
@@ -694,6 +714,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true)
+  window.removeEventListener('blur', onWindowBlur)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  disposeAutoSave?.()
+  disposeAutoSave = null
   window.clearTimeout(staleTimer)
   window.clearTimeout(reclampTimer)
   abortController?.abort()

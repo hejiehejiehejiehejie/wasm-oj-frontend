@@ -1,8 +1,10 @@
 <script setup>
 /**
  * EditorTabs —— 编辑器标签栏（单编辑器组）。
- * - 点击切换活跃标签；中键关闭；× 按钮关闭。
- * - dirty 文件显示圆点替代图标；活跃标签顶边取主题强调色。
+ * - 点击切换活跃标签；中键关闭；× 按钮关闭；双击钉住预览页签。
+ * - 预览页签（单击文件树开出来的那个）标签用斜体，见 workspace.previewTabId。
+ * - dirty 文件显示圆点替代图标；活跃标签顶边取主题强调色。开着自动保存时不显示圆点
+ *   （dirty 只存在几百毫秒，圆点只会闪一下），见下面的 isDirtyTab。
  * - 横向溢出时可横向滚动，不换行。
  *
  * 这里不再有运行按钮（2026-09-28 删）：运行入口只剩全局快捷键（⌘/Ctrl + Enter）
@@ -11,6 +13,7 @@
  */
 import AppIcon from './AppIcon.vue'
 import { t } from '../i18n/index.js'
+import { autoSaveEnabled } from '../services/autoSave.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import {
   activateSettingsTab,
@@ -21,6 +24,7 @@ import {
 import {
   closeTab,
   getNodeById,
+  pinTab,
   setActiveTab,
   workspace,
 } from '../services/vfs/workspaceStore.js'
@@ -30,6 +34,11 @@ function activate(id) {
   // activeId 不变，settingsTab 里那条 watch 不会触发，所以这里必须显式让一次。
   deactivateSettingsTab()
   setActiveTab(id)
+}
+
+/** 页签上这个未保存标记要不要显示：开了自动保存就不显示（dirty 只存在几百毫秒） */
+function isDirtyTab(id) {
+  return !autoSaveEnabled.value && modelManager.isDirty(id)
 }
 
 function onSettingsMouseDown(event) {
@@ -56,15 +65,20 @@ function onMouseDown(event, id) {
         :key="id"
         type="button"
         class="editor-tabs__item"
-        :class="{ 'editor-tabs__item--active': id === workspace.activeId && !settingsTab.active }"
+        :class="{
+          'editor-tabs__item--active': id === workspace.activeId && !settingsTab.active,
+          'editor-tabs__item--preview': id === workspace.previewTabId,
+        }"
         role="tab"
+        :data-preview="id === workspace.previewTabId || undefined"
         :aria-selected="id === workspace.activeId && !settingsTab.active"
         :title="getNodeById(id)?.path"
         @click="activate(id)"
+        @dblclick="pinTab(id)"
         @mousedown="onMouseDown($event, id)"
       >
         <span
-          v-if="modelManager.isDirty(id)"
+          v-if="isDirtyTab(id)"
           class="editor-tabs__dot"
           :title="t('app.tabs.dirty')"
         ></span>
@@ -183,6 +197,12 @@ function onMouseDown(event, id) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 预览页签：斜体是唯一的视觉信号（VS Code 同款）。只动标签文字，
+   不动图标/宽度/关闭按钮 —— 页签栏那套宽度实测（HANDOFF 第 3 节）不受影响 */
+.editor-tabs__item--preview .editor-tabs__label {
+  font-style: italic;
 }
 
 .editor-tabs__close {

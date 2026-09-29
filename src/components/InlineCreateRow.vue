@@ -54,9 +54,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="create-row" :style="{ '--depth': depth }">
-    <span class="create-row__arrow"></span>
-    <AppIcon class="create-row__icon" :name="state.type === 'file' ? 'file' : 'folder'" :size="15" />
+  <div class="create-row" :class="{ 'create-row--dir': state.type !== 'file' }" :style="{ '--depth': depth }">
+    <AppIcon v-if="state.type === 'file'" class="create-row__icon" name="file" :size="15" />
     <input
       ref="input"
       v-model="state.value"
@@ -81,13 +80,18 @@ onBeforeUnmount(() => {
   padding-left: calc(var(--depth, 0) * 10px + 8px);
 }
 
-.create-row__arrow {
-  flex: 0 0 16px;
-}
-
 .create-row__icon {
   flex: 0 0 auto;
-  margin-right: 6px;
+  /* 与 FileTreeItem 的 .tree-item__icon 取同一组值（左侧 3px 小缝 + 右侧 2px）：
+     新建行的输入框左边缘才会跟树里的名字对齐 */
+  margin-left: 3px;
+  margin-right: 2px;
+}
+
+/* 新建文件夹那行没有图标（树里的文件夹也没有），补一道缝，让输入框落到文件夹名所在的那一列。
+   20px = 折角箭头槽 16px + 4px —— 树里文件夹名就是从这个位置起的。 */
+.create-row--dir .create-row__input {
+  margin-left: 20px;
 }
 
 .create-row__input {
@@ -105,8 +109,8 @@ onBeforeUnmount(() => {
 
 .create-row__error {
   margin: 2px 8px 2px 0;
-  /* 对齐输入框左侧（箭头 16px + 图标与间距）；30px = 8px 基准 + 22px 偏移 */
-  padding-left: calc(var(--depth, 0) * 10px + 30px);
+  /* 对齐输入框左侧（文件行的图标 15px + 5px 间距；文件夹行是同宽的一道缝）；28px = 8px 基准 + 20px */
+  padding-left: calc(var(--depth, 0) * 10px + 28px);
   color: var(--danger-text);
   font-size: 11px;
   line-height: 16px;

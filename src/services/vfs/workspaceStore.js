@@ -12,6 +12,7 @@
  */
 import { computed, reactive, watch } from 'vue'
 import { t } from '../../i18n/index.js'
+import { flush, isAutoSaveEnabled } from '../autoSave.js'
 import { modelManager } from '../monaco/modelManager.js'
 import { languageForPath } from '../monaco/language.js'
 import { defaultCode } from '../templates.js'
@@ -52,6 +53,16 @@ export const workspace = reactive({
   openTabIds: [],
   /** @type {string|null} 活跃文件 id */
   activeId: null,
+  /**
+   * 预览页签 id（VS Code 式斜体临时页签，全局至多一个）。
+   *
+   * 单击文件树 → 占这个槽；再单击别的文件就把上一个**顶替**掉（见 openFile 的 preview 选项）。
+   * 双击文件 / 双击页签 / 在预览页签里编辑 → 钉住（归 null，页签转正体）。
+   * 刻意**不落 localStorage**：刷新后退化成普通页签，既是无害的降级，也省一处会话恢复分叉
+   * （页签本身照旧由 cph.openTabs 恢复）。
+   * @type {string|null}
+   */
+  previewTabId: null,
   /** @type {string[]} 展开的目录 id */
   expandedIds: [],
 })
@@ -162,6 +173,10 @@ async function rebuildTree() {
   if (workspace.activeId && !nodeIndex.has(workspace.activeId)) {
     workspace.activeId = surviving[surviving.length - 1] ?? null
   }
+  // 3) 预览槽指向的文件没了：清掉，别让下一个文件去顶一个不存在的页签
+  if (workspace.previewTabId && !nodeIndex.has(workspace.previewTabId)) {
+    workspace.previewTabId = null
+  }
 }
 
 // ------------------------------------------------------------ 初始化与会话恢复
@@ -225,12 +240,32 @@ watch(
   () => workspace.activeId,
   (value) => {
     if (workspace.ready) writeJSON(ACTIVE_KEY, value)
+    // 切页签也是自动保存的「离开时点」：刚离开的那个文件可能还挂着 pending 的 debounce 计时，
+    // flush() 会把它连同其它 dirty 一起写盘（没有 dirty 时是空操作）。
+    if (workspace.ready) void flush()
   },
 )
 watch(
   () => [...workspace.expandedIds],
   (value) => writeJSON(EXPANDED_KEY, value),
   { deep: true },
+)
+
+/**
+ * 编辑即钉住：在预览页签里敲下第一个字，它就转正体。
+ *
+ * 这既是 VS Code 的既定行为，也是触屏上唯一可靠的钉住途径 —— dblclick 在部分 Android/iOS
+ * 浏览器里压根合成不出来（见 HANDOFF 第 5 节），预览页签若只靠双击钉住，触屏用户会被
+ * 下一个文件的单击顶掉正在改的内容。
+ *
+ * 注意 dirtyIds 是响应式的，但 previewTabId 归 null 之后本 watch 的取值函数返回 false，
+ * 不会反过来再触发一次。
+ */
+watch(
+  () => (workspace.previewTabId ? modelManager.isDirty(workspace.previewTabId) : false),
+  (dirty) => {
+    if (dirty) workspace.previewTabId = null
+  },
 )
 
 // DEV：追踪 openTabIds 每次变化与调用栈，定位「tab 被清空」竞态
@@ -271,10 +306,19 @@ export const dirtyCount = computed(() => modelManager.dirtyIds.size)
 
 /**
  * 打开文件：已打开则只切活跃；否则建 model + retain + 加入 tab。
+ *
+ * `preview` 是「单击文件树」专用的预览语义：第一个文件占住预览槽，再点一个就把上一个
+ * **顶替**掉。改过字的预览页签早被「编辑即钉住」那条 watch 摘出了预览槽，所以永远不会
+ * 被顶替（不会丢内容）。新建文件、题目导入、首次启动的 main.cpp 都不传它，照旧是常开页签。
+ *
  * @param {string} id
+ * @param {import('./BaseVFSProvider.js').VFSNode|null} [nodeHint] 索引还没跟上时的兜底节点
+ * @param {{ preview?: boolean }} [options]
  */
-export async function openFile(id, nodeHint = null) {
+export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   if (workspace.openTabIds.includes(id)) {
+    // 已开着的文件被再次单击：只切活跃，**不动预览槽**（VS Code 亦然 —— 预览页签不会
+    // 因为你顺手点了另一个已打开的文件就消失）
     workspace.activeId = id
     revealId(id)
     return
@@ -282,10 +326,15 @@ export async function openFile(id, nodeHint = null) {
   // nodeIndex 由事件异步重建，刚写完的文件可能还没进索引：用调用方给的节点兜底
   const node = nodeIndex.get(id) ?? (nodeHint?.id === id ? nodeHint : null)
   if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path: id }))
+  // 顶替上一个预览页签：走 closeTab 才顺带 release model（refs 归零即 dispose）
+  if (preview && workspace.previewTabId && workspace.previewTabId !== id) {
+    closeTab(workspace.previewTabId)
+  }
   await modelManager.getModel(node)
   modelManager.retain(id)
   workspace.openTabIds.push(id)
   workspace.activeId = id
+  if (preview) workspace.previewTabId = id
   revealId(id)
 }
 
@@ -293,11 +342,25 @@ export async function openFile(id, nodeHint = null) {
 export function closeTab(id) {
   const index = workspace.openTabIds.indexOf(id)
   if (index === -1) return
+  // 关页签是自动保存的「离开时点」之一：下面 release() 会把 model dispose 掉，之后再读就没正文了。
+  // 这里不必 await —— save() 的两个实参（path 与 getValue()）在 await 之前就求值成了字符串，
+  // 所以紧跟着 release() 不会把内容弄丢。开关关着时不插手，回到「只认 Ctrl+S」的老行为。
+  if (isAutoSaveEnabled() && modelManager.isDirty(id)) void modelManager.save(id)
   workspace.openTabIds.splice(index, 1)
   modelManager.release(id)
+  if (workspace.previewTabId === id) workspace.previewTabId = null
   if (workspace.activeId === id) {
     workspace.activeId = workspace.openTabIds[Math.min(index, workspace.openTabIds.length - 1)] ?? null
   }
+}
+
+/**
+ * 钉住预览页签（转正体）：双击文件树的行、双击页签、或在里面编辑时调用。
+ * 不是预览页签时是空操作。
+ * @param {string} id
+ */
+export function pinTab(id) {
+  if (workspace.previewTabId === id) workspace.previewTabId = null
 }
 
 /** @param {string} id */

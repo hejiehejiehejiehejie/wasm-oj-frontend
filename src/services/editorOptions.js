@@ -9,6 +9,7 @@
  * 老用户升上来（localStorage 里只有旧键）视觉上零变化。
  * 唯一的例外是 insertSpaces（默认关，按 Tab 出制表符）：Monaco 自己的默认是「用空格代替 Tab」，
  * 这里按用户口径刻意改掉，不是疏漏。
+ * 另一处刻意的例外是 autoSave（默认开），理由写在它自己那行注释里。
  */
 
 /** 主题决定整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套。
@@ -99,6 +100,11 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   insertSpaces: false,
   wordWrap: 'off',
   wordWrapColumn: 80,
+  // 底下这条不是 Monaco 选项，是「什么时候把 model 正文写回 VFS」的行为开关
+  // （见 services/autoSave.js）。**刻意的默认值例外**：按上面那条纪律它本该是 false
+  // （改造前只认 Ctrl+S 与运行前自动保存），但「改了字直接关页签 / 刷新就丢内容」是实打实的
+  // 丢数据 bug，所以默认开着。
+  autoSave: true,
   // 光标
   cursorStyle: 'line',
   cursorBlinking: 'smooth',

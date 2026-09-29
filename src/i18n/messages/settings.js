@@ -13,6 +13,7 @@ export default {
 
       /** 左侧目录，同时也是右侧每一组的标题 */
       section: {
+        common: '常用设置',
         appearance: '外观',
         editor: '编辑器',
         shortcuts: '快捷键',
@@ -21,6 +22,11 @@ export default {
         extension: '浏览器插件',
         app: '应用',
         help: '帮助',
+      },
+
+      /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
+      common: {
+        note: '集中了最常改的几项；它们与「外观 / 编辑器」里的是同一个偏好，改哪边都会同步。',
       },
 
       appearance: {
@@ -62,6 +68,10 @@ export default {
         fontLigatures: {
           label: '字体连写',
           hint: '将 => 或 != 等符号渲染为连贯的数学符号（需当前字体支持，如 Fira Code）',
+        },
+        autoSave: {
+          label: '自动保存',
+          hint: '编辑停顿约 1 秒后自动写入；切换文件、关闭文件、窗口失焦时也会保存。关闭后只能用 ⌘/Ctrl + S 手动保存',
         },
         tabSize: { label: '缩进宽度', hint: '制表符的视觉宽度，也用于自动缩进的空格数（默认：4）' },
         insertSpaces: {
@@ -227,6 +237,7 @@ export default {
       navAriaLabel: 'Settings categories',
 
       section: {
+        common: 'Common',
         appearance: 'Appearance',
         editor: 'Editor',
         shortcuts: 'Shortcuts',
@@ -235,6 +246,11 @@ export default {
         extension: 'Browser extension',
         app: 'App',
         help: 'Help',
+      },
+
+      /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
+      common: {
+        note: 'The settings changed most often, gathered in one place. Each is the same preference as in Appearance / Editor — editing either side syncs both.',
       },
 
       appearance: {
@@ -274,6 +290,10 @@ export default {
         fontLigatures: {
           label: 'Font ligatures',
           hint: 'Render symbols such as => or != as single joined glyphs (needs a font that supports them, e.g. Fira Code)',
+        },
+        autoSave: {
+          label: 'Auto save',
+          hint: 'Writes about a second after you stop typing, and also when you switch or close a file, or when the window loses focus. With this off, only ⌘/Ctrl + S saves.',
         },
         tabSize: {
           label: 'Indent width',

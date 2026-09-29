@@ -18,11 +18,12 @@ import { t } from '../i18n/index.js'
 import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
+import { activeDropZone, registerDropZone } from '../composables/useTreeDrag.js'
 import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
-import { settingsTab } from '../services/settingsTab.js'
+import { deactivateSettingsTab, settingsTab } from '../services/settingsTab.js'
 import {
   MD_VIEW_MODES,
   MD_VIEW_SHORTCUT,
@@ -39,6 +40,8 @@ import {
 import {
   activeLanguage,
   activeNode,
+  openFile,
+  pinTab,
   saveActive,
   workspace,
 } from '../services/vfs/workspaceStore.js'
@@ -75,6 +78,34 @@ const editor = shallowRef(null)
 const preview = ref(null)
 const cursor = ref({ lineNumber: 1, column: 1 })
 const selectedChars = ref(0)
+
+// ------------------------------------------------------------ 拖文件到编辑区
+
+/** 内容区（Monaco / 预览 / 设置 / 空态都在这层里）—— 落点矩形与高亮层都挂它 */
+const stage = ref(null)
+/** 本组件登记给拖拽模块的落点；跟 activeDropZone 比同一个对象引用才知道该不该亮 */
+const dropZone = shallowRef(null)
+const isDropTarget = computed(() => dropZone.value !== null && activeDropZone.value === dropZone.value)
+
+/**
+ * 拖进来的文件：已经开着就切到那个页签，没开就常开一个（固定，不是预览页签）。
+ *
+ * 设置视图要主动让位 —— settingsTab 只在 workspace.activeId **变化**时自动收回，
+ * 而拖进来的文件如果本来就是当前活跃文件，activeId 压根不变（EditorTabs 的 activate 同理）。
+ */
+async function openDroppedFile(node) {
+  deactivateSettingsTab()
+  try {
+    await openFile(node.id, null)
+  } catch {
+    return // 拖到一半文件被删了之类：静默收场，没有行内位置可提示
+  }
+  // 它原本可能是预览页签：落进来的意思就是「固定住」
+  pinTab(node.id)
+}
+
+/** 注销函数，onBeforeUnmount 里调 */
+let unregisterDropZone = null
 
 // ------------------------------------------------------------ 题解（.md）
 // 题解不判题、只编辑，于是多出一行工具栏（视图模式）与一块预览面板。
@@ -418,9 +449,19 @@ onMounted(() => {
   registerMarkdownActions(instance)
 
   monaco.editor.setTheme(props.settings.theme)
+
+  // 登记成拖拽落点：文件从资源管理器拖到编辑区 = 打开 / 跳转页签（目录不接，那是移动语义）
+  dropZone.value = {
+    el: stage.value,
+    canDrop: (node) => node.type === 'file',
+    onDrop: openDroppedFile,
+  }
+  unregisterDropZone = registerDropZone(dropZone.value)
 })
 
 onBeforeUnmount(() => {
+  unregisterDropZone?.()
+  unregisterDropZone = null
   window.removeEventListener('keydown', onWindowKeydown, true)
   window.cancelAnimationFrame(scrollFrame)
   contentSub?.dispose()
@@ -624,7 +665,7 @@ defineExpose({
       <p v-if="insertForm.error" class="md-insert__error">{{ insertForm.error }}</p>
     </form>
 
-    <div class="editor-pane__stage">
+    <div class="editor-pane__stage" ref="stage">
       <!-- Monaco 的挂载点永远不重建：分栏只是让它把右半边让出来（改 inset），
            仅预览则整块藏起来（visibility，不是 display:none —— 编辑器保持原尺寸，
            切回来不必重新排版，也就不会闪一下） -->
@@ -669,6 +710,11 @@ defineExpose({
         <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
         <p>{{ t('app.emptyEditor') }}</p>
       </div>
+
+      <!-- 从资源管理器把文件拖到编辑区时的落点提示：与「拖到根文件区域」同款颜色。
+           必须排在 stage 最后 —— 里面几层都是 inset: 0 的绝对定位、没有 z-index，
+           谁在后面谁在上面。pointer-events: none，否则会把命中和 Monaco 一起挡住 -->
+      <div v-if="isDropTarget" class="editor-pane__drop" aria-hidden="true"></div>
     </div>
 
     <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看设置时它没有意义；
@@ -733,6 +779,14 @@ defineExpose({
 .editor-pane__preview.is-split {
   left: 50%;
   border-left: 1px solid var(--border-soft);
+}
+
+/* 拖文件到编辑区的落点提示：与资源管理器「拖到根区域」用同一个变量，两套主题自动跟随 */
+.editor-pane__drop {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-drop-root);
+  pointer-events: none;
 }
 
 /* ------------------------------------------------------------ 题解工具栏 */

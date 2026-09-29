@@ -14,6 +14,10 @@
  * 这条结论与 App.vue 分隔条那段注释出自同一次踩坑。
  *
  * 【本模块不碰 VFS】落盘由 `onDrop` 回调交给调用方；这里只管手势、命中测试与高亮状态。
+ *
+ * 【树外的落点】除了树里的目录，还可以有「树以外的面板」——目前是编辑区：把文件拖过去 =
+ * 打开 / 跳转页签。这类落点由面板自己用 `registerDropZone` 登记（见下方登记处），本模块只负责
+ * 逐帧算出指针命中了哪一块，并把 `activeDropZone` 告诉它。命中顺序永远是「先树内、后树外」。
  */
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { getNodeById, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
@@ -33,6 +37,58 @@ const EDGE_PX = 24
 const SCROLL_STEP = 8
 /** 拖拽结束后用来吃掉紧随其后那次 click 的时间上限 */
 const CLICK_SUPPRESS_MS = 300
+
+// ------------------------------------------------------------ 外部落点登记处
+
+/**
+ * 树以外的落点（目前只有编辑区：拖文件过去 = 打开 / 跳转页签）。
+ *
+ * 为什么要在模块级牵这条线：本文件的状态是**每次 useTreeDrag 各一份**（FileExplorer 里那一个），
+ * 编辑区是另一个组件，它既读不到 dropTarget 也没法把自己的元素塞进去。所以这里放一个双方都
+ * 看得见的登记处 —— 面板挂载时登记自己的根元素与落点回调，拖拽时由这边逐帧问「指针在哪块里」，
+ * 命中的那块拿 activeDropZone 决定要不要亮。
+ *
+ * 本模块照旧不碰 VFS：命中之后干什么，全由落点自己的 onDrop 说了算。
+ */
+const zones = new Set()
+
+/** 当前指针命中的外部落点（null = 没有）。落点自己拿它跟自身比，相等才亮 */
+export const activeDropZone = shallowRef(null)
+
+/**
+ * 登记一块外部落点。返回注销函数，请在 onBeforeUnmount 里调。
+ *
+ * @param {{ el: HTMLElement|null, canDrop?: (node: object) => boolean, onDrop: (node: object) => void }} zone
+ * @returns {() => void}
+ */
+export function registerDropZone(zone) {
+  zones.add(zone)
+  return () => {
+    zones.delete(zone)
+    if (activeDropZone.value === zone) activeDropZone.value = null
+  }
+}
+
+/**
+ * 指针落在哪块外部落点里。
+ *
+ * 用矩形命中而不是 elementFromPoint：拖拽时幽灵元素就贴在手底下，谁压在谁上面全靠 DOM 顺序，
+ * 用 elementFromPoint 得先赌幽灵 `pointer-events: none` 万无一失；矩形判断跟幽灵无关，稳。
+ *
+ * @param {object} source 被拖的节点（给 canDrop 判要不要接）
+ */
+function hitDropZone(clientX, clientY, source) {
+  for (const zone of zones) {
+    if (zone.canDrop && !zone.canDrop(source)) continue
+    const rect = zone.el?.getBoundingClientRect()
+    // 面板被折没了（宽 0）不算落点
+    if (!rect || rect.width <= 0) continue
+    const inside =
+      clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+    if (inside) return zone
+  }
+  return null
+}
 
 /**
  * @param {object} options
@@ -147,10 +203,13 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
 
     if (state.dragging) {
       const target = dropTarget.value
+      const zone = activeDropZone.value
       cancelPress()
       // 松手与 click 是两次事件，不挡一下会顺带把落点目录折叠/展开
       markClickSuppressed()
+      // 树里没落点就交给外部面板（编辑区）：打开或跳到那个文件
       if (target) onDrop?.(state.node, target)
+      else if (zone) zone.onDrop(state.node)
       return
     }
 
@@ -204,14 +263,14 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
     window.addEventListener('keydown', onKeyDown, true)
 
     updateDropTarget(event.clientX, event.clientY)
-    updateAutoScroll(event.clientY)
+    updateAutoScroll(event.clientX, event.clientY)
   }
 
   /** 拖拽中的每次移动：挪幽灵、重算落点、必要时自动滚动 */
   function updatePointer(clientX, clientY) {
     ghostPos.value = { x: clientX, y: clientY }
     updateDropTarget(clientX, clientY)
-    updateAutoScroll(clientY)
+    updateAutoScroll(clientX, clientY)
   }
 
   /**
@@ -262,6 +321,8 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
   function updateDropTarget(clientX, clientY) {
     if (!press?.dragging) return
     const next = resolveTarget(clientX, clientY, press.node)
+    // 树里没命中才轮到外部面板（编辑区）—— 顺序反过来的话，在树里划过时会把编辑区也点亮
+    activeDropZone.value = next ? null : hitDropZone(clientX, clientY, press.node)
     const changed = next?.rowId !== dropTarget.value?.rowId
     dropTarget.value = next
     if (changed) updateSpringOpen()
@@ -293,10 +354,17 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
   }
 
   /** 指针贴近树容器上下边缘时持续滚动（触屏拖拽时手指滚不了列表） */
-  function updateAutoScroll(clientY) {
+  function updateAutoScroll(clientX, clientY) {
     const tree = treeEl?.value
     if (!tree) return
     const rect = tree.getBoundingClientRect()
+    // 拖到树外面（比如编辑区）就别滚了 —— 树里的纵向位置照样贴近边缘，只看 Y 的话
+    // 会一边拖着编辑区里晃、一边把左树自己滚到底
+    if (clientX < rect.left || clientX > rect.right) {
+      scrollDelta = 0
+      stopAutoScroll()
+      return
+    }
     let delta = 0
     if (clientY < rect.top + EDGE_PX) delta = -SCROLL_STEP
     else if (clientY > rect.bottom - EDGE_PX) delta = SCROLL_STEP
@@ -348,6 +416,8 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
     press = null
     draggingNode.value = null
     dropTarget.value = null
+    // 松手 / Esc / pointercancel / 卸载都汇到这儿：外部落点的高亮也一并收掉
+    activeDropZone.value = null
     suppressContextMenu.value = false
   }
 

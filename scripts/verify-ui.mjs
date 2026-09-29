@@ -327,7 +327,7 @@ try {
       state.codeLineCount > 3 &&
       settingsShown.viewVisible &&
       settingsShown.tabActive &&
-      settingsShown.navItems === 8 &&
+      settingsShown.navItems === 9 &&
       !settingsClosed.tabPresent &&
       !settingsClosed.viewVisible
     record('B. 切换布局：order 换序，DOM/Monaco 不重建', ok, {

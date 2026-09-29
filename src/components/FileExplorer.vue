@@ -881,10 +881,13 @@ provide('draggingId', draggingId)
   padding: 4px 0;
 }
 
-/* 落点是根目录（拖到树的空白处）时的整框提示 */
+/* 落点是根目录（拖到树的空白处）时：与行落点同一支颜色，只是铺满整个树容器、透明度更淡
+   （--bg-drop-root）—— 铺满一整个面板时，行上那个浓度会糊成一片蓝。
+   贴的是容器自身的背景层 —— 行、范围线、小圆点都是它的子元素，仍画在这层之上，
+   所以整框泛蓝的同时，树结构照样看得清。 */
 .explorer__tree.is-drop-root {
-  outline: 1px dashed var(--focus);
-  outline-offset: -2px;
+  background: var(--bg-drop-root);
+  border-radius: 4px;
 }
 
 /* 拖拽 / 粘贴失败的临时提示 */

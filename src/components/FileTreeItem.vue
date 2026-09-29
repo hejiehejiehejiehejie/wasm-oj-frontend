@@ -2,7 +2,8 @@
 /**
  * FileTreeItem —— 递归树项（文件 / 目录）。
  *
- * - 单击：目录折叠；文件打开（openFile 内含 reveal）。
+ * - 单击：目录折叠；文件以**预览页签**打开（斜体临时页签，再点别的文件就顶替掉它）。
+ * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
  * - 右键菜单、删除确认、键盘导航均通过 FileExplorer provide 的能力完成。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
@@ -10,8 +11,9 @@ import { computed, inject, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import { t } from '../i18n/index.js'
+import { autoSaveEnabled } from '../services/autoSave.js'
 import { modelManager } from '../services/monaco/modelManager.js'
-import { openFile, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
+import { getNodeById, openFile, pinTab, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, join, stem } from '../services/vfs/paths.js'
 import { formatMetaTooltip } from '../services/problemMeta.js'
 
@@ -38,16 +40,27 @@ const draggingId = inject('draggingId')
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
 const active = computed(() => workspace.activeId === props.node.id)
-const dirty = computed(() => modelManager.isDirty(props.node.id))
+/** 未保存标记。开了自动保存就不显示：dirty 只存在几百毫秒，圆点只会闪一下，
+    反倒是「这文件没保存」的误导。 */
+const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(props.node.id))
 /** 拖拽态：被拖的那一行变淡，合法落点那一行铺选中色 */
 const isDragging = computed(() => draggingId?.value === props.node.id)
 const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
 
+/** 选中的那个文件的父目录 id。目录自己选中时不算——只有文件才有「它属于哪个文件夹」这回事 */
+const activeParentId = computed(() => {
+  const node = workspace.activeId ? getNodeById(workspace.activeId) : null
+  return node?.type === 'file' ? node.parentId : null
+})
+/** 本目录正是选中文件的父目录 → 它这一列的缩进线跟着亮起（与拖拽落点同一种亮法） */
+const isActiveParent = computed(() => activeParentId.value === props.node.id)
+
 /** 题目元数据的悬停摘要；没有元数据时为空串（行上就不设 title，别弹空提示） */
 const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
 
+/** 只有文件画图标：文件夹改用裸的折角箭头表示（试一下不带 logo 的样子），
+ *  于是这里也就不需要再区分 folder / folder-open 了。 */
 const iconName = computed(() => {
-  if (props.node.type === 'directory') return expanded.value ? 'folder-open' : 'folder'
   const name = props.node.name.toLowerCase()
   if (/\.(h|hpp|hh|hxx)$/.test(name)) return 'header'
   if (name.endsWith('.py')) return 'python'
@@ -58,11 +71,33 @@ const iconName = computed(() => {
 
 // ------------------------------------------------------------ 点击 / 右键
 
-function onClick() {
+/**
+ * 打开/折叠这一行。`preview` 只给单击用 —— 浏览式地「点开看一眼」不该在页签栏留下常驻页签。
+ * @param {{ preview?: boolean }} [options]
+ */
+function activate({ preview = false } = {}) {
   // 拖拽收尾的那一次 click 要吃掉，否则松手会顺带折叠/展开落点目录
   if (consumeClickSuppression?.()) return
   if (props.node.type === 'directory') toggleExpand(props.node.id)
-  else openFile(props.node.id).catch(() => {})
+  else openFile(props.node.id, null, { preview }).catch(() => {})
+}
+
+function onClick() {
+  activate({ preview: true })
+}
+
+/** 键盘 Enter 是「确认要打开」，按常开页签算（页签栏里单击页签也不钉住，但 Enter 意图更明确） */
+function onEnter() {
+  activate()
+}
+
+/**
+ * 双击＝钉住。时序上第一下 click 已经把它开成了预览页签，这里只需把预览槽清掉。
+ * 目录上的双击是空操作（pinTab 对非预览 id 不做事）。
+ */
+function onDblClick() {
+  if (consumeClickSuppression?.()) return
+  pinTab(props.node.id)
 }
 
 function onPointerDown(event) {
@@ -169,7 +204,7 @@ function onKeyDown(event) {
       break
     case 'Enter':
       event.preventDefault()
-      onClick()
+      onEnter()
       break
     case 'F2':
       event.preventDefault()
@@ -184,10 +219,11 @@ function onKeyDown(event) {
 </script>
 
 <template>
-  <div class="tree-item">
+  <div class="tree-item" :class="{ 'tree-item--drop': isDropTarget }">
     <div
       class="tree-item__row"
       :class="{
+        'tree-item__row--dir': node.type === 'directory',
         'tree-item__row--active': active,
         'tree-item__row--dragging': isDragging,
         'tree-item__row--drop': isDropTarget,
@@ -200,14 +236,24 @@ function onKeyDown(event) {
       :aria-selected="active"
       :tabindex="isTabbable(node.id) ? 0 : -1"
       @click="onClick"
+      @dblclick="onDblClick"
       @pointerdown="onPointerDown"
       @contextmenu.stop="onContextMenu"
       @keydown="onKeyDown"
     >
-      <span class="tree-item__arrow">
-        <AppIcon v-if="node.type === 'directory'" :name="expanded ? 'chevron' : 'chevron-right'" :size="12" />
+      <!-- 文件行没有折角箭头，整条槽就一并收掉：留着的话名字前面会空出 16px
+           （原本那块空当靠小圆点填着，圆点去掉后就是一片纯空白）。
+           收掉之后文件图标与同层文件夹的折角箭头同列，名字也与同级文件夹名对齐。 -->
+      <span v-if="node.type === 'directory'" class="tree-item__arrow">
+        <AppIcon :name="expanded ? 'chevron' : 'chevron-right'" :size="14" />
       </span>
-      <AppIcon class="tree-item__icon" :class="`is-${iconName}`" :name="iconName" :size="15" />
+      <AppIcon
+        v-if="node.type === 'file'"
+        class="tree-item__icon"
+        :class="`is-${iconName}`"
+        :name="iconName"
+        :size="15"
+      />
       <span v-if="!renameMode" class="tree-item__label">{{ node.name }}</span>
       <span v-if="!renameMode && dirty" class="tree-item__dot" :title="t('app.tabs.dirty')"></span>
       <input
@@ -224,7 +270,16 @@ function onKeyDown(event) {
       {{ renameError }}
     </p>
 
-    <div v-if="node.type === 'directory' && expanded" role="group">
+    <div
+      v-if="node.type === 'directory' && expanded"
+      class="tree-item__children"
+      :class="{
+        'tree-item__children--drop': isDropTarget,
+        'tree-item__children--active': isActiveParent,
+      }"
+      role="group"
+      :style="{ '--depth': depth }"
+    >
       <!-- 建在这个目录里的输入行。放在 group 内、而不是 .tree-item__row 内：那一行挂着
            @keydown="onKeyDown"（方向键导航），输入框进去会让编辑文字的光标键被树抢走。 -->
       <InlineCreateRow v-if="creating?.targetId === node.id" :state="creating" :depth="depth + 1" />
@@ -240,6 +295,43 @@ function onKeyDown(event) {
 </template>
 
 <style scoped>
+/**
+ * 目录的「范围线」：画在这个 group 上，而不是画在行上。
+ * group 天然只包住这个目录的全部子节点，所以线的上下端正好是这个文件夹的起止，
+ * 收起时 group 不存在、线也就自动没了 —— 不需要任何 JS 计算。
+ * x 取父行箭头中心（父行 padding-left = depth*10+8，箭头宽 16），恰好落在子节点箭头左侧一点。
+ * 用伪元素画、**不能**用 group 自己的 background：子元素总画在父元素背景之上，行一有 hover / 选中
+ * 的底色（不透明）就会把线盖掉。升到行之上只需要绝对定位 + z-index，行本身没有 position，压得住。
+ * 也不用 border-left：那会把每层子节点整体右移 1px，层层累加会歪。
+ */
+.tree-item__children {
+  /* 给 ::before 当定位上下文；不加 z-index，所以不生成层叠上下文 */
+  position: relative;
+}
+
+.tree-item__children::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--depth, 0) * 10px + 16px);
+  width: 1px;
+  background: var(--tree-guide);
+  /* 线的 x 落在行的左侧留白里（文字与图标之左），所以盖在行上也不会压到任何内容 */
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 亮起的两种情况：拖拽的落点是这个文件夹，或这个文件夹里有当前选中的文件。
+   都是「同一支白笔按到底」，不给它换颜色。下条必须留在基础线那条之后 ——
+   三条特异性同为 (0,1,0)，靠源序压回来。
+   指针停在文件行时落点是它的父目录，于是亮的正是父目录那条线：「会落进哪个文件夹」
+   除了行底色之外，还多一条线指过去。 */
+.tree-item__children--drop::before,
+.tree-item__children--active::before {
+  background: var(--tree-guide-strong);
+}
+
 .tree-item__row {
   display: flex;
   align-items: center;
@@ -257,8 +349,11 @@ function onKeyDown(event) {
   touch-action: pan-y;
 }
 
+/* 悬停用比选中（--bg-hover）淡一档的底色，否则鼠标划过别的文件时看不出哪个才是打开的。
+   下面 --active 的两条要留在 :hover 之后：同为 (0,2,0) 特异性，靠源序压回来，
+   不然悬停当前打开的那一行会把它「淡成」悬停色。 */
 .tree-item__row:hover {
-  background: var(--bg-hover);
+  background: var(--bg-hover-soft);
 }
 
 .tree-item__row--active,
@@ -272,12 +367,20 @@ function onKeyDown(event) {
   cursor: grabbing;
 }
 
-/* 合法落点。写成两个类是为了压过上面的 :hover / --active:hover —— 拖拽时光标必然悬停在
-   落点行上，只用一个类的话 hover 的背景会盖掉高亮。 */
+/* 合法落点：色块铺满**整个文件夹**（它自己那一行 + 展开的全部后代），而不是只铺那一行——
+   「会落进这个文件夹」的边界因此一眼可见。铺在 .tree-item 容器上，它就是这棵子树本身。
+   容器背景在行的背景之下，所以行的 hover / 选中底色仍会透出自己那一小块（不影响判断）。 */
+.tree-item--drop {
+  background: var(--bg-drop);
+  border-radius: 4px;
+}
+
+/* 落点文件夹自己那一行：色块已经铺在容器上，这里把行的底色清成透明，
+   免得悬停色（不透明）在整块蓝中间压出一条深色带。
+   双类 + :hover 是为了压过上面的 :hover 与 --active:hover（拖拽时光标必然停在这一行）。 */
 .tree-item__row.tree-item__row--drop,
 .tree-item__row.tree-item__row--drop:hover {
-  background: var(--bg-selection);
-  border-radius: 4px;
+  background: transparent;
 }
 
 .tree-item__arrow {
@@ -290,7 +393,17 @@ function onKeyDown(event) {
 
 .tree-item__icon {
   flex: 0 0 auto;
-  margin-right: 6px;
+  /* 文件行没有折角箭头槽，图标会直接贴到文件夹那条范围线上，左侧先收一道 3px 的小缝；
+     同时把图标与名字之间的缝从 5px 收到 2px —— 两者相加仍是 20px，名字列跟文件夹名
+     （槽 16px + 4px）保持同列。 */
+  margin-left: 3px;
+  margin-right: 2px;
+}
+
+/* 文件夹没有图标，名字直接跟在折角箭头后：补一点缝，别贴住箭头图形
+   （箭头的槽宽固定 16px，箭头图标 14px 居中，两边各留 1px） */
+.tree-item__row--dir .tree-item__label {
+  margin-left: 4px;
 }
 
 /* 语言标志沿用 VS Code（Seti）的配色：三类字标各用各自的蓝，跟设置里的「本地运行环境」
