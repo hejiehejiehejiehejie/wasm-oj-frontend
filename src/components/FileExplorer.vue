@@ -7,8 +7,8 @@
  * 右键目录则显式指定该目录。名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
  *
  * 通过 provide 向递归树项提供能力：右键菜单、删除确认、根 DOM、重命名目标、焦点管理，
- * 以及内联新建的状态与提交入口。输入行由 InlineCreateRow 渲染：根目录这份在本组件，
- * 建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
+ * 内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由 InlineCreateRow
+ * 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
  */
 import { computed, nextTick, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -16,6 +16,7 @@ import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
+import { useTreeDrag } from '../composables/useTreeDrag.js'
 import { t } from '../i18n/index.js'
 import {
   activeLanguage,
@@ -23,6 +24,7 @@ import {
   createFile,
   deleteNode,
   getNodeById,
+  moveNode,
   toggleExpand,
   updateFileMeta,
   workspace,
@@ -346,6 +348,61 @@ function onTreeContextMenu(event) {
   event.preventDefault()
 }
 
+// ------------------------------------------------------------ 拖拽移动
+
+/**
+ * 一次拖拽的落盘。
+ *
+ * 移动本身只是 `vfs.rename`，**节点 id 不变**，所以已打开的页签、Monaco model 与 undo 栈
+ * 都不受影响。这里额外做两件事：把目标目录展开（拖进折叠目录是常见路径，展开了才看得到
+ * 刚落进去的东西），以及把被移动的那一行滚进视野 —— 拖到远处的目录后，用户得立刻看到结果。
+ *
+ * @param {object} node 被拖的节点
+ * @param {{ rowId: string, path: string }} target 落点（rowId 为 'root' 表示根目录）
+ */
+async function onDropNode(node, target) {
+  try {
+    await moveNode(node.path, target.path)
+    if (target.rowId !== 'root' && !workspace.expandedIds.includes(target.rowId)) {
+      toggleExpand(target.rowId)
+    }
+    setFocusedId(node.id)
+    // 树已经由 reset 事件重建过一轮，等本轮渲染落地再找那一行
+    await nextTick()
+    rootEl.value
+      ?.querySelector(`[data-tree-id="${CSS.escape(node.id)}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  } catch (error) {
+    showNotice(error.message || t('explorer.moveFailed'))
+  }
+}
+
+const {
+  draggingNode,
+  draggingId,
+  ghostPos,
+  dropTargetRowId,
+  isRootDrop,
+  suppressContextMenu,
+  onRowPointerDown,
+  consumeClickSuppression,
+} = useTreeDrag({ treeEl: rootEl, onDrop: onDropNode, openContextMenu })
+
+/** 幽灵元素上的图标：只分文件 / 目录，够用来认出手里拖的是谁 */
+const ghostIcon = computed(() => (draggingNode.value?.type === 'directory' ? 'folder' : 'file'))
+
+/** 拖拽 / 粘贴失败的临时提示（这两件事都没有行内位置可放，见方案 D5）；空串 = 不显示 */
+const notice = ref('')
+let noticeTimer = 0
+
+function showNotice(text) {
+  notice.value = text
+  window.clearTimeout(noticeTimer)
+  noticeTimer = window.setTimeout(() => {
+    notice.value = ''
+  }, 4000)
+}
+
 // ------------------------------------------------------------ 焦点（roving tabindex）
 
 function isTabbable(id) {
@@ -374,6 +431,12 @@ provide('creatingRow', creatingRow)
 provide('commitCreate', commitCreate)
 provide('cancelCreate', cancelCreate)
 provide('onCreateBlur', onCreateBlur)
+// 拖拽（useTreeDrag）：行上起手、落点高亮、点击抑制、右键菜单让位
+provide('onRowPointerDown', onRowPointerDown)
+provide('consumeClickSuppression', consumeClickSuppression)
+provide('suppressContextMenu', suppressContextMenu)
+provide('dropTargetRowId', dropTargetRowId)
+provide('draggingId', draggingId)
 </script>
 
 <template>
@@ -400,7 +463,17 @@ provide('onCreateBlur', onCreateBlur)
       </span>
     </header>
 
-    <div ref="rootEl" class="explorer__tree" role="tree" @contextmenu="onTreeContextMenu" @focusin="onTreeFocus">
+    <!-- 拖拽 / 粘贴失败只在这里提示一句（没有行内位置可放），约 4s 后自己消失 -->
+    <p v-if="notice" class="explorer__notice" role="status" @click="notice = ''">{{ notice }}</p>
+
+    <div
+      ref="rootEl"
+      class="explorer__tree"
+      :class="{ 'is-drop-root': isRootDrop }"
+      role="tree"
+      @contextmenu="onTreeContextMenu"
+      @focusin="onTreeFocus"
+    >
       <!-- 建在根目录的输入行；建在某个目录里的那份由 FileTreeItem 渲染（同一个组件） -->
       <InlineCreateRow v-if="creating && creating.targetId === 'root'" :state="creating" :depth="0" />
 
@@ -543,6 +616,18 @@ provide('onCreateBlur', onCreateBlur)
             </button>
           </div>
         </div>
+      </div>
+    </Teleport>
+
+    <!-- 拖拽幽灵：跟着指针走，必须 pointer-events: none，否则 elementFromPoint 只命中它自己 -->
+    <Teleport to="body">
+      <div
+        v-if="draggingNode"
+        class="drag-ghost"
+        :style="{ left: `${ghostPos.x}px`, top: `${ghostPos.y}px` }"
+      >
+        <AppIcon :name="ghostIcon" :size="14" />
+        <span class="drag-ghost__label">{{ draggingNode.name }}</span>
       </div>
     </Teleport>
   </section>
@@ -794,6 +879,52 @@ provide('onCreateBlur', onCreateBlur)
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 0;
+}
+
+/* 落点是根目录（拖到树的空白处）时的整框提示 */
+.explorer__tree.is-drop-root {
+  outline: 1px dashed var(--focus);
+  outline-offset: -2px;
+}
+
+/* 拖拽 / 粘贴失败的临时提示 */
+.explorer__notice {
+  margin: 0;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-panel-head);
+  color: var(--danger-text);
+  font-size: 11.5px;
+  line-height: 16px;
+  cursor: default;
+}
+
+/* 拖拽幽灵：Teleport 到 body，只依赖主题变量 */
+.drag-ghost {
+  position: fixed;
+  z-index: 140;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  /* 让指针事件穿过去，命中测试才找得到底下的行 */
+  pointer-events: none;
+  /* 挪到指针右下一点点，别挡住手指底下那一行 */
+  transform: translate(10px, 8px);
+}
+
+.drag-ghost__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 18px;
 }
 
 .explorer__empty {

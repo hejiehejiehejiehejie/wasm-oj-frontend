@@ -12,6 +12,7 @@ export default {
       defaultFolderName: '新建文件夹',
       createFailed: '创建失败',
       renameFailed: '重命名失败',
+      moveFailed: '移动失败',
       saveFailed: '保存失败',
 
       /** 文件树全空时的占位语 */
@@ -83,6 +84,7 @@ export default {
       defaultFolderName: 'New folder',
       createFailed: 'Could not create',
       renameFailed: 'Could not rename',
+      moveFailed: 'Could not move',
       saveFailed: 'Could not save',
 
       emptyTree: 'No files yet — use the buttons above to create one',

@@ -15,6 +15,8 @@ import { t } from '../../i18n/index.js'
 import { modelManager } from '../monaco/modelManager.js'
 import { languageForPath } from '../monaco/language.js'
 import { defaultCode } from '../templates.js'
+import { basename, join, normalize } from './paths.js'
+import { uniqueNameIn } from './treeOps.js'
 import { getVFS } from './vfsFactory.js'
 
 const EXPANDED_KEY = 'cph.vfsExpanded'
@@ -348,6 +350,26 @@ export async function createDirectory(path) {
 export async function renameNode(path, newPath) {
   await getVFS().rename(path, newPath)
   // tree 与 model 元数据由紧随其后的 reset 事件刷新
+}
+
+/**
+ * 把节点移进某个目录（拖拽落点、粘贴都走这里）。
+ *
+ * 目标目录里撞名就自动排成 name-2 —— 拖拽是高频动作，不该为了个重名把用户拦下来。
+ * 底层仍是 `rename`：provider 只改 path / parentId / name，**节点 id 不变**，
+ * 所以移动一个已打开的文件不会打断页签、Monaco model 与 undo 栈。
+ *
+ * @param {string} path 源路径
+ * @param {string} targetDirPath 目标目录的绝对路径
+ * @returns {Promise<string>} 移动后的新路径
+ */
+export async function moveNode(path, targetDirPath) {
+  const vfs = getVFS()
+  const type = (await vfs.stat(path))?.type ?? 'file'
+  const name = await uniqueNameIn(vfs, targetDirPath, basename(path), type)
+  const newPath = join(targetDirPath, name)
+  if (newPath !== normalize(path)) await vfs.rename(path, newPath)
+  return newPath
 }
 
 /**

@@ -133,7 +133,7 @@ export default {
                 '打开任意 OJ 题目页，点浏览器工具栏上的插件图标',
               ],
               notes: [
-                '题目落进 /Problems/〈年月〉/〈OJ〉/未分类/，样例整体替换进**评测样例**',
+                '题目落进 〈年月〉/〈OJ〉/未分类/（工作区根下），样例整体替换进**评测样例**',
                 '代码文件里只有一行占位注释，题解归你写',
                 '重抓同一道题只刷新样例与元数据，你的题解一个字都不动',
                 '认题靠**题目链接**，不靠文件名',
@@ -316,7 +316,7 @@ export default {
                 'Open any problem page on an online judge and click the extension icon in the browser toolbar',
               ],
               notes: [
-                'The problem lands in /Problems/〈year-month〉/〈OJ〉/未分类/, and its samples replace the contents of **Test cases**',
+                'The problem lands in 〈year-month〉/〈OJ〉/未分类/ (under the workspace root), and its samples replace the contents of **Test cases**',
                 'The code file holds nothing but a placeholder comment — the solution is yours to write',
                 'Importing the same problem again only refreshes the samples and metadata; not a character of your solution is touched',
                 'Problems are identified by **Problem URL**, not by file name',

@@ -2,8 +2,11 @@
  * problemImport —— 把浏览器扩展（Competitive Companion）抓到的题目落进 VFS。
  *
  * 落盘约定：一道题 = 一个代码文件 + 一份隐藏元数据，两者**同名、只差后缀**、同在题目录下
- *   /Problems/<年月>/<OJ 标签>/<难度>/<题目名>.cpp        用户写的题解。只在首次导入时创建，此后正文一个字都不改
- *   /Problems/<年月>/<OJ 标签>/<难度>/.cph/<题目名>.json  抓取结果（题目元数据 + 全部测试样例），每次抓取整体覆盖
+ *   /<年月>/<OJ 标签>/<难度>/<题目名>.cpp        用户写的题解。只在首次导入时创建，此后正文一个字都不改
+ *   /<年月>/<OJ 标签>/<难度>/.cph/<题目名>.json  抓取结果（题目元数据 + 全部测试样例），每次抓取整体覆盖
+ *
+ * 没有外层 wrapper（2026-09-30 起去掉原先的 /Problems）：题目目录直接挂在根下，与用户自己建的
+ * main.cpp 等平铺。老工作区里存在的 /Problems 由 migrate.js 一次性搬空。
  *
  * 为什么要分「年月 / OJ / 难度」三层：抓来的题攒多了，平铺在一个 OJ 目录下没法看。年月粒度取到月
  * （按天会长出大量只含一个文件的目录）；难度导入时一律为空（来源站点口径不一，由用户手填），
@@ -33,8 +36,6 @@ import { dirname, join, normalize } from './paths.js'
 import { getVFS } from './vfsFactory.js'
 import { openFile } from './workspaceStore.js'
 
-/** 所有导入的题目都收在这一层下，与用户自己建的 /main.cpp 等分开（由 migrate.js 在建工作区时种子） */
-const ROOT_DIR = '/Problems'
 /** 抓取产物目录：里面的东西都是工具写的，可以放心整体覆盖；同时被树 UI 过滤掉 */
 const META_DIR = '.cph'
 /** 难度为空时的占位目录名：导入时难度一律为空，用户手填后也不搬动已有文件 */
@@ -240,8 +241,9 @@ export async function importProblem(task) {
   // 落盘与回传给调用方的是同一份（调用方要拿它里面的 tests 灌评测面板）
   const config = buildConfig(task, ojId)
 
-  // 新题的落点：/Problems/<年月>/<OJ>/<难度>。难度导入时一律为空（来源站点口径不一），先落「未分类」
-  const defaultDir = join(ROOT_DIR, todayMonth(), ojLabel, UNCATEGORIZED)
+  // 新题的落点：/<年月>/<OJ>/<难度>（无外层 wrapper，直接与用户自己的文件平铺在根下）。
+  // 难度导入时一律为空（来源站点口径不一），先落「未分类」
+  const defaultDir = join(todayMonth(), ojLabel, UNCATEGORIZED)
   const candidateCode = codePathOf(defaultDir, baseName)
 
   // 1) 快路径：算出来的新路径上文件名与 url 都对上，就是这道题

@@ -29,10 +29,19 @@ const treeRootEl = inject('treeRootEl')
 const renameTarget = inject('renameTarget')
 const isTabbable = inject('isTabbable')
 const creating = inject('creating')
+/** 拖拽（见 composables/useTreeDrag.js）：起手、落点高亮、点击抑制、右键菜单让位 */
+const onRowPointerDown = inject('onRowPointerDown')
+const consumeClickSuppression = inject('consumeClickSuppression')
+const suppressContextMenu = inject('suppressContextMenu')
+const dropTargetRowId = inject('dropTargetRowId')
+const draggingId = inject('draggingId')
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
 const active = computed(() => workspace.activeId === props.node.id)
 const dirty = computed(() => modelManager.isDirty(props.node.id))
+/** 拖拽态：被拖的那一行变淡，合法落点那一行铺选中色 */
+const isDragging = computed(() => draggingId?.value === props.node.id)
+const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
 
 /** 题目元数据的悬停摘要；没有元数据时为空串（行上就不设 title，别弹空提示） */
 const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
@@ -50,12 +59,21 @@ const iconName = computed(() => {
 // ------------------------------------------------------------ 点击 / 右键
 
 function onClick() {
+  // 拖拽收尾的那一次 click 要吃掉，否则松手会顺带折叠/展开落点目录
+  if (consumeClickSuppression?.()) return
   if (props.node.type === 'directory') toggleExpand(props.node.id)
   else openFile(props.node.id).catch(() => {})
 }
 
+function onPointerDown(event) {
+  onRowPointerDown?.(event, props.node)
+}
+
 function onContextMenu(event) {
   event.preventDefault()
+  // 触屏的 contextmenu 已被 useTreeDrag 从按下那一刻全程接管（见 useTreeDrag.js 的 pointerdown）：
+  // 菜单由它在手抬起时自己弹，这里绝不能再弹一个。鼠标右键不走那条路，照旧在这里弹。
+  if (suppressContextMenu?.value) return
   openContextMenu?.(event, props.node)
 }
 
@@ -169,7 +187,11 @@ function onKeyDown(event) {
   <div class="tree-item">
     <div
       class="tree-item__row"
-      :class="{ 'tree-item__row--active': active }"
+      :class="{
+        'tree-item__row--active': active,
+        'tree-item__row--dragging': isDragging,
+        'tree-item__row--drop': isDropTarget,
+      }"
       :style="{ '--depth': depth }"
       :title="metaTooltip || undefined"
       role="treeitem"
@@ -178,6 +200,7 @@ function onKeyDown(event) {
       :aria-selected="active"
       :tabindex="isTabbable(node.id) ? 0 : -1"
       @click="onClick"
+      @pointerdown="onPointerDown"
       @contextmenu.stop="onContextMenu"
       @keydown="onKeyDown"
     >
@@ -228,6 +251,10 @@ function onKeyDown(event) {
   cursor: default;
   user-select: none;
   white-space: nowrap;
+  /* 触屏的关键：声明 pan-y 把纵向留给浏览器滚列表，横向留给我们的拖拽。不能用 none——
+     那样子指在行上滑动就再也滚不动树了。而「长按起手后不让它滚」得靠非被动 touchmove
+     拦（touch-action 在手势开始时就读定了，中途改无效），见 useTreeDrag.js 的注释。 */
+  touch-action: pan-y;
 }
 
 .tree-item__row:hover {
@@ -237,6 +264,20 @@ function onKeyDown(event) {
 .tree-item__row--active,
 .tree-item__row--active:hover {
   background: var(--bg-hover);
+}
+
+/* 正在被拖的那一行 */
+.tree-item__row--dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+/* 合法落点。写成两个类是为了压过上面的 :hover / --active:hover —— 拖拽时光标必然悬停在
+   落点行上，只用一个类的话 hover 的背景会盖掉高亮。 */
+.tree-item__row.tree-item__row--drop,
+.tree-item__row.tree-item__row--drop:hover {
+  background: var(--bg-selection);
+  border-radius: 4px;
 }
 
 .tree-item__arrow {
