@@ -92,7 +92,7 @@ const expectedLong = computed(() => isLong(props.testCase.expectedOutput))
 // （用例对象只在 createCase 时造一次，此后没有任何外部写入路径 —— 见 App.vue 的 testCases ——
 //  所以这个实例级的缓存不会被别处改脏；换题、重载走的是新对象、新组件。）
 // 但**掉出长文本时必须归零**：用户把可编辑段删光后真值只剩原来那截尾巴（4505 字符，不算长），
-// 冻结值留着的话，界面会摆着一句「已省略 4,505 个字符」而其实一个字符都没省。
+// 冻结值留着的话，界面会摆着一句「还有 4,505 个字符未显示」而其实一个字符都没少。
 const inputHidden = ref(0)
 const expectedHidden = ref(0)
 
@@ -167,60 +167,30 @@ const MAX_IO_HEIGHT = 320
 const inputEl = ref(null)
 const expectedEl = ref(null)
 
-// 「框里装不下」有两种成因，提示行对两者都要给：
-//   ① 被截断（> IO_PREVIEW_TRIGGER）—— 框里根本没有这部分字符，`xxxHidden > 0`；
-//   ② 只是超出框高 —— 字符一个不少，全在框里，只是要滚动才看得见。
-// 以前只有 ①，于是「十几行到 6000 字符」这一段是**静默**的：框被内容撑满、底边也还是实线，
-// 用户看不出下面还有东西（实测 200 行 ≈ 3000 字符就是如此）。
-// 这里把 ② 也测出来，交给模板去点亮虚线底边与那行小字。
-const inputOverflow = ref(false)
-const expectedOverflow = ref(false)
-// 纯溢出态（没被截断、只是超出框高）下要报的那个数：框里**当前看不见**的字符数。
-// 它是比例估算（可见高度 / 内容总高 × 总长），不参与显示文本的切分，所以打字时数字变一下无所谓 ——
-// 变的是数字，框里那一段一个字都不会动。
-const inputOverflowHidden = ref(0)
-const expectedOverflowHidden = ref(0)
-
-// 提示行要报的数：截断态用「真值里没进框的那截」，纯溢出态用「框里看不见的那截」。
-// **两种成因共用一句「已省略 N 个字符」**（2026-09-29 定稿）。曾拆成两句 —— 纯溢出态
-// 改说「还有 N 个字符未显示 · 可滚动查看」，理由是那里一个字符都没省、写「已省略」
-// 会和「框底找不到 `……`」自相矛盾（用户当面撞过一次）；**但用户当天又要求改回统一
-// 一句**，即接受「纯溢出态说已省略、框尾却没有省略号」这个不一致。**别再自动拆开**。
-// 参数是**值**不是 ref —— 模板里 refs 会被自动解包，函数里再 `.value` 拿到的是 undefined，
-// 一路传到 fmt() 就是 `Cannot read properties of undefined (reading 'toLocaleString')`，
-// 而这次抛错发生在渲染期，整张卡片会一起渲染失败（连框里的省略号都出不来）。
-function omittedCount(hidden, overflowHidden) {
-  return hidden > 0 ? hidden : overflowHidden
-}
-
-function autoGrow(el, overflowingRef, overflowHiddenRef) {
+// 「框里装不下」有两种成因，但**只有 ① 才算「真少了东西」、才配得上任何标记**：
+//   ① 被截断（> IO_PREVIEW_TRIGGER）—— 框里根本没有这部分字符（`xxxHidden > 0`），
+//      底边换虚线 + 一行「还有 N 个字符未显示 + 复制全部」，两样都是能操作的信息；
+//   ② 只是超出框高 —— 字符一个不少、拖滚动条就能看到全部。这一步是浏览器本来的行为，
+//      再画什么都是噪音：提示行 2026-09-29 第四次拍板删掉（原话「这不是废话吗？纯溢出态
+//      就是没显示全，但是滚动就可以看到所有的」），底边虚线同日第五次拍板删掉。
+// 所以 ② 现在**没有任何视觉标记**，只剩 `overflowY: auto` 自带的那根滚动条 —— 那根是浏览器的，
+// 不是我们加的。下面这个函数因此不再向 Vue 报告溢出状态，纯粹摆盒子。
+function autoGrow(el) {
   if (!el) return
   // v-show 折叠时元素不可见，scrollHeight 为 0，此时不动高度，展开后会重新计算。
   if (!el.scrollHeight) return
   const cs = getComputedStyle(el)
   const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
-  const padding = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
   el.style.height = 'auto'
   const full = el.scrollHeight + border
   const cap = px(MAX_IO_HEIGHT)
   el.style.height = `${Math.min(full, cap)}px`
-  const over = full > cap
-  el.style.overflowY = over ? 'auto' : 'hidden'
-  // 只在两侧之间翻转时写：赋同一个布尔值本来就不会触发重渲染，
-  // 这行断言的是「虚线底边与那行小字不会把宽度改掉」，因此不会和 ResizeObserver 形成回调环。
-  overflowingRef.value = over
-  // 看不见的比例 = 1 − 可见内容高 / 内容总高（两个高都要先减掉内边距：scrollHeight 含内边距不含边框）。
-  // el.value.length 是**框里**这份文本的长度 —— 纯溢出态下它就是真值，数字才对得上。
-  const contentH = el.scrollHeight - padding
-  const visibleH = el.clientHeight - padding
-  overflowHiddenRef.value = over
-    ? Math.max(1, Math.round(el.value.length * Math.max(0, 1 - visibleH / contentH)))
-    : 0
+  el.style.overflowY = full > cap ? 'auto' : 'hidden'
 }
 
 function growAll() {
-  autoGrow(inputEl.value, inputOverflow, inputOverflowHidden)
-  autoGrow(expectedEl.value, expectedOverflow, expectedOverflowHidden)
+  autoGrow(inputEl.value)
+  autoGrow(expectedEl.value)
 }
 
 // 监听的是「渲染出来的那一份」：内容越过阈值时显示文本会从完整内容整段换成截断预览
@@ -365,22 +335,17 @@ function onLongCopy(event, full) {
             ref="inputEl"
             v-model="inputModel"
             class="ta"
-            :class="{ 'ta--truncated': inputHidden > 0 || inputOverflow }"
+            :class="{ 'ta--truncated': inputHidden > 0 }"
             spellcheck="false"
             placeholder="input"
             :disabled="locked"
             @copy="onLongCopy($event, testCase.input)"
           ></textarea>
-          <div
-            v-if="inputHidden > 0 || inputOverflow"
-            class="ionote"
-            :class="{ 'ionote--truncated': inputHidden > 0 }"
-          >
+          <div v-if="inputHidden > 0" class="ionote">
             <span class="ionote__text">
-              {{ t('tests.card.omitted', { n: fmt(omittedCount(inputHidden, inputOverflowHidden)) }) }}
+              {{ t('tests.card.omitted', { n: fmt(inputHidden) }) }}
             </span>
             <button
-              v-if="inputHidden > 0"
               type="button"
               class="ionote__btn"
               :title="t('tests.card.copyFull')"
@@ -397,22 +362,17 @@ function onLongCopy(event, full) {
             ref="expectedEl"
             v-model="expectedModel"
             class="ta"
-            :class="{ 'ta--truncated': expectedHidden > 0 || expectedOverflow }"
+            :class="{ 'ta--truncated': expectedHidden > 0 }"
             spellcheck="false"
             :placeholder="t('tests.card.expectedPlaceholder')"
             :disabled="locked"
             @copy="onLongCopy($event, testCase.expectedOutput)"
           ></textarea>
-          <div
-            v-if="expectedHidden > 0 || expectedOverflow"
-            class="ionote"
-            :class="{ 'ionote--truncated': expectedHidden > 0 }"
-          >
+          <div v-if="expectedHidden > 0" class="ionote">
             <span class="ionote__text">
-              {{ t('tests.card.omitted', { n: fmt(omittedCount(expectedHidden, expectedOverflowHidden)) }) }}
+              {{ t('tests.card.omitted', { n: fmt(expectedHidden) }) }}
             </span>
             <button
-              v-if="expectedHidden > 0"
               type="button"
               class="ionote__btn"
               :title="t('tests.card.copyFull')"
@@ -720,10 +680,11 @@ function onLongCopy(event, full) {
 }
 
 /* 「框里装不下」的标记（见脚本里的 IO_PREVIEW_TRIGGER 与 overflow 那段）。
-   两种成因共用它：真被截断的、以及只是超出框高要滚动的 —— 对用户都是「下面还有」。
+   **只给真被截断的情形**（`xxxHidden > 0`）：那种状态下框里确实少了一截正文，底边这条虚线
+   是「下面还有东西不在这个框里」的分隔提示；只是超出框高要滚动的那种（字符一个没少）不给
+   —— 拖滚动条就能看到全部，浏览器那根滚动条已经把话说完了，再画虚线是噪音（见脚本里的注释）。
    框本身仍然可以打字，所以不能再整框画虚线 —— 那会被读成「这里不能编辑」。
-   改成只把底边换成虚线：一条「下面还有，只是没显示」的分隔提示。
-   边框色必须从 --border-soft 提到 --border：前者在浅色主题下几乎看不见，
+   改成只把底边换成虚线，边框色必须从 --border-soft 提到 --border：前者在浅色主题下几乎看不见，
    1px 的虚线一旦没有对比度就完全白做。 */
 .ta--truncated,
 .out.is-truncated {
@@ -731,7 +692,8 @@ function onLongCopy(event, full) {
   border-bottom-color: var(--border);
 }
 
-/* 提示行：左边一句说明，右边「复制全部」（只有截断态才有那颗按钮，纯溢出态没东西可「全部」复制）。
+/* 提示行：左边一句说明，右边「复制全部」。**只有截断态才有这一行** —— 那一行既是说明、
+   也带着唯一的补救动作；纯溢出态既没有这一行、也没有虚线底边（见脚本里 overflow 那段的注释）。
    用 --text-dim 而不是 --text-faint：这一行说的是「上面那段在框里显示不完」，属于必须看见的信息。 */
 .ionote {
   display: flex;
@@ -846,9 +808,9 @@ function onLongCopy(event, full) {
   }
 
   /* 提示行同理：说明文字让位给「复制全部」那颗按钮 —— 它才是能点的东西。
-     但只对**截断态**让位：那一行里至少还有按钮撑着。纯溢出态那一行只有这一句话，
-     藏掉就剩一条空行，用户彻底看不出框里装不下（见脚本里 overflow 那段的注释）。 */
-  .ionote--truncated .ionote__text {
+     只对**带按钮的那种提示行**（两个输入框底下的截断态）让位；输出块底下那行没有按钮，
+     藏掉就剩一条空行，所以用 :has 把它们区分开。 */
+  .ionote:has(.ionote__btn) .ionote__text {
     display: none;
   }
 }

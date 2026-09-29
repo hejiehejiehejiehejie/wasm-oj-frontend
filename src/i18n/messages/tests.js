@@ -63,8 +63,14 @@ export default {
 
         copyFull: '复制完整内容（全选后 Ctrl+C 同样有效）',
         copyFullShort: '复制全部',
-        /** 说明行：{n} 已格式化（带千分位）。框里只剩一个 `……`，具体的数落在这里 */
-        omitted: '已省略 {n} 个字符',
+        /**
+         * 说明行：{n} 已格式化（带千分位）。框里只剩一个 `……`，具体的数落在这里。
+         * **只有截断态会显示这一行**（2026-09-29 第四次定）：纯溢出态（字符一个没少、只是超出
+         * 框高要滚动）不再出提示行 —— 那一行是废话，用户原话「纯溢出态就是没显示全，但是滚动
+         * 就可以看到所有的」。曾用「已省略 {n} 个字符」，在那个状态下与框尾找不到 `……` 对不上，
+         * 用户三次撞到；现在那句话只在真截断时出现，「未显示」的措辞也就没有歧义了。
+         */
+        omitted: '还有 {n} 个字符未显示',
       },
 
       /** 评测结论的 detail 文案：编排层（services/runner.js）写进卡片的状态补丁 */
@@ -122,7 +128,8 @@ export default {
 
         copyFull: 'Copy the full content (Ctrl+C after Select All works too)',
         copyFullShort: 'Copy all',
-        omitted: '{n} characters omitted',
+        /** 同中文：只有真截断（框尾有 `……`）时才显示这一行，纯溢出态不显示 */
+        omitted: '{n} characters not shown',
       },
 
       outcome: {
