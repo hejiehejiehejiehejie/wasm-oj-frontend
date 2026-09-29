@@ -1,6 +1,6 @@
 <script setup>
 /**
- * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（题目信息 / 打开题目链接 / 新建 / 重命名 / 删除）。
+ * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（打开题目链接 / 题目信息 / 新建 / 重命名 / 删除）。
  *
  * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
  * 新建的目标目录可以是任意已存在目录：页头按钮跟随树内聚焦的目录（没聚焦时回落根目录），
@@ -224,8 +224,8 @@ function problemUrl(node) {
 function buildMenuItems(node) {
   const items = []
   if (node?.type === 'file') {
-    items.push({ id: 'meta', label: t('explorer.menu.meta') })
     if (problemUrl(node)) items.push({ id: 'open-url', label: t('explorer.menu.openUrl') })
+    items.push({ id: 'meta', label: t('explorer.menu.meta') })
   } else if (node?.type === 'directory') {
     items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
     items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
