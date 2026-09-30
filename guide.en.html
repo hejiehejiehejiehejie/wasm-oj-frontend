@@ -29,7 +29,7 @@
     <meta name="twitter:description" content="How the local WASM sandbox works, which judge engine to pick, measured browser performance, verdicts and the time limit (TLE), one-click problem import, shortcuts and interface preferences, installing as a standalone offline window, and answers to common questions.">
     <meta name="twitter:image" content="https://www.998244353.best/og-cover.png">
     <!--
-      主题同步：和主应用读同一份 localStorage 契约（cph.editorSettings.theme）。
+      主题同步：和主应用读同一份 localStorage 契约（cp.editorSettings.theme）。
       不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
       故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
 
@@ -41,7 +41,7 @@
     -->
     <script>
       try {
-        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
         var theme = saved && saved.theme
         // 同时认旧 id（cph-light）：要等主应用跑过一次才会把存档迁成 'light'，
         // 在此之前直接打开本页也不该闪成深色。
@@ -335,7 +335,7 @@
         </ul>
         <p>Imported problems are layered as <code>&lt;year-month&gt;/&lt;OJ&gt;/&lt;difficulty&gt;</code> directly under the workspace root, with the problem title as the file name.</p>
         <p>
-          Problem metadata lives in the hidden <code>.cph</code> folder, which the tree never shows.
+          Problem info and captured samples live on the code file itself, so nothing extra shows up in the tree.
           The importing extension creates the <code>未分类</code> folder under its Chinese name in either interface language.
         </p>
         <h3>How do I write notes (Markdown / LaTeX)?</h3>
@@ -468,6 +468,12 @@
         <p>The file tree and the file contents live in IndexedDB.</p>
         <p>The precompiled header lives in IndexedDB too.</p>
         <p>All of it is confined to this browser on this device. Clearing your browser data clears it as well.</p>
+
+        <h3>Are cloud-synced settings public?</h3>
+        <p>Yes. Reading the cloud copy needs no sign-in — append your Codeforces handle to the site URL, e.g. <code>https://www.998244353.best/he-jie</code>, to fetch it.</p>
+        <p>So clicking <strong>Upload local settings</strong> means you agree to make this configuration public.</p>
+        <p>Only preference keys are uploaded: theme, shortcuts, UI scale, sidebar side, column split, run time limit and the like.</p>
+        <p>The judge URL you entered, hand-written test cases, the file tree and file contents are never uploaded.</p>
 
         <h3>What if the extension cannot grab the problem?</h3>
         <p>First make sure this site is open in a tab.</p>

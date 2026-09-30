@@ -140,6 +140,17 @@ function startRename() {
   })
 }
 
+/**
+ * 回车提交重命名。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
+ * 组字期间敲下去会把半截拼音当成新名字落盘 —— 和全局快捷键同一条规矩（见 App.vue 的 onKeydown）：
+ * 组字中一律不当成提交。keyCode 229 是部分输入法在组字时不报 isComposing 的补漏。
+ */
+function submitRenameOnEnter(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  commitRename()
+}
+
 async function commitRename() {
   if (!renameMode.value) return
   const value = renameValue.value.trim()
@@ -174,6 +185,10 @@ function visibleItems() {
 }
 
 function onKeyDown(event) {
+  // 输入法组字期间的按键不是树导航：重命名框里拼音选词的回车会一路冒泡到 'Enter' 分支，
+  // 把文件顺手打开；方向键也会被当成移动焦点，把候选词高亮抢走（同一条规矩见 App.vue 的 onKeydown）
+  if (event.isComposing) return
+
   const items = visibleItems()
   const index = items.indexOf(event.currentTarget)
 
@@ -261,7 +276,7 @@ function onKeyDown(event) {
         ref="renameInput"
         v-model="renameValue"
         class="tree-item__input"
-        @keydown.enter.prevent="commitRename"
+        @keydown.enter="submitRenameOnEnter"
         @keydown.esc.prevent="cancelRename"
         @blur="commitRename"
       />

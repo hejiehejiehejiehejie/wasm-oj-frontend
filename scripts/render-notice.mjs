@@ -282,7 +282,7 @@ function renderPage(body, hash, page) {
     -->
     <script>
       try {
-        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
         var theme = saved && saved.theme
         if (theme === 'light' || theme === 'cph-light') {
           document.documentElement.dataset.theme = 'light'

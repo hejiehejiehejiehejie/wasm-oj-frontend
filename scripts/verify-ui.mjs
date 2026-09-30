@@ -111,8 +111,8 @@ const probe = (page) =>
       hints: [...document.querySelectorAll('.card .hint')].map((el) => el.textContent.trim()),
       metrics: [...document.querySelectorAll('.card .metric')].map((el) => el.textContent.trim()),
       horizontalScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
-      storedPanel: stored('cph.panelPosition'),
-      storedShare: stored('cph.editorShare'),
+      storedPanel: stored('cp.panelPosition'),
+      storedShare: stored('cp.editorShare'),
       // 页头控件的 aria-label：胶囊那颗写的是「将要去的那一个」，设置那颗恒定
       sidebarTabs: visibleSwitcherTabs().map((el) => el.getAttribute('aria-label')),
       // 胶囊里被填亮的那一段。这条守的是「胶囊真的把当前面板画出来了」——
@@ -233,7 +233,7 @@ try {
     await showPanel(page, 'tests')
     await page.waitForSelector('.card', { visible: true, timeout: 20000 })
     const state = await probe(page)
-    await page.screenshot({ path: `${SHOTS}cph-1-default-right.png` })
+    await page.screenshot({ path: `${SHOTS}cp-1-default-right.png` })
     const ok =
       tabs.join('/') === '切换到评测样例/设置' &&
       segIds.join('/') === 'explorer/tests' &&
@@ -316,7 +316,7 @@ try {
     })
     const state = await probe(page)
     const markerAlive = await page.evaluate(() => document.querySelector('.monaco-editor')?.dataset.marker)
-    await page.screenshot({ path: `${SHOTS}cph-2-swapped-right.png` })
+    await page.screenshot({ path: `${SHOTS}cp-2-swapped-right.png` })
     // 新契约：flex-direction 恒为 row；靠 order 让测试面板跑到右边；Monaco 实例与 DOM 不重建；
     // 设置是个页签（开时铺满编辑区、关时视图与页签一起消失）
     const ok =
@@ -327,7 +327,7 @@ try {
       state.codeLineCount > 3 &&
       settingsShown.viewVisible &&
       settingsShown.tabActive &&
-      settingsShown.navItems === 9 &&
+      settingsShown.navItems === 10 &&
       !settingsClosed.tabPresent &&
       !settingsClosed.viewVisible
     record('B. 切换布局：order 换序，DOM/Monaco 不重建', ok, {
@@ -343,7 +343,7 @@ try {
     await page.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
     await wait(600)
     const state = await probe(page)
-    await page.screenshot({ path: `${SHOTS}cph-3-persisted-right.png` })
+    await page.screenshot({ path: `${SHOTS}cp-3-persisted-right.png` })
     record('C. 刷新后偏好仍在 localStorage', state.storedPanel === 'right' && state.flexDirection === 'row', {
       storedPanel: state.storedPanel,
       flexDirection: state.flexDirection,
@@ -363,7 +363,7 @@ try {
     await page.mouse.up()
     await wait(400)
     const after = await probe(page)
-    await page.screenshot({ path: `${SHOTS}cph-4-resized.png` })
+    await page.screenshot({ path: `${SHOTS}cp-4-resized.png` })
     const shrank = after.testsPane.w < before.testsPane.w - 100
     record('D. 拖动分隔条改变两栏比例', shrank, {
       dragDelta: delta,
@@ -417,7 +417,7 @@ try {
       }
     })
     const state = await probe(page)
-    await page.screenshot({ path: `${SHOTS}cph-5-run-all.png` })
+    await page.screenshot({ path: `${SHOTS}cp-5-run-all.png` })
     record(
       'E. 添加用例并运行全部（真实评测）',
       added === 3 &&
@@ -486,7 +486,7 @@ try {
     const noLangSelect = await page.evaluate(() =>
       [...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view')),
     )
-    await page.screenshot({ path: `${SHOTS}cph-6-python.png` })
+    await page.screenshot({ path: `${SHOTS}cp-6-python.png` })
     record(
       'F. 打开 main.py：Python 模板与判题语言',
       Boolean(pythonLoaded) &&
@@ -534,7 +534,7 @@ try {
     )
     // 收尾把侧栏恢复成「可见 + 资源管理器」，免得给后续步骤留个歪状态
     await showPanel(page, 'explorer')
-    await page.screenshot({ path: `${SHOTS}cph-7-switch-panel.png` })
+    await page.screenshot({ path: `${SHOTS}cp-7-switch-panel.png` })
 
     record(
       'G. 快捷键切换侧栏面板',
@@ -620,7 +620,7 @@ try {
     // 收尾：把侧栏再打开，别给后续留个折叠状态
     await pressMod(page, 'KeyB')
     await wait(400)
-    await page.screenshot({ path: `${SHOTS}cph-8-markdown.png` })
+    await page.screenshot({ path: `${SHOTS}cp-8-markdown.png` })
 
     record(
       'H. 题解（.md）：工具栏、运行闸门与快捷键让路',
@@ -638,7 +638,7 @@ try {
   })
 
   console.log(`\n控制台告警/错误: ${JSON.stringify(logs.slice(0, 12), null, 1)}`)
-  console.log(`localStorage: panel=${await page.evaluate(() => localStorage.getItem('cph.panelPosition'))}`)
+  console.log(`localStorage: panel=${await page.evaluate(() => localStorage.getItem('cp.panelPosition'))}`)
   if (results.some((item) => !item.ok)) exitCode = 1
 } catch (error) {
   console.log(`运行中断: ${String(error?.message ?? error).slice(0, 300)}`)

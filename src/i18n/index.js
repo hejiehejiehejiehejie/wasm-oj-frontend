@@ -8,12 +8,12 @@
  * 这样改一句文案时中英就在隔壁，不容易只改一边造成漂移；而 `t('tests.addCase')`
  * 这种点分 key 的命名空间就是文件名。
  *
- * 【为什么不走 usePersistentRef】同 `cph.shortcuts`（见 HANDOFF 第 6 节）：
+ * 【为什么不走 usePersistentRef】同 `cp.shortcuts`（见 HANDOFF 第 6 节）：
  * 界面语言必须在**任何组件挂载之前**就定下来（首帧渲染的语言要是对的，不能先闪一下中文），
  * 而 usePersistentRef 靠 `onMounted` 播种。所以这里自己读写 localStorage，
  * 初值同步算出来。
  *
- * 【命名纪律】界面上叫「**界面语言**」，键名是 `cph.uiLocale`。
+ * 【命名纪律】界面上叫「**界面语言**」，键名是 `cp.uiLocale`。
  * 不要用 `cph.language` —— 那是「编辑器判题语言」留下的死键，语义完全不同
  * （见 HANDOFF 第 5 节坑 15，那里还明确写着「别把语言选择器加回来」，
  * 指的是判题语言，不是界面语言）。
@@ -42,7 +42,7 @@ export const LOCALES = [
 export const DEFAULT_LOCALE = 'zh-CN'
 
 /** localStorage 键。刻意不复用已作废的 `cph.language`，见文件头说明。 */
-export const LOCALE_STORAGE_KEY = 'cph.uiLocale'
+export const LOCALE_STORAGE_KEY = 'cp.uiLocale'
 
 const PARTS = [app, engines, explorer, help, settings, tests]
 

@@ -25,7 +25,7 @@
 import { ref, watch } from 'vue'
 import { t } from '../i18n/index.js'
 
-const STORAGE_KEY = 'cph.shortcuts'
+const STORAGE_KEY = 'cp.shortcuts'
 
 /** macOS 上 Mod 是 ⌘、Ctrl 是字面的 Control；其他平台 Mod 就是 Ctrl */
 export const IS_MAC =

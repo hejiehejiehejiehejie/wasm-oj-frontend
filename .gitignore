@@ -19,7 +19,7 @@ public/md/
 .vercel/
 
 # 本地调试与回归产物
-cph-*.png
+cp-*.png
 screenshots/
 *.log
 npm-debug.log*

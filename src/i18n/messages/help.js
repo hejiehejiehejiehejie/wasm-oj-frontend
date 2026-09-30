@@ -154,7 +154,7 @@ export default {
                 '右键文件还有**重命名**与**删除**',
                 '**题目信息**填五项：**题目链接**、**OJ**、**难度**、**日期**、**时限（秒）**',
                 '难度跟着 OJ 走：CF 与 AtCoder 用 800–3500 分数段，洛谷用官方八级',
-                '题目元数据存在隐藏的 **.cph** 目录里，树里看不见',
+                '题目信息与抓到的样例挂在代码文件自己身上，树里不会多出别的条目',
               ],
             },
             {
@@ -337,7 +337,7 @@ export default {
                 'Right-clicking a file also offers **Rename** and **Delete**',
                 '**Problem info** holds five fields: **Problem URL**, **Judge**, **Difficulty**, **Date** and **Time limit (s)**',
                 'Difficulty follows the judge: Codeforces and AtCoder use the 800–3500 rating scale, Luogu uses its eight official levels',
-                'Problem metadata lives in the hidden **.cph** folder, which the tree never shows',
+                'Problem info and captured samples live on the code file itself, so nothing extra shows up in the tree',
               ],
             },
             {

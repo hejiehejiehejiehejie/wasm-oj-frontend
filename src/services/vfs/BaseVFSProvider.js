@@ -21,6 +21,7 @@ import { t } from '../../i18n/index.js'
  * @property {number} createdAt
  * @property {number} updatedAt
  * @property {VFSNodeMeta} [meta]        题目元数据（仅文件；见 problemMeta.js）
+ * @property {Record<string, unknown>} [config] 抓题时的原始配置（含 samples 样例等；仅文件）
  * @property {VFSNode[]} [children]      仅 getTree() 的返回里组装；存储层不维护
  */
 
@@ -133,6 +134,17 @@ export class BaseVFSProvider {
    * @returns {Promise<VFSNode>}
    */
   async setMeta(path, meta) {
+    throw new Error(notImplemented())
+  }
+
+  /**
+   * 写入文件的抓题配置（含样例），不影响正文，也不与 meta 互相覆盖。
+   * config 为 null / 空对象时清除已有配置。
+   * @param {string} path
+   * @param {Record<string, unknown>|null} config
+   * @returns {Promise<VFSNode>}
+   */
+  async setConfig(path, config) {
     throw new Error(notImplemented())
   }
 

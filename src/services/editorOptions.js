@@ -86,7 +86,7 @@ export const SCROLLBAR_SIZES = [
 
 /**
  * 全部编辑器偏好的默认值。
- * 键名即 localStorage 里 `cph.editorSettings` 的字段名，加新项就往这里加一条。
+ * 键名即 localStorage 里 `cp.editorSettings` 的字段名，加新项就往这里加一条。
  */
 export const EDITOR_SETTINGS_DEFAULTS = {
   theme: 'dark',

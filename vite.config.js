@@ -11,11 +11,22 @@ const crossOriginIsolation = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 }
 
+// 云端同步（Cloudflare Worker cf-config-api）的接口挂在 www 域名的 /api/* 上，
+// 而 Worker 自己的 workers.dev 子域在国内网络不通，所以本地跑的时候把 /api 代理过去。
+// 浏览器视角仍然是一次同源请求：不用配 CORS，也不会和上面的 COEP: require-corp 打架。
+// 线上不需要这一层 —— 生产站点本身就是 www.998244353.best，/api/* 由 Worker Route 直接接住。
+const apiProxy = {
+  '/api': {
+    target: 'https://www.998244353.best',
+    changeOrigin: true,
+  },
+}
+
 // 构建产物文件名带内容哈希，Service Worker 没法在源码里硬编码，所以构建完把清单单独写一份，
 // install 阶段读取它来预缓存。这样不必引入 vite-plugin-pwa 之类的依赖。
 function precacheManifest() {
   return {
-    name: 'cph-precache-manifest',
+    name: 'cp-precache-manifest',
     apply: 'build',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle)
@@ -63,9 +74,11 @@ export default defineConfig({
     port: 5199,
     strictPort: false,
     headers: crossOriginIsolation,
+    proxy: apiProxy,
   },
   preview: {
     headers: crossOriginIsolation,
+    proxy: apiProxy,
   },
   build: {
     // Monaco ships a few large chunks; raise the warning threshold instead of

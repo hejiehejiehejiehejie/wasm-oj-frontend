@@ -276,7 +276,7 @@ defineExpose({ syncScroll })
 
 /* ------------------------------------------------------------ 正文排版
    内容来自 v-html，样式只能靠 :deep 透进去；颜色一律取 base.css 的变量，
-   两套主题（cph-dark / cph-light）自动跟着走 */
+   两套主题（dark / light）自动跟着走 */
 
 .md-preview__body :deep(> :first-child) {
   margin-top: 0;

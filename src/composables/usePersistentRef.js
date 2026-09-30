@@ -2,7 +2,7 @@ import { onMounted, ref, watch } from 'vue'
 
 function availableStorage() {
   try {
-    const probeKey = '__cph_probe__'
+    const probeKey = '__cp_probe__'
     window.localStorage.setItem(probeKey, '1')
     window.localStorage.removeItem(probeKey)
     return window.localStorage

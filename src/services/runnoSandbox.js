@@ -736,7 +736,7 @@ export async function runPython({
 // 由 WASIDrive.sync() 落到 result.fs，我们从 result.fs[PCH_PATH].content 取二进制。
 
 /** PCH 在本机不可用（生成时 OOM / cc1 卡死，或加载时被判不匹配）后写下的永久标记 */
-const PCH_UNSUPPORTED_KEY = 'cph.pchUnsupported'
+const PCH_UNSUPPORTED_KEY = 'cp.pchUnsupported'
 
 // 给足预算：老机器解析这 5 个头 + 序列化 AST 可能要几十秒，但超过这个时间
 // 基本可以断定是 cc1 卡死（本项目踩过），杀掉并标记不支持。
@@ -831,7 +831,7 @@ async function discardPch() {
  * 后台静默生成 PCH。**不要**在首屏或用户操作路径上直接调，统一走 wasmRuntime 的 warmupPch()。
  *
  * 返回值：PCH 字节（存档命中时直接给存档，不会重新编译）；已标记不支持时返回 null；失败则抛出。
- * 失败一律按「这台机器扛不住」处理，写 cph.pchUnsupported 且不再重试 —— 在会 OOM 的机器上
+ * 失败一律按「这台机器扛不住」处理，写 cp.pchUnsupported 且不再重试 —— 在会 OOM 的机器上
  * 重试只是再崩一次。所以这里成功失败都只算一次，pchPromise 也就没必要清。
  */
 export function generatePch() {

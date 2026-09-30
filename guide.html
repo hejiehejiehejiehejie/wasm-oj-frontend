@@ -29,7 +29,7 @@
     <meta name="twitter:description" content="本地 WASM 沙箱怎么用、评测引擎怎么选、浏览器里跑代码的实测速度、判定码与时限（TLE）口径、用插件一键抓题、快捷键与界面偏好、安装成独立窗口离线使用，以及常见问题解答。" data-page-node-id="fjeaAViBFB3mStDcBClY6K">
     <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" data-page-node-id="eMuVL63BedySIvMDQNAElK">
     <!--
-      主题同步：和主应用读同一份 localStorage 契约（cph.editorSettings.theme）。
+      主题同步：和主应用读同一份 localStorage 契约（cp.editorSettings.theme）。
       不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
       故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
 
@@ -40,7 +40,7 @@
     -->
     <script>
       try {
-        var saved = JSON.parse(localStorage.getItem('cph.editorSettings'))
+        var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
         var theme = saved && saved.theme
         // 同时认旧 id（cph-light）：要等主应用跑过一次才会把存档迁成 'light'，
         // 在此之前直接打开本页也不该闪成深色。
@@ -337,7 +337,7 @@
           <li data-page-node-id="JMdl8nvho250IpBcJUvd3e">换 OJ 会清空难度，省得留下对不上的值。</li>
         </ul>
         <p data-page-node-id="ZYQXDeWhBRJzYMQ4n7Lgct">抓来的题目按 <code data-page-node-id="DXVapGF6EnTSKkYzaZUTtA">&lt;年月&gt;/&lt;OJ&gt;/&lt;难度&gt;</code> 分层，直接放在工作区根目录下，题名就是文件名。</p>
-        <p data-page-node-id="6OPVFt9CMpYGLRBWpLRrQJ">题目元数据存在隐藏的 <code data-page-node-id="EF6mGcQ1itZx0fBKCvSrgL">.cph</code> 目录里，树里看不见。</p>
+        <p data-page-node-id="6OPVFt9CMpYGLRBWpLRrQJ">题目信息与抓到的样例挂在代码文件自己身上，树里不会多出别的条目。</p>
         <h3>题解（Markdown / LaTeX）怎么写？</h3>
         <p>题解就是一个 <code>.md</code> 文件：页头点「新建文件」，把名字改成「题解.md」再回车。打开它，编辑器上方会多出一行工具栏，右端是字数与视图按钮。</p>
         <ol>
@@ -458,6 +458,12 @@
         <p data-page-node-id="5ntV1BV5OfqkgBXfLqB1C7">文件树与文件正文在 IndexedDB 里。</p>
         <p data-page-node-id="SGjscCAksAfPu1kMw5jpk5">预编译头也在 IndexedDB 里。</p>
         <p data-page-node-id="wylE7ikyyWnHPZMUkhvmMy">都只在这台设备的这个浏览器里，清除浏览器数据会一并清掉。</p>
+
+        <h3>上传到云端的设置是公开的吗？</h3>
+        <p>是。云端配置的读取不需要登录，把 Codeforces 用户名接在站点网址后面就能取回，形如 <code>https://www.998244353.best/he-jie</code>。</p>
+        <p>所以点<strong>上传本机设置</strong>就等于同意公开这份配置。</p>
+        <p>上传的只有偏好类项：主题、快捷键、界面缩放、侧边栏位置、两栏比例、运行时限这些。</p>
+        <p>判题服务器地址、手写的测试用例、文件树与文件正文都不会上传。</p>
 
         <h3 data-page-node-id="8VqJY9WbGqz1vS2Ls5U0me">插件抓不到题目怎么办？</h3>
         <p data-page-node-id="XqQyTpJsEpBDyXrP3Lzrr9">先确认本站这个页面是开着的。</p>

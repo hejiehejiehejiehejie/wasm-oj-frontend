@@ -45,6 +45,19 @@ function chooseEngine(id) {
   emit('select-engine', id)
 }
 
+/**
+ * 回车保存判题服务地址。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
+ * 组字期间敲下去会把半截拼音当成地址存掉 —— 和全局快捷键同一条规矩（见 App.vue 的 onKeydown）。
+ *
+ * 这里刻意从 keyup 改成 keydown：确认候选词的那一发 keyup 是在 compositionend **之后**才发的，
+ * isComposing 已经回到 false，挂在 keyup 上根本守不住。keyCode 229 是部分输入法组字时
+ * 不报 isComposing 的补漏。
+ */
+function submitBaseOnEnter(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  applyBase()
+}
+
 function applyBase() {
   const value = draftBase.value.trim()
   if (!value) return
@@ -79,7 +92,7 @@ function applyBase() {
         v-model="draftBase"
         class="engine-field__input"
         spellcheck="false"
-        @keyup.enter="applyBase"
+        @keydown.enter="submitBaseOnEnter"
       />
       <button class="engine-button engine-button--solid" @click="applyBase">
         {{ t('app.save') }}

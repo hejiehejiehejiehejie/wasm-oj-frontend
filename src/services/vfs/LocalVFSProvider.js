@@ -223,6 +223,29 @@ export class LocalVFSProvider extends BaseVFSProvider {
     return { ...next }
   }
 
+  /**
+   * 写抓题配置（含样例）；与 setMeta 各占一个字段，互不覆盖。
+   * content 传 null 表示只动 nodes store、不碰正文。
+   * @param {string} path
+   * @param {Record<string, unknown>|null} config
+   */
+  async setConfig(path, config) {
+    const norm = normalize(path)
+    const id = this.#pathIndex.get(norm)
+    const node = id ? this.#nodes.get(id) : null
+    if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path }))
+
+    const next = { ...node, updatedAt: Date.now() }
+    // 与 setMeta 同一规矩：null / 空对象把字段整个摘掉，不留空壳
+    if (config && Object.keys(config).length) next.config = config
+    else delete next.config
+
+    this.#indexNode(next)
+    await this.#schedulePut(next, null)
+    this._emit({ type: 'update', id, path: norm, node: next })
+    return { ...next }
+  }
+
   // ------------------------------------------------------------ 改名 / 删除
 
   async rename(path, newPath) {

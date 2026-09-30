@@ -327,7 +327,7 @@ function registerMarkdownActions(instance) {
     const keys = monacoKeybinding(combo)
     if (!keys) return
     instance.addAction({
-      id: `cph.md.${id}`,
+      id: `cp.md.${id}`,
       // 这一格只在 Monaco 自己的命令列表里露脸（本应用没有把它挂进右键菜单），
       // 取不到 translate 后的实时语言也无妨，就地取一次当前语言
       label: t(labelKey),

@@ -10,16 +10,23 @@
    两条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
-      /precache-manifest.json（见 vite.config.js 的 cph-precache-manifest 插件）。 */
+      /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）。 */
 
-const VERSION = 'v3'
+// 外壳版本号。**只对外壳桶生效**：升级它会触发旧外壳桶在 activate 阶段被清掉。
+const SHELL_VERSION = 'v4'
 
 // 分开三个桶：工具链与渲染器体积大、基本不变，外壳小而常变，升级外壳时不必重下它们。
 // TOOLCHAIN_CACHE / MD_CACHE 都不由 install 预填，只作 cacheFirst 的按需落点
 // （见下面的 /wasm/、/md/ 判定）；MD_CACHE 这个名字与 services/mdRuntime.js 里的
 // CACHE_NAME 必须一致 —— 页面负责往里写，activate 的 keep 负责别把它清掉。
-const SHELL_CACHE = `cph-shell-${VERSION}`
-const TOOLCHAIN_CACHE = `cph-toolchain-${VERSION}`
+const SHELL_CACHE = `cph-shell-${SHELL_VERSION}`
+// 工具链桶名**硬编码、刻意不跟 SHELL_VERSION 走**。
+// 这里原来是 `cph-toolchain-${VERSION}`，两个桶共用一个版本号 —— 后果是升一次外壳，
+// activate 就会把老用户已经下好的 clang（52MB）+ CPython（24MB）一起当垃圾删掉，
+// 逼他们重下 76MB。工具链是随 URL 固定的二进制，跟外壳改不改无关，本来就不该被它牵连。
+// 固定成 v3 还有个好处：老用户那个 `cph-toolchain-v3` 桶会被下面的 keep 白名单原样留下，
+// 无损继承，一个字节都不用重下。要换代工具链时才手动改这里。
+const TOOLCHAIN_CACHE = 'cph-toolchain-v3'
 const MD_CACHE = 'cph-md-runtime-v1'
 
 const STATIC_ASSETS = [
@@ -67,16 +74,26 @@ self.addEventListener('activate', (event) => {
 })
 
 // 导航走网络优先：这样重新部署后刷新一次就能拿到新外壳，断网时再退回缓存里的 index.html。
+//
+// 回填缓存必须按路径分情况，不能一律写 /index.html：离线兜底是靠 caches.match('/index.html')
+// 取的，只有「/ 与 /index.html」这两条配覆写它。像 /guide.html、/notice.html 同样是导航
+// （mode === 'navigate'）却是完全不同的页面，若也写到 /index.html 上，用户看过一次使用指南
+// 之后再断网打开站点，拿到的就是那份指南 —— 外壳被换掉了。这些页面按自己的 URL 存：
+// 离线再开同一页仍能命中，别的页拿到的还是外壳。
 async function networkFirstNavigation(request) {
   try {
     const response = await fetch(request)
     if (response.ok) {
+      const path = new URL(request.url).pathname
+      // 站点的 /<handle> 入口（www.998244353.best/he-jie）也属于外壳：线上由 vercel.json 的
+      // rewrite 交给 index.html 渲染，所以它同样按自己的 URL 存即可，内容是对的。
+      const key = path === '/' || path === '/index.html' ? '/index.html' : request
       const cache = await caches.open(SHELL_CACHE)
-      cache.put('/index.html', response.clone())
+      cache.put(key, response.clone())
     }
     return response
   } catch {
-    const cached = await caches.match('/index.html')
+    const cached = (await caches.match(request)) ?? (await caches.match('/index.html'))
     return cached ?? Response.error()
   }
 }

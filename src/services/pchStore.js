@@ -12,7 +12,7 @@
  * 配额不足、存档损坏，一律按「没有存档」处理并返回 null / false。
  * 调用方（runnoSandbox）默认就是把 PCH 当可选加速，没它也必须能编译。
  */
-const DB_NAME = 'cph-pch'
+const DB_NAME = 'cp-pch'
 const STORE_NAME = 'pch'
 const DB_VERSION = 1
 
@@ -39,7 +39,15 @@ function openDb() {
           request.result.createObjectStore(STORE_NAME, { keyPath: 'id' })
         }
       }
-      request.onsuccess = () => resolve(request.result)
+      request.onsuccess = () => {
+        // PCH 是缓存，下次编译会自动重建：旧库（cph-pch）留着白占约 6.9MB，静默删掉
+        try {
+          indexedDB.deleteDatabase('cph-pch')
+        } catch {
+          /* 删不掉（被别的标签页占用等）也无所谓，旧库只是占地方 */
+        }
+        resolve(request.result)
+      }
       request.onerror = () => resolve(null)
       request.onblocked = () => resolve(null)
     })

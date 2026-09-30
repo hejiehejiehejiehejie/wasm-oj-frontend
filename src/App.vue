@@ -13,6 +13,7 @@ import { actionForCombo, comboFromEvent, recordingActive } from './composables/u
 import { flush, initAutoSave, setAutoSaveEnabled } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
+import { scheduleAutoPreload } from './services/runtimePreload.js'
 import { initWorkspace } from './services/vfs/migrate.js'
 import {
   activeLanguage,
@@ -31,6 +32,7 @@ import {
 } from './services/mdView.js'
 import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/settingsTab.js'
+import { pendingCloudHandle } from './services/cloudEntry.js'
 import {
   EDITOR_SETTINGS_DEFAULTS,
   normalizeEditorSetting,
@@ -38,16 +40,16 @@ import {
 
 // ---------------------------------------------------------------- 持久化状态
 // panelPosition 是本项目的核心偏好：'left' | 'right'，默认在左侧。
-const panelPosition = usePersistentRef('cph.panelPosition', 'left')
+const panelPosition = usePersistentRef('cp.panelPosition', 'left')
 // 是否显示统一侧边栏（只影响显隐，文件树展开态与用例数据都不丢）
-const panelVisible = usePersistentRef('cph.panelVisible', true)
+const panelVisible = usePersistentRef('cp.panelVisible', true)
 // 语言不独立持久化：由活跃文件扩展名派生（activeLanguage），顶栏已无语言下拉
-const editorShare = usePersistentRef('cph.editorShare', 60)
-const engineId = usePersistentRef('cph.engine', DEFAULT_ENGINE_ID)
-const judgeBases = usePersistentRef('cph.judgeBases', defaultBases())
+const editorShare = usePersistentRef('cp.editorShare', 60)
+const engineId = usePersistentRef('cp.engine', DEFAULT_ENGINE_ID)
+const judgeBases = usePersistentRef('cp.judgeBases', defaultBases())
 // 全局时限（毫秒，只计运行段）：所有用例统一，超了判 TLE。
 // 这是「没有题目时限时的默认值」；带 meta.timeLimit 的题目文件优先用题目时限。
-const timeLimitMs = usePersistentRef('cph.timeLimitMs', TIME_LIMIT_DEFAULT_MS)
+const timeLimitMs = usePersistentRef('cp.timeLimitMs', TIME_LIMIT_DEFAULT_MS)
 // 实际生效的时限：活跃文件自带题目时限就用它，否则退回全局默认
 const effectiveTimeLimitMs = computed(() => {
   const fromMeta = activeNode.value?.meta?.timeLimit
@@ -56,15 +58,15 @@ const effectiveTimeLimitMs = computed(() => {
 
 // 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 110%）。CSS 的 px 已由 postcss-pxtorem
 // 转成 rem，所以这里只需要写一次根字号；物理尺寸与拖拽数学都不受影响（见 useUiScale.js）。
-const uiScalePref = usePersistentRef('cph.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })
+const uiScalePref = usePersistentRef('cp.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })
 // setup 期就落地：早于首帧渲染，不会先按 100% 画一帧再跳到目标档位
 applyUiScale(uiScalePref.value)
 watch(uiScalePref, applyUiScale)
 
 // ------------------------------------------------------------ 编辑器偏好
-const EDITOR_SETTINGS_KEY = 'cph.editorSettings'
+const EDITOR_SETTINGS_KEY = 'cp.editorSettings'
 // 存档版本号只用于一次性迁移主题（见 readEditorSettings）
-const EDITOR_SETTINGS_VERSION_KEY = 'cph.editorSettingsVersion'
+const EDITOR_SETTINGS_VERSION_KEY = 'cp.editorSettingsVersion'
 const EDITOR_SETTINGS_VERSION = 4
 // 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
 const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
@@ -204,7 +206,7 @@ function createCase(seed = {}) {
   }
 }
 
-const testCases = usePersistentRef('cph.testCases', [
+const testCases = usePersistentRef('cp.testCases', [
   createCase({ input: '1 2', expectedOutput: '3' }),
   createCase({ input: '-8 15', expectedOutput: '7' }),
 ], {
@@ -705,11 +707,18 @@ onMounted(async () => {
   } catch {
     /* 存储不可用时静默；界面仍可使用 */
   }
+  // 地址里带来的 /<handle>：必须等上面两步跑完再打开设置页。会话恢复会把
+  // workspace.activeId 设回上次那个文件，而 settingsTab 的规矩是「活跃文件一变就让开」
+  // （见 settingsTab.js 末尾那个 watch），早开一步会被紧接着的这次变更立刻关掉。
+  // 识别在 main.js 里就做完了（地址保持原样不抹，见 cloudEntry.js），这里只负责把询问摆到用户面前。
+  if (pendingCloudHandle.value) openSettingsTab()
   // 首帧排版稳定后先收敛一次（视口很窄时连默认的 60 都可能越界），之后交给 ResizeObserver
   // 盯住视口尺寸变化（它自己也会立刻回调一次，走 debounce 那条路）。
   nextTick(reclampShare)
   layoutObserver = new ResizeObserver(scheduleReclamp)
   if (workspace.value) layoutObserver.observe(workspace.value)
+  // 「本地运行环境」里勾了预下载的，等浏览器空闲再悄悄补齐（见 runtimePreload.js）
+  scheduleAutoPreload()
 })
 
 onBeforeUnmount(() => {

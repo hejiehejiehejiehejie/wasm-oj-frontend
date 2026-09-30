@@ -29,7 +29,7 @@ const PANEL_TABS = [
 const withLabel = (tab) => ({ ...tab, label: t(tab.labelKey) })
 
 // 当前页签：默认落在资源管理器，与改动前的默认视觉一致
-const activeTab = usePersistentRef('cph.sidebarTab', 'explorer')
+const activeTab = usePersistentRef('cp.sidebarTab', 'explorer')
 // 存档里可能是旧值 / 脏值：认不出来就退回默认页签，免得两个面板被一起藏掉
 if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'explorer'
 

@@ -20,6 +20,7 @@ export default {
         judge: '评测',
         runtime: '本地运行环境',
         extension: '浏览器插件',
+        cloud: '云端同步',
         app: '应用',
         help: '帮助',
       },
@@ -225,6 +226,61 @@ export default {
         commandParsePage: '解析当前页面题目',
       },
 
+      cloud: {
+        groupNote:
+          '把本机的偏好设置（编辑器、快捷键、界面、评测引擎等）存到云端，换一台设备输入同一个用户名就能取回来。题目文件、测试样例与判题服务器地址不会上传。',
+        handle: {
+          label: 'Codeforces 用户名',
+        },
+        handlePlaceholder: '例如 he-jie',
+        login: '登录',
+        loginTitle: '在这台设备上登录这个用户名；登录不会改动云端已存的配置',
+        loginNoCloud: '已登录。云端还没有这个用户名的配置 —— 点「上传本机设置」把当前设置存上去',
+        loggedIn: '已登录。点「下载到本机」把云端配置取回本机',
+        codeIntro: '云端已有你的配置。这一步只确认「这是你的」，不会改动云端内容。',
+        codeIntroUpload:
+          '写云端必须先证明是本人。这一枚码验证成功后，本机会记下服务端签发的设备令牌，之后的写入就不用再取码了。',
+        codeLabel: '验证码',
+        codeHint: '10 分钟内有效；同一个用户名 10 分钟最多申请 5 次',
+        codeWarn: '只认屏幕上这一枚：重新取码会让上一枚立刻作废，取到新码后记得把 Codeforces 上的值也换成新的',
+        codeSteps: '接下来：',
+        codeStep1: '把上面的验证码填进 {link}的 Last name 字段（设置里的 Social 一页）并保存',
+        codeStep1Link: 'Codeforces 个人资料',
+        codeStep2: '回到这里点「验证并登录」，云端会去读 Codeforces 上的 Last name 来确认是你',
+        codeStep2Upload: '回到这里点「验证并上传」，云端会去读 Codeforces 上的 Last name 来确认是你',
+        verifyLogin: '验证并登录',
+        verifyUpload: '验证并上传',
+        cancel: '取消',
+        boundTag: '已绑定',
+        updatedAt: '云端最近更新：{time}',
+        neverUpdated: '这台设备还没往云端存过',
+        download: '下载到本机',
+        downloadTitle: '用云端配置覆盖本机设置，之后页面会重新加载',
+        upload: '上传本机设置',
+        uploadTitle:
+          '用本机设置覆盖云端。本机已记有设备令牌时直接写入，只有令牌失效了才会再让你取一次码',
+        unbind: '解绑',
+        unbindTitle: '解绑这台设备',
+        unbindConfirmTitle: '解绑这台设备？',
+        unbindConfirmDesc:
+          '解绑后本机不再与「{handle}」关联，可以随时用同一个用户名重新绑定。云端已存的那份配置会保留。',
+        applyConfirmTitle: '套用云端配置？',
+        applyConfirmDesc:
+          '要用「{handle}」的云端配置覆盖本机设置吗？本机当前的偏好会被替换，之后页面会重新加载。',
+        applyConfirm: '套用',
+        applyNoCloud: '云端还没有「{handle}」的配置',
+        saved: '已保存到云端',
+        downloaded: '已应用云端配置，正在重新加载…',
+        emptyProfile: '云端配置里没有可用的设置',
+        noCloudConfig: '云端还没有这个用户名的配置，先在本机「验证并上传」一次',
+        errorHandle: '请先填写 Codeforces 用户名',
+        errorNetwork: '请求没有发出去，请检查网络后重试',
+        errorBadBody: '接口返回了 HTTP {status}，但内容不是预期的格式（这次请求可能没走到本站的 /api）',
+        tokenExpired: '设备令牌已失效，请重新取一枚码验证',
+        publicNotice:
+          '上传后这份配置就是公开的：不需要登录，把用户名接在网址后面（如 www.998244353.best/he-jie）即可取回。点「上传本机设置」就等于同意公开它 —— 参与同步的只有主题、快捷键、界面缩放这类偏好项。',
+      },
+
       help: {
         guideLink: '完整使用指南',
       },
@@ -244,6 +300,7 @@ export default {
         judge: 'Judge',
         runtime: 'Local runtime',
         extension: 'Browser extension',
+        cloud: 'Cloud sync',
         app: 'App',
         help: 'Help',
       },
@@ -460,6 +517,69 @@ export default {
         copyUrl: 'Copy URL',
         copied: 'Copied',
         commandParsePage: 'Parse the problem on this page',
+      },
+
+      cloud: {
+        groupNote:
+          'Store your preferences (editor, shortcuts, interface, judge engine…) in the cloud, then pull them back on another device by entering the same handle. Problem files, test cases and judge server addresses are never uploaded.',
+        handle: {
+          label: 'Codeforces handle',
+        },
+        handlePlaceholder: 'e.g. he-jie',
+        login: 'Sign in',
+        loginTitle:
+          'Sign in with this handle on this device; signing in never changes the copy already in the cloud',
+        loginNoCloud:
+          'Signed in. The cloud has no copy for this handle yet — use “Upload local settings” to store the current setup',
+        loggedIn: 'Signed in. Use “Download to this device” to pull the cloud copy back',
+        codeIntro:
+          'The cloud already has your settings. This step only proves they are yours — the cloud copy is left untouched.',
+        codeIntroUpload:
+          'Writing to the cloud always requires proving it is you. Once this code checks out, this device stores the token the server issues — later writes reuse it and need no new code.',
+        codeLabel: 'Verification code',
+        codeHint: 'Valid for 10 minutes; at most 5 codes per handle every 10 minutes',
+        codeWarn:
+          'Only the code shown here counts — asking for a new one invalidates the previous immediately, so update the value on Codeforces too',
+        codeSteps: 'What to do next:',
+        codeStep1:
+          'Put the code above into the Last name field of your {link} (Settings → Social) and save it',
+        codeStep1Link: 'Codeforces profile',
+        codeStep2:
+          'Come back here and press “Verify and sign in” — the cloud reads your Codeforces Last name to confirm it is you',
+        codeStep2Upload:
+          'Come back here and press “Verify and upload” — the cloud reads your Codeforces Last name to confirm it is you',
+        verifyLogin: 'Verify and sign in',
+        verifyUpload: 'Verify and upload',
+        cancel: 'Cancel',
+        boundTag: 'Bound',
+        updatedAt: 'Last updated in the cloud: {time}',
+        neverUpdated: 'This device has not saved to the cloud yet',
+        download: 'Download to this device',
+        downloadTitle: 'Overwrite local settings with the cloud copy, then reload the page',
+        upload: 'Upload local settings',
+        uploadTitle:
+          'Overwrite the cloud copy with local settings. With a device token stored here it writes straight away — only a rejected token makes you fetch a code again',
+        unbind: 'Unbind',
+        unbindTitle: 'Unbind this device',
+        unbindConfirmTitle: 'Unbind this device?',
+        unbindConfirmDesc:
+          'This device will no longer be linked to “{handle}”. You can bind it again with the same handle at any time. The copy already stored in the cloud is kept.',
+        applyConfirmTitle: 'Apply cloud settings?',
+        applyConfirmDesc:
+          'Replace this device’s settings with the cloud copy for “{handle}”? Your current preferences will be overwritten and the page will reload afterwards.',
+        applyConfirm: 'Apply',
+        applyNoCloud: 'The cloud has no copy for “{handle}”',
+        saved: 'Saved to the cloud',
+        downloaded: 'Cloud settings applied — reloading…',
+        emptyProfile: 'The cloud copy contains no usable settings',
+        noCloudConfig: 'No cloud copy for this handle yet — use “Verify and upload” on this device first',
+        errorHandle: 'Enter your Codeforces handle first',
+        errorNetwork: 'The request did not go through. Check your network and try again.',
+        errorBadBody:
+          'The endpoint answered HTTP {status}, but the body was not the expected JSON (this request may not have reached this site’s /api)',
+        tokenExpired: 'The device token is no longer valid — request a new code to verify again',
+        publicNotice:
+          'Once uploaded, this copy is public: no sign-in is needed — append your handle to the site URL (e.g. www.998244353.best/he-jie) to fetch it. Clicking “Upload local settings” means you agree to make it public; only preference keys such as theme, shortcuts and UI scale are synced.',
       },
 
       help: {

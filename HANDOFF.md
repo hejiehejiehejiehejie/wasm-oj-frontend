@@ -10,14 +10,14 @@
 - 其他命令：`npm run verify` 跑无头回归（**B–H 应当是绿的**，A 步有一条已知竞态，见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）；`npm run md:runtime` 把题解渲染器（katex + marked）从 `node_modules` 抄进 `public/md/`，**已挂在 `predev` / `prebuild` 上，平时不用手动跑**（第 15 节）。
 - HTML 入口：`index.html`（主应用）与四个内容页——`guide.html` / `guide.en.html`（使用指南的**中文版与英文版**，给搜索引擎抓取的静态长文）、`notice.html` / `notice.en.html`（第三方组件清单的中英文版，**生成物**，见第 12 节），各语言两页共用 `src/styles/guide.css`。改文案 / 样式时，`guide.html` 与 `guide.en.html` **两版必须同时改**，再加 `src/i18n/messages/help.js`（应用内「设置 → 帮助」那份内容）、`docs/使用手册.md`、`index.html` 的 `<noscript>`，一共五处要一起看（见第 12 节）。
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
-- 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂在工作区根下，无外层 wrapper）、元数据收在同级隐藏目录 `.cph/`（难度导入时为空，先落「未分类」），并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`），同一组里还有「投递目标」两个开关，可以直接把「发到本网站 / 发到本地工具」任一关掉（2026-09-30 加，真值写在扩展的 `chrome.storage`，见 13.1）。详见第 13 节。
+- 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂在工作区根下，无外层 wrapper），题目信息与抓到的样例都挂在代码文件**自己的节点**上（`node.meta` / `node.config`，2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json` 文件，已由 `migrate.js` 一次性搬进节点；难度导入时为空，先落「未分类」），树里不另有条目，并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`），同一组里还有「投递目标」两个开关，可以直接把「发到本网站 / 发到本地工具」任一关掉（2026-09-30 加，真值写在扩展的 `chrome.storage`，见 13.1）。详见第 13 节。
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
 - **题解（Markdown / LaTeX，2026-09-30 加）**：`.md` / `.markdown` 走 Monaco 内置的 markdown 分词器，只用于**写题解、不参与判题**（两个运行入口都会给禁用态）。编辑区为此多了一行工具栏（14 项：加粗 / 标题 / 列表 / 链接 / 图片 / 公式 / 表格 / 分割线…）、`N 字 · M 行` 统计、三态视图胶囊（仅编辑 / 双栏 / 仅预览）与一颗全屏按钮，另有 15 条题解专用快捷键（`Mod+\` 轮换视图、`Esc` 退全屏）。预览用的 marked + KaTeX **按需下载**（设置视图「本地运行环境」的第三行，缓存桶 `cph-md-runtime-v1`，约 578KB），与 C++ / Python 工具链同一套路数。**完整说明与坑都在第 15 节。**
 - **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cph.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 6 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 登录与云同步 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。
-- **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、致谢页（**页头品牌名与标题里的 `unnamed` 在 `scripts/render-notice.mjs` 的 PAGES 表 / `NOTICE*.md` 里，不是在生成物里改**——`notice.html` / `notice.en.html` 是生成物，改完跑 `npm run notice`）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**别顺手改另外两样**：① `cph.*` 开头的 localStorage 键名；② `.cph/` 隐藏在题库目录名与 `cph-vfs` / `cph-pch` 的 IndexedDB 库名 —— 都是持久化契约，改了等于把用户的偏好与题解全丢掉。**能改的只有主题 id**（`dark` / `light`，同日已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cph-ide` 是 npm 标识、与展示无关，未动。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 5 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.9「登录 + 云同步」**（Cloudflare Worker + KV，落地位置与坑见 14.9；网址形态的入口 `www.998244353.best/<handle>` 见 14.21）**与 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。
+- **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、致谢页（**页头品牌名与标题里的 `unnamed` 在 `scripts/render-notice.mjs` 的 PAGES 表 / `NOTICE*.md` 里，不是在生成物里改**——`notice.html` / `notice.en.html` 是生成物，改完跑 `npm run notice`）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**别顺手改另外两样**：① `cph.*` 开头的 localStorage 键名；② `cph-vfs` / `cph-pch` 的 IndexedDB 库名 —— 都是持久化契约，改了等于把用户的偏好与题解全丢掉（题目元数据的 `.cph/` 目录已于 2026-10-01 取消，如今只剩 `migrate.js` 里认老数据用的那个常量）。**能改的只有主题 id**（`dark` / `light`，同日已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cph-ide` 是 npm 标识、与展示无关，未动。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
@@ -34,18 +34,17 @@
 | flex 容器的子元素要显式拉伸 | 布局里 `.pane > *` 必须 `flex: 1 1 auto; min-width: 0`，否则子组件收缩到内容宽度 |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑） |
-| SW 改了策略就升版本号 | `public/sw.js` 的 `VERSION` 决定缓存桶名（现为 `cph-shell-v2` / `cph-toolchain-v2`）；改缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶 |
+| SW 改了**外壳**策略就升 `SHELL_VERSION` | `public/sw.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cph-shell-v4`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cph-toolchain-v3`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物，**不在**构建清单里，改动它们要同步 `sw.js` 的 `STATIC_ASSETS`（见第 9 节） |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
-| 导入题目的落盘结构不许改 | `/<年月>/<OJ 标签>/<难度>/<题名>.cpp` + 同目录 `.cph/<题名>.json`（直接挂根下，无外层 wrapper；年月粒度 `YYYY-MM`；难度导入时一律为空，先落「未分类」）。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例与元数据整体覆盖；题目身份认 `url` 不认文件名，且**必须全库扫 `.cph` 找回原目录**（分层后同一道题会算出新路径，只扫一个 OJ 目录会让老题解变孤儿）。改这里等于动用户数据，见第 13 节 |
-| `.cph` 只在渲染层过滤 | `workspaceStore.js` 的 `withoutHiddenDirs()` 只作用于交给 UI 的那棵树，provider 接口 / `nodeIndex` / 清死 tab 逻辑一概照旧——别把过滤下沉到存储层，否则元数据读写会一起断 |
+| 导入题目挂在 VFS 节点上，不许另立存储 | 一道题 = 一个代码文件 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂根下，无外层 wrapper；年月粒度 `YYYY-MM`；难度导入时一律为空，先落「未分类」）。题目信息（`node.meta`）与抓到的样例（`node.config`）都挂在这个文件节点上，树里不另有条目（2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json`，由 `migrate.js` 一次性搬进节点）。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例整体覆盖而难度由用户手填、重抓要保留；题目身份认 `url` 不认文件名，且**必须全库按 `node.meta.url` 找回原文件**（分层后同一道题会算出新路径，只扫一个 OJ 目录会让老题解变孤儿）。改这里等于动用户数据，见第 13 节 |
 | 全局快捷键监听必须在 `window` 捕获阶段 | `window.addEventListener('keydown', onKeydown, true)` + `preventDefault()` + `stopPropagation()`。Monaco 的键位服务挂在编辑器内部 DOM 上，只有捕获阶段抢得过它；**不要**再用 `editor.addCommand()` 同步键位（Monaco 0.56 没有 `removeCommand`，旧的撤不掉） |
 | 录制快捷键时全局监听必须让路 | 开录时置 `recordingActive = true`（录制框自己的监听在按钮的目标阶段，捕获永远先跑），否则按下新组合键的瞬间功能会先被执行一遍 |
 | 禁止引第三方快捷键库 | 规范化只需要「读 `event.code` + 四个修饰键」，`useShortcutManager.js` 里一个纯函数就够（Mousetrap 之类一律不引） |
 | px / rem 的边界纪律 | CSS 里写 `px`，构建时由 `postcss-pxtorem` 统一转 `rem`（配置在 `vite.config.js` 的 `css.postcss`），全局缩放只改根字号。但**转换只发生在 CSS 声明值上**：JS 内联样式、JS 常量、`@media` / `@container` 断点参数都不受影响（见第 5 节坑 24）。三条判据：① 物理尺寸（鼠标坐标 / DOM 原生测量 / 手势阈值）永远保持 `px`；② 逻辑尺寸里，喂给 Monaco 的 `fontSize / lineHeight / scrollbarSize / padding`、以及 JS 写死的容器上限必须自己乘 `scale`（见 `composables/useUiScale.js` 的 `px()`）；③ 被 JS `parseFloat` 读的 CSS 变量（`--tests-min-*`）必须在 `propList` 排除名单里留在 px 坐标系，**不要**在 JS 里对 parseFloat 结果做 rem 反向换算——代价是它们吃不到 rem 的自动缩放，所以这类「以物理 px 存放、但语义上是逻辑尺寸」的值要在**使用处**乘一次缩放倍数（JS 用 `uiScale.value`，CSS 用 `--ui-scale`），见第 5 节坑 24 |
 | 界面文案不许写死 | 组件、composable、service 里**一律不许出现中文字面量**（现在只剩注释里有中文）。模板与 computed 里写 `t('域.组.键')`，整棵内容树（应用内帮助）走 `messages('help')`。加新文案 = 在 `src/i18n/messages/<域>.js` 里**中英两栏同时补**（同一文件里并排），缺哪一栏会静默退到中文。唯一例外是**写进文件系统的名字**（见下一条）与 `[unnamed]` 这类控制台前缀（见第 5 节坑 28 第 5 条） |
 | 数据表只存 key，不存译文 | `EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` 都只存 `labelKey` / `hintKey` / `titleKey`（可带 `labelParams`），由消费处再 `t()`。**在模块顶层或 `<script setup>` 顶层调 `t()` 会冻结成那一刻的语言**——切语言不跟着变，是最容易漏的一类（第 5 节坑 28 第 1 条） |
-| 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cph.*` 键名、`.cph/` 目录名、IndexedDB 库名、主题 id 都不随语言变 |
+| 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cph.*` 键名、IndexedDB 库名、主题 id 都不随语言变 |
 
 ## 2. 与界面相关的文件
 
@@ -73,6 +72,7 @@ scripts/render-notice.mjs       # NOTICE.md / NOTICE.en.md → notice.html / not
 NOTICE.md                       # 第三方开源组件清单（致谢 + 许可声明）：一、随产物分发的 npm 运行时依赖（Vue / Monaco / @runno/wasi + 直接依赖的 marked 与 DOMPurify，KaTeX 不在主包里、列在第二节）；二、`public/` 下自托管的上游产物（**2.1** 本地沙箱工具链：LLVM clang + lld 8.0.1 / wasi-libc / libc++ / compiler-rt / CPython 3.11.3；**2.2** 题解渲染运行时 public/md/ 的 KaTeX 0.18.9 + marked 14.0.0）；三、图标与字体（字体全是系统字体）；四、扩展 CC for Web 及其打包的库；五、构建期工具；六、外部评测服务（Piston / Judge0，本仓不含其代码）。**四件事任一发生都要回来同步**：改 package.json / 换 `public/wasm/` 的目录 / **换 `public/md/` 下的渲染运行时** / 换 `public/extension/` 的包；版本号要实机核（文件末尾附了核对命令，第 6 条就是查 `public/md/assets.json`）；面向用户的精简版是两版 guide 的「致谢与开源许可」一节（见第 12 节）。**英文对照版是 `NOTICE.en.md`**（2026-09-30 加，人工逐条对应，没有自动同步）
 notice.html / notice.en.html    # **生成物，别手改**：上面两份源文件各自生成的静态页（中 / 英各一页），页头互链 + 三行 hreflang（x-default 指中文页），与两版 guide 同一套类名与主题脚本；两页都不进 SW 预缓存（见第 12 节）
 docs/使用手册.md                # 面向新用户的说明：回答三个问题——「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」「如何写题解（Markdown / LaTeX）」，与 src/i18n/messages/help.js 内容同源（**精简版**，且只有中文；完整版是 guide.html / guide.en.html）
+docs/云端同步服务.md            # ★ 云端同步的后端（Cloudflare Worker `cf-config-api`）的**唯一在仓库记录**：拓扑 / Worker Route、身份验证模型（Codeforces handle 的 Last name）、五个接口的实测契约与错误原文、KV 键与 TTL、实测确认的行为（验证成功即删码 / 取新码作废旧码）、前端 `SYNC_KEYS` 白名单与登录语义，以及方案 A（设备令牌）的四处服务端补丁 + 前端令牌接线（`cp.cloudToken`、「上传本机设置」有令牌时直打 `/api/save`、401 自动退回取码）+ 部署自测命令。**Worker 源码不在本仓库**（也没有 wrangler 工程），所以改它之前先读这份文件、改完回来更新它
 src/
   main.js                       # 挂载 + 生产构建里注册 Service Worker
   monaco-setup.js               # Monaco 的 dark / light 两套自定义主题
@@ -92,7 +92,7 @@ src/
     HotkeyRecorder.vue          # 单个动作的快捷键录制框：点一下开录、冲突红字且拒绝写入、Esc 放弃、Delete 清除绑定；开录时置 recordingActive 让全局监听让路（见第 13 节）
     EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图（运行状态不再透传——页签栏那颗运行按钮已删）。**题解那一行（工具栏 / 插入行 / 字数 / 视图胶囊 / 全屏按钮 / 预览面板）与 Monaco 侧那 14 条 `addAction` 也都在这个文件里**，见第 15.6 / 15.7 节；状态栏的四道闸门在样式表末尾（第 15.8 节）
     EditorTabs.vue              # 编辑器标签栏：只有一条 `strip`（文件页签 + 「设置」合成页签，横向滚动）。右端那颗「运行 / 停止」按钮已于 2026-09-28 删除（运行入口见第 1 节硬约束表）
-    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = 外观 / 编辑器 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 8` 的断言口径）。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 22 行；2026-09-30 在「视图」小节末尾加了 `statusBar`）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「本地运行环境」那组按 `RUNTIMES` 表渲染**三行运行时**（C++ / Python / 题解渲染器，同一套代码，`language === 'markdown'` 时由 wasmRuntime 转给 mdRuntime，见第 15.3 节）；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
+    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；「目录 + 内容」两栏，目录 = **常用设置** / 外观 / 编辑器 / **快捷键** / 评测 / 本地运行环境 / **浏览器插件** / **云端同步** / 应用 / 帮助（共 10 项，`SECTIONS` 常量驱动，顺序即 `scripts/verify-ui.mjs` 里 `navItems === 10` 的断言口径）。「常用设置」是最前面那个分类、也是默认选中项，里面的主题 / 界面缩放 / 字体大小 / 侧边栏位置与原分类是**同一份数据**（不是副本）；「云端同步」管登录绑定与「预下载本地运行环境」开关，后端见 `docs/云端同步服务.md`。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 22 行；2026-09-30 在「视图」小节末尾加了 `statusBar`）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「本地运行环境」那组按 `RUNTIMES` 表渲染**三行运行时**（C++ / Python / 题解渲染器，同一套代码，`language === 'markdown'` 时由 wasmRuntime 转给 mdRuntime，见第 15.3 节）；「浏览器插件」那组管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
     HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）。**体例（2026-09-29 定）**：`GROUPS` 是「分组 → 条目」两层，每条 = `name`（**必须是疑问句**，它就是小标题）/ `role`（一句话答案）/ `steps`（操作步骤，渲染成 `<ol>` 1. 2. 3.）/ `notes`（要点与口径，渲染成圆点）/ 可选 `table`（判定码、性能实测这类多列短值）；正文里用 `**…**` 标出界面上的按钮名与页面名，`segments()` 负责拆成加粗片段（**不走 `v-html`**：文案里会出现 `<vector>` 这类头文件名，交给 HTML 解析会被当标签吃掉）
     MarkdownPreview.vue         # 题解预览面板（2026-09-30 加）：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载渲染器」入口、与编辑器的**双向滚动同步**（比例 + 回音吃掉 + 重渲染后按 lastRatio 复位）。只接受 source 字符串、不认识 Monaco（见第 15.4 / 15.5 节）
@@ -122,7 +122,9 @@ src/
     vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
     settingsTab.js              # 「设置」合成页签的 UI 状态（刻意不进 workspaceStore/openTabIds、不建模型、不落 localStorage；见第 5 节坑 7）
-    vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/<年月>/<OJ 标签>/<难度>/<题名>.cpp` + 同目录 `.cph/<题名>.json`，无外层 wrapper）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
+    cloudProfile.js             # ★ 云同步的前端唯一边界：`SYNC_KEYS` 白名单（12 个键）+ `collectProfile` / `applyProfile` + 四个接口封装（`requestCode` / `verifyAndSave` / `saveWithToken` / `fetchCloudProfile`）+ `postJson`（网络失败折成 `{success:false}`、失败带 `status` 以区分 401 与 400）。接口一律走同源相对路径 `/api/*`，理由与坑见 `docs/云端同步服务.md` 与 14.9
+    cloudEntry.js               # 网址形态的云配置入口：`captureCloudHandleFromPath()`（启动时读 `location.pathname` 的 `/<handle>`，写进 `pendingCloudHandle`）+ `markCloudEntryHandled()` / `clearPendingCloudHandle()`。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`；「已答过」的记号写在 `history.state`（键 `cpCloudEntry`）、地址**保持原样不抹回根路径**。见 14.21
+    vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，无外层 wrapper；题目信息与样例挂在**该文件节点**的 `meta` / `config` 上）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -322,21 +324,21 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **它原始网格是 32×32**，直接套 `0 0 24 24` 会明显偏小，所以方框取边长 22（15px 下墨迹约 12.1×11.0px，与 `folder` 的 12.5×11.25 齐平）。
     - **方框的 `min-x` 被刻意右移到 `4.733`**（= 6.2 − 22/15，正好让 15px 尺寸下右移 1px）：这枚字形左边是大块实心的「C」、右边是两个细「+」，外框虽然几何居中（实测 cpp 与 python 的墨迹中点重合在同一条竖线上），但墨迹重心比中点偏左约 0.7px，排到 python 旁边看着不齐。**别改回 6.2**，也别想着去动 python 的 viewBox——python / folder / file / header 都是几何居中的，动它们会让整列图标一起偏。
     图标本身不带颜色，一律 `currentColor` 跟主题走（没照搬 Seti 蓝）。
-17. **题目元数据挂在 VFS 节点上（`node.meta`），不是单独一张表**（2026-09 加）：**五项**——题目链接 / OJ / 难度 / 日期 / 时限（毫秒，2026-09-29 加，见 14.3）。入口是文件树右键的「题目信息」，弹窗与删除确认同款自绘（不要 `window.confirm`、不要引 UI 库），目录节点不给这一项（`buildMenuItems(node)` 里按 `node.type === 'file'` 判断）。三条纪律：
-    - **不动 `DB_VERSION`**：`LocalVFSProvider` 本来就整条记录持久化（`_commit` / `#persistPuts` 只剥掉 `children`），`writeFile` / `rename` 又是 `{...node}` 展开，所以 `meta` 天然跟着走。新增的 `setMeta(path, meta)` 用 `#schedulePut(node, null)` 落库（`content === null` = 只写 nodes store、不碰正文）。
+17. **题目信息与抓题结果都挂在 VFS 节点上（`node.meta` / `node.config`），不是单独一张表**（`meta` 2026-09 加、`config` 2026-10-01 加）：meta **五项**——题目链接 / OJ / 难度 / 日期 / 时限（毫秒，2026-09-29 加，见 14.3）；config 存抓取结果原文（`tests` 样例等，见坑 19）。入口是文件树右键的「题目信息」，弹窗与删除确认同款自绘（不要 `window.confirm`、不要引 UI 库），目录节点不给这一项（`buildMenuItems(node)` 里按 `node.type === 'file'` 判断）。三条纪律：
+    - **不动 `DB_VERSION`**：`LocalVFSProvider` 本来就整条记录持久化（`_commit` / `#persistPuts` 只剥掉 `children`），`writeFile` / `rename` 又是 `{...node}` 展开，所以 `meta` / `config` 天然跟着走。`setMeta(path, meta)` 与 `setConfig(path, config)` 都用 `#schedulePut(node, null)` 落库（`content === null` = 只写 nodes store、不碰正文），各改各的键、互不覆盖。
     - **难度跟着 OJ 走**，口径表、合法值、悬停文案全在 `services/problemMeta.js` 一处：Codeforces / AtCoder → 分数段 `800…3500`（步长 100），洛谷 → 官方八级，牛客 / LeetCode / 其它 → 自由文本。换 OJ 时**必须清空当前难度**（`onOjChange`）——两套口径的 id 互不相通，留着会存下一个对不上的值（比如 `1200` 混进洛谷）。
     - **全空存 `null`**：`normalizeMeta()` 逐键校验后四项全空就返回 `null`，`setMeta` 据此把 `meta` 字段整个摘掉，不在节点上留空壳；`formatMetaTooltip()` 对空 meta 返回空串，`FileTreeItem` 此时不设 `title`（避免弹出空提示）。
-18. **导入的题目是「一个代码文件 + 一份隐藏元数据」，不给每道题套目录**（`services/vfs/problemImport.js`，2026-09 定稿，**别再改回题名目录结构**）：树里多一层「题目名/」纯是噪音——点开一道题还得再点一次才见得到代码。所以题名直接做文件名，上面按「年月 / OJ / 难度」分层归类：`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下），元数据收进同级隐藏目录 `.cph/`（同名，只差后缀）。四条纪律：
-    - **代码文件只在首次导入时创建，此后一个字都不动**：那里面是用户写的题解。重抓同一道题只刷新样例与元数据（`.cph/<题名>.json` 每次整体覆盖），难度这种用户手填的字段还得从 `existingCode.meta` 里保留下来、日期只在首次播种。
-    - **题目身份认 `url`，不认文件名、也不认路径**：题目在来源站点改名后文件名就对不上；跨月再抓、或用户事后填了难度，算出来的新路径也对不上。只认其中任何一个都会另起一个文件、把用户旧文件里的题解变成孤儿。所以先走「算出来的新路径 + 文件名 + `url` 都对上」的快路径，不中再**全库扫 `.cph` 目录**按 `url` 找回旧题目、**复用原来那个目录**（不搬文件）。**`batch.id` 不能用**——它是扩展每次抓取现生成的随机 uuid，抓两次就是两个值。
+18. **导入的题目是「一个代码文件」，不给每道题套目录**（`services/vfs/problemImport.js`，2026-09 定稿，**别再改回题名目录结构**）：树里多一层「题目名/」纯是噪音——点开一道题还得再点一次才见得到代码。所以题名直接做文件名，上面按「年月 / OJ / 难度」分层归类：`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下），题目信息与抓到的样例都挂在这个文件节点上（`meta` / `config`），**树里不另有条目**。四条纪律：
+    - **代码文件只在首次导入时创建，此后一个字都不动**：那里面是用户写的题解。重抓同一道题只刷新 `node.config`（样例整体覆盖），难度这种用户手填的字段还得从 `existingCode.meta` 里保留下来、日期只在首次播种。
+    - **题目身份认 `url`，不认文件名、也不认路径**：题目在来源站点改名后文件名就对不上；跨月再抓、或用户事后填了难度，算出来的新路径也对不上。只认其中任何一个都会另起一个文件、把用户旧文件里的题解变成孤儿。所以先走「算出来的新路径 + 文件名 + `meta.url` 都对上」的快路径，不中再**全库扫每个文件节点的 `meta.url`** 找回旧题目、**复用原来那个文件**（不搬文件）。**`batch.id` 不能用**——它是扩展每次抓取现生成的随机 uuid，抓两次就是两个值。
     - **`未分类` 是「难度为空」的占位，且路径一定下就跟着题走**：导入时难度一律为空（来源站点口径不一），所以新题都落在 `未分类/` 下；用户事后填难度**不会**把已有文件搬过去（搬动 = 丢题解），分层只对**之后新抓的**生效，老数据不迁移。
-    - **同名但 `url` 对不上 = 用户自己的文件**，这时候不能覆盖，要 `baseName-2`、`baseName-3` 依次找空位（代码文件与元数据文件两边都得是空的）；整趟塞进一个 `vfs.batch()`，界面只重建一次树。
-19. **`.cph` 的过滤不能只看「本层摘掉了没」**（`workspaceStore.js` 的 `withoutHiddenDirs()`）：过滤发生在**渲染层**——`rebuildTree()` 拿 `rawTree` 走索引 / 清死 tab，只有赋给 `workspace.tree` 的那棵树摘掉隐藏目录，`provider` 的读写完全不受影响（这是「树里看不见、元数据照常读写」的关键，别把过滤下沉到存储层）。函数返回值的引用约定容易写错：子树一点没动就原样返回入参，父层靠 `children === node.children` 判断要不要换新对象——判据 `changed` 必须**同时**涵盖「本层直接摘掉了节点」与「某个子节点被换成了新对象」两种情况。只认第一种（或改比 `children.length`）都会漏：`.cph` 通常在两层之下，中间层自己一个节点没摘、长度也没变，于是父层拿到「没变」的错误结论继续挂着未过滤的旧子树，`.cph` 就照旧显示出来。
-20. **扩展安装包靠文件名换版，不靠 `sw.js` 的 `VERSION`**（`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION` / `EXTENSION_FILE`）：`public/extension/` 下的 zip 不在构建清单里，而 SW 对同源 GET 走 `cacheFirst` 且**不重新校验**——原地覆盖同名文件，老用户会一直下到缓存里的旧包。所以发新版必须换文件名（`cc-for-web-2.65.1.zip` → `...-2.65.2.zip`），同步改这两个常量 + `cph-companion` 的 `package.json` 版本号。也**不要**把它塞进 `STATIC_ASSETS`（那会每次 install 都预缓存一份几百 KB 的包，而它只在用户点「下载」时才需要）。
+    - **同名但 `url` 对不上 = 用户自己的文件**，这时候不能覆盖，要 `baseName-2`、`baseName-3` 依次找空位（只看代码文件那个路径空不空）；整趟塞进一个 `vfs.batch()`，界面只重建一次树。
+19. **`meta` 与 `config` 是两个字段，而 `setMeta` 是「整体替换」**（`LocalVFSProvider.setMeta` / `setConfig`）：两个方法都先 `{ ...node }` 展开、再只改自己那一个键，所以并存时不互相覆盖；但 `setMeta(path, meta)` 传进去的对象**就是**新的 `meta` 全部内容——题目信息弹窗（`updateFileMeta`）改一下难度就会用五项重建 meta，**样例若也存在 meta 里，就会在这一刻被抹掉**。所以样例一律走 `config`（`problemImport` 落盘与评测面板取用例都读它）。旧版这两样是同级隐藏的 `.cph/<题名>.json` 文件（旧版靠 `workspaceStore` 的 `withoutHiddenDirs()` 在渲染层摘掉，该函数已删），**2026-10-01 取消**：过滤逻辑已删，老数据由 `migrate.js` 的 `migrateProblemMetaInline()`（标记 `cp.problemMetaInline`）搬进 `config` 后连 `.cph` 一起删掉。
+20. **扩展安装包靠文件名换版，不靠 `sw.js` 的 `SHELL_VERSION`**（`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION` / `EXTENSION_FILE`）：`public/extension/` 下的 zip 不在构建清单里，而 SW 对同源 GET 走 `cacheFirst` 且**不重新校验**——原地覆盖同名文件，老用户会一直下到缓存里的旧包。所以发新版必须换文件名（`cc-for-web-2.65.1.zip` → `...-2.65.2.zip`），同步改这两个常量 + `cph-companion` 的 `package.json` 版本号。也**不要**把它塞进 `STATIC_ASSETS`（那会每次 install 都预缓存一份几百 KB 的包，而它只在用户点「下载」时才需要）。
 21. **全局快捷键挂在 `window` 的捕获阶段，且录制期间必须让路**（`useShortcutManager.js` + `App.vue` 的 `onKeydown` + `HotkeyRecorder.vue`）：`window.addEventListener('keydown', onKeydown, true)` 里 `preventDefault()` + `stopPropagation()`——Monaco 的键位服务挂在编辑器内部 DOM 上，捕获是从外往内走，只有这样才能抢在它前面，编辑器里也归这套表管（顺带把 `Ctrl/⌘+Enter` 原本「在下方插入一行」的内置行为一并挡掉）。反过来，`HotkeyRecorder` 的 keydown 在按钮的目标阶段，而捕获永远先跑，所以**开录时必须置 `recordingActive = true`**、`onKeydown` 见到它就 return，否则录入组合键的瞬间功能会先被执行一遍。同理，`event.isComposing` 期间一律不处理（拼音选词不能被当成命令）。**不要**改回 `editor.addCommand()` 同步键位：Monaco 0.56 的 `ICodeEditor` 只有 `addCommand`、没有 `removeCommand`，改过键之后旧的撤不掉，会出现「新键不跑、旧键反而跑」。
 22. **组合键内部串用 `event.code`，且必须挡住浏览器原生键**（同上）：用 `event.key` 对不上——Alt 组合在 macOS 上会把 key 变成特殊字符（Alt+B 是 `∫`）、Shift 会把 `Digit1` 变成 `!`。内部写法固定为 `Mod+Ctrl+Alt+Shift+<code>`（顺序固定、必带键码），所以字符串相等就是精确匹配，`Ctrl+B` 与 `Ctrl+Shift+B` 天然不会互相误触；`Mod` = 平台主修饰键（macOS 是 ⌘，其它平台是 Ctrl），macOS 上还要单独有 `Ctrl`。另外 `BROWSER_RESERVED` 那张表（`⌘W` / `⌘T` / `⌘R` / `F12` 等）要在**录制阶段**就拒绝并给红字原因：这些组合由浏览器 UI 层直接吃掉，`preventDefault()` 无效，绑上去只会得到一个永远不触发的快捷键。裸键只放行功能键与 `Esc`（`SAFE_BARE_CODES`），其余一律要求带修饰键，否则打字时会不停误触发。
 23. **「卸载本地运行环境」删的是 Cache Storage，判据也必须以它为准**（`runnoSandbox.unloadRuntime` + `wasmRuntime` 的 `uninstallRuntime` / `isAssetCached`，2026-09-28 加）：设置页「本地运行环境」在 `ready` 时右侧多一颗「卸载」（自绘确认弹窗，理由同坑 11，不要 `window.confirm`）。要同时清三处，缺一处就「卸了像没卸」：
-    - **Cache Storage**（SW 的 `cph-toolchain-*`）：资产的实际落点，按 `runtimeAssetURLs()` 逐个 `cache.delete()`；缓存名带 `VERSION`，所以按前缀全扫，不只认当前那一个。
+    - **Cache Storage**（SW 的 `cph-toolchain-*`）：资产的实际落点，按 `runtimeAssetURLs()` 逐个 `cache.delete()`；缓存名**不等于** `sw.js` 里那两个常量（工具链那个是硬编码的固定名），所以按前缀全扫，不只认当前那一个。
     - **内存**：C++ 是 `toolchain` / `toolchainPromise` / `compileCache` / `pchBytes` / `pchPromise`，Python 是 `pythonRuntime` / `pythonRuntimePromise`；另加 `wasmRuntime` 的 `pchWarmupStarted` 复位（不复位的话，卸载后再跑 C++，`warmupPch()` 会因「已预热过」直接跳过）。PCH 存在 IndexedDB（十几 MB），单独 `deletePch()`。
     - **HTTP 缓存：删不掉**，浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只改取值策略）。所以 `isAssetCached` 改成「SW 控制页面时只认 `caches.match()`，没有 SW（dev 模式）才退回 `only-if-cached` 探 HTTP 缓存」——仍让 HTTP 缓存当判据的话，刚卸载完的资产会被那份残留立刻判回「已就绪」。**这是本项目第一次让「判据」与「删得掉的那一层」对齐**，以后改探针先想清楚这点（坑 12 那套探针注释也同步改过）。
     - 卸载按钮只在 `ready` 时出现（没装就没有可卸的），下载中禁用——会和 SW 在途的 `cache.put` 打架。
@@ -409,9 +411,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 另外 PCH 二进制（约 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cph-pch`、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:微缩头内容的 FNV-1a 哈希`（当前是 `1:8.0.1:69dc7cd9`），三者任一变化旧存档自然失效，取存档只按这个 id。
 
-工作区文件树也存在 IndexedDB（不是 localStorage）：库名 `cph-vfs`、两个 store `nodes` / `contents`（`LocalVFSProvider`），`nodes` 里就是整条 `VFSNode` 记录（`id / name / type / path / parentId / createdAt / updatedAt`），2026-09 给文件节点加了可选的 `meta`（题目链接 / OJ / 难度 / 日期，见第 5 节坑 17）。**它是记录里的一个可选字段，不是新 store、也不动 `DB_VERSION`**——旧记录没有 `meta` 就按「没有元数据」处理，纯向后兼容。
+工作区文件树也存在 IndexedDB（不是 localStorage）：库名 `cph-vfs`、两个 store `nodes` / `contents`（`LocalVFSProvider`），`nodes` 里就是整条 `VFSNode` 记录（`id / name / type / path / parentId / createdAt / updatedAt`），2026-09 给文件节点加了可选的 `meta`（题目链接 / OJ / 难度 / 日期 / 时限，见第 5 节坑 17），2026-10-01 又加了 `config`（抓题结果原文：`tests` 样例、`oj`、原始 `timeLimit` 等）。**两个都是记录里的可选字段，不是新 store、也不动 `DB_VERSION`**——旧记录没有就按「没有」处理，纯向后兼容。
 
-导入的题目与用户自己建的文件**共用同一套存储**：`.cph/` 就是一个普通的 VFS 目录（只是一开始在 UI 里被摘掉，见第 5 节坑 19），代码文件也只是一条普通记录，没有「题目专用表」这种东西。所以题目目录的搬移 / 重命名 / 删除走的都是既有路径，不需要为扩展另写存储。
+导入的题目与用户自己建的文件**共用同一套存储**：题目信息与样例直接挂在代码文件节点上（`meta` / `config`），代码文件也只是一条普通记录，没有「题目专用表」这种东西。所以题目目录的搬移 / 重命名 / 删除走的都是既有路径，不需要为扩展另写存储。
 
 写值统一走 `usePersistentRef(key, defaultValue)`；`editorSettings` 因为要版本迁移，单独用 deep watch 存。加编辑器设置项时**必须**两道校验都过：读盘（`readEditorSettings()`）与面板回写（`updateEditorSettings()`）都逐键走 `editorOptions.js` 的 `normalizeEditorSetting()`，不在默认值表里的键直接丢弃、越界数字退回默认——所以 localStorage 里手改出来的 `fontSize: 999`、认不出的 `cursorStyle`、乃至早已移除的旧键都不会漏进编辑器。
 
@@ -441,7 +443,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
 - **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
-- **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下；难度导入时为空、先落「未分类」；元数据在同级隐藏目录 `.cph/`，UI 里看不见），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
+- **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下；难度导入时为空、先落「未分类」；题目信息与抓到的样例都挂在这个文件节点上 `node.meta` / `node.config`，树里不另有条目），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
 - **题解（Markdown / LaTeX，2026-09-30 加，全流程见第 15 节）**：`.md` / `.markdown` 能写、能预览、能排版，**但只是文本，不参与判题** —— 两个运行入口在题解下都是禁用态并给出一句提示（不是「点了没反应」）。预览依赖**按需下载**的 marked + KaTeX（约 578KB，缓存桶 `cph-md-runtime-v1`，与本地工具链同一套路数）：**没下载时预览面板显示的是「去下载」入口而不是空白页**，下完当场渲染，设置视图「本地运行环境」里可以整体卸载（清缓存 + 删全局 + 删标记三件一起做）。三条边界：① `.md` **不进**判题链路（`activeLanguage` 为 `null`，外部引擎也没有 markdown 语言）；② 公式只在预览里渲染，编辑器里就是 `$…$` 原文；③ 题解与代码文件共用同一套 VFS / IndexedDB 存储，没有「题解专用表」，重命名 / 移动 / 删除走的都是既有路径。
 - **把文件从资源管理器拖到编辑区（2026-09-30 加，见 14.18）**：拖过去时编辑区亮起与「拖到树空白处（根区域）」**同一个变量**（`--bg-drop-root`）的提示色，松手后**已经开着就切到那个页签、没开就常开一个新页签**（不是预览页签；顺带把它从预览槽里钉住）。三条边界：① 高亮范围是编辑器**内容区**（`.editor-pane__stage`），不含页签栏与状态栏；② **目录不接**（拖目录过去不亮、不动作——目录的语义是「移动」不是「打开」）；③ 触屏也走同一条路（长按起拖之后拖到编辑区即可），没有额外的触屏入口。
 - **界面双语（2026-09-29 加）**：界面、应用内帮助与使用指南都有**中文 / 英文**两套，语言默认跟随浏览器、可在设置视图「外观」组的「界面语言」里改，**切了当场生效、不重载**。写文案时注意两条边界：① **判题语言与界面语言无关**——判题语言仍由活跃文件的扩展名派生（第 5 节坑 15），界面语言只管文案，别把两者写成一回事；② **没有第三方本地化机制**（没引 vue-i18n，没有 `.po` / `.json` 语言包，没有 URL 前缀 `/en/`），词条就是 `src/i18n/messages/` 下六个 JS 文件里中英并排的对象，加语言 = 加一栏 + 在 `LOCALES` 里加一项。另外 `guide.html` 与 `guide.en.html` 是**两个独立的静态页**（各自的 `guide.html` 级别 SEO 头、互相 `hreflang`），不做客户端语言跳转——抓取器拿到什么就是什么。
@@ -463,14 +465,14 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cph.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
 - PWA / 离线专项（动过 `sw.js` / manifest / 图标 / 预缓存清单后必做），仍然临时探针、用完即删：
   1. `npm run build && npm run preview`（**必须是生产构建**，dev 下不注册 SW），DevTools → Application 应看到 manifest 无报错、Service Worker 已是 `activated`；
-  2. Application → Cache Storage 应只有 `cph-shell-v2`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）；`cph-toolchain-v2` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
+  2. Application → Cache Storage 应只有 `cph-shell-v4`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）；`cph-toolchain-v3` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
   3. 在设置里切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：界面应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
 - 布局宽度专项（动过 `SidebarSwitcher.vue` / `EditorTabs.vue` / 侧栏各面板页头 / `.pane--tests` 下限后必做），临时探针、用完即删：在 1680 / 560 / 414 / 375 / 320 五档量四件事——（a）侧栏页头图标区（量 `.sidebar-switcher`，合计 90px = 胶囊 60 + 间距 4 + 设置 26）都可见、且右缘不超页头右缘，（b）侧栏宽 / 页头宽（与上表逐像素比，删掉页签栏那颗运行按钮后应仍是 663 / 238 / 199 / 180 / 158），（c）`documentElement.scrollWidth === innerWidth`（无横向溢出），（d）`.workspace` 的 `getBoundingClientRect().top === 0`（顶栏确实没了、工作区贴顶）。**只看有没有横向滚动条不够**：`.editor-tabs__strip` 自己会滚，真溢出反而被它吸收；要按第 3 节那个「必需宽度」公式自己算。2026-09-28 的实测表与结论记在第 3 节「无顶栏后的两条宽度线」（**运行按钮 2026-09-28 删除后已重测**，所以别再去找 `.editor-tabs__run`）。
 - 插件抓题专项（动过 `problemImport.js` / `useCompanionBridge.js` / `useCompanionImport.js` / 落盘结构后必做），临时探针、用完即删。**不必真装扩展**——在页面上下文直接 `window.postMessage({ source: 'competitive-companion', type: 'cph-task', taskId: 't1', payload: JSON.stringify(task) }, location.origin)` 就能走完整条链路（`event.source` 与 `event.origin` 两道校验都能过）。要覆盖的六件事：
-  1. 首次导入后树里出现 `<年月> / <OJ 标签> / 未分类 / <题名>.cpp` 这条链（中间几层是归类用的，**不是**「题名」那一层目录）、**不出现** `.cph` 与任何 `.json`；
-  2. 底层元数据在（`vfs.readFile('/<年月>/<OJ 标签>/未分类/.cph/<题名>.json')` 能读到，含 `tests` 与 `oj`）；
+  1. 首次导入后树里出现 `<年月> / <OJ 标签> / 未分类 / <题名>.cpp` 这一条链（中间几层是归类用的，**不是**「题名」那一层目录），且该目录里**只有这一个文件**（题目信息与样例挂在节点上，不会再冒出第二个条目）；
+  2. 底层数据在：`(await vfs.stat(path)).meta` 有 `url` / `oj` / `date` / `timeLimit`，`.config` 里能读到 `tests`；
   3. 往代码文件里写入 `// my solution` 再重抓同一道题 → 正文**原样保留**、样例换成新的；
   4. 评测面板的用例是**整体替换**而不是追加（第 3 条之后卡片数应等于新题目的样例数）；
   5. 同一个 `url` 换个题目名重抓 → 仍落在**同一个文件**上（按 url **全库**认题，哪怕算出来的新路径不同）；`url` 不同但题名相同 → 另起 `<题名>-2.cpp`；
@@ -523,7 +525,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **Service Worker 的三段策略**：
 
-- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存进 `cph-shell-v2`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cph-toolchain-v2`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
+- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存进 `cph-shell-v4`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cph-toolchain-v3`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
 - `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。
 - `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错。
 
@@ -531,7 +533,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **两个版本号，别混**：
 
-- `sw.js` 的 `VERSION = 'v2'` —— 常量前缀，决定缓存桶名。改缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧桶整个删掉。**只在缓存桶名上生效，和工具链版本无关。**
+- `sw.js` 的 `SHELL_VERSION = 'v4'` —— **只决定外壳桶名**（`cph-shell-v4`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。
+- `sw.js` 的 `TOOLCHAIN_CACHE = 'cph-toolchain-v3'` —— **硬编码，刻意不跟 `SHELL_VERSION` 走**。2026-09-30 前两个桶共用一个版本号，升一次外壳就把老用户的 clang（52MB）+ CPython（24MB）一起删掉、逼他们重下 76MB；现在工具链桶名固定，它落在 `activate` 的 keep 白名单里，跨外壳升级无损继承，一个字节都不用重下。**换工具链时代码时才手动改这一行。**
 - 工具链目录 `public/wasm/8.0.1/`（C++）与 `public/wasm/python-3.11.3/`（Python）—— 目录名就是版本号，换名字即自然失效（URL 变了，浏览器与 SW 都当新资源重新取）。**不用再改 `sw.js`**：工具链已改成按需缓存的，`cacheFirst` 只按 `/wasm/` 前缀分流、不认具体版本目录。
 
 **注册时机**：`src/main.js` 里 `import.meta.env.PROD && 'serviceWorker' in navigator` 才注册，且挂在 `window.load` 上。**dev 下刻意不注册**——Vite 的模块是即时编译的，缓存它只会让改完代码看到旧页面；所以 `npm run dev` 里既没有安装入口也测不到离线，要验就走 `npm run build && npm run preview`。
@@ -672,8 +675,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 ### 13.2 落盘结构（**动之前先想清楚**）
 
 ```
-/<年月>/<OJ 标签>/<难度>/<题名>.cpp        用户写的题解 —— 只在首次导入时创建，此后一个字都不动
-/<年月>/<OJ 标签>/<难度>/.cph/<题名>.json  抓取结果（题目元数据 + 全部测试样例）—— 每次抓取整体覆盖
+/<年月>/<OJ 标签>/<难度>/<题名>.cpp   用户写的题解 —— 只在首次导入时创建，此后一个字都不动
+    · node.meta     题目信息：url / oj / difficulty / date / timeLimit
+    · node.config   抓取结果：含全部测试样例 —— 每次抓取整体覆盖
 ```
 
 **没有外层 wrapper**（2026-09-30 改）：题目目录直接挂在根下，与用户自己建的 `main.cpp` 平铺。此前是 `/Problems/<年月>/…`，`migrate.js` 会把老工作区里 `/Problems` 下的条目逐个 `rename` 到根一层，再把搬空的 `/Problems` 与 `/Contest` 删掉（标记 `cph.workspaceLayoutV2`，只跑一次；撞名时跳过该项并保留外壳，宁可留壳也不覆盖用户数据）。`migrate.js` 也**不再种子**这两个顶层目录——工作区骨架由用户自己长出来。
@@ -683,8 +687,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - `<年月>` 取**当天本地时间**的 `YYYY-MM`（`todayMonth()`，`todayISO().slice(0, 7)`）。粒度到月：按天会长出大量只含一个文件的目录。
 - `<OJ 标签>` 取自 `services/problemMeta.js` 的 `OJ_LIST` 中文标签（洛谷 / Codeforces / …），认不出来落 `其它`。OJ 由题目 `url` 的域名判断（`problemImport.js` 的 `OJ_HOSTS`，带子域名的按 `endsWith` 匹配）。
 - `<难度>` 导入时**一律为空**（来源站点口径不一，由用户手填），先落 `未分类` 占位。用户事后填难度**不会**搬动已有文件——路径一旦定下就跟着题走，分层只对之后新抓的生效。这是一条纪律，不是待补的漏洞。
-- 为什么不留「题名」目录、为什么元数据要收进 `.cph`、为什么认 `url` 不认文件名 / 路径：全在第 5 节坑 18。
-- 元数据 json 里**原样保留**扩展送来的所有字段（`tests` / `timeLimit` / `memoryLimit` / `testType` / `input` / `output` / `group` / `interactive` / `name` …），只额外补 `oj` 与 `importedAt`：少存一份，将来要加模板或按批次分组就得回头重抓。
+- 为什么不留「题名」目录、为什么题目信息挂在节点上而不是另立文件、为什么认 `url` 不认文件名 / 路径：全在第 5 节坑 18。
+- `config` 里**原样保留**扩展送来的所有字段（`tests` / `timeLimit` / `memoryLimit` / `testType` / `input` / `output` / `group` / `interactive` / `name` …），只额外补 `oj` 与 `importedAt`：少存一份，将来要加模板或按批次分组就得回头重抓。
+- 旧版这两样是同级的隐藏文件 `.cph/<题名>.json`，2026-10-01 起取消：`migrate.js` 的 `migrateProblemMetaInline()`（标记 `cp.problemMetaInline`）把 json 内容搬进 `node.config` 后连目录一起删；**配对不上（同名代码文件找不到）或 json 坏了就原样保留**，不猜。`meta` 不在这趟迁移里——题目身份本来就在导入时写进节点了。
 - 代码文件后缀**暂时写死 `.cpp`**：扩展送来的 `languages` 里只有 `java`（TaskBuilder 的固定默认值），拿它判语言等于把每道题都当 Java，`cpp` / `python` 这些键上游解析器根本不写。等真做了模板功能再改这里（`CODE_EXT`）。
 - 题名清洗（`sanitizeName()`）：非法字符换 `-`、空白收成一个、连续短横收成一个、**结尾的点 / 空格 / 短横剪掉**（题名里问号极常见，`Is It a Tree?` 替换完会留个尾巴），超长截到 80 字。全空退回「未命名题目」。
 - 中间几层由 `ensureDirectory()` 逐级建（`createDirectory` 要求父目录已存在），整趟在一个 `vfs.batch()` 里，界面只重建一次树。
@@ -717,7 +722,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ## 14. 后续计划与待解决问题
 
-这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**已落地：14.1、14.3（2026-09-29）、14.7（2026-09-29）、14.8、14.12，以及 14.5 的固定结构 + 身份索引提级那一半、14.11 的阶段一**（这些条目保留在下面只作记录）。仍待做 6 项里靠前的都是站点侧小改动，越往后越重：14.6 会动用户数据，14.2 是 14.5 剩余部分的前置，**14.9 是一次架构变更（要引后端，不是普通功能）**。**整节的建议落地顺序见本节末尾。**
+这一节是**还没做、但已经想清楚怎么做**的清单（2026-09-28 记），按「动手前要先定的事」写，不是需求描述。**已落地：14.1、14.3（2026-09-29）、14.7（2026-09-29）、14.8、14.12、14.9（2026-09-30，架构变更，含 14.21）、14.15、14.19、14.20，以及 14.5 的固定结构 + 身份索引提级那一半、14.11 的阶段一**（这些条目保留在下面只作记录）。仍待做 5 项里靠前的都是站点侧小改动，越往后越重：14.6 会动用户数据，14.2 是 14.5 剩余部分的前置。**整节的建议落地顺序见本节末尾。**
 
 ### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28，做成胶囊开关）
 
@@ -755,7 +760,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 - **接口缺 `readDirectory` / `list`**：`BaseVFSProvider` 只给 `getTree()`（整树）。所以 `problemImport.findByUrl()` 为了按 url 找一道旧题，得把整棵树取回来再自己递归找节点——题目一多，这一步就是 O(全库)（题目分层落盘后它已经是全库扫描，见 13.2）。
 - **启动时把所有正文读进内存**：`LocalVFSProvider` 初始化走 `contentsStore.getAll()`，把**每个文件的正文**都塞进 `#contents`。文件少时无所谓，题解多了以后这是启动耗时和常驻内存的主要来源；正文完全可以惰性读。
-- **`rebuildTree()` 是全量重建**：`workspaceStore` 里任何一次改动都重取整树 → `withoutHiddenDirs` 每层递归 copy（过滤 `.cph`）→ 重新 walk 建索引 → 清理死 tab。`rebuildChain` 只是把它串行化，并没有减少工作量。
+- **`rebuildTree()` 是全量重建**：`workspaceStore` 里任何一次改动都重取整树 → 重新 walk 建索引 → 清理死 tab。`rebuildChain` 只是把它串行化，并没有减少工作量。
 - **rename / delete 一律聚合成一次 `reset`**（见 `workspaceStore.js` 头部注释），UI 侧永远吃一次全量 diff。
 - **`getTree()` 每次调用现组装 `children`**（存储层不维护），整树越大这项成本越高。
 
@@ -763,10 +768,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 1. 给 provider 补 `readDirectory(path)`，把「按目录找题」从 O(n) 降到 O(该目录)。
 2. 正文惰性加载：`#contents` 只缓存打开中的文件（或做 LRU），其余按需读 IDB。
-3. `rebuildTree` 改成按变更子树局部刷新，或给 `getTree()` 加缓存 + 失效标记；`.cph` 过滤下沉一层，别每次全树 copy。
+3. `rebuildTree` 改成按变更子树局部刷新，或给 `getTree()` 加缓存 + 失效标记。
 4. 常驻一份 `path → node` 索引，替掉 `findByUrl` 那种自己 walk 的写法（或直接维护一张全局 `url → path` 表，让认题变成 O(1)）。
 
-**不能破的约定**：`.cph` 在 UI 里必须仍然不可见（第 5 节坑 19 的 `changed` 标志别搞丢）、代码文件正文永不覆盖、题目身份认 `url`。
+**不能破的约定**：题目信息与样例都挂在代码文件自己的节点上（`node.meta` / `node.config`，第 5 节坑 19）、代码文件正文永不覆盖、题目身份认 `url`。
 
 ### 14.3 把 CC for Web 的时限接到评测时限上 —— ✅ 已落地（2026-09-29，走的是「挪进节点 meta」那条路）
 
@@ -784,7 +789,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **要不要覆盖用户的选择** → 不需要区分了：题目时限进 `meta`，全局档位一个字节都不碰。
 - **这是全局量，不是每道题一份** → 正是因此才把它挪进 `meta`（节点元数据的第 5 个字段，`problemMeta.js` 的 `emptyMeta()` / `formatMetaTooltip()` 一起加了它）。
 
-**还没做的**：`.cph/<题名>.json` 里也留着原始 `timeLimit` 字段（每次抓取刷新），目前只有 `meta.timeLimit` 参与判题；两者是「来源备份」与「生效值」的关系，别顺手删掉前者。
+**还没做的**：`node.config` 里也留着原始 `timeLimit` 字段（每次抓取刷新），目前只有 `meta.timeLimit` 参与判题；两者是「来源备份」与「生效值」的关系，别顺手删掉前者。
 
 ### 14.4 默认模板功能
 
@@ -796,7 +801,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 - **按扩展名选模板，不要按「当前激活语言」**：在 `.cpp` 上新建 `main.py` 时，当前激活的还是 cpp。
 - **顺带把 `CODE_EXT` 做活**：导入题目的后缀现在写死 `.cpp`（见 13.2），做模板正好是把它变成可配置的时机，两件事应当一起做。
-- **模板存哪（部分已定）**：内置骨架已定为**写死在源码里**（`services/templates.js`，用户不可编辑）。将来若要让用户**可编辑**，得先决定它的家——放 `.cph/` 里会被 UI 过滤掉（用户看不见也就改不了），放 localStorage 又不适合多行代码。这是「先定产品形态再写代码」的问题。
+- **模板存哪（部分已定）**：内置骨架已定为**写死在源码里**（`services/templates.js`，用户不可编辑）。将来若要让用户**可编辑**，得先决定它的家——放 localStorage 不适合多行代码，另立一套隐藏存储又会让用户看不见（看不见也就改不了）。这是「先定产品形态再写代码」的问题。
 
 ### 14.5 文件归类设置（可视化编排 时间 / OJ / 难度 三层目录）—— 🟡 固定结构已落地（2026-09-28），配置 UI 未做
 
@@ -807,7 +812,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - 编排要**图形化**：三个维度做成可拖拽的卡片 / 标签，横向排列即层级顺序，各自带一个开关，旁边实时预览最终路径。
 - 在图形编排之外，**仍然允许自定义文件夹结构**（手写层级模板串，作为高级入口）。
 
-**现状**（2026-09-30 更新）：落盘**已经**按「时间 / OJ / 难度」分好层（见 13.2）——`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下），难度为空落 `未分类`；认题也已经**提级成全库按 url 查**（`findByUrl()` 扫全 `.cph`，并复用题目原目录），这是这条需求能不能做的**前提**，已完成。**还差的只有「让用户可配置」这一半**：`EditorSettingsPanel.vue` 的 `SECTIONS` 仍是 9 项（2026-09-30 加了「常用设置」，见 14.19），没有任何设置项与这套路径对应——三个维度的顺序与开关都还写死在 `problemImport.js` 里。难度在节点 `meta.difficulty`（**用户自己填**，导入时保留不覆盖），日期在 `meta.date`（只在首次导入时播种）。
+**现状**（2026-09-30 更新）：落盘**已经**按「时间 / OJ / 难度」分好层（见 13.2）——`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下），难度为空落 `未分类`；认题也已经**提级成全库按 url 查**（`findByUrl()` 扫全库、按文件节点的 `meta.url` 找回，并复用题目原目录），这是这条需求能不能做的**前提**，已完成。**还差的只有「让用户可配置」这一半**：`EditorSettingsPanel.vue` 的 `SECTIONS` 仍是 9 项（2026-09-30 加了「常用设置」，见 14.19），没有任何设置项与这套路径对应——三个维度的顺序与开关都还写死在 `problemImport.js` 里。难度在节点 `meta.difficulty`（**用户自己填**，导入时保留不覆盖），日期在 `meta.date`（只在首次导入时播种）。
 
 **要做的三块**：
 
@@ -821,9 +826,9 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - ~~**先确认一件事：根目录 `/Problems` 还留不留**~~ **已定（2026-09-30 改）：去掉**——题目目录直接挂根下（见 13.2），与用户自己建的 `main.cpp` 平铺。原先 2026-09-28 的「保留 `/Problems`」决定作废；`migrate.js` 已不再种子 `/Problems` 与 `/Contest`，并会把老工作区里 `/Problems` 的内容搬到根一层（标记 `cph.workspaceLayoutV2`）。
 - ~~**默认把「时间」放最外层会不断长出新顶层目录**~~ **已定（2026-09-28）：粒度 `YYYY-MM`（按月）**，按天会产生大量只含一个文件的目录。
 - ~~**难度维度首次导入时是空的**~~ **已定（2026-09-28）：维度开着但当前题无值 → 落「未分类」**（整层不跳过，新题路径层级才稳定）。用户事后填难度**不搬动**已有文件，见 13.2。
-- ~~**`findNameByUrl` 会失效，这是能不能做的前提**~~ **已做（2026-09-28）**：`findByUrl()` 已改成**全库**扫 `.cph` 按 url 找回旧题目、并复用原目录。只要「身份索引提级」这条在，路径可配置以后「用户一改结构、老题就变孤儿」的风险就不存在——保留这条记录只为说明它当初为什么是前置条件。
+- ~~**`findNameByUrl` 会失效，这是能不能做的前提**~~ **已做（2026-09-28）**：`findByUrl()` 已改成**全库**扫文件节点的 `meta.url` 找回旧题目、并复用原目录。只要「身份索引提级」这条在，路径可配置以后「用户一改结构、老题就变孤儿」的风险就不存在——保留这条记录只为说明它当初为什么是前置条件。
 - **对老数据零影响**：与 13.2 的纪律一致——新规则只对之后抓的题生效；若要做「重新归位」，必须是一次独立的、要用户确认的操作，绝不能隐式迁移（题解会跟着代码文件挪窝，一动就丢）。**唯一例外是 13.2 的外层 wrapper**：去掉 `/Problems` 这一层是一次性的、结构级的搬迁（题目相对根的位置整体上移一级，题目内部结构不变），已由 `migrate.js` 的 `cph.workspaceLayoutV2` 标记兜住、只跑一次；**不要**照此把「按新维度规则重排题目」也做成隐式迁移。
-- **持久化放哪**：维度顺序与开关是全局偏好，适合进 localStorage 的一个新 key（如 `cph.problemLayout`）；**不能放 `.cph/`**——那里会被 UI 过滤掉，用户也就改不了。
+- **持久化放哪**：维度顺序与开关是全局偏好，适合进 localStorage 的一个新 key（如 `cph.problemLayout`）——它是设置项，**别塞进 VFS 的节点里**。
 - **强依赖 14.2**：路径多两层之后全树规模明显变大，`rebuildTree` 的整树重建会先扛不住。
 
 ### 14.6 比赛模式（赛时功能）
@@ -836,7 +841,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - `batch: { id, size }`：`id` 同一场比赛共用，`size` 是题目总数；**单题解析时 `size === 1`**（`TaskBuilder` 默认 `{ id: uuidv4(), size: 1 }`）
 - `tests`：样例已经在载荷里，不需要额外去抓
 
-而 `problemImport.buildConfig()` 是 `...task` 展开落盘的，**这三样现在就已经存进 `.cph/<题名>.json` 了**。
+而 `problemImport.buildConfig()` 是 `...task` 展开落盘的，**这三样现在就已经存进该文件节点的 `node.config` 里了**。
 
 **要做的**：一个开关（放哪待定：设置面板 or 面板页头）→ 收到 `batch.size > 1` 的一批任务时，落进比赛目录（如 `/<group>`；`/Contest` 这个旧壳 2026-09-30 起不再种子，见 13.2，落点届时再定），而不是按 OJ 分目录；并给出「第 3 / 8 题」这类进度。
 
@@ -874,25 +879,48 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - 图标必须画在 **24×24 网格**上（`AppIcon.vue` 现有路径都是这个网格），否则和旁边的 `SidebarSwitcher` 图标对不齐；`.explorer__btn` 是 26×26、图标 `:size="14"`，只要不改尺寸就不会动页头宽度（窄屏余量见第 3 节）。
 - 加完确认树里节点**仍然**用旧的 `file` / `folder`。两处一起改就等于没区分。
 
-### 14.9 登录 + 云同步（最大的一条，要先选型）
+### 14.9 登录 + 云同步 —— ✅ 已落地（2026-09-30，做法：Cloudflare Worker + KV）
 
-**需求**：加账号体系与跨设备云同步。
+**原需求**：加账号体系与跨设备云同步。
 
-**现状（也是最大的障碍）**：
+**原现状（也是当初最大的障碍）**：
 
-- 现在是**纯静态前端**：没有后端、没有账号，Vite 构建直接上 Vercel，数据全在浏览器本地（VFS 落在 IndexedDB 的 `cph-vfs`）。
-- 第 0 节写着「**新增 npm 包要先讨论**」，而这件事必然要引后端 / 第三方 SDK——所以它**不该被排进功能队列，它是一次架构变更**。
+- 当时是**纯静态前端**：没有后端、没有账号，Vite 构建直接上 Vercel，数据全在浏览器本地（VFS 落在 IndexedDB）。
+- 第 0 节写着「**新增 npm 包要先讨论**」，而这件事看着必然要引后端 / 第三方 SDK——所以它**不该被排进功能队列，它是一次架构变更**。
 - 站点为了 WASM 多线程带了 `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`（第 1 节硬约束），跨源脚本 / 资源都要带 CORP 头，第三方 SDK 的接入方式要按这个约束先验一遍。
-- VFS **没有版本号、也没有变更日志**：rename / delete 一律聚合成一次 `reset`（见 `workspaceStore.js` 头部注释），同步需要的「增量」现在拿不到。
+- VFS **没有版本号、也没有变更日志**：rename / delete 一律聚合成一次 `reset`（见 `workspaceStore.js` 头部注释），同步需要的「增量」当时拿不到。
 
-**动手前必须先定四件事**：
+**当初「必须先定」的四件事，最后的答案**：
 
-1. **同步什么**：只同步题目目录（题目 + 题解 + `.cph` 元数据），还是连编辑器偏好 / 快捷键一起？样例与题解是最重的用户数据。
-2. **谁是权威**：本地优先（离线可用，云端只做备份与合并），还是云端权威（多端一致但离线就废了）？现有 PWA + `sw.js` 的离线设计倾向本地优先。
-3. **冲突策略**：last-write-wins、保留双份、还是按文件粒度做三方合并？「同一道题两台设备都在写」必须有确定行为。
-4. **鉴权与后端用谁的**：自建（要服务器与运维）还是托管服务（会引第三方依赖，按第 0 节约定要先讨论）。
+1. **同步什么** → **只同步偏好类键**，就是 `cloudProfile.js` 的 `SYNC_KEYS`（12 个）：编辑器偏好（含主题）/ 存档版本号 / 站点快捷键 / 界面缩放 / 界面语言 / 侧栏左右 / 编辑器与评测面板的宽度比 / 侧栏停在哪个面板 / 题解视图模式 / 全局时限 / 评测引擎 / 预下载勾选。**题目文件、测试样例、判题服务器地址一律不上传**：`cp.testCases` 是内容而不是偏好、体积也大；`cp.judgeBases` 可能是内网地址，而云端是**公开可读**的；三个 runtime ready 标记是「这台设备有没有下过」的事实，换设备根本不成立。
+2. **谁是权威** → **本地优先，但一次交换一整个快照**：云端存的是全量偏好快照，**没有增量、也没有合并**。登录 / 点「下载到本机」= 云端那份覆盖本机；点「上传本机设置」= 本机那份覆盖云端。特意没做文件级同步（当初 VFS 没有增量、也没有变更日志，这条短板至今还在）。
+3. **冲突策略** → **last-write-wins**，界面上只把 `updatedAt` 显示成「云端最近更新」给你自己判断，不做三方合并。
+4. **鉴权与后端用谁的** → **自建一个 Cloudflare Worker（`cf-config-api`）+ KV**，接口挂在**站点自己域名下的 `/api/*`**（Worker Route）。于是浏览器看来全是同源请求：不需要 CORS，也**不与 COEP: require-corp 冲突**（第 1 节硬约束）。**前端零新增 npm 包**（只用 fetch），绕开了第 0 节「新增包要先讨论」那条门。
 
-**另外**：题解与做题记录相当私人，`.cph/*.json` 里的 `url` 等于完整刷题历史——上传范围必须在 UI 上说清楚（第 12 节那四处文案也要跟着改）。
+**身份怎么证明**：服务端发一枚验证码存进 KV（TTL 600s，同一 handle 10 分钟最多 5 次），用户把它填到自己 Codeforces 个人资料的 **Last name** 上，服务端再调 CF 公开 API 读回来比对（两边都 `trim()` + `toUpperCase()`，所以大小写不敏感）。**「用户名」始终指 Codeforces handle，Cloudflare 只是托管平台**——文案与注释里别把两者混成一件事（见 `cloudProfile.js` 文件头）。
+
+**三条刻意的设计**：
+
+- **登录不写云端**：云端已有配置时，登录只做「验证身份 → 读回云端原文 → 落到本机」（回写的是原文，服务端内容一个字节都不改）；云端为空（404）就直接认领这个用户名并提示手动上传。理由：换台设备第一次登录时本机往往还是一套默认设置，顺手推上去就把云端那份好的冲掉了。
+- **唯一覆盖云端的入口是已绑定态下的「上传本机设置」**（要重新取一枚码；本机有设备令牌时直打 `/api/save` 不取码）。
+- **解绑只断本机关联**：不发 unbind 请求、不动云端（云端那份本来就在「拿到 handle 就能读」的位置），同时清掉跟着 handle 走的 `cp.cloudToken`。
+
+**落地位置 / 改这块先读哪**：
+
+| 东西 | 位置 |
+| --- | --- |
+| 后端与接口契约的**唯一记录** | `docs/云端同步服务.md`（拓扑、五个接口的实测契约与错误原文、KV 键与 TTL、安全边界、Worker 源码附录、部署自测命令）。**Worker 源码不在本仓库**，改前先读、改完回来更新它 |
+| 前端接口层 | `src/services/cloudProfile.js`：`postJson`（网络失败折成 `{success:false}`、失败带 `status`）+ `SYNC_KEYS` + `collectProfile` / `applyProfile` |
+| 界面 | `EditorSettingsPanel.vue` 的「云端同步」分组：三态 UI（未绑定 / 待验证 / 已绑定）+ 取码面板 + 自绘确认弹窗，外加设备令牌、401 自动退回取码 |
+| 本地 dev 的 `/api` | `vite.config.js` 的 `server.proxy` 转发到线上域名。**别在代码里写死 Worker 域名**：`workers.dev` 子域在国内网络不通 |
+| 网址形态的入口 `/<handle>` | 见 14.21 |
+
+**坑**：
+
+- **验证码是单枚有效**：取新码会让旧码立刻作废，所以面板上必须把这句写出来（`settings.cloud.codeWarn`），否则用户会拿旧码去比对然后一头雾水。
+- **取码用的是用户输入的 handle，验证时比对的是 CF 返回的规范名**：大小写不一致（`he-jie` vs `He-Jie`）会让验证莫名失败——靠服务端两边统一 `trim()` + `toUpperCase()` 兜住，别在客户端"顺手"做一次 toLowerCase。
+- **「上传」等于「同意公开」**：`GET /api/config/<handle>` 没有任何鉴权，这句话必须在按下按钮之前就看得见 —— 同一份声明铺在四处（设置页一条 `.setting-group__note` + 两版 guide 的 §11 + `使用手册.md` 末尾附录），清单与措辞见 `docs/云端同步服务.md` 第 6.1 节。
+- **同步白名单是唯一的边界**：往 `SYNC_KEYS` 里加键之前先问「换台设备还成立吗、公开出去有没有问题」；`cp.cloudToken` 这类"每台设备各自的身份"永远不进白名单。
 
 ### 14.10 优化设置页 UI、精改各条文案
 
@@ -981,7 +1009,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 **七步全部落地**：s1 语言接入与题解模板 → s2 渲染器按需下载 → s3 预览骨架（双栏 / 三态视图 / 全屏 / 滚动同步）→ s4 工具栏 14 项 + 字数统计 → s5 运行闸门（.md 不触发编译）→ s6 15 条快捷键 → s7 文档与回归断言（NOTICE 补 `public/md/`、本文件第 15 节、`verify-ui.mjs` 的 .md 断言、五处用户文案）。**实现细节与坑一律见第 15 节**，这里只留结论。
 
-**建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → ~~14.7~~（✅ 已落地，2026-09-29）→ 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ 14.9（要先选型，且是唯一需要后端的）。
+**建议的落地顺序**：~~14.1（纯 UI，最小）~~（✅ 已落地，2026-09-28）→ 14.3（小而收益直接）→ 14.8 → ~~14.7~~（✅ 已落地，2026-09-29）→ 14.10 → 14.4 → 14.6（扩展侧已就绪，只做站点侧）→ 14.2（基础设施）→ 14.5 剩余部分（配置 UI，依赖 14.2；固定结构 + 身份索引提级已于 2026-09-28 落地）→ ~~14.9（要先选型，且是唯一需要后端的）~~（✅ 已落地，2026-09-30，见 14.9 / 14.21）。
 
 ### 14.16 资源管理器的拖拽移动 / 剪切复制粘贴 —— 🟡 第 1 步（拖拽移动）已落地（2026-09-30），后两步待做
 
@@ -1010,7 +1038,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - **失败提示**：拖拽/粘贴没有行内位置可放，新增 `.explorer__notice`（页头下一条，显示 `error.message`，4s 自动消失）。移动/复制的错误文案**本来就有**（`error.notFound` / `duplicateName` / `parentMissing` / `moveIntoChild`，见 `messages/engines.js`），只新增了一条 `explorer.moveFailed` 兜底。
 - **⚠️ 触屏可用性还没有验证过**（2026-09-30 记）：上面整套手势本来就是照触屏设计的——450ms 长按进 armed、非被动 `touchmove` + `preventDefault()` 按住滚动、行上 `touch-action: pan-y`、捕获阶段接管 `contextmenu`——但**只在桌面浏览器上用鼠标走过一遍，真机（iOS Safari / Android Chrome）一次都没点过**，所以「触屏文件管理可用」目前是**未验证状态**，别当成已知可用。本地也验不了：无头 Chrome 的合成触摸不会真的滚动，也不会触发系统长按菜单（同第 3 节末「本地探针验证不了真滑动」那条，**别把探针绿色读成触屏已验**）。上手真机时按这几条过一遍：长按不动 → 弹右键菜单；长按后拖动 → 起拖且列表不跟着滚；拖到树上下边缘 24px → 自动滚动；悬停折叠目录 600ms → 自动展开；把文件拖进折叠目录后松手 → 该目录展开、文件落进去；整个拖拽过程中系统的长按菜单不冒出来；松手那一下不顺手把落点目录折叠/展开。
 
-**第 2 步（待做）**：剪切 / 复制 / 粘贴（右键菜单 + `Mod+X/C/V`，剪贴板存 **id 不存 path**，复制递归时**跳过 `.cph` 但保留节点的 `meta`**）。
+**第 2 步（待做）**：剪切 / 复制 / 粘贴（右键菜单 + `Mod+X/C/V`，剪贴板存 **id 不存 path**，复制递归时**保留每个节点的 `meta` / `config`**）。
 **第 3 步（待做）**：新建时支持嵌套路径（`src/util/new.cpp` 逐级建目录）——即 14.11 的阶段二。
 
 **踩过的坑**：
@@ -1099,6 +1127,31 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - `autoSave` 不是 Monaco 选项（`editorOptions()` 里没有它，和 `statusBar` 一样只存不传），面板里是 `control: 'switch'` 的一行，摆在「编辑器 › 编辑」组首。
 
 **默认值是刻意的例外**：按「新默认值 = 改造前行为」的纪律它本该 `false`，但上面那条丢内容的路子是 bug，所以默认开 —— 这条写在 `editorOptions.js` 的默认值注释里（另一处例外是 `insertSpaces`）。
+
+### 14.21 网址形态的云配置入口 `www.998244353.best/<handle>` —— ✅ 已落地（2026-09-30）
+
+**为什么要做**：`GET /api/config/<handle>` 本来就**公开可读**，所以「把用户名接在站点域名后面」天然是一条分享链接 —— 别人打开就能拿到这套偏好，不用注册、不用登录。`docs/云端同步服务.md` 第 6.1 节的公开性声明里承诺过这个入口（那句「形如 `https://www.998244353.best/he-jie`」），本节记录它的落地。
+
+**四件改动**：
+
+| # | 位置 | 做什么 |
+| --- | --- | --- |
+| 1 | `vercel.json` | `"rewrites": [{ "source": "/:handle([A-Za-z0-9_-]+)", "destination": "/index.html" }]`。**单段 + 不带点号**才和静态资源区分得开：`guide.html` / `sw.js` / `robots.txt` / `manifest.webmanifest` 都带点号，`/assets/…` `/wasm/…` `/md/…` 都是多段 |
+| 2 | `src/services/cloudEntry.js` | 启动时读 `location.pathname`，认出 handle 就写进 `pendingCloudHandle`（模块级 ref 单例）。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`，也不落任何 storage 待办键 |
+| 3 | `src/main.js` + `src/App.vue` | `captureCloudHandleFromPath()` 在 `mount` **之前**调用（地址保持原样，见下）；`App.vue` 则在 `initWorkspace()` / `initWorkspaceStore()` **跑完之后**才 `if (pendingCloudHandle.value) openSettingsTab()` |
+| 4 | `public/sw.js` | 外壳升到 `SHELL_VERSION = 'v4'`，导航网络优先 + **按 request URL 回填** —— 离线下再打开同一条 `/<handle>` 仍能命中 |
+
+**第 3 条那个顺序为什么必须是「之后」**：会话恢复会把 `workspace.activeId` 设回上次那个文件，而 `settingsTab.js` 末尾那个 watch 的规矩是「活跃文件一变就让开」。早开一步，紧接着的这次变更会立刻把设置页关掉，弹窗根本没机会出现。
+
+**地址栏保留 `/<handle>`，不抹回根路径**：这条链接的含义就是「这个地址 = 这套配置」—— 抹掉之后想再打开一次、想复制给别人，都得重新翻链接。代价是刷新（含套用成功后那次 reload）都会再看到同一段路径，所以必须有个「这个历史条目已经答过了」的记号挡住重复追问（否则套用 → reload → 又弹问 → 又套用，转不出去）。记号写在 **`history.state`**（键 `cpCloudEntry`）上：随历史条目走、刷新后仍在、不碰 localStorage / sessionStorage，于是也不需要任何清理逻辑；换个新页签打开同一条链接，state 是空的，会照常再问一次 —— 这正是想要的。
+
+**实测（2026-09-30）**：开 `/He-Jie` → 确认弹窗出现（`confirmCount: 1`）、地址栏保持 `/<handle>`；点「取消」→ `history.state === {"cpCloudEntry":"He-Jie"}`、刷新不再追问；新页签点「套用」→ 打 `GET /api/config/He-Jie`（**只读**：不取码、不写云端）→ reload 后地址不变，白名单里的键逐个落进本机（实测 11 个，本机当时没有 `cp.autoPreload`）。窄视口（800px）下 `cp.editorShare` 与云端值不符，是首帧 `reclampShare` 把比例收敛到侧栏下限所致（1600px 下两边一致），不是套用链路的问题。
+
+**坑**：
+
+- **别为了「记住这次待办」先把地址抹掉、再另找地方存状态**：抹掉地址就失去了「这个地址 = 这套配置」的含义；`history.state` 已经同时满足「随条目走 / 刷新仍在 / 换页签重来」三件事。
+- **套用的标记必须落在那次 reload 之前**：`confirmCloudApply()` 里 `markCloudEntryHandled()` 紧跟 `clearPendingCloudHandle()`，因为套用成功会立刻 reload —— 标记晚一步就会又弹一次。**拒绝（点取消 / 关掉设置页签）同样算答过**，也要落这个标记。
+- **线上生效前提是部署**：rewrite 在 `vercel.json`、SW 版本在 `public/sw.js`，都要构建后随 `main` 推上去才生效；本地 `npm run dev` 走 Vite 自己的 history fallback，**测不到 rewrite 那条规则**（要验就得 `npm run build && npm run preview` 或看线上）。
 
 ## 15. 题解（Markdown / LaTeX）
 

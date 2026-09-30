@@ -24,7 +24,7 @@ import { languageForPath } from './monaco/language.js'
 import { settingsTab } from './settingsTab.js'
 import { activeNode } from './vfs/workspaceStore.js'
 
-const STORAGE_KEY = 'cph.mdView'
+const STORAGE_KEY = 'cp.mdView'
 const DEFAULT_MODE = 'edit'
 
 /** 摆什么。fullscreen 不在其中，见文件头 */

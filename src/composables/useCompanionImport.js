@@ -45,7 +45,7 @@ export function useCompanionImport({ onImported, setTestCases } = {}) {
         onImported?.(result)
       })
       .catch((error) => {
-        console.warn('[cph] 题目导入失败', error)
+        console.warn('[cp] 题目导入失败', error)
       })
   })
 }

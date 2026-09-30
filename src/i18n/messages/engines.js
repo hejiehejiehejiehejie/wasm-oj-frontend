@@ -94,6 +94,14 @@ export default {
       /** 行内那个「卸载」按钮的 tooltip（不带问号，问号那版是弹窗标题） */
       uninstallActionTitle: '卸载 {title} 运行环境',
       uninstallTitle: '卸载 {title} 运行环境？',
+      /** 「预下载」这几项挂在设置 › 云端同步里：它记的是意图（会跟着账号同步），
+          真正的下载在应用下次启动、浏览器空闲时（services/runtimePreload.js） */
+      autoPreload: {
+        label: '预下载本地运行环境',
+        switchTitle:
+          '预下载 {title}：应用下次启动、浏览器空闲时自动把它下到本机（本机已有就跳过）',
+        note: '打开后，该运行环境会在应用下次启动、浏览器空闲时自动下载，本机已有则跳过。这几个开关是偏好，会跟着账号同步到其它设备。',
+      },
     },
 
     /** 沙箱的实时阶段播报（设置页下载那一行会显示） */
@@ -230,6 +238,12 @@ export default {
       uninstall: 'Uninstall',
       uninstallActionTitle: 'Uninstall the {title} runtime',
       uninstallTitle: 'Uninstall the {title} runtime?',
+      autoPreload: {
+        label: 'Preload local runtimes',
+        switchTitle:
+          'Preload {title}: download it automatically in the background the next time the app starts (skipped when this device already has it)',
+        note: 'Once on, the runtime is downloaded automatically in the background the next time the app starts — skipped when this device already has it. These switches are preferences, so they sync with your account.',
+      },
     },
 
     stage: {

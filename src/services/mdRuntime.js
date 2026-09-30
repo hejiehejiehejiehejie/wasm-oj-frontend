@@ -30,7 +30,7 @@ const MANIFEST_URL = `${BASE}assets.json`
  * 可能清缓存，标记却还留着）。放在这里是为了让「预览面板点了下载」与「设置面板点了下载」
  * 落的是同一份记录 —— 否则从预览下的那一次，下次打开设置会先闪一下「未下载」。
  */
-export const MD_READY_FLAG_KEY = 'cph.localRuntime.markdownReady'
+export const MD_READY_FLAG_KEY = 'cp.localRuntime.markdownReady'
 
 function writeReadyFlag(value) {
   try {

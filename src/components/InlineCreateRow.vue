@@ -44,6 +44,17 @@ function focus() {
   el.setSelectionRange(0, end)
 }
 
+/**
+ * 回车提交。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
+ * 组字期间敲下去会把半截拼音当成新文件名落盘 —— 和全局快捷键同一条规矩（见 App.vue 的 onKeydown）：
+ * 组字中一律不当成提交。keyCode 229 是部分输入法在组字时不报 isComposing 的补漏。
+ */
+function submitCreateOnEnter(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  commitCreate()
+}
+
 // 父组件的 nextTick(focusCreateInput) 排在 mounted 之后，所以这里注册完就能被调到
 onMounted(() => {
   creatingRow.value = { focus }
@@ -61,7 +72,7 @@ onBeforeUnmount(() => {
       v-model="state.value"
       class="create-row__input"
       :placeholder="state.type === 'file' ? 'new.cpp' : t('explorer.menu.newFolder')"
-      @keydown.enter.prevent="commitCreate"
+      @keydown.enter="submitCreateOnEnter"
       @keydown.esc.prevent="cancelCreate"
       @blur="onCreateBlur"
     />
