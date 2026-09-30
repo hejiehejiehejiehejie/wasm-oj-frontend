@@ -309,8 +309,6 @@ const SECTIONS = [
   { id: 'editor', titleKey: 'settings.section.editor', icon: 'code' },
   { id: 'shortcuts', titleKey: 'settings.section.shortcuts', icon: 'keyboard' },
   { id: 'judge', titleKey: 'settings.section.judge', icon: 'check' },
-  { id: 'runtime', titleKey: 'settings.section.runtime', icon: 'download' },
-  { id: 'extension', titleKey: 'settings.section.extension', icon: 'plugin' },
   { id: 'cloud', titleKey: 'settings.section.cloud', icon: 'cloud' },
   { id: 'app', titleKey: 'settings.section.app', icon: 'install' },
   { id: 'help', titleKey: 'settings.section.help', icon: 'help' },
@@ -457,9 +455,9 @@ async function copyShortcutsUrl() {
   }
 }
 
-// 插件可能在页面打开之后才装上或才被重载，所以每次切到这一栏都重探一次
+// 插件可能在页面打开之后才装上或才被重载，所以每次切到「应用」这一栏都重探一次
 watch(activeSection, (section) => {
-  if (section === 'extension') refreshExtension()
+  if (section === 'app') refreshExtension()
 })
 
 onBeforeUnmount(() => window.clearTimeout(copyTimer))
@@ -1579,8 +1577,47 @@ watch(pendingUnbind, (open) => {
         />
       </section>
 
-      <section v-else-if="activeSection === 'runtime'" class="setting-group">
-        <p class="setting-group__title">{{ t('settings.section.runtime') }}</p>
+      <!-- 应用：安装到设备、存储占用，外加两项「供应用取用」的外部资源 ——
+           本地运行环境（工具链与题解渲染器的下载 / 卸载）与浏览器插件（安装、投递目标、快捷键）。
+           三者共用这一栏，块与块之间用 setting-subtitle 分区。 -->
+      <section v-else-if="activeSection === 'app'" class="setting-group">
+        <p class="setting-group__title">{{ t('settings.section.app') }}</p>
+        <p class="setting-group__note">{{ t('settings.app.groupNote') }}</p>
+
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
+            </span>
+            <span class="setting-row__hint">
+              {{ t(canInstall ? 'settings.app.installHint' : 'settings.app.installedHint') }}
+            </span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              class="download-button"
+              :disabled="!canInstall"
+              :title="t('settings.app.install.title')"
+              @click="install"
+            >
+              <AppIcon name="install" :size="15" />
+              <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
+            </button>
+          </span>
+        </div>
+
+        <!-- 存储：只报占用。数是整个源的（含工具链与外壳缓存），不只是用户代码；
+             查不到时 storageHint 为空，整行收起 -->
+        <div v-if="storageHint" class="setting-row">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.app.storage.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ storageHint }}</span>
+          </span>
+        </div>
+
+        <p class="setting-subtitle">{{ t('settings.section.runtime') }}</p>
         <p class="setting-group__note">{{ t('runtime.groupNote') }}</p>
 
         <div class="runtime-list">
@@ -1627,48 +1664,8 @@ watch(pendingUnbind, (open) => {
             </div>
           </div>
         </div>
-      </section>
 
-      <section v-else-if="activeSection === 'app'" class="setting-group">
-        <p class="setting-group__title">{{ t('settings.section.app') }}</p>
-        <p class="setting-group__note">{{ t('settings.app.groupNote') }}</p>
-
-        <div class="setting-row setting-row--action">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
-            </span>
-            <span class="setting-row__hint">
-              {{ t(canInstall ? 'settings.app.installHint' : 'settings.app.installedHint') }}
-            </span>
-          </span>
-          <span class="setting-row__control">
-            <button
-              class="download-button"
-              :disabled="!canInstall"
-              :title="t('settings.app.install.title')"
-              @click="install"
-            >
-              <AppIcon name="install" :size="15" />
-              <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
-            </button>
-          </span>
-        </div>
-
-        <!-- 存储：只报占用。数是整个源的（含工具链与外壳缓存），不只是用户代码；
-             查不到时 storageHint 为空，整行收起 -->
-        <div v-if="storageHint" class="setting-row">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.app.storage.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ storageHint }}</span>
-          </span>
-        </div>
-      </section>
-
-      <section v-else-if="activeSection === 'extension'" class="setting-group">
-        <p class="setting-group__title">{{ t('settings.section.extension') }}</p>
+        <p class="setting-subtitle">{{ t('settings.section.extension') }}</p>
         <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
         <div class="setting-row setting-row--action">
