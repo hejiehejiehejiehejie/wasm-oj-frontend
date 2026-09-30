@@ -111,6 +111,8 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   cursorSmoothCaretAnimation: true,
   // 显示
   minimap: false,
+  // 行号恒开是改造前的行为，所以默认 true（Monaco 自己的默认也是开）。
+  lineNumbers: true,
   renderWhitespace: 'selection',
   renderLineHighlight: 'all',
   bracketPairColorization: true,
@@ -200,6 +202,8 @@ export function editorOptions(settings, scale = 1) {
     lineHeight: Math.round(fontSize * settings.lineHeightRatio),
     fontLigatures: settings.fontLigatures,
     minimap: { enabled: settings.minimap },
+    // 存档里是布尔（与其余开关同源），Monaco 只认 'on' / 'off'
+    lineNumbers: settings.lineNumbers ? 'on' : 'off',
     // 编辑
     wordWrap: settings.wordWrap,
     wordWrapColumn: settings.wordWrapColumn,
