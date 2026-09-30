@@ -14,6 +14,7 @@ import { flush, initAutoSave, setAutoSaveEnabled } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
+import { requestPersistence } from './services/storageQuota.js'
 import { initWorkspace } from './services/vfs/migrate.js'
 import {
   activeLanguage,
@@ -725,6 +726,11 @@ onMounted(async () => {
   if (workspace.value) layoutObserver.observe(workspace.value)
   // 「本地运行环境」里勾了预下载的，等浏览器空闲再悄悄补齐（见 runtimePreload.js）
   scheduleAutoPreload()
+  // 趁早申请存储持久化：IndexedDB 默认是 best-effort，存储吃紧时浏览器能静默清掉
+  // 整个源（也就是用户的全部代码）。**刻意不 await** —— 它要等浏览器回话，而 Chrome 之外
+  // 多半还要用户手势才批，卡在这里没意义。这是隐性申请：拿不到就算了，界面上不展示状态
+  // 也不给按钮（设置 › 应用 只报占用）。
+  void requestPersistence()
 })
 
 onBeforeUnmount(() => {

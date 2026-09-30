@@ -19,6 +19,7 @@ import { preload, probeRuntime, subscribeStatus, uninstallRuntime } from '../ser
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import { flush } from '../services/autoSave.js'
+import { readStorageUsage } from '../services/storageQuota.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
@@ -323,6 +324,42 @@ const { resetAll } = useShortcutManager()
 
 // 安装到设备（2026-09 顶栏删除后从顶栏那颗按钮搬进来的）：浏览器判定可安装时才亮出来
 const { canInstall, install } = useInstallPrompt()
+
+// ------------------------------------------------------------ 存储占用
+// 申请持久化是隐性的：App.vue 启动时静默做过一次，这里不展示状态、也不给按钮。
+// 只说一件事 —— 这个源现在占了多少、上限多少。usage 含工具链与外壳缓存，不只是用户代码。
+const storageUsage = ref({ usage: null, quota: null })
+
+const storageHint = computed(() => {
+  const { usage, quota } = storageUsage.value
+  if (usage === null) return ''
+  return quota === null
+    ? t('settings.app.storage.usageNoQuota', { used: formatBytes(usage) })
+    : t('settings.app.storage.usage', { used: formatBytes(usage), quota: formatBytes(quota) })
+})
+
+// 只报个大概：配额常是几十 GB，精确到小数没有意义
+function formatBytes(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`
+}
+
+async function refreshStorageUsage() {
+  storageUsage.value = await readStorageUsage()
+}
+
+// estimate() 要问浏览器，常驻定时刷新没有意义：挂载时读一次打底（见 onMounted），
+// 之后每次切到这一栏再读一次 —— 下载完工具链、写完文件，占用都会变。
+// 刻意不跟着 props.active 走：第一次打开面板前也得先有数。
+watch(activeSection, (section) => {
+  if (section === 'app') void refreshStorageUsage()
+})
 
 // ------------------------------------------------------------ 浏览器插件
 // 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
@@ -651,6 +688,9 @@ onMounted(() => {
   unsubscribe = subscribeStatus((status) => {
     live.value = status
   })
+  // 存储占用打底。它只问浏览器的 StorageManager，不发请求、不碰缓存，
+  // 所以和上面那条「别在挂载时探缓存」的顾虑无关。
+  void refreshStorageUsage()
 })
 
 // 每次切到设置视图都重新核对缓存，别一直显示上次打开时的旧结论；
@@ -1612,6 +1652,17 @@ watch(pendingUnbind, (open) => {
               <AppIcon name="install" :size="15" />
               <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
             </button>
+          </span>
+        </div>
+
+        <!-- 存储：只报占用。数是整个源的（含工具链与外壳缓存），不只是用户代码；
+             查不到时 storageHint 为空，整行收起 -->
+        <div v-if="storageHint" class="setting-row">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.app.storage.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ storageHint }}</span>
           </span>
         </div>
       </section>

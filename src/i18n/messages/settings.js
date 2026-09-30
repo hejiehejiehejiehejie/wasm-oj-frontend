@@ -193,6 +193,15 @@ export default {
         installedHint: '当前浏览器不支持安装，或已经装好了',
         installAction: '安装',
         installedAction: '已安装',
+        /**
+         * 存储占用。只报数，不报持久化状态 —— 申请是隐性的（见 services/storageQuota.js）。
+         * 这个数是**整个源**的占用，含工具链与外壳缓存，不只是用户代码。
+         */
+        storage: {
+          label: '存储',
+          usage: '已用 {used} / 配额 {quota}',
+          usageNoQuota: '已用 {used}',
+        },
       },
 
       extension: {
@@ -496,6 +505,13 @@ export default {
         installedHint: 'This browser does not support installation, or the app is already installed',
         installAction: 'Install',
         installedAction: 'Installed',
+        /** Storage usage only — persistence is requested silently, so no state is shown.
+         *  The numbers cover the whole origin, toolchain caches included. */
+        storage: {
+          label: 'Storage',
+          usage: '{used} used of {quota}',
+          usageNoQuota: '{used} used',
+        },
       },
 
       extension: {
