@@ -41,6 +41,7 @@ import {
   FONT_FAMILIES,
   LINE_HEIGHT_RATIOS,
   LINE_HIGHLIGHTS,
+  LINE_NUMBER_MODES,
   PADDINGS,
   SCROLLBAR_SIZES,
   THEMES,
@@ -241,7 +242,8 @@ const EDITOR_GROUPS = [
         key: 'lineNumbers',
         labelKey: 'settings.editor.lineNumbers.label',
         hintKey: 'settings.editor.lineNumbers.hint',
-        control: 'switch',
+        control: 'select',
+        options: LINE_NUMBER_MODES,
       },
       {
         key: 'minimap',

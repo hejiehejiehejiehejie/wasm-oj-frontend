@@ -43,6 +43,16 @@ export const WRAP_MODES = [
   { id: 'wordWrapColumn', labelKey: 'settings.option.wrapColumn' },
 ]
 
+/**
+ * 行号三态。前两个 id 直接就是 Monaco 认的值；`md-off`（仅 Markdown 隐藏）不是 Monaco 选项，
+ * 进 Monaco 前由 resolveLineNumbers 按「当前是不是题解」折算成 on / off。
+ */
+export const LINE_NUMBER_MODES = [
+  { id: 'on', labelKey: 'settings.option.lnOn' },
+  { id: 'off', labelKey: 'settings.option.lnOff' },
+  { id: 'md-off', labelKey: 'settings.option.lnMarkdown' },
+]
+
 export const CURSOR_STYLES = [
   { id: 'line', labelKey: 'settings.option.cursorLine' },
   { id: 'block', labelKey: 'settings.option.cursorBlock' },
@@ -111,8 +121,10 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   cursorSmoothCaretAnimation: true,
   // 显示
   minimap: false,
-  // 行号恒开是改造前的行为，所以默认 true（Monaco 自己的默认也是开）。
-  lineNumbers: true,
+  // 行号三态（显示 / 隐藏 / 仅 Markdown 隐藏）。**刻意的默认值例外**：按上面那条纪律它
+  // 本该等于改造前行为（所有文件都显示行号 = 'on'），但题解（.md）里行号纯属噪音，按用户
+  // 口径默认取「仅 Markdown 隐藏」——.md 收掉行号，代码文件照常。
+  lineNumbers: 'md-off',
   renderWhitespace: 'selection',
   renderLineHighlight: 'all',
   bracketPairColorization: true,
@@ -142,6 +154,7 @@ const VALUE_SETS = {
   fontFamily: FONT_FAMILIES.map((item) => item.id),
   lineHeightRatio: LINE_HEIGHT_RATIOS,
   wordWrap: WRAP_MODES.map((item) => item.id),
+  lineNumbers: LINE_NUMBER_MODES.map((item) => item.id),
   cursorStyle: CURSOR_STYLES.map((item) => item.id),
   cursorBlinking: CURSOR_BLINKINGS.map((item) => item.id),
   renderWhitespace: WHITESPACE_MODES.map((item) => item.id),
@@ -169,9 +182,26 @@ export function normalizeEditorSetting(key, value) {
       : fallback
   }
   const allowed = VALUE_SETS[key]
-  if (allowed) return allowed.includes(value) ? value : fallback
+  if (allowed) {
+    // lineNumbers 曾经是开关（true / false），老存档里的布尔折算成对应的枚举值；
+    // 其余枚举项本来就不接受布尔，走下面那条拒绝分支。
+    if (typeof value === 'boolean' && allowed.includes(value ? 'on' : 'off')) {
+      return value ? 'on' : 'off'
+    }
+    return allowed.includes(value) ? value : fallback
+  }
   // 剩下的都是开关
   return typeof value === 'boolean' ? value : fallback
+}
+
+/**
+ * 行号三态 → Monaco 的 'on' / 'off'。
+ * 「仅 Markdown 隐藏」不是 Monaco 认的值，只能按当前文件折算，所以 markdown 由调用方传进来。
+ */
+function resolveLineNumbers(mode, markdown) {
+  if (mode === 'off') return 'off'
+  if (mode === 'md-off') return markdown ? 'off' : 'on'
+  return 'on'
 }
 
 /**
@@ -186,8 +216,10 @@ export function normalizeEditorSetting(key, value) {
  * 注意 tabSize 不乘：那是列数（几个字符宽），不是像素。
  * @param {typeof EDITOR_SETTINGS_DEFAULTS} settings
  * @param {number} scale 全局缩放比例（见 composables/useUiScale.js）
+ * @param {{ markdown?: boolean }} [context] markdown = 当前活跃文件是不是题解（.md）。
+ *   只有「仅 Markdown 隐藏」这一档行号用得到它；切 .md / 切回来时要重下发一次选项。
  */
-export function editorOptions(settings, scale = 1) {
+export function editorOptions(settings, scale = 1, { markdown = false } = {}) {
   const font = pick(FONT_FAMILIES, settings.fontFamily, FONT_FAMILIES[0])
   const padding = pick(PADDINGS, settings.padding, PADDINGS[1])
   const scrollbar = pick(SCROLLBAR_SIZES, settings.scrollbarSize, SCROLLBAR_SIZES[1])
@@ -202,8 +234,8 @@ export function editorOptions(settings, scale = 1) {
     lineHeight: Math.round(fontSize * settings.lineHeightRatio),
     fontLigatures: settings.fontLigatures,
     minimap: { enabled: settings.minimap },
-    // 存档里是布尔（与其余开关同源），Monaco 只认 'on' / 'off'
-    lineNumbers: settings.lineNumbers ? 'on' : 'off',
+    // 三态存档 → Monaco 的 'on' / 'off'（「仅 Markdown 隐藏」按当前文件折算）
+    lineNumbers: resolveLineNumbers(settings.lineNumbers, markdown),
     // 编辑
     wordWrap: settings.wordWrap,
     wordWrapColumn: settings.wordWrapColumn,

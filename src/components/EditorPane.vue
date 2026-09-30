@@ -410,7 +410,7 @@ function onWindowKeydown(event) {
 onMounted(() => {
   const instance = monaco.editor.create(host.value, {
     // 用户可调的选项全部来自 services/editorOptions.js（构造与 updateOptions 共用同一份映射）
-    ...editorOptions(props.settings, props.uiScale),
+    ...editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }),
     theme: props.settings.theme,
     // 布局必须跟着容器走（面板拖宽 / 换边 / 折叠侧边栏）：交给 Monaco 自己的 ResizeObserver
     automaticLayout: true,
@@ -488,6 +488,9 @@ watch(
     if (!model) return
     instance.setModel(model)
     applyModelOptions(model)
+    // 行号「仅 Markdown 隐藏」这一档取决于当前文件：切进 .md / 切回代码文件都要把选项重下发一次，
+    // 否则行号会跟着上一个文件的状态留在屏幕上
+    instance.updateOptions(editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }))
     trackMarkdown(model)
     disposeInMemoryOrphans()
     const saved = viewStates.get(nextId)
@@ -533,7 +536,7 @@ watch(
   (next, prev) => {
     const instance = editor.value
     if (!instance) return
-    instance.updateOptions(editorOptions(next, props.uiScale))
+    instance.updateOptions(editorOptions(next, props.uiScale, { markdown: mdFileActive.value }))
     applyModelOptions(instance.getModel())
     if (prev?.theme !== next.theme) monaco.editor.setTheme(next.theme)
   },
@@ -547,7 +550,7 @@ watch(
   (scale) => {
     const instance = editor.value
     if (!instance) return
-    instance.updateOptions(editorOptions(props.settings, scale))
+    instance.updateOptions(editorOptions(props.settings, scale, { markdown: mdFileActive.value }))
     nextTick(() => instance.layout())
   },
 )
