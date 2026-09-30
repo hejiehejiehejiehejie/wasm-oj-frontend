@@ -19,15 +19,23 @@ const SHELL_VERSION = 'v4'
 // TOOLCHAIN_CACHE / MD_CACHE 都不由 install 预填，只作 cacheFirst 的按需落点
 // （见下面的 /wasm/、/md/ 判定）；MD_CACHE 这个名字与 services/mdRuntime.js 里的
 // CACHE_NAME 必须一致 —— 页面负责往里写，activate 的 keep 负责别把它清掉。
-const SHELL_CACHE = `cph-shell-${SHELL_VERSION}`
+const SHELL_CACHE = `cp-shell-${SHELL_VERSION}`
 // 工具链桶名**硬编码、刻意不跟 SHELL_VERSION 走**。
-// 这里原来是 `cph-toolchain-${VERSION}`，两个桶共用一个版本号 —— 后果是升一次外壳，
-// activate 就会把老用户已经下好的 clang（52MB）+ CPython（24MB）一起当垃圾删掉，
-// 逼他们重下 76MB。工具链是随 URL 固定的二进制，跟外壳改不改无关，本来就不该被它牵连。
-// 固定成 v3 还有个好处：老用户那个 `cph-toolchain-v3` 桶会被下面的 keep 白名单原样留下，
-// 无损继承，一个字节都不用重下。要换代工具链时才手动改这里。
-const TOOLCHAIN_CACHE = 'cph-toolchain-v3'
-const MD_CACHE = 'cph-md-runtime-v1'
+// 这里原来跟外壳共用一个版本号 —— 后果是升一次外壳，activate 就会把老用户已经下好的
+// clang（52MB）+ CPython（24MB）一起当垃圾删掉，逼他们重下 76MB。工具链是随 URL 固定的
+// 二进制，跟外壳改不改无关，本来就不该被它牵连。
+// 固定成 v3 还有个好处：它的名字落在下面的 keep 白名单里，跨外壳升级无损继承，
+// 一个字节都不用重下。要换代工具链时才手动改这里。
+const TOOLCHAIN_CACHE = 'cp-toolchain-v3'
+const MD_CACHE = 'cp-md-runtime-v1'
+
+// 2026-10-01 三个桶名一起去掉了 `cph-` 前缀。改名不能让用户白下那 76MB，
+// 所以 activate 里先按这张表把旧桶原样搬过来（见 migrateLegacyBuckets）。
+// 外壳桶不搬：它装的是带哈希的构建产物，重新预缓存本来就是升级外壳时该发生的事。
+const LEGACY_BUCKETS = [
+  ['cph-toolchain-v3', TOOLCHAIN_CACHE],
+  ['cph-md-runtime-v1', MD_CACHE],
+]
 
 const STATIC_ASSETS = [
   '/',
@@ -62,9 +70,38 @@ self.addEventListener('install', (event) => {
   )
 })
 
+/**
+ * 把改名前的旧桶原样搬进新桶，再删掉旧桶。
+ *
+ * 逐条 `put` 时把旧桶 match 出来的 Response 直接交出去，靠 Cache API 自己流式落盘，
+ * 不把 76MB 读进内存（`response.blob()` 那种写法在老设备上会直接崩）。
+ * 任一条出错就整个放弃、**不删旧桶** —— 让下面那趟白名单清理兜底删掉它，
+ * 用户最多重下一次，好过留一个半拉子新桶让工具链加载失败。
+ */
+async function migrateLegacyBuckets() {
+  for (const [from, to] of LEGACY_BUCKETS) {
+    try {
+      const names = await caches.keys()
+      if (!names.includes(from)) continue
+
+      const source = await caches.open(from)
+      const target = await caches.open(to)
+      for (const request of await source.keys()) {
+        if (await target.match(request)) continue
+        const response = await source.match(request)
+        if (response) await target.put(request, response)
+      }
+      await caches.delete(from)
+    } catch {
+      /* 搬不动就交给下面那趟清理处理 */
+    }
+  }
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
+      await migrateLegacyBuckets()
       const keep = new Set([SHELL_CACHE, TOOLCHAIN_CACHE, MD_CACHE])
       const names = await caches.keys()
       await Promise.all(names.map((name) => (keep.has(name) ? null : caches.delete(name))))

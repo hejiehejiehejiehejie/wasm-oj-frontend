@@ -18,7 +18,7 @@
 
 import { t } from '../i18n/index.js'
 
-const CACHE_NAME = 'cph-md-runtime-v1'
+const CACHE_NAME = 'cp-md-runtime-v1'
 const BASE = '/md/'
 const MANIFEST_URL = `${BASE}assets.json`
 

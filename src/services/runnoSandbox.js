@@ -632,7 +632,7 @@ export function runtimeAssetURLs(language) {
  * 让下一次运行 / 下载都退回「从零开始」。设置页的「本地运行环境」卸载按钮走这里。
  *
  * 持久层分两块，只有第一块删得掉：
- * - Cache Storage（SW 的 `cph-toolchain-*`）：SW 控制页面时资产的实际落点，逐个删条目；
+ * - Cache Storage（SW 的 `cp-toolchain-*`）：SW 控制页面时资产的实际落点，逐个删条目；
  * - HTTP 缓存：浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只能改变取值策略），
  *   删不掉。所以 probeRuntime 在 SW 控制时改以 Cache Storage 为准 —— 否则前脚卸载、
  *   后脚就被 HTTP 缓存里那份残留判回「已就绪」（见 wasmRuntime 的 isAssetCached）。
@@ -659,14 +659,14 @@ export async function unloadRuntime(language) {
 }
 
 /**
- * 从所有 `cph-toolchain-*` 缓存里删掉该语言的资产条目。
- * 缓存名带 VERSION，迭代中可能同时存在多代，所以按前缀全扫，不只认当前那一个。
+ * 从所有 `cp-toolchain-*` 缓存里删掉该语言的资产条目。
+ * 缓存名带版本，迭代中可能同时存在多代，所以按前缀全扫，不只认当前那一个。
  */
 async function purgeRuntimeCache(language) {
   const urls = runtimeAssetURLs(language)
   if (!urls.length || typeof caches === 'undefined') return
   try {
-    const names = (await caches.keys()).filter((name) => name.startsWith('cph-toolchain'))
+    const names = (await caches.keys()).filter((name) => name.startsWith('cp-toolchain'))
     await Promise.all(
       names.map(async (name) => {
         const cache = await caches.open(name)

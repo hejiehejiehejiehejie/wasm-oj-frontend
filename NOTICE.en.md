@@ -14,7 +14,9 @@ The short, user-facing version is the "Acknowledgements and open-source licences
 - The site is publicly deployed and its output carries other people's code, so this list is not a "local memo" but part of the distribution obligation.
 - This file lists **other people's** projects only. This repository currently has no `LICENSE` file (i.e. "all rights reserved" by default); that does not affect the obligations of the third-party licences above, but it is a separate decision if the site's own code is ever open-sourced.
 
-> Last verified: **2026-09-30** (two things the same day: ① the extension package under `public/extension/` was replaced → `cc-for-web-2.65.3.zip`, the behaviour change being "the delivery targets can now be switched straight from this site's settings page", with the version numbers and licences of the third-party components inside it **unchanged**;
+> Last verified: **2026-10-01** (the extension package under `public/extension/` was replaced → `cc-for-web-2.66.0.zip`. The only change is that the handshake message names between the extension and the page dropped the `cph-` prefix and became `cp-*` (a cross-repository contract, see `src/composables/useCompanionBridge.js`); that is a behaviour change rather than a dependency change, so the version numbers and licences of the third-party components inside it are **unchanged**).
+>
+> Previously verified: **2026-09-30** (two things the same day: ① the extension package under `public/extension/` was replaced → `cc-for-web-2.65.3.zip`, the behaviour change being "the delivery targets can now be switched straight from this site's settings page", with the version numbers and licences of the third-party components inside it **unchanged**;
 > ② the notes feature shipped, adding a self-hosted Markdown / LaTeX rendering runtime under `public/md/` (KaTeX 0.18.9 + marked 14.0.0), and consequently promoting `marked` / `dompurify` / `katex` to **direct dependencies** of this site.
 > The dependency figures were re-verified against the same day's `package-lock.json`: `lockfileVersion: 3`, **94** dependencies in total: **30** production, **64** development).
 
@@ -54,7 +56,7 @@ What the two have in common: both are **upstream artifacts taken into this repos
 
 ### 2.2 Notes rendering runtime (`public/md/`, about 578KB)
 
-Parsing Markdown and rendering LaTeX for the notes takes the same "download on demand" route (`src/services/mdRuntime.js`): before the download there is only a hint line, afterwards it lands in the `cph-md-runtime-v1` Cache Storage bucket, and the "local runtimes" section of the settings page can uninstall it together with the cache and the globals it put on the browser.
+Parsing Markdown and rendering LaTeX for the notes takes the same "download on demand" route (`src/services/mdRuntime.js`): before the download there is only a hint line, afterwards it lands in the `cp-md-runtime-v1` Cache Storage bucket, and the "local runtimes" section of the settings page can uninstall it together with the cache and the globals it put on the browser.
 
 | Component | Version | Licence | Where it lands and what it is for |
 | --- | --- | --- | --- |
@@ -77,7 +79,7 @@ Parsing Markdown and rendering LaTeX for the notes takes the same "download on d
 
 ## 4. Browser extension CC for Web
 
-The package is distributed from this site (`public/extension/cc-for-web-<version>.zip`, currently **2.65.3**; re-versioned on 2026-09-30, the behaviour changes being "deliver to the web page and to local IDE tools at the same time" and "the delivery targets can be switched straight from this site's settings page", with the third-party components inside unchanged from the table below), and its source lives in another repository (`cph-companion`).
+The package is distributed from this site (`public/extension/cc-for-web-<version>.zip`, currently **2.66.0**; re-versioned on 2026-10-01, the behaviour change being that the handshake message names between the extension and the page dropped the `cph-` prefix and became `cp-*` (a cross-repository contract, which must ship in lockstep with this site), with the third-party components inside unchanged from the table below), and its source lives in another repository (`cph-companion`).
 
 | Component | Version | Licence | Notes |
 | --- | --- | --- | --- |

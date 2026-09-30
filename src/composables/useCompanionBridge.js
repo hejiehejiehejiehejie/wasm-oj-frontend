@@ -5,14 +5,18 @@ import { onBeforeUnmount, ref } from 'vue'
  *
  * 扩展拿不到网页的 JS 作用域，所以它在目标网站里注入一个内容脚本做桥接
  * （cph-companion 的 src/bridge.ts），用 window.postMessage 中转两种消息：
- *   - cph-task：扩展把解析出来的题目 JSON 推过来
- *   - cph-ping / cph-info：网页主动握手，问扩展「装没装、版本号多少、快捷键绑了什么」
+ *   - cp-task：扩展把解析出来的题目 JSON 推过来
+ *   - cp-ping / cp-info：网页主动握手，问扩展「装没装、版本号多少、快捷键绑了什么」
+ *
+ * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
+ * 改了任何一条都必须同步改 cph-companion 并发新版插件，否则新旧两边互相认不出、
+ * 抓题直接失联。下一行的 EXTENSION_SOURCE 是扩展侧的来源标识，不属于这批消息名。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
  */
 
-const PAGE_SOURCE = 'cph-page'
+const PAGE_SOURCE = 'cp-page'
 const EXTENSION_SOURCE = 'competitive-companion'
 
 /** 扩展开着的话通常几毫秒就回，超过这个时间就当没装 */
@@ -47,9 +51,9 @@ function clearPingTimers() {
 }
 
 function sendPing() {
-  currentRequestId = `cph-ping-${++pingSeq}`
+  currentRequestId = `cp-ping-${++pingSeq}`
   window.postMessage(
-    { source: PAGE_SOURCE, type: 'cph-ping', requestId: currentRequestId },
+    { source: PAGE_SOURCE, type: 'cp-ping', requestId: currentRequestId },
     window.location.origin,
   )
 }
@@ -78,7 +82,7 @@ export function refreshExtensionInfo() {
 
 /**
  * 让扩展改一个投递目标开关（sendToWebPage / sendToLocalTools）。
- * 回执 cph-config 到达后就地更新 extensionInfo.value.config —— 刻意不重跑 refresh，
+ * 回执 cp-config 到达后就地更新 extensionInfo.value.config —— 刻意不重跑 refresh，
  * 否则设置面板会闪一下「检测中」。返回是否写成功。
  */
 export function setExtensionConfig(key, value) {
@@ -88,7 +92,7 @@ export function setExtensionConfig(key, value) {
       return
     }
 
-    const requestId = `cph-set-${++configSeq}`
+    const requestId = `cp-set-${++configSeq}`
     const timer = window.setTimeout(() => {
       pendingConfigs.delete(requestId)
       resolve(false)
@@ -96,7 +100,7 @@ export function setExtensionConfig(key, value) {
 
     pendingConfigs.set(requestId, { resolve, timer })
     window.postMessage(
-      { source: PAGE_SOURCE, type: 'cph-set-config', requestId, key, value },
+      { source: PAGE_SOURCE, type: 'cp-set-config', requestId, key, value },
       window.location.origin,
     )
   })
@@ -128,12 +132,12 @@ function onMessage(event) {
   const data = event.data
   if (!data || data.source !== EXTENSION_SOURCE) return
 
-  if (data.type === 'cph-task') {
+  if (data.type === 'cp-task') {
     dispatchTask(data)
     return
   }
 
-  if (data.type === 'cph-config') {
+  if (data.type === 'cp-config') {
     const pending = pendingConfigs.get(data.requestId)
     if (!pending) return
 
@@ -152,7 +156,7 @@ function onMessage(event) {
     return
   }
 
-  if (data.type !== 'cph-info') return
+  if (data.type !== 'cp-info') return
   // 只认自己那一轮的握手回包（页面里可能有其它脚本也在 postMessage）
   if (data.requestId !== currentRequestId) return
 

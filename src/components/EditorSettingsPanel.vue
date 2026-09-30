@@ -319,7 +319,7 @@ const { canInstall, install } = useInstallPrompt()
 // 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
 // cacheFirst 且从不重新校验，不带版本号的 URL 会把旧包一直喂给已经来过的用户。
 // 发新版插件时只需改这两个常量，再把新 zip 拷进 public/extension/。
-const EXTENSION_VERSION = '2.65.3'
+const EXTENSION_VERSION = '2.66.0'
 const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
 const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 

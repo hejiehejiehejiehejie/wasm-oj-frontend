@@ -18,7 +18,7 @@
     <!--
       本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.md 生成，请勿手改。
       改完 NOTICE.md 后跑：npm run notice
-      generated-from-NOTICE.md sha256:4625d5101b28
+      generated-from-NOTICE.md sha256:6b0252b4dc46
     -->
     <script>
       try {
@@ -55,7 +55,7 @@
         <p>英文版是 <code>NOTICE.en.md</code> → <code>notice.en.html</code>（同样从 <code>guide.en.html</code> 链接过去）。<strong>两份源文件之间没有自动同步</strong>：章节与表格行逐条对应，改一份就要手改另一份。</p>
         <h2>维护约定</h2>
         <ul><li>改 <code>package.json</code>（增删依赖 / 升级大版本）、换 <code>public/wasm/</code> 下的工具链目录、换 <code>public/md/</code> 下的渲染运行时（跟着 katex / marked 的版本走）、换 <code>public/extension/</code> 里的扩展包 —— 四件事任一发生，都要回来同步这份文件。</li><li><strong>版本号一律实机核出来，不要凭记忆手写</strong>（末尾附了核对命令）。</li><li>站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。</li><li>本文件只列<strong>别人的</strong>项目。本仓库自己目前没有 <code>LICENSE</code> 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。</li></ul>
-        <p class="note">最后核对：<strong>2026-09-30</strong>（同日两件事：① 换扩展包 → <code>cc-for-web-2.65.3.zip</code>，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可<strong>未变</strong>； ② 题解功能上线，新增自托管的 Markdown / LaTeX 渲染运行时 <code>public/md/</code>（KaTeX 0.18.9 + marked 14.0.0），并因此把 <code>marked</code> / <code>dompurify</code> / <code>katex</code> 提为本站的<strong>直接依赖</strong>。 依赖清单按同一天的 <code>package-lock.json</code> 重核：<code>lockfileVersion: 3</code>，共 <strong>94</strong> 条依赖：<strong>30</strong> 条生产、<strong>64</strong> 条开发）。</p>
+        <p class="note">最后核对：<strong>2026-10-01</strong>（换扩展包 → <code>cc-for-web-2.66.0.zip</code>。唯一的改动是插件与网页之间的握手消息名去掉 <code>cph-</code> 前缀、统一成 <code>cp-</code>（跨仓契约，见 <code>src/composables/useCompanionBridge.js</code>），属于行为改动而非依赖变动，包内第三方组件的版本与许可<strong>未变</strong>）。  上一次核对：<strong>2026-09-30</strong>（同日两件事：① 换扩展包 → <code>cc-for-web-2.65.3.zip</code>，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可<strong>未变</strong>； ② 题解功能上线，新增自托管的 Markdown / LaTeX 渲染运行时 <code>public/md/</code>（KaTeX 0.18.9 + marked 14.0.0），并因此把 <code>marked</code> / <code>dompurify</code> / <code>katex</code> 提为本站的<strong>直接依赖</strong>。 依赖清单按同一天的 <code>package-lock.json</code> 重核：<code>lockfileVersion: 3</code>，共 <strong>94</strong> 条依赖：<strong>30</strong> 条生产、<strong>64</strong> 条开发）。</p>
         <hr />
         <h2>一、站点运行时依赖（随产物分发）</h2>
         <div class="table-wrap">
@@ -86,7 +86,7 @@
   </table>
 </div>
         <h3>2.2 题解渲染运行时（<code>public/md/</code>，约 578KB）</h3>
-        <p>题解的 Markdown 解析与 LaTeX 公式渲染走的也是同一条「按需下载」的路（<code>src/services/mdRuntime.js</code>）：下载前只有一句提示，下载后落进 Cache Storage 的 <code>cph-md-runtime-v1</code>，设置页「本地运行环境」里可以连同缓存与浏览器上的全局变量一起卸载。</p>
+        <p>题解的 Markdown 解析与 LaTeX 公式渲染走的也是同一条「按需下载」的路（<code>src/services/mdRuntime.js</code>）：下载前只有一句提示，下载后落进 Cache Storage 的 <code>cp-md-runtime-v1</code>，设置页「本地运行环境」里可以连同缓存与浏览器上的全局变量一起卸载。</p>
         <div class="table-wrap">
   <table>
     <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>落点与用途</th></tr></thead>
@@ -104,7 +104,7 @@
 </div>
         <ul><li>其余图标（<code>play</code> / <code>gear</code> / <code>files</code> / <code>cases</code> / <code>file-plus</code> / <code>folder-plus</code> / <code>python</code> 等）都是本站自绘的内联 SVG，形状参考 lucide 的 24×24 描边风格，<strong>没有引入图标依赖</strong>。</li><li><strong>字体全部走系统字体栈</strong>（<code>-apple-system</code> / PingFang SC / SF Mono / JetBrains Mono 回退），没有自托管或 CDN webfont。</li><li>PWA 图标（<code>public/icons/*.png</code>）、<code>favicon.svg</code>、<code>og-cover.png</code> 均为本站自制。</li><li>⚠️ <strong>待确认</strong>：<code>SOLID_PATHS.python</code> 那枚 Python 双蛇标志在代码里<strong>没有写出处</strong>（形状与 simple-icons 的 Python 标志一致）。谁加的、从哪儿取的，确认后再往本表补一行。</li></ul>
         <h2>四、浏览器扩展 CC for Web</h2>
-        <p>安装包由本站分发（<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code>，当前 <strong>2.65.3</strong>；2026-09-30 换版，行为改动是「同时向网页与本机 IDE 工具投递」与「可在本站设置页直接切换投递目标」，包里第三方组件的版本与上表一致），源码在另一个仓库（<code>cph-companion</code>）。</p>
+        <p>安装包由本站分发（<code>public/extension/cc-for-web-&lt;版本&gt;.zip</code>，当前 <strong>2.66.0</strong>；2026-10-01 换版，行为改动是插件与网页之间握手用的消息名去掉 <code>cph-</code> 前缀、统一成 <code>cp-</code>（跨仓契约，必须与本站同版发布），包里第三方组件的版本与上表一致），源码在另一个仓库（<code>cph-companion</code>）。</p>
         <div class="table-wrap">
   <table>
     <thead><tr><th>组件</th><th>版本</th><th>许可</th><th>说明</th></tr></thead>

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
 import puppeteer from 'puppeteer-core'
 
 // 一条命令跑完整回归：自检 Monaco 是否真的挂载、布局对调是否只靠 CSS、
@@ -9,7 +10,27 @@ const CHROME_CANDIDATES = [
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
 ]
 const CHROME = process.env.CHROME_PATH ?? CHROME_CANDIDATES[0]
-const PORT = Number(process.env.VERIFY_PORT ?? 5199)
+
+/**
+ * 让系统分配一个空闲端口。
+ *
+ * 这里原来是写死的 5199 配 `--strictPort` —— 后果是「开发者自己开着 npm run dev」时
+ * 回归必定以 `dev server 意外退出 code=1` 收场，还得手动 `VERIFY_PORT=xxxx` 绕开。
+ * 端口是环境噪音，不该让用脚本的人去记这件事。
+ */
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+// 显式给了 VERIFY_PORT 就照用（想看现场时有用），否则自己挑一个空的
+const PORT = Number(process.env.VERIFY_PORT ?? 0) || (await freePort())
 const APP_URL = `http://localhost:${PORT}/`
 const ROOT = new URL('../', import.meta.url).pathname
 const SHOTS = process.env.SHOT_DIR ?? ROOT
@@ -283,6 +304,30 @@ try {
         navItems: document.querySelectorAll('.settings-nav__item').length,
       }
     })
+    // 目录不做「数人头」断言，而是逐项点开、要求它真的渲染出内容：
+    // 原来这里写死 `navItems === 10`，于是「加一个设置分类」这种纯业务改动会先把回归搞红。
+    // 脚本不该替业务记账 —— 有几项是 SECTIONS 的事，项项可用才是脚本该守的契约。
+    // 十个分类是 v-else-if 互斥的，所以每一项点开后 `section.setting-group` 必须恰好是 1 个。
+    const navCoverage = await page.evaluate(async () => {
+      const items = [...document.querySelectorAll('.settings-nav__item')]
+      const results = []
+      for (const item of items) {
+        item.click()
+        // 让出一次宏任务：Vue 的调度器在微任务里 flush，这一步之后就一定渲染完了
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        results.push({
+          label: item.querySelector('.settings-nav__label')?.textContent?.trim() ?? '',
+          current: item.getAttribute('aria-current') === 'true',
+          groups: document.querySelectorAll('.settings-view section.setting-group').length,
+          textLength: (document.querySelector('.settings-view__inner')?.textContent ?? '').trim().length,
+        })
+      }
+      return results
+    })
+    const navOk =
+      navCoverage.length > 0 &&
+      navCoverage.every((entry) => entry.current && entry.groups === 1 && entry.textLength > 0)
+
     // 设置是「目录 + 内容」两栏：默认停在第一项「外观」，换边入口（侧边栏位置）就在这一组里。
     // 仍然显式点一下目录里的「外观」，这样默认分类以后再变，这一步也不会跟着坏。
     await page.evaluate(() => {
@@ -327,13 +372,14 @@ try {
       state.codeLineCount > 3 &&
       settingsShown.viewVisible &&
       settingsShown.tabActive &&
-      settingsShown.navItems === 10 &&
+      navOk &&
       !settingsClosed.tabPresent &&
       !settingsClosed.viewVisible
     record('B. 切换布局：order 换序，DOM/Monaco 不重建', ok, {
       ...state,
       monacoInstanceReused: markerAlive === monacoBefore,
       settingsShown,
+      navCoverage: navCoverage.map((entry) => `${entry.current ? '✓' : '✗'}${entry.groups}${entry.textLength > 0 ? '' : '!空'} ${entry.label}`),
       settingsClosed,
     })
   })

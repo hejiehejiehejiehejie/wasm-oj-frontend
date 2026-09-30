@@ -2,7 +2,8 @@
  * LocalVFSProvider —— 本地 VFS 实现。
  *
  * 存储策略：**内存树为真源 + IndexedDB 持久化**。
- * - init() 从 IDB（库 cph-vfs：nodes / contents 两 store）载入全部节点与正文；
+ * - init() 从 IDB（库 cp-vfs：nodes / contents 两 store）载入全部节点与正文；
+ *   库名 2026-10-01 从带 `cph-` 前缀的旧名改过来，改名前的老库由 #migrateLegacyDb() 搬一次；
  * - 每次 mutation 先改内存索引，再写 IDB；
  * - IDB 不可用 / 打开失败（隐私模式等）→ 自动降级为纯内存：功能不缺，仅刷新丢失。
  *
@@ -14,11 +15,16 @@ import { t } from '../../i18n/index.js'
 import { commitTransaction, openDatabase, withTransaction } from './idb.js'
 import { assertName, isWithin, normalize, splitPath } from './paths.js'
 
-const DB_NAME = 'cph-vfs'
+const DB_NAME = 'cp-vfs'
 const DB_VERSION = 1
 const NODES_STORE = 'nodes'
 const CONTENTS_STORE = 'contents'
 const STORES = [NODES_STORE, CONTENTS_STORE]
+/**
+ * 改名前的库名（2026-10-01 去掉 `cph-` 前缀）。
+ * 这是**不可删的契约点** —— 不写出这个名字，就没法把老用户的工作区搬过来。
+ */
+const LEGACY_DB_NAME = 'cph-vfs'
 
 /** 生成节点 id：优先原生 UUID，否则随机回退 */
 function newId() {
@@ -29,6 +35,54 @@ function newId() {
 function freshNode({ id, name, type, parentId, path }) {
   const now = Date.now()
   return { id, name, type, parentId, path, createdAt: now, updatedAt: now }
+}
+
+function dropLegacyDb() {
+  try {
+    indexedDB.deleteDatabase(LEGACY_DB_NAME)
+  } catch {
+    /* 删不掉（被别的标签页占着等）也无所谓，旧库只是占地方 */
+  }
+}
+
+/**
+ * 一次性搬运：把改名前的旧库原样并进新库，再删掉旧库。
+ *
+ * 只在「新库的节点表确实是空的」时才动手 —— 读不出来（null）或已经有数据，都说明
+ * 要么搬过、要么用户已在新库里建了东西，再搬会把新数据盖掉。旧库不存在时 IDB 会新建
+ * 一个空库，节点表读出来是空数组，同样落进「没什么可搬、删掉」那条分支。
+ *
+ * **读失败时绝不删旧库**：宁可下次再试一遍，也不能把用户的工作区丢掉。
+ */
+async function migrateLegacyDb(db) {
+  const count = await withTransaction(db, [NODES_STORE], 'readonly', (tx) => tx.objectStore(NODES_STORE).count())
+  if (count !== 0) return
+
+  const legacy = await openDatabase(LEGACY_DB_NAME, DB_VERSION, () => {})
+  if (!legacy) return
+
+  const legacyStores = [...legacy.objectStoreNames]
+  const nodes = legacyStores.includes(NODES_STORE)
+    ? await withTransaction(legacy, [NODES_STORE], 'readonly', (tx) => tx.objectStore(NODES_STORE).getAll())
+    : []
+  const contents = legacyStores.includes(CONTENTS_STORE)
+    ? await withTransaction(legacy, [CONTENTS_STORE], 'readonly', (tx) => tx.objectStore(CONTENTS_STORE).getAll())
+    : []
+  legacy.close()
+
+  if (nodes === null) return
+
+  if (nodes.length) {
+    const written = await commitTransaction(db, STORES, 'readwrite', (tx) => {
+      const nodeStore = tx.objectStore(NODES_STORE)
+      for (const node of nodes) nodeStore.put(node)
+      const contentStore = tx.objectStore(CONTENTS_STORE)
+      for (const record of contents ?? []) contentStore.put(record)
+    })
+    if (!written) return
+  }
+
+  dropLegacyDb()
 }
 
 export class LocalVFSProvider extends BaseVFSProvider {
@@ -57,6 +111,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
     })
 
     if (this.#db) {
+      await migrateLegacyDb(this.#db)
       const nodeRecords = await withTransaction(this.#db, [NODES_STORE], 'readonly', (tx) =>
         tx.objectStore(NODES_STORE).getAll(),
       )

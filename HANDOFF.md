@@ -12,12 +12,12 @@
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的两颗图标（面板切换 / 设置）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂在工作区根下，无外层 wrapper），题目信息与抓到的样例都挂在代码文件**自己的节点**上（`node.meta` / `node.config`，2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json` 文件，已由 `migrate.js` 一次性搬进节点；难度导入时为空，先落「未分类」），树里不另有条目，并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「浏览器插件」分组里有下载按钮（`public/extension/cc-for-web-<版本>.zip`），同一组里还有「投递目标」两个开关，可以直接把「发到本网站 / 发到本地工具」任一关掉（2026-09-30 加，真值写在扩展的 `chrome.storage`，见 13.1）。详见第 13 节。
 - 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
-- **题解（Markdown / LaTeX，2026-09-30 加）**：`.md` / `.markdown` 走 Monaco 内置的 markdown 分词器，只用于**写题解、不参与判题**（两个运行入口都会给禁用态）。编辑区为此多了一行工具栏（14 项：加粗 / 标题 / 列表 / 链接 / 图片 / 公式 / 表格 / 分割线…）、`N 字 · M 行` 统计、三态视图胶囊（仅编辑 / 双栏 / 仅预览）与一颗全屏按钮，另有 15 条题解专用快捷键（`Mod+\` 轮换视图、`Esc` 退全屏）。预览用的 marked + KaTeX **按需下载**（设置视图「本地运行环境」的第三行，缓存桶 `cph-md-runtime-v1`，约 578KB），与 C++ / Python 工具链同一套路数。**完整说明与坑都在第 15 节。**
-- **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cph.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
+- **题解（Markdown / LaTeX，2026-09-30 加）**：`.md` / `.markdown` 走 Monaco 内置的 markdown 分词器，只用于**写题解、不参与判题**（两个运行入口都会给禁用态）。编辑区为此多了一行工具栏（14 项：加粗 / 标题 / 列表 / 链接 / 图片 / 公式 / 表格 / 分割线…）、`N 字 · M 行` 统计、三态视图胶囊（仅编辑 / 双栏 / 仅预览）与一颗全屏按钮，另有 15 条题解专用快捷键（`Mod+\` 轮换视图、`Esc` 退全屏）。预览用的 marked + KaTeX **按需下载**（设置视图「本地运行环境」的第三行，缓存桶 `cp-md-runtime-v1`，约 578KB），与 C++ / Python 工具链同一套路数。**完整说明与坑都在第 15 节。**
+- **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cp.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 5 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cph.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.9「登录 + 云同步」**（Cloudflare Worker + KV，落地位置与坑见 14.9；网址形态的入口 `www.998244353.best/<handle>` 见 14.21）**与 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。
-- **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、致谢页（**页头品牌名与标题里的 `unnamed` 在 `scripts/render-notice.mjs` 的 PAGES 表 / `NOTICE*.md` 里，不是在生成物里改**——`notice.html` / `notice.en.html` 是生成物，改完跑 `npm run notice`）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**别顺手改另外两样**：① `cph.*` 开头的 localStorage 键名；② `cph-vfs` / `cph-pch` 的 IndexedDB 库名 —— 都是持久化契约，改了等于把用户的偏好与题解全丢掉（题目元数据的 `.cph/` 目录已于 2026-10-01 取消，如今只剩 `migrate.js` 里认老数据用的那个常量）。**能改的只有主题 id**（`dark` / `light`，同日已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cph-ide` 是 npm 标识、与展示无关，未动。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**、以及 **14.11 的第一阶段（VS Code 式目录内新建）**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 110%，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 5 项：VFS 优化 / 默认模板 / 文件归类设置（配置 UI）/ 比赛模式 / 设置页 UI 精修，外加 14.11 的**嵌套路径**阶段。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cp.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.9「登录 + 云同步」**（Cloudflare Worker + KV，落地位置与坑见 14.9；网址形态的入口 `www.998244353.best/<handle>` 见 14.21）**与 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。
+- **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、致谢页（**页头品牌名与标题里的 `unnamed` 在 `scripts/render-notice.mjs` 的 PAGES 表 / `NOTICE*.md` 里，不是在生成物里改**——`notice.html` / `notice.en.html` 是生成物，改完跑 `npm run notice`）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `public/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**持久化名都是契约**（localStorage 的 `cp.*`、IndexedDB 的 `cp-vfs` / `cp-pch`、Cache Storage 的 `cp-shell-*` / `cp-toolchain-v3` / `cp-md-runtime-v1`）：想改名必须**同时写一次性迁移**，见 `services/storageMigration.js` 与 `LocalVFSProvider.js` 的 `migrateLegacyDb()`、`sw.js` 的 `migrateLegacyBuckets()`。带 `cph-` 的旧名只作为**迁移源**存在——不认识它们就搬不动老用户的数据，等于把用户的偏好与题解全丢掉（题目元数据的 `.cph/` 目录已于 2026-10-01 取消，如今只剩 `migrate.js` 里认老数据用的那个常量）。**能改的只有主题 id**（`dark` / `light`，2026-09-29 已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cp-ide` 是 npm 标识、与展示无关。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
 
@@ -34,7 +34,7 @@
 | flex 容器的子元素要显式拉伸 | 布局里 `.pane > *` 必须 `flex: 1 1 auto; min-width: 0`，否则子组件收缩到内容宽度 |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑） |
-| SW 改了**外壳**策略就升 `SHELL_VERSION` | `public/sw.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cph-shell-v4`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cph-toolchain-v3`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
+| SW 改了**外壳**策略就升 `SHELL_VERSION` | `public/sw.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v4`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cp-toolchain-v3`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物，**不在**构建清单里，改动它们要同步 `sw.js` 的 `STATIC_ASSETS`（见第 9 节） |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
 | 导入题目挂在 VFS 节点上，不许另立存储 | 一道题 = 一个代码文件 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂根下，无外层 wrapper；年月粒度 `YYYY-MM`；难度导入时一律为空，先落「未分类」）。题目信息（`node.meta`）与抓到的样例（`node.config`）都挂在这个文件节点上，树里不另有条目（2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json`，由 `migrate.js` 一次性搬进节点）。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例整体覆盖而难度由用户手填、重抓要保留；题目身份认 `url` 不认文件名，且**必须全库按 `node.meta.url` 找回原文件**（分层后同一道题会算出新路径，只扫一个 OJ 目录会让老题解变孤儿）。改这里等于动用户数据，见第 13 节 |
@@ -44,7 +44,7 @@
 | px / rem 的边界纪律 | CSS 里写 `px`，构建时由 `postcss-pxtorem` 统一转 `rem`（配置在 `vite.config.js` 的 `css.postcss`），全局缩放只改根字号。但**转换只发生在 CSS 声明值上**：JS 内联样式、JS 常量、`@media` / `@container` 断点参数都不受影响（见第 5 节坑 24）。三条判据：① 物理尺寸（鼠标坐标 / DOM 原生测量 / 手势阈值）永远保持 `px`；② 逻辑尺寸里，喂给 Monaco 的 `fontSize / lineHeight / scrollbarSize / padding`、以及 JS 写死的容器上限必须自己乘 `scale`（见 `composables/useUiScale.js` 的 `px()`）；③ 被 JS `parseFloat` 读的 CSS 变量（`--tests-min-*`）必须在 `propList` 排除名单里留在 px 坐标系，**不要**在 JS 里对 parseFloat 结果做 rem 反向换算——代价是它们吃不到 rem 的自动缩放，所以这类「以物理 px 存放、但语义上是逻辑尺寸」的值要在**使用处**乘一次缩放倍数（JS 用 `uiScale.value`，CSS 用 `--ui-scale`），见第 5 节坑 24 |
 | 界面文案不许写死 | 组件、composable、service 里**一律不许出现中文字面量**（现在只剩注释里有中文）。模板与 computed 里写 `t('域.组.键')`，整棵内容树（应用内帮助）走 `messages('help')`。加新文案 = 在 `src/i18n/messages/<域>.js` 里**中英两栏同时补**（同一文件里并排），缺哪一栏会静默退到中文。唯一例外是**写进文件系统的名字**（见下一条）与 `[unnamed]` 这类控制台前缀（见第 5 节坑 28 第 5 条） |
 | 数据表只存 key，不存译文 | `EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` 都只存 `labelKey` / `hintKey` / `titleKey`（可带 `labelParams`），由消费处再 `t()`。**在模块顶层或 `<script setup>` 顶层调 `t()` 会冻结成那一刻的语言**——切语言不跟着变，是最容易漏的一类（第 5 节坑 28 第 1 条） |
-| 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cph.*` 键名、IndexedDB 库名、主题 id 都不随语言变 |
+| 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cp.*` 键名、IndexedDB 库名、主题 id 都不随语言变 |
 
 ## 2. 与界面相关的文件
 
@@ -55,7 +55,7 @@ guide.en.html                   # 第三个 Vite 入口：上面那页的**英�
 vite.config.js                  # 五个 rollup 入口（index / guide / guideEn / notice / noticeEn）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头 + sitemap.xml 的 MIME（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
-public/sw.js                    # Service Worker：预缓存外壳（工具链与题解渲染器都不预缓存、改为按需落缓存），导航网络优先（见第 9 节）。`MD_CACHE = 'cph-md-runtime-v1'` 与 services/mdRuntime.js 的 CACHE_NAME **必须逐字一致**（见第 15 节）
+public/sw.js                    # Service Worker：预缓存外壳（工具链与题解渲染器都不预缓存、改为按需落缓存），导航网络优先（见第 9 节）。`MD_CACHE = 'cp-md-runtime-v1'` 与 services/mdRuntime.js 的 CACHE_NAME **必须逐字一致**（见第 15 节）
 public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
 public/favicon.svg              # 站点图标（唯一进 STATIC_ASSETS 的 svg）
 public/og-cover.png             # 社交分享大图 1200×630（被 index.html / guide.html / guide.en.html 的 og:image 引用）
@@ -64,7 +64,7 @@ public/robots.txt               # 抓取规则 + 指向 sitemap
 public/sitemap.xml              # 站点地图（三条 URL：/ 与 guide 的中英两版，两版之间用 xhtml:link hreflang 互指）
 public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
-public/md/                      # 自托管的题解渲染器：katex.min.js / katex.min.css / marked.min.js / fonts/*.woff2（20 个字重）/ assets.json（清单，约 578KB）。**不进仓库**（.gitignore 已忽略）——它是构建输入而不是源码，由 `npm run md:runtime` 从 node_modules 生成，跟着 katex 版本走；同样不在 SW 预缓存清单里，用户点了「下载」才进 `cph-md-runtime-v1`（见第 15 节）
+public/md/                      # 自托管的题解渲染器：katex.min.js / katex.min.css / marked.min.js / fonts/*.woff2（20 个字重）/ assets.json（清单，约 578KB）。**不进仓库**（.gitignore 已忽略）——它是构建输入而不是源码，由 `npm run md:runtime` 从 node_modules 生成，跟着 katex 版本走；同样不在 SW 预缓存清单里，用户点了「下载」才进 `cp-md-runtime-v1`（见第 15 节）
 scripts/verify-ui.mjs           # 无头回归脚本（B–H 应当是绿的，A 是已知竞态，见第 8 节；B 步走的是「设置页签」；H 步是 2026-09-30 加的题解回归，见第 15 节）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
 scripts/prepare-md-runtime.mjs  # 把 node_modules 里的 katex / marked 抄进 public/md/（裁掉 CSS 里的 woff / ttf 回退、写 assets.json），挂在 predev / prebuild 上（见第 15 节）
@@ -85,7 +85,7 @@ src/
   composables/useUiScale.js       # ★ 全局界面缩放的唯一权威：uiScale 单例 + 档位表 UI_SCALE_OPTIONS + px()（设计 px → 真实 px）+ applyUiScale()（落根字号）+ normalizeUiScale()（读盘校验）。三条边界见文件头与第 5 节坑 24
   composables/useInstallPrompt.js  # 设置视图「应用」分组里「安装到设备」按钮的数据源：拦 beforeinstallprompt，用完即弃
   composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
-  composables/useCompanionBridge.js # ★ 扩展消息接收端：window.postMessage 握手（cph-ping → cph-info）与题目投递（cph-task）。状态是**模块级单例**（扩展装没装是全局事实，各组件不该各探一次）；同站多开标签页时扩展会广播，按 taskId 去重
+  composables/useCompanionBridge.js # ★ 扩展消息接收端：window.postMessage 握手（cp-ping → cp-info）与题目投递（cp-task）。状态是**模块级单例**（扩展装没装是全局事实，各组件不该各探一次）；同站多开标签页时扩展会广播，按 taskId 去重
   composables/useCompanionImport.js # 订阅扩展题目 → 调 problemImport 落盘 → 把样例**整体替换**进评测面板 → nextTick 后抢焦点。它是 problemImport 返回值的唯一消费方
   composables/useShortcutManager.js # ★ 全局快捷键的唯一权威：动作表 SHORTCUT_ACTIONS + 绑定表 + comboFromEvent 规范化 + 冲突检测 + localStorage。**刻意不挂组件生命周期**（App 的全局 keydown 与 EditorPane 的状态栏提示都要在任何组件挂载前就可用）
   components/
@@ -96,7 +96,7 @@ src/
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
     HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）。**体例（2026-09-29 定）**：`GROUPS` 是「分组 → 条目」两层，每条 = `name`（**必须是疑问句**，它就是小标题）/ `role`（一句话答案）/ `steps`（操作步骤，渲染成 `<ol>` 1. 2. 3.）/ `notes`（要点与口径，渲染成圆点）/ 可选 `table`（判定码、性能实测这类多列短值）；正文里用 `**…**` 标出界面上的按钮名与页面名，`segments()` 负责拆成加粗片段（**不走 `v-html`**：文案里会出现 `<vector>` 这类头文件名，交给 HTML 解析会被当标签吃掉）
     MarkdownPreview.vue         # 题解预览面板（2026-09-30 加）：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载渲染器」入口、与编辑器的**双向滚动同步**（比例 + 回音吃掉 + 重渲染后按 lastRatio 复位）。只接受 source 字符串、不认识 Monaco（见第 15.4 / 15.5 节）
-    Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cph.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
+    Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cp.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
     SidebarSwitcher.vue         # 侧栏页头里的两组入口（2026-09 加）：面板胶囊开关 + 设置。不再独占一行页签栏，而是渲染进两个面板各自的页头里（同一时刻只有一个面板可见，视觉上只有一份）；只画 logo 不写字，名字在 `title` / `aria-label`；状态从 Sidebar 的 provide 取（`panels` / `targetPanel` / `togglePanel` / `settings` / `toggleSettings`），自己不存状态。面板那枚：`.sidebar-switcher__pill` **本身是一颗 `<button>`**（点任意位置 toggle，高度 26 / 13px 圆角 / 底色 `--bg-control`），里面 `v-for` 出两段 `<span class="sidebar-switcher__seg">` 作纯视觉指示（28×22、11px 圆角，当前段 `.is-active` 填 `--accent` + `--text-on-accent`，并打 `data-panel` 与 `data-current`）。设置那颗 `gear`（开关编辑区里的设置页签，`settingsTab`，不落盘）在轨道外，是独立的圆形按钮。切换时选中段播一次滑动动画（见第 4 节类名表与第 5 节坑 5c），只在 `[data-switched]` 下放
     FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随树内聚焦的节点，右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）
     InlineCreateRow.vue         # 内联新建的输入行（2026-09-28 从 FileExplorer 里抽出来）：根目录那份由 FileExplorer 渲染、某个目录里那份由 FileTreeItem 渲染，两处共用。挂载时把 `{ focus }` 注册进 `provide('creatingRow')`，供「程序性失焦后把焦点抢回来」用（见第 5 节坑 12）
@@ -113,7 +113,7 @@ src/
     mdView.js                   # ★ 题解视图状态的唯一权威：视图模式 / 全屏 / 滚动同步的前提判断（见第 15.5 节）
     mdFormat.js                 # 题解工具栏的纯变换层：MD_TOOL_GROUPS / MD_SHORTCUTS / formatMarkdown / markdownStats（见第 15.6 节）
     mdRenderer.js               # 题解渲染管线：marked（含 $…$ / $$…$$ 扩展）→ DOMPurify → KaTeX 填公式（见第 15.4 节）
-    mdRuntime.js                # 题解渲染运行时的本地侧：/md/assets.json 清单 + cph-md-runtime-v1 缓存桶 + 探针 / 下载 / 卸载 / 注入（见第 15.3 节）
+    mdRuntime.js                # 题解渲染运行时的本地侧：/md/assets.json 清单 + cp-md-runtime-v1 缓存桶 + 探针 / 下载 / 卸载 / 注入（见第 15.3 节）
     editorOptions.js            # 编辑器偏好的单一出处：默认值 24 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24。最后一项 `statusBar`（默认开，2026-09-30 加）**不是 Monaco 选项**、不进 `editorOptions()`，它只管编辑区底部那条状态栏的显隐（见第 15.8 节）
     problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()。meta **五项**：url / oj / difficulty / date / **timeLimit**（毫秒，100–60000，0 = 未设置；判题时优先于全局档位，见 14.3 与第 5 节坑 17）
     engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
@@ -152,7 +152,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
                          └─ header.panel__head      ← SidebarSwitcher（左，同上） + verdict / 耗时（右）
 ```
 
-侧边栏页头左侧是**一枚面板胶囊开关 + 一颗设置钮**：胶囊整枚是一颗 toggle 按钮（点它任意位置都翻到另一个面板，切 `cph.sidebarTab`），里面两段分别是资源管理器与评测样例、当前所在的那段填亮；胶囊外那颗（2026-09-28 加，顶栏删除后从顶栏齿轮搬来）不切面板，而是开关编辑区里的设置页签（`settingsTab`，见第 5 节坑 7）。因为设置页签是编辑区的东西，关掉它时那颗齿轮的底色也跟着灭——它的状态由 `settingsTab.active` 决定，不走 `cph.sidebarTab`，但它填的是与胶囊选中段同一枚实心蓝（「填亮＝开着」一套语言；它在轨道外、是圆形，不会被误读成第三个面板）。
+侧边栏页头左侧是**一枚面板胶囊开关 + 一颗设置钮**：胶囊整枚是一颗 toggle 按钮（点它任意位置都翻到另一个面板，切 `cp.sidebarTab`），里面两段分别是资源管理器与评测样例、当前所在的那段填亮；胶囊外那颗（2026-09-28 加，顶栏删除后从顶栏齿轮搬来）不切面板，而是开关编辑区里的设置页签（`settingsTab`，见第 5 节坑 7）。因为设置页签是编辑区的东西，关掉它时那颗齿轮的底色也跟着灭——它的状态由 `settingsTab.active` 决定，不走 `cp.sidebarTab`，但它填的是与胶囊选中段同一枚实心蓝（「填亮＝开着」一套语言；它在轨道外、是圆形，不会被误读成第三个面板）。
 
 **开跑必亮结果**（2026-09-28 加）：运行入口有两处——`⌘/Ctrl + Enter`、评测面板页脚的运行按钮（编辑器页签栏右端那颗已于 2026-09-28 删除）——全都并到 `App.vue` 的 `runAll()` 这一个出口。`runAll()` 在通过「正在跑 / 没有用例 / 没有活跃语言」三道前置判断之后、真正开跑之前，会调 `revealTestsPanel()`：侧栏收起了就用 `togglePanel()` 展开（它顺带把 `virtualShare` 接回 `editorShare`，与双击展开同一套收口），然后 `sidebarRef.value?.showPanel('tests')` 切到评测样例。已经在评测样例上就是空操作，不会破坏页签持久化。**别把这段放到 `runAll()` 的前置判断之前**——那样点「停止」（同一个按钮，跑到一半时发的是中止）也会把侧栏弹出来。页签栏那颗按钮删掉之后这条路更关键了：侧栏收起时唯一的点击入口已经没了，`⌘/Ctrl + Enter` 是唯一还能「隔空开跑并把结果亮出来」的手段（无头回归 E 步走的就是它）。
 
@@ -163,7 +163,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **视觉像分段控件**：两段图标并排住在一个圆角轨道（`.sidebar-switcher__pill`）里，**当前所在的那段填实心蓝**（`--accent` + `--text-on-accent`）。这守的是「有两个面板可切」，也是第一轮否掉「一颗只有去向往哪儿的动作钮」时提的要求。
 - **交互是一颗 toggle**：整枚轨道就是那个 `<button>`，点它**任意位置**（含 2px 内边距、圆角内的边缘、当前段自己）都翻到另一个面板；两段是纯视觉的 `<span>`，不接点击、也没有 `tabindex`。这是第二轮的要求——两段各自可点会在胶囊里留下点不动的边。
 
-所以**别把点击下放回某一段**，也别退回「一颗只有去向往哪儿的单钮」。文案写**将要去的那一个**（`title` / `aria-label` 都是「切换到评测样例」这种祈使句，跟着 `targetPanel` 变）。无头回归的 `sidebarSegActive` 读的是每段上的 `data-current="true"`（哪一段被标记成当前），`sidebarTabs` 读页头两个控件的 `aria-label`。另外「现在停在哪个面板」仍有一个更直接的机器可读出处：`.sidebar__panel[data-panel]`。面板状态是 `cph.sidebarTab`，只有 `Sidebar` 一份（经 `provide('sidebarTabs')` 下发），别让面板各存一份；胶囊外那颗（设置）读的是 `settingsTab.active`。
+所以**别把点击下放回某一段**，也别退回「一颗只有去向往哪儿的单钮」。文案写**将要去的那一个**（`title` / `aria-label` 都是「切换到评测样例」这种祈使句，跟着 `targetPanel` 变）。无头回归的 `sidebarSegActive` 读的是每段上的 `data-current="true"`（哪一段被标记成当前），`sidebarTabs` 读页头两个控件的 `aria-label`。另外「现在停在哪个面板」仍有一个更直接的机器可读出处：`.sidebar__panel[data-panel]`。面板状态是 `cp.sidebarTab`，只有 `Sidebar` 一份（经 `provide('sidebarTabs')` 下发），别让面板各存一份；胶囊外那颗（设置）读的是 `settingsTab.active`。
 
 关键规则（`src/App.vue:513` 起）：
 
@@ -304,7 +304,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 1. **状态色是三元组，但徽标文字是判定码**：卡片/徽标颜色用 `data-status="passed|failed|error|running"`（`TestCaseCard.vue`），面板小结用 `data-tone="passed|failed|error|info"`（`TestPanel.vue`），加新状态要同时补 CSS 分支。徽标里显示的文字不是状态名，而是用例记录上的 `verdict` 字段（`AC / WA / CE / TLE / RE / ERR`，没跑时回退「待运行/运行中」）；颜色归 `status`、文案归 `verdict`，两者在 `runner.js` 的补丁里成对产出，别合并成一个字段。
 2. **Monaco 文字用 NBSP 渲染**：用脚本读 `.view-lines` 的文本时，空格是 `\u00a0`（charCode 160），`includes('def solve')` 这类断言永远匹配不上。
 3. **Monaco 的 `.minimap` DOM 节点始终存在**，关闭时宽度为 0；判断"有没有小地图"要看 `getBoundingClientRect().width`，不是 `querySelector`。
-4. **localStorage 里存的是 JSON 字符串**：`cph.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
+4. **localStorage 里存的是 JSON 字符串**：`cp.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
 5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换按钮（`SidebarSwitcher`）在两个面板的页头里各有一份实例，**按选择器取它时必须先落到「当前可见的那个 `.sidebar__panel`」里**（用 `getClientRects().length > 0` 判可见），否则会同时拿到隐藏那份，脚本/断言会凭空多出一倍。（c）**同一原因让「跨这两个实例的运动」做不了 `transition`**：点一下就是把刚点的那份藏了、另一份亮出来，高亮不是同一个元素在动，`transition` 永远看不到。胶囊的滑动高亮（`SidebarSwitcher` 的 `sidebar-indicator-from-*`，挂在选中段的 `::before` 上、段本身不参与位移）因此用 `animation` ——元素从 `display: none` 变成可见时动画会从头播；并用 `[data-switched]` 挡掉首屏那次（首屏同样是「从隐藏变可见」，可那时并没有发生任何切换）。两份胶囊在屏幕上的位置完全相同，所以「新亮出来的那份从旧位置滑过来」看起来就是同一枚高亮在横移。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
 7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身是**「目录 + 内容」两栏**（2026-09 改）：左边 `.settings-nav` 是分类目录（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助，`SECTIONS` 常量驱动），右边同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「浏览器插件」那一组会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」与「浏览器插件」两组是 2026-09 新加的（见第 13 节）。窄宽度降级不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `@container settings (max-width: 560px)` 把目录翻成顶部横向标签条。
@@ -334,11 +334,11 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **`未分类` 是「难度为空」的占位，且路径一定下就跟着题走**：导入时难度一律为空（来源站点口径不一），所以新题都落在 `未分类/` 下；用户事后填难度**不会**把已有文件搬过去（搬动 = 丢题解），分层只对**之后新抓的**生效，老数据不迁移。
     - **同名但 `url` 对不上 = 用户自己的文件**，这时候不能覆盖，要 `baseName-2`、`baseName-3` 依次找空位（只看代码文件那个路径空不空）；整趟塞进一个 `vfs.batch()`，界面只重建一次树。
 19. **`meta` 与 `config` 是两个字段，而 `setMeta` 是「整体替换」**（`LocalVFSProvider.setMeta` / `setConfig`）：两个方法都先 `{ ...node }` 展开、再只改自己那一个键，所以并存时不互相覆盖；但 `setMeta(path, meta)` 传进去的对象**就是**新的 `meta` 全部内容——题目信息弹窗（`updateFileMeta`）改一下难度就会用五项重建 meta，**样例若也存在 meta 里，就会在这一刻被抹掉**。所以样例一律走 `config`（`problemImport` 落盘与评测面板取用例都读它）。旧版这两样是同级隐藏的 `.cph/<题名>.json` 文件（旧版靠 `workspaceStore` 的 `withoutHiddenDirs()` 在渲染层摘掉，该函数已删），**2026-10-01 取消**：过滤逻辑已删，老数据由 `migrate.js` 的 `migrateProblemMetaInline()`（标记 `cp.problemMetaInline`）搬进 `config` 后连 `.cph` 一起删掉。
-20. **扩展安装包靠文件名换版，不靠 `sw.js` 的 `SHELL_VERSION`**（`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION` / `EXTENSION_FILE`）：`public/extension/` 下的 zip 不在构建清单里，而 SW 对同源 GET 走 `cacheFirst` 且**不重新校验**——原地覆盖同名文件，老用户会一直下到缓存里的旧包。所以发新版必须换文件名（`cc-for-web-2.65.1.zip` → `...-2.65.2.zip`），同步改这两个常量 + `cph-companion` 的 `package.json` 版本号。也**不要**把它塞进 `STATIC_ASSETS`（那会每次 install 都预缓存一份几百 KB 的包，而它只在用户点「下载」时才需要）。
+20. **扩展安装包靠文件名换版，不靠 `sw.js` 的 `SHELL_VERSION`**（`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION` / `EXTENSION_FILE`）：`public/extension/` 下的 zip 不在构建清单里，而 SW 对同源 GET 走 `cacheFirst` 且**不重新校验**——原地覆盖同名文件，老用户会一直下到缓存里的旧包。所以发新版必须换文件名（`cc-for-web-2.65.3.zip` → `...-2.66.0.zip`），同步改这两个常量 + `cph-companion` 的 `package.json` 版本号。也**不要**把它塞进 `STATIC_ASSETS`（那会每次 install 都预缓存一份几百 KB 的包，而它只在用户点「下载」时才需要）。
 21. **全局快捷键挂在 `window` 的捕获阶段，且录制期间必须让路**（`useShortcutManager.js` + `App.vue` 的 `onKeydown` + `HotkeyRecorder.vue`）：`window.addEventListener('keydown', onKeydown, true)` 里 `preventDefault()` + `stopPropagation()`——Monaco 的键位服务挂在编辑器内部 DOM 上，捕获是从外往内走，只有这样才能抢在它前面，编辑器里也归这套表管（顺带把 `Ctrl/⌘+Enter` 原本「在下方插入一行」的内置行为一并挡掉）。反过来，`HotkeyRecorder` 的 keydown 在按钮的目标阶段，而捕获永远先跑，所以**开录时必须置 `recordingActive = true`**、`onKeydown` 见到它就 return，否则录入组合键的瞬间功能会先被执行一遍。同理，`event.isComposing` 期间一律不处理（拼音选词不能被当成命令）。**不要**改回 `editor.addCommand()` 同步键位：Monaco 0.56 的 `ICodeEditor` 只有 `addCommand`、没有 `removeCommand`，改过键之后旧的撤不掉，会出现「新键不跑、旧键反而跑」。
 22. **组合键内部串用 `event.code`，且必须挡住浏览器原生键**（同上）：用 `event.key` 对不上——Alt 组合在 macOS 上会把 key 变成特殊字符（Alt+B 是 `∫`）、Shift 会把 `Digit1` 变成 `!`。内部写法固定为 `Mod+Ctrl+Alt+Shift+<code>`（顺序固定、必带键码），所以字符串相等就是精确匹配，`Ctrl+B` 与 `Ctrl+Shift+B` 天然不会互相误触；`Mod` = 平台主修饰键（macOS 是 ⌘，其它平台是 Ctrl），macOS 上还要单独有 `Ctrl`。另外 `BROWSER_RESERVED` 那张表（`⌘W` / `⌘T` / `⌘R` / `F12` 等）要在**录制阶段**就拒绝并给红字原因：这些组合由浏览器 UI 层直接吃掉，`preventDefault()` 无效，绑上去只会得到一个永远不触发的快捷键。裸键只放行功能键与 `Esc`（`SAFE_BARE_CODES`），其余一律要求带修饰键，否则打字时会不停误触发。
 23. **「卸载本地运行环境」删的是 Cache Storage，判据也必须以它为准**（`runnoSandbox.unloadRuntime` + `wasmRuntime` 的 `uninstallRuntime` / `isAssetCached`，2026-09-28 加）：设置页「本地运行环境」在 `ready` 时右侧多一颗「卸载」（自绘确认弹窗，理由同坑 11，不要 `window.confirm`）。要同时清三处，缺一处就「卸了像没卸」：
-    - **Cache Storage**（SW 的 `cph-toolchain-*`）：资产的实际落点，按 `runtimeAssetURLs()` 逐个 `cache.delete()`；缓存名**不等于** `sw.js` 里那两个常量（工具链那个是硬编码的固定名），所以按前缀全扫，不只认当前那一个。
+    - **Cache Storage**（SW 的 `cp-toolchain-*`）：资产的实际落点，按 `runtimeAssetURLs()` 逐个 `cache.delete()`；缓存名**不等于** `sw.js` 里那两个常量（工具链那个是硬编码的固定名），所以按前缀全扫，不只认当前那一个——`runnoSandbox.js` 的卸载同样改成按 `cp-toolchain` 前缀扫缓存，别再硬编码单个桶名。
     - **内存**：C++ 是 `toolchain` / `toolchainPromise` / `compileCache` / `pchBytes` / `pchPromise`，Python 是 `pythonRuntime` / `pythonRuntimePromise`；另加 `wasmRuntime` 的 `pchWarmupStarted` 复位（不复位的话，卸载后再跑 C++，`warmupPch()` 会因「已预热过」直接跳过）。PCH 存在 IndexedDB（十几 MB），单独 `deletePch()`。
     - **HTTP 缓存：删不掉**，浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只改取值策略）。所以 `isAssetCached` 改成「SW 控制页面时只认 `caches.match()`，没有 SW（dev 模式）才退回 `only-if-cached` 探 HTTP 缓存」——仍让 HTTP 缓存当判据的话，刚卸载完的资产会被那份残留立刻判回「已就绪」。**这是本项目第一次让「判据」与「删得掉的那一层」对齐**，以后改探针先想清楚这点（坑 12 那套探针注释也同步改过）。
     - 卸载按钮只在 `ready` 时出现（没装就没有可卸的），下载中禁用——会和 SW 在途的 `cache.put` 打架。
@@ -348,7 +348,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **被 JS `parseFloat` 读的自定义属性**：`App.vue` 的 `measureLimits()` 用 `style.getPropertyValue('--tests-min-cap') + parseFloat` 做拖拽数学，该变量一旦被转成 `rem`，`parseFloat("15rem")` 得到的是 `15` 而不是 `240`，上限直接算错（实测已确认保留为 `240px`）。所以 `--tests-min-cap / --tests-min-floor / --tests-min-ratio` 三个变量在 `propList` 里以 `!` 前缀排除、留在 px 坐标系；**不要**改成在 JS 里对 parseFloat 结果做 rem 反向换算。反之 `--seg-w` / `--seg-h`（胶囊宽高）是纯视觉尺寸、无 JS 读取，**不放**排除名单，必须整组一起随 rem 缩放——只保护其中一个会让胶囊扭形（28 × 27.5）。**「留在 px」不等于「不缩放」**：这三个变量是逻辑尺寸（100% 下的设计值），得在使用处各乘一次缩放倍数——CSS 的 `.pane--tests` 写 `calc(var(--tests-min-floor) * var(--ui-scale, 1))`（cap 同理，ratio 是比例不乘），JS 的 `measureLimits()` 写 `* uiScale.value`；`--ui-scale` 是无单位倍数，由 `applyUiScale()` 写在 `<html>` 上（`styles/base.css` 的 `:root` 里默认 `1`）。**两边必须同款**，否则 125% 下分隔条会与浏览器强行撑开面板的那条线错位（表现为拖到最窄时脱手）。
     - **`minPixelValue: 3`**：小于 3px 的值不转换，所以 1px / 2px 的细线、小间距（如胶囊的 2px padding）在缩放下始终是物理像素、不会亚像素模糊。
     - Monaco 那侧靠 `exclude: /node_modules/i` + `selectorBlackList: [/monaco/]` 双重排除（它的样式表经 `node_modules` 进 Vite 管线，整包不吃 rem），尺寸补偿改走 `services/editorOptions.js` 的 `editorOptions(settings, scale)`；缩放变化时 `EditorPane.vue` 的 `watch(() => props.uiScale)` 重新 `updateOptions()` + `nextTick(layout())`（容器尺寸同步也变了，补一次 layout 最稳）。
-25. **越界的 panel share 必须在拖拽之前收敛**（`App.vue` 的 `reclampShare()`，2026-09-28 加）：`cph.editorShare` 是持久化的，而它的合法上限 `maxShare` 会随**缩放**（面板最低宽度跟着放大）与**视口宽度**（窄到 50% 那一项接手）变化。越界时浏览器靠 CSS 的 `min-width` 把面板撑住、JS 眼里的区间却已经挪走，于是**第一次拖拽**时 `applyShare` 会一口气把比例夹进新区间 —— 表现就是「拖一下就猛地跳一段」（150% + 存 82 实测纯瞬跳 13px）。由 `reclampShare()` 在三个时机补夹：挂载（`nextTick`）、`watch(uiScale)`、`ResizeObserver`。三条纪律：
+25. **越界的 panel share 必须在拖拽之前收敛**（`App.vue` 的 `reclampShare()`，2026-09-28 加）：`cp.editorShare` 是持久化的，而它的合法上限 `maxShare` 会随**缩放**（面板最低宽度跟着放大）与**视口宽度**（窄到 50% 那一项接手）变化。越界时浏览器靠 CSS 的 `min-width` 把面板撑住、JS 眼里的区间却已经挪走，于是**第一次拖拽**时 `applyShare` 会一口气把比例夹进新区间 —— 表现就是「拖一下就猛地跳一段」（150% + 存 82 实测纯瞬跳 13px）。由 `reclampShare()` 在三个时机补夹：挂载（`nextTick`）、`watch(uiScale)`、`ResizeObserver`。三条纪律：
     - **夹取是单向的**（`Math.min` 只压不放）：一旦压小，约束放宽后不会自己长回来。所以 ResizeObserver 那条必须走 `scheduleReclamp()` 去抖 150ms —— 拖窗口 / 切视口的途中会喂进一串「过渡尺寸」，拿它们夹取会把用户的比例**永久改小**。缩放那条是确定性的，一次跳变用一个 `nextTick` 接住即可。
     - **挂载期回写会与外部写入抢同一个 key**：`usePersistentRef` 在 `onMounted` 无条件回写一次，`reclampShare` 越界时再回写一次。用脚本往 localStorage 塞测试值时必须等挂载回写跑完，否则会被覆盖（曾据此误判成「过夹」）。
     - 只在面板可见时收敛（折叠态下 `virtualShare` 恒为 100，不参与）。
@@ -366,11 +366,11 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - ⚠️ **给模板传 ref 时：收的是值，不是 ref**（这条踩过两次，函数现在虽然已随第四次改动删掉，但坑本身还在 —— 模板里 `copyText(testCase.input)`、`onLongCopy($event, testCase.input)` 都是这个形状）：模板里 `inputHidden` 这类 ref 会被 Vue 自动解包，函数签名要是写成 `(hiddenRef, …)` 再去 `.value`，拿到的是 `undefined`，一路传到 `fmt()` 就是 `Cannot read properties of undefined (reading 'toLocaleString')` —— **而这次抛错发生在渲染期，整张卡片会一起渲染失败，连框里的省略号都出不来**（症状极具误导性：看着像「截断逻辑坏了」，其实是翻译函数炸了）。
     - **文本结尾那个 `……` 时有时无，是两条独立的线**（2026-09-29，用户问过）：**① 字符数有没有过 6000** —— `displayOf()` 只在 `long && hidden > 0` 时追加 `MARKER_SEED`，≤6000 字符显示的就是完整内容，结尾**根本没有**省略号（哪怕超出框高要滚动也没有，那是纯溢出态）；**② 截断态下有没有滚到底** —— `……` 是文本的最后一行，不滚到底就在视口外，所以**同一个样例**也会看着时有时无。下面的提示行与虚线底边都只在**截断态**出现（纯溢出态既没有提示行、也没有虚线底边、也没有省略号，见 (a)/(d)）。⚠️ **别为了「让它稳定出现」把 `……` 做成画在框上的浮层**：2026-09-29 试过（`.ta-wrap` / `.ta-wrap--more::after`，条件「真截断 + 还没滚到底」、滚到底时让位给正文那颗），**用户当天否掉了** —— 他要的就是文本结尾那个 `……`，别再提这个方案。（那次尝试留下的两个技术点仍成立：textarea 放不了伪元素所以要包一层定位；`@scroll` 只能挂具名 handler —— 模板里 `@scroll="onTaScroll($event.target, someRef)"` 传进去的是**解包后的布尔值**，函数里再 `.value = …` 就是 `Cannot create property 'value' on boolean 'false'`，与 `omittedCount` 那次是同一类坑的两个方向：**读** ref 拿到 `undefined`、**写** ref 直接抛错。）
     - ⚠️ **不要再改回「只读预览」**：用户明确要的就是「过长时仍然能编辑，只是只能改未被省略的部分」。第二版曾整体改成 `readonly` 并用一颗「编辑完整内容」按钮兜底，当天就被这条要求推翻。反过来，**删掉省略行里的一两个字也会连省略段一起丢** —— 这是第 ③ 条分支刻意选的代价，与「选中省略号就等于选中被省略的那段内容」是同一个心智模型，别再为了「救回那几个字」把分支逻辑搞复杂。
-27. **localStorage 每个源大约只装得下 520 万 ASCII 字符，而 `cph.testCases` 是 deep watch + 全量 `JSON.stringify` 写入**（实测：100 万字符的输入 + 100 万字符的期望输出 = JSON 220 万字符 ≈ 源的 40%）。写入本身不慢（stringify 0.9ms + setItem 1.2ms），可怕的是 `usePersistentRef` 的 `catch` 会把配额错误**吞掉**：超限以后界面一切正常，**刷新却回退到旧版本**。目前刻意没修（用户 2026-09-29 决定本轮不动，见第 14 节），但写任何「要不要把大数据放进用例」的功能前先想清楚这条。
+27. **localStorage 每个源大约只装得下 520 万 ASCII 字符，而 `cp.testCases` 是 deep watch + 全量 `JSON.stringify` 写入**（实测：100 万字符的输入 + 100 万字符的期望输出 = JSON 220 万字符 ≈ 源的 40%）。写入本身不慢（stringify 0.9ms + setItem 1.2ms），可怕的是 `usePersistentRef` 的 `catch` 会把配额错误**吞掉**：超限以后界面一切正常，**刷新却回退到旧版本**。目前刻意没修（用户 2026-09-29 决定本轮不动，见第 14 节），但写任何「要不要把大数据放进用例」的功能前先想清楚这条。
 28. **界面双语：`t()` 读的是 ref，所以「在哪里调」比「翻得对不对」更容易出错**（`src/i18n/`，2026-09-29 加）：机制是模块级单例 `locale = ref(...)` + `t(key, params)`，`t()` 每次调用都读当前 ref。由此推出下面几条，**第 1 条是这一整套设计里唯一真正的陷阱**：
     - **模块顶层 / `<script setup>` 顶层调 `t()` = 冻结语言**：那时只取到「那一刻」的语言，切了语言这些字符串不会变。模板里、computed 里、函数体（事件处理 / 生命周期）里调都没问题。所以**数据驱动的表一律只存 key**——`EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` / `Sidebar.vue` 的 `PANEL_TABS` 都改成 `labelKey` + `hintKey` + `labelParams`，由消费处（模板 / computed / 一处 `labelOf()` 小工具）再 `t()`。漏一个的症状很隐蔽：设置面板切语言后大部分变了、某一处的下拉项还是中文。**顺带一条**：调用纪律也适用于 `runner.js` / `engines/*` / `vfs/*` 这些 service——它们的 `t()` 都在函数体里（跑起来才调），所以正确；但**模块级常量**（如 `BaseVFSProvider` 原先的 `NOT_IMPLEMENTED`）必须改成惰性的 `const notImplemented = () => t(...)`。
     - **语言要在任何组件挂载之前定下来，所以不走 `usePersistentRef`**：那个 composable 靠 `onMounted` 播种首次写入，而界面语言的首帧不能先闪一下中文再切英文。`i18n/index.js` 因此自己读写 localStorage，初值在第 0 帧同步算出（存档优先，没有存档才探测 `navigator.languages`：任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）。`switchPanel` 那种「切了当场生效、不重载」的效果落在这里：`locale` 是 ref，模板 / computed 全是响应式的。`applyLocale()` 负责同步 `<html lang>`（模块加载时一次 + `watch(locale)` 跟随），**别在别处再写一份**。
-    - **新键是 `cph.uiLocale`，不是 `cph.language`**：`cph.language` 是「编辑器判题语言」的死键（顶栏下拉删除后作废，见坑 15 与第 6 节），两者语义完全不同，别再合并。界面上的文案刻意写成「**界面语言**」，用来与「判题语言（由文件扩展名派生）」区分。**别把语言选择器当成「把判题语言加回来」的借口**。
+    - **新键是 `cp.uiLocale`，不是 `cph.language`**：`cph.language` 是「编辑器判题语言」的死键（顶栏下拉删除后作废，见坑 15 与第 6 节），两者语义完全不同，别再合并。界面上的文案刻意写成「**界面语言**」，用来与「判题语言（由文件扩展名派生）」区分。**别把语言选择器当成「把判题语言加回来」的借口**。
     - **写进文件系统的名字不翻译**（第 1 节有这条硬约束）：`problemImport.js` 的 `未分类` / `未命名题目`，以及 `OJ_LIST` 上新加的 `dirName`（洛谷 / Codeforces / 牛客…）。**`labelKey` 与 `dirName` 是两个字段、刻意不合并**——显示名跟着语言走、落盘名永远固定，否则用户切一次语言就会在同一个逻辑位置看到两个目录（`/2026-09/洛谷/` 与 `/2026-09/Luogu/`），老题解直接变孤儿。`formatMetaTooltip()` / `difficultyLabel()` 走 `labelOf()` 拿显示名，导入路径走 `dirName`。
     - **标签自称用哪种语言是有讲究的**：`LOCALES` 里 `简体中文` 与 `English` 都是**自称**，不跟着界面语言变（中文界面里也显示「English」而不是「英文」）。同理 `guide.html` 页头的语言链接写 `English`、`guide.en.html` 那侧写 `简体中文`（各带 `lang` 属性让屏幕阅读器读对）。`fmt` 的千分位也必须跟随语言（`n.toLocaleString(locale.value)`，原先是写死的 `'en-US'`），否则英文界面里的「1,234」在中文界面下也不该变、但 `… 个字符` 的量词要跟着变——两件事别混。
     - **超长样例的省略行干脆没有文案**（与坑 26 配套，2026-09-29 改）：框里那行截断标记就是一个光秃秃的 `……`，定位与判据用两个**语言无关**的字面量 `MARKER_SEED = '\n\n……'` / `MARKER_KEY = '……'`；具体省略了多少由框下面那行说明承担，它走 `tests.card.omitted`（`还有 {n} 个字符未显示` / `{n} characters not shown`；只在真截断时出现，原因见坑 26 (a)）。**别把省略号挪进消息表**——`commitEdit()` 靠 `raw.indexOf(MARKER_SEED)` 认「省略行还在不在」，`onLongCopy()` 靠 `MARKER_KEY` 认「选区里有没有省略行」，两者一进消息表就会跟着语言变、历史文本也会失配。
@@ -386,40 +386,40 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
       **现在的口径**：这三个小标题**中英界面都是英文**，只有期望输出的空框占位跟着语言走
       （前两个框的首行已经被标签说明了，占位再重复一遍是噪音）。
       **别再去翻它们，也别再把 `input` 那条接回 i18n。**
-    - **无头探针里 `navigator.clipboard.readText()` 恒返回空串**（见第 8 节与本仓的探针技能），验证语言切换要走 localStorage + DOM 文本；且**同一个 browser 里 localStorage 跨页共享**，探针第 0 帧必须先 `localStorage.clear()`，否则前一组用例种下的 `cph.uiLocale = 'en'` 会污染后面所有页面（实测踩过，表现为一整组假失败）。
-29. **预览页签的钉住手段有两条，但真正兜底的是「编辑即钉住」**（2026-09-30 加，实现见 14.17）：钉住入口是**双击文件树的行 / 双击页签栏的页签 / 在预览页签里敲第一个字**。前两条都靠浏览器原生 `dblclick`，而**原生 `dblclick` 在部分 Android / iOS 浏览器里压根合成不出来**（本仓另一次踩坑在分隔条双击吸附上，见第 3 节）。所以 `workspaceStore.js` 里那条 `watch(modelManager.isDirty(previewTabId))` 不是「顺手加的 VS Code 细节」，而是触屏唯一可靠的保命闸——少了它，用户在预览页签里正在改的内容会被下一次单击顶替掉。另外 `previewTabId` 刻意**不落 localStorage**（刷新后退化成普通页签，无害），它**没有**进第 6 节的表，别顺手补上，也别把它塞进 `cph.openTabs` 那一份存档格式里。
+    - **无头探针里 `navigator.clipboard.readText()` 恒返回空串**（见第 8 节与本仓的探针技能），验证语言切换要走 localStorage + DOM 文本；且**同一个 browser 里 localStorage 跨页共享**，探针第 0 帧必须先 `localStorage.clear()`，否则前一组用例种下的 `cp.uiLocale = 'en'` 会污染后面所有页面（实测踩过，表现为一整组假失败）。
+29. **预览页签的钉住手段有两条，但真正兜底的是「编辑即钉住」**（2026-09-30 加，实现见 14.17）：钉住入口是**双击文件树的行 / 双击页签栏的页签 / 在预览页签里敲第一个字**。前两条都靠浏览器原生 `dblclick`，而**原生 `dblclick` 在部分 Android / iOS 浏览器里压根合成不出来**（本仓另一次踩坑在分隔条双击吸附上，见第 3 节）。所以 `workspaceStore.js` 里那条 `watch(modelManager.isDirty(previewTabId))` 不是「顺手加的 VS Code 细节」，而是触屏唯一可靠的保命闸——少了它，用户在预览页签里正在改的内容会被下一次单击顶替掉。另外 `previewTabId` 刻意**不落 localStorage**（刷新后退化成普通页签，无害），它**没有**进第 6 节的表，别顺手补上，也别把它塞进 `cp.openTabs` 那一份存档格式里。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
 | key | 内容 | 位置 |
 | --- | --- | --- |
-| `App.vue`（`EDITOR_SETTINGS_KEY` / `readEditorSettings()` / `updateEditorSettings()`，约 38–112 行；定义在 `services/editorOptions.js`） | `cph.editorSettings` + `cph.editorSettingsVersion` | 编辑器偏好共 23 项（主题、字体族 / 字号 / 行高 / 连字、Tab 宽度 / 空格代替 Tab / 自动换行 / 换行列宽、光标样式 / 闪烁 / 平滑移动、当前行突出、空白字符、缩略图、括号对着色 / 缩进参考线 / 括号参考线、粘性滚动 / 滚过最后一行 / 平滑滚动、内边距、滚动条粗细）。**默认值、可选项表、逐键校验、偏好 → Monaco 选项的映射全部在 `src/services/editorOptions.js` 一处**，面板下拉、读盘校验、Monaco 吃到的选项三者共用，加新项只改这一个文件（面板加一行描述即可，见 `EditorSettingsPanel.vue` 的 `EDITOR_GROUPS`）。`Version` 只用于一次性换主题 id：v3 之前是 Monaco 原生 id（`vs-dark` / `vs` / `hc-black`，原本选浅色 `vs` 的迁到浅色），v4（2026-09-29）起主题 id 去掉 `cph-` 前缀、旧存档的 `cph-light` 照样认；认不出的旧值一律交给白名单丢掉、回落到默认深色。**这个计数器只管主题这一件事，不参与其余键** |
-| `cph.panelVisible` / `cph.panelPosition`（`App.vue:31-33`） | 统一侧边栏是否展开 / 侧边栏在左还是右（键名是历史沿革，语义已从「测试面板」扩到整栏） |
-| `cph.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
-| `cph.editorShare`（`App.vue:35`） | 两栏比例（%） |
-| `cph.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`，见 14.3） |
-| `cph.uiScale`（`App.vue:49`） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1.1`（110%），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见 14.12 与第 5 节坑 24 |
-| `cph.uiLocale` | 界面语言，取值 `zh-CN` / `en`（`i18n/index.js` 的 `LOCALE_STORAGE_KEY`，**权威定义在那一处**）。**刻意不走 `usePersistentRef`**：界面语言必须在任何组件挂载之前定下来（首帧不能先闪中文再跳成英文），所以 `i18n/index.js` 自己同步读写 localStorage。**没有存档时跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）——注意「跟随探测」的结果**不写回存档**，「跟随浏览器的默认」与「用户显式选过」是两件事，别在首帧替用户落一个值。设置页「外观」组的「界面语言」下拉是唯一写入方，切了当场生效、不重载 | `src/i18n/index.js`（消费方散布在全仓，读的是 `locale` 这个 ref） |
-| `cph.drafts` / `cph.testCases` / `cph.engine` / `cph.judgeBases`（`App.vue:36-37` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
+| `App.vue`（`EDITOR_SETTINGS_KEY` / `readEditorSettings()` / `updateEditorSettings()`，约 38–112 行；定义在 `services/editorOptions.js`） | `cp.editorSettings` + `cp.editorSettingsVersion` | 编辑器偏好共 23 项（主题、字体族 / 字号 / 行高 / 连字、Tab 宽度 / 空格代替 Tab / 自动换行 / 换行列宽、光标样式 / 闪烁 / 平滑移动、当前行突出、空白字符、缩略图、括号对着色 / 缩进参考线 / 括号参考线、粘性滚动 / 滚过最后一行 / 平滑滚动、内边距、滚动条粗细）。**默认值、可选项表、逐键校验、偏好 → Monaco 选项的映射全部在 `src/services/editorOptions.js` 一处**，面板下拉、读盘校验、Monaco 吃到的选项三者共用，加新项只改这一个文件（面板加一行描述即可，见 `EditorSettingsPanel.vue` 的 `EDITOR_GROUPS`）。`Version` 只用于一次性换主题 id：v3 之前是 Monaco 原生 id（`vs-dark` / `vs` / `hc-black`，原本选浅色 `vs` 的迁到浅色），v4（2026-09-29）起主题 id 去掉 `cph-` 前缀、旧存档的 `cph-light` 照样认；认不出的旧值一律交给白名单丢掉、回落到默认深色。**这个计数器只管主题这一件事，不参与其余键** |
+| `cp.panelVisible` / `cp.panelPosition`（`App.vue:31-33`） | 统一侧边栏是否展开 / 侧边栏在左还是右（键名是历史沿革，语义已从「测试面板」扩到整栏） |
+| `cp.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
+| `cp.editorShare`（`App.vue:35`） | 两栏比例（%） |
+| `cp.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`，见 14.3） |
+| `cp.uiScale`（`App.vue:49`） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1.1`（110%），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见 14.12 与第 5 节坑 24 |
+| `cp.uiLocale` | 界面语言，取值 `zh-CN` / `en`（`i18n/index.js` 的 `LOCALE_STORAGE_KEY`，**权威定义在那一处**）。**刻意不走 `usePersistentRef`**：界面语言必须在任何组件挂载之前定下来（首帧不能先闪中文再跳成英文），所以 `i18n/index.js` 自己同步读写 localStorage。**没有存档时跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）——注意「跟随探测」的结果**不写回存档**，「跟随浏览器的默认」与「用户显式选过」是两件事，别在首帧替用户落一个值。设置页「外观」组的「界面语言」下拉是唯一写入方，切了当场生效、不重载 | `src/i18n/index.js`（消费方散布在全仓，读的是 `locale` 这个 ref） |
+| `cph.drafts`（**只读的老键**：仅由 `vfs/migrate.js` 建工作区时搬进 `/main.cpp`、`/main.py`，应用其余部分一概不读写）/ `cp.testCases` / `cp.engine` / `cp.judgeBases`（`App.vue:36-37` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
 | ~~`cph.language`~~ | **已作废**（2026-09 顶栏语言下拉移除后成为死键，全仓不再读写）；残留在 localStorage 里无害。判题语言现在一律由活跃文件的扩展名派生，见第 5 节坑 15 | — |
 | `cph.mobileKeyboard` / `cph.mobileInputDock` | 都已作废（两个版本的键盘适配都不再持久化）；残留在 localStorage 里无害 | `composables/useMobileKeyboard.js` |
-| `cph.localRuntime.clangReady` / `cph.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
-| `cph.localRuntime.markdownReady` | **题解渲染器**（katex + marked）是否已拉取。与上面两条同一个键前缀、同一套「首帧播种 + 探针校正」的口径（权威判据是 `probeMdRuntime()` 的 Cache Storage 探针，见第 15.3 节）。它在**设置面板那一行**与**预览面板的「下载渲染器」**之间共用，否则从预览下的那一次，下次打开设置会先闪一下「未下载」 | `services/mdRuntime.js`（`MD_READY_FLAG_KEY`） |
-| `cph.mdView` | 题解的**视图模式**：`{ mode, fullscreen }`（`edit` / `split` / `preview` + 是否全屏）。**刻意不走 `usePersistentRef`**：App 在 setup 期（首帧之前）就得知道该不该把侧栏收起来。旧存档是一个字符串（`'fullscreen'` 等），读盘时换算，认不出来一律回默认 `edit`——换算逻辑与理由见第 15.5 节 | `services/mdView.js`（**不是**组件；与 `settingsTab.js` 同一体例的模块级单例，区别是这份要跨会话记住） |
-| `cph.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
-| `cph.shortcuts` | 全局快捷键：动作 id → 组合键串（`{"run":"Mod+Enter", …}`，内部写法见第 5 节坑 22）。**刻意不走 `usePersistentRef`**——那个 composable 靠 `onMounted` 播种首次写入、必须挂在组件上，而这份状态要在任何组件挂载之前就能被读到（App 的全局 keydown 与 EditorPane 的状态栏提示都要用），所以 `useShortcutManager.js` 里直接读写 localStorage。读盘以默认值打底再套已存键：以后新增动作时老用户自动拿到它的默认键，已删动作与手改坏的值自然丢掉 | `composables/useShortcutManager.js` |
+| `cp.localRuntime.clangReady` / `cp.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
+| `cp.localRuntime.markdownReady` | **题解渲染器**（katex + marked）是否已拉取。与上面两条同一个键前缀、同一套「首帧播种 + 探针校正」的口径（权威判据是 `probeMdRuntime()` 的 Cache Storage 探针，见第 15.3 节）。它在**设置面板那一行**与**预览面板的「下载渲染器」**之间共用，否则从预览下的那一次，下次打开设置会先闪一下「未下载」 | `services/mdRuntime.js`（`MD_READY_FLAG_KEY`） |
+| `cp.mdView` | 题解的**视图模式**：`{ mode, fullscreen }`（`edit` / `split` / `preview` + 是否全屏）。**刻意不走 `usePersistentRef`**：App 在 setup 期（首帧之前）就得知道该不该把侧栏收起来。旧存档是一个字符串（`'fullscreen'` 等），读盘时换算，认不出来一律回默认 `edit`——换算逻辑与理由见第 15.5 节 | `services/mdView.js`（**不是**组件；与 `settingsTab.js` 同一体例的模块级单例，区别是这份要跨会话记住） |
+| `cp.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
+| `cp.shortcuts` | 全局快捷键：动作 id → 组合键串（`{"run":"Mod+Enter", …}`，内部写法见第 5 节坑 22）。**刻意不走 `usePersistentRef`**——那个 composable 靠 `onMounted` 播种首次写入、必须挂在组件上，而这份状态要在任何组件挂载之前就能被读到（App 的全局 keydown 与 EditorPane 的状态栏提示都要用），所以 `useShortcutManager.js` 里直接读写 localStorage。读盘以默认值打底再套已存键：以后新增动作时老用户自动拿到它的默认键，已删动作与手改坏的值自然丢掉 | `composables/useShortcutManager.js` |
 
-另外 PCH 二进制（约 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cph-pch`、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:微缩头内容的 FNV-1a 哈希`（当前是 `1:8.0.1:69dc7cd9`），三者任一变化旧存档自然失效，取存档只按这个 id。
+另外 PCH 二进制（约 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cp-pch`（2026-10-01 从 `cph-pch` 改名；`pchStore.js` 打开库时会把旧库静默删掉——PCH 是缓存，下次编译自己会重建）、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:微缩头内容的 FNV-1a 哈希`（当前是 `1:8.0.1:69dc7cd9`），三者任一变化旧存档自然失效，取存档只按这个 id。
 
-工作区文件树也存在 IndexedDB（不是 localStorage）：库名 `cph-vfs`、两个 store `nodes` / `contents`（`LocalVFSProvider`），`nodes` 里就是整条 `VFSNode` 记录（`id / name / type / path / parentId / createdAt / updatedAt`），2026-09 给文件节点加了可选的 `meta`（题目链接 / OJ / 难度 / 日期 / 时限，见第 5 节坑 17），2026-10-01 又加了 `config`（抓题结果原文：`tests` 样例、`oj`、原始 `timeLimit` 等）。**两个都是记录里的可选字段，不是新 store、也不动 `DB_VERSION`**——旧记录没有就按「没有」处理，纯向后兼容。
+工作区文件树也存在 IndexedDB（不是 localStorage）：库名 `cp-vfs`（2026-10-01 从 `cph-vfs` 改名，旧库由 `LocalVFSProvider` 的 `migrateLegacyDb()` 一次性搬运：只在新库 `nodes` 表确实为空时把旧库整条搬过来，读失败就保留旧库下次再试）、两个 store `nodes` / `contents`（`LocalVFSProvider`），`nodes` 里就是整条 `VFSNode` 记录（`id / name / type / path / parentId / createdAt / updatedAt`），2026-09 给文件节点加了可选的 `meta`（题目链接 / OJ / 难度 / 日期 / 时限，见第 5 节坑 17），2026-10-01 又加了 `config`（抓题结果原文：`tests` 样例、`oj`、原始 `timeLimit` 等）。**两个都是记录里的可选字段，不是新 store、也不动 `DB_VERSION`**——旧记录没有就按「没有」处理，纯向后兼容。
 
 导入的题目与用户自己建的文件**共用同一套存储**：题目信息与样例直接挂在代码文件节点上（`meta` / `config`），代码文件也只是一条普通记录，没有「题目专用表」这种东西。所以题目目录的搬移 / 重命名 / 删除走的都是既有路径，不需要为扩展另写存储。
 
 写值统一走 `usePersistentRef(key, defaultValue)`；`editorSettings` 因为要版本迁移，单独用 deep watch 存。加编辑器设置项时**必须**两道校验都过：读盘（`readEditorSettings()`）与面板回写（`updateEditorSettings()`）都逐键走 `editorOptions.js` 的 `normalizeEditorSetting()`，不在默认值表里的键直接丢弃、越界数字退回默认——所以 localStorage 里手改出来的 `fontSize: 999`、认不出的 `cursorStyle`、乃至早已移除的旧键都不会漏进编辑器。
 
-**唯一不落站点 localStorage 的「设置项」是扩展的投递目标两个开关**（设置 → 浏览器插件）：真值存在扩展自己的 `chrome.storage.local` 里，站点这边只有一份内存镜像（`useCompanionBridge` 的 `extensionInfo.config`，随 `cph-ping` 握手刷新）。所以别按上面这套给它加 localStorage 存档——那样会出现「站点存档说开、扩展实际关」的两份真相。
+**唯一不落站点 localStorage 的「设置项」是扩展的投递目标两个开关**（设置 → 浏览器插件）：真值存在扩展自己的 `chrome.storage.local` 里，站点这边只有一份内存镜像（`useCompanionBridge` 的 `extensionInfo.config`，随 `cp-ping` 握手刷新）。所以别按上面这套给它加 localStorage 存档——那样会出现「站点存档说开、扩展实际关」的两份真相。
 
-**「必须早于组件挂载就能读到」的状态有两处先例，加第三处前先想清楚**：`cph.shortcuts`（App 的全局 keydown 与状态栏提示都要用）与 `cph.uiLocale`（首帧的语言）。这两处的做法一致——**绕开 `usePersistentRef`，在模块里直接读写 localStorage**，因为那个 composable 的读写时机挂在组件生命周期上。代价是「读盘校验 / 默认值打底」得自己写（`useShortcutManager.js` 是「默认值打底再套已存键」，`i18n/index.js` 是「`isLocale()` 白名单 + 探测兜底」），两处都别省。
+**「必须早于组件挂载就能读到」的状态有两处先例，加第三处前先想清楚**：`cp.shortcuts`（App 的全局 keydown 与状态栏提示都要用）与 `cp.uiLocale`（首帧的语言）。这两处的做法一致——**绕开 `usePersistentRef`，在模块里直接读写 localStorage**，因为那个 composable 的读写时机挂在组件生命周期上。代价是「读盘校验 / 默认值打底」得自己写（`useShortcutManager.js` 是「默认值打底再套已存键」，`i18n/index.js` 是「`isLocale()` 白名单 + 探测兜底」），两处都别省。
 
 ## 7. 现在的功能边界（写文案时别夸大）
 
@@ -437,14 +437,14 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **STL 预编译头（PCH）**：为老机器省掉每次编译反复解析 STL 头的开销，全流程都在 `runnoSandbox.js` / `pchStore.js` / `wasmRuntime.js`，没有独立 worker。改这一块时几条不能破的约定：
   - 微缩头 `MICRO_STDCXX_H` 刻意只含 `<iostream> <vector> <string> <algorithm> <map>` 5 个，`.pch` 实测 6.91MB（在 10–20MB 目标内）；**不要**换成几万行的完整 `bits/stdc++.h`（UNIVERSAL_HEADER 那份是挂给用户代码 `#include <bits/stdc++.h>` 用的，两回事）。
   - PCH 生成与用户编译必须**逐字共用** `FRONTEND_ARGS`（`-std=c++17 -O2`、三个 `-internal-isystem` 路径等）：PCH 文件签名里含语言/目标选项和头文件搜索路径，参数对不上 clang 加载时直接 fatal，还可能混进语义不一致的 libc++ AST。生成走 cc1 直连：`-cc1 -emit-pch -x c++-header`（我们从来没有 driver，别写成 `clang -x c++-header ... -emit-pch`）。
-  - 生成只走后台：`wasmRuntime.warmupPch()` 在「首次编译成功」或「手点下载成功」后，经 `requestIdleCallback` 排进**同一条串行队列**（不能并行——sysroot + PCH 克隆会让内存翻倍，老机器正是要避开这个）。生成带 3 分钟看门狗，失败（OOM / 卡死）写 `cph.pchUnsupported=true` 且**以后任何路径都不再重试**。
+  - 生成只走后台：`wasmRuntime.warmupPch()` 在「首次编译成功」或「手点下载成功」后，经 `requestIdleCallback` 排进**同一条串行队列**（不能并行——sysroot + PCH 克隆会让内存翻倍，老机器正是要避开这个）。生成带 3 分钟看门狗，失败（OOM / 卡死）写 `cp.pchUnsupported=true` 且**以后任何路径都不再重试**。
   - `generatePch()` 先查 IndexedDB 存档，命中是毫秒级返回且**不会**拉起工具链；编译路径的 `loadPchBytes()` 只读存档、**绝不触发生成**——没备好就平滑走普通编译。带 PCH 时把 `/stdc++.h`（源码）和 `/stdc++.h.pch`（二进制）一起挂进 MemFS，参数追加 `-include-pch`，链接前把 `.pch` 从 fs 摘掉（免得 7MB 白克隆给 wasm-ld）。
   - 判废条件必须窄：只有「带了 PCH、没产出 `.o`、且 stderr 命中 `/stdc\+\+\.h\.pch|precompiled header/i`」才判废（删存档 + 置标记 + 普通编译重试一次）。用户自己代码写错同样没有 `.o`，放宽条件会让每次编译错误都白编一遍并永久关掉加速。
   - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。
 - **wasm-opt 二次优化：实测无收益，刻意不接进构建**（2026-09 测过并决策放弃）。`npm run wasm:opt`（`scripts/optimize-wasm.mjs`）能对 `clang.wasm` 跑 `-Oz`，但上游这份已经是裁剪过的终态：code 段占 80.7%，抠不动；文件里**没有 name section**，「抹掉调试符号」几乎无对象；而且 `-Oz` 重排指令会让 **gzip 反而变大 0.98%**（老机器真正传输的是压缩流）。实测：`-Oz` → raw −1.89% / gzip **+0.98%**，`-Oz --strip` → raw −2.78% / gzip −0.15%，且函数数量不变、JIT 编译单元不变。**结论：不要做 dev/prod 资源分流去引第二个 30MB 文件**，脚本留着当资产（将来换未优化的工具链、比如 clang 18，可以重测）。脚本优先用 `tools/binaryen/` 下 gitignore 掉的原生二进制（比 npm 的 wasm 版快一个量级），没有才回退到 npm 包 / `WASM_OPT_BIN` / PATH。
-- **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cph-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
+- **PWA：装到设备后可独立窗口运行，离线也能编译**（2026-09 加，见第 9 节）。语言工具链**不在 install 预缓存**：用户用哪个语言，才在第一次真正请求时把哪个拉下来并落进 `cp-toolchain-*`（`cacheFirst` 按 `/wasm/` 前缀分流），拉过一次之后一样能离线用。所以「断网也能编译」的前提是该语言此前已经用过一次；离线状态下本地沙箱、判题、主题、布局照常，只有 Piston / Judge0 这两种远端引擎、以及尚未拉取过的语言会失效。装完之后设置视图「应用」分组里的安装按钮自动消失，也不会再重复提示。
 - **浏览器插件抓题（2026-09 加，全流程见第 13 节）**：配合**改造版 Competitive Companion**（已更名 **CC for Web**、主色换成与本站一致的蓝）。原版是把题目 POST 到本机 `localhost` 端口，改造后改为在目标网站注入内容脚本、用 `window.postMessage` 推给已打开的站点标签页；站点侧落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（挂在工作区根下；难度导入时为空、先落「未分类」；题目信息与抓到的样例都挂在这个文件节点上 `node.meta` / `node.config`，树里不另有条目），并把抓到的样例**整体替换**进评测面板。安装包在站内分发（设置视图「浏览器插件」分组）：下载 → 解压 → `chrome://extensions` 开开发者模式 → 「加载已解压的扩展程序」。**能力边界：只在站点已打开时投递**（没开就给一条系统通知提示先打开网站）；难度不会自动填（来源站点口径不一，由用户自己在题目信息弹窗里填），日期在首次导入时自动播种。
-- **题解（Markdown / LaTeX，2026-09-30 加，全流程见第 15 节）**：`.md` / `.markdown` 能写、能预览、能排版，**但只是文本，不参与判题** —— 两个运行入口在题解下都是禁用态并给出一句提示（不是「点了没反应」）。预览依赖**按需下载**的 marked + KaTeX（约 578KB，缓存桶 `cph-md-runtime-v1`，与本地工具链同一套路数）：**没下载时预览面板显示的是「去下载」入口而不是空白页**，下完当场渲染，设置视图「本地运行环境」里可以整体卸载（清缓存 + 删全局 + 删标记三件一起做）。三条边界：① `.md` **不进**判题链路（`activeLanguage` 为 `null`，外部引擎也没有 markdown 语言）；② 公式只在预览里渲染，编辑器里就是 `$…$` 原文；③ 题解与代码文件共用同一套 VFS / IndexedDB 存储，没有「题解专用表」，重命名 / 移动 / 删除走的都是既有路径。
+- **题解（Markdown / LaTeX，2026-09-30 加，全流程见第 15 节）**：`.md` / `.markdown` 能写、能预览、能排版，**但只是文本，不参与判题** —— 两个运行入口在题解下都是禁用态并给出一句提示（不是「点了没反应」）。预览依赖**按需下载**的 marked + KaTeX（约 578KB，缓存桶 `cp-md-runtime-v1`，与本地工具链同一套路数）：**没下载时预览面板显示的是「去下载」入口而不是空白页**，下完当场渲染，设置视图「本地运行环境」里可以整体卸载（清缓存 + 删全局 + 删标记三件一起做）。三条边界：① `.md` **不进**判题链路（`activeLanguage` 为 `null`，外部引擎也没有 markdown 语言）；② 公式只在预览里渲染，编辑器里就是 `$…$` 原文；③ 题解与代码文件共用同一套 VFS / IndexedDB 存储，没有「题解专用表」，重命名 / 移动 / 删除走的都是既有路径。
 - **把文件从资源管理器拖到编辑区（2026-09-30 加，见 14.18）**：拖过去时编辑区亮起与「拖到树空白处（根区域）」**同一个变量**（`--bg-drop-root`）的提示色，松手后**已经开着就切到那个页签、没开就常开一个新页签**（不是预览页签；顺带把它从预览槽里钉住）。三条边界：① 高亮范围是编辑器**内容区**（`.editor-pane__stage`），不含页签栏与状态栏；② **目录不接**（拖目录过去不亮、不动作——目录的语义是「移动」不是「打开」）；③ 触屏也走同一条路（长按起拖之后拖到编辑区即可），没有额外的触屏入口。
 - **界面双语（2026-09-29 加）**：界面、应用内帮助与使用指南都有**中文 / 英文**两套，语言默认跟随浏览器、可在设置视图「外观」组的「界面语言」里改，**切了当场生效、不重载**。写文案时注意两条边界：① **判题语言与界面语言无关**——判题语言仍由活跃文件的扩展名派生（第 5 节坑 15），界面语言只管文案，别把两者写成一回事；② **没有第三方本地化机制**（没引 vue-i18n，没有 `.po` / `.json` 语言包，没有 URL 前缀 `/en/`），词条就是 `src/i18n/messages/` 下六个 JS 文件里中英并排的对象，加语言 = 加一栏 + 在 `LOCALES` 里加一项。另外 `guide.html` 与 `guide.en.html` 是**两个独立的静态页**（各自的 `guide.html` 级别 SEO 头、互相 `hreflang`），不做客户端语言跳转——抓取器拿到什么就是什么。
 - **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。**题解那 14 条格式键位刻意不在这个表里**（它们不可改、也只在 `.md` 里说得通，注册在 Monaco 上，见第 15.7 节）。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
@@ -458,19 +458,19 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 本地沙箱端到端（动过 `runnoSandbox.js` / `wasmRuntime.js` / 工具链目录后必做）：手工路径是打开设置页签（侧栏页头的齿轮图标）→「评测」组里选「本地 WASM 沙箱」→ 跑一段带 `vector` / `sort` 的 A+B，看输出对不对、同一份代码第二次跑是否秒回（编译缓存）。想自动化就临时写个 puppeteer 脚本，在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `preloadToolchain()` 和 `runCpp({ code, stdin })`——**用完删掉脚本**，仓库里不留临时探针（这条纪律之前踩过：残留探针把 `scripts/` 弄得很乱）。
 - Python 专项（动过 `runPython` / 语言路由 / `python-3.11.3/` 目录后必做），同样临时探针、用完即删：手工路径是新建/打开一个 `.py` 文件（面板会自动切到 Python）→ 在设置里切「本地 WASM 沙箱」→ 运行，应看到 AC 且耗时在 100–200ms 量级；再补一条用例验证 `import` 同目录的另一个 `.py`（多文件路径）。自动化时在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `runPython({ code, entryPath, fs })`，注意 `fs` 是「路径 → `{ path, content, mode, timestamps }`」的映射，别直接塞裸字符串。
 - PCH 专项（动过 PCH 段落 / `FRONTEND_ARGS` / 微缩头后必做），同样临时探针、用完即删：
-  1. DevTools → Application → IndexedDB 删 `cph-pch` 库、localStorage 删 `cph.pchUnsupported`，从零开始；
+  1. DevTools → Application → IndexedDB 删 `cp-pch` 库、localStorage 删 `cp.pchUnsupported`，从零开始；
   2. 在设置里切「本地 WASM 沙箱」，点一次「运行全部」（默认模板是合法 A+B，输出应判定通过），随后 IndexedDB 的 `pch` store 应在约 1 秒内自己出现一条 7,249,912 字节、id 前缀 `1:8.0.1:` 的记录（证明后台 `warmupPch()` 真的跑了）；
   3. 刷新页面再跑一次：编译应吃到存档（UI 每题耗时约从 600ms 降到 350ms 量级），输出与首次逐字一致；
-  4. 降级：把那条记录的 `bytes` 改成任意垃圾字节再刷新运行，用户代码仍应正常通过，同时 `cph.pchUnsupported` 被置成 `true`、坏记录被删。
-  注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cph.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
+  4. 降级：把那条记录的 `bytes` 改成任意垃圾字节再刷新运行，用户代码仍应正常通过，同时 `cp.pchUnsupported` 被置成 `true`、坏记录被删。
+  注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cp.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
 - PWA / 离线专项（动过 `sw.js` / manifest / 图标 / 预缓存清单后必做），仍然临时探针、用完即删：
   1. `npm run build && npm run preview`（**必须是生产构建**，dev 下不注册 SW），DevTools → Application 应看到 manifest 无报错、Service Worker 已是 `activated`；
-  2. Application → Cache Storage 应只有 `cph-shell-v4`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）；`cph-toolchain-v3` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
+  2. Application → Cache Storage 应只有 `cp-shell-v4`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）；`cp-toolchain-v3` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
   3. 在设置里切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：界面应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
 - 布局宽度专项（动过 `SidebarSwitcher.vue` / `EditorTabs.vue` / 侧栏各面板页头 / `.pane--tests` 下限后必做），临时探针、用完即删：在 1680 / 560 / 414 / 375 / 320 五档量四件事——（a）侧栏页头图标区（量 `.sidebar-switcher`，合计 90px = 胶囊 60 + 间距 4 + 设置 26）都可见、且右缘不超页头右缘，（b）侧栏宽 / 页头宽（与上表逐像素比，删掉页签栏那颗运行按钮后应仍是 663 / 238 / 199 / 180 / 158），（c）`documentElement.scrollWidth === innerWidth`（无横向溢出），（d）`.workspace` 的 `getBoundingClientRect().top === 0`（顶栏确实没了、工作区贴顶）。**只看有没有横向滚动条不够**：`.editor-tabs__strip` 自己会滚，真溢出反而被它吸收；要按第 3 节那个「必需宽度」公式自己算。2026-09-28 的实测表与结论记在第 3 节「无顶栏后的两条宽度线」（**运行按钮 2026-09-28 删除后已重测**，所以别再去找 `.editor-tabs__run`）。
-- 插件抓题专项（动过 `problemImport.js` / `useCompanionBridge.js` / `useCompanionImport.js` / 落盘结构后必做），临时探针、用完即删。**不必真装扩展**——在页面上下文直接 `window.postMessage({ source: 'competitive-companion', type: 'cph-task', taskId: 't1', payload: JSON.stringify(task) }, location.origin)` 就能走完整条链路（`event.source` 与 `event.origin` 两道校验都能过）。要覆盖的六件事：
+- 插件抓题专项（动过 `problemImport.js` / `useCompanionBridge.js` / `useCompanionImport.js` / 落盘结构后必做），临时探针、用完即删。**不必真装扩展**——在页面上下文直接 `window.postMessage({ source: 'competitive-companion', type: 'cp-task', taskId: 't1', payload: JSON.stringify(task) }, location.origin)` 就能走完整条链路（`event.source` 与 `event.origin` 两道校验都能过）。要覆盖的六件事：
   1. 首次导入后树里出现 `<年月> / <OJ 标签> / 未分类 / <题名>.cpp` 这一条链（中间几层是归类用的，**不是**「题名」那一层目录），且该目录里**只有这一个文件**（题目信息与样例挂在节点上，不会再冒出第二个条目）；
   2. 底层数据在：`(await vfs.stat(path)).meta` 有 `url` / `oj` / `date` / `timeLimit`，`.config` 里能读到 `tests`；
   3. 往代码文件里写入 `// my solution` 再重抓同一道题 → 正文**原样保留**、样例换成新的；
@@ -478,13 +478,13 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   5. 同一个 `url` 换个题目名重抓 → 仍落在**同一个文件**上（按 url **全库**认题，哪怕算出来的新路径不同）；`url` 不同但题名相同 → 另起 `<题名>-2.cpp`；
   6. 抓完后编辑器打开的是这道题的代码文件（`.editor-tabs__item--active` 与 `workspace.activeId` 对得上）。
   写这个探针时踩过两个坑，别再踩：**（a）** 点树上的箭头展开目录时，只点 `.tree-item__row[aria-expanded="false"]`——`.tree-item__arrow` 这个 span 在**每一行**都有（文件行的箭头是空的），而点击处理挂在父级 `.tree-item__row` 上，所以「点所有箭头」实际会把每个文件都 `openFile` 一遍，最后点到的文件抢走 `activeId`，断言就会误报「打开的标题不对」；**（b）** 动态 `import('/src/services/…')` 拿到的可能是**另一个空实例**——Vite dev 给源码模块 URL 加了 `?t=<时间戳>`，裸路径 import 与 app 真正加载的那份不是同一个模块（症状是 `workspace.tree.length === 0` 但界面明明渲染出来了）。正确姿势是用 `performance.getEntriesByType('resource')` 找到 app 真实加载过的那条 URL 再 import。
-- 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cph.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面），按 `Mod+Shift+KeyE` 应翻到另一个侧栏面板（等价于点页头那枚胶囊）；开录状态下按同一个键**不应**触发功能。
+- 快捷键专项（动过 `useShortcutManager.js` / `HotkeyRecorder.vue` / `App.vue` 的 `onKeydown` 后必做），临时探针、用完即删：设置视图 →「快捷键」→ 点某个动作的录制框 → 按 `Mod+Shift+KeyB` 这类组合应写入并回显；再录一个**已被占用**的组合应停在录制态、出现红字且**不写入**（这就是「阻止绑定」）；录 `Mod+KeyW` 这类浏览器原生键应被红字拒绝；刷新页面绑定仍在（`localStorage['cp.shortcuts']`）。最后验真正触发：光标放进 Monaco，按 `Mod+Enter` 应跑全部用例（说明捕获阶段确实抢在 Monaco 前面），按 `Mod+Shift+KeyE` 应翻到另一个侧栏面板（等价于点页头那枚胶囊）；开录状态下按同一个键**不应**触发功能。
 - 界面双语专项（动过 `src/i18n/` 任一文件 / 任何含 `t()` 的组件或 service 后必做），临时探针、用完即删。四条要覆盖：
-  1. **跟随浏览器**：第 0 帧不种任何存档，用 `--lang=zh-CN` 与 `--lang=en-US` 各起一次 Chrome，前者应中文 + `<html lang="zh-CN">`，后者应英文 + `<html lang="en">`，且**两种情况下都不写 `cph.uiLocale`**（跟随探测不等于用户显式选择）；
-  2. **存档覆盖探测**：种 `cph.uiLocale = 'en'` 配中文浏览器 → 应英文；种 `zh-CN` 配英文浏览器 → 应中文；
-  3. **切换当场生效 + 落盘**：设置视图「外观」组的「界面语言」下拉切一下，**同一 document 内不重载**就应看到目录八项（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助）全变、`html lang` 跟着变、`localStorage['cph.uiLocale']` 落成 `"en"`。**顺带验「数据表存 key」这条设计**：编辑器组里数据表驱动的行（`Font family` / `Minimap` / `Padding`）也必须跟着变——只验目录项验不出坑 28 第 1 条；
+  1. **跟随浏览器**：第 0 帧不种任何存档，用 `--lang=zh-CN` 与 `--lang=en-US` 各起一次 Chrome，前者应中文 + `<html lang="zh-CN">`，后者应英文 + `<html lang="en">`，且**两种情况下都不写 `cp.uiLocale`**（跟随探测不等于用户显式选择）；
+  2. **存档覆盖探测**：种 `cp.uiLocale = 'en'` 配中文浏览器 → 应英文；种 `zh-CN` 配英文浏览器 → 应中文；
+  3. **切换当场生效 + 落盘**：设置视图「外观」组的「界面语言」下拉切一下，**同一 document 内不重载**就应看到目录八项（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助）全变、`html lang` 跟着变、`localStorage['cp.uiLocale']` 落成 `"en"`。**顺带验「数据表存 key」这条设计**：编辑器组里数据表驱动的行（`Font family` / `Minimap` / `Padding`）也必须跟着变——只验目录项验不出坑 28 第 1 条；
   4. **英文下的超长样例**（守住坑 26 × 坑 28 的交叉）：**框内那个 `……` 不翻译**（语言无关常量，见坑 26），只有框下面那行走 `t()` —— 英文是 `{n} characters not shown`；且**改语言后「选中省略行 = 选中被省略内容」依然生效**（按第 8 节的合成 `ClipboardEvent` 法测，`clipboardData` 是只读 null，要 `Object.defineProperty`）。最后截两套主题各一张图**真的看一眼**。
-  探针注意：**同一个 browser 里 localStorage 跨页共享**，每一组用例前都要先 `localStorage.clear()`，否则前一组种下的 `cph.uiLocale` 会污染后面所有页面（实测踩过，表现是一整组假失败）；无头 Chrome 里 `navigator.clipboard.readText()` 恒返回空串，别拿它当断言。
+  探针注意：**同一个 browser 里 localStorage 跨页共享**，每一组用例前都要先 `localStorage.clear()`，否则前一组种下的 `cp.uiLocale` 会污染后面所有页面（实测踩过，表现是一整组假失败）；无头 Chrome 里 `navigator.clipboard.readText()` 恒返回空串，别拿它当断言。
 - guide 双语专项（动过任一版 guide / `guide.css` / `sitemap.xml` 后必做），临时探针、用完即删。**机械可复核的四条**：两页都跑一遍，断言 ① `html lang` 各是 `zh-CN` / `en`；② `canonical` 各指向自己、两页都恰好有三条 `link[rel=alternate][hreflang]`；③ **h2 数 = 目录条目数 = 12**（这条是「两版没走偏」的廉价判据，改了章节数记得同步改期望值）；④ 页头 `.page__top-actions` 里 `.lang-link` 的 `href` / `hreflang` / `lang` 三属性。
   再加两条容易忽略的：**页头加了这颗链接之后不许换行**——断言 `.page__top` 高度 < 70px、`.brand` 与 `.page__top-actions` 的 `top` 差 < 6px、`documentElement.scrollWidth === clientWidth`；以及**英文页的表格**（英文文案比中文长约 30%）在 1400px 与 700px 两档下 `.table-wrap` 的 `scrollWidth === clientWidth`、表头没被压到换行（表头是 `white-space: nowrap`，真挤不下会直接溢出容器）。两档都要截元素级截图看一眼——页面级「无横向溢出」不会告诉你表格自己在容器里滚。
 - 题解专项（动过 `mdView.js` / `mdFormat.js` / `mdRenderer.js` / `mdRuntime.js` / `MarkdownPreview.vue` / EditorPane 的题解段后必做），临时探针、用完即删。`npm run verify` 的 **H 步**（2026-09-30 加）只钉静态的那几条（`.md` 下工具栏与字数出现、状态栏消失、运行入口禁用、**⌘B 在 `.md` 里是加粗、在 `main.cpp` 里仍是收侧栏**），**渲染正确性仍然要人看**：
@@ -497,10 +497,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   探针注意：VFS model 的 uri 是 `vfs://file/<uuid>`，**认不出文件名**，要读编辑器内容就用 `monaco.editor.getEditors()[0].getValue()`；动态 `import('/src/services/…')` 在 dev 下可能拿到另一个空实例（见插件那节的两个坑）。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**B–H 应当是绿的**，跑之前先知道这几条：
   - **A 步有一条已知的既有竞态**：它在 `.monaco-editor` 可见后立刻探针，此时 model 还没绘出行，于是 `editorText: ""` / `codeLineCount: 1`，让 `codeLineCount > 3` 与 `editorText.includes('include')` 两条恒假（本机连跑两次都是同一签名）。**与面板切换无关**——同一个页面会话里 B 步读到的 `editorText` 是完整的（整份 C++ 模板，行数随模板改而变，别把行数写死进断言）。要修就得等 Monaco 的首个 model 渲染完（比如 `waitForSelector('.view-line')`），但那是另一件事，别顺手改。A 步真正在守的新契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
-  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录里正好 **8** 个 `.settings-nav__item`（外观 / 编辑器 / 快捷键 / 评测 / 本地运行环境 / 浏览器插件 / 应用 / 帮助；2026-09 加了「快捷键」与「浏览器插件」两项、2026-09-28 后把「布局」并成「外观」并置顶，**加删分类时这个数字要跟着改**） → **点目录里的「外观」**（设置是「目录 + 内容」两栏，默认就停在第一项「外观」，右侧只渲染当前那一组；这一步仍显式点一下，默认分类以后再变也不坏）→ 在页签里选「右侧」（2026-09-28 起面板默认在**左**，所以这一步反过来选「右侧」）→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
+  - **B 步（切布局）走的是「设置页签」这条路**（2026-09 改）：点侧栏页头那颗 `aria-label === '设置'` 的 `.sidebar-switcher__tab`（它落在**当前可见的那个 `.sidebar__panel`** 里；`textContent` 是空的，认 `aria-label`）→ 断言编辑区里 `.settings-view` 真显示、`.editor-tabs__item--active` 落在含「设置」的那个页签上、`!document.querySelector('.topbar')` 且 `.workspace` 贴顶、目录那一段（2026-10-01 改成行为断言）：**不再「数人头」**，而是挨个点开每一项，要求 `aria-current` 落在它身上、`.settings-view section.setting-group` 恰好 1 个（十个分类是 `v-else-if` 互斥的）、且内容区文本非空——**加删分类不用再改脚本**（这段原来写死 `navItems === 8`，后来涨到 10，每次加分类都先把回归搞红）。同一段仍会随手记下 `navItems` 的实际值放进 detail 里，只作观察、不作断言。 → **点目录里的「外观」**（设置是「目录 + 内容」两栏，默认就停在第一项「外观」，右侧只渲染当前那一组；这一步仍显式点一下，默认分类以后再变也不坏）→ 在页签里选「右侧」（2026-09-28 起面板默认在**左**，所以这一步反过来选「右侧」）→ 点 `.editor-tabs__close[aria-label="关闭设置"]` 关掉 → 断言设置视图与设置页签一起消失。设置仍是 `v-show` 的视图、不是抽屉，所以「Monaco 实例不重建」的老断言（`data-marker`）照样成立。
   - **F 步（Python 模板与判题语言）走的是「资源管理器 → 点 main.py」这条路**（2026-09 改）：顶栏语言下拉已移除，语言只跟活跃文件的扩展名走。所以步骤是——先把面板切回「资源管理器」（用脚本里的 `showPanel(page, 'explorer')`，它点胶囊那颗 toggle；先判当前面板不是目标再点，否则会翻过头。该 helper 必须把 `page` 当参数传进来，`const page` 在 `try {}` 块里，模块级函数直接引用会 `page is not defined`）→ DOM click 标签为 `main.py` 的 `.tree-item__row` → 断言 `.view-lines` 文本（NBSP 已归一）含 `def solve`、`.editor-tabs__item--active` 是 `main.py`、动态 `import('/src/services/vfs/workspaceStore.js')` 后 `activeLanguage === 'python'` 且 `activeNode.path === '/main.py'`、`[...document.querySelectorAll('select')].every((el) => !!el.closest('.settings-view'))`（钉住「顶栏语言下拉不会复活」——现在全站只剩设置视图里那几个原生下拉）。
   - F 步曾长期误报：断言切到 Python 后 `.view-lines` 文本含 `def solve`，而 Monaco 把空格渲染成 NBSP（第 5 节坑 2），`includes('def solve')` **永远匹配不上**——已修（断言前把 `\u00a0` 归一成空格），现在过。这条 NBSP 归一化仍在用，别退回直接 `includes`。对照 A 步的 `includes('include')` 因为不含空格，从来没被这条绊到。
-  - 它自己起 dev server，和常驻的 5199 冲突（`--strictPort`，撞上就直接退出），跑的时候用 `VERIFY_PORT=<任意空闲端口>` 覆盖（端口占用很随机，别写死某一个）。
+  - 它自己起 dev server。**端口由脚本自己挑空闲的**（`freePort()` 监听 `:0` 拿一个再用 `--strictPort` 起 Vite，2026-10-01 改），所以常驻的 `npm run dev` 不会再撞车；只有想固定端口时才给 `VERIFY_PORT=<端口>`，这时撞上仍会直接退出。
   - **写探针时别用 `page.$('.xxx')` / `page.click('.xxx')` 去碰页头里的东西**：它们抓的是**文档里第一个**匹配，而侧栏那两个面板是 `v-show` 双份 DOM，第一个多半落在被藏起来的那个面板里。症状是 `Node is either not clickable or not an Element`（`page.click`）或截图报 `Node is either not visible`（`ElementHandle.screenshot`）。正确姿势：先用 `[...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)` 拿到可见面板，再在它里面 `querySelector`，要真点就用 `page.mouse.click(x, y)` 打真实坐标（2026-09-28 一天里踩了两次）。
   - 它跑的是默认 Piston 引擎（需要本地有 `localhost:2000` 服务），所以**E 步是「空过」**：断言只看徽标数量，引擎连不上、三个卡片全报错也照样 PASS，验不到本地沙箱。
   - **E 步同时守「开跑必亮结果」**（见第 3 节）：跑之前先把侧栏切回「资源管理器」再双击分隔条折叠，然后**按 `⌘/Ctrl + Enter`**（2026-09-28 起，页签栏那颗运行按钮删掉后 E 步改走快捷键——此刻侧栏正折叠着，页脚那颗 ▶ 是 `display: none` 点不到的，正好顺带守住「侧栏收起时快捷键照样能跑」），收尾断言 `.pane--tests` 又可见、且当前面板是「评测样例」（`collapsedBeforeRun` / `revealedAfterRun` 两个字段；后者看的是 `.sidebar__panel[data-panel] === 'tests'`，不再是 `is-active` 高亮）。顺序不能反——折叠后整栏 `display: none`，页头那几颗切换图标就点不到了。这一改让 E 收尾时侧栏停在「评测样例」，F 步本来就会自己切回「资源管理器」，两边不冲突。修饰键按平台取（`process.platform === 'darwin' ? 'Meta' : 'Control'`，与 `useShortcutManager` 的 `IS_MAC` 同口径）。
@@ -510,7 +510,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - **H 步（题解回归，2026-09-30 加）** 只钉静态的那几条（第 15 节）：走资源管理器页头那颗「新建文件」（`.explorer__btn` 的第一颗）把预填的 `new.cpp` 全选改成 `notes.md`（**必须先 `.select()` 再打字**——预填名只选中主干、后缀留在选区外，直接敲会得到 `notes.cpp`）→ Enter 后 `createFile → openFile` 会自己打开它，等 `.md-tools` 可见即算到位 → 断言 `.md-tools` 与 `.md-stats`（`N 字 · M 行`，正则同时收中英文）出现、`.editor-pane__status` **不可见**（它是 `v-if` 存在、靠 `.editor-pane.is-md` 收掉，所以只能看渲染盒）、`.run-inline` 为 `disabled` 且 `.run-blocked` 有字（此刻有用例、没在运行，唯一能置灰它的就是题解这条闸门）→ 再验「让路」那一对：先用 `monaco.editor.getEditors()[0].focus()` 把焦点**确定地**送进编辑器（让路判据正是「焦点在不在编辑器里」，别靠上一步顺手留下的焦点），按 ⌘B 断言正文多出一对 `**`（新建的文件是空的、题解模板里也没有 `**`，所以这条不会假过）**且侧栏没收起来**；点回 `main.cpp` 再按 ⌘B，断言 `.pane--tests` 被收起来了（同一个键在 `.cpp` 里落回全局的「收侧栏」）。收尾再按一次把侧栏放回来。探针里读编辑器全文用模块级 `editorValue(page)`（`monaco.editor.getEditors()[0].getValue()`，VFS 的 uri 认不出文件名）、按键用 `pressMod(page, 'KeyB')`。
   - 临时探针的第三个坑：**边改源码边跑着 dev server** 时，探针会服务到旧的 transform（改完文件、刷新了页面，行为却还是旧的，断言照旧失败）。停掉 server → `rm -rf node_modules/.vite` → 重启，再跑一遍。
   - 各步之间有状态耦合（B/C 切布局会影响 D 的期望方向），改断言时顺着看一遍。
-- 回归脚本会把截图写到仓库根目录的 `cph-*.png`（可用 `SHOT_DIR` 改路径），`.gitignore` 已忽略它们，不用管。
+- 回归脚本会把截图写到仓库根目录的 `cp-*.png`（可用 `SHOT_DIR` 改路径），`.gitignore` 已忽略它们，不用管。
 
 ## 9. PWA（可安装 / 独立窗口 / 离线）
 
@@ -525,16 +525,16 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **Service Worker 的三段策略**：
 
-- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存进 `cph-shell-v4`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cph-toolchain-v3`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
-- `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。
+- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存进 `cp-shell-v4`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain-v3`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
+- `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。**2026-10-01 起多一步 `migrateLegacyBuckets()`**：把改名前的 `cph-toolchain-v3` / `cph-md-runtime-v1` 两个桶**原样搬进新桶**再删旧桶——工具链是随 URL 固定的二进制，不搬的话老用户升一次外壳就得白下 76MB；**外壳桶 `cph-shell-*` 刻意不搬**，它装的是带哈希的构建产物，重新预缓存本来就是升外壳该发生的事。
 - `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错。
 
-**为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cph-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件必须手动补进 `STATIC_ASSETS`（第 1 节表里那两条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。
+**为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cp-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件必须手动补进 `STATIC_ASSETS`（第 1 节表里那两条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。
 
 **两个版本号，别混**：
 
-- `sw.js` 的 `SHELL_VERSION = 'v4'` —— **只决定外壳桶名**（`cph-shell-v4`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。
-- `sw.js` 的 `TOOLCHAIN_CACHE = 'cph-toolchain-v3'` —— **硬编码，刻意不跟 `SHELL_VERSION` 走**。2026-09-30 前两个桶共用一个版本号，升一次外壳就把老用户的 clang（52MB）+ CPython（24MB）一起删掉、逼他们重下 76MB；现在工具链桶名固定，它落在 `activate` 的 keep 白名单里，跨外壳升级无损继承，一个字节都不用重下。**换工具链时代码时才手动改这一行。**
+- `sw.js` 的 `SHELL_VERSION = 'v4'` —— **只决定外壳桶名**（`cp-shell-v4`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。
+- `sw.js` 的 `TOOLCHAIN_CACHE = 'cp-toolchain-v3'` —— **硬编码，刻意不跟 `SHELL_VERSION` 走**。2026-09-30 前两个桶共用一个版本号，升一次外壳就把老用户的 clang（52MB）+ CPython（24MB）一起删掉、逼他们重下 76MB；现在工具链桶名固定，它落在 `activate` 的 keep 白名单里，跨外壳升级无损继承，一个字节都不用重下。**换工具链时代码时才手动改这一行。**
 - 工具链目录 `public/wasm/8.0.1/`（C++）与 `public/wasm/python-3.11.3/`（Python）—— 目录名就是版本号，换名字即自然失效（URL 变了，浏览器与 SW 都当新资源重新取）。**不用再改 `sw.js`**：工具链已改成按需缓存的，`cacheFirst` 只按 `/wasm/` 前缀分流、不认具体版本目录。
 
 **注册时机**：`src/main.js` 里 `import.meta.env.PROD && 'serviceWorker' in navigator` 才注册，且挂在 `window.load` 上。**dev 下刻意不注册**——Vite 的模块是即时编译的，缓存它只会让改完代码看到旧页面；所以 `npm run dev` 里既没有安装入口也测不到离线，要验就走 `npm run build && npm run preview`。
@@ -545,7 +545,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 - 仓库：https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git （私有），`main` 分支就是部署分支，推上去 Vercel 自动构建。
 - Vercel 面板导入时的配置：Framework Preset 选 `Vite`，Build Command `npm run build`，Output Directory `dist`，Install Command 用默认。
-  - **环境变量留空**：前端没有任何密钥；判题服务地址是用户在设置视图「评测」组里填的，存在 `cph.judgeBases` 里。
+  - **环境变量留空**：前端没有任何密钥；判题服务地址是用户在设置视图「评测」组里填的，存在 `cp.judgeBases` 里。
   - Node 版本不用在面板上设，`package.json` 的 `engines.node = 22.x` 已经钉死，`build` 就是一句 `vite build`。
 - `vercel.json` 负责六件事，**别删**：
   1. 全站注入 COOP `same-origin` / COEP `require-corp` —— 少任何一个，本地沙箱连 `SharedArrayBuffer` 都拿不到；
@@ -588,7 +588,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 必须 `@import './base.css'` 打头——两套主题的配色、字体、滚动条都只在 `base.css` 里定义（第 1 节「颜色只走 CSS 变量」），指南页只准 `var(--…)` 引用、不写十六进制。底色 / 前景色靠 `base.css` 的 `:root` 变量直接落在 `html/body` 上，所以指南页天然跟随主题，不用自己写一套。
 - `base.css` 是为「满屏 IDE」写的：`html/body` 高度 100%、`body` 锁死滚动（第 3 节）。内容页要在 `guide.css` 里把这两条**放开**（`height: auto; overflow: visible` 之类），否则长页滚不动。
 
-**主题不闪**：两版 guide 的 `<head>` 里都有一段内联脚本，读同一份 `localStorage` 契约（`cph.editorSettings.theme`），存的是 `light`（或主应用还没跑过、尚未迁过的旧值 `cph-light`）时才给 `<html data-theme="light">`（不写即默认深色）。它**故意不加 `type="module"`**——普通内联脚本不会被打包器挪走或包起来，才能在首帧前同步执行、避免暗→亮闪一下。**两段脚本内容一致、两边都要留**，改一处要同步另一处。
+**主题不闪**：两版 guide 的 `<head>` 里都有一段内联脚本，读同一份 `localStorage` 契约（`cp.editorSettings.theme`），存的是 `light`（或主应用还没跑过、尚未迁过的旧值 `cph-light`）时才给 `<html data-theme="light">`（不写即默认深色）。它**故意不加 `type="module"`**——普通内联脚本不会被打包器挪走或包起来，才能在首帧前同步执行、避免暗→亮闪一下。**两段脚本内容一致、两边都要留**，改一处要同步另一处。
 
 **中英两版是一对，必须逐条对照**（2026-09-29 加）：
 
@@ -626,7 +626,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - `public/sitemap.xml`：只有三条 URL（`/`、`/guide.html`、`/guide.en.html`），**故意不写 `lastmod`**（写死的日期会变成假信息；`changefreq` / `priority` 已被 Google 忽略）。指南页两条 URL 上各挂一组 `<xhtml:link rel="alternate" hreflang=…>` 互指（含 `x-default` 指中文页），`urlset` 因此要带 `xmlns:xhtml`——**不加这组互指，Google 会把两版当成互相竞争的重复内容**。
 - `public/og-cover.png`：1200×630 的分享大图，被 `index.html` / `guide.html` / `guide.en.html` 的 `og:image` 引用（`og:image` 必须是绝对地址）。
 - canonical / `og:*` / `twitter:*` / `ld+json` 都写在各自的 HTML `<head>` 里；站点主地址是**带 `www`** 的 `https://www.998244353.best`（apex 会 308 跳过来，canonical 用来收掉 Vercel 预览域等重复地址）。
-- **主应用与两版 guide 的语言声明方式不同，别套用**：主应用是**同一个 URL 服务两种语言**（`cph.uiLocale` 存档优先、否则跟随浏览器），所以 `index.html` 里只写 `og:locale` + `og:locale:alternate`、`ld+json` 的 `inLanguage` 给成数组，**刻意不写 hreflang**（没有「另一语言版本的 URL」这回事，写了反而错）；两版 guide 是**一页一语言**，那边才需要 hreflang 三件套。
+- **主应用与两版 guide 的语言声明方式不同，别套用**：主应用是**同一个 URL 服务两种语言**（`cp.uiLocale` 存档优先、否则跟随浏览器），所以 `index.html` 里只写 `og:locale` + `og:locale:alternate`、`ld+json` 的 `inLanguage` 给成数组，**刻意不写 hreflang**（没有「另一语言版本的 URL」这回事，写了反而错）；两版 guide 是**一页一语言**，那边才需要 hreflang 三件套。
 
 **致谢页也是「一页一语言」的一对**（2026-09-30 加）：`NOTICE.md` → `notice.html`（中文）、`NOTICE.en.md` → `notice.en.html`（英文），两页由 `scripts/render-notice.mjs` 一次生成（`npm run notice`，已挂 `prebuild`），页头各有一颗语言切换链接 + 一组对称的三行 hreflang，canonical 各指自己。**`notice.en.html` 与两版 guide 同列 `vite.config.js` 的 `input`，否则不会被构建**。**它刻意不进 `public/sitemap.xml`**（那份地图只有 `/` 与两版 guide 三条 URL，致谢页是许可义务页、不是要抢排名的内容页——要加就两页一起加，并带上 `xhtml:link` 互指）。两份源文件之间**没有自动同步**：章节与表格行逐条对应，改一份就要手改另一份（同 guide 的双语约定）；语言相关的外壳文案不写在 markdown 里，集中在 `render-notice.mjs` 的 `PAGES` 表。
 
@@ -640,9 +640,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 13.1 两端怎么接上
 
-改造的插件在**另一个仓库**：`/Users/hejie/Code/cph-companion`（上游 jmerle/competitive-companion 的 fork，`package.json` 的 `productName` 已改成 **CC for Web**、版本 `2.65.x`，图标与宣传图的主色换成了与本站一致的蓝 `#0e639c`）。原版是把题目 POST 到用户本机的 `localhost` 端口（CP Editor / CPH 那套），fork 先是改成只推给本站，2026-09-30 又改成**两边同时投**——网站标签页与本地工具是并列的两个接收端，各有一个开关（选项页 `Destinations` 分组，默认都开），单侧失败不影响另一侧。
+改造的插件在**另一个仓库**：`/Users/hejie/Code/cph-companion`（上游 jmerle/competitive-companion 的 fork，`package.json` 的 `productName` 已改成 **CC for Web**、版本 `2.66.x`，图标与宣传图的主色换成了与本站一致的蓝 `#0e639c`）。原版是把题目 POST 到用户本机的 `localhost` 端口（CP Editor / CPH 那套），fork 先是改成只推给本站，2026-09-30 又改成**两边同时投**——网站标签页与本地工具是并列的两个接收端，各有一个开关（选项页 `Destinations` 分组，默认都开），单侧失败不影响另一侧。
 
-**投递目标可以在本站设置里直接切**（2026-09-30 加）：设置 → 浏览器插件 那一组多了「投递目标」两个开关，它们**只是扩展 `chrome.storage` 的镜像**——网页点一下发 `cph-set-config` 给扩展，扩展写盘后再回一条 `cph-config`，站点拿回执就地更新 `extensionInfo.config`（刻意不重跑 `refresh()`，否则面板会闪一下「检测中」）。写盘的真值是扩展存的，所以刷新页面后开关状态来自扩展的上报而不是站点自己的 localStorage。
+**投递目标可以在本站设置里直接切**（2026-09-30 加）：设置 → 浏览器插件 那一组多了「投递目标」两个开关，它们**只是扩展 `chrome.storage` 的镜像**——网页点一下发 `cp-set-config` 给扩展，扩展写盘后再回一条 `cp-config`，站点拿回执就地更新 `extensionInfo.config`（刻意不重跑 `refresh()`，否则面板会闪一下「检测中」）。写盘的真值是扩展存的，所以刷新页面后开关状态来自扩展的上报而不是站点自己的 localStorage。
 
 **唯一能在网页里改的配置就是这两个键**：扩展 `background.ts` 里的 `WRITABLE_CONFIG_KEYS` 白名单只放 `sendToWebPage` / `sendToLocalTools`，且值必须是 boolean，其余一律回 `{ ok: false }`。**快捷键改不了**——Chrome 的 `chrome.commands` 只有 `getAll` / `onCommand`，没有任何写接口，站点只能展示 + 让人去 `chrome://extensions/shortcuts` 手动改（网页也不许跳 `chrome://`）。
 
@@ -653,10 +653,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `src/hosts/targetSites.ts` | 目标网站白名单 `TARGET_SITE_PATTERNS`：`localhost:5199` / `127.0.0.1:5199`（**必须与 `vite.config.js` 的开发端口一致**，见第 0 节）+ `www.998244353.best` / `998244353.best`。少了哪条就等于「网站没打开」 |
 | `src/hosts/WebPageHost.ts` | 查已打开的标签页、把任务投过去（**接收端之一**，与本地工具并列） |
 | `src/hosts/hosts.ts` | `getHosts()` 按两个开关拼接收端列表：`WebPageHost` + `CHelperHost`(4243，body 带 `json\n` 前缀) + `CustomHost`(上游 7 个默认端口 + 选项页 `customPorts`)；`LOCAL_TOOL_ORIGINS` 是 manifest 的 host 权限来源，**匹配模式不带端口即覆盖所有端口** |
-| `src/background.ts` | `sendTask()` 用 `allSettled` 并发投所有接收端，**全部失败才**发系统通知（`notifyNoReceiver()`，标题 `CC for Web`）；两侧都关（接收端列表为空）时静默，不拿「没有接收端」打扰用户；**消息处理必须用 `sendResponse` 回调式**，不要返回 Promise（Chrome 原生 API 不认）。另外两件事：`cph-get-info` 的 `getExtensionInfo()` 现在还要 `Promise.all` 把 `sendToWebPage` / `sendToLocalTools` 读出来塞进 `config` 字段（站点据此渲染开关）；`cph-set-config` 分支走 `WRITABLE_CONFIG_KEYS` 白名单写盘并回 `{ ok, key, value }` |
+| `src/background.ts` | `sendTask()` 用 `allSettled` 并发投所有接收端，**全部失败才**发系统通知（`notifyNoReceiver()`，标题 `CC for Web`）；两侧都关（接收端列表为空）时静默，不拿「没有接收端」打扰用户；**消息处理必须用 `sendResponse` 回调式**，不要返回 Promise（Chrome 原生 API 不认）。另外两件事：`cp-get-info` 的 `getExtensionInfo()` 现在还要 `Promise.all` 把 `sendToWebPage` / `sendToLocalTools` 读出来塞进 `config` 字段（站点据此渲染开关）；`cp-set-config` 分支走 `WRITABLE_CONFIG_KEYS` 白名单写盘并回 `{ ok, key, value }` |
 | `src/options.html` + `src/options.ts` | `Destinations` 分组两个勾选框，`config` 持久化 |
 | `src/utils/config.ts` | 新增 `sendToWebPage` / `sendToLocalTools`（**默认 true**）。坑：`Config.get` 的兜底必须用 `??` 而不是 `||`——默认 true 的开关存了 `false` 会被 `||` 当成「没设置」回退成 true，开关等于关不掉（2026-09-30 实测踩到） |
-| `src/bridge.ts` | **注入目标网站的内容脚本**：扩展拿不到网页的 JS 作用域，只能靠它做 `window.postMessage` 中转。页面→扩展的两条路：`cph-ping` → `cph-get-info` → 回 `cph-info`；`cph-set-config` → 转发给 background 写盘 → 回 `cph-config`（合法性由 background 把关，bridge 只转发不校验） |
+| `src/bridge.ts` | **注入目标网站的内容脚本**：扩展拿不到网页的 JS 作用域，只能靠它做 `window.postMessage` 中转。页面→扩展的两条路：`cp-ping` → `cp-get-info` → 回 `cp-info`；`cp-set-config` → 转发给 background 写盘 → 回 `cp-config`（合法性由 background 把关，bridge 只转发不校验） |
 
 **站点侧**两个 composable + 一个服务：`useCompanionBridge.js`（收消息）→ `useCompanionImport.js`（订阅 + 兜异常）→ `services/vfs/problemImport.js`（落盘）。`App.vue` 里只有一句 `useCompanionImport({ setTestCases, onImported })`。
 
@@ -664,11 +664,13 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 | 消息 | 方向 | 载荷 |
 | --- | --- | --- |
-| `cph-task` | 扩展 → 页面 | `taskId`（每次抓取现生成的 uuid，**只用来去重**）+ `payload`（题目 JSON 字符串） |
-| `cph-ping` | 页面 → 扩展 | `requestId`（站点自增，用来认领回包） |
-| `cph-info` | 扩展 → 页面 | 同一个 `requestId` + `info`（`{ version, commands, config }`，`commands` 是插件自己的快捷键，`config` 是投递目标两项的当前值）。**`shortcut` 是浏览器自己那套写法**（macOS 上是 `⇧⌘U`、其它平台是 `Ctrl+Shift+U`），显示前必须过 `comboFromChromeShortcut()` + `formatCombo()` 转成站点写法（`⌘ + ⇧ + U`），否则同一个界面里会出现两种键位格式；`shortcut` 为空串是常态（Chrome 遇到冲突就不分配建议键，且不会事后补），此时显示「未设置」 |
-| `cph-set-config` | 页面 → 扩展 | `requestId` + `key` + `value`（只认 `sendToWebPage` / `sendToLocalTools` 两个键 + boolean） |
-| `cph-config` | 扩展 → 页面 | 同一个 `requestId` + `key` + `ok` + `value`（写失败时 `ok: false`，站点在那一组下面显示一行警示文案） |
+| `cp-task` | 扩展 → 页面 | `taskId`（每次抓取现生成的 uuid，**只用来去重**）+ `payload`（题目 JSON 字符串） |
+| `cp-ping` | 页面 → 扩展 | `requestId`（站点自增，用来认领回包） |
+| `cp-info` | 扩展 → 页面 | 同一个 `requestId` + `info`（`{ version, commands, config }`，`commands` 是插件自己的快捷键，`config` 是投递目标两项的当前值）。**`shortcut` 是浏览器自己那套写法**（macOS 上是 `⇧⌘U`、其它平台是 `Ctrl+Shift+U`），显示前必须过 `comboFromChromeShortcut()` + `formatCombo()` 转成站点写法（`⌘ + ⇧ + U`），否则同一个界面里会出现两种键位格式；`shortcut` 为空串是常态（Chrome 遇到冲突就不分配建议键，且不会事后补），此时显示「未设置」 |
+| `cp-set-config` | 页面 → 扩展 | `requestId` + `key` + `value`（只认 `sendToWebPage` / `sendToLocalTools` 两个键 + boolean） |
+| `cp-config` | 扩展 → 页面 | 同一个 `requestId` + `key` + `ok` + `value`（写失败时 `ok: false`，站点在那一组下面显示一行警示文案） |
+
+**这几个协议名是与 `cph-companion` 仓库的跨仓契约**（`cp-ping` / `cp-task` / `cp-info` / `cp-config` / `cp-set-config` / `cp-page`）：改任何一条都必须同步改扩展并发新版插件，否则新站点与老插件互相认不出、抓题直接失联。
 
 站点侧的纪律：**只认本窗口、同源**的消息（`event.source === window && event.origin === location.origin`，挡掉 iframe 与外部页面伪造）；回包只认自己那一轮的 `requestId`（改配置的那一路回包同样按 `requestId` 在 `pendingConfigs` 里认领，`CONFIG_TIMEOUT = 1000` 没等到就当失败）；`taskId` 进 `seenTaskIds` 去重（同站多开标签页时扩展会广播）。握手会按 `PING_DELAYS = [0, 400, 1500]` 连探三次——内容脚本只在页面加载时注入一次，扩展被重载过而页面一直没刷新时会失联，多探几次能救回来；最后一次仍无回音才判定「未安装」（`PING_TIMEOUT = 500`）。
 
@@ -680,7 +682,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     · node.config   抓取结果：含全部测试样例 —— 每次抓取整体覆盖
 ```
 
-**没有外层 wrapper**（2026-09-30 改）：题目目录直接挂在根下，与用户自己建的 `main.cpp` 平铺。此前是 `/Problems/<年月>/…`，`migrate.js` 会把老工作区里 `/Problems` 下的条目逐个 `rename` 到根一层，再把搬空的 `/Problems` 与 `/Contest` 删掉（标记 `cph.workspaceLayoutV2`，只跑一次；撞名时跳过该项并保留外壳，宁可留壳也不覆盖用户数据）。`migrate.js` 也**不再种子**这两个顶层目录——工作区骨架由用户自己长出来。
+**没有外层 wrapper**（2026-09-30 改）：题目目录直接挂在根下，与用户自己建的 `main.cpp` 平铺。此前是 `/Problems/<年月>/…`，`migrate.js` 会把老工作区里 `/Problems` 下的条目逐个 `rename` 到根一层，再把搬空的 `/Problems` 与 `/Contest` 删掉（标记 `cp.workspaceLayoutV2`，只跑一次；撞名时跳过该项并保留外壳，宁可留壳也不覆盖用户数据）。`migrate.js` 也**不再种子**这两个顶层目录——工作区骨架由用户自己长出来。
 
 **为什么去掉 wrapper**：抓题是「按月归档」的形态，年月目录本身已经足够表达「这批是抓来的」；再套一层 `/Problems` 只是让树多一层无信息量的父节点。
 
@@ -700,7 +702,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 包放在 `public/extension/cc-for-web-<版本>.zip`，站内直接给下载（`<a download>`），**不做自动更新机制**：装完要升级就重新下载解压、再在 `chrome://extensions` 里点一次刷新。
 - 发新版的三步：`cph-companion` 里 `pnpm build:chrome` 构建 → 把 `build-chrome/` 打包成 `cc-for-web-<新版本>.zip` → 拷进本站 `public/extension/`，**同时**改 `EditorSettingsPanel.vue` 里的 `EXTENSION_VERSION` / `EXTENSION_FILE`。文件名必须换（第 5 节坑 20），「原地覆盖同名文件」能坑掉所有已下载过的用户。
 - 卸载 / 重装提示写在设置视图那一组里：下载 → 解压 → `chrome://extensions` 打开「开发者模式」→「加载已解压的扩展程序」选中解压出来的目录。这是**未上架**插件的唯一安装方式，别改文案说成「一键安装」。
-- **当前在站的版本：`2.65.3`**（2026-09-30 换版，行为改动是「可在本站设置页直接切换投递目标」；`2.65.2` 是同一天上一次换版，行为改动是「双投」）。两次换版都按上面三步走：`package.json` 改版本号 → `node scripts/build/extension.ts chrome true false`（本机没装 `pnpm`，直接 `node node_modules/tsx/dist/cli.mjs` 等价调用）→ `node_modules/.bin/web-ext build -s build-chrome/ -a dist/ -o -n cc-for-web-<版本>.zip` → 拷进 `public/extension/`、删掉旧包、站点 `EXTENSION_VERSION` 改同号。`NOTICE.md` / `NOTICE.en.md` 第四节与两页 `notice.html` 同步改过（那份文件自己规定「换 `public/extension/` 里的包」就要回来核对；改完跑 `npm run notice` 重新生成 HTML）。
+- **当前在站的版本：`2.66.0`**（2026-10-01 换版，行为改动是**插件与网页之间握手用的消息名去掉 `cph-` 前缀、统一成 `cp-`**——`cp-page` / `cp-task` / `cp-ping` / `cp-get-info` / `cp-info` / `cp-set-config` / `cp-config`，见 13.1 那张表；**这是破坏性改动，站点与插件必须同版发布**，老插件配新站点会静默失联且没有任何报错）。上一次是 `2.65.3`（2026-09-30：「可在本站设置页直接切换投递目标」）、`2.65.2`（同一天：「双投」）。每次换版都按上面三步走：`package.json` 改版本号 → `node scripts/build/extension.ts chrome true false`（本机没装 `pnpm`，直接 `node node_modules/tsx/dist/cli.mjs` 等价调用）→ 打包 `build-chrome/` 成 `cc-for-web-<版本>.zip`（`cd build-chrome && zip -r -X ../cc-for-web-<版本>.zip *`；用 `*` 而不是 `.`，否则条目会带上 `./` 前缀；`web-ext build` 也行，但它会加 `-chrome` 后缀、名字和站内现有的不一致）→ 拷进 `public/extension/`、删掉旧包、站点 `EXTENSION_VERSION` 改同号。`NOTICE.md` / `NOTICE.en.md` 第四节必须同步改（那份文件自己规定「换 `public/extension/` 里的包」就要回来核对），改完跑 `npm run notice` 重新生成 `notice.html` / `notice.en.html`——**这两个 html 是生成的，别手改**（第 12 节）。
 - **换包会牵动站点侧的几个常量/文件**（一次别落下一个）：`EditorSettingsPanel.vue` 的 `EXTENSION_VERSION`（`EXTENSION_FILE` / `EXTENSION_DOWNLOAD_URL` 都是从它派生的）、`public/extension/` 下的 zip、`NOTICE.md` + `NOTICE.en.md`。`public/extension/` 不在 SW 的 `STATIC_ASSETS` 里，靠换文件名让老用户拿到新包。
 
 ### 13.4 全局快捷键
@@ -715,10 +717,11 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 ### 13.5 改这块时最容易连带踩到的
 
 - 改落盘结构 → 老用户已导入的题目不会迁移（当初的决策就是「不迁移，只对新抓取生效」），别顺手写个迁移把人家的题解搬丢了。
-- 改设置视图的分类 → `scripts/verify-ui.mjs` 里 `navItems` 那个数字要跟着改（第 8 节 B 步），否则无头回归直接红。
+- 改设置视图的分类 → **不用再动脚本了**（2026-10-01 起 B 步逐项点开验行为，不再数个数；原来这里写着「`navItems` 那个数字要跟着改」）。
 - 改扩展的 `TARGET_SITE_PATTERNS` / 开发端口 → 插件与网站是对着 `5199` 写死的，**两边必须一起改**（改了端口插件就再也找不到网站了）。
-- 加/改「网页能改的扩展配置」→ 三处要一起动：扩展 `background.ts` 的 `WRITABLE_CONFIG_KEYS`、`getExtensionInfo()` 里读出来的 `config` 字段、站点 `EditorSettingsPanel.vue` 的 `EXTENSION_DESTINATIONS`（键名与文案），以及 `useCompanionBridge.js` 里 `cph-config` 回包的处理。网页端**没有**写扩展存储的能力，只能走这条消息通路。
+- 加/改「网页能改的扩展配置」→ 三处要一起动：扩展 `background.ts` 的 `WRITABLE_CONFIG_KEYS`、`getExtensionInfo()` 里读出来的 `config` 字段、站点 `EditorSettingsPanel.vue` 的 `EXTENSION_DESTINATIONS`（键名与文案），以及 `useCompanionBridge.js` 里 `cp-config` 回包的处理。网页端**没有**写扩展存储的能力，只能走这条消息通路。
 - 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
+- 改 `useCompanionBridge.js` 里的**消息名**（`cp-ping` / `cp-task` / …）→ 那是与 `cph-companion` 的**跨仓契约**，必须同步改扩展的 `src/bridge.ts` + `src/background.ts`，再升版本号发新版（2026-10-01 就是一次这样的改动：`cph-*` 全改成 `cp-*`）。**结论是「两边不同版就完全失联」**，而且失败是静默的——只剩「未检测到插件」。注意 `EXTENSION_SOURCE`（`competitive-companion`）是**扩展上游的标识，不是这次那批消息名，改它等于单方面毁约**；`PAGE_SOURCE` 才是本站自己的那半边。
 
 ## 14. 后续计划与待解决问题
 
@@ -726,7 +729,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 14.1 把「资源管理器 / 评测样例」两颗按钮合并成一个切换钮 —— ✅ 已落地（2026-09-28，做成胶囊开关）
 
-**原现状**：`Sidebar.vue` 的 `PANEL_TABS` 两项（`explorer` / `tests`）+ 一项 `settings`，三颗按钮并排渲染在面板页头（`SidebarSwitcher.vue`）；当前面板存在 `cph.sidebarTab`，两个面板用 `v-show` 切；`Sidebar.vue` 用 `defineExpose` 暴露 `showPanel(id)`，供 `App.vue` 开跑时把「评测样例」亮出来。
+**原现状**：`Sidebar.vue` 的 `PANEL_TABS` 两项（`explorer` / `tests`）+ 一项 `settings`，三颗按钮并排渲染在面板页头（`SidebarSwitcher.vue`）；当前面板存在 `cp.sidebarTab`，两个面板用 `v-show` 切；`Sidebar.vue` 用 `defineExpose` 暴露 `showPanel(id)`，供 `App.vue` 开跑时把「评测样例」亮出来。
 
 **做成了**：两个面板的入口是**「视觉像分段控件、交互是一颗 toggle」的胶囊**（当天改了两轮才定稿，见下）。改动落在三处：
 
@@ -750,7 +753,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **设置那颗不进胶囊**：塞进同一枚胶囊会暗示它是第三个面板、且属于同一个单选组（它其实是编辑区页签的独立开关）。第一版把它的 `.is-active` 做成 `--bg-hover` 底以求「不与胶囊抢」，截图一看那色和轨道 `--bg-control` 几乎同色、两个控件糊成一块，于是改成与面板段同一枚实心蓝——它在轨道外、是个圆形，不会被误读成「第三个面板被选中」。
 - **`showPanel('tests')` 的语义保住了**：仍是直接赋值、不是 toggle，`App.vue` 的「开跑必亮结果」不受影响。
 - **`defineExpose` 现在是两个**（2026-09-28 下午加）：`showPanel(id)`（直接赋值，给「开跑必亮结果」）与 `switchPanel()`（就是内部 `togglePanel`，给快捷键 `switch-panel`）。两者分工别混：要「必定落到某个面板」用前者，要「翻到另一个」用后者。
-- **沿用 `cph.sidebarTab`**，没开新 key；老存档里的 `explorer` / `tests` 继续有效。
+- **沿用 `cp.sidebarTab`**，没开新 key；老存档里的 `explorer` / `tests` 继续有效。
 
 **还没做（留给后续）**：页头宽度只在 1680 视口下跑过 `npm run verify`，320px 窄档没重量（总占位与最初实测的那一版相同，风险低）。
 
@@ -777,7 +780,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **做法**：题目时限不再当成「全局档位的替代品」，而是**每道题各自一份**：
 `problemImport.js` 在落盘时把扩展送来的 `timeLimit`（毫秒）写进节点 `meta.timeLimit`（`normalizeMeta()` 校验，合法区间 100ms–60s，越界归 0 = 未设置），
-`App.vue` 的 `effectiveTimeLimitMs` 再按「活跃文件的 `meta.timeLimit` 非 0 就用它、否则退回全局 `cph.timeLimitMs`」算出真正生效的值，`runAll()` / `runOne()` 都喂这个 computed。
+`App.vue` 的 `effectiveTimeLimitMs` 再按「活跃文件的 `meta.timeLimit` 非 0 就用它、否则退回全局 `cp.timeLimitMs`」算出真正生效的值，`runAll()` / `runOne()` 都喂这个 computed。
 UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`FileExplorer.vue`，step 0.5、留空用默认），全局档位仍是设置视图「评测」组的四档下拉。
 顺带把**时限从面板页头搬进了设置视图**（页头只剩胶囊 + verdict + 耗时），面板页头因此不再有 `.select`。
 **判定口径没动**：仍然只计运行段、Python 仍多给 `PYTHON_STARTUP_ALLOWANCE_MS = 500`。
@@ -822,13 +825,13 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 **坑（这条风险最高，直接动用户数据）**：
 
-- **新增设置分类会让无头回归直接红**：`scripts/verify-ui.mjs` 里 `navItems` 断言的是设置分类数（第 8 节 B 步），8 → 9 必须同步改；第 4 节 CSS 类名表里那句「8 项」也要跟着改。
-- ~~**先确认一件事：根目录 `/Problems` 还留不留**~~ **已定（2026-09-30 改）：去掉**——题目目录直接挂根下（见 13.2），与用户自己建的 `main.cpp` 平铺。原先 2026-09-28 的「保留 `/Problems`」决定作废；`migrate.js` 已不再种子 `/Problems` 与 `/Contest`，并会把老工作区里 `/Problems` 的内容搬到根一层（标记 `cph.workspaceLayoutV2`）。
+- ~~**新增设置分类会让无头回归直接红**~~ **已解除（2026-10-01）**：B 步改成行为断言后不再数分类个数，加删分类不用动脚本（分类有几项一律以 `SECTIONS` 为准）。
+- ~~**先确认一件事：根目录 `/Problems` 还留不留**~~ **已定（2026-09-30 改）：去掉**——题目目录直接挂根下（见 13.2），与用户自己建的 `main.cpp` 平铺。原先 2026-09-28 的「保留 `/Problems`」决定作废；`migrate.js` 已不再种子 `/Problems` 与 `/Contest`，并会把老工作区里 `/Problems` 的内容搬到根一层（标记 `cp.workspaceLayoutV2`）。
 - ~~**默认把「时间」放最外层会不断长出新顶层目录**~~ **已定（2026-09-28）：粒度 `YYYY-MM`（按月）**，按天会产生大量只含一个文件的目录。
 - ~~**难度维度首次导入时是空的**~~ **已定（2026-09-28）：维度开着但当前题无值 → 落「未分类」**（整层不跳过，新题路径层级才稳定）。用户事后填难度**不搬动**已有文件，见 13.2。
 - ~~**`findNameByUrl` 会失效，这是能不能做的前提**~~ **已做（2026-09-28）**：`findByUrl()` 已改成**全库**扫文件节点的 `meta.url` 找回旧题目、并复用原目录。只要「身份索引提级」这条在，路径可配置以后「用户一改结构、老题就变孤儿」的风险就不存在——保留这条记录只为说明它当初为什么是前置条件。
-- **对老数据零影响**：与 13.2 的纪律一致——新规则只对之后抓的题生效；若要做「重新归位」，必须是一次独立的、要用户确认的操作，绝不能隐式迁移（题解会跟着代码文件挪窝，一动就丢）。**唯一例外是 13.2 的外层 wrapper**：去掉 `/Problems` 这一层是一次性的、结构级的搬迁（题目相对根的位置整体上移一级，题目内部结构不变），已由 `migrate.js` 的 `cph.workspaceLayoutV2` 标记兜住、只跑一次；**不要**照此把「按新维度规则重排题目」也做成隐式迁移。
-- **持久化放哪**：维度顺序与开关是全局偏好，适合进 localStorage 的一个新 key（如 `cph.problemLayout`）——它是设置项，**别塞进 VFS 的节点里**。
+- **对老数据零影响**：与 13.2 的纪律一致——新规则只对之后抓的题生效；若要做「重新归位」，必须是一次独立的、要用户确认的操作，绝不能隐式迁移（题解会跟着代码文件挪窝，一动就丢）。**唯一例外是 13.2 的外层 wrapper**：去掉 `/Problems` 这一层是一次性的、结构级的搬迁（题目相对根的位置整体上移一级，题目内部结构不变），已由 `migrate.js` 的 `cp.workspaceLayoutV2` 标记兜住、只跑一次；**不要**照此把「按新维度规则重排题目」也做成隐式迁移。
+- **持久化放哪**：维度顺序与开关是全局偏好，适合进 localStorage 的一个新 key（如 `cp.problemLayout`）——它是设置项，**别塞进 VFS 的节点里**。
 - **强依赖 14.2**：路径多两层之后全树规模明显变大，`rebuildTree` 的整树重建会先扛不住。
 
 ### 14.6 比赛模式（赛时功能）
@@ -963,7 +966,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 **做法**：构建期用 `postcss-pxtorem` 把 CSS 的 `px` 统一转 `rem`（配置在 `vite.config.js` 的 `css.postcss`），运行时只改 `document.documentElement.style.fontSize`；Monaco 的样式表在 `node_modules` 里被整包排除、不吃 rem，靠它自己的 API 单独补偿。
 
-- **状态与换算**：`composables/useUiScale.js` 是唯一权威——`uiScale` 单例（值即比例）、`UI_SCALE_OPTIONS` 档位表（含文案）、`px()`（设计 px → 真实 px，只给「逻辑尺寸」用）、`applyUiScale()`（落根字号 + 更新单例）、`normalizeUiScale()`（读盘校验，认不出来退回默认档）、`DEFAULT_UI_SCALE = 1.1`（默认档，设置页的「（默认）」标记因此挂在 110% 而不是 100% 上）。`App.vue:49` 用 `usePersistentRef('cph.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })` 持久化，并在 **setup 期**就 `applyUiScale()` 落地。设置页「外观」组的下拉是消费方，prop / emit 一路贯穿 `App → EditorPane → EditorSettingsPanel`。
+- **状态与换算**：`composables/useUiScale.js` 是唯一权威——`uiScale` 单例（值即比例）、`UI_SCALE_OPTIONS` 档位表（含文案）、`px()`（设计 px → 真实 px，只给「逻辑尺寸」用）、`applyUiScale()`（落根字号 + 更新单例）、`normalizeUiScale()`（读盘校验，认不出来退回默认档）、`DEFAULT_UI_SCALE = 1.1`（默认档，设置页的「（默认）」标记因此挂在 110% 而不是 100% 上）。`App.vue:49` 用 `usePersistentRef('cp.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })` 持久化，并在 **setup 期**就 `applyUiScale()` 落地。设置页「外观」组的下拉是消费方，prop / emit 一路贯穿 `App → EditorPane → EditorSettingsPanel`。
 - **Monaco 补偿**：`services/editorOptions.js` 的 `editorOptions(settings, scale)` 把 `fontSize`（取整）、`lineHeight`（按缩放后的字号 × 倍数算，不各乘一次）、`padding`、`scrollbarSize` 都乘 `scale`；`tabSize` 不乘（列数不是像素）。`EditorPane.vue` 的 `watch(() => props.uiScale)` 在变化时重新 `updateOptions()` + `nextTick(layout())`。
 - **JS 动态像素**：`TestCaseCard.vue` 的 `MAX_IO_HEIGHT` 走 `px()`（`scrollHeight` 是真实 px，上限必须跟着缩放），并 `watch(uiScale)` 在缩放后重算高度。树缩进改成模板传无单位 `--depth` + CSS `calc()`，不再走内联 px。
 - **随缩放变化的约束**：统一侧边栏（测试栏）的最窄宽度也跟着缩放——`.pane--tests` 的 `min-width` 在 `calc()` 里乘 `--ui-scale`，`measureLimits()` 侧的 `--tests-min-floor` / `--tests-min-cap` 也各乘一次 `uiScale`（CSS 与 JS 用同一份倍数，变量本身仍是物理 px，`parseFloat` 量纲不变）。实测最窄宽度 100% / 125% / 150% → 299 / 313 / 375（100% 时先被编辑器 `MAX_SHARE = 82` 的兜底卡住，125% 起缩放后的地板才成为真正约束）。
@@ -979,7 +982,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 **刻意未做（用户 2026-09-29 决定本轮不动）**：
 
-- **localStorage 配额**（见坑 27）：约 520 万 ASCII 字符的上限，「输入 100 万 + 期望 100 万」就吃掉 40%；超了以后 `usePersistentRef` 的 `catch` 静默吞掉，**界面正常、刷新回退**。两条修法——轻的：写入加节流 + 失败时明确提示「用例太大，未能保存」；重的：复用 `services/vfs/idb.js` 把超长字段挪进 IndexedDB，`cph.testCases` 只留摘要（要动持久化结构 + 写迁移）。
+- **localStorage 配额**（见坑 27）：约 520 万 ASCII 字符的上限，「输入 100 万 + 期望 100 万」就吃掉 40%；超了以后 `usePersistentRef` 的 `catch` 静默吞掉，**界面正常、刷新回退**。两条修法——轻的：写入加节流 + 失败时明确提示「用例太大，未能保存」；重的：复用 `services/vfs/idb.js` 把超长字段挪进 IndexedDB，`cp.testCases` 只留摘要（要动持久化结构 + 写迁移）。
 - **远程引擎的大 stdin**：Piston / Judge0 把 stdin 内联进 JSON POST，1MB 级别的输入很可能被拒或超时。可选做法是超阈值时提示「该引擎可能吃不下这么大的输入」。
 - **Python 的性能画像**：C++ 侧的倍率与固定开销已测全（见第 7 节），Python 目前只有「a+b 67~81ms」一个数据点。
 
@@ -991,7 +994,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 **已落地**：
 - **基础设施** `src/i18n/`：`index.js`（`locale` ref 单例 / `setLocale` / `t()` / `messages(域)` / `LOCALES` / `applyLocale`）+ `messages/` 下六个域文件（`app` / `engines` / `explorer` / `help` / `settings` / `tests`），**同一文件里中英两栏并排**。缺词条先退中文、再原样露出 key（不抛错）。
-- **持久化**：`cph.uiLocale`，**刻意绕开 `usePersistentRef`**（界面语言必须早于任何组件挂载就定下来，首帧不能先闪中文）。跟随浏览器的探测结果**不写回存档**。见第 6 节。
+- **持久化**：`cp.uiLocale`，**刻意绕开 `usePersistentRef`**（界面语言必须早于任何组件挂载就定下来，首帧不能先闪中文）。跟随浏览器的探测结果**不写回存档**。见第 6 节。
 - **设置项**：设置视图「外观」组新增「**界面语言**」下拉（在「主题 / 字体大小 / 界面缩放 / 侧边栏位置」之后），切了当场生效、不重载。文案刻意叫「界面语言」以区分「判题语言（由文件扩展名派生）」——`cph.language` 那个死键别复用（坑 15 / 坑 28）。
 - **迁移规模**：UI 文案硬编码中文从 **434 处降到 130 处，且全部落在注释里**（构建通过 + 脚本复查确认残余「中文」都是 `/* */` 与 `<!-- -->`）。改动面覆盖 `App.vue` 与全部 14 个组件、9 个 service / composable。**顺带为 i18n 做的一次重构是这次最有价值的副产品**：`EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的显示名全部从「存字面量」改成「**只存 key**」，由消费处再 `t()`（见第 1 节与坑 28 第 1 条）。
 - **写进文件系统的名字不译**：`未分类` / `未命名题目` 照旧，`OJ_LIST` 因此新增与 `labelKey` 并列的 `dirName`（显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意不合并**）。
@@ -1098,9 +1101,9 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - `AppIcon.vue` 加了一枚线性 `star`（新分类的导航图标，刻意不与「外观」的 `sliders` 共用）。
 - i18n 补 `settings.section.common` 与 `settings.common.note`（中英各一）。
 
-**为什么「常用设置」里的项和别处重复**：这几项是**同一份偏好**（`settings.theme` / `cph.uiScale` / `settings.fontSize` / `cph.panelPosition`），两个入口读写同一个值，改哪边另一处立刻同步，**不存在第二份数据**。刻意保留了「外观」组（用户要的），所以主题 / 界面缩放 / 侧边栏位置会同时出现在「外观」和「常用设置」、字体大小会同时出现在「编辑器」和「常用设置」——这是有意为之，不是漏删。实现上直接照搬各处的控件写法（内联 `<label>`），没有为「常用」另造一套数据表。
+**为什么「常用设置」里的项和别处重复**：这几项是**同一份偏好**（`settings.theme` / `cp.uiScale` / `settings.fontSize` / `cp.panelPosition`），两个入口读写同一个值，改哪边另一处立刻同步，**不存在第二份数据**。刻意保留了「外观」组（用户要的），所以主题 / 界面缩放 / 侧边栏位置会同时出现在「外观」和「常用设置」、字体大小会同时出现在「编辑器」和「常用设置」——这是有意为之，不是漏删。实现上直接照搬各处的控件写法（内联 `<label>`），没有为「常用」另造一套数据表。
 
-**连带改的**：`scripts/verify-ui.mjs` 的 `navItems === 8` → `=== 9`（B 步仍显式点目录里的「外观」，不受默认分类变更影响）。
+**连带改的**：当时把 `scripts/verify-ui.mjs` 的 `navItems === 8` 改成了 `=== 9`。**这条记录已作废**（2026-10-01 起 B 步改成行为断言，不再数分类个数，见第 8 节）；B 步仍显式点目录里的「外观」，不受默认分类变更影响。
 
 ### 14.20 自动保存 —— ✅ 已落地（2026-09-30）
 
@@ -1164,12 +1167,12 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 | `src/services/mdView.js` | ★ 题解视图状态的唯一权威：`mdView`（`{ mode, fullscreen }` 单例）+ `MD_VIEW_MODES` / `MD_VIEW_SHORTCUT` / `cycleMdView()` / `toggleMdFullscreen()` / `exitFullscreen()` + 六个派生 computed（`mdFileActive` / `mdActive` / `mdViewMode` / `mdViewSplit` / `mdViewPreview` / `mdFullscreen`）。与 `settingsTab.js` 同一体例（纯 UI 状态的模块级单例），区别是这份**要跨会话记住**、自带 localStorage 读写（见 15.5） |
 | `src/services/mdFormat.js` | 工具栏的**纯变换层**：`MD_TOOL_GROUPS`（编排）/ `MD_SHORTCUTS`（14 条键位）/ `formatMarkdown(action, text, ranges, options)`（给定全文 + 绝对偏移选区 → `{ edits, selections }`）/ `markdownStats(text)`。不碰 Monaco、不碰 DOM，每条变换都能脱离编辑器单独验 |
 | `src/services/mdRenderer.js` | 渲染管线：`renderMarkdown(source, container)` = marked（含两个自定义数学扩展）→ DOMPurify → `hydrateMath()` 填公式。见 15.4 |
-| `src/services/mdRuntime.js` | ★ 渲染运行时的本地侧：清单 `/md/assets.json`、缓存桶 `cph-md-runtime-v1`、`probeMdRuntime()` / `preloadMdRuntime()` / `uninstallMdRuntime()` / `loadMdRenderer()` / `MD_READY_FLAG_KEY`。见 15.3 |
+| `src/services/mdRuntime.js` | ★ 渲染运行时的本地侧：清单 `/md/assets.json`、缓存桶 `cp-md-runtime-v1`、`probeMdRuntime()` / `preloadMdRuntime()` / `uninstallMdRuntime()` / `loadMdRenderer()` / `MD_READY_FLAG_KEY`。见 15.3 |
 | `src/components/MarkdownPreview.vue` | 预览面板：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载」入口、与编辑器的滚动同步（含回音吃掉）。见 15.5 |
 | `src/components/EditorPane.vue` | 题解那一行全部落在这里：工具栏（`.md-tools`）、链接 / 图片的填写行（`.md-insert`）、字数（`.md-stats`）、视图三态胶囊（`.view-switch`）、全屏按钮、预览面板的挂载与布局，以及 Monaco 侧那 14 条 `addAction` |
 | `scripts/prepare-md-runtime.mjs` | 构建期把 `node_modules` 里的 katex / marked 抄进 `public/md/`（裁掉 woff / ttf 回退、写 `assets.json`）。挂在 `predev` / `prebuild` 上，不用手跑 |
 | `public/md/` | 渲染运行时的落点（约 578KB）。**不进仓库**（`.gitignore` 里躺着）：它是构建输入而不是源码，跟着 katex 版本走 |
-| `public/sw.js` | `MD_CACHE = 'cph-md-runtime-v1'`（与 `mdRuntime.js` 的 `CACHE_NAME` **必须逐字一致**）；`/md/` 走 `cacheFirst` 的按需落点，**不在 install 预缓存里** |
+| `public/sw.js` | `MD_CACHE = 'cp-md-runtime-v1'`（与 `mdRuntime.js` 的 `CACHE_NAME` **必须逐字一致**）；`/md/` 走 `cacheFirst` 的按需落点，**不在 install 预缓存里** |
 | `src/services/monaco/language.js` | `.md` / `.markdown` → Monaco 的 `markdown` 分词器（第 4 行有注释写明「题解用，不参与判题」） |
 | `src/services/templates.js` | `LANGUAGES.markdown`：只有展示标签与默认扩展名 `md`，**没有 `piston` 字段**（引擎不认它）；`MARKDOWN_TEMPLATE` 是新建 `.md` 时的题解骨架 |
 | `src/components/AppIcon.vue` | `markdown`（seti-ui 的 `icons/markdown.svg`，MIT，与 `cpp` 同一图标主题）+ 工具栏那 13 个线性图标 + `expand` / `collapse` |
@@ -1185,7 +1188,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 ### 15.3 渲染运行时：与工具链同一套路数，按需下载
 
-「没下载过的用户，外壳里没有它任何一份」这句在题解这边是**真的**（与 `public/wasm/` 同）：`public/` 下的文件不进 rollup 产物、也就进不了 `cph-precache-manifest`，唯一入口是设置面板或预览面板那颗「下载」。
+「没下载过的用户，外壳里没有它任何一份」这句在题解这边是**真的**（与 `public/wasm/` 同）：`public/` 下的文件不进 rollup 产物、也就进不了 `cp-precache-manifest`，唯一入口是设置面板或预览面板那颗「下载」。
 
 | 产物 | 说明 |
 | --- | --- |
@@ -1197,7 +1200,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 与 C++ / Python 工具链**不同的三处**（`mdRuntime.js` 文件头写了原因，都是因为渲染器是 JS 而不是 WASM）：① 下载就是 `fetch` + `cache.put`，没有 IndexedDB 落盘、也不解压；② 清单来自构建期生成的 `assets.json`；③ 「已下载」的判据**只看 Cache Storage**（页面自己能读写，不需要 SW 控制），所以 dev 模式下的「已下载」同样成立 —— 不像 `wasmRuntime` 那样还得退回 HTTP 缓存，而那层没有 API 可清，卸载后会把资产立刻判回「已就绪」。
 
 - **入口只有一处实现、三个调用点**：`wasmRuntime.js` 的 `probeRuntime` / `preload` / `uninstallRuntime` 在 `language === 'markdown'` 时转给 `mdRuntime`，所以设置视图「本地运行环境」那一行与 C++ / Python 共用同一套数据驱动渲染（`EditorSettingsPanel.vue` 的 `RUNTIMES` 表，三行同一份代码），预览面板那颗「下载」走的也是同一个 `preload`。加第四行运行时照抄这张表。
-- **存档标记只是首帧播种值**：`cph.localRuntime.markdownReady`（`MD_READY_FLAG_KEY`，与设置面板那一行共用同一个键）。真正的判据永远是缓存探针 —— 浏览器随时可能清缓存而标记还留着；反过来「直接跑代码落了缓存」也会在下次探针时被正回来。探针同样**只在切到设置视图时跑一次**（`watch(() => props.active)` → `reconcile()`），别改成页面加载就探（未命中会在控制台记 `ERR_CACHE_MISS`，等于白刷一屏红字）。
+- **存档标记只是首帧播种值**：`cp.localRuntime.markdownReady`（`MD_READY_FLAG_KEY`，与设置面板那一行共用同一个键）。真正的判据永远是缓存探针 —— 浏览器随时可能清缓存而标记还留着；反过来「直接跑代码落了缓存」也会在下次探针时被正回来。探针同样**只在切到设置视图时跑一次**（`watch(() => props.active)` → `reconcile()`），别改成页面加载就探（未命中会在控制台记 `ERR_CACHE_MISS`，等于白刷一屏红字）。
 - **卸载**是「清缓存 + 删全局 + 删标记」三件一起做（`uninstallMdRuntime()`），缺一件就会出现「界面说卸了、预览还能渲」。
 - **升级 katex / marked**：改 `package.json` → `npm run md:runtime` 重跑（`predev` / `prebuild` 本来也会跑）→ `assets.json` 自己就对了 → 回来同步 `NOTICE.md` 与 `NOTICE.en.md` 的第二节 2.2（那是「四件事」里的一件，见 NOTICE 的维护约定）。
 
@@ -1221,7 +1224,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - `mode`：`edit`（仅编辑）→ `split`（双栏）→ `preview`（仅预览），说的是「编辑区里摆什么」；
 - `fullscreen`：是否让编辑区独占整个窗口 —— 全屏时 **App 收掉侧栏与分隔条**（`v-show="panelVisible && !mdFullscreen"`）、**EditorPane 收掉页签栏**（`<EditorTabs v-show="!mdFullscreen" />`），**Esc 退出**（EditorPane 里的 keydown，`exitFullscreen()` 只关全屏、模式原样留着）。
 
-- **存档**：`cph.mdView` = `{ mode, fullscreen }`。旧存档是**一个字符串**（`'edit' | 'split' | 'preview' | 'fullscreen'`），读盘时换算：`'fullscreen'` → `edit + fullscreen`，其余原样，认不出来一律回默认（`edit`）。**刻意不走 `usePersistentRef`**：那个 composable 要等组件 `onMounted` 才播种，而 App 在 **setup 期（首帧之前）**就得知道该不该把侧栏收起来 —— 与 `cph.shortcuts` / `cph.uiLocale` 是同一类先例（第 6 节末）。
+- **存档**：`cp.mdView` = `{ mode, fullscreen }`。旧存档是**一个字符串**（`'edit' | 'split' | 'preview' | 'fullscreen'`），读盘时换算：`'fullscreen'` → `edit + fullscreen`，其余原样，认不出来一律回默认（`edit`）。**刻意不走 `usePersistentRef`**：那个 composable 要等组件 `onMounted` 才播种，而 App 在 **setup 期（首帧之前）**就得知道该不该把侧栏收起来 —— 与 `cp.shortcuts` / `cp.uiLocale` 是同一类先例（第 6 节末）。
 - **`mdActive` 是两个条件的与**：`!settingsTab.active && mdFileActive`。两个回落条件都属于「这次不算数、但**存档别动**」：设置视图盖在编辑器上时分栏 / 全屏无从谈起；活跃文件不是 `.md` 时（用户点了旁边的 `.cpp`）视图照旧留着、切回题解原样恢复 —— 否则会出现「在全屏里点开一个 `.cpp`，侧栏和测试面板一起消失」。`mdViewMode` / `mdViewSplit` / `mdViewPreview` / `mdFullscreen` 都从它派生，所以**判「此刻算不算数」只有这一处**，App 与 EditorPane 各写一份迟早漂移。
 - **切换后要 `layout()`**：`watch([mdViewMode, mdFullscreen])` → `nextTick(() => editor.value?.layout())`，Monaco 不会自己发现容器宽度变了。
 - **滚动同步**按**比例**而不是像素（两栏内容高度本来就不同），关键是**吃掉回音**：设 `scrollTop` 前记一个 `programmatic` 比例，随后那一发 scroll 事件的比例几乎相等（容差 `ECHO_EPSILON = 0.01`，盖住整数取整）就当作自己的回音吞掉、不再往回发 —— 判据比数值而不是挂布尔标志，因为 Monaco 与浏览器派发滚动事件的时机并不一致（第 5 节经验教训里那条）。
@@ -1267,7 +1270,7 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 
 ### 15.9 改这块时的几条纪律
 
-- **缓存桶名两处一致**：`mdRuntime.js` 的 `CACHE_NAME` 与 `sw.js` 的 `MD_CACHE`（`cph-md-runtime-v1`）。那里管保留与清理（`keep` 集合），这里管读写。
+- **缓存桶名两处一致**：`mdRuntime.js` 的 `CACHE_NAME` 与 `sw.js` 的 `MD_CACHE`（`cp-md-runtime-v1`）。那里管保留与清理（`keep` 集合），这里管读写。
 - **`public/md/` 不进仓库**（`.gitignore` 已忽略）：它是 `node_modules` 里 dist 产物的副本，由 `npm run md:runtime` 生成。别手改里面的文件，改的是 `scripts/prepare-md-runtime.mjs`。
 - **换 katex / marked 版本**：三件事连着 —— 重跑 `md:runtime`（`assets.json` 自己就对）、回来同步 `NOTICE.md` + `NOTICE.en.md` 第二节 2.2 与第一节的版本号（NOTICE 的规则是「版本号必须实机核，不许凭记忆写」）、再确认预览真能渲出公式。
 - **别把 `.md` 接进判题链路**（`activeLanguage` / 引擎表 / `LANGUAGE_IDS` 的用法），那条边界是闸门与状态栏的共同前提。
