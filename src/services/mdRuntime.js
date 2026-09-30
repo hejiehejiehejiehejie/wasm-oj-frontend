@@ -13,12 +13,14 @@
  *    所以 dev 模式下的「已下载」同样成立，不需要像 wasmRuntime 那样退回 HTTP 缓存 ——
  *    那层缓存没有 API 可清，卸载后会把资产立刻判回「已就绪」。
  *
- * 缓存桶名与 `public/sw.js` 里的 `MD_CACHE` 必须一致：那里管保留与清理，这里管读写。
+ * 缓存桶名不在这里写死：定义在 services/storageNames.js（`MD_CACHE`），SW 那边管保留
+ * 与清理、这里管读写，共用同一份 —— 各写一份字面量时改漏一处，用户下载好的渲染器
+ * 会被 SW 当垃圾删掉。
  */
 
 import { t } from '../i18n/index.js'
+import { MD_CACHE } from './storageNames.js'
 
-const CACHE_NAME = 'cp-md-runtime-v1'
 const BASE = '/md/'
 const MANIFEST_URL = `${BASE}assets.json`
 
@@ -96,7 +98,7 @@ async function downloadMdRuntime(onStatus, signal) {
     throw new Error(t('error.downloadFailed', { label: MANIFEST_URL, status: response.status }))
   }
   const fresh = await response.json()
-  const cache = await caches.open(CACHE_NAME)
+  const cache = await caches.open(MD_CACHE)
   await cache.put(MANIFEST_URL, new Response(JSON.stringify(fresh)))
 
   const total = fresh.assets.length
@@ -150,7 +152,7 @@ export async function uninstallMdRuntime() {
   delete window.katex
   delete window.marked
   try {
-    await caches.delete(CACHE_NAME)
+    await caches.delete(MD_CACHE)
   } catch {
     /* 缓存用不了（隐私模式等）：本来也没下载成功过，忽略 */
   }

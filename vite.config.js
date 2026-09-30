@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import pxtorem from 'postcss-pxtorem'
+import { SERVICE_WORKER_CONSTANTS } from './src/services/storageNames.js'
 
 // 本地沙箱（runno 的 WASI 运行时）靠 SharedArrayBuffer 在 Worker 之间传 stdin，
 // 而浏览器只在「跨域隔离」的页面里开放 SharedArrayBuffer，所以开发服务器必须带上这两个头。
@@ -41,8 +43,58 @@ function precacheManifest() {
   }
 }
 
+// Service Worker 是 classic worker，不能用 import 读 services/storageNames.js，
+// 所以它那份桶名常量由下面这个插件在构建期拼进源码。模板是 src/sw.js（不是产物）。
+const SW_TEMPLATE = fileURLToPath(new URL('./src/sw.js', import.meta.url))
+
+function renderServiceWorker() {
+  const declared = Object.entries(SERVICE_WORKER_CONSTANTS)
+    .map(([name, value]) => `const ${name} = ${JSON.stringify(value)}`)
+    .join('\n')
+  const banner = [
+    '// ---------------------------------------------------------------------------',
+    '// 以下常量由 vite.config.js 的 cp-service-worker 插件生成，唯一出处是',
+    '// src/services/storageNames.js 的 SERVICE_WORKER_CONSTANTS —— 不要手改这一块，',
+    '// 改了会在下次构建时被覆盖（SW 是 classic worker，没法直接 import 那个模块）。',
+    '// ---------------------------------------------------------------------------',
+  ].join('\n')
+  // 模板每次现读：dev 下每次请求都走这里，改了 src/sw.js 不必重启开发服务器
+  return `${banner}\n${declared}\n\n${readFileSync(SW_TEMPLATE, 'utf8')}`
+}
+
+/**
+ * 产出 /sw.js。
+ *
+ * 之所以要生成、而不是直接放在 public/ 里：桶名必须与页面共用同一份定义
+ * （services/storageNames.js），而 SW 读不到模块。放在 public/ 就只能再抄一份字面量，
+ * 正是这个文件要消灭的重复。
+ *
+ * - 构建：把生成结果 emit 成 dist/sw.js —— 与原先 public/sw.js 的 URL 完全一致，
+ *   vercel.json / main.js 里那条 register('/sw.js') 都不用动。
+ * - dev：public/ 下已经没有这个文件了，所以挂个中间件现场拼给浏览器；少这一步的话
+ *   dev 下 /sw.js 直接 404、SW 装不上，而 npm run verify 跑的正是 dev server。
+ * - preview 不用管：它服务 dist/，产物已在里面。
+ */
+function serviceWorker() {
+  return {
+    name: 'cp-service-worker',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source: renderServiceWorker() })
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if ((req.url ?? '').split('?')[0] !== '/sw.js') return next()
+        res.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+        // 与 vercel.json 里 /sw.js 的 Cache-Control 对齐：SW 必须能及时更新
+        res.setHeader('Cache-Control', 'no-cache')
+        res.end(renderServiceWorker())
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [vue(), precacheManifest()],
+  plugins: [vue(), precacheManifest(), serviceWorker()],
   css: {
     // 全局 UI 缩放的「止血防线」：把 CSS 里的 px 转成 rem，缩放时只改根字号即可。
     // 但转换只发生在 CSS 声明上，JS 内联样式 / JS 常量 / @media·@container 断点都不受影响，

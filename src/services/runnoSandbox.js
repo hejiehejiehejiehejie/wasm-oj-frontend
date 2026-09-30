@@ -25,6 +25,7 @@
 import { WASIWorkerHost } from '@runno/wasi'
 import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
+import { TOOLCHAIN_CACHE_PREFIX } from './storageNames.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
 import { fsEntry as wasiFile } from './vfs/runnoFs.js'
@@ -632,7 +633,8 @@ export function runtimeAssetURLs(language) {
  * 让下一次运行 / 下载都退回「从零开始」。设置页的「本地运行环境」卸载按钮走这里。
  *
  * 持久层分两块，只有第一块删得掉：
- * - Cache Storage（SW 的 `cp-toolchain-*`）：SW 控制页面时资产的实际落点，逐个删条目；
+ * - Cache Storage（SW 的 `cp-toolchain-*`，名字见 services/storageNames.js）：
+ *   SW 控制页面时资产的实际落点，逐个删条目；
  * - HTTP 缓存：浏览器没给 JS 任何清除接口（`fetch` 的 cache 选项只能改变取值策略），
  *   删不掉。所以 probeRuntime 在 SW 控制时改以 Cache Storage 为准 —— 否则前脚卸载、
  *   后脚就被 HTTP 缓存里那份残留判回「已就绪」（见 wasmRuntime 的 isAssetCached）。
@@ -659,14 +661,15 @@ export async function unloadRuntime(language) {
 }
 
 /**
- * 从所有 `cp-toolchain-*` 缓存里删掉该语言的资产条目。
- * 缓存名带版本，迭代中可能同时存在多代，所以按前缀全扫，不只认当前那一个。
+ * 从所有工具链缓存里删掉该语言的资产条目。
+ * 按**前缀**全扫、不只认当前那一个桶名：改名后老用户的浏览器上还可能留着上一代的桶
+ * （名字与迁移清单见 services/storageNames.js）。
  */
 async function purgeRuntimeCache(language) {
   const urls = runtimeAssetURLs(language)
   if (!urls.length || typeof caches === 'undefined') return
   try {
-    const names = (await caches.keys()).filter((name) => name.startsWith('cp-toolchain'))
+    const names = (await caches.keys()).filter((name) => name.startsWith(TOOLCHAIN_CACHE_PREFIX))
     await Promise.all(
       names.map(async (name) => {
         const cache = await caches.open(name)

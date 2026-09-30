@@ -1,4 +1,4 @@
-/* unnamed 的 Service Worker。
+/* unnamed 的 Service Worker —— **源码模板**，构建产物是同路径的 dist/sw.js。
 
    目标：装完外壳即可离线打开，所以 install 阶段只预缓存「构建产物 + 静态资源」。
    **语言工具链不预缓存**（clang 52MB / CPython 24MB）：用户用哪个语言才拉哪个，
@@ -10,32 +10,12 @@
    两条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
-      /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）。 */
+      /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）。
 
-// 外壳版本号。**只对外壳桶生效**：升级它会触发旧外壳桶在 activate 阶段被清掉。
-const SHELL_VERSION = 'v4'
-
-// 分开三个桶：工具链与渲染器体积大、基本不变，外壳小而常变，升级外壳时不必重下它们。
-// TOOLCHAIN_CACHE / MD_CACHE 都不由 install 预填，只作 cacheFirst 的按需落点
-// （见下面的 /wasm/、/md/ 判定）；MD_CACHE 这个名字与 services/mdRuntime.js 里的
-// CACHE_NAME 必须一致 —— 页面负责往里写，activate 的 keep 负责别把它清掉。
-const SHELL_CACHE = `cp-shell-${SHELL_VERSION}`
-// 工具链桶名**硬编码、刻意不跟 SHELL_VERSION 走**。
-// 这里原来跟外壳共用一个版本号 —— 后果是升一次外壳，activate 就会把老用户已经下好的
-// clang（52MB）+ CPython（24MB）一起当垃圾删掉，逼他们重下 76MB。工具链是随 URL 固定的
-// 二进制，跟外壳改不改无关，本来就不该被它牵连。
-// 固定成 v3 还有个好处：它的名字落在下面的 keep 白名单里，跨外壳升级无损继承，
-// 一个字节都不用重下。要换代工具链时才手动改这里。
-const TOOLCHAIN_CACHE = 'cp-toolchain-v3'
-const MD_CACHE = 'cp-md-runtime-v1'
-
-// 2026-10-01 三个桶名一起去掉了 `cph-` 前缀。改名不能让用户白下那 76MB，
-// 所以 activate 里先按这张表把旧桶原样搬过来（见 migrateLegacyBuckets）。
-// 外壳桶不搬：它装的是带哈希的构建产物，重新预缓存本来就是升级外壳时该发生的事。
-const LEGACY_BUCKETS = [
-  ['cph-toolchain-v3', TOOLCHAIN_CACHE],
-  ['cph-md-runtime-v1', MD_CACHE],
-]
+   ⚠ 下面用到的桶名常量（SHELL_CACHE / TOOLCHAIN_CACHE / MD_CACHE / LEGACY_BUCKETS）
+   **不在本文件里定义**。SW 是 classic worker，没有 import，读不到 services/storageNames.js，
+   所以它们由 vite.config.js 的 cp-service-worker 插件在构建期（dev 下是每次请求）
+   生成一段 `const …` 声明前置到这份源码上 —— 要看定义和改名注意事项，去那个文件。 */
 
 const STATIC_ASSETS = [
   '/',
@@ -102,6 +82,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       await migrateLegacyBuckets()
+      // 白名单：这三个桶之外的缓存一律删掉（旧外壳桶、上一代工具链桶都在这趟里清）
       const keep = new Set([SHELL_CACHE, TOOLCHAIN_CACHE, MD_CACHE])
       const names = await caches.keys()
       await Promise.all(names.map((name) => (keep.has(name) ? null : caches.delete(name))))

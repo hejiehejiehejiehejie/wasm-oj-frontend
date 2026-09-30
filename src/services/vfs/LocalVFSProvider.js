@@ -12,19 +12,14 @@
  */
 import { BaseVFSProvider } from './BaseVFSProvider.js'
 import { t } from '../../i18n/index.js'
+import { LEGACY_VFS_DB_NAME, VFS_DB_NAME } from '../storageNames.js'
 import { commitTransaction, openDatabase, withTransaction } from './idb.js'
 import { assertName, isWithin, normalize, splitPath } from './paths.js'
 
-const DB_NAME = 'cp-vfs'
 const DB_VERSION = 1
 const NODES_STORE = 'nodes'
 const CONTENTS_STORE = 'contents'
 const STORES = [NODES_STORE, CONTENTS_STORE]
-/**
- * 改名前的库名（2026-10-01 去掉 `cph-` 前缀）。
- * 这是**不可删的契约点** —— 不写出这个名字，就没法把老用户的工作区搬过来。
- */
-const LEGACY_DB_NAME = 'cph-vfs'
 
 /** 生成节点 id：优先原生 UUID，否则随机回退 */
 function newId() {
@@ -39,7 +34,7 @@ function freshNode({ id, name, type, parentId, path }) {
 
 function dropLegacyDb() {
   try {
-    indexedDB.deleteDatabase(LEGACY_DB_NAME)
+    indexedDB.deleteDatabase(LEGACY_VFS_DB_NAME)
   } catch {
     /* 删不掉（被别的标签页占着等）也无所谓，旧库只是占地方 */
   }
@@ -58,7 +53,7 @@ async function migrateLegacyDb(db) {
   const count = await withTransaction(db, [NODES_STORE], 'readonly', (tx) => tx.objectStore(NODES_STORE).count())
   if (count !== 0) return
 
-  const legacy = await openDatabase(LEGACY_DB_NAME, DB_VERSION, () => {})
+  const legacy = await openDatabase(LEGACY_VFS_DB_NAME, DB_VERSION, () => {})
   if (!legacy) return
 
   const legacyStores = [...legacy.objectStoreNames]
@@ -105,7 +100,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
   // ------------------------------------------------------------ 初始化
 
   async init() {
-    this.#db = await openDatabase(DB_NAME, DB_VERSION, (db) => {
+    this.#db = await openDatabase(VFS_DB_NAME, DB_VERSION, (db) => {
       if (!db.objectStoreNames.contains(NODES_STORE)) db.createObjectStore(NODES_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(CONTENTS_STORE)) db.createObjectStore(CONTENTS_STORE, { keyPath: 'id' })
     })
