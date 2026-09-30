@@ -17,8 +17,9 @@ if (import.meta.env.DEV) {
   })
 }
 
-// 地址形态的云配置入口（/<handle>）：在挂载前把 handle 收下来。地址**故意保留原样**
-// （见 cloudEntry.js 文件头），确认与套用都在设置页里做。
+// 地址形态的云配置入口（/<handle>）：在挂载前先把 handle 收下来。云端到底有没有这份配置、
+// 要不要打开设置页，要等 App 起来、会话恢复完之后再探（见 cloudEntry.js 的 confirmCloudEntry）——
+// 没有配置时那次探测会顺手把地址抹回根路径，不能在这里做。
 captureCloudHandleFromPath()
 
 createApp(App).mount('#app')

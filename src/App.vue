@@ -32,7 +32,7 @@ import {
 } from './services/mdView.js'
 import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/settingsTab.js'
-import { pendingCloudHandle } from './services/cloudEntry.js'
+import { confirmCloudEntry } from './services/cloudEntry.js'
 import {
   EDITOR_SETTINGS_DEFAULTS,
   normalizeEditorSetting,
@@ -707,11 +707,17 @@ onMounted(async () => {
   } catch {
     /* 存储不可用时静默；界面仍可使用 */
   }
-  // 地址里带来的 /<handle>：必须等上面两步跑完再打开设置页。会话恢复会把
-  // workspace.activeId 设回上次那个文件，而 settingsTab 的规矩是「活跃文件一变就让开」
-  // （见 settingsTab.js 末尾那个 watch），早开一步会被紧接着的这次变更立刻关掉。
-  // 识别在 main.js 里就做完了（地址保持原样不抹，见 cloudEntry.js），这里只负责把询问摆到用户面前。
-  if (pendingCloudHandle.value) openSettingsTab()
+  // 地址里带来的 /<handle>：先确认云端有没有这份配置，再决定要不要打开设置页。
+  // 必须等上面两步跑完：会话恢复会把 workspace.activeId 设回上次那个文件，而 settingsTab 的
+  // 规矩是「活跃文件一变就让开」（见 settingsTab.js 末尾那个 watch），早开一步会被紧接着的
+  // 这次变更立刻关掉。识别在 main.js 里做了（地址保持原样不抹，见 cloudEntry.js）；
+  // 云端没有配置时 confirmCloudEntry 会把地址抹回根路径、只弹一句提示，这里就不开设置页。
+  // **刻意不 await**：这次探测要发一个网络请求，卡在这里会把下面三件事一并推迟到它回来之后
+  // （网络一直不回来就永远轮不到）。它只要求排在会话恢复之后，排在下面那几行前还是后无所谓
+  // —— 下面几行都不改两个面板的宽度。
+  void confirmCloudEntry().then((open) => {
+    if (open) openSettingsTab()
+  })
   // 首帧排版稳定后先收敛一次（视口很窄时连默认的 60 都可能越界），之后交给 ResizeObserver
   // 盯住视口尺寸变化（它自己也会立刻回调一次，走 debounce 那条路）。
   nextTick(reclampShare)

@@ -21,6 +21,7 @@ import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import { flush } from '../services/autoSave.js'
 import {
   clearPendingCloudHandle,
+  cloudEntryMissingHandle,
   markCloudEntryHandled,
   pendingCloudHandle,
 } from '../services/cloudEntry.js'
@@ -776,6 +777,9 @@ const unbindBtn = ref(null)
 const cloudApplyHandle = ref('')
 const cloudApplyBtn = ref(null)
 
+/** 地址里带来的 handle，但云端根本没有这份配置：只弹一句提示。空串 = 没有 */
+const cloudMissingBtn = ref(null)
+
 const cloudTimeFormat = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
   timeStyle: 'short',
@@ -1075,6 +1079,11 @@ watch(cloudApplyHandle, (handle) => {
   if (handle) nextTick(() => cloudApplyBtn.value?.focus())
 })
 
+// 「云端没有这份配置」的提示：同样一出现就把焦点送进去，Esc 也能关掉（与上面同款）
+watch(cloudEntryMissingHandle, (handle) => {
+  if (handle) nextTick(() => cloudMissingBtn.value?.focus())
+})
+
 // 关掉设置页签就等于「这次不套用」：这条链接带来的询问只该当面提一次，
 // 用户下次自己打开设置页时不该再冒出来。
 watch(
@@ -1123,6 +1132,15 @@ function cancelCloudApply() {
   clearPendingCloudHandle()
   // 拒绝了也算答过：这条链接带来的询问只该当面提一次，刷新不该再问（地址栏还留着 /<handle>）
   markCloudEntryHandled()
+}
+
+/**
+ * 关掉「这个用户名还没有保存过配置」的提示。
+ * 只收弹窗：地址在探测那一步就已经抹回根路径了（见 cloudEntry.js 的 confirmCloudEntry），
+ * 所以关掉之后刷新不会再看到它。
+ */
+function dismissCloudMissing() {
+  cloudEntryMissingHandle.value = ''
 }
 
 function requestUnbind() {
@@ -2028,6 +2046,38 @@ watch(pendingUnbind, (open) => {
               @click="confirmCloudApply"
             >
               {{ t('settings.cloud.applyConfirm') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 地址里带来的 /<handle>，但云端根本没有这份配置：套不了，只把「为什么地址回去了」讲清楚。
+         地址已经在探测那一步抹回根路径（见 cloudEntry.js 的 confirmCloudEntry），这里不再动它。 -->
+    <Teleport to="body">
+      <div v-if="cloudEntryMissingHandle" class="confirm" @pointerdown.self="dismissCloudMissing">
+        <div
+          class="confirm__card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="cloud-missing-title"
+          aria-describedby="cloud-missing-desc"
+          @keydown.esc.stop.prevent="dismissCloudMissing"
+        >
+          <p id="cloud-missing-title" class="confirm__title">
+            {{ t('settings.cloud.applyMissingTitle') }}
+          </p>
+          <p id="cloud-missing-desc" class="confirm__desc">
+            {{ t('settings.cloud.applyMissingDesc', { handle: cloudEntryMissingHandle }) }}
+          </p>
+          <div class="confirm__actions">
+            <button
+              ref="cloudMissingBtn"
+              type="button"
+              class="confirm__btn"
+              @click="dismissCloudMissing"
+            >
+              {{ t('settings.cloud.applyMissingOk') }}
             </button>
           </div>
         </div>

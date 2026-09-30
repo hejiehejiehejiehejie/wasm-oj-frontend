@@ -123,7 +123,7 @@ src/
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
     settingsTab.js              # 「设置」合成页签的 UI 状态（刻意不进 workspaceStore/openTabIds、不建模型、不落 localStorage；见第 5 节坑 7）
     cloudProfile.js             # ★ 云同步的前端唯一边界：`SYNC_KEYS` 白名单（12 个键）+ `collectProfile` / `applyProfile` + 四个接口封装（`requestCode` / `verifyAndSave` / `saveWithToken` / `fetchCloudProfile`）+ `postJson`（网络失败折成 `{success:false}`、失败带 `status` 以区分 401 与 400）。接口一律走同源相对路径 `/api/*`，理由与坑见 `docs/云端同步服务.md` 与 14.9
-    cloudEntry.js               # 网址形态的云配置入口：`captureCloudHandleFromPath()`（启动时读 `location.pathname` 的 `/<handle>`，写进 `pendingCloudHandle`）+ `markCloudEntryHandled()` / `clearPendingCloudHandle()`。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`；「已答过」的记号写在 `history.state`（键 `cpCloudEntry`）、地址**保持原样不抹回根路径**。见 14.21
+    cloudEntry.js               # 网址形态的云配置入口：`captureCloudHandleFromPath()`（启动时读 `location.pathname` 的 `/<handle>`）+ `confirmCloudEntry()`（探一次云端到底有没有这份配置，据此决定要不要开设置页）+ `markCloudEntryHandled()` / `clearPendingCloudHandle()`。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`；「已答过」的记号写在 `history.state`（键 `cpCloudEntry`）、地址**保持原样不抹回根路径** —— 唯一例外是云端没有这份配置时（不打开设置页，地址 replaceState 回根路径 + `cloudEntryMissingHandle` 弹一句提示）。见 14.21
     vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，无外层 wrapper；题目信息与样例挂在**该文件节点**的 `meta` / `config` 上）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
 ```
 
@@ -1148,13 +1148,22 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 | # | 位置 | 做什么 |
 | --- | --- | --- |
 | 1 | `vercel.json` | `"rewrites": [{ "source": "/:handle([A-Za-z0-9_-]+)", "destination": "/index.html" }]`。**单段 + 不带点号**才和静态资源区分得开：`guide.html` / `sw.js` / `robots.txt` / `manifest.webmanifest` 都带点号，`/assets/…` `/wasm/…` `/md/…` 都是多段 |
-| 2 | `src/services/cloudEntry.js` | 启动时读 `location.pathname`，认出 handle 就写进 `pendingCloudHandle`（模块级 ref 单例）。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`，也不落任何 storage 待办键 |
-| 3 | `src/main.js` + `src/App.vue` | `captureCloudHandleFromPath()` 在 `mount` **之前**调用（地址保持原样，见下）；`App.vue` 则在 `initWorkspace()` / `initWorkspaceStore()` **跑完之后**才 `if (pendingCloudHandle.value) openSettingsTab()` |
+| 2 | `src/services/cloudEntry.js` | 启动时读 `location.pathname`，认出 handle 就记下来（模块级变量 + `pendingCloudHandle` ref 单例）。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`，也不落任何 storage 待办键 |
+| 3 | `src/main.js` + `src/App.vue` | `captureCloudHandleFromPath()` 在 `mount` **之前**调用（只登记，地址保持原样，见下）；`App.vue` 则在 `initWorkspace()` / `initWorkspaceStore()` **跑完之后**才 `void confirmCloudEntry().then((open) => { if (open) openSettingsTab() })` —— **不 await**，理由见下面的坑 |
 | 4 | `src/sw.js` + `src/services/storageNames.js` | 外壳升到 `SHELL_VERSION = 'v4'`，导航网络优先 + **按 request URL 回填** —— 离线下再打开同一条 `/<handle>` 仍能命中 |
 
 **第 3 条那个顺序为什么必须是「之后」**：会话恢复会把 `workspace.activeId` 设回上次那个文件，而 `settingsTab.js` 末尾那个 watch 的规矩是「活跃文件一变就让开」。早开一步，紧接着的这次变更会立刻把设置页关掉，弹窗根本没机会出现。
 
-**地址栏保留 `/<handle>`，不抹回根路径**：这条链接的含义就是「这个地址 = 这套配置」—— 抹掉之后想再打开一次、想复制给别人，都得重新翻链接。代价是刷新（含套用成功后那次 reload）都会再看到同一段路径，所以必须有个「这个历史条目已经答过了」的记号挡住重复追问（否则套用 → reload → 又弹问 → 又套用，转不出去）。记号写在 **`history.state`**（键 `cpCloudEntry`）上：随历史条目走、刷新后仍在、不碰 localStorage / sessionStorage，于是也不需要任何清理逻辑；换个新页签打开同一条链接，state 是空的，会照常再问一次 —— 这正是想要的。
+**地址栏保留 `/<handle>`，不抹回根路径**（**前提：云端确实存着这份配置**）：这条链接的含义就是「这个地址 = 这套配置」—— 抹掉之后想再打开一次、想复制给别人，都得重新翻链接。代价是刷新（含套用成功后那次 reload）都会再看到同一段路径，所以必须有个「这个历史条目已经答过了」的记号挡住重复追问（否则套用 → reload → 又弹问 → 又套用，转不出去）。记号写在 **`history.state`**（键 `cpCloudEntry`）上：随历史条目走、刷新后仍在、不碰 localStorage / sessionStorage，于是也不需要任何清理逻辑；换个新页签打开同一条链接，state 是空的，会照常再问一次 —— 这正是想要的。
+
+**2026-10-01 补充：云端没有这份配置时，反而是「不打开网页 + 把地址抹回根路径」**。原先无论有没有配置，进站都会打开设置页并弹「要不要套用」，用户点了才知道根本没有可套用的东西 —— 白点一次，人还被留在 `/<handle>` 上。现在进站先探一次（`confirmCloudEntry()` 里的 `fetchCloudProfile`，**只有 `notFound` 才算数**）：
+
+- **有配置**（`success`；网络不通这类「说不准」的失败也算）→ 照旧交出 `pendingCloudHandle`、打开设置页弹「要不要套用」，下面那条 `history.state` 记号的规矩一个字没变；
+- **明确 404** → 不打开设置页，`resetCloudEntryPath()` 用 `replaceState` 把地址抹回根路径，改用 `cloudEntryMissingHandle`（`EditorSettingsPanel.vue` 里第三个同款自绘弹窗，与解绑 / 套用同款，只有一颗「知道了」）弹一句「这个用户名还没有保存过配置」。
+
+顺带把「地址 = 这套配置」的语义收紧了：只有真的有一套配置可套用，地址才停在 `/<handle>`。抹掉之后那条历史条目再也不会命中路径正则，`cpCloudEntry` 标记也就不必补写。
+
+**坑（这次新增）**：**别把探测挪回 `main.js` 去 `await`**。挂在 `mount` 前会让首屏白屏等一个网络往返；挂在 `App.vue` 的 `onMounted` 里则天然在 `initWorkspace()` 之后，顺序要求（见上）也一并满足 —— 而且没有 handle 时这次调用**不发请求**（`entryHandle` 为空直接返回 false）。同样**不要 `await` 它**：`onMounted` 里它后面还有首帧收敛（`reclampShare`）、`ResizeObserver` 建立、预下载三件事，卡在探测上会一起被推迟（网络不回来就永远轮不到），所以写的是 `void confirmCloudEntry().then(...)`。`openSettingsTab()` 只要求排在会话恢复之后，排在它前面还是后面都行 —— 后面那几行都不改两个面板的宽度。
 
 **实测（2026-09-30）**：开 `/He-Jie` → 确认弹窗出现（`confirmCount: 1`）、地址栏保持 `/<handle>`；点「取消」→ `history.state === {"cpCloudEntry":"He-Jie"}`、刷新不再追问；新页签点「套用」→ 打 `GET /api/config/He-Jie`（**只读**：不取码、不写云端）→ reload 后地址不变，白名单里的键逐个落进本机（实测 11 个，本机当时没有 `cp.autoPreload`）。窄视口（800px）下 `cp.editorShare` 与云端值不符，是首帧 `reclampShare` 把比例收敛到侧栏下限所致（1600px 下两边一致），不是套用链路的问题。
 
