@@ -56,7 +56,7 @@
 
 ### 2.2 题解渲染运行时（`public/md/`，约 578KB）
 
-题解的 Markdown 解析与 LaTeX 公式渲染走的也是同一条「按需下载」的路（`src/services/mdRuntime.js`）：下载前只有一句提示，下载后落进 Cache Storage 的 `cp-md-runtime-v1`，设置页「本地运行环境」里可以连同缓存与浏览器上的全局变量一起卸载。
+题解的 Markdown 解析与 LaTeX 公式渲染走的也是同一条「按需下载」的路（`src/services/mdRuntime.js`）：下载前只有一句提示，下载后落进 Cache Storage 的 `cp-md-runtime`，设置页「本地运行环境」里可以连同缓存与浏览器上的全局变量一起卸载。
 
 | 组件 | 版本 | 许可 | 落点与用途 |
 | --- | --- | --- | --- |

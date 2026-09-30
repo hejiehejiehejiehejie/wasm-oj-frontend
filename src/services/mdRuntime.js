@@ -152,7 +152,14 @@ export async function uninstallMdRuntime() {
   delete window.katex
   delete window.marked
   try {
-    await caches.delete(MD_CACHE)
+    // 按**前缀**扫、不只删当前这一个桶：桶名改过好几代
+    // （`cph-md-runtime-v1` → `cp-md-runtime-v1` → `cp-md-runtime`），而 SW 的搬运要等
+    // activate 才跑，页面先动手时旧桶还在。只删新桶会留下那份残留，后果是「卸了像没卸」：
+    // 探针用 `caches.match()` **跨所有桶**搜索，一扫到残留就又把资产判回「已就绪」；
+    // 更糟的是 SW 稍后还会把旧桶搬回新桶，等于把这次卸载撤销掉。
+    // 桶名刻意不带版本尾缀，所以当前名字本身就是这张前缀（见 services/storageNames.js）。
+    const names = (await caches.keys()).filter((name) => name.startsWith(MD_CACHE))
+    await Promise.all(names.map((name) => caches.delete(name)))
   } catch {
     /* 缓存用不了（隐私模式等）：本来也没下载成功过，忽略 */
   }

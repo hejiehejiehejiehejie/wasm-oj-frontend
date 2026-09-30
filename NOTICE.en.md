@@ -56,7 +56,7 @@ What the two have in common: both are **upstream artifacts taken into this repos
 
 ### 2.2 Notes rendering runtime (`public/md/`, about 578KB)
 
-Parsing Markdown and rendering LaTeX for the notes takes the same "download on demand" route (`src/services/mdRuntime.js`): before the download there is only a hint line, afterwards it lands in the `cp-md-runtime-v1` Cache Storage bucket, and the "local runtimes" section of the settings page can uninstall it together with the cache and the globals it put on the browser.
+Parsing Markdown and rendering LaTeX for the notes takes the same "download on demand" route (`src/services/mdRuntime.js`): before the download there is only a hint line, afterwards it lands in the `cp-md-runtime` Cache Storage bucket, and the "local runtimes" section of the settings page can uninstall it together with the cache and the globals it put on the browser.
 
 | Component | Version | Licence | Where it lands and what it is for |
 | --- | --- | --- | --- |

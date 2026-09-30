@@ -18,7 +18,7 @@
     <!--
       本文件由 scripts/render-notice.mjs 从根目录的 NOTICE.en.md 生成，请勿手改。
       改完 NOTICE.en.md 后跑：npm run notice
-      generated-from-NOTICE.en.md sha256:b5b4e24671d0
+      generated-from-NOTICE.en.md sha256:e5f9410d8333
     -->
     <script>
       try {
@@ -86,7 +86,7 @@
   </table>
 </div>
         <h3>2.2 Notes rendering runtime (<code>public/md/</code>, about 578KB)</h3>
-        <p>Parsing Markdown and rendering LaTeX for the notes takes the same &quot;download on demand&quot; route (<code>src/services/mdRuntime.js</code>): before the download there is only a hint line, afterwards it lands in the <code>cp-md-runtime-v1</code> Cache Storage bucket, and the &quot;local runtimes&quot; section of the settings page can uninstall it together with the cache and the globals it put on the browser.</p>
+        <p>Parsing Markdown and rendering LaTeX for the notes takes the same &quot;download on demand&quot; route (<code>src/services/mdRuntime.js</code>): before the download there is only a hint line, afterwards it lands in the <code>cp-md-runtime</code> Cache Storage bucket, and the &quot;local runtimes&quot; section of the settings page can uninstall it together with the cache and the globals it put on the browser.</p>
         <div class="table-wrap">
   <table>
     <thead><tr><th>Component</th><th>Version</th><th>Licence</th><th>Where it lands and what it is for</th></tr></thead>
