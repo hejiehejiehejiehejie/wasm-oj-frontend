@@ -238,6 +238,12 @@ const EDITOR_GROUPS = [
     titleKey: 'settings.editor.groupView',
     rows: [
       {
+        key: 'lineNumbers',
+        labelKey: 'settings.editor.lineNumbers.label',
+        hintKey: 'settings.editor.lineNumbers.hint',
+        control: 'switch',
+      },
+      {
         key: 'minimap',
         labelKey: 'settings.editor.minimap.label',
         hintKey: 'settings.editor.minimap.hint',

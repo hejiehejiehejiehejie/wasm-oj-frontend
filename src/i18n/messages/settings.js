@@ -101,6 +101,7 @@ export default {
         cursorSmoothCaretAnimation: { label: '光标平滑移动', hint: '打字时启用光标移动的过渡动画' },
         renderLineHighlight: { label: '当前行突出', hint: '高亮显示光标所在行' },
         renderWhitespace: { label: '空白字符', hint: '显示空格与制表符等不可见字符' },
+        lineNumbers: { label: '行号', hint: '在编辑器左侧的装订区显示行号（默认：开启）' },
         minimap: { label: '代码缩略图', hint: '在编辑器右侧展示全局代码结构的微缩导航（默认：关闭）' },
         padding: { label: '内边距', hint: '编辑器内容与边框之间的留白' },
         scrollbarSize: { label: '滚动条粗细', hint: '编辑器滚动条的宽度' },
@@ -394,6 +395,10 @@ export default {
         },
         renderLineHighlight: { label: 'Current line highlight', hint: 'Highlight the line the cursor is on' },
         renderWhitespace: { label: 'Whitespace characters', hint: 'Show invisible characters such as spaces and tabs' },
+        lineNumbers: {
+          label: 'Line numbers',
+          hint: 'Show line numbers in the editor gutter (default: on)',
+        },
         minimap: {
           label: 'Minimap',
           hint: 'Show a scaled-down overview of the file on the right edge (default: off)',
