@@ -30,23 +30,32 @@ const SHELL_VERSION = 'v4'
 /** 外壳桶：构建产物 + 静态资源，小而常变。 */
 export const SHELL_CACHE = `cp-shell-${SHELL_VERSION}`
 
-/** 工具链桶：clang / wasm-ld / sysroot / CPython，体积大、随 URL 固定，不带版本号。 */
-export const TOOLCHAIN_CACHE = 'cp-toolchain-v3'
-
 /**
- * 工具链桶的前缀。卸载运行时按前缀全扫，而不是只认当前这一个名字 ——
- * 改名之后，总还有用户的浏览器上留着上一代的桶。
+ * 工具链桶：clang / wasm-ld / sysroot / CPython。
+ *
+ * **桶名刻意不带版本尾缀**（2026-10-01 去掉 `-v3`）：
+ * 1) 它同时被当成「上一代桶」的**前缀**用 —— 卸载时要扫掉所有 `cp-toolchain*`，
+ *    带尾缀的话哪怕只是换个版本号，前缀就配不上老桶了（见 runnoSandbox 的 purgeRuntimeCache）；
+ * 2) 换代本来就靠资产路径自然失效（`public/wasm/<版本>/`），桶名再带版本是重复的第二套版本号。
  */
-export const TOOLCHAIN_CACHE_PREFIX = 'cp-toolchain'
+export const TOOLCHAIN_CACHE = 'cp-toolchain'
 
 /** 题解渲染器桶（katex + marked）：页面在用户点「下载」时写入，SW 只负责别清它。 */
-export const MD_CACHE = 'cp-md-runtime-v1'
+export const MD_CACHE = 'cp-md-runtime'
 
 /**
- * 改名前的桶名 → 现在的桶名。SW 在 activate 阶段按这张表原样搬运，再删掉旧桶。
+ * 改名前的桶名 → 现在的桶名。SW 在 activate 阶段按这张表原样搬运，再删掉旧桶
+ * ——**不搬就等于让老用户白下那 76MB**。
+ *
+ * 条目是「历史层积」而不是废弃代码：改名那一刻浏览器上还留着哪个旧桶，就得认这个名字。
+ * 顺序无所谓（每条都会先查目标桶里有没有，不重复搬）。
  * 外壳桶不在表里：它装的是带内容哈希的构建产物，重新预缓存本来就是升级外壳该做的事。
  */
 export const LEGACY_BUCKETS = [
+  // 2026-10-01：去掉版本尾缀（cp-toolchain-v3 → cp-toolchain）
+  ['cp-toolchain-v3', TOOLCHAIN_CACHE],
+  ['cp-md-runtime-v1', MD_CACHE],
+  // 2026-10-01 更早一步：去掉 `cph-` 前缀（cph-* → cp-*）
   ['cph-toolchain-v3', TOOLCHAIN_CACHE],
   ['cph-md-runtime-v1', MD_CACHE],
 ]

@@ -25,7 +25,7 @@
 import { WASIWorkerHost } from '@runno/wasi'
 import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
-import { TOOLCHAIN_CACHE_PREFIX } from './storageNames.js'
+import { TOOLCHAIN_CACHE } from './storageNames.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
 import { fsEntry as wasiFile } from './vfs/runnoFs.js'
@@ -662,14 +662,18 @@ export async function unloadRuntime(language) {
 
 /**
  * 从所有工具链缓存里删掉该语言的资产条目。
- * 按**前缀**全扫、不只认当前那一个桶名：改名后老用户的浏览器上还可能留着上一代的桶
- * （名字与迁移清单见 services/storageNames.js）。
+ *
+ * 按**前缀**全扫、不只认当前那一个桶名：这名字改过好几代
+ * （`cph-toolchain-v3` → `cp-toolchain-v3` → `cp-toolchain`），而 SW 的搬运要等
+ * activate 才跑；页面先动手的话旧桶还在，只删新桶会留下那份残留 ——
+ * 后果正是坑 23 那条「卸了像没卸」（探针一扫到残留就把资产判回已就绪）。
+ * 桶名现在刻意不带版本尾缀，所以当前名字本身就是这张前缀。
  */
 async function purgeRuntimeCache(language) {
   const urls = runtimeAssetURLs(language)
   if (!urls.length || typeof caches === 'undefined') return
   try {
-    const names = (await caches.keys()).filter((name) => name.startsWith(TOOLCHAIN_CACHE_PREFIX))
+    const names = (await caches.keys()).filter((name) => name.startsWith(TOOLCHAIN_CACHE))
     await Promise.all(
       names.map(async (name) => {
         const cache = await caches.open(name)
