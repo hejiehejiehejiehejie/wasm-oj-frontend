@@ -8,6 +8,7 @@ import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { applyUiScale, DEFAULT_UI_SCALE, normalizeUiScale, uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
+import { autoScrapeState, useCompanionBridge } from './composables/useCompanionBridge.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
 import { flush, initAutoSave, setAutoSaveEnabled } from './services/autoSave.js'
@@ -19,9 +20,11 @@ import { initWorkspace } from './services/vfs/migrate.js'
 import {
   activeLanguage,
   activeNode,
+  getNodeById,
   initWorkspaceStore,
   peekActiveContent,
   saveAll,
+  updateFileConfig,
 } from './services/vfs/workspaceStore.js'
 import { modelManager } from './services/monaco/modelManager.js'
 import {
@@ -32,7 +35,7 @@ import {
   mdFullscreen,
 } from './services/mdView.js'
 import { MD_SHORTCUTS } from './services/mdFormat.js'
-import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/settingsTab.js'
+import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
 import {
   EDITOR_SETTINGS_DEFAULTS,
@@ -207,15 +210,100 @@ function createCase(seed = {}) {
   }
 }
 
-const testCases = usePersistentRef('cp.testCases', [
-  createCase({ input: '1 2', expectedOutput: '3' }),
-  createCase({ input: '-8 15', expectedOutput: '7' }),
-], {
-  // 只持久化用户手写的内容，运行结论每次打开都重新来。
-  serialize: (list) => list.map(({ input, expectedOutput }) => ({ input, expectedOutput })),
-  revive: (list) =>
-    Array.isArray(list) ? list.map((item) => createCase({ input: item?.input ?? '', expectedOutput: item?.expectedOutput ?? '' })) : [],
+/**
+ * 样例的唯一出处是**当前文件**（node.config.tests，即扩展抓来的原文）：
+ * 切到哪个文件就显示哪个文件的样例；用户自己建的 .cpp、或题目还没抓过样例，
+ * 面板就是空的 —— 绝不把上一个文件留下的那份接着用。
+ * 用户改了面板里的两栏，也会（防抖）回写进这个文件的 config，见下面「用例回写」。
+ *
+ * 这正好是「抽题导入（样例为空）→ 打开题目页 → 扩展补抓 → 样例落回同一个文件」
+ * 这条链路在界面上的收尾：补抓会重写该文件的 config，紧接着的一次树重建就把它带进面板，
+ * 所以这里不需要（也不该有）第二条写 testCases 的通路 —— 导入回调里直接灌一份的话，
+ * 万一用户在导入落地前切换了文件，灌进来的就是别的题的样例。
+ *
+ * @param {unknown} raw node.config.tests
+ * @returns {Array<{ input: string, expectedOutput: string }>}
+ */
+function normalizeTests(raw) {
+  const tests = Array.isArray(raw) ? raw : []
+  // 扩展送来的样例是 { input, output }，评测面板那一侧叫 expectedOutput，在这层翻一下。
+  // 两栏一律收成字符串：面板里是 textarea，写回文件也要是字符串，否则「有没有变」比不出来。
+  return tests
+    .filter((test) => test && typeof test === 'object')
+    .map((test) => ({ input: String(test.input ?? ''), expectedOutput: String(test.output ?? '') }))
+}
+
+/** 两组样例是不是一模一样（只比用户能改的两栏） */
+function sameTests(a, b) {
+  return (
+    a.length === b.length &&
+    a.every((item, i) => item.input === b[i].input && item.expectedOutput === b[i].expectedOutput)
+  )
+}
+
+const testCases = ref([])
+
+/** 面板里这批样例是从哪个文件读来的（回写靠它认路；null = 还没有文件） */
+let casesNodeId = null
+
+// ------------------------------------------------------------ 用例回写
+// 用户手写的两栏跟着文件走：切走再切回来、刷新页面，都还在（原本是全局存 localStorage，
+// 那正是「打开 B 题却看见 A 题样例」的来源）。只动 config.tests 这一个字段，
+// 扩展抓来的其余字段（name / url / timeLimit…）原样保留。
+const CASES_WRITE_DELAY = 500
+let casesWriteTimer = 0
+/** 欠着的那一笔：{ id, tests }。快照在**调度时**就取好 —— 之后 testCases 换成了别的文件也不影响它 */
+let casesWritePending = null
+
+// 只看用户手写的两栏：状态 / 耗时 / 运行结论的变化不该触发回写
+const casesSignature = computed(() =>
+  JSON.stringify(testCases.value.map(({ input, expectedOutput }) => [input, expectedOutput])),
+)
+
+function flushCasesWrite() {
+  window.clearTimeout(casesWriteTimer)
+  casesWriteTimer = 0
+  const pending = casesWritePending
+  casesWritePending = null
+  if (!pending?.id) return
+
+  const node = getNodeById(pending.id)
+  if (!node || node.type !== 'file') return
+  // 与文件里现存的一样就什么都不做 —— 否则「读回来 → 写回去 → 树重建 → 再读回来」会空转
+  if (sameTests(normalizeTests(node.config?.tests), pending.tests)) return
+  // 存回扩展那套字段名（{ input, output }），下次读回来才对得上
+  void updateFileConfig(node.path, {
+    ...node.config,
+    tests: pending.tests.map(({ input, expectedOutput }) => ({ input, output: expectedOutput })),
+  })
+}
+
+watch(casesSignature, () => {
+  if (!casesNodeId) return
+  casesWritePending = {
+    id: casesNodeId,
+    tests: testCases.value.map(({ input, expectedOutput }) => ({ input, expectedOutput })),
+  }
+  window.clearTimeout(casesWriteTimer)
+  casesWriteTimer = window.setTimeout(flushCasesWrite, CASES_WRITE_DELAY)
 })
+
+// ------------------------------------------------------- 面板跟随当前文件
+watch(
+  activeNode,
+  (node) => {
+    // 上一份欠着的回写先发出去：改完用例立刻切文件，不该丢掉这一笔
+    flushCasesWrite()
+    const id = node ? node.id : null
+    const seeds = normalizeTests(node?.config?.tests)
+    // 内容没变就原样留着：一来保住每张卡上的运行结论（回写自己也会引发一次树重建），
+    // 二来省掉「刚写进去又当成一次外部修改读回来」的空转
+    if (id === casesNodeId && sameTests(testCases.value, seeds)) return
+    casesNodeId = id
+    testCases.value = seeds.map((seed) => createCase(seed))
+  },
+  { immediate: true },
+)
 
 const totals = computed(() => {
   const tally = { passed: 0, failed: 0, error: 0, running: 0 }
@@ -513,6 +601,35 @@ const runBlockedReason = computed(() => {
   return activeNode.value ? t('tests.panel.runBlocked') : t('tests.panel.runBlockedNoFile')
 })
 
+/**
+ * 空态里那行「样例还没到」的提示。
+ *
+ * 判据是**当前文件是一道题**（meta.url 有值，说明它是抓下来的、不是用户自己建的）
+ * 且样例还是空的 —— 用户自己写的新文件不该被塞一句「打开题目页会自动抓」。
+ * 题目从哪来、抓得到抓不到，由 useCompanionBridge 那台状态机说了算。
+ */
+const emptyNotice = computed(() => {
+  const node = activeNode.value
+  if (!node?.meta?.url || testCases.value.length) return null
+
+  const state = autoScrapeState(node.meta.url)
+  if (state === 'fetching') return { text: t('tests.empty.fetching'), tone: 'info' }
+  if (state === 'failed') return { text: t('tests.empty.fetchFailed'), tone: 'warn' }
+  // 握手已确认「没装插件」时给另一句实话：此时点题目链接也不会有人抓。
+  // 握手还在路上（checking）时不急着下结论，先按正常文案显示，免得闪一下错话
+  if (!extensionInfo.value && !extensionChecking.value) {
+    return { text: t('tests.empty.awaitingNoExtension'), tone: 'warn' }
+  }
+  // 「还没到手」这句中间的「题目链接」是可点的：给 TestPanel 一个 url，让它拼出 <a>
+  return {
+    tone: '',
+    url: node.meta.url,
+    before: t('tests.empty.awaitingFetchBefore'),
+    linkText: t('tests.empty.awaitingFetchLink'),
+    after: t('tests.empty.awaitingFetchAfter'),
+  }
+})
+
 async function runAll() {
   if (running.value) {
     abortController?.abort()
@@ -673,15 +790,16 @@ function onKeydown(event) {
 }
 
 // ------------------------------------------------------- 浏览器扩展导入题目
-// 扩展推来的题目由 problemImport 落进 VFS，并顺手把编辑器切过去；这里补两脚：
-// 1) 抓到的样例整体替换评测面板（新题来了，旧题目的样例已经作废）；
-// 2) 若这道题本就开着、activeId 没变，EditorPane 的 watch 不响，得自己把焦点抢回编辑区。
+// 扩展推来的题目由 problemImport 落进 VFS，并顺手把编辑器切过去；评测面板里的样例
+// 由上面那条跟随 activeNode 的重载负责 —— 抓来的 tests 就在这个文件的 config 里。
+// 这里只补一脚：若这道题本就开着、activeId 没变，EditorPane 的 watch 不响，
+// 得自己把焦点抢回编辑区。
 useCompanionImport({
-  setTestCases: (tests) => {
-    testCases.value = tests.map((test) => createCase(test))
-  },
   onImported: () => editorPane.value?.focus(),
 })
+
+// 空态提示要按「插件装没装」分岔：attach 是幂等的，这里只为读全局状态
+const { extensionInfo, checking: extensionChecking } = useCompanionBridge()
 
 // ------------------------------------------------------------ 自动保存
 // 只剩两个离开时点要挂在这里：窗口失焦、页面切到后台。
@@ -689,6 +807,9 @@ useCompanionImport({
 let disposeAutoSave = null
 function onWindowBlur() {
   void flush()
+  // 面板里刚敲下去的用例也一并算清：点刷新按钮会先触发 window blur，
+  // 那 500ms 的防抖窗口里不该丢掉最后一笔
+  flushCasesWrite()
 }
 function onVisibilityChange() {
   if (document.hidden) void flush()
@@ -709,8 +830,8 @@ onMounted(async () => {
     /* 存储不可用时静默；界面仍可使用 */
   }
   // 地址里带来的 /<handle>：先确认云端有没有这份配置，再决定要不要打开设置页。
-  // 必须等上面两步跑完：会话恢复会把 workspace.activeId 设回上次那个文件，而 settingsTab 的
-  // 规矩是「活跃文件一变就让开」（见 settingsTab.js 末尾那个 watch），早开一步会被紧接着的
+  // 必须等上面两步跑完：会话恢复会把 workspace.activeId 设回上次那个文件，而 editorViews 的
+  // 规矩是「活跃文件一变就让开」（见 editorViews.js 末尾那个 watch），早开一步会被紧接着的
   // 这次变更立刻关掉。识别在 main.js 里做了（地址保持原样不抹，见 cloudEntry.js）；
   // 云端没有配置时 confirmCloudEntry 会把地址抹回根路径、只弹一句提示，这里就不开设置页。
   // **刻意不 await**：这次探测要发一个网络请求，卡在这里会把下面三件事一并推迟到它回来之后
@@ -807,6 +928,7 @@ onBeforeUnmount(() => {
               :running="running"
               :elapsed="elapsed"
               :run-blocked="runBlockedReason"
+              :notice="emptyNotice"
               @add="addCase"
               @remove="removeCase"
               @run-one="runOne"

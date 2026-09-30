@@ -18,13 +18,18 @@
  * 设置那颗在胶囊之外、自带点击：它开关的是编辑区里的设置页签，与面板互不排斥，
  * 塞进同一枚胶囊会暗示它也是面板、也在同一个 toggle 里。
  *
+ * 抽题那颗（2026-10 新增，可选模块）排在设置齿轮**左边**，视觉语言与齿轮完全一致
+ * （同一颗圆形图标钮、开着时填亮）。它在 `ready` 为假时整个不渲染：没下载过这个模块的
+ * 用户页头里就不该多一颗按不动的按钮 —— 那是「可选」两个字在界面上的落实。
+ * 顺序刻意是「抽题 → 设置」：齿轮是常驻的那个，位置不该被一个可选模块挤走。
+ *
  * 都只画图标不写字：页头空间本来就紧张，名字靠 title / aria-label 交代。
  */
 import { inject } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { t } from '../i18n/index.js'
 
-const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings } =
+const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings, cfPicker } =
   inject('sidebarTabs')
 </script>
 
@@ -52,6 +57,21 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings 
       </span>
     </button>
 
+    <!-- 抽题组件（可选模块）：没下载过就整颗不渲染。放在齿轮左边 —— 齿轮是常驻入口，
+         位置不该被一个可卸载的模块推动；而这一颗在卸载后会消失，留下的空位不该在齿轮右侧。 -->
+    <button
+      v-if="cfPicker.ready"
+      type="button"
+      class="sidebar-switcher__tab"
+      :class="{ 'is-active': cfPicker.active }"
+      :title="cfPicker.title"
+      :aria-label="cfPicker.label"
+      :aria-pressed="cfPicker.active"
+      @click="cfPicker.toggle"
+    >
+      <AppIcon :name="cfPicker.icon" size="16" />
+    </button>
+
     <button
       type="button"
       class="sidebar-switcher__tab"
@@ -70,7 +90,9 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings 
 .sidebar-switcher {
   display: inline-flex;
   align-items: center;
-  /* 轨道 60px + 间距 4px + 设置钮 26px = 90px，与「三颗 30px」时的占位一致 */
+  /* 轨道 60px + 间距 4px + 设置钮 26px = 90px，与「三颗 30px」时的占位一致。
+     抽题那颗是可选的：下载过这个模块时再 +30px（26px 钮 + 4px 间距），
+     页头得容得下这个浮动宽度 —— 它只影响侧栏页头，不会挤到编辑器。 */
   gap: 4px;
   /* 26px 高 + 页头上下各 4px 内边距 + 1px 下边框 = 35px，与面板头同高 */
   height: 26px;

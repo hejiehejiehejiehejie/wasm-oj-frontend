@@ -27,6 +27,7 @@
 import { ref, watch } from 'vue'
 
 import app from './messages/app.js'
+import cf from './messages/cf.js'
 import engines from './messages/engines.js'
 import explorer from './messages/explorer.js'
 import help from './messages/help.js'
@@ -44,7 +45,7 @@ export const DEFAULT_LOCALE = 'zh-CN'
 /** localStorage 键。刻意不复用已作废的 `cph.language`，见文件头说明。 */
 export const LOCALE_STORAGE_KEY = 'cp.uiLocale'
 
-const PARTS = [app, engines, explorer, help, settings, tests]
+const PARTS = [app, cf, engines, explorer, help, settings, tests]
 
 /** locale → 扁平消息表。各域文件导出的是 `{ 'zh-CN': {...}, en: {...} }`，在这里按语言合并。 */
 const TABLES = LOCALES.reduce((tables, { id }) => {

@@ -26,6 +26,24 @@ export default {
       empty: {
         title: '暂无测试用例',
         text: '点击下方按钮新增一个用例，填写标准输入与期望输出。',
+        /**
+         * 空态里追加的一行提示，只在「当前文件是一道题、而它的样例还是空的」时出现
+         * （判据与状态机都在 useCompanionBridge.js 的 autoScrapeState）。
+         * 三种状态的文案与那三个值一一对应，别只改一边。
+         */
+        /**
+         * 「样例还没到手」这句被拆成三段：中间的「题目链接」是个可点的 <a>
+         * （href 是当前文件的 meta.url，由 TestPanel 拼），三段合起来才是一句完整的话。
+         * 改任何一段都要看另外两段，别把句子改断了。
+         */
+        awaitingFetchBefore: '打开',
+        awaitingFetchLink: '题目链接',
+        awaitingFetchAfter: '，浏览器插件会自动抓取样例',
+        /** 没检测到插件时的替代句：链接再点也不会有人抓，得先把插件这环修好 */
+        awaitingNoExtension:
+          '这是一道题目，样例还没到手。但未检测到浏览器插件，打开题目页也不会自动抓——先安装或重新加载插件，再刷新本页',
+        fetching: '正在从题目页自动抓取样例…',
+        fetchFailed: '自动抓取样例没成功，重新打开题目页可以再试一次',
       },
 
       /** 页头判定语。AC 是「通过」的通用说法，两套语言都不译。 */
@@ -106,6 +124,16 @@ export default {
       empty: {
         title: 'No test cases yet',
         text: 'Use the button below to add one, then fill in the standard input and expected output.',
+        /** 见 zh-CN 那侧的说明：三种状态与 autoScrapeState 的三个值一一对应。
+         *  「样例还没到手」这句拆成三段，中间一段是可点的题目链接（见 zh-CN） */
+        awaitingFetchBefore: 'Open the ',
+        awaitingFetchLink: 'problem link',
+        awaitingFetchAfter: ' and the browser extension will fetch the samples',
+        /** 同 zh-CN：没检测到插件时的替代句 */
+        awaitingNoExtension:
+          'This problem has no samples yet, and no browser extension was detected — opening the problem page will not fetch them. Install or reload the extension, then refresh this page',
+        fetching: 'Fetching samples from the problem page…',
+        fetchFailed: 'Could not fetch the samples automatically. Open the problem page again to retry',
       },
 
       verdict: {

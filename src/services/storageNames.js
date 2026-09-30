@@ -72,6 +72,13 @@ export const PCH_DB_NAME = 'cp-pch'
 /** 改名前的 PCH 库名：约 6.9MB，确认新库打开成功后静默删除。 */
 export const LEGACY_PCH_DB_NAME = 'cph-pch'
 
+/**
+ * Codeforces 抽题组件的缓存库：题库 / 已 AC / 账号校验。
+ * 纯缓存（没有用户数据），卸载组件时整库删掉即可，**不需要 LEGACY_ 名** ——
+ * 它是新增特性，没有「改名那一刻还在用旧名字」的老用户。
+ */
+export const CF_DB_NAME = 'cp-cf'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**

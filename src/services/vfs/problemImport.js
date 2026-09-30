@@ -10,8 +10,12 @@
  * main.cpp 等平铺。老工作区里存在的 /Problems 由 migrate.js 一次性搬空。
  *
  * 为什么要分「年月 / OJ / 难度」三层：抓来的题攒多了，平铺在一个 OJ 目录下没法看。年月粒度取到月
- * （按天会长出大量只含一个文件的目录）；难度导入时一律为空（来源站点口径不一，由用户手填），
- * 先落「未分类」占位，用户填了不会自动搬动（见下面的身份判据）。
+ * （按天会长出大量只含一个文件的目录）。
+ *
+ * 【难度从哪来】扩展抓来的题难度一律为空（来源站点口径不一，由用户手填），落「未分类」占位；
+ * 但像 Codeforces 抽题这种**自带确定 rating** 的来源，调用方把难度作为 `options.difficulty`
+ * 传进来，就按它分目录（`/<年月>/<OJ>/1600/…`）。两种情形下，文件一旦落盘就不再搬动
+ * ——用户后来手改了难度也不会挪目录，搬动 = 丢题解（见下面的身份判据）。
  *
  * 为什么不给每道题套一个目录：树里多一层「题目名/」纯是噪音，点开一道题还得再点一次才见得到代码。
  * 题名直接做文件名，一眼就是这道题。元数据不另立文件（早期做法是在同级藏一份同名 json），
@@ -34,14 +38,22 @@
  * 用户后来填了难度、或跨月再抓，都不会把已有文件搬走（搬动 = 丢题解）。
  */
 import { t } from '../../i18n/index.js'
-import { OJ_LIST, normalizeMeta, todayISO } from '../problemMeta.js'
-import { deactivateSettingsTab } from '../settingsTab.js'
+import { OJ_LIST, normalizeDifficulty, normalizeMeta, todayISO } from '../problemMeta.js'
+import { deactivateViews } from '../editorViews.js'
 import { dirname, join, normalize, stem } from './paths.js'
 import { getVFS } from './vfsFactory.js'
 import { openFile } from './workspaceStore.js'
 
-/** 难度为空时的占位目录名：导入时难度一律为空，用户手填后也不搬动已有文件 */
+/** 难度为空时的占位目录名（扩展抓的题都属于这一类）；用户手填难度后也不搬动已有文件 */
 const UNCATEGORIZED = '未分类'
+
+/**
+ * 难度目录名。直接用难度 id 本身（CF 的分数段就是 `1600` 这样的数字），与 OJ 目录同理：
+ * 目录名走 language-invariant 的 id，不搬显示名，免得切一次语言目录就跟着改名。
+ * @param {string} difficulty 已经过 normalizeDifficulty 校验，要么是合法 id、要么空串
+ * @returns {string}
+ */
+const difficultyDir = (difficulty) => (difficulty ? sanitizeName(difficulty) : UNCATEGORIZED)
 
 /**
  * 代码文件后缀写死 cpp：扩展送来的 languages 里只有 java（TaskBuilder 的固定默认值
@@ -201,9 +213,12 @@ async function resolveFreeName(vfs, dir, baseName) {
  * 把一份扩展解析结果导入工作区，并把编辑器切到这个代码文件上。
  * 重复抓取同一道题：正文保留，样例与元数据刷新。
  * @param {Record<string, any>} task 扩展推来的题目 JSON
+ * @param {object} [options]
+ * @param {string} [options.difficulty] 已知难度（如 CF 的 rating `'1600'`）。给了就按它分目录，
+ *   并作为元数据的初值；不给（扩展抓题）则落「未分类」。用户已手填过难度时以用户填的为准
  * @returns {Promise<{ name: string, ojDir: string, codePath: string, created: boolean, config: Record<string, any>, node: import('./BaseVFSProvider.js').VFSNode }>}
  */
-export async function importProblem(task) {
+export async function importProblem(task, options = {}) {
   if (!task || typeof task !== 'object') throw new Error(t('error.importEmpty'))
 
   const vfs = getVFS()
@@ -215,9 +230,13 @@ export async function importProblem(task) {
   // 落盘与回传给调用方的是同一份（调用方要拿它里面的 tests 灌评测面板）
   const config = buildConfig(task, ojId)
 
+  // 已知难度先过一遍该 OJ 的尺子：目录名与写进 meta 的值必须是同一个，
+  // 否则会出现「目录叫 1623、元数据里却没有难度」这种自相矛盾的状态
+  const difficulty = normalizeDifficulty(ojId, options.difficulty)
+
   // 新题的落点：/<年月>/<OJ>/<难度>（无外层 wrapper，直接与用户自己的文件平铺在根下）。
-  // 难度导入时一律为空（来源站点口径不一），先落「未分类」
-  const defaultDir = join(todayMonth(), ojLabel, UNCATEGORIZED)
+  // 没有已知难度时落「未分类」。这个目录只用于**新题** —— 已存在的题按 url 找回原目录复用，不搬动
+  const defaultDir = join(todayMonth(), ojLabel, difficultyDir(difficulty))
   const candidateCode = codePathOf(defaultDir, baseName)
 
   // 1) 快路径：算出来的新路径上文件名与 url 都对上，就是这道题
@@ -245,15 +264,15 @@ export async function importProblem(task) {
     // 【硬要求】已存在的代码文件一个字都不动 —— 那里面是用户写的题解
     if (!existingCode) await vfs.createFile(codePath, NEW_FILE_CONTENT)
 
-    // 抓取器管得着的字段（url / oj / timeLimit）每次刷新；难度是用户自己填的，保留；
-    // 日期只在首次导入时播种，之后不再覆盖
+    // 抓取器管得着的字段（url / oj / timeLimit）每次刷新；难度以**用户手填的**为准，
+    // 没填过才用本次带来的建议值（CF 的 rating）；日期只在首次导入时播种，之后不再覆盖
     const previousMeta = existingCode?.meta
     const nextNode = await vfs.setMeta(
       codePath,
       normalizeMeta({
         url,
         oj: ojId,
-        difficulty: previousMeta?.difficulty ?? '',
+        difficulty: previousMeta?.difficulty || difficulty,
         date: previousMeta?.date || todayISO(),
         timeLimit: typeof task.timeLimit === 'number' && task.timeLimit > 0 ? task.timeLimit : 0,
       }),
@@ -266,10 +285,10 @@ export async function importProblem(task) {
     return nextNode
   })
 
-  // 焦点跳转：设置视图可能正占着编辑器（那时 activeId 没变，settingsTab 的
+  // 焦点跳转：合成视图（设置 / 抽题）可能正占着编辑器（那时 activeId 没变，editorViews 的
   // 自动让位 watch 不会触发），先显式让开；openFile 负责建 model、开页签、展开祖先目录。
   // 已经打开过这道题时 activeId 不变，EditorPane 的 watch 不响，由调用方补一次 focus。
-  deactivateSettingsTab()
+  deactivateViews()
   await openFile(node.id, node)
 
   return { name, ojDir: dir, codePath, created: !existingCode, config, node }

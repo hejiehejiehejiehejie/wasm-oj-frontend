@@ -15,6 +15,13 @@ const props = defineProps({
    * 它同时是三处地方：页脚那行说明、两个 ▶ 的 title、以及「置灰」这件事的判据。
    */
   runBlocked: { type: String, default: '' },
+  /**
+   * 空态里追加的一行提示，没有就是 null（非题目文件、或样例已经在了）。两种形状：
+   *   { text, tone }                            —— 纯文本（正在抓 / 抓失败）
+   *   { before, linkText, after, url, tone }    —— 中间带一个可点的题目链接（还没到手）
+   * tone：'' 走常态的暗灰，'info' 是进行中，'warn' 是失败。
+   */
+  notice: { type: Object, default: null },
 })
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all'])
@@ -71,6 +78,17 @@ const elapsedText = computed(() => {
       <li v-if="!cases.length" class="empty">
         <p class="empty__title">{{ t('tests.empty.title') }}</p>
         <p class="empty__text">{{ t('tests.empty.text') }}</p>
+        <p v-if="notice" class="empty__notice" :data-tone="notice.tone">
+          <!-- 带题目链接的形状：before + <a> + after 三段拼成一句（另两段是纯文本，见 props 说明） -->
+          <template v-if="notice.url">
+            {{ notice.before
+            }}<a class="empty__link" :href="notice.url" target="_blank" rel="noopener noreferrer">{{
+              notice.linkText
+            }}</a
+            >{{ notice.after }}
+          </template>
+          <template v-else>{{ notice.text }}</template>
+        </p>
         <button class="add add--inline" @click="emit('add')">
           <AppIcon name="plus" :size="13" />
           <span>{{ t('tests.panel.addFirst') }}</span>
@@ -229,6 +247,33 @@ const elapsedText = computed(() => {
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-faint);
+}
+
+/* 自动抓取样例那一路的提示：与上一行同字号，靠颜色区分「等着 / 正在抓 / 抓失败了」 */
+.empty__notice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.empty__notice[data-tone='info'] {
+  color: var(--accent-strong);
+}
+
+.empty__notice[data-tone='warn'] {
+  color: var(--warn);
+}
+
+/* 提示里的题目链接：与整行同字号同色系，只靠下划线表明「可点」，不抢戏 */
+.empty__link {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.empty__link:hover {
+  color: var(--accent-strong);
 }
 
 .add {

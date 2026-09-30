@@ -16,11 +16,15 @@ import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import {
+  activateCfPickerTab,
   activateSettingsTab,
+  cfPickerTab,
+  closeCfPickerTab,
   closeSettingsTab,
-  deactivateSettingsTab,
+  deactivateViews,
   settingsTab,
-} from '../services/settingsTab.js'
+  viewActive,
+} from '../services/editorViews.js'
 import {
   closeTab,
   getNodeById,
@@ -30,9 +34,9 @@ import {
 } from '../services/vfs/workspaceStore.js'
 
 function activate(id) {
-  // 点文件页签＝要看代码：先把设置视图让开。已经停在同一个文件上时
-  // activeId 不变，settingsTab 里那条 watch 不会触发，所以这里必须显式让一次。
-  deactivateSettingsTab()
+  // 点文件页签＝要看代码：先把合成视图（设置 / 抽题）让开。已经停在同一个文件上时
+  // activeId 不变，editorViews 里那条 watch 不会触发，所以这里必须显式让一次。
+  deactivateViews()
   setActiveTab(id)
 }
 
@@ -41,10 +45,11 @@ function isDirtyTab(id) {
   return !autoSaveEnabled.value && modelManager.isDirty(id)
 }
 
-function onSettingsMouseDown(event) {
+/** 中键关掉合成视图页签（设置 / 抽题同一套） */
+function onViewMouseDown(event, close) {
   if (event.button === 1) {
     event.preventDefault()
-    closeSettingsTab()
+    close()
   }
 }
 
@@ -66,12 +71,12 @@ function onMouseDown(event, id) {
         type="button"
         class="editor-tabs__item"
         :class="{
-          'editor-tabs__item--active': id === workspace.activeId && !settingsTab.active,
+          'editor-tabs__item--active': id === workspace.activeId && !viewActive,
           'editor-tabs__item--preview': id === workspace.previewTabId,
         }"
         role="tab"
         :data-preview="id === workspace.previewTabId || undefined"
-        :aria-selected="id === workspace.activeId && !settingsTab.active"
+        :aria-selected="id === workspace.activeId && !viewActive"
         :title="getNodeById(id)?.path"
         @click="activate(id)"
         @dblclick="pinTab(id)"
@@ -94,6 +99,31 @@ function onMouseDown(event, id) {
         </span>
       </button>
 
+      <!-- 抽题页签：默认安装的组件，题库就绪后才有侧栏入口（cfPickerTab.open 只由侧栏那颗骰子按钮点亮）。
+           排在设置之前，与侧栏页头里「骰子在齿轮左侧」的顺序一致 -->
+      <button
+        v-if="cfPickerTab.open"
+        type="button"
+        class="editor-tabs__item"
+        :class="{ 'editor-tabs__item--active': cfPickerTab.active }"
+        role="tab"
+        :aria-selected="cfPickerTab.active"
+        :title="t('cf.button.label')"
+        @click="activateCfPickerTab"
+        @mousedown="onViewMouseDown($event, closeCfPickerTab)"
+      >
+        <AppIcon name="dice" :size="12" class="editor-tabs__icon" />
+        <span class="editor-tabs__label">{{ t('cf.button.label') }}</span>
+        <span
+          class="editor-tabs__close"
+          role="button"
+          :aria-label="t('cf.tab.close')"
+          @click.stop="closeCfPickerTab"
+        >
+          <AppIcon name="close" :size="12" />
+        </span>
+      </button>
+
       <!-- 设置页签：与代码文件同一个皮，排在文件之后（跟「新开的排最后」一致）。
            dirty 圆点不适用（设置是即时生效的，没有保存概念），所以图标固定是齿轮 -->
       <button
@@ -105,7 +135,7 @@ function onMouseDown(event, id) {
         :aria-selected="settingsTab.active"
         :title="t('app.settings')"
         @click="activateSettingsTab"
-        @mousedown="onSettingsMouseDown"
+        @mousedown="onViewMouseDown($event, closeSettingsTab)"
       >
         <AppIcon name="gear" :size="12" class="editor-tabs__icon" />
         <span class="editor-tabs__label">{{ t('app.settings') }}</span>

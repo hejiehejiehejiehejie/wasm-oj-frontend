@@ -16,7 +16,15 @@
 import { computed, provide, ref } from 'vue'
 import { t } from '../i18n/index.js'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
-import { closeSettingsTab, openSettingsTab, settingsTab } from '../services/settingsTab.js'
+import { cfReady } from '../services/cfRuntime.js'
+import {
+  cfPickerTab,
+  closeCfPickerTab,
+  closeSettingsTab,
+  openCfPickerTab,
+  openSettingsTab,
+  settingsTab,
+} from '../services/editorViews.js'
 
 // 侧边栏里的两个面板。数组顺序就是页头胶囊里两段的顺序。
 // 只存 key：翻译必须发生在渲染那一刻（见 i18n 的调用纪律），下面的两个 computed 负责 t()。
@@ -68,12 +76,30 @@ function toggleSettings() {
   settingsTab.active ? closeSettingsTab() : openSettingsTab()
 }
 
+/** 骰子那颗：开着就收起抽题页签，与设置齿轮同一套肌肉记忆 */
+function toggleCfPicker() {
+  cfPickerTab.active ? closeCfPickerTab() : openCfPickerTab()
+}
+
 // 设置那颗整条做成一个 computed 对象：属性跟着 settingsTab 走，
 // 下发给子组件后在模板里直接写 settings.active 就行（不用 .value）
 const settingsEntry = computed(() => ({
   icon: 'gear',
   label: t('app.settings'),
   active: settingsTab.active,
+}))
+
+// 抽题组件那颗：它默认安装（启动时静默预取题库），但预取未完成前页头里根本不该有它 ——
+// 所以是 ready 驱动的显示/隐藏，而不是禁用态。状态在 services/cfRuntime.js 里，侧栏与
+// 设置页那一行读的是同一个 cfReady。
+// 点它开的是编辑区里的合成页签（与设置同形态），所以与齿轮并排、不进胶囊。
+const cfPickerEntry = computed(() => ({
+  icon: 'dice',
+  label: t('cf.button.label'),
+  title: t(cfPickerTab.active ? 'cf.button.close' : 'cf.button.open'),
+  active: cfPickerTab.active,
+  ready: cfReady.value,
+  toggle: toggleCfPicker,
 }))
 
 provide('sidebarTabs', {
@@ -83,6 +109,7 @@ provide('sidebarTabs', {
   hasSwitched,
   settings: settingsEntry,
   toggleSettings,
+  cfPicker: cfPickerEntry,
 })
 
 // 供父组件从外部切到指定面板（如 App.vue 在开跑时要把「评测样例」亮出来）。

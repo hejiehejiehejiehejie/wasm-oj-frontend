@@ -10,8 +10,8 @@
  *   抢在 Monaco 之前就把按键拦走了（见 composables/useShortcutManager.js）。
  *   题解那 14 条格式键位是例外：它们只该在 .md 里生效，所以反过来注册在这里，
  *   靠 `editorLangId == markdown` 划作用域（见 registerMarkdownActions）；
- * - 「设置」是与代码文件平级的合成页签：它显示时只是把 Monaco 藏起来（v-show，
- *   实例和 model 都留着），设置视图铺在同一层。
+ * - 「设置」「Codeforces 抽题」是与代码文件平级的合成页签：它们显示时只是把 Monaco 藏起来
+ *   （v-show，实例和 model 都留着），视图铺在同一层、同一时刻只亮一个。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { t } from '../i18n/index.js'
@@ -23,7 +23,7 @@ import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
-import { deactivateSettingsTab, settingsTab } from '../services/settingsTab.js'
+import { cfPickerTab, deactivateViews, settingsTab, viewActive } from '../services/editorViews.js'
 import {
   MD_VIEW_MODES,
   MD_VIEW_SHORTCUT,
@@ -46,6 +46,7 @@ import {
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import AppIcon from './AppIcon.vue'
+import CfPickerPanel from './CfPickerPanel.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import EditorTabs from './EditorTabs.vue'
 import MarkdownPreview from './MarkdownPreview.vue'
@@ -90,11 +91,11 @@ const isDropTarget = computed(() => dropZone.value !== null && activeDropZone.va
 /**
  * 拖进来的文件：已经开着就切到那个页签，没开就常开一个（固定，不是预览页签）。
  *
- * 设置视图要主动让位 —— settingsTab 只在 workspace.activeId **变化**时自动收回，
+ * 合成视图要主动让位 —— editorViews 只在 workspace.activeId **变化**时自动收回，
  * 而拖进来的文件如果本来就是当前活跃文件，activeId 压根不变（EditorTabs 的 activate 同理）。
  */
 async function openDroppedFile(node) {
-  deactivateSettingsTab()
+  deactivateViews()
   try {
     await openFile(node.id, null)
   } catch {
@@ -502,18 +503,15 @@ watch(
   },
 )
 
-// ------------------------------------------------------------ 设置页签
+// ------------------------------------------------------------ 合成视图页签
 
 // Monaco 在 display: none 的容器里量到的是 0 尺寸。automaticLayout 的 ResizeObserver
 // 通常能在重新显示时自愈，但刚切回来那一帧仍可能用的是旧尺寸（滚动位置、概览标尺错位），
 // 显式补一次 layout 最稳。
-watch(
-  () => settingsTab.active,
-  (active) => {
-    if (active) return
-    nextTick(() => editor.value?.layout())
-  },
-)
+watch(viewActive, (active) => {
+  if (active) return
+  nextTick(() => editor.value?.layout())
+})
 
 // 摆法变了就把编辑器重量一遍：全屏与视图模式是两个独立开关，任一变化都会改到它的宽度，
 // 补一次 layout 最稳（automaticLayout 的反应没那么及时）
@@ -673,7 +671,7 @@ defineExpose({
            仅预览则整块藏起来（visibility，不是 display:none —— 编辑器保持原尺寸，
            切回来不必重新排版，也就不会闪一下） -->
       <div
-        v-show="!settingsTab.active"
+        v-show="!viewActive"
         ref="host"
         class="editor-pane__host"
         :class="{ 'is-split': mdViewSplit, 'is-hidden': mdViewMode === 'preview' }"
@@ -688,6 +686,10 @@ defineExpose({
         :visible="mdViewPreview"
         @scroll="onPreviewScroll"
       />
+
+      <!-- Codeforces 抽题：可选模块的视图，与设置同形态（都是编辑区里的一个合成页签）。
+           v-show 保状态：切走再切回来，表单值与抽到的题目都还在（偏好另有 usePersistentRef 落盘） -->
+      <CfPickerPanel v-show="cfPickerTab.active" />
 
       <!-- 设置视图与 Monaco 同一层，靠 v-show 互斥：切来切去不重建编辑器，
            也不重挂设置组件（它的运行环境探针订阅只建立一次） -->
@@ -709,7 +711,7 @@ defineExpose({
         @test-connection="emit('test-connection')"
       />
 
-      <div v-if="!activeNode && !settingsTab.active" class="editor-pane__empty">
+      <div v-if="!activeNode && !viewActive" class="editor-pane__empty">
         <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
         <p>{{ t('app.emptyEditor') }}</p>
       </div>
@@ -720,9 +722,9 @@ defineExpose({
       <div v-if="isDropTarget" class="editor-pane__drop" aria-hidden="true"></div>
     </div>
 
-    <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看设置时它没有意义；
+    <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看着合成视图时它没有意义；
          题解下要不要收掉见样式表末尾那组闸门 -->
-    <footer v-if="activeNode && !settingsTab.active" class="editor-pane__status">
+    <footer v-if="activeNode && !viewActive" class="editor-pane__status">
       <span class="opt-file">{{ activeNode.name }}</span>
       <span class="dot opt-file"></span>
       <span class="opt-utf8">UTF-8</span>

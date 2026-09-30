@@ -86,17 +86,23 @@ const nodeIndex = reactive(new Map())
 async function rebuildTree() {
   const vfs = getVFS()
   const rawTree = await vfs.getTree()
+
+  // getTree 只返回根的子节点；把根本身也放进索引，供根级新建时取父路径。
+  // 刻意在 clear 之前先取好：下面「清空 → 填回」必须是一段**同步**代码，中间夹一个 await，
+  // 排在微任务里的 watcher（如 App.vue 里跟随 activeNode 的那几个）就会读到一个空索引，
+  // 把「当前文件」看成 null —— 界面会闪一下，评测面板的样例连同运行结论一起被重建。
+  let rootNode = null
+  try {
+    rootNode = await vfs.stat('/')
+  } catch {
+    /* 取不到根也不阻塞树 */
+  }
+
   workspace.tree = rawTree
 
   // 原地更新响应式 Map（保持同一个对象，触发依赖它的 tab / 树重渲染）
   nodeIndex.clear()
-  // getTree 只返回根的子节点；把根本身也放进索引，供根级新建时取父路径
-  try {
-    const rootNode = await vfs.stat('/')
-    if (rootNode) nodeIndex.set('root', rootNode)
-  } catch {
-    /* 取不到根也不阻塞树 */
-  }
+  if (rootNode) nodeIndex.set('root', rootNode)
   const walk = (nodes) => {
     for (const node of nodes) {
       nodeIndex.set(node.id, node)
@@ -399,6 +405,15 @@ export async function updateFileMeta(path, meta) {
   await getVFS().setMeta(path, meta)
 }
 
+/**
+ * 写入文件的抓题配置（含样例）。与 setMeta 各占一个字段，互不覆盖；树的刷新同样由事件驱动。
+ * @param {string} path
+ * @param {Record<string, unknown>} config
+ */
+export async function updateFileConfig(path, config) {
+  await getVFS().setConfig(path, config)
+}
+
 export async function saveActive() {
   if (workspace.activeId) await modelManager.save(workspace.activeId)
 }
@@ -436,4 +451,73 @@ export function peekActiveContent() {
 /** @param {string} id @returns {import('./BaseVFSProvider.js').VFSNode|null} */
 export function getNodeById(id) {
   return nodeIndex.get(id) ?? null
+}
+
+/**
+ * 把题目链接归成一个可比的键 —— 比的是「同一道题」而不是同一串字符。
+ *
+ * 同一道题有两种常见写法：抽题面板导入时存的是 /contest/<cid>/problem/<idx>，
+ * 而用户从题库点进去时地址栏是 /problemset/problem/<cid>/<idx>，两者是同一道题。
+ * 只认字面量的话，「导入后隔一阵子才从题库逛到这道题」这条最常见的走法就白走了。
+ *
+ * 归不了的（gym / group / edu / acmsguru 等）退化成「主机 + 路径」精确比较：
+ * 宁可漏认，也不能把两道不同的题认成同一道。查询串与 `#` 后缀一律不管（CF 的题目页会挂它们）。
+ *
+ * @param {string} url
+ * @returns {string} 归不了 / 空串时返回空串（调用方据此判「不算一道题」）
+ */
+export function problemUrlKey(url) {
+  if (typeof url !== 'string' || !url) return ''
+
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch {
+    return ''
+  }
+
+  // www / m1 / m2 是同一个站点的不同入口，去掉 www 就够（镜像域名另有 host，不并）
+  const host = parsed.hostname.replace(/^www\./, '')
+  const path = parsed.pathname.replace(/\/+$/, '')
+  const segments = path.split('/').filter(Boolean)
+
+  if (segments.length === 4 && segments[0] === 'contest' && segments[2] === 'problem') {
+    return `${host}/${segments[1]}/${segments[3].toUpperCase()}`
+  }
+
+  if (segments.length === 4 && segments[0] === 'problemset' && segments[1] === 'problem') {
+    return `${host}/${segments[2]}/${segments[3].toUpperCase()}`
+  }
+
+  return `${host}${path}`
+}
+
+/**
+ * 工作区里按 url 找回那道题。
+ *
+ * 刻意同步扫内存里的 tree：扩展拿不定「这道题要不要抓样例」时会回来问一句
+ * （见 useCompanionBridge.js 的 cp-query-need），那边等不起一次异步的 VFS 往返。
+ * 也不复用 problemImport.js 里那个 findByUrl —— 那个走 vfs.getTree() 且只比字面量，
+ * 两道题写成两种地址时它认不出来。
+ *
+ * @param {string} url
+ * @returns {import('./BaseVFSProvider.js').VFSNode|null}
+ */
+export function findProblemByUrl(url) {
+  const key = problemUrlKey(url)
+  if (!key) return null
+
+  let found = null
+  const walk = (nodes) => {
+    for (const node of nodes) {
+      if (found) return
+      if (node.type === 'file' && problemUrlKey(node.meta?.url) === key) {
+        found = node
+        return
+      }
+      if (node.children) walk(node.children)
+    }
+  }
+  walk(workspace.tree)
+  return found
 }

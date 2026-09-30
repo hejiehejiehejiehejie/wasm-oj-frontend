@@ -153,11 +153,15 @@ function normalizeTimeLimit(value) {
 }
 
 /**
+ * 难度归一化：按该 OJ 的口径校验，非法 / 越界 / 空值一律退 `''`。
+ *
+ * 导出是因为「难度目录」那一步也要用同一把尺子：落盘目录名与写进 meta 的值
+ * 必须是同一个（否则会出现「目录叫 1623、元数据里却没有难度」这种自相矛盾的状态）。
  * @param {string} oj
  * @param {unknown} value
  * @returns {string}
  */
-function normalizeDifficulty(oj, value) {
+export function normalizeDifficulty(oj, value) {
   if (typeof value !== 'string') return ''
   const text = value.trim()
   if (!text) return ''

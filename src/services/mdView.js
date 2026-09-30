@@ -14,14 +14,14 @@
  *    这条判断 App（藏不藏侧栏）与 EditorPane（分不分栏）都要用，各写一份迟早漂移，
  *    于是统一在这里算成 mdActive。
  *
- * 与 settingsTab.js 同一体例：纯 UI 状态的模块级单例。区别是这份要跨会话记住
+ * 与 editorViews.js 同一体例：纯 UI 状态的模块级单例。区别是这份要跨会话记住
  * （视图是使用习惯，不该每次打开都掉回默认），所以自带 localStorage 读写 ——
  * 不能走 usePersistentRef：它要等组件 onMounted 才播种，而 App 在 setup 期
  * （首帧之前）就得知道该不该把侧栏收起来。
  */
 import { computed, reactive } from 'vue'
 import { languageForPath } from './monaco/language.js'
-import { settingsTab } from './settingsTab.js'
+import { viewActive } from './editorViews.js'
 import { activeNode } from './vfs/workspaceStore.js'
 
 const STORAGE_KEY = 'cp.mdView'
@@ -122,11 +122,11 @@ export const mdFileActive = computed(() => {
  * 题解视图此刻算不算数。
  *
  * 两个回落条件都属于「这次不算数、但存档别动」：
- * - 设置视图盖在编辑器上时，编辑器整块是藏起来的，分栏/全屏都无从谈起；
+ * - 合成视图（设置 / 抽题）盖在编辑器上时，编辑器整块是藏起来的，分栏/全屏都无从谈起；
  * - 活跃文件不是 .md（用户点了旁边的 .cpp）——选的视图照旧留着，切回题解就原样恢复，
  *   否则会出现「在全屏里点开一个 .cpp，侧栏和测试面板一起消失」这种事。
  */
-export const mdActive = computed(() => !settingsTab.active && mdFileActive.value)
+export const mdActive = computed(() => !viewActive.value && mdFileActive.value)
 
 /** 真正生效的视图模式 */
 export const mdViewMode = computed(() => (mdActive.value ? mdView.mode : DEFAULT_MODE))

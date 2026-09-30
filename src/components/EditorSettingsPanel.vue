@@ -16,6 +16,12 @@ import {
   useShortcutManager,
 } from '../composables/useShortcutManager.js'
 import { preload, probeRuntime, subscribeStatus, uninstallRuntime } from '../services/wasmRuntime.js'
+import {
+  CF_AUTO_INSTALL_KEY,
+  cfReady,
+  downloadCfPicker,
+  reconcileCfRuntime,
+} from '../services/cfRuntime.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import { flush } from '../services/autoSave.js'
@@ -363,7 +369,7 @@ watch(activeSection, (section) => {
 // 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
 // cacheFirst 且从不重新校验，不带版本号的 URL 会把旧包一直喂给已经来过的用户。
 // 发新版插件时只需改这两个常量，再把新 zip 拷进 public/extension/。
-const EXTENSION_VERSION = '2.66.0'
+const EXTENSION_VERSION = '2.66.2'
 const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
 const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 
@@ -630,6 +636,81 @@ watch(pendingUninstall, (entry) => {
   if (entry) nextTick(() => uninstallBtn.value?.focus())
 })
 
+// ------------------------------------------------------------ 抽题组件（默认安装的功能模块）
+// 它不在 RUNTIMES 里：那一套的状态机绑死了 toolsRuntime 的 preload / probeRuntime / uninstallRuntime，
+// 而抽题组件的「资产」是 Codeforces 题库（存在 IndexedDB 里），下载即预取。
+// 它随站点默认安装（main.js 启动时静默预取），所以这一行只有「状态 + 失败重试」，
+// 没有卸载 —— 卸了下次启动也会被自动装回来，留个按钮只会骗用户。
+// 界面状态在这里，「是否已下载」的真值来自 services/cfRuntime.js 的 cfReady ——
+// 侧栏那颗按钮读的是同一个 ref，两边永远一致。
+const cfBusy = ref(false)
+const cfFailureReason = ref('')
+const cfElapsedMs = ref(0)
+/** 下载中的阶段播报（Worker 推的机器码翻成文案） */
+const cfStage = ref('')
+
+/**
+ * 「默认安装」开关。与 autoPreload 同理：它是**偏好**（要不要自动装），
+ * 所以开关放在「云同步」一栏、键进云同步白名单；「本机装没装」（cfReady）是设备事实，不进。
+ * usePersistentRef 是这个键唯一的写入口，启动时的读取走 cfRuntime 的 readCfAutoInstall()，
+ * 两处共用 CF_AUTO_INSTALL_KEY 常量，不各写一份字面量。
+ */
+const cfAutoInstall = usePersistentRef(CF_AUTO_INSTALL_KEY, true)
+
+function toggleCfAutoInstall() {
+  cfAutoInstall.value = !cfAutoInstall.value
+  // 从关到开、而题库还没在本机：立刻补装（进度直接显示在上面那一行），不必等下次启动
+  if (cfAutoInstall.value && !cfReady.value && !cfBusy.value) void downloadCf()
+}
+
+const CF_STAGE_KEYS = {
+  problemset: 'cf.module.stage.problemset',
+  solved: 'cf.module.stage.solved',
+  handle: 'cf.module.stage.handle',
+}
+
+const cfHint = computed(() => {
+  if (cfBusy.value) {
+    return (cfStage.value && t(CF_STAGE_KEYS[cfStage.value])) || t('cf.module.downloading')
+  }
+  if (cfReady.value) {
+    return cfElapsedMs.value
+      ? t('runtime.readyWithTime', { seconds: (cfElapsedMs.value / 1000).toFixed(1) })
+      : t('cf.module.ready')
+  }
+  if (cfFailureReason.value) return cfFailureReason.value
+  return t('cf.module.idleHint')
+})
+
+const cfButtonLabel = computed(() => {
+  if (cfBusy.value) return t('runtime.button.downloading')
+  if (cfReady.value) return t('runtime.button.ready')
+  if (cfFailureReason.value) return t('runtime.button.failed')
+  return t('runtime.button.idle')
+})
+
+const cfButtonIcon = computed(() => {
+  if (cfReady.value) return 'check'
+  if (cfFailureReason.value) return 'reset'
+  return 'download'
+})
+
+async function downloadCf() {
+  if (cfBusy.value || cfReady.value) return
+  cfBusy.value = true
+  cfFailureReason.value = ''
+  cfStage.value = ''
+  const result = await downloadCfPicker((stage) => {
+    cfStage.value = stage
+  })
+  cfBusy.value = false
+  if (result.type === 'ready') {
+    cfElapsedMs.value = result.durationMs ?? 0
+    return
+  }
+  cfFailureReason.value = result.message || t('runtime.failed')
+}
+
 /**
  * 用真实缓存情况校正两个语言的状态（探针只读本地缓存，不触网）：
  * - 标记说没下、但资产其实已在缓存（比如用户没点下载、直接跑了一次代码）→ 补成已就绪；
@@ -696,7 +777,11 @@ onMounted(() => {
 watch(
   () => props.active,
   (active) => {
-    if (active) void reconcile()
+    if (!active) return
+    void reconcile()
+    // 抽题组件的资产在 IndexedDB 里，探针（cfStatus）要走 Worker，所以它自己那一套：
+    // 标记说没装就一个线程都不起，标记说装过才去库里核实（见 services/cfRuntime.js）。
+    void reconcileCfRuntime()
   },
 )
 
@@ -1107,7 +1192,7 @@ async function adoptCloudProfile(data) {
  * 切到「云端同步」那一栏并弹出确认。
  *
  * 这里**只登记状态，不打开设置页签**：打开页签由 App.vue 在做完会话恢复之后做。
- * 顺序反了的话，会话恢复把 workspace.activeId 设回上次那个文件，settingsTab 那个
+ * 顺序反了的话，会话恢复把 workspace.activeId 设回上次那个文件，editorViews 那个
  * 「活跃文件一变就让开」的 watch 会把刚打开的页签立刻关掉（见 App.vue 的 onMounted）。
  */
 watch(
@@ -1665,6 +1750,39 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
+        <p class="setting-subtitle">{{ t('cf.module.group') }}</p>
+        <p class="setting-group__note">{{ t('cf.module.groupNote') }}</p>
+
+        <div class="runtime-list">
+          <!-- 抽题组件：默认安装的功能模块（下载 = 预取 Codeforces 题库，启动时自动进行）。
+               与上面三个共用 .runtime-list / .runtime-row 的外观，但状态机在 services/cfRuntime.js 里 ——
+               下载完侧栏才亮出那颗按钮，所以「已下载」这件事必须与侧栏同源。
+               刻意没有卸载按钮：卸了下次启动也会被自动装回来。 -->
+          <div class="runtime-row">
+            <span class="runtime-row__icon"><AppIcon name="dice" :size="15" /></span>
+            <span class="runtime-row__text">
+              <span class="runtime-row__title">{{ t('cf.module.title') }}</span>
+              <span class="runtime-row__hint">{{ cfHint }}</span>
+            </span>
+            <div class="runtime-row__actions">
+              <button
+                class="download-button"
+                :class="{ 'is-ready': cfReady, 'is-failed': !!cfFailureReason }"
+                :disabled="cfBusy || cfReady"
+                :title="cfReady ? t('runtime.readyTitle') : t('cf.module.downloadTitle')"
+                @click="downloadCf"
+              >
+                <AppIcon
+                  :name="cfButtonIcon"
+                  :size="13"
+                  :class="{ 'is-spinning': cfBusy }"
+                />
+                <span>{{ cfButtonLabel }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <p class="setting-subtitle">{{ t('settings.section.extension') }}</p>
         <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
@@ -1993,6 +2111,32 @@ watch(pendingUnbind, (open) => {
           </span>
         </div>
         <p class="setting-group__note">{{ t('runtime.autoPreload.note') }}</p>
+
+        <!-- 「默认安装」开关：与上面那组预下载同为**偏好**，所以也归在云同步这边、
+             跟着账号走；抽题组件本机的安装状态在「应用」一栏的功能模块行里。 -->
+        <p class="setting-subtitle">{{ t('cf.module.autoInstall.label') }}</p>
+        <div class="setting-row setting-row--switch">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('cf.module.title') }}</span>
+            </span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              type="button"
+              class="switch"
+              :class="{ 'is-on': cfAutoInstall }"
+              role="switch"
+              :aria-checked="cfAutoInstall"
+              :aria-label="t('cf.module.autoInstall.switchTitle')"
+              :title="t('cf.module.autoInstall.switchTitle')"
+              @click="toggleCfAutoInstall"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+        </div>
+        <p class="setting-group__note">{{ t('cf.module.autoInstall.note') }}</p>
       </section>
 
       <section v-else-if="activeSection === 'help'" class="setting-group">

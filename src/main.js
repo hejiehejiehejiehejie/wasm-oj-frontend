@@ -3,6 +3,7 @@ import './services/storageMigration.js'
 import { createApp } from 'vue'
 import App from './App.vue'
 import { captureCloudHandleFromPath } from './services/cloudEntry.js'
+import { ensureCfPickerInstalled } from './services/cfRuntime.js'
 import './styles/base.css'
 
 // 仅开发环境：把 Monaco / modelManager 暴露到 window，供浏览器端自动化断言
@@ -23,6 +24,10 @@ if (import.meta.env.DEV) {
 captureCloudHandleFromPath()
 
 createApp(App).mount('#app')
+
+// 随机抽题是默认安装的组件：打开站点时若无题库就静默预取一次（失败不打扰，下次再试）。
+// 刻意放在 mount 之后：首帧渲染不该等一个 2MB 的网络请求
+void ensureCfPickerInstalled()
 
 // Service Worker 只在生产构建里注册：dev server 的模块是即时编译的，
 // 把它们缓存下来只会让改完代码看到旧页面。

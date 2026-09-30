@@ -13,7 +13,7 @@
  */
 
 /**
- * 参与云同步的键（12 个）。**只有这里列出来的键会离开这台设备。**
+ * 参与云同步的键（13 个）。**只有这里列出来的键会离开这台设备。**
  *
  * 刻意不同步的键，以及理由：
  * - `cp.judgeBases`：可能是自建判题服务器的地址，而云端的配置是公开可读的
@@ -21,7 +21,9 @@
  * - `cp.testCases`：用户手写的测试用例，属于内容而不是偏好，而且体积大；
  * - `cp.localRuntime.clangReady` / `pythonReady` / `markdownReady`：这三个是
  *   「**这台设备**有没有下载过」的事实，由缓存探针判断，换台设备根本不成立，
- *   同步过去只会让新设备显示一个假的「已就绪」。
+ *   同步过去只会让新设备显示一个假的「已就绪」；
+ * - `cp.cfPicker.ready`：同理，是「这台设备的库里有没有题库」的事实。
+ *   而 `cp.cfPicker.autoInstall`（在白名单里）是「要不要自动装」的偏好，才值得跟人走。
  */
 export const SYNC_KEYS = [
   'cp.editorSettings', // 编辑器偏好（含主题）
@@ -36,6 +38,7 @@ export const SYNC_KEYS = [
   'cp.timeLimitMs', // 全局运行时限
   'cp.engine', // 评测引擎
   'cp.autoPreload', // 「启动时预下载」勾选的运行时 id（见 runtimePreload.js）
+  'cp.cfPicker.autoInstall', // 抽题组件「默认安装」开关（见 cfRuntime.js）
 ]
 
 const API_BASE = '/api'
@@ -116,7 +119,7 @@ export async function fetchCloudProfile(handle) {
 }
 
 /**
- * 读本机这 12 个键，原样打包。
+ * 读本机这些白名单键，原样打包。
  * 没有的键直接跳过 —— 不拿一个 undefined 去把别处的真实值覆盖成空。
  * 某个键的值不是合法 JSON（手改过 localStorage）也只跳过那一个，不毁掉整次上传。
  */
