@@ -23,6 +23,7 @@ import { getVFS } from './vfsFactory.js'
 const EXPANDED_KEY = 'cp.vfsExpanded'
 const TABS_KEY = 'cp.openTabs'
 const ACTIVE_KEY = 'cp.activeFile'
+const SELECTED_KEY = 'cp.selectedNode'
 
 // ------------------------------------------------------------ 本地存储小工具
 
@@ -53,6 +54,14 @@ export const workspace = reactive({
   openTabIds: [],
   /** @type {string|null} 活跃文件 id */
   activeId: null,
+  /**
+   * 选中的树节点 id（文件或目录）。与 activeId 分工不同：activeId 是「编辑器里打开的那个文件」，
+   * 目录进不去；本字段才是「哪一行高亮 + 页头新建落在哪个目录」的唯一来源。
+   * **单选**：点目录后原文件不再高亮，反之亦然。
+   * null = 根目录 —— 根没有行可高亮，界面上就是「什么都没有选中」，新建落在根。
+   * @type {string|null}
+   */
+  selectedId: null,
   /**
    * 预览页签 id（VS Code 式斜体临时页签，全局至多一个）。
    *
@@ -129,6 +138,10 @@ async function rebuildTree() {
   if (workspace.previewTabId && !nodeIndex.has(workspace.previewTabId)) {
     workspace.previewTabId = null
   }
+  // 4) 选中的节点没了（删掉 / 被移走）：收回根状态，别把 id 悬在那儿
+  if (workspace.selectedId && !nodeIndex.has(workspace.selectedId)) {
+    workspace.selectedId = null
+  }
 }
 
 // ------------------------------------------------------------ 初始化与会话恢复
@@ -176,6 +189,14 @@ export async function initWorkspaceStore() {
   if (!workspace.activeId) await openLanguage('cpp')
 
   workspace.ready = true
+
+  // 恢复上次选中的那一行。**必须放在最后**：上面恢复 activeId 时那条 watch 会把选中带到
+  // 打开的文件上，这里再盖回来 —— 否则「上次选中的文件夹」每次启动都会被当前文件顶掉。
+  // 已删除的节点直接回落根（= 不选中），与 rebuildTree 的清理同一条判据。
+  const savedSelected = readJSON(SELECTED_KEY, null)
+  if (typeof savedSelected === 'string' && nodeIndex.has(savedSelected)) {
+    workspace.selectedId = savedSelected
+  }
 }
 
 // ------------------------------------------------------------ 持久化偏好
@@ -195,6 +216,16 @@ watch(
     // 切页签也是自动保存的「离开时点」：刚离开的那个文件可能还挂着 pending 的 debounce 计时，
     // flush() 会把它连同其它 dirty 一起写盘（没有 dirty 时是空操作）。
     if (workspace.ready) void flush()
+    // 选中跟着活跃文件走：点页签、新建文件后自动打开、导入题目这些**不是从文件树发起**的
+    // 打开动作，界面上的高亮必须跟着过去（树里点的那条路由 FileTreeItem 自己写选中）。
+    // 启动恢复期间不参与 —— selectedId 的恢复放在 initWorkspaceStore 的最后一步。
+    if (workspace.ready && value) workspace.selectedId = value
+  },
+)
+watch(
+  () => workspace.selectedId,
+  (value) => {
+    if (workspace.ready) writeJSON(SELECTED_KEY, value)
   },
 )
 watch(
@@ -318,6 +349,19 @@ export function pinTab(id) {
 /** @param {string} id */
 export function setActiveTab(id) {
   if (workspace.openTabIds.includes(id)) workspace.activeId = id
+}
+
+/**
+ * 选中树里的一行（文件或目录）。作用有二：那一行高亮；页头「新建文件 / 文件夹」落进那个目录
+ * （选中文件时取其父目录）。
+ *
+ * 传 `null`（或根节点 id `'root'`）表示选中根目录：根没有行可高亮，界面上就是「什么都没选中」，
+ * 新建落在根 —— 「点树里空白处」走的就是这一条。
+ *
+ * @param {string|null} id
+ */
+export function selectNode(id) {
+  workspace.selectedId = !id || id === 'root' ? null : id
 }
 
 /**

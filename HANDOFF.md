@@ -98,9 +98,9 @@ src/
     MarkdownPreview.vue         # 题解预览面板（2026-09-30 加）：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载渲染器」入口、与编辑器的**双向滚动同步**（比例 + 回音吃掉 + 重渲染后按 lastRatio 复位）。只接受 source 字符串、不认识 Monaco（见第 15.4 / 15.5 节）
     Sidebar.vue                 # ★ 统一侧边栏外壳：用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入；页签状态（cp.sidebarTab）与持久化留在这里，经 provide 下发给页头里的切换组件。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
     SidebarSwitcher.vue         # 侧栏页头里的两组入口（2026-09 加）：面板胶囊开关 + 设置。不再独占一行页签栏，而是渲染进两个面板各自的页头里（同一时刻只有一个面板可见，视觉上只有一份）；只画 logo 不写字，名字在 `title` / `aria-label`；状态从 Sidebar 的 provide 取（`panels` / `targetPanel` / `togglePanel` / `settings` / `toggleSettings`），自己不存状态。面板那枚：`.sidebar-switcher__pill` **本身是一颗 `<button>`**（点任意位置 toggle，高度 26 / 13px 圆角 / 底色 `--bg-control`），里面 `v-for` 出两段 `<span class="sidebar-switcher__seg">` 作纯视觉指示（28×22、11px 圆角，当前段 `.is-active` 填 `--accent` + `--text-on-accent`，并打 `data-panel` 与 `data-current`）。设置那颗 `gear`（开关编辑区里的设置页签，`settingsTab`，不落盘）在轨道外，是独立的圆形按钮。切换时选中段播一次滑动动画（见第 4 节类名表与第 5 节坑 5c），只在 `[data-switched]` 下放
-    FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随树内聚焦的节点，右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）
+    FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头左侧是 SidebarSwitcher、右侧是新建文件 / 文件夹两颗按钮 + FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随**树里选中的那一行**（`workspace.selectedId`；选中文件时取其父目录，点树里空白处 = 选中根 → 回落根目录），右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）
     InlineCreateRow.vue         # 内联新建的输入行（2026-09-28 从 FileExplorer 里抽出来）：根目录那份由 FileExplorer 渲染、某个目录里那份由 FileTreeItem 渲染，两处共用。挂载时把 `{ focus }` 注册进 `provide('creatingRow')`，供「程序性失焦后把焦点抢回来」用（见第 5 节坑 12）
-    FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）；目录展开时还会在 `role="group"` 内、递归 `v-for` 之前渲染一份 InlineCreateRow（见第 5 节坑 12）
+    FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）；目录展开时还会在 `role="group"` 内、递归 `v-for` 之前渲染一份 InlineCreateRow（见第 5 节坑 12）；行的选中底色读 `workspace.selectedId` —— 2026-10-01 起**文件与目录同一套高亮**（单选），见 14.23
     ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前只有文件树在用（文件节点给「打开题目链接（仅当 `meta.url` 是 http(s) 链接）/ 题目信息 / 重命名 / 删除」，目录节点给「新建文件 / 新建文件夹 / 重命名 / 删除」、不给题目相关的两项）
     TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头左侧是 SidebarSwitcher、右侧是 verdict（「全部 AC / n/m AC」）与耗时 + 用例列表 + 页脚运行按钮
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时没有任何标记**（字符一个没少、拖滚动条就能看全，底边仍是实线、框下也没有小字）；底边虚线与小字**只给真被截断的那种**；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「还有 N 个字符未显示 + 复制全部」说明**（那行只在真截断时出现；这个 `……` 时有时无的两条原因见第 5 节坑 26）
@@ -407,7 +407,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `cp.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
 | `cp.editorShare`（`App.vue:35`） | 两栏比例（%） |
 | `cp.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`，见 14.3） |
-| `cp.uiScale`（`App.vue:49`） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1.1`（110%），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见 14.12 与第 5 节坑 24 |
+| `cp.uiScale`（`App.vue:49`） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1`（100%；2026-10-01 由 1.1 改来，同时去掉了默认档那枚「（默认）」后缀，档位显示只剩百分比），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见 14.12 与第 5 节坑 24 |
+| `cp.selectedNode` | 文件树里选中的那一行（文件 / 目录的节点 id）；`null` = **选中根**（整棵树都不高亮，页头「新建文件 / 文件夹」落在根）。恢复放在 `initWorkspaceStore()` 最后一步、节点消失时由 `rebuildTree()` 回落 `null`。**刻意不进云同步白名单**——存的是本机 VFS 节点 uuid，同步到别的设备只会指向不存在的节点。见 14.23 | `services/vfs/workspaceStore.js`（`SELECTED_KEY` / `selectNode()`） |
 | `cp.uiLocale` | 界面语言，取值 `zh-CN` / `en`（`i18n/index.js` 的 `LOCALE_STORAGE_KEY`，**权威定义在那一处**）。**刻意不走 `usePersistentRef`**：界面语言必须在任何组件挂载之前定下来（首帧不能先闪中文再跳成英文），所以 `i18n/index.js` 自己同步读写 localStorage。**没有存档时跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）——注意「跟随探测」的结果**不写回存档**，「跟随浏览器的默认」与「用户显式选过」是两件事，别在首帧替用户落一个值。设置页「外观」组的「界面语言」下拉是唯一写入方，切了当场生效、不重载 | `src/i18n/index.js`（消费方散布在全仓，读的是 `locale` 这个 ref） |
 | `cph.drafts`（**只读的老键**：仅由 `vfs/migrate.js` 建工作区时搬进 `/main.cpp`、`/main.py`，应用其余部分一概不读写）/ `cp.testCases` / `cp.engine` / `cp.judgeBases`（`App.vue:36-37` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
 | ~~`cph.language`~~ | **已作废**（2026-09 顶栏语言下拉移除后成为死键，全仓不再读写）；残留在 localStorage 里无害。判题语言现在一律由活跃文件的扩展名派生，见第 5 节坑 15 | — |
@@ -1086,6 +1087,27 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 **没变的**：`.runtime-list` / `.runtime-row*` / `.download-button*`、扩展那一整组行结构、`EXTENSION_VERSION` 等常量、`RUNTIMES` 表、`refreshExtension()` 的调用时机 —— 都原样搬进「应用」栏。
 
 **坑**：`activeSection` 上现在有两个 watch 都以 `'app'` 为准（刷新存储占用、重探插件），加分类 / 并分类时别只顾一个；B 步自 2026-10-01 起不再数分类个数，所以 10 → 8 不用动 `verify-ui.mjs`。
+
+### 14.23 文件树的「选中态」（点目录也有选中效果，点空白 = 回到根）—— ✅ 已落地（2026-10-01，计划外小改）
+
+**为什么**：此前树里只有「当前打开的那个文件」那一行有底色，而**新建文件落到哪个目录**（页头两颗按钮）是跟着「树内聚焦的节点」走的——状态真实存在，却一点也看不见。点目录只折叠、不给任何反馈，于是「我刚点的文件夹是不是新建的目标」只能靠试。
+
+**改了什么**（只动 `workspaceStore.js` / `FileExplorer.vue` / `FileTreeItem.vue`）：
+
+- `workspaceStore.js` 新增 `selectedId`（选中的那一行，文件或目录；`null` = 根）与 `selectNode(id)`，它是「**哪一行高亮 + 页头新建落在哪个目录**」的唯一来源。`activeId` 语义不变，仍是「编辑器里打开的那个文件」——**两者别混用**，目录永远进不了 `activeId`。
+- 写入点四处：① 行点击（`FileTreeItem.activate()`，文件与目录同一条路）；② 树内 `focusin`（键盘把焦点挪到哪一行就选中哪一行）；③ `activeId` 的 watch（点页签 / 新建后自动打开 / 导入题目这类**非树内发起**的打开，选中跟着走）；④ 树容器 click 落在 `.tree-item` 之外 → `selectNode(null)`，即「选中根」。
+- 高亮判据从 `activeId === node.id` 换成 `selectedId === node.id`（`FileTreeItem` 的 `selected`），**单选**——点目录则原文件不再高亮，反之亦然；`isActiveParent` 那条缩进线同步泛化成「选中项的父目录」（选中文件时结果与之前一致）。
+- `headerCreateTarget()` 由 `focusedId` 改读 `selectedId`（选中目录 → 它自己；选中文件 → 其父目录；`null` → 根）。`focusedId` 保留，但只剩「roving tabindex 落点」这一个用途。
+- `.explorer__tree` 的 `padding` 由 `4px 0` 改成 `4px 0 24px`：**这 24px 就是「选中根」的点击区**。树内容撑满面板时行间没有空白，删掉它「回到根」就没有入口。
+
+**持久化**：`cp.selectedNode`（第 6 节的表）。**刻意不进云同步白名单**——存的是本机 VFS 节点 uuid，同步到别的设备只会指向不存在的节点。恢复必须放在 `initWorkspaceStore()` 的**最后一步**：恢复 `activeId` 会触发那条 watch 把选中带到打开的文件上，早读会被顶掉。节点被删 / 被移走时由 `rebuildTree()` 回落 `null`。
+
+**坑**：
+- 点空白的判据用 `.tree-item` 而不是 `[data-tree-id]`：内联新建输入行、目录的子节点区都在 `.tree-item` 里但不在行上，用行判据会在打字半途把选中清掉。
+- `onTreeClick` 必须先 `consumeClickSuppression()`：把文件拖到空白处 = 拖进根，收尾那一次 click 不该顺手清掉选中。
+- `verify-ui.mjs` 点行走的是 `element.click()`（**不补 DOM 焦点**），所以别把选中只挂在 `focusin` 上——行点击那条必须留着。
+
+**验证**：`npm run build` 通过；无头浏览器实测 6/6 PASS（初始整棵树无高亮 → 点目录该行高亮且原文件取消 → 点空白全灭 → 选中目录后新建的文件确实落在它里面 → 刷新后选中态仍在且全局只有一行高亮），控制台无错误。`npm run verify` 的 **A 步在本机既有竞态处中断**（`Waiting for selector .card failed`）：已用 `git stash` 跑过基线，**改动前后同样失败**，与本轮无关。
 
 **建议的落地顺序**（本节剩余项）：14.5 剩余部分（文件归类配置 UI，会动用户数据）→ 14.6（比赛模式，扩展侧已就绪，只做站点侧）。
 

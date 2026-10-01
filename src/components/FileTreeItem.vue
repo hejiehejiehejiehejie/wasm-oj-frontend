@@ -2,7 +2,8 @@
 /**
  * FileTreeItem —— 递归树项（文件 / 目录）。
  *
- * - 单击：目录折叠；文件以**预览页签**打开（斜体临时页签，再点别的文件就顶替掉它）。
+ * - 单击：先把这一行选中（文件与目录同一套高亮，选中目录 = 页头新建落进它里面），
+ *   然后目录折叠、文件以**预览页签**打开（斜体临时页签，再点别的文件就顶替掉它）。
  * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
  * - 右键菜单、删除确认、键盘导航均通过 FileExplorer provide 的能力完成。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
@@ -14,7 +15,15 @@ import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
 import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
-import { getNodeById, openFile, pinTab, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
+import {
+  getNodeById,
+  openFile,
+  pinTab,
+  renameNode,
+  selectNode,
+  toggleExpand,
+  workspace,
+} from '../services/vfs/workspaceStore.js'
 import { dirname, join, stem } from '../services/vfs/paths.js'
 import { formatMetaTooltip } from '../services/problemMeta.js'
 
@@ -40,7 +49,9 @@ const dropTargetRowId = inject('dropTargetRowId')
 const draggingId = inject('draggingId')
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
-const active = computed(() => workspace.activeId === props.node.id)
+/** 这一行是不是选中项。文件与目录同一套判据（选中是**单选**的）—— 目录也能被选中，
+ *  选中它就意味着「页头新建落在它里面」。根目录不画成行，所以没选中时整棵树都不亮。 */
+const selected = computed(() => workspace.selectedId === props.node.id)
 /** 未保存标记。开了自动保存就不显示：dirty 只存在几百毫秒，圆点只会闪一下，
     反倒是「这文件没保存」的误导。 */
 const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(props.node.id))
@@ -48,13 +59,13 @@ const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(prop
 const isDragging = computed(() => draggingId?.value === props.node.id)
 const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
 
-/** 选中的那个文件的父目录 id。目录自己选中时不算——只有文件才有「它属于哪个文件夹」这回事 */
-const activeParentId = computed(() => {
-  const node = workspace.activeId ? getNodeById(workspace.activeId) : null
-  return node?.type === 'file' ? node.parentId : null
+/** 选中项的父目录 id。选中目录时不算——只有节点才有「它属于哪个文件夹」这回事 */
+const selectedParentId = computed(() => {
+  const node = workspace.selectedId ? getNodeById(workspace.selectedId) : null
+  return node?.parentId ?? null
 })
-/** 本目录正是选中文件的父目录 → 它这一列的缩进线跟着亮起（与拖拽落点同一种亮法） */
-const isActiveParent = computed(() => activeParentId.value === props.node.id)
+/** 本目录正是选中项的父目录 → 它这一列的缩进线跟着亮起（与拖拽落点同一种亮法） */
+const isActiveParent = computed(() => selectedParentId.value === props.node.id)
 
 /** 题目元数据的悬停摘要；没有元数据时为空串（行上就不设 title，别弹空提示） */
 const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
@@ -73,6 +84,8 @@ const iconName = computed(() => fileIconName(props.node.name))
 function activate({ preview = false } = {}) {
   // 拖拽收尾的那一次 click 要吃掉，否则松手会顺带折叠/展开落点目录
   if (consumeClickSuppression?.()) return
+  // 先把这一行选中（文件 / 目录同一套高亮），再干它本来该干的事：目录折叠/展开、文件预览打开
+  selectNode(props.node.id)
   if (props.node.type === 'directory') toggleExpand(props.node.id)
   else openFile(props.node.id, null, { preview }).catch(() => {})
 }
@@ -234,7 +247,7 @@ function onKeyDown(event) {
       class="tree-item__row"
       :class="{
         'tree-item__row--dir': node.type === 'directory',
-        'tree-item__row--active': active,
+        'tree-item__row--active': selected,
         'tree-item__row--dragging': isDragging,
         'tree-item__row--drop': isDropTarget,
       }"
@@ -243,7 +256,7 @@ function onKeyDown(event) {
       role="treeitem"
       :data-tree-id="node.id"
       :aria-expanded="node.type === 'directory' ? expanded : undefined"
-      :aria-selected="active"
+      :aria-selected="selected"
       :tabindex="isTabbable(node.id) ? 0 : -1"
       @click="onClick"
       @dblclick="onDblClick"
@@ -335,7 +348,7 @@ function onKeyDown(event) {
   z-index: 1;
 }
 
-/* 亮起的两种情况：拖拽的落点是这个文件夹，或这个文件夹里有当前选中的文件。
+/* 亮起的两种情况：拖拽的落点是这个文件夹，或选中项（文件 / 目录）就在这个文件夹里。
    都是「同一支白笔按到底」，不给它换颜色。下条必须留在基础线那条之后 ——
    三条特异性同为 (0,1,0)，靠源序压回来。
    指针停在文件行时落点是它的父目录，于是亮的正是父目录那条线：「会落进哪个文件夹」
@@ -362,9 +375,9 @@ function onKeyDown(event) {
   touch-action: pan-y;
 }
 
-/* 悬停用比选中（--bg-hover）淡一档的底色，否则鼠标划过别的文件时看不出哪个才是打开的。
+/* 悬停用比选中（--bg-hover）淡一档的底色，否则鼠标划过别的行时看不出哪一行才是选中的。
    下面 --active 的两条要留在 :hover 之后：同为 (0,2,0) 特异性，靠源序压回来，
-   不然悬停当前打开的那一行会把它「淡成」悬停色。 */
+   不然悬停选中的那一行会把它「淡成」悬停色。 */
 .tree-item__row:hover {
   background: var(--bg-hover-soft);
 }

@@ -3,8 +3,10 @@
  * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（打开题目链接 / 题目信息 / 新建 / 重命名 / 删除）。
  *
  * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
- * 新建的目标目录可以是任意已存在目录：页头按钮跟随树内聚焦的目录（没聚焦时回落根目录），
- * 右键目录则显式指定该目录。名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
+ * 新建的目标目录可以是任意已存在目录：页头按钮跟随**选中的那一行**（选中文件时取其父目录；
+ * 点树里空白处 = 选中根，回落根目录），右键目录则显式指定该目录。
+ * 选中态（`workspace.selectedId`）是唯一来源，读取与写入都在 workspaceStore 里。
+ * 名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
  *
  * 通过 provide 向递归树项提供能力：右键菜单、删除确认、根 DOM、重命名目标、焦点管理，
  * 内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由 InlineCreateRow
@@ -25,6 +27,7 @@ import {
   deleteNode,
   getNodeById,
   moveNode,
+  selectNode,
   toggleExpand,
   updateFileMeta,
   workspace,
@@ -98,12 +101,12 @@ function uniqueName(taken, base, ext = '') {
 }
 
 /**
- * 页头按钮的目标目录：跟随树内聚焦的节点（目录就是它自己，文件取其父目录），
- * 没有聚焦 / 索引未就绪时回落根目录。
+ * 页头按钮的目标目录：跟随**选中的那一行**（目录就是它自己，文件取其父目录），
+ * 什么都没选中（= 选中根）或索引未就绪时回落根目录 —— 界面上此时整棵树都不高亮。
  * @returns {object|null}
  */
 function headerCreateTarget() {
-  const node = focusedId.value ? getNodeById(focusedId.value) : null
+  const node = workspace.selectedId ? getNodeById(workspace.selectedId) : null
   if (!node) return null
   if (node.type === 'directory') return node
   return getNodeById(node.parentId) ?? null
@@ -417,7 +420,25 @@ function setFocusedId(id) {
 
 function onTreeFocus(event) {
   const row = event.target.closest('[data-tree-id]')
-  if (row) setFocusedId(row.dataset.treeId)
+  if (!row) return
+  setFocusedId(row.dataset.treeId)
+  // 树里的选中跟随焦点：键盘把焦点挪到哪一行就选中哪一行（于是页头新建也落在它那儿）。
+  // 鼠标 / 触屏点行时这条也会先跑一遍，与 FileTreeItem 里那次写入同值，无副作用；
+  // 触屏上万一没补焦点，还有行点击那条兜着。
+  selectNode(row.dataset.treeId)
+}
+
+/**
+ * 点树里的空白处 = 选中根目录（整棵树都不高亮，页头新建落在根）。
+ *
+ * 只有真正落在节点子树之外的点击才算「空白」：行、行下面的子节点区、内联新建输入框都在
+ * `.tree-item` 里（`data-tree-id` 只挂在行上，所以判据用 `.tree-item` 而不是行本身）。
+ * 拖拽收尾那一次 click 也要吃掉——把文件拖到空白处 = 拖进根，不该顺手把选中也清掉。
+ */
+function onTreeClick(event) {
+  if (consumeClickSuppression()) return
+  if (event.target.closest('.tree-item')) return
+  selectNode(null)
 }
 
 provide('openContextMenu', openContextMenu)
@@ -472,6 +493,7 @@ provide('draggingId', draggingId)
       :class="{ 'is-drop-root': isRootDrop }"
       role="tree"
       @contextmenu="onTreeContextMenu"
+      @click="onTreeClick"
       @focusin="onTreeFocus"
     >
       <!-- 建在根目录的输入行；建在某个目录里的那份由 FileTreeItem 渲染（同一个组件） -->
@@ -878,7 +900,9 @@ provide('draggingId', draggingId)
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 0;
+  /* 底部这 24px 是「选中根目录」的点击区（点空白处 = 什么都不选中、新建落在根）。
+     树内容撑满整个面板时行与行之间没有空白，滚到底还有这一条可用，入口不会消失。 */
+  padding: 4px 0 24px;
 }
 
 /* 落点是根目录（拖到树的空白处）时：与行落点同一支颜色，只是铺满整个树容器、透明度更淡
