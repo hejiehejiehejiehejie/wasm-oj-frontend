@@ -180,9 +180,17 @@ function onMouseDown(event, id) {
 .editor-tabs__item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  /* 5px（原 6px，2026-10-01 收紧）：真机反馈页签里的空白偏大。这一条同时管
+     「图标 ↔ 标签」与「标签 ↔ 关闭按钮」两处 —— 图标/× 的墨迹在各自的 12px 方框里
+     本来就留了余量，视觉上的间距比 5px 还多一点点。 */
+  gap: 5px;
   flex: 0 0 auto;
-  padding: 0 10px;
+  /* 左 10px、右 7px（2026-10-01 收窄，真机反馈「页签右侧空白比较大」）。
+     不对称是有原因的：右端那颗 × 的墨迹只占 15px 框里的 7px（图标是 24 viewBox 里
+     6→18 的线段，四周本来就留了 25% 空），左端那颗代码图标的墨迹要满得多，
+     所以左右各给 10px 时右边看着空出去一大截。右内边距收到 7px 后，
+     「× 墨迹 → 页签右缘」与「代码图标墨迹 → 页签左缘」的留白基本齐平。 */
+  padding: 0 7px 0 10px;
   background: transparent;
   border: none;
   border-right: 1px solid var(--border-soft);
@@ -230,18 +238,26 @@ function onMouseDown(event, id) {
 }
 
 /* 预览页签：斜体是唯一的视觉信号（VS Code 同款）。只动标签文字，
-   不动图标/宽度/关闭按钮 —— 页签栏那套宽度实测（HANDOFF 第 3 节）不受影响 */
+   不动图标/宽度 —— 页签栏那套宽度实测（HANDOFF 第 3 节）里的「strip 宽」是容器宽，
+   与单张页签差几像素无关，照旧成立。 */
 .editor-tabs__item--preview .editor-tabs__label {
   font-style: italic;
+  /* 斜体末字的墨迹会往右悬垂一点点，而标签盒正好等于文字宽度、外面还盖着 overflow: hidden，
+     不补出这点余量就会被裁掉一丝（真机反馈「斜体时被右边的 × 遮挡了一点」）。
+     1–2px 不会被 pxtorem 转换（minPixelValue: 3），这里要的就是不随 UI 缩放的物理细余量。 */
+  padding-right: 2px;
 }
 
 .editor-tabs__close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  /* 15px：原来是 18px，真机反馈「关闭按钮比较大」——× 只有 12px（墨迹约 7px），
+     18px 的框空得太多、hover 底色也显笨。图标尺寸不动（全应用的 AppIcon 尺寸都是
+     不随 UI 缩放的裸 px，只改这一处会跟旁边的代码图标对不齐）。 */
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
   opacity: 0;
 }
 

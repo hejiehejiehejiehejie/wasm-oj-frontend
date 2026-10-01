@@ -53,11 +53,6 @@ export default {
         spaces: '{n} 空格',
       },
 
-      uiScale: {
-        /** 默认档位后面那个后缀，{value} 形如 110% */
-        default: '{value}（默认）',
-      },
-
       editor: {
         groupFont: '字体',
         groupEdit: '编辑',
@@ -349,10 +344,6 @@ export default {
       value: {
         times: '{n}×',
         spaces: '{n} spaces',
-      },
-
-      uiScale: {
-        default: '{value} (default)',
       },
 
       editor: {

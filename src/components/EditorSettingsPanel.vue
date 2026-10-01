@@ -5,7 +5,7 @@ import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
 import HotkeyRecorder from './HotkeyRecorder.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
-import { DEFAULT_UI_SCALE, UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
+import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
@@ -848,10 +848,9 @@ function setUiScale(event) {
   emit('update:ui-scale', Number(event.target.value))
 }
 
-/** 缩放档位的显示名：默认那一档后面挂一个「（默认）」，其余就是百分比本身 */
+/** 缩放档位的显示名：就是百分比本身，不标默认档 */
 function scaleLabel(scale) {
-  const value = `${Math.round(scale * 100)}%`
-  return scale === DEFAULT_UI_SCALE ? t('settings.uiScale.default', { value }) : value
+  return `${Math.round(scale * 100)}%`
 }
 
 /** 界面语言选中即生效。状态由 i18n 模块自己持久化（cp.uiLocale），不经 App 中转。 */

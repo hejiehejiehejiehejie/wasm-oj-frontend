@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 /**
- * 全局 UI 缩放（档位 100% / 110% / 125% / 150%，默认 110%）。
+ * 全局 UI 缩放（档位 100% / 110% / 125% / 150%，默认 100%）。
  *
  * 做法：CSS 里的 px 已经被 postcss-pxtorem 转成 rem（配置见 vite.config.js），
  * 缩放时只改根字号，整块界面跟着 rem 一起走。三条边界必须记住，它们决定了
@@ -22,15 +22,14 @@ import { ref } from 'vue'
 export const BASE_FONT_SIZE = 16
 
 /** 默认档位：localStorage 里还没有这条偏好（新用户 / 清过站点数据）时按它起步 */
-export const DEFAULT_UI_SCALE = 1.1
+export const DEFAULT_UI_SCALE = 1
 
 /** 当前缩放比例。模块级单例：任何组件都能读，App.vue 负责把它同步成持久化偏好。 */
 export const uiScale = ref(DEFAULT_UI_SCALE)
 
 /**
  * 可选档位（id 就是比例本身，便于直接落进 localStorage）。
- * 只有数字：显示名要跟着界面语言变（默认那档挂着「（默认）」），所以由消费处
- * 用 t('settings.uiScale.default') 拼 —— 表里写死字符串就跟着语言走了（见 i18n 的调用纪律）。
+ * 只有数字：显示名（百分比）由消费处拼，表里不存文案。
  */
 export const UI_SCALE_OPTIONS = [1, 1.1, 1.25, 1.5]
 
@@ -54,7 +53,7 @@ export function applyUiScale(scale) {
   root.style.setProperty('--ui-scale', String(next))
 }
 
-/** 读盘时把来路不明的值夹回合法档位（认不出来的退回默认档 110%） */
+/** 读盘时把来路不明的值夹回合法档位（认不出来的退回默认档 100%） */
 export function normalizeUiScale(value) {
   const number = Number(value)
   return UI_SCALE_OPTIONS.includes(number) ? number : DEFAULT_UI_SCALE

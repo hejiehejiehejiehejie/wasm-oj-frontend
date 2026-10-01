@@ -60,7 +60,7 @@ const effectiveTimeLimitMs = computed(() => {
   return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
 })
 
-// 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 110%）。CSS 的 px 已由 postcss-pxtorem
+// 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）。CSS 的 px 已由 postcss-pxtorem
 // 转成 rem，所以这里只需要写一次根字号；物理尺寸与拖拽数学都不受影响（见 useUiScale.js）。
 const uiScalePref = usePersistentRef('cp.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })
 // setup 期就落地：早于首帧渲染，不会先按 100% 画一帧再跳到目标档位

@@ -186,7 +186,7 @@ export default {
                 '开关设置页签：点页头那颗**齿轮**',
                 '收起整栏：双击两栏中间的分隔条',
                 '换边：**设置** › **外观** › **侧边栏位置**',
-                '缩放：**设置** › **外观** › **界面缩放**，默认 110%',
+                '缩放：**设置** › **外观** › **界面缩放**，默认 100%',
                 '配色：**设置** › **外观** › **主题**，深色 / 浅色',
               ],
               notes: [
@@ -369,7 +369,7 @@ export default {
                 'Toggle the Settings tab: click the **gear** in that header',
                 'Collapse the whole sidebar: double-click the divider between the two columns',
                 'Move it to the other side: **Settings** › **Appearance** › **Sidebar position**',
-                'Scale it: **Settings** › **Appearance** › **Interface scale** — 110% by default',
+                'Scale it: **Settings** › **Appearance** › **Interface scale** — 100% by default',
                 'Change colours: **Settings** › **Appearance** › **Theme** — dark / light',
                 'Change the language: **Settings** › **Appearance** › **Interface language**',
               ],
