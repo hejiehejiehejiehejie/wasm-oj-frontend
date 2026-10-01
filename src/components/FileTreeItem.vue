@@ -12,6 +12,7 @@ import AppIcon from './AppIcon.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
+import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { getNodeById, openFile, pinTab, renameNode, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, join, stem } from '../services/vfs/paths.js'
@@ -59,15 +60,9 @@ const isActiveParent = computed(() => activeParentId.value === props.node.id)
 const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
 
 /** 只有文件画图标：文件夹改用裸的折角箭头表示（试一下不带 logo 的样子），
- *  于是这里也就不需要再区分 folder / folder-open 了。 */
-const iconName = computed(() => {
-  const name = props.node.name.toLowerCase()
-  if (/\.(h|hpp|hh|hxx)$/.test(name)) return 'header'
-  if (name.endsWith('.py')) return 'python'
-  if (name.endsWith('.md') || name.endsWith('.markdown')) return 'markdown'
-  if (/\.(cpp|cc|cxx|c)$/.test(name)) return 'cpp'
-  return 'file'
-})
+ *  于是这里也就不需要再区分 folder / folder-open 了。
+ *  映射本身在 services/fileIcons.js —— 编辑器页签用的是同一份，别在这里另写一套。 */
+const iconName = computed(() => fileIconName(props.node.name))
 
 // ------------------------------------------------------------ 点击 / 右键
 

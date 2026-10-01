@@ -14,6 +14,7 @@
 import AppIcon from './AppIcon.vue'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
+import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import {
   activateCfPickerTab,
@@ -43,6 +44,16 @@ function activate(id) {
 /** 页签上这个未保存标记要不要显示：开了自动保存就不显示（dirty 只存在几百毫秒） */
 function isDirtyTab(id) {
   return !autoSaveEnabled.value && modelManager.isDirty(id)
+}
+
+/**
+ * 页签上的文件 logo。走 services/fileIcons.js —— 与资源管理器同一份映射，
+ * 别在这儿另写一套（同名的图标同时是着色类后缀，见下面 .editor-tabs__icon.is-*）。
+ * 节点还没索引出来时回落 'file'，与标签的 untitled 回退对齐。
+ * @param {string} id
+ */
+function tabIcon(id) {
+  return fileIconName(getNodeById(id)?.name ?? '')
 }
 
 /** 中键关掉合成视图页签（设置 / 抽题同一套） */
@@ -87,7 +98,14 @@ function onMouseDown(event, id) {
           class="editor-tabs__dot"
           :title="t('app.tabs.dirty')"
         ></span>
-        <AppIcon v-else name="code" :size="12" class="editor-tabs__icon" />
+        <!-- 文件 logo 与资源管理器同一份映射（services/fileIcons.js），dirty 时让位给圆点 -->
+        <AppIcon
+          v-else
+          :name="tabIcon(id)"
+          :size="12"
+          class="editor-tabs__icon"
+          :class="`is-${tabIcon(id)}`"
+        />
         <span class="editor-tabs__label">{{ getNodeById(id)?.name ?? t('app.tabs.untitled') }}</span>
         <span
           class="editor-tabs__close"
@@ -221,6 +239,21 @@ function onMouseDown(event, id) {
 
 .editor-tabs__icon {
   color: var(--icon-code, currentColor);
+}
+
+/* 语言标志沿用 VS Code（Seti）配色，与文件树行、设置里的「本地运行环境」同一套变量。
+   头文件与通用文件不着色（跟文件树一致：它们不参与「这是哪种语言」的表达），
+   于是落在上面那条 --icon-code 上。 */
+.editor-tabs__icon.is-cpp {
+  color: var(--icon-cpp);
+}
+
+.editor-tabs__icon.is-python {
+  color: var(--icon-python);
+}
+
+.editor-tabs__icon.is-markdown {
+  color: var(--icon-markdown);
 }
 
 .editor-tabs__dot {
