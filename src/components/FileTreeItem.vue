@@ -271,11 +271,14 @@ function onKeyDown(event) {
       />
       <span v-if="!renameMode" class="tree-item__label">{{ node.name }}</span>
       <span v-if="!renameMode && dirty" class="tree-item__dot" :title="t('app.tabs.dirty')"></span>
+      <!-- data-keep-focus-on-pan：这张框失焦即提交（下面的 @blur），滑动时不许被
+           useMobileKeyboard 代劳 blur —— 那会把「拖选一段文字」变成「提交改名」，选区也一起丢。 -->
       <input
         v-if="renameMode"
         ref="renameInput"
         v-model="renameValue"
         class="tree-item__input"
+        data-keep-focus-on-pan
         @keydown.enter="submitRenameOnEnter"
         @keydown.esc.prevent="cancelRename"
         @blur="commitRename"

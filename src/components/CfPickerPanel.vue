@@ -3,7 +3,10 @@
        版式走「工业引擎控制台」：整块是一张网格，靠 1px 线分割行与列，直角、无阴影、
        无留白；标签是 10px 大写暗灰，数值一律等宽字体；布尔值用分段按钮而不是开关。
        颜色走设计令牌 —— 本项目有浅色主题，写死 rgba(255,255,255,x) 会翻不过去。 -->
-  <div class="cf-view">
+  <!-- data-native-focus：整片不参与 useMobileKeyboard 的保焦，走浏览器原生焦点。
+       保焦是给「点按钮、点输出区都不收键盘」用的，而这块面板要的正好相反：点「抽取」
+       「常用区间」「ON/OFF」时键盘该收掉；键盘自己的开关键收掉之后轻点别处也不该再弹。 -->
+  <div class="cf-view" data-native-focus>
     <div class="cf-shell">
       <!-- 抬头：标题 + 状态（状态放这里，底下就只剩一颗按钮） -->
       <header class="cf-cell cf-cell--span cf-bar">

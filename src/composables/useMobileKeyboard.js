@@ -39,6 +39,28 @@ const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOC
 // 焦点是不是还在编辑器里（Monaco 的输入面，Chrome 是 .native-edit-context、其余是
 // 隐藏的 textarea.inputarea，两者都在 .monaco-editor 里面）
 const isInEditor = (node) => node instanceof Element && Boolean(node.closest('.monaco-editor'))
+// 普通输入框。刻意**不含 textarea**：测试样例的 `.ta` 走既有口径「轻点别处 → 焦点不动」
+// （见 HANDOFF 触摸屏那节），只有 `input` 这一层在落手时清焦点。
+const isInputBox = (node) => node instanceof Element && Boolean(node.closest('input'))
+// 滑动时**不**替它清焦点的输入框：它的 blur 有副作用 —— 重命名框一失焦就提交改名
+// （见 FileTreeItem 的 @blur）。替它 blur 会把「拖选一段文字」直接变成「提交改名」，
+// 连选区也一起弄丢。凡是有这类失焦副作用的输入框，自己标上这个属性。
+const PAN_KEEP_FOCUS = '[data-keep-focus-on-pan]'
+const keepsFocusOnPan = (node) => node instanceof Element && node.matches(PAN_KEEP_FOCUS)
+// 整片不参与保焦、完全走浏览器原生焦点的区域：由它自己标上这个属性。
+// 保焦那套（拦 mousedown 拦住焦点转移）是为了「点按钮、点输出区都不收键盘」，
+// 但 CF 抽题面板要的正好相反——点面板里的按钮（抽取 / 常用区间 / ON-OFF）就该收键盘。
+const NATIVE_FOCUS = '[data-native-focus]'
+const inNativeFocus = (node) => node instanceof Element && Boolean(node.closest(NATIVE_FOCUS))
+// 这次触摸的落点是不是就在这个元素上（它本身 / 它的子节点 / 包着它的 <label>）——
+// 是的话用户是想点它，别把焦点扔掉（重命名框还挂着 @blur 提交，更不能被抢跑）。
+const isTouchOn = (event, el) => {
+  const target = event.target
+  if (!(el instanceof Element) || !(target instanceof Element)) return false
+  if (target === el || el.contains(target)) return true
+  const label = target.closest('label')
+  return Boolean(label && label.control === el)
+}
 
 // 触屏判定。单独导出一份，是给「不许程序化抢焦点」那类调用点（EditorPane）复用同一口径用的：
 // 那里不能整体调 useMobileKeyboard()，否则 onMounted 会把下面一整套 document 监听再挂一遍。
@@ -77,7 +99,7 @@ export function useMobileKeyboard() {
   function undoFocusChangeFromPan() {
     // 键盘本来就弹着：用户是想滚动，不是想换焦点。此时清焦点正是「滑一下就收键盘」的
     // 成因，而用户口径是除了键盘自己的返回键，键盘不许收——所以整场滑动都不碰焦点。
-    // 键盘没弹着（包括刚按过返回键、焦点还留在编辑器里的那种）才走下面，否则手势一结束
+    // 键盘没弹着（包括刚按过返回键、焦点还留在编辑器 / 普通输入框里的那种）才走下面，否则手势一结束
     // 就会被系统把键盘重新弹起来。
     if (keyboardUpAtTouchStart) return
     const current = document.activeElement
@@ -90,7 +112,14 @@ export function useMobileKeyboard() {
       current.blur()
       return
     }
-    if (current === focusBeforeTouch) return
+    if (current === focusBeforeTouch) {
+      // 落手就在这个输入框里（touchstart 那道闸见 isTouchOn 放过了它）、接着又滑起来：
+      // 用户是在滚动，不是想打字。落手那一刻判不出是点还是滑，只能在这里补一刀 ——
+      // 不清掉的话，手势结束时系统照样会把「已经聚焦的输入框」重新弹起键盘。
+      // 失焦有副作用的框（重命名框）除外：那种拖动多半是在拖选文字，动它就等于改数据。
+      if (isInputBox(current) && !keepsFocusOnPan(current)) current.blur()
+      return
+    }
     if (isEditable(focusBeforeTouch) && focusBeforeTouch.isConnected) focusBeforeTouch.focus({ preventScroll: true })
     else if (current instanceof HTMLElement) current.blur()
   }
@@ -103,14 +132,24 @@ export function useMobileKeyboard() {
     keyboardUpAtTouchStart = keyboardUp
     const current = document.activeElement
     focusBeforeTouch = current instanceof HTMLElement && current !== document.body ? current : null
-    // 「用户在键盘上按返回键把键盘收掉了，但焦点还留在编辑器里」这一种，和下面
+    // 「用户在键盘上按返回键把键盘收掉了，但焦点还留在编辑器 / 普通输入框里」这一种，和下面
     // 滑动那条是同一个成因（已聚焦的输入框会被系统在手势结束时重新弹起键盘），只是
     // 轻点也会触发、而且拦 mousedown 来不及（合成 mousedown 在 touchend 之后才来）。
     // 用户口径：键盘收掉之后点哪儿都不该再把它捞回来。所以在 touchstart 就把这个前提
     // 断掉——键盘没弹着还残留着编辑器焦点，先 blur。点编辑器文本时的重新聚焦不用管，
     // 那是 Monaco 自己的 Tap 干的（焦点本来就是这个入口给的）；点别处则不再弹键盘。
     // 键盘弹着时不能这样做：那时正确行为是保焦（点按钮、点输出区都不收键盘）。
-    if (!keyboardUpAtTouchStart && isInEditor(current)) {
+    // 普通 <input>（重命名 / CF 抽题 / 题目信息…）同理，多一条：落点就在这个输入框里时
+    // 不动它——用户是想点回来接着打字（重命名框的 @blur 还会提交，更不能被抢跑）。
+    // 唯一不看「键盘弹没弹着」这道闸的是 CF 抽题面板（data-native-focus）：它整片走浏览器
+    // 原生焦点，键盘自己的开关键把它收掉、keyboardUp 还没跟上来的那一瞬，落手也得清焦点，
+    // 否则手势结束时系统照样会把「还聚焦着的输入框」重新弹起——就是用户报的「收起键盘后
+    // 轻点别处又弹」。面板内点按钮收键盘那半边由 onMouseDown 放行负责。
+    const onInputBox = isInputBox(current) && !isTouchOn(event, current)
+    if (
+      (isInEditor(current) || onInputBox) &&
+      (!keyboardUpAtTouchStart || (onInputBox && inNativeFocus(current)))
+    ) {
       current.blur()
       focusBeforeTouch = null
     }
@@ -147,6 +186,9 @@ export function useMobileKeyboard() {
   function onMouseDown(event) {
     const node = event.target
     if (!(node instanceof Element) || node.closest(EDITABLE)) return
+    // CF 抽题面板（data-native-focus）不参与保焦：放行这次 mousedown，焦点照常跟到按钮上，
+    // 键盘也就跟着收掉——用户口径是「面板里点按钮时要收键盘」（抽取 / 常用区间 / ON-OFF）。
+    if (inNativeFocus(node)) return
     // 刚滑动过：这次 mousedown 是滑动收尾补上的，别让它把焦点改掉
     if (panning) event.stopPropagation()
     event.preventDefault()
