@@ -63,7 +63,7 @@ export default {
         lineHeightRatio: { label: '行高', hint: '行间距相对字号的倍数' },
         fontLigatures: {
           label: '字体连写',
-          hint: '将 => 或 != 等符号渲染为连贯的数学符号（需当前字体支持，如 Fira Code）',
+          hint: '将 => 或 != 等符号渲染为连贯的数学符号（需字体本身支持连字；三款「内置」字体都支持）',
         },
         autoSave: {
           label: '自动保存',
@@ -113,7 +113,10 @@ export default {
       option: {
         themeDark: '深色',
         themeLight: '浅色',
-        fontDefault: '默认等宽栈',
+        fontDefault: '默认',
+        fontJetBrains: 'JetBrains Mono（内置）',
+        fontFiraCode: 'Fira Code（内置）',
+        fontCascadia: 'Cascadia Code（内置）',
         wrapOff: '不换行',
         wrapOn: '按视口换行',
         wrapColumn: '按列宽换行',
@@ -356,7 +359,7 @@ export default {
         lineHeightRatio: { label: 'Line height', hint: 'Line spacing as a multiple of the font size' },
         fontLigatures: {
           label: 'Font ligatures',
-          hint: 'Render symbols such as => or != as single joined glyphs (needs a font that supports them, e.g. Fira Code)',
+          hint: 'Render symbols such as => or != as single joined glyphs (needs a font with ligatures; all three bundled fonts have them)',
         },
         autoSave: {
           label: 'Auto save',
@@ -420,7 +423,10 @@ export default {
       option: {
         themeDark: 'Dark',
         themeLight: 'Light',
-        fontDefault: 'Default monospace stack',
+        fontDefault: 'Default',
+        fontJetBrains: 'JetBrains Mono (bundled)',
+        fontFiraCode: 'Fira Code (bundled)',
+        fontCascadia: 'Cascadia Code (bundled)',
         wrapOff: 'Off',
         wrapOn: 'Wrap at viewport',
         wrapColumn: 'Wrap at column',

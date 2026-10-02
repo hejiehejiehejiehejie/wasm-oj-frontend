@@ -9,14 +9,16 @@
 
 ## 维护约定
 
-- 改 `package.json`（增删依赖 / 升级大版本）、换 `public/wasm/` 下的工具链目录、换 `public/md/` 下的渲染运行时（跟着 katex / marked 的版本走）、换 `public/extension/` 里的扩展包 —— 四件事任一发生，都要回来同步这份文件。
+- 改 `package.json`（增删依赖 / 升级大版本）、换 `public/wasm/` 下的工具链目录、换 `public/md/` 下的渲染运行时（跟着 katex / marked 的版本走）、换 `public/extension/` 里的扩展包、换 `public/fonts/` 下的内置字体 —— 五件事任一发生，都要回来同步这份文件。
 - **版本号一律实机核出来，不要凭记忆手写**（末尾附了核对命令）。
 - 站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。
 - 本文件只列**别人的**项目。本仓库自己目前没有 `LICENSE` 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。
 
-> 最后核对：**2026-10-01**（同日两次换扩展包：先 → `cc-for-web-2.66.1.zip`（行为改动同上一条，握手消息名去 `cph-` 前缀），随即 → `cc-for-web-2.66.2.zip`（行为改动：「样例待抓名单」机制整体移除 —— 扩展不再保存名单，改成用户打开题目页时由扩展现场问网页「这道题在工作区里且样例为空吗」（新消息 `cp-query-need` / `cp-need-answer`，见 `src/composables/useCompanionBridge.js`），要抓才抓；跨仓契约，必须与本站同版发布）。两次都属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+> 最后核对：**2026-10-02**（代码区新增三款内置等宽字体：JetBrains Mono 2.211 / Fira Code 5.002 / Cascadia Code 2407.024，源文件落在 `public/fonts/`。**只取 latin 子集的 woff2（Regular + Bold，合计 149KB）**，来自 [@fontsource](https://github.com/fontsource/fontsource) 5.3.0 的构建产物，上游均为 **OFL-1.1**。版本号按字体内部的真实版本核出 —— fontsource 的包偏旧，例如 Fira Code 上游 6.2 而包内是 5.002，按上游 release 号写文件名就会记错。属于新增素材而非依赖变动，`package.json` 与运行时清单**未变**）。
 >
-> 此前一次核对：**2026-10-01**（换扩展包 → `cc-for-web-2.66.0.zip`。唯一的改动是插件与网页之间的握手消息名去掉 `cph-` 前缀、统一成 `cp-`（跨仓契约，见 `src/composables/useCompanionBridge.js`），属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+> 此前一次核对：**2026-10-01**（同日两次换扩展包：先 → `cc-for-web-2.66.1.zip`（行为改动同上一条，握手消息名去 `cph-` 前缀），随即 → `cc-for-web-2.66.2.zip`（行为改动：「样例待抓名单」机制整体移除 —— 扩展不再保存名单，改成用户打开题目页时由扩展现场问网页「这道题在工作区里且样例为空吗」（新消息 `cp-query-need` / `cp-need-answer`，见 `src/composables/useCompanionBridge.js`），要抓才抓；跨仓契约，必须与本站同版发布）。两次都属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+>
+> 上上一次核对：**2026-10-01**（换扩展包 → `cc-for-web-2.66.0.zip`。唯一的改动是插件与网页之间的握手消息名去掉 `cph-` 前缀、统一成 `cp-`（跨仓契约，见 `src/composables/useCompanionBridge.js`），属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
 >
 > 上一次核对：**2026-09-30**（同日两件事：① 换扩展包 → `cc-for-web-2.65.3.zip`，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可**未变**；
 > ② 题解功能上线，新增自托管的 Markdown / LaTeX 渲染运行时 `public/md/`（KaTeX 0.18.9 + marked 14.0.0），并因此把 `marked` / `dompurify` / `katex` 提为本站的**直接依赖**。
@@ -73,9 +75,11 @@
 | 素材 | 许可 | 出处 |
 | --- | --- | --- |
 | seti-ui 的 `icons/cpp.svg` | MIT | [jesseweed/seti-ui](https://github.com/jesseweed/seti-ui)（VS Code 默认文件图标主题，字形 `\E01A`）。用在 `src/components/AppIcon.vue` 的 `SOLID_PATHS.cpp`，文件内注释已记出处 |
+| 内置代码字体 [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) 2.211 / [Fira Code](https://github.com/tonsky/FiraCode) 5.002 / [Cascadia Code](https://github.com/microsoft/cascadia-code) 2407.024 | **OFL-1.1**（三款各自随附 SIL OFL，再分发允许） | `public/fonts/*.woff2`，**latin 子集 + Regular/Bold 各一份**（6 个文件 149KB），取自 [@fontsource](https://github.com/fontsource/fontsource) 5.3.0 的构建产物；`src/styles/fonts.css` 里的 `@font-face` 是唯一声明处。文件名带的是字体**内部**的真实版本号，不是上游 release 号 |
 
 - 其余图标（`play` / `gear` / `files` / `cases` / `file-plus` / `folder-plus` / `python` 等）都是本站自绘的内联 SVG，形状参考 lucide 的 24×24 描边风格，**没有引入图标依赖**。
-- **字体全部走系统字体栈**（`-apple-system` / PingFang SC / SF Mono / JetBrains Mono 回退），没有自托管或 CDN webfont。
+- 界面（代码区以外）仍全部走系统字体栈（`-apple-system` / PingFang SC / …），**没有**自托管或 CDN webfont。
+- **代码区是例外**：上表那三款等宽字体是自托管的，但**只在用户于「设置 › 编辑器 › 字体」里选中时才下载**（不选的人一个字节都不下）；也不进 Service Worker 的预缓存清单，靠首次使用的缓存策略落进外壳桶 —— 所以文件名必须带版本号，同名覆盖会让老用户永远吃旧文件。
 - PWA 图标（`public/icons/*.png`）、`favicon.svg`、`og-cover.png` 均为本站自制。
 - ⚠️ **待确认**：`SOLID_PATHS.python` 那枚 Python 双蛇标志在代码里**没有写出处**（形状与 simple-icons 的 Python 标志一致）。谁加的、从哪儿取的，确认后再往本表补一行。
 

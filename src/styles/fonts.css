@@ -1,0 +1,67 @@
+/* 内置等宽字体：三款带编程连字的开源字体（OFL-1.1），各取 latin 子集、Regular + Bold。
+ *
+ * 为什么内联在仓库里：系统字体清单里没有任何一款带编程连字（见文档第 1 节的说明），
+ * 想让「字体连写」在各种设备上都有效，只能自托管。文件在 public/fonts/ 下，
+ * **不在** Service Worker 的预缓存清单里 —— 只有用户真的选中该字体时才会下载，
+ * 不选的人一个字节都不下。
+ *
+ * 【文件名必须带字体真实版本号】SW 对同源 GET 走 cacheFirst 且不重新校验，
+ * 同名覆盖会让老用户永远吃旧文件（与 public/extension 的 zip 同一套规矩）。
+ * 注意版本号取的是字体内部的真实版本，不是上游 release 号：@fontsource 打的包偏旧，
+ * 例如 Fira Code 上游 6.2 而包内是 5.002。
+ *
+ * 【族名带 Web 后缀，刻意与系统同名字体分开】设置里的字体栈写成
+ * 「Web 族名 → 同名的系统字体 → 通用等宽」，于是：内置的永远优先（跨设备行为一致），
+ * 万一字体文件没取到，还能退到用户自己装的那一款，再退到系统等宽。
+ *
+ * 【只有 latin 子集】中文与生僻符号由栈里后面的系统字体按字符兜底，
+ * 这是三款字体合计只有 149KB 的原因；代码区本来就是 ASCII 为主。
+ * font-display 用 swap：宁可先用兜底字体画一帧，也不要让代码区空着不出字。 */
+
+@font-face {
+  font-family: 'JetBrains Mono Web';
+  src: url('/fonts/jetbrains-mono-latin-400-2.211.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Web';
+  src: url('/fonts/jetbrains-mono-latin-700-2.211.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fira Code Web';
+  src: url('/fonts/fira-code-latin-400-5.002.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Fira Code Web';
+  src: url('/fonts/fira-code-latin-700-5.002.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cascadia Code Web';
+  src: url('/fonts/cascadia-code-latin-400-2407.024.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cascadia Code Web';
+  src: url('/fonts/cascadia-code-latin-700-2407.024.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

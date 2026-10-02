@@ -1,3 +1,7 @@
+/* 内置等宽字体的 @font-face。必须排在最前 —— @import 只能出现在其它规则之前。
+   它只是声明字体，不会触发下载；只有代码区真的用到才会去取（见 styles/fonts.css 头部）。 */
+@import './fonts.css';
+
 /* 全局配色。
    深色是默认（不带 data-theme 时也用深色），浅色通过 <html data-theme="light"> 切换。
    所有组件只允许引用这里的变量，不要再写死十六进制颜色。 */

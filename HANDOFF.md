@@ -16,7 +16,7 @@
 - **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cp.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
 - 重量级第三方依赖只有 `monaco-editor` 和 `@runno/wasi`（浏览器里跑 clang）；`puppeteer-core` 只给无头回归脚本用；`binaryen` 是 devDependency，只服务 `npm run wasm:opt`（不进产物、不影响运行时，卸掉它会自动回退到系统级 wasm-opt）。新增 npm 包要先讨论。
-- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 100%，2026-10-01 由 110% 改，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 2 项：文件归类设置（配置 UI）/ 比赛模式。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cp.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.9「登录 + 云同步」**（Cloudflare Worker + KV，落地位置与坑见 14.9；网址形态的入口 `www.998244353.best/<handle>` 见 14.21）**与 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。
+- **计划与待办都在第 14 节**，每条都带着要避开的坑与落地顺序。2026-09-28 一天里落地了：14.1「合并侧栏切换钮」、14.5「文件归类」的**固定落盘结构**（只剩配置 UI）、**14.8「换新建图标」**；同日还删掉编辑器页签栏那颗运行按钮、并给胶囊配了 `Mod+Shift+KeyE` 快捷键，另**计划外**落地了**全局界面缩放**（默认 100%，2026-10-01 由 110% 改，档位 100% / 110% / 125% / 150%，见 14.12 与第 5 节坑 24）。仍待做 2 项：文件归类设置（配置 UI）/ 比赛模式。**2026-09-29 又落地了两条**：**14.3「题目时限接入」**——题目自带的时限存进节点 `meta.timeLimit`，判题时优先于全局档位（见该节）；**14.14「界面双语（中 / 英）」**——自写 `src/i18n/`（未引 vue-i18n），界面语言存 `cp.uiLocale`、默认跟随浏览器、设置视图「外观」组可切；范围含 UI + 应用内帮助 + `guide.html` 整页（英文版是 `guide.en.html`，见第 12 节）。同日还重写了 `guide.html` / `HelpPanel.vue` / `docs/使用手册.md` 三份文档（体例：小标题一律疑问句、操作走数字列表、实测性能数字见 `guide.html` 第 4 节）。**2026-09-30 落地了 14.9「登录 + 云同步」**（Cloudflare Worker + KV，落地位置与坑见 14.9；网址形态的入口 `www.998244353.best/<handle>` 见 14.21）**与 14.15「题解（Markdown / LaTeX）」**（七步，见第 15 节），同日还补了致谢页的英文版（`NOTICE.en.md` → `notice.en.html`）与右键菜单「打开题目链接」。**2026-10-02 计划外落地了 14.24「代码区内置三款等宽字体」**——起因是设置里的「字体连写」开关此前**恒等于无效**（可选的 5 款字体全是系统字体、一款都不带连字，Android / Linux 上还全部退化到同一款），现在自托管了 JetBrains Mono / Fira Code / Cascadia Code 的 latin 子集，选中才下载。
 - **站点显示名当前是占位符 `unnamed`**（2026-09-29 由原「CPH IDE」整体改来，等定好新名再替换一轮）。出现处固定这几处，改名时照这份清单搜：`index.html`（title / apple-mobile-web-app-title / og / twitter / ld+json / noscript 正文）、`guide.html` 与 `guide.en.html`（**两版都要搜**；同样一组 + 页头 `.brand__name` + 各处正文）、致谢页（**页头品牌名与标题里的 `unnamed` 在 `scripts/render-notice.mjs` 的 PAGES 表 / `NOTICE*.md` 里，不是在生成物里改**——`notice.html` / `notice.en.html` 是生成物，改完跑 `npm run notice`）、`src/i18n/messages/*.js` 里正文出现的品牌名、`public/manifest.webmanifest`、`public/robots.txt` 与 `src/sw.js` 的注释、`src/components/TestPanel.vue` 的 `aria-label`、`docs/使用手册.md`、本文件。**持久化名都是契约**（localStorage 的 `cp.*`、IndexedDB 的 `cp-vfs` / `cp-pch`、Cache Storage 的 `cp-shell-*` / `cp-toolchain` / `cp-md-runtime`）：**这些名字的唯一出处是 `src/services/storageNames.js`**（SW 那份由构建期注入，见第 9 节），想改名必须**同时写一次性迁移**，见 `services/storageMigration.js` 与 `LocalVFSProvider.js` 的 `migrateLegacyDb()`、`sw.js` 的 `migrateLegacyBuckets()`。带 `cph-` 的旧名只作为**迁移源**存在——不认识它们就搬不动老用户的数据，等于把用户的偏好与题解全丢掉（题目元数据的 `.cph/` 目录已于 2026-10-01 取消，如今只剩 `migrate.js` 里认老数据用的那个常量）。**能改的只有主题 id**（`dark` / `light`，2026-09-29 已去掉 `cph-` 前缀，改动清单与迁移见第 1 节首行与第 6 节）。`package.json` 的 `name: cp-ide` 是 npm 标识、与展示无关。
 
 ## 1. 硬约束（改样式时最容易被打破的几条）
@@ -37,6 +37,7 @@
 | SW 改了**外壳**策略就升 `SHELL_VERSION` | `src/services/storageNames.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v4`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cp-toolchain`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物，**不在**构建清单里，改动它们要同步 `sw.js` 的 `STATIC_ASSETS`（见第 9 节） |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
+| 内置字体文件名必须带版本号 | `public/fonts/<族>-latin-<字重>-<字体内部版本>.woff2`，`@font-face` 只写在 `src/styles/fonts.css`（由 `base.css` 的**首行** `@import` 引入，`@import` 只能出现在其它规则之前）。与扩展包同理**不进 `STATIC_ASSETS`**，靠首次使用落进外壳桶，同名覆盖会让老用户永远吃旧文件。版本号必须取**字体内部**的真实版本，别抄上游 release 号（@fontsource 的包会滞后，见第 14.24 节） |
 | 导入题目挂在 VFS 节点上，不许另立存储 | 一道题 = 一个代码文件 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂根下，无外层 wrapper；年月粒度 `YYYY-MM`；难度导入时一律为空，先落「未分类」）。题目信息（`node.meta`）与抓到的样例（`node.config`）都挂在这个文件节点上，树里不另有条目（2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json`，由 `migrate.js` 一次性搬进节点）。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例整体覆盖而难度由用户手填、重抓要保留；题目身份认 `url` 不认文件名，且**必须全库按 `node.meta.url` 找回原文件**（分层后同一道题会算出新路径，只扫一个 OJ 目录会让老题解变孤儿）。改这里等于动用户数据，见第 13 节 |
 | 全局快捷键监听必须在 `window` 捕获阶段 | `window.addEventListener('keydown', onKeydown, true)` + `preventDefault()` + `stopPropagation()`。Monaco 的键位服务挂在编辑器内部 DOM 上，只有捕获阶段抢得过它；**不要**再用 `editor.addCommand()` 同步键位（Monaco 0.56 没有 `removeCommand`，旧的撤不掉） |
 | 录制快捷键时全局监听必须让路 | 开录时置 `recordingActive = true`（录制框自己的监听在按钮的目标阶段，捕获永远先跑），否则按下新组合键的瞬间功能会先被执行一遍 |
@@ -79,6 +80,7 @@ src/
   i18n/index.js                 # ★ 界面双语的唯一权威：locale（模块级 ref 单例）/ setLocale / t(key, params) / useI18n() / messages(域) + LOCALES（id 与**自称**标签）/ DEFAULT_LOCALE / LOCALE_STORAGE_KEY。**刻意不走 usePersistentRef**——界面语言必须在任何组件挂载之前就定下来（首帧不能先闪中文），所以自己同步读写 localStorage、初值在第 0 帧算好；`applyLocale()` 同时维护 `<html lang>`。缺词条先退中文、再原样露出 key
   i18n/messages/{app,engines,explorer,help,settings,tests}.js  # 六个域的词条表：**同一文件里中英两栏并排**，改一处就看得见另一处（help.js 整棵是「应用内帮助」的正文内容树，走 messages('help') 整棵取，不是逐条 t()）
   styles/base.css               # ★ 所有 CSS 变量 + 全局元素样式，改配色只改这里
+  styles/fonts.css              # 代码区三款内置字体的 @font-face（JetBrains Mono / Fira Code / Cascadia Code，各取 latin 子集 + Regular/Bold），由 base.css 首行 @import 引入；字体文件在 public/fonts/（见第 14.24 节）
   styles/guide.css              # 使用指南页（guide.html 与 guide.en.html 共用）的样式：**`@import './base.css'` 后再加长文排版**，两套主题的配色 / 字体 / 滚动条仍来自 base.css，这里一律 `var(--…)` 引用、不写十六进制（见第 12 节）。唯一要小心的：base.css 是为「满屏 IDE」写的（`html/body` 高度 100%、body 锁死滚动），内容页必须把那两条放开，否则长页滚不动
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态；另外挂两件全局事：window 捕获阶段的 keydown（快捷键，`SHORTCUT_HANDLERS` 把动作 id 接上真函数）与 `useCompanionImport()`（接扩展投来的题目）
   composables/usePersistentRef.js
@@ -458,6 +460,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **把文件从资源管理器拖到编辑区（2026-09-30 加，见 14.18）**：拖过去时编辑区亮起与「拖到树空白处（根区域）」**同一个变量**（`--bg-drop-root`）的提示色，松手后**已经开着就切到那个页签、没开就常开一个新页签**（不是预览页签；顺带把它从预览槽里钉住）。三条边界：① 高亮范围是编辑器**内容区**（`.editor-pane__stage`），不含页签栏与状态栏；② **目录不接**（拖目录过去不亮、不动作——目录的语义是「移动」不是「打开」）；③ 触屏也走同一条路（长按起拖之后拖到编辑区即可），没有额外的触屏入口。
 - **界面双语（2026-09-29 加）**：界面、应用内帮助与使用指南都有**中文 / 英文**两套，语言默认跟随浏览器、可在设置视图「外观」组的「界面语言」里改，**切了当场生效、不重载**。写文案时注意两条边界：① **判题语言与界面语言无关**——判题语言仍由活跃文件的扩展名派生（第 5 节坑 15），界面语言只管文案，别把两者写成一回事；② **没有第三方本地化机制**（没引 vue-i18n，没有 `.po` / `.json` 语言包，没有 URL 前缀 `/en/`），词条就是 `src/i18n/messages/` 下六个 JS 文件里中英并排的对象，加语言 = 加一栏 + 在 `LOCALES` 里加一项。另外 `guide.html` 与 `guide.en.html` 是**两个独立的静态页**（各自的 `guide.html` 级别 SEO 头、互相 `hreflang`），不做客户端语言跳转——抓取器拿到什么就是什么。
 - **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。**题解那 14 条格式键位刻意不在这个表里**（它们不可改、也只在 `.md` 里说得通，注册在 Monaco 上，见第 15.7 节）。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
+- **代码区的字体是自托管的（2026-10-02 加，见第 14.24 节）**：界面（代码区以外）仍然只用系统字体；代码区另内置三款等宽字体（JetBrains Mono / Fira Code / Cascadia Code，latin 子集、合计 149KB），**只在下拉里选中时才下载**，不依赖任何第三方服务。写文案时别写成「界面全面自带字体」——「默认」档与其余 4 项仍是系统字体；另外「字体连写」只对**带连字的字体**有效：这三款有，系统内置的 SF Mono / Menlo / Consolas / Courier New 一款都没有。
 
 ## 8. 验证方式
 
@@ -1108,6 +1111,44 @@ UI 侧新增的只有**题目信息弹窗里的「时限（秒）」**一栏（`
 - `verify-ui.mjs` 点行走的是 `element.click()`（**不补 DOM 焦点**），所以别把选中只挂在 `focusin` 上——行点击那条必须留着。
 
 **验证**：`npm run build` 通过；无头浏览器实测 6/6 PASS（初始整棵树无高亮 → 点目录该行高亮且原文件取消 → 点空白全灭 → 选中目录后新建的文件确实落在它里面 → 刷新后选中态仍在且全局只有一行高亮），控制台无错误。`npm run verify` 的 **A 步在本机既有竞态处中断**（`Waiting for selector .card failed`）：已用 `git stash` 跑过基线，**改动前后同样失败**，与本轮无关。
+
+### 14.24 代码区内置三款等宽字体（JetBrains Mono / Fira Code / Cascadia Code）—— ✅ 已落地（2026-10-02，计划外新增）
+
+**为什么**：设置里早就有一行「字体连写」，但它此前**不可能有任何效果**。可选字体只有 5 项（默认 / SF Mono / Menlo / Consolas / Courier New），解析到的全是系统字体，而这些系统字体**一款都不带编程连字**；默认栈里虽然写了 `"JetBrains Mono"`，却排在 `ui-monospace` 之后（macOS 上 = SF Mono、Windows 上 = Cascadia Mono），**永远轮不到**。Android / Linux 上更彻底：5 项全部退化到同一款（Roboto Mono / DejaVu Sans Mono）。文案还写着「如 Fira Code」——Fira Code 既不在列表里也不在栈里。**「扩字体栈」与「让用户自己填字体名」两条路都解决不了**：它们的前提是用户先在自己设备上装好字体，而 Android / Linux 用户根本装不成常见的字体名。所以只剩自托管一条路。
+
+**改了什么**（新增 `public/fonts/` 与 `src/styles/fonts.css`；改 `editorOptions.js`、`settings.js`、`base.css` 三处）：
+
+- **新增 `public/fonts/`**（**进仓库**，6 个文件 **149KB**）：三款各取 **latin 子集 + Regular/Bold**。来源是 jsDelivr 上 `@fontsource/*@5.3.0` 的构建产物（一次性下载后即为仓库源文件，运行时零 CDN 依赖），上游均为 **OFL-1.1**。不走上游官方 release 包的实因：Cascadia Code 的官方包 **150MB**（含 ttf/otf/多子集），JetBrains Mono 是 5.6MB 全量 zip。
+- **文件名带的是字体内部的真实版本**（`jetbrains-mono-latin-400-2.211.woff2` 这种），**不是上游 release 号**：fontsource 的包偏旧，Fira Code 上游 6.2 而包内是 **5.002**、JetBrains Mono 上游 2.304 而包内是 **2.211**，Cascadia 与上游一致（2407.024）。照上游号写文件名，NOTICE 就会跟着记错。
+- **新增 `src/styles/fonts.css`**：6 条 `@font-face`，族名带 `Web` 后缀（`JetBrains Mono Web` 等），**刻意与系统同名字体分开**；由 `base.css` 的**首行** `@import` 引入。
+- **`editorOptions.js` 的 `FONT_FAMILIES`** 在「默认」之后插入 3 项（`jetbrains-web` / `fira-code-web` / `cascadia-web`），栈写成「**Web 族名 → 同名的系统字体 → 系统等宽**」：内置优先（跨设备一致），文件万一取不到还能退到用户自己装的那一款。`settings.option` 补中英词条（`JetBrains Mono（内置）` / `JetBrains Mono (bundled)`）。
+- **文案两处**：`fontLigatures.hint` 去掉无法兑现的「如 Fira Code」，改成「三款『内置』字体都支持」；「默认」那一项的取值名由「默认等宽栈 / Default monospace stack」改成「默认 / Default」（中英各一处）。
+- **默认值一个字没动**：`EDITOR_SETTINGS_DEFAULTS.fontFamily` 仍是 `'default'`，「默认」档的字体栈也**刻意没改**（它的语义就是「跟随系统」）。所以老用户升级后编辑器字体不变。
+
+**边界与坑**：
+
+- **只有 latin 子集**：中文与生僻符号由栈里后面的系统字体**按字符**兜底。这是三款合计只有 149KB 的原因（代码区本来就是 ASCII 为主）；别为了「完整」去打包中文字体，那会让体积从 100KB 级跳到 MB 级。
+- **文件名必须带版本，且版本取字体内部的**（第 1 节那条硬约束）：字体文件**不进 `STATIC_ASSETS`**，靠首次使用落进外壳桶；同名覆盖会让老用户永远吃旧文件。换字体＝加新文件，**不要原地覆盖**。
+- **`@import` 必须排在 `base.css` 最前面**，否则浏览器整条丢弃。`guide.css` 也 `@import './base.css'`，所以两份 guide 页同样带上这 6 条 `@font-face`（只是声明，不选就不下载，无副作用）。
+- **`font-display: swap`**：宁可先用兜底字体画一帧，也不要让代码区空着不出字。实测选完字体后 `.view-lines` 的 computed `fontFamily` 已是内置族名、`document.fonts.check` 为 true，未观察到错位。
+- 编辑器 `.view-lines` 的 computed `fontFamily` 尾部会多出一截 `Menlo, Monaco, "Courier New", monospace`（**改前也一样，不是这次引入的**），栈里靠前的候选不受影响，别为此改字体栈。
+- **验证连字不能靠量文本宽度**：等宽字体的连字**不改变总宽度**，宽度差恒为 0。可用的判据是 `font-feature-settings`（见下）与肉眼比对。
+
+**验证**（2026-10-02，本机 headless Chrome + fontTools）：
+
+1. **字体本身带连字**：fontTools 解包 6 个文件，全部含 `calt`（这三款的连字就挂在 `calt` 上）、字形数 394–456、`wOF2` 签名有效 —— **没有误取 NL 无连字变体**。
+2. **开关确实落到编辑器上**：同一页面 A/B，`getComputedStyle('.monaco-editor .view-lines').fontFeatureSettings` = 开 `"calt", "liga"` / 关 `"calt" 0, "liga" 0`。
+3. **连字画得出来**：同源页里用同一个 woff2 + 同一种 feature-settings 渲染 `=> != >= <= === -> ==`，三款的开 / 关两行肉眼比对 —— 开的那行是连贯符号（实心箭头、带斜杠等号、单个不等号、三横），关的那行是分开的独立字符。
+4. **按需下载与缓存**：只选 JetBrains Mono 时网络里只有 `jetbrains-mono-latin-{400,700}-2.211.woff2` 两个请求，首次 **200**、第二次 **304**（条件请求，没重下）；`document.fonts.check('14px "JetBrains Mono Web"')` = true。
+5. **持久化**：把 `cp.editorSettings` 写成 `jetbrains-web` 后刷新，读回来仍是 `jetbrains-web` —— `VALUE_SETS.fontFamily` 是 `FONT_FAMILIES.map(id)` **派生**的，新 id 自动进白名单，**不需要手改校验表**。
+6. **生产构建下 SW 缓存与离线可用**（`npm run build && npx vite preview`，headless Chrome 实跑）：把 `cp.editorSettings.fontFamily` 置为 `jetbrains-web` 刷新后，网络里**只出现** `jetbrains-mono-latin-{400,700}-2.211.woff2` 两条（Fira / Cascadia 一个都没拉，确认是「选中才下载」），均由 SW 接管、落进 `cp-shell-v4` 桶，`document.fonts.check('12px "JetBrains Mono Web"')` = true（721 ms）；二次刷新字体仍在；**断网重载后** `fonts.check` 仍为 true 且 `.monaco-editor` 正常渲染 —— 离线可用成立。
+7. `npm run build` 通过，产物 `dist/fonts/` 6 个文件齐全；`npm run verify` 仍**卡在 A 步那条既有竞态**（`Waiting for selector .card failed`，与 14.23 记录的是同一个、报错逐字相同；本次未再跑 `git stash` 基线），B–H 因此没跑到。
+
+**踩坑记录（下次别重犯）**：
+
+- **headless 里验不了「编辑器内的连写截图」**：Monaco 0.56 的输入走 **EditContext**（`activeElement` 是 `native-edit-context` 这个 contenteditable），CDP 合成的 keydown 与 `Input.insertText` 都进不去，`.native-edit-context` 还点不动（`Node is either not clickable`）。所以视觉验证改到「同源页 + 同一个 woff2」上做，再用上面第 2 条把「开关 → DOM」那一段单独钉死，两条拼起来才是完整链路。**将来要复验，别在编辑器里折腾输入。**
+- **字体是 CORS 必需的资源**：`page.setContent` 撑出来的 `about:blank` 页面里，用绝对地址取 `localhost` 的 woff2 会被浏览器直接拒（`document.fonts.check` 全 false），必须先 `goto` 到 dev server 自己的页面上再取。
+- 核查用的临时 puppeteer 脚本按纪律**用完即删**，仓库里没留探针。
 
 **建议的落地顺序**（本节剩余项）：14.5 剩余部分（文件归类配置 UI，会动用户数据）→ 14.6（比赛模式，扩展侧已就绪，只做站点侧）。
 

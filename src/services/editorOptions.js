@@ -21,12 +21,30 @@ export const THEMES = [
   { id: 'light', labelKey: 'settings.option.themeLight' },
 ]
 
-/** 字体栈：末尾都留一个 monospace 兜底，首选字体没装也不会退化成非等宽 */
+/** 字体栈：末尾都留一个 monospace 兜底，首选字体没装也不会退化成非等宽。
+ *  标了「内置」的三款是自托管的 webfont（见 styles/fonts.css / public/fonts/），
+ *  栈里刻意写成「Web 族名 → 同名的系统字体 → 系统等宽」：内置优先、跨设备一致，
+ *  文件万一取不到还能退到用户自己装的那一款。 */
 export const FONT_FAMILIES = [
   {
     id: 'default',
     labelKey: 'settings.option.fontDefault',
     stack: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
+  },
+  {
+    id: 'jetbrains-web',
+    labelKey: 'settings.option.fontJetBrains',
+    stack: '"JetBrains Mono Web", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace',
+  },
+  {
+    id: 'fira-code-web',
+    labelKey: 'settings.option.fontFiraCode',
+    stack: '"Fira Code Web", "Fira Code", ui-monospace, Menlo, Consolas, monospace',
+  },
+  {
+    id: 'cascadia-web',
+    labelKey: 'settings.option.fontCascadia',
+    stack: '"Cascadia Code Web", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace',
   },
   { id: 'sf-mono', label: 'SF Mono', stack: '"SF Mono", ui-monospace, Menlo, monospace' },
   { id: 'menlo', label: 'Menlo', stack: 'Menlo, Monaco, "Courier New", monospace' },
