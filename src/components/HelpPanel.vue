@@ -32,6 +32,18 @@ function segments(text) {
 
 <template>
   <div class="help-content">
+    <!-- 站点提示：置顶一条。它不是帮助条目，讲的是站点自己的进度，所以不走卡片那套版式 -->
+    <p class="help-notice">
+      {{ t('settings.help.notice') }}
+      <a
+        class="help-notice__link"
+        href="https://blog.998244353.best/comments/"
+        target="_blank"
+        rel="noopener noreferrer"
+        >https://blog.998244353.best/comments/</a
+      >
+    </p>
+
     <section v-for="group in GROUPS" :key="group.title" class="help-group">
       <h3 class="help-group__title">{{ group.title }}</h3>
 
@@ -92,6 +104,30 @@ function segments(text) {
   flex-direction: column;
   gap: 16px;
   padding: 2px 18px 16px;
+}
+
+/* 置顶的站点提示：左侧一道主色竖条 + 淡底，一眼能与下面的问答卡片区分开
+   —— 它不是一条帮助内容，说的是站点本身。地址会很长，允许在任意处断行 */
+.help-notice {
+  margin: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.help-notice__link {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.help-notice__link:hover {
+  text-decoration: underline;
 }
 
 .help-group__title {

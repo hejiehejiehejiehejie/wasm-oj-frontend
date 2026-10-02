@@ -7,8 +7,9 @@
  * 判据就是「库里到底有没有题库」。
  *
  * 【默认安装】这个组件随站点自带：main.js 每次启动都会调 ensureCfPickerInstalled()，
- * 没题库就静默预取（失败不打扰用户，下次打开再试）。所以这里**没有卸载入口** ——
- * 设置页那一行只承担「状态展示 + 失败重试」。
+ * 没题库就静默预取（失败不打扰用户，下次打开再试）。所以设置页那一行是「状态 + 失败重试 + 卸载」，
+ * 其中卸载必须连「默认安装」一起关掉（那一步在 EditorSettingsPanel 里做）—— 不关的话
+ * 下次启动 ensureCfPickerInstalled() 又把它装回来，按钮就成了假的。
  *
  * 【为什么把安装态放在服务层而不是设置面板里】侧栏那颗按钮也要读它 ——
  * 两个消费方必须看到同一个状态。所以这是一个模块级 ref 单例，谁都能 import。
@@ -25,7 +26,7 @@
 
 import { ref } from 'vue'
 
-import { cfPrefetch, cfStatus, onCfProgress } from './cfClient.js'
+import { cfClear, cfPrefetch, cfStatus, onCfProgress } from './cfClient.js'
 
 /** 「已下载」的存档标记。与 mdRuntime 的键同族，值是 JSON 的 true/false。 */
 export const CF_READY_FLAG_KEY = 'cp.cfPicker.ready'
@@ -102,6 +103,29 @@ export function downloadCfPicker(onStage) {
     })
 
   return downloading
+}
+
+/**
+ * 卸载组件：把题库从本机清掉，再把标记归零。语义与 wasmRuntime / mdRuntime 的卸载一致
+ * ——「这东西别留在本机」。
+ *
+ * 【调用方还要关掉「默认安装」】这一步只负责清本机；「默认安装」是偏好、且会跟着账号同步，
+ * 属于界面那一行的决定（见 EditorSettingsPanel 的 confirmUninstall）。不关的话下次启动
+ * ensureCfPickerInstalled() 又把它装回来，用户会觉得卸载没生效。
+ *
+ * 清库失败（Worker 起不来）也照样把标记打回 false：标记只是首帧的播种值，
+ * 库里的真实情况由下一次 reconcileCfRuntime() 正回来。
+ *
+ * @returns {Promise<void>}
+ */
+export async function uninstallCfPicker() {
+  try {
+    await cfClear()
+  } catch {
+    /* 清不掉也继续：标记照样归零，下次 reconcile 以库里的真实情况为准 */
+  }
+  writeFlag(false)
+  cfReady.value = false
 }
 
 /**

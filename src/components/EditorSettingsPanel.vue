@@ -21,11 +21,12 @@ import {
   cfReady,
   downloadCfPicker,
   reconcileCfRuntime,
+  uninstallCfPicker,
 } from '../services/cfRuntime.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import { flush } from '../services/autoSave.js'
-import { readStorageUsage } from '../services/storageQuota.js'
+import { readStorageBreakdown, readStorageUsage } from '../services/storageQuota.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
@@ -334,13 +335,39 @@ const { canInstall, install } = useInstallPrompt()
 // 只说一件事 —— 这个源现在占了多少、上限多少。usage 含工具链与外壳缓存，不只是用户代码。
 const storageUsage = ref({ usage: null, quota: null })
 
-const storageHint = computed(() => {
-  const { usage, quota } = storageUsage.value
-  if (usage === null) return ''
-  return quota === null
-    ? t('settings.app.storage.usageNoQuota', { used: formatBytes(usage) })
-    : t('settings.app.storage.usage', { used: formatBytes(usage), quota: formatBytes(quota) })
-})
+// 明细默认收起：上面那个总量只问一次 StorageManager，而 readStorageBreakdown() 要
+// 遍历每个缓存桶的每一条响应、还要开库遍历记录 —— 展开才值得付这份代价。
+const storageOpen = ref(false)
+const storageBreakdown = ref(null)
+
+/**
+ * 分类 → 显示名词条。前三条直接复用「本地运行环境」的词条：C++ / Python 3 / Markdown / LaTeX
+ * 说的就是同一批资产，各写一份迟早会漂（改了运行时的名字，存储这里得跟着改，不然两处对不上）。
+ * 后三条是存储这边独有的（组件那行按你的要求用简称，我的代码 / 外壳与其它别处不出现）。
+ */
+const STORAGE_CATEGORY_LABEL = {
+  cpp: 'runtime.cpp.title',
+  python: 'runtime.python.title',
+  markdown: 'runtime.markdown.title',
+  cf: 'settings.app.storage.categories.cf',
+  code: 'settings.app.storage.categories.code',
+  other: 'settings.app.storage.categories.other',
+}
+
+// 收起时把明细扔掉（下次展开重新量），但总量留着：那一行还得继续显示。
+function closeStorageBreakdown() {
+  storageOpen.value = false
+  storageBreakdown.value = null
+}
+
+async function toggleStorage() {
+  if (storageOpen.value) {
+    closeStorageBreakdown()
+    return
+  }
+  storageOpen.value = true
+  storageBreakdown.value = await readStorageBreakdown()
+}
 
 // 只报个大概：配额常是几十 GB，精确到小数没有意义
 function formatBytes(bytes) {
@@ -354,6 +381,17 @@ function formatBytes(bytes) {
   return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`
 }
 
+// 明细里那列百分比。分母用明细自己的 total（各段之和），不是 storageUsage ——
+// 两者相等，但只有前者的和真的等于 100%，不会因为两次读数差几十字节就凑不满
+function formatPercent(bytes) {
+  const total = storageBreakdown.value?.total ?? 0
+  if (!total) return '—'
+  const percent = (bytes / total) * 100
+  // 占了一点点的分类显示成 0.0% 会被读成「什么都没有」，不如说清楚是「不到 0.1」
+  if (percent > 0 && percent < 0.1) return '<0.1%'
+  return `${percent.toFixed(1)}%`
+}
+
 async function refreshStorageUsage() {
   storageUsage.value = await readStorageUsage()
 }
@@ -362,7 +400,12 @@ async function refreshStorageUsage() {
 // 之后每次切到这一栏再读一次 —— 下载完工具链、写完文件，占用都会变。
 // 刻意不跟着 props.active 走：第一次打开面板前也得先有数。
 watch(activeSection, (section) => {
-  if (section === 'app') void refreshStorageUsage()
+  // 离开这一栏就把明细收起：它默认是折叠的，回来时也该是折叠的
+  if (section !== 'app') {
+    closeStorageBreakdown()
+    return
+  }
+  void refreshStorageUsage()
 })
 
 // ------------------------------------------------------------ 浏览器插件
@@ -385,10 +428,16 @@ const {
   setExtensionConfig,
 } = useCompanionBridge()
 
-const extensionStatusHint = computed(() => {
+// 状态点：检测中偏「等待」，装好了绿，没探到红（与下面那个短标签同一套语义）
+const extensionDotClass = computed(() => {
+  if (extensionChecking.value) return 'is-busy'
+  return extensionInfo.value ? 'is-ok' : 'is-fail'
+})
+
+// 标签就放在原来那行说明的位置：说明和它说的是同一件事，留一句就够
+const extensionStatusLabel = computed(() => {
   if (extensionChecking.value) return t('settings.extension.checkingHint')
-  if (!extensionInfo.value) return t('settings.extension.missingHint')
-  return t('settings.extension.installedHint', { version: extensionInfo.value.version })
+  return t(extensionInfo.value ? 'settings.extension.statusRunning' : 'settings.extension.statusMissing')
 })
 
 const extensionShortcuts = computed(() =>
@@ -481,6 +530,7 @@ const RUNTIMES = [
     idleHintKey: 'runtime.cpp.idleHint',
     downloadTitleKey: 'runtime.cpp.downloadTitle',
     uninstallHintKey: 'runtime.cpp.uninstallHint',
+    uninstallTitleKey: 'runtime.uninstallTitle',
   },
   {
     id: 'python',
@@ -490,6 +540,7 @@ const RUNTIMES = [
     idleHintKey: 'runtime.python.idleHint',
     downloadTitleKey: 'runtime.python.downloadTitle',
     uninstallHintKey: 'runtime.python.uninstallHint',
+    uninstallTitleKey: 'runtime.uninstallTitle',
   },
   // 题解渲染器不是 WASM 运行时（不解压、不入 IndexedDB），但在用户眼里就是「同一张清单里
   // 的一个可下载项」，所以挂在这里共用同一套状态机与增删按钮，下载逻辑走 services/mdRuntime.js
@@ -501,6 +552,7 @@ const RUNTIMES = [
     idleHintKey: 'runtime.markdown.idleHint',
     downloadTitleKey: 'runtime.markdown.downloadTitle',
     uninstallHintKey: 'runtime.markdown.uninstallHint',
+    uninstallTitleKey: 'runtime.uninstallTitle',
   },
 ]
 
@@ -551,26 +603,35 @@ const downloadingAny = computed(() =>
 
 function hintFor(entry) {
   if (entry.state.value === 'downloading') return live.value.message || t('runtime.downloading')
+  // 就绪时只留耗时：状态本身交给行首那颗绿点，再说一遍「运行环境已就绪」是重复。
+  // 没耗时（比如这次是上次会话就装好的）就什么都不说，只留绿点。
   if (entry.state.value === 'ready') {
     return entry.elapsedMs.value
       ? t('runtime.readyWithTime', { seconds: (entry.elapsedMs.value / 1000).toFixed(1) })
-      : t('runtime.ready')
+      : ''
   }
   if (entry.state.value === 'failed') return entry.failureReason.value || t('runtime.failed')
   return t(entry.idleHintKey)
 }
 
+// 就绪态整颗按钮都收起了，所以这里没有「已就绪」这一支
 function buttonLabel(entry) {
   if (entry.state.value === 'downloading') return t('runtime.button.downloading')
-  if (entry.state.value === 'ready') return t('runtime.button.ready')
   if (entry.state.value === 'failed') return t('runtime.button.failed')
   return t('runtime.button.idle')
 }
 
 function buttonIcon(entry) {
-  if (entry.state.value === 'ready') return 'check'
   if (entry.state.value === 'failed') return 'reset'
   return 'download'
+}
+
+// 行内状态点的语义色：就绪绿 / 失败红 / 下载中橙 / 未装灰
+function runtimeDotClass(entry) {
+  if (entry.state.value === 'ready') return 'is-ok'
+  if (entry.state.value === 'failed') return 'is-fail'
+  if (entry.state.value === 'downloading') return 'is-busy'
+  return 'is-idle'
 }
 
 // 下载就是把该语言的资产拉进缓存，之后引擎评测和这里共用同一份，不需要常驻 Worker。
@@ -621,6 +682,18 @@ async function confirmUninstall() {
   const entry = pendingUninstall.value
   pendingUninstall.value = null
   if (!entry) return
+  // 抽题组件不是 RUNTIMES 里那一套：资产在 IndexedDB 里、状态机在 cfRuntime，
+  // 所以只有「清本机」交给服务层，界面状态与那两个开关各自归位
+  if (entry.id === CF_UNINSTALL_TARGET.id) {
+    await uninstallCfPicker()
+    cfElapsedMs.value = 0
+    cfFailureReason.value = ''
+    // 同下面的预下载：「卸载」是在说「这东西别留在本机」，而「默认安装」是在说
+    // 「自动把它下回来」，两个意图直接冲突。留着开关的话，下次打开站点
+    // ensureCfPickerInstalled() 又把它装回来，这次卸载等于没卸。
+    if (cfAutoInstall.value) cfAutoInstall.value = false
+    return
+  }
   await uninstallRuntime(entry.id)
   entry.state.value = 'idle'
   entry.elapsedMs.value = 0
@@ -636,13 +709,23 @@ watch(pendingUninstall, (entry) => {
   if (entry) nextTick(() => uninstallBtn.value?.focus())
 })
 
-// ------------------------------------------------------------ 抽题组件（默认安装的功能模块）
+// ------------------------------------------------------------ 抽题组件（默认安装的组件）
 // 它不在 RUNTIMES 里：那一套的状态机绑死了 toolsRuntime 的 preload / probeRuntime / uninstallRuntime，
 // 而抽题组件的「资产」是 Codeforces 题库（存在 IndexedDB 里），下载即预取。
-// 它随站点默认安装（main.js 启动时静默预取），所以这一行只有「状态 + 失败重试」，
-// 没有卸载 —— 卸了下次启动也会被自动装回来，留个按钮只会骗用户。
 // 界面状态在这里，「是否已下载」的真值来自 services/cfRuntime.js 的 cfReady ——
 // 侧栏那颗按钮读的是同一个 ref，两边永远一致。
+//
+// 卸载复用同一颗确认弹窗：给这个目标一份与 RUNTIMES 项同形的
+// { titleKey, uninstallTitleKey, uninstallHintKey }，弹窗那边就不必管它是不是运行时。
+// 它没有 state / readyFlagRef —— 那两样由 cfReady 与下面的 cfBusy 各自表达，
+// 所以 confirmUninstall 里对它单独一支，不复用运行时那套复位。
+const CF_UNINSTALL_TARGET = {
+  id: 'cf',
+  titleKey: 'cf.module.title',
+  uninstallTitleKey: 'cf.module.uninstallTitle',
+  uninstallHintKey: 'cf.module.uninstallHint',
+}
+
 const cfBusy = ref(false)
 const cfFailureReason = ref('')
 const cfElapsedMs = ref(0)
@@ -674,25 +757,32 @@ const cfHint = computed(() => {
     return (cfStage.value && t(CF_STAGE_KEYS[cfStage.value])) || t('cf.module.downloading')
   }
   if (cfReady.value) {
+    // 同运行环境行：就绪由绿点表达，这里只补耗时
     return cfElapsedMs.value
       ? t('runtime.readyWithTime', { seconds: (cfElapsedMs.value / 1000).toFixed(1) })
-      : t('cf.module.ready')
+      : ''
   }
   if (cfFailureReason.value) return cfFailureReason.value
   return t('cf.module.idleHint')
 })
 
+// 同 buttonLabel：就绪态按钮不画
 const cfButtonLabel = computed(() => {
   if (cfBusy.value) return t('runtime.button.downloading')
-  if (cfReady.value) return t('runtime.button.ready')
   if (cfFailureReason.value) return t('runtime.button.failed')
   return t('runtime.button.idle')
 })
 
 const cfButtonIcon = computed(() => {
-  if (cfReady.value) return 'check'
   if (cfFailureReason.value) return 'reset'
   return 'download'
+})
+
+const cfDotClass = computed(() => {
+  if (cfReady.value) return 'is-ok'
+  if (cfFailureReason.value) return 'is-fail'
+  if (cfBusy.value) return 'is-busy'
+  return 'is-idle'
 })
 
 async function downloadCf() {
@@ -709,6 +799,13 @@ async function downloadCf() {
     return
   }
   cfFailureReason.value = result.message || t('runtime.failed')
+}
+
+// 卸载入口：与运行时的 requestUninstall 同形 —— 下载中不给点（会和在途的写入打架），
+// 没装就没有可卸的。真卸载见 confirmUninstall。
+function requestCfUninstall() {
+  if (cfBusy.value || !cfReady.value) return
+  pendingUninstall.value = CF_UNINSTALL_TARGET
 }
 
 /**
@@ -1664,41 +1761,111 @@ watch(pendingUnbind, (open) => {
       <!-- 应用：安装到设备、存储占用，外加两项「供应用取用」的外部资源 ——
            本地运行环境（工具链与题解渲染器的下载 / 卸载）与浏览器插件（安装、投递目标、快捷键）。
            三者共用这一栏，块与块之间用 setting-subtitle 分区。 -->
-      <section v-else-if="activeSection === 'app'" class="setting-group">
-        <p class="setting-group__title">{{ t('settings.section.app') }}</p>
-        <p class="setting-group__note">{{ t('settings.app.groupNote') }}</p>
+      <section v-else-if="activeSection === 'app'" class="setting-group setting-group--app">
+        <p class="setting-subtitle">{{ t('settings.app.basics') }}</p>
 
-        <div class="setting-row setting-row--action">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
+        <div class="app-card">
+          <div class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
+              </span>
+              <!-- 状态框顶替原来那行说明：两者说的是同一件事，绿点已经把状态说清楚了 -->
+              <span class="app-status" :class="canInstall ? 'is-ok' : 'is-idle'">
+                <span class="app-status__dot"></span>
+                <span>
+                  {{
+                    t(
+                      canInstall
+                        ? 'settings.app.install.statusAvailable'
+                        : 'settings.app.install.statusUnavailable',
+                    )
+                  }}
+                </span>
+              </span>
             </span>
-            <span class="setting-row__hint">
-              {{ t(canInstall ? 'settings.app.installHint' : 'settings.app.installedHint') }}
+            <span class="setting-row__control">
+              <button
+                class="download-button is-primary"
+                :disabled="!canInstall"
+                :title="t('settings.app.install.title')"
+                @click="install"
+              >
+                <AppIcon name="install" :size="15" />
+                <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
+              </button>
             </span>
-          </span>
-          <span class="setting-row__control">
-            <button
-              class="download-button"
-              :disabled="!canInstall"
-              :title="t('settings.app.install.title')"
-              @click="install"
-            >
-              <AppIcon name="install" :size="15" />
-              <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
-            </button>
-          </span>
-        </div>
+          </div>
 
-        <!-- 存储：只报占用。数是整个源的（含工具链与外壳缓存），不只是用户代码；
-             查不到时 storageHint 为空，整行收起 -->
-        <div v-if="storageHint" class="setting-row">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
+          <!-- 存储：默认收起，只报一个总数；展开才列明细 —— 那一列数字要遍历每个缓存桶
+               的每一条响应、还要开库遍历记录，收起状态下没必要每次都付这份代价
+               （见 readStorageBreakdown）。数是整个源的（含工具链与外壳缓存），
+               不只是用户代码；查不到占用时整行收起。 -->
+          <button
+            v-if="storageUsage.usage !== null"
+            type="button"
+            class="setting-row setting-row--action storage-row"
+            :class="{ 'is-open': storageOpen }"
+            :aria-expanded="storageOpen"
+            :title="
+              t(storageOpen ? 'settings.app.storage.collapse' : 'settings.app.storage.expand')
+            "
+            @click="toggleStorage"
+          >
+            <span class="setting-row__main">
               <span class="setting-row__label">{{ t('settings.app.storage.label') }}</span>
             </span>
-            <span class="setting-row__hint">{{ storageHint }}</span>
-          </span>
+            <span class="setting-row__control storage-row__summary">
+              <span class="storage-row__value">
+                {{ t('settings.app.storage.used', { used: formatBytes(storageUsage.usage) }) }}
+              </span>
+              <AppIcon
+                name="chevron"
+                :size="14"
+                class="storage-row__chevron"
+                :class="{ 'is-open': storageOpen }"
+              />
+            </span>
+          </button>
+
+          <div v-if="storageOpen" class="storage-detail">
+            <p v-if="!storageBreakdown" class="storage-detail__hint">
+              {{ t('settings.app.storage.measuring') }}
+            </p>
+            <template v-else>
+              <!-- 条状图：100% 就是 estimate() 报的总量，各段按分类占比切开 -->
+              <div class="storage-bar">
+                <span
+                  v-for="(entry, index) in storageBreakdown.entries"
+                  :key="entry.id"
+                  class="storage-bar__seg"
+                  :class="`is-${entry.id}`"
+                  :style="{
+                    width: `${(entry.bytes / storageBreakdown.total) * 100}%`,
+                    animationDelay: `${index * 60}ms`,
+                  }"
+                ></span>
+              </div>
+              <ul class="storage-legend">
+                <li
+                  v-for="entry in storageBreakdown.entries"
+                  :key="entry.id"
+                  class="storage-legend__item"
+                >
+                  <span class="storage-legend__dot" :class="`is-${entry.id}`"></span>
+                  <!-- 窄面板里名称会被省略号截断，title 留一条看全名的路 -->
+                  <span
+                    class="storage-legend__name"
+                    :title="t(STORAGE_CATEGORY_LABEL[entry.id])"
+                  >
+                    {{ t(STORAGE_CATEGORY_LABEL[entry.id]) }}
+                  </span>
+                  <span class="storage-legend__size">{{ formatBytes(entry.bytes) }}</span>
+                  <span class="storage-legend__pct">{{ formatPercent(entry.bytes) }}</span>
+                </li>
+              </ul>
+            </template>
+          </div>
         </div>
 
         <p class="setting-subtitle">{{ t('settings.section.runtime') }}</p>
@@ -1707,23 +1874,24 @@ watch(pendingUnbind, (open) => {
         <div class="runtime-list">
           <div v-for="entry in runtimeEntries" :key="entry.id" class="runtime-row">
             <span class="runtime-row__icon" :class="`is-${entry.icon}`">
-              <AppIcon :name="entry.icon" :size="15" />
+              <AppIcon :name="entry.icon" :size="17" />
             </span>
             <span class="runtime-row__text">
               <span class="runtime-row__title">{{ t(entry.titleKey) }}</span>
-              <span class="runtime-row__hint">{{ hintFor(entry) }}</span>
+              <span class="runtime-row__hint">
+                <span class="app-dot" :class="runtimeDotClass(entry)"></span>
+                <span v-if="hintFor(entry)">{{ hintFor(entry) }}</span>
+              </span>
             </span>
             <div class="runtime-row__actions">
+              <!-- 就绪后这颗按钮整颗收起：状态交给行首那颗绿点，再挂一颗禁用的「已就绪」等于把同一件事说两遍
+                   （要卸的话右边那颗还在），也免得下载/重试的入口和状态徽标混作一谈 -->
               <button
-                class="download-button"
-                :class="{
-                  'is-ready': entry.state.value === 'ready',
-                  'is-failed': entry.state.value === 'failed',
-                }"
-                :disabled="downloadingAny || entry.state.value === 'ready'"
-                :title="
-                  entry.state.value === 'ready' ? t('runtime.readyTitle') : t(entry.downloadTitleKey)
-                "
+                v-if="entry.state.value !== 'ready'"
+                class="download-button is-primary"
+                :class="{ 'is-failed': entry.state.value === 'failed' }"
+                :disabled="downloadingAny"
+                :title="t(entry.downloadTitleKey)"
                 @click="downloadRuntime(entry)"
               >
                 <AppIcon
@@ -1753,22 +1921,26 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__note">{{ t('cf.module.groupNote') }}</p>
 
         <div class="runtime-list">
-          <!-- 抽题组件：默认安装的功能模块（下载 = 预取 Codeforces 题库，启动时自动进行）。
+          <!-- 抽题组件：默认安装的组件（下载 = 预取 Codeforces 题库，启动时自动进行）。
                与上面三个共用 .runtime-list / .runtime-row 的外观，但状态机在 services/cfRuntime.js 里 ——
-               下载完侧栏才亮出那颗按钮，所以「已下载」这件事必须与侧栏同源。
-               刻意没有卸载按钮：卸了下次启动也会被自动装回来。 -->
+               下载完侧栏才亮出那颗按钮，所以「已下载」这件事必须与侧栏同源。 -->
           <div class="runtime-row">
-            <span class="runtime-row__icon"><AppIcon name="dice" :size="15" /></span>
+            <span class="runtime-row__icon"><AppIcon name="dice" :size="17" /></span>
             <span class="runtime-row__text">
               <span class="runtime-row__title">{{ t('cf.module.title') }}</span>
-              <span class="runtime-row__hint">{{ cfHint }}</span>
+              <span class="runtime-row__hint">
+                <span class="app-dot" :class="cfDotClass"></span>
+                <span v-if="cfHint">{{ cfHint }}</span>
+              </span>
             </span>
             <div class="runtime-row__actions">
+              <!-- 与运行环境行同一套：未装 / 下载中是「下载（重试）」一颗，就绪后换成「卸载」一颗 -->
               <button
-                class="download-button"
-                :class="{ 'is-ready': cfReady, 'is-failed': !!cfFailureReason }"
-                :disabled="cfBusy || cfReady"
-                :title="cfReady ? t('runtime.readyTitle') : t('cf.module.downloadTitle')"
+                v-if="!cfReady"
+                class="download-button is-primary"
+                :class="{ 'is-failed': !!cfFailureReason }"
+                :disabled="cfBusy"
+                :title="t('cf.module.downloadTitle')"
                 @click="downloadCf"
               >
                 <AppIcon
@@ -1778,6 +1950,19 @@ watch(pendingUnbind, (open) => {
                 />
                 <span>{{ cfButtonLabel }}</span>
               </button>
+              <!-- 卸载只在已就绪时出现。它会顺手关掉「默认安装」（见 confirmUninstall），
+                   否则下次启动 ensureCfPickerInstalled() 又把它装回来 -->
+              <button
+                v-if="cfReady"
+                type="button"
+                class="download-button is-uninstall"
+                :disabled="cfBusy"
+                :title="t('cf.module.uninstallActionTitle', { title: t('cf.module.title') })"
+                @click="requestCfUninstall"
+              >
+                <AppIcon name="trash" :size="13" />
+                <span>{{ t('runtime.uninstall') }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -1785,42 +1970,48 @@ watch(pendingUnbind, (open) => {
         <p class="setting-subtitle">{{ t('settings.section.extension') }}</p>
         <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
-        <div class="setting-row setting-row--action">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.extension.status') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ extensionStatusHint }}</span>
-          </span>
-          <span class="setting-row__control">
-            <button
-              class="download-button"
-              :disabled="extensionChecking"
-              :title="t('settings.extension.recheckTitle')"
-              @click="refreshExtension"
-            >
-              <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
-              <span>{{ t(extensionChecking ? 'settings.extension.checking' : 'settings.extension.recheck') }}</span>
-            </button>
-          </span>
-        </div>
-
-        <div class="setting-row setting-row--action">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.extension.download.label') }}</span>
-              <span class="setting-row__key">
-                {{ t('settings.extension.downloadVersion', { version: EXTENSION_VERSION }) }}
+        <div class="app-card">
+          <div class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ t('settings.extension.status') }}</span>
+              </span>
+              <!-- 状态框挪到原来那行说明的位置（说明删了，它和框说的是同一件事） -->
+              <span class="app-status" :class="extensionDotClass">
+                <span class="app-status__dot"></span>
+                <span>{{ extensionStatusLabel }}</span>
               </span>
             </span>
-            <span class="setting-row__hint">{{ t('settings.extension.downloadHint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
-              <AppIcon name="download" :size="15" />
-              <span>{{ t('app.download') }}</span>
-            </a>
-          </span>
+            <span class="setting-row__control">
+              <button
+                class="download-button"
+                :disabled="extensionChecking"
+                :title="t('settings.extension.recheckTitle')"
+                @click="refreshExtension"
+              >
+                <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
+                <span>{{ t(extensionChecking ? 'settings.extension.checking' : 'settings.extension.recheck') }}</span>
+              </button>
+            </span>
+          </div>
+
+          <div class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ t('settings.extension.download.label') }}</span>
+                <span class="setting-row__key">
+                  {{ t('settings.extension.downloadVersion', { version: EXTENSION_VERSION }) }}
+                </span>
+              </span>
+              <span class="setting-row__hint">{{ t('settings.extension.downloadHint') }}</span>
+            </span>
+            <span class="setting-row__control">
+              <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
+                <AppIcon name="download" :size="15" />
+                <span>{{ t('app.download') }}</span>
+              </a>
+            </span>
+          </div>
         </div>
 
         <template v-if="extensionInfo">
@@ -1829,30 +2020,32 @@ watch(pendingUnbind, (open) => {
             <p class="setting-subtitle">{{ t('settings.extension.destinations') }}</p>
             <p class="setting-group__note">{{ t('settings.extension.destinationsNote') }}</p>
 
-            <div
-              v-for="destination in EXTENSION_DESTINATIONS"
-              :key="destination.key"
-              class="setting-row setting-row--switch"
-            >
-              <span class="setting-row__main">
-                <span class="setting-row__head">
-                  <span class="setting-row__label">{{ t(destination.labelKey) }}</span>
+            <div class="app-card">
+              <div
+                v-for="destination in EXTENSION_DESTINATIONS"
+                :key="destination.key"
+                class="setting-row setting-row--switch"
+              >
+                <span class="setting-row__main">
+                  <span class="setting-row__head">
+                    <span class="setting-row__label">{{ t(destination.labelKey) }}</span>
+                  </span>
+                  <span class="setting-row__hint">{{ t(destination.hintKey) }}</span>
                 </span>
-                <span class="setting-row__hint">{{ t(destination.hintKey) }}</span>
-              </span>
-              <span class="setting-row__control">
-                <button
-                  class="switch"
-                  :class="{ 'is-on': destinationOn(destination.key) }"
-                  role="switch"
-                  :aria-checked="destinationOn(destination.key)"
-                  :aria-label="t(destination.labelKey)"
-                  :disabled="destinationSaving === destination.key"
-                  @click="toggleDestination(destination.key)"
-                >
-                  <span class="switch__thumb"></span>
-                </button>
-              </span>
+                <span class="setting-row__control">
+                  <button
+                    class="switch"
+                    :class="{ 'is-on': destinationOn(destination.key) }"
+                    role="switch"
+                    :aria-checked="destinationOn(destination.key)"
+                    :aria-label="t(destination.labelKey)"
+                    :disabled="destinationSaving === destination.key"
+                    @click="toggleDestination(destination.key)"
+                  >
+                    <span class="switch__thumb"></span>
+                  </button>
+                </span>
+              </div>
             </div>
 
             <p v-if="destinationFailed" class="setting-group__note setting-group__note--warn">
@@ -1861,55 +2054,57 @@ watch(pendingUnbind, (open) => {
           </template>
 
           <p class="setting-subtitle">{{ t('settings.extension.commandShortcuts') }}</p>
-
-          <div
-            v-for="command in extensionShortcuts"
-            :key="command.name"
-            class="setting-row setting-row--action"
-          >
-            <span class="setting-row__main">
-              <span class="setting-row__head">
-                <span class="setting-row__label">{{ command.label }}</span>
-              </span>
-            </span>
-            <span class="setting-row__control">
-              <kbd class="shortcut-key" :class="{ 'is-empty': !command.keys }">
-                {{ command.keys || t('settings.extension.shortcutUnset') }}
-              </kbd>
-            </span>
-          </div>
-
           <p class="setting-group__note">
             {{ t('settings.extension.shortcutsManagedPrefix') }}
             <code class="setting-code">chrome://extensions/shortcuts</code>
             {{ t('settings.extension.shortcutsManagedSuffix') }}
           </p>
 
-          <div class="setting-row setting-row--action">
-            <span class="setting-row__main">
-              <span class="setting-row__head">
-                <span class="setting-row__label">{{ t('settings.extension.shortcutsPage') }}</span>
+          <div class="app-card">
+            <div
+              v-for="command in extensionShortcuts"
+              :key="command.name"
+              class="setting-row setting-row--action"
+            >
+              <span class="setting-row__main">
+                <span class="setting-row__head">
+                  <span class="setting-row__label">{{ command.label }}</span>
+                </span>
               </span>
-              <span class="setting-row__hint">
-                {{
-                  t(
-                    shortcutsCopied
-                      ? 'settings.extension.shortcutsCopiedHint'
-                      : 'settings.extension.shortcutsHint',
-                  )
-                }}
+              <span class="setting-row__control">
+                <kbd class="shortcut-key" :class="{ 'is-empty': !command.keys }">
+                  {{ command.keys || t('settings.extension.shortcutUnset') }}
+                </kbd>
               </span>
-            </span>
-            <span class="setting-row__control">
-              <button
-                class="download-button"
-                :title="t('settings.extension.shortcutsTitle')"
-                @click="copyShortcutsUrl"
-              >
-                <AppIcon name="copy" :size="13" />
-                <span>{{ t(shortcutsCopied ? 'settings.extension.copied' : 'settings.extension.copyUrl') }}</span>
-              </button>
-            </span>
+            </div>
+
+            <div class="setting-row setting-row--action">
+              <span class="setting-row__main">
+                <span class="setting-row__head">
+                  <span class="setting-row__label">{{ t('settings.extension.shortcutsPage') }}</span>
+                </span>
+                <span class="setting-row__hint">
+                  {{
+                    t(
+                      shortcutsCopied
+                        ? 'settings.extension.shortcutsCopiedHint'
+                        : 'settings.extension.shortcutsHint',
+                    )
+                  }}
+                </span>
+              </span>
+              <span class="setting-row__control">
+                <button
+                  class="download-button"
+                  :class="{ 'is-copied': shortcutsCopied }"
+                  :title="t('settings.extension.shortcutsTitle')"
+                  @click="copyShortcutsUrl"
+                >
+                  <AppIcon :name="shortcutsCopied ? 'check' : 'copy'" :size="13" />
+                  <span>{{ t(shortcutsCopied ? 'settings.extension.copied' : 'settings.extension.copyUrl') }}</span>
+                </button>
+              </span>
+            </div>
           </div>
         </template>
       </section>
@@ -2112,7 +2307,7 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__note">{{ t('runtime.autoPreload.note') }}</p>
 
         <!-- 「默认安装」开关：与上面那组预下载同为**偏好**，所以也归在云同步这边、
-             跟着账号走；抽题组件本机的安装状态在「应用」一栏的功能模块行里。 -->
+             跟着账号走；抽题组件本机的安装状态在「应用」一栏的组件行里。 -->
         <p class="setting-subtitle">{{ t('cf.module.autoInstall.label') }}</p>
         <div class="setting-row setting-row--switch">
           <span class="setting-row__main">
@@ -2157,7 +2352,7 @@ watch(pendingUnbind, (open) => {
           @keydown.esc.stop.prevent="cancelUninstall"
         >
           <p id="uninstall-title" class="confirm__title">
-            {{ t('runtime.uninstallTitle', { title: t(pendingUninstall.titleKey) }) }}
+            {{ t(pendingUninstall.uninstallTitleKey, { title: t(pendingUninstall.titleKey) }) }}
           </p>
           <p id="uninstall-desc" class="confirm__desc">
             {{ t(pendingUninstall.uninstallHintKey) }}
@@ -2654,7 +2849,8 @@ watch(pendingUnbind, (open) => {
   color: var(--text-faint);
 }
 
-/* 已就绪时右侧是「已就绪 + 卸载」两颗，窄面板下文字先让位、按钮不折行 */
+/* 行尾的操作区：未装/下载中/失败时是「下载（重试）」一颗，就绪后换成「卸载」一颗，
+   窄面板下文字先让位、按钮不折行 */
 .runtime-row__actions {
   display: flex;
   align-items: center;
@@ -2688,19 +2884,13 @@ watch(pendingUnbind, (open) => {
   color: var(--text-faint);
 }
 
-.download-button.is-ready {
-  border-color: transparent;
-  color: var(--ok);
-  background: transparent;
-}
-
 .download-button.is-failed {
   border-color: transparent;
   color: var(--fail);
   background: transparent;
 }
 
-/* 卸载：中性描边，悬停才转成危险色，免得和旁边的「已就绪」抢注意力 */
+/* 卸载：中性描边，悬停才转成危险色（就绪那一行现在只剩它一颗，不必再和谁抢注意力） */
 .download-button.is-uninstall {
   color: var(--text-dim);
   background: transparent;
@@ -2906,6 +3096,338 @@ a.download-button {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------------------------------------------------------------- 应用（卡片化）
+   参考稿的结构：每块是「小标题 + 一张卡片」，卡片内每行一条分隔线，状态用圆点 + 短标签，
+   下载类是实心主按钮、卸载/重检测/复制是描边次按钮。作用域只落在 .setting-group--app ——
+   .runtime-list / .download-button / .switch 这几个类评测栏与云端栏也在用，不能全局改。
+   色值一律走主题变量，所以深浅两套主题都成立（浅色下卡片浮白底，深色下靠描边分层）。
+   这一栏不画顶部的分组大标题（导航里已经写了「应用」），直接从小标题起步。 */
+
+/* 小标题升级成卡片的抬头：不再画顶部细线，分隔交给卡片的间距 */
+.setting-group--app .setting-subtitle {
+  margin: 2px 0 0;
+  padding: 18px 18px 8px;
+  border-top: none;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+/* 一张卡片：圆角 + 描边，浅色主题下再叠一层淡影；行与行由最淡的分隔线划界 */
+.app-card,
+.setting-group--app .runtime-list {
+  margin: 0 18px 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+/* 卡片里的行：圆角交给卡片裁，悬浮只是「摸到了」的反馈（比选中底色淡一档），
+   最后一行不画分隔线（它下面就是卡片的下边框） */
+.app-card > .setting-row {
+  padding: 12px 14px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.app-card > .setting-row:last-child {
+  border-bottom: none;
+}
+
+.app-card > .setting-row:hover {
+  background: var(--bg-hover-soft);
+}
+
+/* 状态短标签：圆点 + 一句话。比旁边那颗按钮弱一档，只说明状态、不承担点击 */
+.app-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-input);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* 状态框就放在标签底下（原来那行说明的位置）：列向 flex 默认会把它拉满整行宽，
+   得自己收成内容宽；上面再留一点缝，别贴着标题 */
+.setting-group--app .setting-row__main > .app-status {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* 行内状态点：卡片列表里每行一颗，说明这项现在处于什么状态 */
+.app-status__dot,
+.app-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+/* 标签里的圆点跟着容器走（is-* 挂在 .app-status 上），行内圆点自己带修饰类。
+   灰（未装/不支持）就是上面的兜底色，不单独写 */
+.app-status.is-ok .app-status__dot,
+.app-dot.is-ok {
+  background: var(--ok);
+}
+
+.app-status.is-fail .app-status__dot,
+.app-dot.is-fail {
+  background: var(--fail);
+}
+
+.app-status.is-busy .app-status__dot,
+.app-dot.is-busy {
+  background: var(--warn);
+}
+
+/* 运行环境行：图标盒子放大成方块（参考稿的 40×40，按本站 13px 基准折到 34） */
+.setting-group--app .runtime-row {
+  min-height: 60px;
+  padding: 10px 12px;
+}
+
+.setting-group--app .runtime-row__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+}
+
+/* 状态点并到说明文字前面：说明可能很长会换行，所以点不能参与收缩 */
+.setting-group--app .runtime-row__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- 存储明细
+   这一行整行是按钮：点哪儿都能展开 / 收起。button 的默认外观得抹掉，
+   否则内凹边框 + 居中文字会把它从「设置行」变成一颗大按钮（下边框留给
+   .app-card 那条分隔线，它选择器更具体，不会被这里的 border: 0 覆盖掉） */
+.storage-row {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.storage-row__summary {
+  gap: 8px;
+  min-width: 0;
+}
+
+.storage-row__value {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.storage-row__chevron {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  transition: transform 0.18s ease;
+}
+
+.storage-row__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+/* 展开时明细紧跟在下一行，这一行的下边框就成了夹在「行」与「明细」之间的杂线：
+   收起状态下它是卡片最后一行（.app-card > .setting-row:last-child 本就不画），
+   展开后失去 last-child 身份，那条线会无端冒出来，所以要显式收掉 */
+.app-card > .storage-row.is-open {
+  border-bottom: none;
+}
+
+/* 展开出来的那一块：条 + 图例，紧跟在那行下面 */
+.storage-detail {
+  padding: 0 14px 12px;
+}
+
+.storage-bar {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-control);
+  overflow: hidden;
+}
+
+/* 分段靠 scaleX 长大：宽度是按百分比给的，但「从 0 长出来」没法动画到 width: auto。
+   逐段的延迟由模板给，视觉上是从左往右铺开 —— 元素本身按最终宽度占位，
+   所以变换不会把后面的段挤来挤去 */
+.storage-bar__seg {
+  height: 100%;
+  transform-origin: left;
+  animation: storage-seg-grow 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes storage-seg-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* 全局那条 prefers-reduced-motion 只压时长，不碰延迟；不补这一句的话，
+   弱动画偏好下各段仍会一段一段地冒出来 */
+@media (prefers-reduced-motion: reduce) {
+  .storage-bar__seg {
+    animation-delay: 0s !important;
+  }
+}
+
+/* 分类色：条上的段与图例上的点共用，深浅两套主题各一份（见 base.css） */
+.storage-bar__seg.is-cpp,
+.storage-legend__dot.is-cpp {
+  background: var(--storage-cpp);
+}
+
+.storage-bar__seg.is-python,
+.storage-legend__dot.is-python {
+  background: var(--storage-python);
+}
+
+.storage-bar__seg.is-markdown,
+.storage-legend__dot.is-markdown {
+  background: var(--storage-markdown);
+}
+
+.storage-bar__seg.is-cf,
+.storage-legend__dot.is-cf {
+  background: var(--storage-cf);
+}
+
+.storage-bar__seg.is-code,
+.storage-legend__dot.is-code {
+  background: var(--storage-code);
+}
+
+.storage-bar__seg.is-other,
+.storage-legend__dot.is-other {
+  background: var(--storage-other);
+}
+
+/* 图例：宽面板两列、窄面板一列，不用写媒体查询 */
+.storage-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 5px 18px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.storage-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.storage-legend__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* 名称让位给右边的两个数字：窄面板里宁可省略号，也不把体积挤断行 */
+.storage-legend__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.storage-legend__size {
+  flex: 0 0 auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.storage-legend__pct {
+  flex: 0 0 auto;
+  width: 42px;
+  text-align: right;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.storage-detail__hint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+/* 主按钮：参考稿里下载这类「往前走」的动作是实心深色；这里用主题主色。
+   写在 .setting-group--app 下，避免动到评测栏、云端栏的 .download-button */
+.setting-group--app .download-button.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.setting-group--app .download-button.is-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.setting-group--app .download-button.is-primary:disabled {
+  background: var(--bg-control);
+  color: var(--text-faint);
+}
+
+/* 失败态要盖过上面的实心态（同样是三四个类，靠写在后面取胜）：这时不是「往前走」
+   而是「重来一次」，只留一个警示色 */
+.setting-group--app .download-button.is-primary.is-failed {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fail);
+}
+
+/* 复制成功：按钮转绿 + 对勾，和参考稿一致（两秒后 shortcutsCopied 自己复位） */
+.setting-group--app .download-button.is-copied {
+  border-color: var(--ok);
+  background: transparent;
+  color: var(--ok);
+}
+
+/* 开关：参考稿的尺寸（40×22 轨道 + 16 圆点），开启色沿用本站的绿 */
+.setting-group--app .switch {
+  width: 40px;
+  height: 22px;
+}
+
+.setting-group--app .switch__thumb {
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+}
+
+.setting-group--app .switch.is-on .switch__thumb {
+  transform: translateX(18px);
 }
 
 /* ---------------------------------------------------------------- 卸载确认

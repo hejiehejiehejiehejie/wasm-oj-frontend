@@ -77,19 +77,17 @@ export default {
         downloading: '正在下载题解渲染器…',
         progress: '正在下载题解渲染器（{done}/{total}）…',
       },
-      /** 状态行（按钮左边那行说明） */
+      /** 状态行（行首那颗状态点右边那行说明）。就绪不再写「已就绪」—— 状态由绿点表达，
+          这里只补一句耗时；没耗时（上次会话就装好的）就整句省略 */
       downloading: '正在下载…',
-      readyWithTime: '运行环境已就绪，用时 {seconds} s',
-      ready: '运行环境已就绪',
+      readyWithTime: '用时 {seconds} s',
       failed: '下载失败',
-      /** 按钮文案 */
+      /** 按钮文案（就绪后这颗按钮整颗收起，所以没有「已就绪」这一条） */
       button: {
         downloading: '下载中…',
-        ready: '已就绪',
         failed: '重试',
         idle: '下载',
       },
-      readyTitle: '本地运行环境已就绪',
       uninstall: '卸载',
       /** 行内那个「卸载」按钮的 tooltip（不带问号，问号那版是弹窗标题） */
       uninstallActionTitle: '卸载 {title} 运行环境',
@@ -224,17 +222,17 @@ export default {
         downloading: 'Downloading the editorial renderer…',
         progress: 'Downloading the editorial renderer ({done}/{total})…',
       },
+      /** The status line to the right of the status dot. "Ready" is no longer spelled
+          out — the green dot says it; only the elapsed time is added here, and the whole
+          line is omitted when there is no timing (installed in an earlier session) */
       downloading: 'Downloading…',
-      readyWithTime: 'Runtime ready, took {seconds} s',
-      ready: 'Runtime ready',
+      readyWithTime: 'Took {seconds} s',
       failed: 'Download failed',
       button: {
         downloading: 'Downloading…',
-        ready: 'Ready',
         failed: 'Retry',
         idle: 'Download',
       },
-      readyTitle: 'Local runtime is ready',
       uninstall: 'Uninstall',
       uninstallActionTitle: 'Uninstall the {title} runtime',
       uninstallTitle: 'Uninstall the {title} runtime?',

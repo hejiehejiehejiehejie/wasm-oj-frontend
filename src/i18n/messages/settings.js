@@ -185,20 +185,36 @@ export default {
       },
 
       app: {
-        groupNote: '装到这台设备后，可以从主屏幕 / 桌面直接以独立窗口打开，离线也能用。',
-        install: { label: '安装到设备', title: '安装到设备' },
-        installHint: '当前浏览器支持安装，点右侧按钮即可',
-        installedHint: '当前浏览器不支持安装，或已经装好了',
+        basics: '基础设置',
+        install: {
+          label: '安装到设备',
+          title: '安装到设备',
+          statusAvailable: '当前浏览器支持',
+          statusUnavailable: '已安装或不支持',
+        },
         installAction: '安装',
         installedAction: '已安装',
         /**
          * 存储占用。只报数，不报持久化状态 —— 申请是隐性的（见 services/storageQuota.js）。
-         * 这个数是**整个源**的占用，含工具链与外壳缓存，不只是用户代码。
+         * 折叠时只报总量（整个源的占用，含工具链与外壳缓存，不只是用户代码），展开才列明细；
+         * 分类体积是按缓存条目与本地数据库估的，总量取浏览器给的权威值，差额并进 other
+         * —— 口径说明见 readStorageBreakdown() 上面的注释。
+         *
+         * 这里只放存储独有的那三条分类名。C++ / Python 3 / Markdown / LaTeX 直接复用
+         * 「本地运行环境」的词条（runtime.*.title），免得同一批资产两处各叫一个名
+         * —— 映射见 EditorSettingsPanel 的 STORAGE_CATEGORY_LABEL。
          */
         storage: {
           label: '存储',
-          usage: '已用 {used} / 配额 {quota}',
-          usageNoQuota: '已用 {used}',
+          used: '已用 {used}',
+          expand: '展开存储明细',
+          collapse: '收起存储明细',
+          measuring: '正在统计各分类占用…',
+          categories: {
+            cf: 'CF 抽题',
+            code: '我的代码',
+            other: '外壳与其它',
+          },
         },
       },
 
@@ -211,14 +227,14 @@ export default {
         shortcutsManagedPrefix: '插件快捷键由浏览器管理，网页没有权限改写，也没有权限跳转到',
         shortcutsManagedSuffix: '（浏览器会拦掉指向 chrome:// 的跳转）。只能复制地址后自己到地址栏粘贴打开。',
         status: '安装状态',
+        statusRunning: '已安装并运行中',
+        statusMissing: '未检测到',
         recheck: '重新检测',
         recheckTitle: '重新检测插件',
         checking: '检测中',
         checkingHint: '检测中…',
-        missingHint: '未检测到；装好后需要刷新本页才会被检测到',
-        installedHint: '已安装 v{version}',
         download: { label: '下载插件' },
-        /** 下载那一行标题后面的版本号：标的是这个网站提供的安装包版本，用户可与上面「已安装 v…」对照 */
+        /** 下载那一行标题后面的版本号：标的是这个网站提供的安装包版本 */
         downloadVersion: '最新版本 v{version}',
         destinations: '投递目标',
         destinationsNote:
@@ -300,6 +316,10 @@ export default {
 
       help: {
         guideLink: '完整使用指南',
+        /** 帮助栏置顶的站点提示。末尾那句后面紧跟留言板地址 ——
+            地址本身不翻译，直接写在 HelpPanel 的模板里 */
+        notice:
+          '此网站仍在测试中，功能有待完善，名字都没有起好。如有 bug 反馈 / 功能建议 / 取名建议 / 闲聊，欢迎在此留言：',
       },
     },
   },
@@ -495,19 +515,33 @@ export default {
       },
 
       app: {
-        groupNote:
-          'Once installed, the site opens in its own window straight from your home screen or desktop, and works offline.',
-        install: { label: 'Install on this device', title: 'Install on this device' },
-        installHint: 'This browser supports installation — use the button on the right',
-        installedHint: 'This browser does not support installation, or the app is already installed',
+        basics: 'Basics',
+        install: {
+          label: 'Install on this device',
+          title: 'Install on this device',
+          statusAvailable: 'Supported by this browser',
+          statusUnavailable: 'Installed or unsupported',
+        },
         installAction: 'Install',
         installedAction: 'Installed',
         /** Storage usage only — persistence is requested silently, so no state is shown.
-         *  The numbers cover the whole origin, toolchain caches included. */
+         *  Collapsed it reports the total only (the whole origin, toolchain caches included);
+         *  the breakdown appears on expand. Per-category sizes are estimated, the total comes
+         *  from the browser, and the difference is folded into "other".
+         *
+         *  Only the three storage-only category names live here. C++ / Python 3 / Markdown / LaTeX
+         *  reuse the "Local runtime" entries (runtime.*.title) — see STORAGE_CATEGORY_LABEL. */
         storage: {
           label: 'Storage',
-          usage: '{used} used of {quota}',
-          usageNoQuota: '{used} used',
+          used: '{used} used',
+          expand: 'Show storage breakdown',
+          collapse: 'Hide storage breakdown',
+          measuring: 'Measuring each category…',
+          categories: {
+            cf: 'CF problem picker',
+            code: 'My code',
+            other: 'Shell & other',
+          },
         },
       },
 
@@ -521,14 +555,14 @@ export default {
         shortcutsManagedSuffix:
           '(the browser blocks navigation to chrome:// URLs). Copy the address and paste it into the address bar yourself.',
         status: 'Installation status',
+        statusRunning: 'Installed and running',
+        statusMissing: 'Not detected',
         recheck: 'Check again',
         recheckTitle: 'Check for the extension again',
         checking: 'Checking',
         checkingHint: 'Checking…',
-        missingHint: 'Not detected. Reload this page after installing it.',
-        installedHint: 'Installed v{version}',
         download: { label: 'Download the extension' },
-        /** Version of the package this site ships, meant to be compared with the "Installed v…" line above */
+        /** Version of the package this site ships */
         downloadVersion: 'Latest v{version}',
         destinations: 'Delivery targets',
         destinationsNote:
@@ -618,6 +652,9 @@ export default {
 
       help: {
         guideLink: 'Full user guide',
+        /** 同 zh-CN：末尾紧跟留言板地址，那条链接在 HelpPanel 的模板里 */
+        notice:
+          'This site is still under test: features are incomplete, and it has not even been named yet. Bug reports, feature requests, naming ideas or just chatting are all welcome here:',
       },
     },
   },

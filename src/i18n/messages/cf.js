@@ -13,12 +13,18 @@ export default {
     cf: {
       module: {
         /** 设置 › 应用 里的分区标题 */
-        group: '功能模块',
+        group: '组件',
         groupNote:
           '随机抽题随站点默认安装（题库约 2MB），此处显示安装状态，下载失败可重试。「默认安装」开关在「云同步」一栏，会随账号同步到其他设备。',
         title: 'Codeforces 抽题',
         idleHint: '按难度与标签从 Codeforces 题库里随机抽题（题库缓存约 2MB），只下一次',
         downloadTitle: '下载 / 重试 Codeforces 题库',
+        /** 卸载：与运行环境那三行共用同一颗确认弹窗，所以要的也是这两个 key
+            （action 那版不带问号，是行内按钮的 tooltip） */
+        uninstallActionTitle: '卸载「{title}」',
+        uninstallTitle: '卸载「{title}」？',
+        uninstallHint:
+          '将从本机删除已缓存的 Codeforces 题库（约 2MB），并关掉「默认安装」—— 不关的话下次打开站点它会自己装回来。想重新装上，点这一行的「下载」即可。',
         /** 设置 › 云同步 里的「默认安装」开关（跟在「预下载」一组，同为云同步的偏好） */
         autoInstall: {
           label: '默认安装',
@@ -26,7 +32,6 @@ export default {
           note: '开启后，每次打开站点都会检查题库是否在本机，不在就自动下载（约 2MB）。关掉则只保留上面那一行的手动下载。',
         },
         downloading: '正在获取 Codeforces 题库…',
-        ready: '抽题组件已就绪',
         /** Worker 推的阶段码 → 文案 */
         stage: {
           problemset: '正在获取 Codeforces 题库（约 2MB）…',
@@ -105,13 +110,18 @@ export default {
   en: {
     cf: {
       module: {
-        group: 'Feature modules',
+        group: 'Components',
         groupNote:
           'The problem picker is installed by default (about 2MB of problemset); this row shows the install status and offers a retry on failure. The "install by default" switch lives in the "Cloud sync" section and follows your account across devices.',
         title: 'Codeforces problem picker',
         idleHint:
           'Picks a random problem from Codeforces by difficulty and tags (about 2MB of problemset cache), downloaded once',
         downloadTitle: 'Download / retry the Codeforces problemset',
+        /** 同 zh-CN：卸载走运行环境那颗共用弹窗，要的也是这两个 key */
+        uninstallActionTitle: 'Uninstall "{title}"',
+        uninstallTitle: 'Uninstall "{title}"?',
+        uninstallHint:
+          'Deletes the cached Codeforces problemset from this device (about 2MB) and turns off "install by default" — otherwise it would install itself again the next time the site opens. Use "Download" on this row to bring it back.',
         /** 同 zh-CN：云同步栏里的「默认安装」开关 */
         autoInstall: {
           label: 'Install by default',
@@ -119,7 +129,6 @@ export default {
           note: 'When on, every visit checks whether the problemset is on this device and downloads it (about 2MB) if not. When off, only the manual download above remains.',
         },
         downloading: 'Fetching the Codeforces problemset…',
-        ready: 'Problem picker is ready',
         stage: {
           problemset: 'Fetching the Codeforces problemset (about 2MB)…',
           solved: 'Fetching the problems already solved by this account…',
