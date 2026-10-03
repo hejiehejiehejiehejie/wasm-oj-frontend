@@ -826,7 +826,8 @@ defineExpose({
   gap: 8px;
   padding: 0 10px;
   background: var(--bg-panel-head);
-  border-bottom: 1px solid var(--border-soft);
+  /* 不画下边框：工具栏与下面的 stage 靠 --bg-panel-head 与 --bg-editor-pane 的色阶分开，
+     中间不再压一条细线 */
 }
 
 .editor-pane__bar .grow {

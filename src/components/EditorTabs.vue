@@ -88,36 +88,73 @@ function onTabBeforeLeave(el) {
   el.style.height = `${el.offsetHeight}px`
 }
 
-/* 预览页签被顶替时走**瞬时切换**，不做过场：两个不同长度的文件名在同一个槽位交叉
-   淡化会叠在一起、并让条带底色透出来（亮度塌陷），看着就是闪。store 的 openFile 把
-   「删旧 + 在原位插新」压在同一个 tick 里完成，所以这里能靠数组 diff 认出来：长度不变、
-   只有一处 id 不同。认出后把 TransitionGroup 的 name 换成 tab-instant —— 它只关掉
-   这一格自己的进出场，其余页签因宽度差而换位的部分仍由 .tab-instant-move 补间。
-   刻意**不给新页签做宽度动画**：页签宽度是按文件名自适应的，若让它从旧宽度逐帧收放，
-   那颗正好被选中（有底色）的页签看起来就是「选中的标签在缩」，观感不对。
-   固定标签的打开/关闭、中键关闭等仍然走 name="tab"，动画照旧。 */
+/* 预览页签被顶替：**进出场不做交叉淡化，但宽度做平滑过渡**。
+   交叉淡化会让两个不同长度的文件名叠在同一槽位、条带底色透出来（亮度塌陷），看着就是闪，
+   所以进出场是瞬时的；可页签宽度是按文件名自适应的，若让新页签直接以自然宽度出场，它自己
+   当帧跳变、右边页签却平滑移动，两者不一致反而更别扭。于是让新页签先按被顶替那一格的宽度
+   「起跑」，下一帧再过渡到自己的自然宽度 —— 整条 bar 的 flex 布局逐帧重排，右侧页签跟着
+   同一次动作滑过去，全条栏是一个连贯的收放。见下面的 onTabEnter。
+   store 的 openFile 把「删旧 + 在原位插新」压在同一个 tick 里完成，所以这里能靠数组 diff
+   认出来：长度不变、只有一处 id 不同。固定标签的打开/关闭、中键关闭等仍走 name="tab"。 */
+const rootEl = ref(null)
 const instantSwap = ref(false)
+// 被顶替那一格在更新前的宽度，供新页签的宽度过渡当起点（见 onTabEnter）
+let swapFromWidth = 0
 
 watch(
   () => workspace.openTabIds.slice(),
   (next, prev) => {
     if (next.length !== prev.length) return
-    let diffCount = 0
+    let changedAt = -1
     for (let i = 0; i < next.length; i += 1) {
-      if (next[i] !== prev[i]) diffCount += 1
-      if (diffCount > 1) return // 不止一处不同，不是预览顶替
+      if (next[i] === prev[i]) continue
+      if (changedAt !== -1) return // 不止一处不同，不是预览顶替
+      changedAt = i
     }
-    if (diffCount !== 1) return
+    if (changedAt === -1) return
+    // 此刻 DOM 还是更新前的：strip 的子元素是「文件页签 + 视图页签」，前段与 openTabIds
+    // 一一对应，所以能按索引量到即将被顶替的那个的宽度
+    const strip = rootEl.value?.querySelector('.editor-tabs__strip')
+    swapFromWidth = strip?.children[changedAt]?.offsetWidth ?? 0
     instantSwap.value = true
     nextTick(() => {
       instantSwap.value = false
     })
   },
 )
+
+/* 新页签先按被顶替那一格的宽度出场，下一帧再过渡到自己的自然宽度。起点宽度是在更新前
+   量好的（见上面 watch），不依赖进出场钩子的先后顺序。
+   **这个钩子必须挂在 @enter 上，绝不能挂 @before-enter**：Vue 是先调 before-enter、
+   再把元素插进 DOM（renderer 里 hostInsert 在 transition.beforeEnter 之后），那一刻
+   元素还脱离文档流，offsetWidth 读出来是 0 —— 于是「自然宽度」被当成 0，页签从旧宽
+   一路缩到没有、220ms 后再弹回真实宽度，看着就是一次莫名的收缩。@enter 走的是
+   queuePostRenderEffect，元素已经在 DOM 里了，这时量到的才是真宽度。
+   刻意**不定义** -move 类（.tab-instant-move）：没有它 Vue 会跳过 move-FLIP，右侧页签
+   就不会再单独做一次位移，而是跟着宽度过渡的逐帧重排自然滑动，与宽度变化是同一次动作。 */
+function onTabEnter(el) {
+  if (!instantSwap.value || !swapFromWidth) return
+  const naturalWidth = el.offsetWidth
+  if (!naturalWidth || naturalWidth === swapFromWidth) return
+  el.style.overflow = 'hidden'
+  el.style.width = `${swapFromWidth}px`
+  // 先让「起始宽度」落定，下一帧再上 transition 并改成自然宽度，过渡才会发生
+  void el.offsetWidth
+  requestAnimationFrame(() => {
+    el.style.transition = 'width 180ms cubic-bezier(0.22, 0.61, 0.36, 1)'
+    void el.offsetWidth
+    el.style.width = `${naturalWidth}px`
+    window.setTimeout(() => {
+      el.style.transition = ''
+      el.style.overflow = ''
+      el.style.width = ''
+    }, 220)
+  })
+}
 </script>
 
 <template>
-  <div class="editor-tabs">
+  <div ref="rootEl" class="editor-tabs">
     <!-- TransitionGroup 直接反映 openTabIds / 视图 open 状态的变化，所以打开、关闭、
          切换、预览页签被顶替四种操作共用这一套进出场，workspaceStore 不用改。
          子项（文件页签的 v-for 与两个 v-if 视图页签）都已带 key。 -->
@@ -128,6 +165,7 @@ watch(
       :aria-label="t('app.tabs.listLabel')"
       :name="instantSwap ? 'tab-instant' : 'tab'"
       @before-leave="onTabBeforeLeave"
+      @enter="onTabEnter"
     >
       <button
         v-for="id in workspace.openTabIds"
@@ -288,9 +326,6 @@ watch(
 .editor-tabs__item--active {
   background: var(--bg-tab-active);
   color: var(--text);
-  /* 让不透明的选中页签压在相邻页签之上：move-FLIP 补间时透明邻签会滑过它，
-     抬一层就看不见那截重叠（见 .tab-instant-move 的说明）。 */
-  z-index: 1;
 }
 
 /* 选中高亮条：所有页签都带这一枚（默认透明），切成选中态时靠 opacity 淡入 —— 
@@ -438,8 +473,12 @@ watch(
   transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-/* 预览页签顶替：瞬时切换。不定义 -enter-from / -leave-to，新页签当帧就是全不透明的；
-   退场那一帧仍脱离文档流并置透明，免得它还占着位、把新页签挤到旁边错一下位。 */
+/* 预览页签顶替：进出场瞬时，宽度单独过渡（见脚本 onTabBeforeEnter）。
+   不定义 -enter-from / -leave-to，新页签当帧就是全不透明的；退场那一帧仍脱离文档流
+   并置透明，免得它还占着位、把新页签挤到旁边错一下位。
+   刻意**不写** -move：不定义它 Vue 就跳过 move-FLIP，右侧页签不会再单独做一次位移补间，
+   而是跟着新页签宽度过渡的逐帧 flex 重排一起滑 —— 全条栏是同一次收放，不会出现
+   「新页签瞬变、邻签平滑」的割裂感。 */
 .tab-instant-enter-active,
 .tab-instant-leave-active {
   transition: none;
@@ -448,14 +487,5 @@ watch(
 .tab-instant-leave-active {
   position: absolute;
   opacity: 0;
-}
-
-/* 瞬时顶替时，两个文件名的宽度差会把右侧留存页签的落点顶开一截。新页签自己不做宽度
-   动画（见脚本里 instantSwap 的说明），这一截位移就交给 move-FLIP 补间 —— 有这个 -move，
-   Vue 才会给留存页签做位移，右邻页签平滑滑过去而不是当帧跳。
-   页面里留存页签是透明的，滑动途中会与不透明的新页签叠在一起，靠 --active 的 z-index
-   把新页签抬上来遮住它，看起来就是新页签把邻签「推」出去。 */
-.tab-instant-move {
-  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 </style>
