@@ -105,8 +105,22 @@ function toggleCfPicker() {
   border-radius: 8px;
   border: 1px solid var(--border-soft);
   background: var(--bg-panel);
-  /* 侧栏收起 / 展开时这一栏跟着伸缩（宽度过渡 200ms，与布局切换同一支曲线） */
-  transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* 侧栏收起 / 展开时这一栏跟着伸缩（宽度过渡 200ms，与布局切换同一支曲线）；
+     展开方向还要整条淡出（见下面那条），与宽度同一支曲线、同一段时长。
+     透明度走 transition 而不是 animation：动画中途掉头（展开没播完就点折叠）时
+     透明度会从当前值平滑掉头，而 animation 会在规则撤掉的那一帧直接跳回 1，白闪一下。 */
+  transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 展开方向：这一栏把位置让给长出来的侧栏，整条（连同图标）一起淡出 ——
+   与宽度段同长同曲线，抽屉从它背后滑出的同时它原地溶解，而不是被侧栏边缘一刀切掉。
+   挂在 is-animating 上（而不是只挂 :not(.is-collapsed)）：减弱动效下 App 不给 is-animating，
+   这条规则不存在，栏跟着布局直切，与其它几处的口径一致。
+   闸门（PANEL_LOCK_MS）摘掉 is-animating 的那一帧，整条栏正好被 display 收起，
+   透明度回到 1 也看不见，不会回闪。 */
+.activity-bar.is-animating:not(.is-collapsed) {
+  opacity: 0;
 }
 
 /* 侧栏是展开的（含展开动画进行中）：这一栏宽度收到 0，把位置让给长出来的侧栏。
@@ -123,7 +137,7 @@ function toggleCfPicker() {
    这条规则干脆不存在，图标从第一帧就该是可见的（否则会先按 backwards 空一帧）；
    二来闸门摘掉的时刻正好是这段动画结束的时刻，撤销时不会有回跳。
    展开方向不挂这一下：那边是侧栏的页头控件与内容在浮现（见 App.vue），
-   这一栏的图标则被收窄的栏位直接裁掉，天然就是「门关上」的观感。
+   而这一栏在那边是整条淡出（见上面那条），不需要图标再单独淡一次。
    延迟 / 时长与 App.vue 的 PANEL_LOCK_MS 同源，改一处要一起改。 */
 .activity-bar.is-animating.is-collapsed .activity-bar__item svg {
   animation: activity-bar-icon-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
