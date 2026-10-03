@@ -11,6 +11,7 @@
  * 与评测样例面板页脚那颗 ▶，两处都直连 App.vue 的 runAll，跑起来会自己把侧栏
  * 展开并切到「评测样例」，所以删掉页签栏这颗不会出现「点了看不到结果」。
  */
+import { nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
@@ -71,11 +72,63 @@ function onMouseDown(event, id) {
     closeTab(id)
   }
 }
+
+/* ------------------------------------------------------------ 页签进场 / 退场
+   容器是 TransitionGroup（见模板）：进场只需 CSS 淡入。退场则**不占位**——下面这个
+   钩子在退场前把页签盒子（left/top/width/height）钉成当前实测值，再由
+   .tab-leave-active 把它转成 position:absolute，于是它当帧脱离文档流：后面的页签
+   立刻走到最终位置（位移交给 .tab-move 补间），退场元素留在原地纯淡出。
+   宽高必须显式写：absolute 之后它不再被 flex 拉伸，不写会塌成收缩宽度。
+   offsetLeft / offsetTop 相对的是 .editor-tabs__strip（它已设为 position: relative）。
+   预览页签被顶替是例外，走瞬时切换，见下面的 instantSwap。 */
+function onTabBeforeLeave(el) {
+  el.style.left = `${el.offsetLeft}px`
+  el.style.top = `${el.offsetTop}px`
+  el.style.width = `${el.offsetWidth}px`
+  el.style.height = `${el.offsetHeight}px`
+}
+
+/* 预览页签被顶替时走**瞬时切换**，不做过场：两个不同长度的文件名在同一个槽位交叉
+   淡化会叠在一起、并让条带底色透出来（亮度塌陷），看着就是闪。store 的 openFile 把
+   「删旧 + 在原位插新」压在同一个 tick 里完成，所以这里能靠数组 diff 认出来：长度不变、
+   只有一处 id 不同。认出后把 TransitionGroup 的 name 换成 tab-instant —— 它只关掉
+   这一格自己的进出场，其余页签因宽度差而换位的部分仍由 .tab-instant-move 补间。
+   刻意**不给新页签做宽度动画**：页签宽度是按文件名自适应的，若让它从旧宽度逐帧收放，
+   那颗正好被选中（有底色）的页签看起来就是「选中的标签在缩」，观感不对。
+   固定标签的打开/关闭、中键关闭等仍然走 name="tab"，动画照旧。 */
+const instantSwap = ref(false)
+
+watch(
+  () => workspace.openTabIds.slice(),
+  (next, prev) => {
+    if (next.length !== prev.length) return
+    let diffCount = 0
+    for (let i = 0; i < next.length; i += 1) {
+      if (next[i] !== prev[i]) diffCount += 1
+      if (diffCount > 1) return // 不止一处不同，不是预览顶替
+    }
+    if (diffCount !== 1) return
+    instantSwap.value = true
+    nextTick(() => {
+      instantSwap.value = false
+    })
+  },
+)
 </script>
 
 <template>
   <div class="editor-tabs">
-    <div class="editor-tabs__strip" role="tablist" :aria-label="t('app.tabs.listLabel')">
+    <!-- TransitionGroup 直接反映 openTabIds / 视图 open 状态的变化，所以打开、关闭、
+         切换、预览页签被顶替四种操作共用这一套进出场，workspaceStore 不用改。
+         子项（文件页签的 v-for 与两个 v-if 视图页签）都已带 key。 -->
+    <TransitionGroup
+      tag="div"
+      class="editor-tabs__strip"
+      role="tablist"
+      :aria-label="t('app.tabs.listLabel')"
+      :name="instantSwap ? 'tab-instant' : 'tab'"
+      @before-leave="onTabBeforeLeave"
+    >
       <button
         v-for="id in workspace.openTabIds"
         :key="id"
@@ -121,6 +174,7 @@ function onMouseDown(event, id) {
            排在设置之前，与侧栏页头里「Codeforces 在齿轮左侧」的顺序一致 -->
       <button
         v-if="cfPickerTab.open"
+        :key="'view:cfPicker'"
         type="button"
         class="editor-tabs__item"
         :class="{ 'editor-tabs__item--active': cfPickerTab.active }"
@@ -146,6 +200,7 @@ function onMouseDown(event, id) {
            dirty 圆点不适用（设置是即时生效的，没有保存概念），所以图标固定是齿轮 -->
       <button
         v-if="settingsTab.open"
+        :key="'view:settings'"
         type="button"
         class="editor-tabs__item"
         :class="{ 'editor-tabs__item--active': settingsTab.active }"
@@ -166,7 +221,7 @@ function onMouseDown(event, id) {
           <AppIcon name="close" :size="12" />
         </span>
       </button>
-    </div>
+    </TransitionGroup>
   </div>
 </template>
 
@@ -186,6 +241,9 @@ function onMouseDown(event, id) {
   display: flex;
   align-items: stretch;
   min-width: 0;
+  /* 退场页签要相对条带定位（onTabBeforeLeave 写 left/top），所以条带得是定位祖先。
+     它同时是横向滚动容器，absolute 子元素会跟着内容一起滚，符合预期。 */
+  position: relative;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -198,6 +256,12 @@ function onMouseDown(event, id) {
 .editor-tabs__item {
   display: inline-flex;
   align-items: center;
+  position: relative;
+  /* 切换页签：底色与文字色淡入淡出（高亮条见下面的 ::before）。
+     与场次动画（.tab-*）用同一支缓动，观感是一次动作。 */
+  transition:
+    background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    color 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
   /* 5px（原 6px，2026-10-01 收紧）：真机反馈页签里的空白偏大。这一条同时管
      「图标 ↔ 标签」与「标签 ↔ 关闭按钮」两处 —— 图标/× 的墨迹在各自的 12px 方框里
      本来就留了余量，视觉上的间距比 5px 还多一点点。 */
@@ -222,12 +286,16 @@ function onMouseDown(event, id) {
 }
 
 .editor-tabs__item--active {
-  position: relative;
   background: var(--bg-tab-active);
   color: var(--text);
+  /* 让不透明的选中页签压在相邻页签之上：move-FLIP 补间时透明邻签会滑过它，
+     抬一层就看不见那截重叠（见 .tab-instant-move 的说明）。 */
+  z-index: 1;
 }
 
-.editor-tabs__item--active::before {
+/* 选中高亮条：所有页签都带这一枚（默认透明），切成选中态时靠 opacity 淡入 —— 
+   比「只给选中项画、切换时凭空出现」更顺。position: relative 在基类上。 */
+.editor-tabs__item::before {
   content: '';
   position: absolute;
   top: 0;
@@ -235,6 +303,12 @@ function onMouseDown(event, id) {
   right: 0;
   height: 1px;
   background: var(--focus, var(--accent));
+  opacity: 0;
+  transition: opacity 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.editor-tabs__item--active::before {
+  opacity: 1;
 }
 
 .editor-tabs__icon {
@@ -337,5 +411,51 @@ function onMouseDown(event, id) {
   background-size: 100% 1px;
   background-position: 0 100%;
   background-repeat: no-repeat;
+}
+
+/* ------------------------------------------------------------ 页签进出场
+   进场只淡入；退场脱离文档流后原地淡出（见 .tab-leave-active 与脚本钩子）。
+   .tab-move 管「列表重排」时其余页签的位移——关闭页签后的补位、抽题页签插到
+   设置前面，都靠它。缓动与侧栏折叠 / 胶囊指示器同源。 */
+.tab-enter-active {
+  transition: opacity 120ms ease-out;
+}
+
+.tab-leave-active {
+  /* 脱离文档流：后面的页签当帧补位（由 .tab-move 补间），本元素留在原地淡出。
+     left/top/width/height 由 onTabBeforeLeave 写成退场前的实测值，所以过渡期间
+     盒子形状与原位一致，不会跳。 */
+  position: absolute;
+  transition: opacity 120ms ease-out;
+}
+
+.tab-enter-from,
+.tab-leave-to {
+  opacity: 0;
+}
+
+.tab-move {
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 预览页签顶替：瞬时切换。不定义 -enter-from / -leave-to，新页签当帧就是全不透明的；
+   退场那一帧仍脱离文档流并置透明，免得它还占着位、把新页签挤到旁边错一下位。 */
+.tab-instant-enter-active,
+.tab-instant-leave-active {
+  transition: none;
+}
+
+.tab-instant-leave-active {
+  position: absolute;
+  opacity: 0;
+}
+
+/* 瞬时顶替时，两个文件名的宽度差会把右侧留存页签的落点顶开一截。新页签自己不做宽度
+   动画（见脚本里 instantSwap 的说明），这一截位移就交给 move-FLIP 补间 —— 有这个 -move，
+   Vue 才会给留存页签做位移，右邻页签平滑滑过去而不是当帧跳。
+   页面里留存页签是透明的，滑动途中会与不透明的新页签叠在一起，靠 --active 的 z-index
+   把新页签抬上来遮住它，看起来就是新页签把邻签「推」出去。 */
+.tab-instant-move {
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 </style>

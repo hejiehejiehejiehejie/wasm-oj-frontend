@@ -185,6 +185,39 @@ function cancelRename() {
   emit('rename-done')
 }
 
+// ------------------------------------------------------------ 展开 / 折叠动画
+
+/**
+ * `.tree-item__children` 的展开 / 折叠动画（见模板里包着的 <Transition>）。
+ *
+ * 高度从 `auto` 到 `0` 是**不可过渡**的，所以这里只干一件事：在进出场那一帧把高度
+ * 换成实测像素，让 CSS 里那条 `transition: height` 有具体数值可插值 —— 时长与曲线
+ * 全部在样式表里（.tree-children-enter-active / .leave-active），与页签那套分工一致。
+ *
+ * 三处细节：
+ * - `void el.offsetHeight` 强制一次 reflow：同一帧里连着写「0px」再写目标值会被浏览器
+ *   合并成一次样式变更，那样只会看到瞬间跳到位、没有过渡。读一次布局把 0px 定下来。
+ * - 进场量的是 `scrollHeight`（此刻被钉在 0 高度，量不到 offsetHeight），退场量的是
+ *   `offsetHeight`（此刻还是自然高度，最准）。
+ * - `after-enter` 立刻把内联高度交还给 CSS：此后内容还会变（新建、改名、子目录展开），
+ *   留着写死的像素值会把容器框住、撑不开。
+ */
+function onChildrenEnter(el) {
+  el.style.height = '0px'
+  void el.offsetHeight
+  el.style.height = `${el.scrollHeight}px`
+}
+
+function onChildrenAfterEnter(el) {
+  el.style.height = ''
+}
+
+function onChildrenLeave(el) {
+  el.style.height = `${el.offsetHeight}px`
+  void el.offsetHeight
+  el.style.height = '0px'
+}
+
 // ------------------------------------------------------------ 键盘（ARIA treeview）
 
 function visibleItems() {
@@ -299,27 +332,37 @@ function onKeyDown(event) {
       {{ renameError }}
     </p>
 
-    <div
-      v-if="node.type === 'directory' && expanded"
-      class="tree-item__children"
-      :class="{
-        'tree-item__children--drop': isDropTarget,
-        'tree-item__children--active': isActiveParent,
-      }"
-      role="group"
-      :style="{ '--depth': depth }"
+    <!-- 展开 / 折叠的高度动画。仍是 v-if：折叠时不留在 DOM 里（键盘导航的可见项
+         判据、拖拽落点都按「DOM 里没有 = 不存在」走的，不能改成 v-show）。
+         高度怎么钉成可过渡的像素见脚本里那段注释。 -->
+    <Transition
+      name="tree-children"
+      @enter="onChildrenEnter"
+      @after-enter="onChildrenAfterEnter"
+      @leave="onChildrenLeave"
     >
-      <!-- 建在这个目录里的输入行。放在 group 内、而不是 .tree-item__row 内：那一行挂着
-           @keydown="onKeyDown"（方向键导航），输入框进去会让编辑文字的光标键被树抢走。 -->
-      <InlineCreateRow v-if="creating?.targetId === node.id" :state="creating" :depth="depth + 1" />
-      <FileTreeItem
-        v-for="child in node.children ?? []"
-        :key="child.id"
-        :node="child"
-        :depth="depth + 1"
-        @rename-done="emit('rename-done')"
-      />
-    </div>
+      <div
+        v-if="node.type === 'directory' && expanded"
+        class="tree-item__children"
+        :class="{
+          'tree-item__children--drop': isDropTarget,
+          'tree-item__children--active': isActiveParent,
+        }"
+        role="group"
+        :style="{ '--depth': depth }"
+      >
+        <!-- 建在这个目录里的输入行。放在 group 内、而不是 .tree-item__row 内：那一行挂着
+             @keydown="onKeyDown"（方向键导航），输入框进去会让编辑文字的光标键被树抢走。 -->
+        <InlineCreateRow v-if="creating?.targetId === node.id" :state="creating" :depth="depth + 1" />
+        <FileTreeItem
+          v-for="child in node.children ?? []"
+          :key="child.id"
+          :node="child"
+          :depth="depth + 1"
+          @rename-done="emit('rename-done')"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -346,6 +389,8 @@ function onKeyDown(event) {
   left: calc(var(--depth, 0) * 10px + 16px);
   width: 1px;
   background: var(--tree-guide);
+  /* 选中项换行时线要跟着亮起 / 淡掉，跟行底色同一条曲线、同一个时长 */
+  transition: background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
   /* 线的 x 落在行的左侧留白里（文字与图标之左），所以盖在行上也不会压到任何内容 */
   pointer-events: none;
   z-index: 1;
@@ -359,6 +404,25 @@ function onKeyDown(event) {
 .tree-item__children--drop::before,
 .tree-item__children--active::before {
   background: var(--tree-guide-strong);
+}
+
+/* 展开 / 折叠（模板里 <Transition name="tree-children">）：时长与曲线只写在这里，
+   高度值由脚本在进出场那一帧钉成实测像素（见 onChildrenEnter / onChildrenLeave）。
+   过渡期间 overflow: hidden 把子项裁在容器里 —— 少了它，收缩到底的那一刻子项会
+   先溢出到下面的行上再消失。上面那条范围线画在这个容器的 ::before 上、上下端就是
+   容器的起止，所以它会跟着一起收放，不需要额外处理。
+   没有 animation-delay，减弱动效下走 base.css 那条全局兜底（压 duration）即可干净退化。 */
+.tree-children-enter-active,
+.tree-children-leave-active {
+  overflow: hidden;
+  transition:
+    height 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tree-children-enter-from,
+.tree-children-leave-to {
+  opacity: 0;
 }
 
 .tree-item__row {
@@ -376,6 +440,9 @@ function onKeyDown(event) {
      那样子指在行上滑动就再也滚不动树了。而「长按起手后不让它滚」得靠非被动 touchmove
      拦（touch-action 在手势开始时就读定了，中途改无效），见 useTreeDrag.js 的注释。 */
   touch-action: pan-y;
+  /* 底色过渡：悬停、选中、取消选中都是同一支笔在同一行上加/减一层底，走同一条曲线
+     就不会有「跳一下」的观感。只过渡背景色 —— 行的布局（高度、缩进）绝不参与动画。 */
+  transition: background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* 悬停用比选中（--bg-hover）淡一档的底色，否则鼠标划过别的行时看不出哪一行才是选中的。

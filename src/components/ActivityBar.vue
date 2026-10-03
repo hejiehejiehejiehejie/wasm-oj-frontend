@@ -105,6 +105,37 @@ function toggleCfPicker() {
   border-radius: 8px;
   border: 1px solid var(--border-soft);
   background: var(--bg-panel);
+  /* 侧栏收起 / 展开时这一栏跟着伸缩（宽度过渡 200ms，与布局切换同一支曲线） */
+  transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 侧栏是展开的（含展开动画进行中）：这一栏宽度收到 0，把位置让给长出来的侧栏。
+   折叠态什么都不用写 —— 上面那条 flex 就是它的 48px。
+   宽度不能像别处那样走内联 style：48px 会被 postcss-pxtorem 转成 rem 跟着全局缩放走，
+   JS 里内联的 px 不会，界面缩放到 150% 时两边就对不上了。 */
+.activity-bar:not(.is-collapsed) {
+  flex-basis: 0;
+}
+
+/* 第二段：浮现。折叠时这一栏从 0 长到 48px，图标要等宽度那一段收好了才出现 ——
+   延迟期间靠 backwards 停在 opacity 0，也就是宽度整段里这一栏是空白的。
+   挂在 is-animating 上而不是只挂 is-collapsed：一来「减弱动效」下 App 不给 is-animating，
+   这条规则干脆不存在，图标从第一帧就该是可见的（否则会先按 backwards 空一帧）；
+   二来闸门摘掉的时刻正好是这段动画结束的时刻，撤销时不会有回跳。
+   展开方向不挂这一下：那边是侧栏的页头控件与内容在浮现（见 App.vue），
+   这一栏的图标则被收窄的栏位直接裁掉，天然就是「门关上」的观感。
+   延迟 / 时长与 App.vue 的 PANEL_LOCK_MS 同源，改一处要一起改。 */
+.activity-bar.is-animating.is-collapsed .activity-bar__item svg {
+  animation: activity-bar-icon-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
+}
+
+@keyframes activity-bar-icon-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .activity-bar__group {
@@ -116,12 +147,15 @@ function toggleCfPicker() {
   gap: 4px;
 }
 
-/* 48×40 的整宽图标格：hover 时整格提亮（而不是只提亮图标），可点范围一眼可见 */
+/* 48×40 的整宽图标格：hover 时整格提亮（而不是只提亮图标），可点范围一眼可见。
+   宽度写死成 48px（原来给的是 100%）：伸缩时这一栏的宽度会变，格子若跟着变窄，
+   图标就会在格子里居中位移、看着像在飘；定宽之后格子钉在原地，由 .activity-bar 的
+   overflow: hidden 把它裁出去。 */
 .activity-bar__item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  width: 48px;
   height: 40px;
   padding: 0;
   border: none;
