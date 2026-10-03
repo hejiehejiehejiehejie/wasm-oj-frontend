@@ -184,14 +184,14 @@ export default {
               steps: [
                 '切面板：点侧边栏页头左侧那枚**胶囊开关**',
                 '开关设置页签：点页头那颗**齿轮**',
-                '收起整栏：双击两栏中间的分隔条',
+                '收起整栏：单击两栏中间的分隔条（再点一次展开）',
                 '换边：**设置** › **外观** › **侧边栏位置**',
                 '缩放：**设置** › **外观** › **界面缩放**，默认 100%',
                 '配色：**设置** › **外观** › **主题**，深色 / 浅色',
               ],
               notes: [
                 '收起只是不显示，用例与文件树的展开状态都不会丢',
-                '分隔条：双击、拖到贴边，或 Tab 聚焦后按 ← / → 微调宽度',
+                '分隔条：单击折叠 / 展开、拖到贴边折叠，或 Tab 聚焦后按 ← / → 微调宽度',
                 '所有快捷键在**设置** › **快捷键**里改绑，默认运行是 ⌘/Ctrl + Enter',
               ],
             },
@@ -367,7 +367,7 @@ export default {
               steps: [
                 'Switch panels: click the **pill switch** on the left of the sidebar header',
                 'Toggle the Settings tab: click the **gear** in that header',
-                'Collapse the whole sidebar: double-click the divider between the two columns',
+                'Collapse the whole sidebar: single-click the divider between the two columns — click again to expand',
                 'Move it to the other side: **Settings** › **Appearance** › **Sidebar position**',
                 'Scale it: **Settings** › **Appearance** › **Interface scale** — 100% by default',
                 'Change colours: **Settings** › **Appearance** › **Theme** — dark / light',
@@ -375,7 +375,7 @@ export default {
               ],
               notes: [
                 'Collapsing only hides the sidebar — expanded folders and test cases are never lost',
-                'The divider: double-click it, drag it to an edge, or focus it with Tab and nudge with ← / →',
+                'The divider: single-click to collapse or expand, drag it to an edge to collapse, or focus it with Tab and nudge with ← / →',
                 'Every shortcut can be rebound under **Settings** › **Shortcuts**; Run is ⌘/Ctrl + Enter by default',
               ],
             },

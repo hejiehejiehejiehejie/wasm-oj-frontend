@@ -68,6 +68,17 @@ function waitForServer() {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// 单击分隔条 = 折叠 / 展开。App.vue 在 pointerup 上认这件事，不看原生 click
+// （pointerdown 里的 preventDefault 会抑制兼容鼠标事件，各浏览器补不补回 click 并不一致），
+// 所以要合成 pointerdown + 冒泡到 window 的 pointerup，且中间不带位移（位移超 10px 算拖拽）。
+const clickSplitter = (page) =>
+  page.evaluate(() => {
+    const splitter = document.querySelector('.splitter')
+    const opts = { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse' }
+    splitter.dispatchEvent(new PointerEvent('pointerdown', opts))
+    window.dispatchEvent(new PointerEvent('pointerup', opts))
+  })
+
 // 快捷键里的主修饰键：macOS 是 ⌘、其他平台是 Ctrl（与 useShortcutManager 的 IS_MAC 同口径）
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control'
 
@@ -428,22 +439,18 @@ try {
     })
     await wait(400)
     const added = await page.evaluate(() => document.querySelectorAll('.card').length)
-    // 先把侧栏切回「资源管理器」再双击分隔条折叠它——为的是验新契约：点运行按钮时
+    // 先把侧栏切回「资源管理器」再单击分隔条折叠它——为的是验新契约：点运行按钮时
     // 侧栏要自己展开、并切到「评测样例」，不然点了运行看不到结果。
     // （顺序不能反：折叠后整栏 display:none，页头那颗切换钮也就点不到了。）
     await showPanel(page, 'explorer')
     await wait(300)
-    await page.evaluate(() =>
-      document
-        .querySelector('.splitter')
-        .dispatchEvent(new MouseEvent('dblclick', { bubbles: true })),
-    )
+    await clickSplitter(page)
     await wait(400)
     const collapsed = await page.evaluate(
       () => document.querySelector('.pane--tests').getClientRects().length === 0,
     )
     // 运行入口：页签栏那颗运行按钮已删（2026-09-28），现在只剩全局快捷键与评测面板
-    // 页脚那颗 ▶。此刻侧栏正折叠着（上面刚双击折起来），页脚那颗 display:none 点不到，
+    // 页脚那颗 ▶。此刻侧栏正折叠着（上面刚单击折起来），页脚那颗 display:none 点不到，
     // 所以走快捷键 —— 顺带守住「侧栏收起时快捷键照样能跑、且能把侧栏重新捞回来」。
     await page.keyboard.down(MOD)
     await page.keyboard.press('Enter')
@@ -563,11 +570,7 @@ try {
     const afterSecond = await visiblePanelId(page)
 
     // 侧栏收起时按同一个键：既要翻面，也得先把它捞回来（否则按了看不见任何反应）
-    await page.evaluate(() =>
-      document
-        .querySelector('.splitter')
-        .dispatchEvent(new MouseEvent('dblclick', { bubbles: true })),
-    )
+    await clickSplitter(page)
     await wait(400)
     const collapsed = await page.evaluate(
       () => document.querySelector('.pane--tests').getClientRects().length === 0,

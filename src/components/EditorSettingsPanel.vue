@@ -2489,37 +2489,39 @@ watch(pendingUnbind, (open) => {
   inset: 0;
   overflow-y: auto;
   padding: 4px 0 18px;
-  /* 「目录 / 内容」是两栏，窄宽度下要降级成顶部标签条。宽度判断交给容器查询：
-     设置视图活在编辑区里，它的宽度只是编辑区宽度的一部分，拿视口 media query 当代理是错的。 */
+  /* 「目录 / 内容」默认单列，编辑区够宽时再升级成两栏。宽度判断交给容器查询：
+     设置视图活在编辑区里，它的宽度只是编辑区宽度的一部分，拿视口 media query 当代理是错的。
+     写成「默认单列 + min-width 升级」而不是「默认两栏 + max-width 降级」：不支持容器查询的
+     浏览器（部分手机自带浏览器）会永远吃默认那套单列，窄屏上就不会被挤成两列。 */
   container-type: inline-size;
   container-name: settings;
 }
 
-/* 目录 + 内容：左栏是分类导航（sticky 跟着滚动），右栏只放当前选中的那一组设置。
-   max-width 只用来防止宽面板上控件飘到很远（设置行是「标签靠左、控件靠右」的两端对齐）。 */
+/* 目录 + 内容：默认单列（目录在上、内容在下）。
+   够宽时由文件末尾的 @container settings (min-width: 35rem) 升级成「左栏目录 + 右栏内容」。 */
 .settings-view__inner {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  flex-direction: column;
+  gap: 0;
   max-width: 880px;
 }
 
 .settings-nav {
-  position: sticky;
-  top: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  gap: 4px;
   flex: 0 0 auto;
-  width: 168px;
-  padding: 12px 12px 12px 18px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px 18px 2px;
 }
 
 .settings-nav__item {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  flex: 0 0 auto;
+  height: 28px;
   padding: 0 10px;
   border-radius: 6px;
   color: var(--text-dim);
@@ -2542,42 +2544,43 @@ watch(pendingUnbind, (open) => {
   white-space: nowrap;
 }
 
-/* 同一时刻只渲染一组设置（v-if / v-else-if），所以它自己就是右栏那一格：
-   吃掉剩余宽度，但不超过 max-width，免得控件被推到很远。 */
+/* 同一时刻只渲染一组设置（v-if / v-else-if），所以两栏时它自己就是右栏那一格。 */
 .setting-group {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-width: 0;
-  max-width: 640px;
 }
 
-/* 编辑区被挤窄时（比如手机上两栏并排），目录从左侧竖排换成顶部横向标签条。
-   阈值写成 rem：全局缩放后目录与内容都会变大，需要更早翻成横条 */
-@container settings (max-width: 35rem) {
+/* 编辑区够宽时升级成「左栏目录 + 右栏内容」两栏：目录 sticky 跟着滚动，
+   右栏吃掉剩余宽度但不超过 max-width（免得控件飘到很远，设置行是「标签靠左、控件靠右」的两端对齐）。
+   阈值写成 rem：全局缩放后目录与内容都会变大，需要更早翻回竖排。
+   用 min-width 做升级而非 max-width 降级——不支持容器查询的浏览器会一直用上面那套单列，见 .settings-view 的注释。 */
+@container settings (min-width: 35rem) {
   .settings-view__inner {
-    flex-direction: column;
-    gap: 0;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
   }
 
   .settings-nav {
-    position: static;
-    flex-direction: row;
-    gap: 4px;
-    width: auto;
-    max-width: 100%;
-    overflow-x: auto;
-    padding: 10px 18px 2px;
+    position: sticky;
+    top: 0;
+    flex-direction: column;
+    gap: 2px;
+    width: 168px;
+    max-width: none;
+    overflow: visible;
+    padding: 12px 12px 12px 18px;
   }
 
   .settings-nav__item {
-    flex: 0 0 auto;
-    height: 28px;
+    flex: 0 1 auto;
+    height: 32px;
   }
 
   .setting-group {
-    max-width: none;
-    width: 100%;
+    flex: 1 1 auto;
+    max-width: 640px;
   }
 }
 

@@ -48,7 +48,7 @@ export default {
 
       /** 页头判定语。AC 是「通过」的通用说法，两套语言都不译。 */
       verdict: {
-        noCases: '还没有测试用例',
+        noCases: '无测试用例',
         running: '运行中',
         allPassed: '全部 AC',
         /** 有结论过期时给不出确切通过数，用 ? 占位 */

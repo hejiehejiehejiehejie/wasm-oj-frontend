@@ -462,28 +462,17 @@ function scheduleReclamp() {
 // 缩放一变，派生的面板最低宽度就变；nextTick 是为了让 --ui-scale 与新一轮排版都已生效
 watch(uiScale, () => nextTick(reclampShare))
 
-// 双击折叠 / 展开。折叠期间 editorShare 不动，所以展开回到的就是折叠前的宽度。
+// 折叠 / 展开。折叠期间 editorShare 不动，所以展开回到的就是折叠前的宽度。
+// 三条入口共用它：键盘（toggle-panel）、程序内调用（revealTestsPanel / switchSidebarPanel）、
+// 以及鼠标 / 触摸端单击分隔条（在 beginDrag 的 pointerup 里认，见下）。
 function togglePanel() {
   panelVisible.value = !panelVisible.value
   // 折叠后分隔条停在边缘，虚拟比例从 100% 起步；展开则接着恢复出来的宽度继续走
   virtualShare = panelVisible.value ? editorShare.value : 100
 }
 
-// 双击的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点
+// 轻点的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点
 const TAP_SLOP = 10
-// 两次轻点的最大间隔。取浏览器自己的双击判定常用的 300ms
-const DOUBLE_TAP_MS = 300
-// 最近一次由我们自己认出来的触摸双击。有些设备在它之后还会补一发原生 dblclick，
-// 挨着就丢掉，否则一次双击被折两次、看上去像没动
-let touchDblTapAt = 0
-let lastTapAt = 0
-let lastTapX = 0
-
-// 鼠标 / 触控板走浏览器的原生双击；触摸端的双击在 beginDrag 的 pointerup 里自己认
-function onSplitterDblClick() {
-  if (Date.now() - touchDblTapAt < 400) return
-  togglePanel()
-}
 
 function beginDrag(event) {
   if (running.value) return
@@ -491,10 +480,9 @@ function beginDrag(event) {
   if (!surface) return
   // 取消 pointerdown 会按规范抑制兼容的 mousedown/mouseup，用来阻断从分隔条起手的
   // 原生文字选中拖拽；配合 .workspace.is-dragging 的 user-select: none 双保险。
-  // 注意别指望别的浏览器也像 Chrome 那样把 click / dblclick 补回来——触摸端的双击
-  // 因此不依赖 dblclick，而是在下面的 pointerup 上自己认（见 stop）。
+  // 注意别指望别的浏览器也像 Chrome 那样把 click 补回来——单击折叠 / 展开因此不依赖 click，
+  // 而是在下面的 pointerup 上自己认（见 stop）。
   event.preventDefault()
-  const isTouch = event.pointerType !== 'mouse'
   let moved = 0
   const startX = event.clientX
   const startY = event.clientY
@@ -541,18 +529,11 @@ function beginDrag(event) {
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
     editorPane.value?.layout()
-    // 触摸端的双击：两次都没怎么动的轻点，间隔够近就算。特意不看 dblclick——
-    // 部分触屏浏览器根本不为双指轻点合成它（真机反馈「有些触屏设备双击没反应」）。
-    if (!isTouch || upEvent.type !== 'pointerup' || moved > TAP_SLOP) return
-    const now = Date.now()
-    if (now - lastTapAt <= DOUBLE_TAP_MS && Math.abs(upEvent.clientX - lastTapX) <= TAP_SLOP) {
-      lastTapAt = 0
-      touchDblTapAt = now
-      togglePanel()
-    } else {
-      lastTapAt = now
-      lastTapX = upEvent.clientX
-    }
+    // 没怎么动的松手才算「单击」，拖过就不算 —— 拖到贴边那次折叠不能被松手这一下再翻回去。
+    // 特意不看原生 click：pointerdown 里的 preventDefault 会抑制兼容鼠标事件，
+    // 各浏览器补不补回 click 并不一致，所以在自己的 pointerup 上收口。
+    if (upEvent.type !== 'pointerup' || moved > TAP_SLOP) return
+    togglePanel()
   }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
@@ -903,7 +884,6 @@ onBeforeUnmount(() => {
         :style="{ order: 2 }"
         tabindex="0"
         @pointerdown="beginDrag"
-        @dblclick="onSplitterDblClick"
         @keydown.left.prevent="nudgeShare(-2)"
         @keydown.right.prevent="nudgeShare(2)"
       >
@@ -1157,7 +1137,7 @@ onBeforeUnmount(() => {
 }
 
 /* 「悬停显影」只在真有悬停能力的指针上生效。触屏没有 hover，浏览器会把点按瞬间的 :hover
-   粘在元素上直到点了别处，于是双击折叠/展开后那条蓝线留在原处不灭；键盘焦点（上面的
+   粘在元素上直到点了别处，于是点按折叠/展开后那条蓝线留在原处不灭；键盘焦点（上面的
    :focus-visible）和拖拽态不受影响，触屏下这两条路仍然可用 */
 @media (hover: hover) {
   .splitter:hover .splitter__line {
