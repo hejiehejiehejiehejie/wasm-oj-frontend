@@ -1207,6 +1207,35 @@ onBeforeUnmount(() => {
   transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
   min-width: 0;
   flex-grow: 0;
+  /* 抽屉盖住图标栏：图标栏固定在 order 最外侧（0/4），侧栏展开时它从 0 长到 share，
+     左边缘本来会被「图标栏右边缘」这个起点一路拖到 0，看着像从中间炸开。
+     抬 z-index 让侧栏压在图标栏之上，再沿主轴做反向补偿（见下面两条 drawer-grow），
+     使侧栏**外边缘恒等于工作区边缘**、朝内拉开 —— 就是抽屉从固定边滑出来的样子。 */
+  z-index: 1;
+}
+
+/* 抽屉拉出的位移补偿：侧栏在动画里被图标栏的 48px 起步位推着走，
+   用等量反向 transform 抵消，外边缘就钉在工区边上（左栏先左移 48 再归零、右栏镜像）。
+   48px 与 ActivityBar 的 `flex: 0 0 48px` 同源，两处都经 postcss-pxtorem 转 rem，
+   随全局缩放一起走 —— 改一处要一起改。 */
+.workspace.is-left .pane--tests.is-animating.is-expanding {
+  animation: drawer-grow-left 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.workspace.is-right .pane--tests.is-animating.is-expanding {
+  animation: drawer-grow-right 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes drawer-grow-left {
+  from {
+    transform: translateX(-48px);
+  }
+}
+
+@keyframes drawer-grow-right {
+  from {
+    transform: translateX(48px);
+  }
 }
 
 /* 第二段：浮现。展开时侧栏页头那几颗控件与内容一起，等宽度那一段收得差不多了再淡入。
@@ -1255,7 +1284,28 @@ onBeforeUnmount(() => {
    所以反而比运动中的接缝更扎眼）。到点直接把它隐掉即可：visibility 不进布局、
    不触发重排，写法与上面那段浮现同源 —— 那边是 backwards 等入场，这边是 forwards 等收尾。
    「减弱动效」下 App 不给 is-animating，这些规则整段不存在（也没有 delay 空等的问题）。 */
-.pane--tests.is-animating:not(.is-expanding),
+.workspace.is-left .pane--tests.is-animating:not(.is-expanding) {
+  animation: drawer-shrink-left 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    panel-ghost 1ms linear 200ms forwards;
+}
+
+.workspace.is-right .pane--tests.is-animating:not(.is-expanding) {
+  animation: drawer-shrink-right 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    panel-ghost 1ms linear 200ms forwards;
+}
+
+@keyframes drawer-shrink-left {
+  to {
+    transform: translateX(-48px);
+  }
+}
+
+@keyframes drawer-shrink-right {
+  to {
+    transform: translateX(48px);
+  }
+}
+
 .workspace :deep(.activity-bar.is-animating:not(.is-collapsed)) {
   animation: panel-ghost 1ms linear 200ms forwards;
 }
