@@ -11,7 +11,7 @@
  * 与评测样例面板页脚那颗 ▶，两处都直连 App.vue 的 runAll，跑起来会自己把侧栏
  * 展开并切到「评测样例」，所以删掉页签栏这颗不会出现「点了看不到结果」。
  */
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
@@ -26,6 +26,7 @@ import {
   deactivateViews,
   settingsTab,
   viewActive,
+  viewOrder,
 } from '../services/editorViews.js'
 import {
   closeTab,
@@ -64,6 +65,36 @@ function onViewMouseDown(event, close) {
     close()
   }
 }
+
+/**
+ * 合成视图页签（设置 / 抽题）的渲染描述。顺序读 editorViews.viewOrder ——
+ * 谁先开谁靠左、后开的追加到最右，与文件页签「新开的排最后」同一条规矩，
+ * 不再固定「抽题在设置左边」。图标 / 文案 / 开关都在这里现取，render 期间执行，
+ * 所以语言切换、视图开关变化都会让它重算。
+ */
+function viewMeta(id) {
+  return id === 'cfPicker'
+    ? {
+        key: 'view:cfPicker',
+        icon: 'codeforces',
+        label: t('cf.button.label'),
+        closeLabel: t('cf.tab.close'),
+        active: cfPickerTab.active,
+        activate: activateCfPickerTab,
+        close: closeCfPickerTab,
+      }
+    : {
+        key: 'view:settings',
+        icon: 'gear',
+        label: t('app.settings'),
+        closeLabel: t('app.tabs.closeSettings'),
+        active: settingsTab.active,
+        activate: activateSettingsTab,
+        close: closeSettingsTab,
+      }
+}
+
+const viewTabs = computed(() => viewOrder.map(viewMeta))
 
 function onMouseDown(event, id) {
   // 中键关闭（auxclick 在部分时机不一致，统一在 mousedown 处理）
@@ -208,53 +239,29 @@ function onTabEnter(el) {
         </span>
       </button>
 
-      <!-- 抽题页签：默认安装的组件，题库就绪后才有侧栏入口（cfPickerTab.open 只由侧栏那颗 Codeforces 按钮点亮）。
-           排在设置之前，与侧栏页头里「Codeforces 在齿轮左侧」的顺序一致 -->
+      <!-- 合成视图页签（设置 / 抽题）：与代码文件同一个皮，排在文件页签之后。
+           顺序读 editorViews.viewOrder —— 谁先开谁靠左、后开的追加到最右，
+           与文件页签「新开的排最后」同一条规矩。图标 / 文案 / 开关由 viewMeta 现取，
+           设置没有 dirty 圆点（即时生效，没有保存概念），所以图标固定是齿轮。 -->
       <button
-        v-if="cfPickerTab.open"
-        :key="'view:cfPicker'"
+        v-for="view in viewTabs"
+        :key="view.key"
         type="button"
         class="editor-tabs__item"
-        :class="{ 'editor-tabs__item--active': cfPickerTab.active }"
+        :class="{ 'editor-tabs__item--active': view.active }"
         role="tab"
-        :aria-selected="cfPickerTab.active"
-        :title="t('cf.button.label')"
-        @click="activateCfPickerTab"
-        @mousedown="onViewMouseDown($event, closeCfPickerTab)"
+        :aria-selected="view.active"
+        :title="view.label"
+        @click="view.activate"
+        @mousedown="onViewMouseDown($event, view.close)"
       >
-        <AppIcon name="codeforces" :size="12" class="editor-tabs__icon" />
-        <span class="editor-tabs__label">{{ t('cf.button.label') }}</span>
+        <AppIcon :name="view.icon" :size="12" class="editor-tabs__icon" />
+        <span class="editor-tabs__label">{{ view.label }}</span>
         <span
           class="editor-tabs__close"
           role="button"
-          :aria-label="t('cf.tab.close')"
-          @click.stop="closeCfPickerTab"
-        >
-          <AppIcon name="close" :size="12" />
-        </span>
-      </button>
-
-      <!-- 设置页签：与代码文件同一个皮，排在文件之后（跟「新开的排最后」一致）。
-           dirty 圆点不适用（设置是即时生效的，没有保存概念），所以图标固定是齿轮 -->
-      <button
-        v-if="settingsTab.open"
-        :key="'view:settings'"
-        type="button"
-        class="editor-tabs__item"
-        :class="{ 'editor-tabs__item--active': settingsTab.active }"
-        role="tab"
-        :aria-selected="settingsTab.active"
-        :title="t('app.settings')"
-        @click="activateSettingsTab"
-        @mousedown="onViewMouseDown($event, closeSettingsTab)"
-      >
-        <AppIcon name="gear" :size="12" class="editor-tabs__icon" />
-        <span class="editor-tabs__label">{{ t('app.settings') }}</span>
-        <span
-          class="editor-tabs__close"
-          role="button"
-          :aria-label="t('app.tabs.closeSettings')"
-          @click.stop="closeSettingsTab"
+          :aria-label="view.closeLabel"
+          @click.stop="view.close"
         >
           <AppIcon name="close" :size="12" />
         </span>

@@ -19,8 +19,16 @@
 import { computed, reactive, watch } from 'vue'
 import { workspace } from './vfs/workspaceStore.js'
 
-/** 全部合成视图 id。顺序无关紧要：页签栏里各自渲染，谁在前面由组件决定 */
+/** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 viewOrder） */
 export const EDITOR_VIEW_IDS = ['settings', 'cfPicker']
+
+/**
+ * 已打开视图页签的顺序（谁先开谁靠左）。与文件页签「新开的排最后」同一条规矩：
+ * 没开着的视图在 show() 时追加到最右；关掉时摘掉，再开就重新排到最后。
+ * 只记顺序，开关状态仍在 state 上。
+ * @type {string[]}
+ */
+export const viewOrder = reactive([])
 
 /** 每个视图两个开关：open=页签在不在页签栏里，active=视图有没有正盖在编辑器上 */
 const state = reactive({
@@ -28,8 +36,10 @@ const state = reactive({
   cfPicker: { open: false, active: false },
 })
 
-/** 点视图入口 / 点它的页签：亮出这一个，其余一律让开（它们铺在同一层） */
+/** 点视图入口 / 点它的页签：亮出这一个，其余一律让开（它们铺在同一层）。
+ *  本来没开着的，这一次才排进 viewOrder 的最右 —— 已经开着的只是切活跃，顺序不动。 */
 function show(id) {
+  if (!state[id].open) viewOrder.push(id)
   for (const view of EDITOR_VIEW_IDS) {
     const entry = state[view]
     if (view === id) {
@@ -45,6 +55,8 @@ function show(id) {
 function close(id) {
   state[id].open = false
   state[id].active = false
+  const at = viewOrder.indexOf(id)
+  if (at !== -1) viewOrder.splice(at, 1)
 }
 
 /** 切回代码视图：只让开，不关页签 */
