@@ -152,8 +152,9 @@ const elapsedText = computed(() => {
   row-gap: 4px;
   min-height: 35px;
   padding: 4px 10px 4px 4px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-panel-head);
+  /* 同资源管理器页头：不铺底纹、不画分隔线（2026-10-04）——
+     展开的侧栏最上一条本来就该和正文同色，见 FileExplorer 的 .explorer__head */
+  background: transparent;
 }
 
 .panel__heading {

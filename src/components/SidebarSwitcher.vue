@@ -53,7 +53,7 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings,
         :data-panel="panel.id"
         :data-current="panel.active ? 'true' : null"
       >
-        <AppIcon :name="panel.icon" size="16" />
+        <AppIcon :name="panel.icon" size="18" />
       </span>
     </button>
 
@@ -90,24 +90,31 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings,
 .sidebar-switcher {
   display: inline-flex;
   align-items: center;
-  /* 轨道 60px + 间距 4px + 设置钮 26px = 90px，与「三颗 30px」时的占位一致。
+  /* 轨道 64px + 间距 4px + 设置钮 26px = 94px（原先两段各 28px 时为 90px）。
      抽题那颗是可选的：下载过这个模块时再 +30px（26px 钮 + 4px 间距），
      页头得容得下这个浮动宽度 —— 它只影响侧栏页头，不会挤到编辑器。 */
   gap: 4px;
-  /* 26px 高 + 页头上下各 4px 内边距 + 1px 下边框 = 35px，与面板头同高 */
+  /* 26px 高 + 页头上下各 4px 内边距 + 1px 下边框 = 35px，与面板头同高。
+     高度不能再长：面板头就是 35px，长一寸「与面板头同高」这条就破了 */
   height: 26px;
   flex: 0 0 auto;
-  /* 一段的尺寸：下面 .sidebar-switcher__seg 用它定宽高，滑动动画用它算位移，
-     所以只在这一处写死数字（改这里一处，几何与动画一起跟着走） */
-  --seg-w: 28px;
+  /* 一段的尺寸与两段之间的间隔：下面 .sidebar-switcher__seg 用它定宽高，
+     滑动动画用它算位移（位移 = 一段宽 + 一个间隔），所以只在这一处写死数字。
+     间隔 0：两段紧挨着，胶囊内部不留缝，高亮滑过去就是「同一颗胶囊换了位置」
+     （2026-10-04 从 2px 试到 4px，最后定为 0） */
+  --seg-w: 30px;
   --seg-h: 22px;
+  --seg-gap: 0px;
 }
 
 /* 胶囊轨道，同时也是那颗 toggle 按钮本体：13px 圆角 = 高度的一半。
-   内边距 2px + 两段各 28px = 60px。整块都要可点，所以别把点击处理下放到某一段 */
+   内边距 2px + 两段各 30px = 64px（段间隔为 0）。整块都要可点，所以别把点击处理下放到某一段 */
 .sidebar-switcher__pill {
   display: inline-flex;
   align-items: center;
+  /* 两枚 logo 之间的呼吸感：由 --seg-gap 定，现在是 0 —— 两段紧挨。
+     它不影响可点性 —— 整枚轨道是一颗按钮，段之间那道缝即便为零也不构成分隔 */
+  gap: var(--seg-gap);
   box-sizing: border-box;
   height: 26px;
   padding: 2px;
@@ -176,13 +183,14 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings,
    两层动画写在不同选择器上（段 / 段的 ::before），互不干扰。
 
    `:nth-child` 判方向：第一段亮 = 从右边滑来，第二段亮 = 从左边滑来
-   （只有两段，位移正好是一段宽，这也是它和上面 --seg-w 的唯一耦合）。
+   （只有两段，位移正好是「一段宽 + 一个段间隔」—— 高亮要跨过中间那道缝才是另一格，
+   这也是它和上面 --seg-w / --seg-gap 的唯一耦合）。
 
    挂 `[data-switched]` 才放：首屏那次渲染同样是「从隐藏变可见」，不加这个条件就会在
    页面加载时平白播一次滑动 —— 可那时候并没有发生任何切换。 */
 @keyframes sidebar-indicator-from-right {
   from {
-    transform: translateX(var(--seg-w));
+    transform: translateX(calc(var(--seg-w) + var(--seg-gap)));
   }
   to {
     transform: none;
@@ -191,7 +199,7 @@ const { panels, targetPanel, togglePanel, hasSwitched, settings, toggleSettings,
 
 @keyframes sidebar-indicator-from-left {
   from {
-    transform: translateX(calc(var(--seg-w) * -1));
+    transform: translateX(calc((var(--seg-w) + var(--seg-gap)) * -1));
   }
   to {
     transform: none;

@@ -206,7 +206,9 @@ defineExpose({ syncScroll })
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-panel);
+  /* 预览就长在编辑区那块面上（双栏时占右半边），底色跟 Monaco 内芯走同一个变量，
+     切「仅编辑器 / 双栏 / 仅预览」时不会有一半深一半浅的接缝 */
+  background: var(--bg-editor-pane);
 }
 
 .md-preview__body {

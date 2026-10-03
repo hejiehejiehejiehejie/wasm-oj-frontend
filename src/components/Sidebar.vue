@@ -76,7 +76,7 @@ function toggleSettings() {
   settingsTab.active ? closeSettingsTab() : openSettingsTab()
 }
 
-/** 骰子那颗：开着就收起抽题页签，与设置齿轮同一套肌肉记忆 */
+/** Codeforces 那颗：开着就收起抽题页签，与设置齿轮同一套肌肉记忆 */
 function toggleCfPicker() {
   cfPickerTab.active ? closeCfPickerTab() : openCfPickerTab()
 }
@@ -94,7 +94,7 @@ const settingsEntry = computed(() => ({
 // 设置页那一行读的是同一个 cfReady。
 // 点它开的是编辑区里的合成页签（与设置同形态），所以与齿轮并排、不进胶囊。
 const cfPickerEntry = computed(() => ({
-  icon: 'dice',
+  icon: 'codeforces',
   label: t('cf.button.label'),
   title: t(cfPickerTab.active ? 'cf.button.close' : 'cf.button.open'),
   active: cfPickerTab.active,
@@ -122,6 +122,10 @@ defineExpose({
   // 供快捷键用（App.vue 的 switch-panel）：与点胶囊走的是同一个 togglePanel，
   // 所以动画、hasSwitched、持久化都一致，不会出现「键盘切过去没动画」这种两套行为
   switchPanel: togglePanel,
+  // 供折叠态那条图标栏用（ActivityBar）：它要画「有哪两个面板、我停在哪一个」，
+  // 但它不是本组件的子组件（是工作区的兄弟节点），inject 够不到这里的 provide，
+  // 所以由 App 把这份（已翻译、带 active 的）表透传过去，状态仍只有这里一份
+  panels,
 })
 </script>
 

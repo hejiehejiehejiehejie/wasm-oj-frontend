@@ -864,8 +864,10 @@ provide('draggingId', draggingId)
   /* 与评测样例页头同高 */
   height: 35px;
   padding: 0 8px 0 4px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-panel-head);
+  /* 页头不再铺底纹、也不画分隔线（2026-10-04）：侧栏展开后它是整栏的最上一条，
+     铺 --bg-panel-head 会在最上方留下一道比正文亮的色带，再加上底下那根发丝线，
+     看上去像两条叠在一起的东西。去掉后整块侧栏从头到尾一个色，胶囊自己浮在上面 */
+  background: transparent;
 }
 
 .explorer__actions {

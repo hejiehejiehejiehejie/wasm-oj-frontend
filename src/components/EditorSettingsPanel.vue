@@ -1925,7 +1925,7 @@ watch(pendingUnbind, (open) => {
                与上面三个共用 .runtime-list / .runtime-row 的外观，但状态机在 services/cfRuntime.js 里 ——
                下载完侧栏才亮出那颗按钮，所以「已下载」这件事必须与侧栏同源。 -->
           <div class="runtime-row">
-            <span class="runtime-row__icon"><AppIcon name="dice" :size="17" /></span>
+            <span class="runtime-row__icon is-codeforces"><AppIcon name="codeforces" :size="17" /></span>
             <span class="runtime-row__text">
               <span class="runtime-row__title">{{ t('cf.module.title') }}</span>
               <span class="runtime-row__hint">
@@ -2832,6 +2832,12 @@ watch(pendingUnbind, (open) => {
 
 .runtime-row__icon.is-markdown {
   color: var(--icon-markdown);
+}
+
+/* 抽题组件那一行：它是品牌标志（不是语言），页头与页签里仍走 currentColor，
+   所以这个类只加在设置页这一行上 */
+.runtime-row__icon.is-codeforces {
+  color: var(--icon-codeforces);
 }
 
 .runtime-row__text {

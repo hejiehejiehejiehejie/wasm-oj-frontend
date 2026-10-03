@@ -117,8 +117,8 @@ function onMouseDown(event, id) {
         </span>
       </button>
 
-      <!-- 抽题页签：默认安装的组件，题库就绪后才有侧栏入口（cfPickerTab.open 只由侧栏那颗骰子按钮点亮）。
-           排在设置之前，与侧栏页头里「骰子在齿轮左侧」的顺序一致 -->
+      <!-- 抽题页签：默认安装的组件，题库就绪后才有侧栏入口（cfPickerTab.open 只由侧栏那颗 Codeforces 按钮点亮）。
+           排在设置之前，与侧栏页头里「Codeforces 在齿轮左侧」的顺序一致 -->
       <button
         v-if="cfPickerTab.open"
         type="button"
@@ -130,7 +130,7 @@ function onMouseDown(event, id) {
         @click="activateCfPickerTab"
         @mousedown="onViewMouseDown($event, closeCfPickerTab)"
       >
-        <AppIcon name="dice" :size="12" class="editor-tabs__icon" />
+        <AppIcon name="codeforces" :size="12" class="editor-tabs__icon" />
         <span class="editor-tabs__label">{{ t('cf.button.label') }}</span>
         <span
           class="editor-tabs__close"
@@ -292,15 +292,50 @@ function onMouseDown(event, id) {
   height: 15px;
   border-radius: 3px;
   opacity: 0;
+  /* 藏着的时候也必须不许点：opacity: 0 的元素照样参与命中测试，而 × 正好长在页签
+     最右端（15px 框 + 7px 右内边距），触屏上指腹一压就落在这里 —— 页签看着没变、
+     却直接关掉了。露出来时才把指针收回来（见下面两条）。 */
+  pointer-events: none;
 }
 
-.editor-tabs__item:hover .editor-tabs__close,
+/* 「悬停即露出」只给真能悬停的设备（鼠标 / 触控板）。触屏的 :hover 是在 touchstart
+   那一刻就套上的：手指刚碰到页签、× 就现身并抢走这次点击，于是「点页签切换」变成
+   「点 × 关页签」。触屏改走下面那条 —— 先点亮页签（选中态）再露出 ×，即
+   「第一次只打开标签并显示关闭按钮，再点关闭才关闭」。 */
+@media (hover: hover) {
+  .editor-tabs__item:hover .editor-tabs__close {
+    opacity: 0.75;
+    pointer-events: auto;
+  }
+}
+
 .editor-tabs__item--active .editor-tabs__close {
   opacity: 0.75;
+  pointer-events: auto;
 }
 
 .editor-tabs__close:hover {
   opacity: 1;
   background: var(--bg-control-hover);
+}
+
+/* --------------------------------------------------- 选中页签与编辑区连成一片
+   选中页签的底色（--bg-tab-active）与编辑区内芯（--bg-editor-pane）本来就是同一个值，
+   两者之间却横着这根 1px 的 --border-soft —— 它画在 .editor-tabs 的 border 上，
+   属于页签盒子的**外面**，页签铺再多底色也盖不住它。
+   办法是把线从容器挪到条带自身：铺成底部 1px 的背景（background-attachment 默认 scroll，
+   横向滚动时它不跟着跑），于是线落进页签盒子**里面** —— 不透明的选中页签正好盖住它，
+   未选中的页签底色是透明的，线照旧露出来。
+   设置与抽题同样适用（.settings-view 是透明的，底下就是编辑区那层底色），
+   只有 md 例外（.is-md）：那边的页签底下压着 md 工具栏，连过去会串色。 */
+.editor-pane:not(.is-md) .editor-tabs {
+  border-bottom: none;
+}
+
+.editor-pane:not(.is-md) .editor-tabs__strip {
+  background-image: linear-gradient(var(--border-soft), var(--border-soft));
+  background-size: 100% 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
 }
 </style>

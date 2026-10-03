@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EditorPane from './components/EditorPane.vue'
 import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
+import ActivityBar from './components/ActivityBar.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
@@ -328,6 +329,14 @@ const testsPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 3 : 1,
   flexBasis: `${100 - editorShare.value}%`,
 }))
+// 折叠后顶替侧栏的那条图标栏：恒贴在侧栏那一侧的最外侧
+// （侧栏在右 → 排在最后；在左 → 排在最前），所以 order 是 4 / 0 这一对端点值
+const activityBarStyle = computed(() => ({
+  order: panelPosition.value === 'right' ? 4 : 0,
+}))
+// 图标栏要画面板表与「当前停在哪个面板」。表本身归 Sidebar（cp.sidebarTab 只有那一份），
+// 经 defineExpose 透传上来；首帧 ref 还没落地时先给空数组，下一 tick 即补齐（不会闪一下布局）
+const sidebarPanels = computed(() => sidebarRef.value?.panels ?? [])
 
 // 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
 // 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
@@ -489,10 +498,11 @@ function beginDrag(event) {
   const limits = measureLimits()
   // 面板换到左侧后编辑器在右半边，拖拽方向要取反。
   const direction = panelPosition.value === 'right' ? 1 : -1
-  // 可见时锚在分隔条当前宽度上（保证 1:1 跟手）；折叠后分隔条贴在窗口边缘，
-  // 此时锚住鼠标位置，「拖离边缘 60px」才是实打实的 60px。
-  const offsetShare = ((event.clientX - limits.left) / limits.width) * 100
-  const startRaw = panelVisible.value ? editorShare.value : direction === 1 ? offsetShare : 100 - offsetShare
+  // 可见时锚在分隔条当前宽度上（保证 1:1 跟手）；折叠后锚在虚拟比例 100% 上。
+  // 折叠态不能用鼠标位置来锚（早先的写法）：现在分隔条停在图标栏左侧、不再贴窗口边缘，
+  // 若把图标栏那 48px 算进「离边缘的距离」里，往外一拖就立刻越过 releaseShare 展开。
+  // 锚在 100% 后，「往外拖 60px 才展开」仍是实打实的 60px 位移，与图标栏宽度无关。
+  const startRaw = panelVisible.value ? editorShare.value : 100
   virtualShare = startRaw
   dragging.value = true
 
@@ -555,12 +565,18 @@ function applyPatch(target, patch, index) {
   Object.assign(target, patch, { stale: false })
 }
 
+// 切到某个侧栏面板，并保证它看得见：折叠着就先展开（折叠时侧栏整栏不显示）。
+// 折叠态那条图标栏与运行入口共用这一条路径，不写两套「展开 + 切面板」。
+function selectSidebarPanel(id) {
+  if (!panelVisible.value) togglePanel()
+  sidebarRef.value?.showPanel(id)
+}
+
 // 运行入口有两处（⌘/Ctrl + Enter、评测面板页脚那颗 ▶），都并到 runAll 这一个出口。
 // 跑之前先保证「看得到结果」：侧栏若收起了就展开，
 // 若停在资源管理器就切到评测样例（已经在评测样例上则什么都不做，不影响页签持久化）
 function revealTestsPanel() {
-  if (!panelVisible.value) togglePanel()
-  sidebarRef.value?.showPanel('tests')
+  selectSidebarPanel('tests')
 }
 
 // 快捷键版的「翻到另一个面板」。侧栏收起着就先把它捞回来 —— 否则按下去什么也看不见，
@@ -917,6 +933,17 @@ onBeforeUnmount(() => {
           </template>
         </Sidebar>
       </section>
+
+      <!-- 折叠后顶替侧栏的竖向图标栏（仿 VS Code 的 Activity Bar）：只在侧栏收起时出现，
+           装在侧栏那一侧的最外侧（order 见 activityBarStyle）。展开时页头里仍是胶囊 + 齿轮那套，
+           两者不会同时出现，所以入口没有重复。它与 .pane--tests 都参与分屏：固定 48px、不吃
+           编辑器让出来的宽度（编辑器折叠态本来就不设 basis，由 flex-grow 吸收掉这 48px）。 -->
+      <ActivityBar
+        v-show="!panelVisible && !mdFullscreen"
+        :style="activityBarStyle"
+        :panels="sidebarPanels"
+        @select="selectSidebarPanel"
+      />
     </main>
   </div>
 </template>
@@ -956,7 +983,8 @@ onBeforeUnmount(() => {
   display: flex;
   /* 布局对调只发生在这里 */
   flex-direction: row;
-  /* 四周留白 6px + 两栏之间 6px 空隙（分隔条负外边距后剩下的部分）：两块卡片浮在底色上 */
+  /* 四周留白 6px + 两栏之间 4px 空隙（分隔条负外边距后剩下的部分，见 .splitter）：
+     两块卡片浮在底色上 */
   padding: 6px;
   background: var(--bg-editor);
   /* 统一侧边栏（原评测面板所在的「测试栏」）最低宽度的三个参数。JS 的拖拽上限
@@ -1054,11 +1082,12 @@ onBeforeUnmount(() => {
 
 /* 简洁版分隔条：12px 透明热区（视觉上仍只有一条发丝线）。
    热区做宽是为了好抓：细线的视觉不变，但左右各多出几像素可以被按住。
-   负外边距把热区左右各压进两侧卡片 3px，于是两块卡片实际只离 6px——
-   热区宽度没缩水，中间的细线也仍在空隙正中 */
+   负外边距把热区左右各压进两侧卡片 4px，于是两块卡片实际只离 4px——
+   热区宽度没缩水，中间的细线也仍在空隙正中。
+   净空隙 = 12 − 4 − 4，改这里要连带改触屏那条负外边距与 .splitter__dots 的宽度 */
 .splitter {
   flex: 0 0 12px;
-  margin: 0 -3px;
+  margin: 0 -4px;
   /* 不加这行，热区会被 flex 的自动最小尺寸（内容宽度）影响 */
   min-width: 0;
   position: relative;
@@ -1071,19 +1100,19 @@ onBeforeUnmount(() => {
 }
 
 /* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区翻倍到 24px，负外边距按同样幅度加大，
-   于是两块卡片的位置和间距与鼠标下逐像素一致 —— 只有可抓区域变宽，视觉一点没动。
-   （折叠态那条 `.workspace.is-collapsed .splitter` 特异性更高，仍然是 24px，不受这里影响） */
+   于是两块卡片的位置和间距与鼠标下逐像素一致（净空隙同为 4px）—— 只有可抓区域变宽，视觉一点没动。
+   折叠态也走这一条（不再另写一条），所以触屏下折叠前后仍是同一个 24px 热区。 */
 @media (pointer: coarse) {
   .splitter {
     flex: 0 0 24px;
-    margin: 0 -9px;
+    margin: 0 -10px;
   }
 }
 
-/* 面板折叠后分隔条贴在窗口边缘：热区加宽到 24px，否则一根隐形热区贴在边缘很难抓 */
-.workspace.is-collapsed .splitter {
-  flex: 0 0 24px;
-}
+/* 折叠态的分隔条不再单独加宽。它以前贴窗口边缘（加宽到 24px 才抓得住），现在两侧是
+   编辑器卡片和折叠图标栏、不是边缘；若在这里只加宽 flex-basis 而不同步负外边距，
+   净空隙会从 4px 变成 16px —— 折叠前后两块卡片的间距就不一样了。
+   折叠态因此直接用上面那条 12px 热区（触屏按媒体查询走 24px / −10px，净空隙同为 4px）。 */
 
 /* 两栏各有自己的边，空隙里默认不再画线；指针移上来时才亮出一条主题色细线，
    提示「这里可以拖，一直拖到侧边栏那侧就会折叠」 */
@@ -1101,8 +1130,9 @@ onBeforeUnmount(() => {
 }
 
 /* 正中间的三点抓手：常驻可见，好让人一眼看出这里能拖。
-   容器宽度正好等于两卡片之间的 6px 空隙，用底色把身后的细线遮掉，
-   三个点才数得清，不会和线糊成一条 */
+   容器宽度正好等于两卡片之间的 4px 空隙（padding 0.5px × 2 + 点宽 3px），
+   用底色把身后的细线遮掉，三个点才数得清，不会和线糊成一条；
+   空隙改宽窄时这里要同步，宽了会溢到卡片上、窄了遮不住线 */
 .splitter__dots {
   position: absolute;
   top: 50%;
@@ -1112,7 +1142,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 3px 1.5px;
+  padding: 3px 0.5px;
   background: var(--bg-editor);
   pointer-events: none;
 }

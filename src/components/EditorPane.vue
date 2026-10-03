@@ -118,6 +118,11 @@ const MD_VIEW_ICONS = { edit: 'edit', split: 'split', preview: 'eye' }
 /** 工具栏与预览都只对题解有意义，且设置视图盖上来时整块让位（判据与 App 共用一份） */
 const mdBarVisible = mdActive
 
+/** 编辑区空着的判据：没有活跃文件、也没在看合成视图（设置 / 抽题）。
+    与中间那块占位提示同一个条件 —— 上面的页签栏此时一条页签都没有，
+    那条空横条也要跟着让位（有合成视图时页签栏得留着显示那一颗页签） */
+const editorEmpty = computed(() => !activeNode.value && !viewActive.value)
+
 /** 预览的正文来源：活跃 model 的当前内容 */
 const mdSource = ref('')
 
@@ -503,6 +508,18 @@ watch(
   },
 )
 
+// 改名换掉扩展名（如 main.cpp → notes.md）时 activeId 不变，上面那条 watch 不会响：
+// 于是「仅 Markdown 隐藏」这一档行号仍停在上一个扩展名的状态上 —— 文件已成 .md，行号却还在。
+// 这里专门盯「当前文件算不算题解」，一变就把选项重下发一次，并重挂预览的正文订阅
+// （订阅只挂在题解上，见 trackMarkdown；.cpp 改名成 .md 后不重挂的话，预览不会跟着输入更新）。
+watch(mdFileActive, () => {
+  const instance = editor.value
+  if (!instance) return
+  const model = instance.getModel()
+  instance.updateOptions(editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }))
+  trackMarkdown(model)
+})
+
 // ------------------------------------------------------------ 合成视图页签
 
 // Monaco 在 display: none 的容器里量到的是 0 尺寸。automaticLayout 的 ResizeObserver
@@ -565,13 +582,18 @@ defineExpose({
 </script>
 
 <template>
-  <!-- is-md / is-status-off 只作用于状态栏的显隐，见样式表末尾那组闸门 -->
+  <!-- is-md / is-status-off 只作用于状态栏的显隐，以及页签栏那条分隔线要不要留
+       （见样式表末尾那组闸门 / EditorTabs 的「选中页签与编辑区连成一片」）。
+       这里用 mdActive 而不是 mdFileActive：设成 mdFileActive 时，从 .md 切到设置 / 抽题
+       这类合成视图，viewActive 变 true 但 activeId 没换（合成视图不占 activeId），
+       mdFileActive 仍为 true，is-md 类不掉，刚去掉的分隔线就又会冒出来 -->
   <div
     class="editor-pane"
-    :class="{ 'is-md': mdFileActive, 'is-status-off': !settings.statusBar }"
+    :class="{ 'is-md': mdActive, 'is-status-off': !settings.statusBar }"
   >
-    <!-- 全屏编辑时页签栏整条让位（Esc 或再点一次那颗按钮退出） -->
-    <EditorTabs v-show="!mdFullscreen" />
+    <!-- 全屏编辑时页签栏整条让位（Esc 或再点一次那颗按钮退出）；
+         编辑区空着（没开任何文件、也没在看设置 / 抽题）时同样收掉那条空横条 -->
+    <EditorTabs v-show="!mdFullscreen && !editorEmpty" />
 
     <!-- 题解工具栏：左边文本格式与插入，右边字数与视图模式 -->
     <div v-if="mdBarVisible" class="editor-pane__bar">
@@ -749,8 +771,9 @@ defineExpose({
   flex-direction: column;
   min-width: 0;
   height: 100%;
-  /* 与两套 Monaco 主题的 editor.background 保持一致，卡片才是一块完整的圆角面 */
-  background: var(--bg-panel);
+  /* 与两套 Monaco 主题的 editor.background 保持一致，卡片才是一块完整的圆角面。
+     用 --bg-editor-pane 而不是 --bg-panel：编辑区要比侧栏/输出/设置那些面板再暗一档 */
+  background: var(--bg-editor-pane);
 }
 
 .editor-pane__stage {
@@ -999,7 +1022,13 @@ defineExpose({
   font-size: 13px;
 }
 
+/* 空编辑区正中的图标：宽度取面板的一半（正方形，随面板缩放），
+   高度上限再收一道 —— 面板很矮时不让它把下面那行提示顶出画面。
+   stroke-width 是 viewBox 单位、跟着一起放大，所以不需要另调线宽 */
 .editor-pane__empty-icon {
+  width: 50%;
+  height: auto;
+  max-height: 50%;
   opacity: 0.5;
 }
 
@@ -1011,7 +1040,7 @@ defineExpose({
   padding: 0 12px;
   font-size: 11.5px;
   color: var(--statusbar-text);
-  background: var(--accent);
+  background: var(--statusbar-bg);
   /* 状态栏自身当容器：窄到放不下时由下面的 @container 逐项摘掉信息。
      不能挂在上层的 .editor-pane 上 —— container-type 带 layout 包含，
      会让它成为 position: fixed 后代的包含块，Monaco 的 fixedOverflowWidgets

@@ -10,8 +10,8 @@
   "display_override": ["fullscreen"],
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#1e1e1e",
-  "theme_color": "#323233",
+  "background_color": "#1c1c1c",
+  "theme_color": "#2a2a2b",
   "categories": ["developer", "education", "productivity"],
   "icons": [
     {

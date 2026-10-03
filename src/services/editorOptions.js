@@ -235,7 +235,7 @@ function resolveLineNumbers(mode, markdown) {
  * @param {typeof EDITOR_SETTINGS_DEFAULTS} settings
  * @param {number} scale 全局缩放比例（见 composables/useUiScale.js）
  * @param {{ markdown?: boolean }} [context] markdown = 当前活跃文件是不是题解（.md）。
- *   只有「仅 Markdown 隐藏」这一档行号用得到它；切 .md / 切回来时要重下发一次选项。
+ *   「仅 Markdown 隐藏」那一档行号与整套括号提示都看它；切 .md / 切回来时要重下发一次选项。
  */
 export function editorOptions(settings, scale = 1, { markdown = false } = {}) {
   const font = pick(FONT_FAMILIES, settings.fontFamily, FONT_FAMILIES[0])
@@ -264,11 +264,16 @@ export function editorOptions(settings, scale = 1, { markdown = false } = {}) {
     // 显示
     renderWhitespace: settings.renderWhitespace,
     renderLineHighlight: settings.renderLineHighlight,
-    bracketPairColorization: { enabled: settings.bracketPairColorization },
+    // 题解（.md）里整套括号提示都关掉：散文没有嵌套层级可讲，`(a[b])` 被染成彩虹色、
+    // 光标贴住括号还画配对框，纯噪音。三个开关各管一摊：
+    // colorization 管括号字符的配色，guides.bracketPairs 管引导线（竖线 + 上下横线），
+    // matchBrackets 管配对框 —— 它只管高亮，不影响「跳转到配对括号」这类命令。
+    matchBrackets: markdown ? 'never' : 'always',
+    bracketPairColorization: { enabled: settings.bracketPairColorization && !markdown },
     guides: {
       indentation: settings.indentGuides,
       // 'active' = 只画光标所在那一层，全画在嵌套深的代码里太花
-      bracketPairs: settings.bracketGuides ? 'active' : false,
+      bracketPairs: settings.bracketGuides && !markdown ? 'active' : false,
     },
     scrollBeyondLastLine: settings.scrollBeyondLastLine,
     smoothScrolling: settings.smoothScrolling,

@@ -2,7 +2,7 @@
  * useCfPicker —— 抽题页签「一次抽取」的全过程。
  *
  * 【页签开关不在这里】抽题是编辑区里的一个合成页签，与设置同形态，开关状态统一归
- * src/services/editorViews.js 管（侧栏那颗骰子按钮与页签栏读的是同一份）。
+ * src/services/editorViews.js 管（侧栏那颗 Codeforces 按钮与页签栏读的是同一份）。
  * 这里只管抽题表单、进度与结果。
  *
  * 【表单为什么是 usePersistentRef 逐字段存】「下次打开还记得上次的筛选条件」是参考实现的

@@ -166,6 +166,9 @@ async function commitRename() {
     cancelRename()
     return
   }
+  // 每轮尝试先清掉上一轮的报错：报错段落只看 renameError 非空（不看是否还在重命名中），
+  // 不清的话，先撞名失败、删掉那个同名文件后再改成功，那句「已存在」会一直挂在树上。
+  renameError.value = ''
   try {
     const targetPath = join(dirname(props.node.path), value)
     await renameNode(props.node.path, targetPath)
