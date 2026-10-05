@@ -38,6 +38,7 @@
  * 用户后来填了难度、或跨月再抓，都不会把已有文件搬走（搬动 = 丢题解）。
  */
 import { t } from '../../i18n/index.js'
+import { templateForPath } from '../fileTemplates.js'
 import { OJ_LIST, normalizeDifficulty, normalizeMeta, todayISO } from '../problemMeta.js'
 import { deactivateViews } from '../editorViews.js'
 import { dirname, join, normalize, stem } from './paths.js'
@@ -58,11 +59,9 @@ const difficultyDir = (difficulty) => (difficulty ? sanitizeName(difficulty) : U
 /**
  * 代码文件后缀写死 cpp：扩展送来的 languages 里只有 java（TaskBuilder 的固定默认值
  * mainClass: 'Main'），拿它判断语言等于把每道题都当 Java；cpp / python 这些键
- * 上游解析器根本不写。所以这里按「没有后缀信息」处理，等真做了模板功能再改这里。
+ * 上游解析器根本不写。所以这里按「没有后缀信息」处理。
  */
 const CODE_EXT = '.cpp'
-/** 模板功能还没做：新文件只放一行占位注释，不套 templates.js 的默认代码 */
-const NEW_FILE_CONTENT = '// your code here\n'
 
 /** 题目名（不含后缀）的最大长度 */
 const MAX_NAME_LEN = 80
@@ -262,7 +261,7 @@ export async function importProblem(task, options = {}) {
     await ensureDirectory(vfs, dir)
 
     // 【硬要求】已存在的代码文件一个字都不动 —— 那里面是用户写的题解
-    if (!existingCode) await vfs.createFile(codePath, NEW_FILE_CONTENT)
+    if (!existingCode) await vfs.createFile(codePath, templateForPath(codePath))
 
     // 抓取器管得着的字段（url / oj / timeLimit）每次刷新；难度以**用户手填的**为准，
     // 没填过才用本次带来的建议值（CF 的 rating）；日期只在首次导入时播种，之后不再覆盖

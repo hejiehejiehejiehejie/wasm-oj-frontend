@@ -16,6 +16,7 @@ export default {
         common: '常用设置',
         appearance: '外观',
         editor: '编辑器',
+        templates: '文件模板',
         shortcuts: '快捷键',
         judge: '评测',
         runtime: '本地运行环境',
@@ -23,6 +24,21 @@ export default {
         cloud: '云端同步',
         app: '应用',
         help: '帮助',
+      },
+
+      /** 文件模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
+      templates: {
+        note: '新建文件时按扩展名归一到语言、填入对应模板；插件抓来的题目代码文件也用它。改坏了点「恢复默认」即可，模板会随云端同步跟人走。',
+        hint: '新建 .{ext} 文件时的初始文本（原样写入，不做变量替换）',
+        lang: {
+          cpp: 'C++',
+          python: 'Python 3',
+          markdown: 'Markdown',
+        },
+        restore: {
+          label: '恢复默认',
+          title: '恢复该语言的内置模板',
+        },
       },
 
       /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
@@ -333,6 +349,7 @@ export default {
         common: 'Common',
         appearance: 'Appearance',
         editor: 'Editor',
+        templates: 'File templates',
         shortcuts: 'Shortcuts',
         judge: 'Judge',
         runtime: 'Local runtime',
@@ -340,6 +357,21 @@ export default {
         cloud: 'Cloud sync',
         app: 'App',
         help: 'Help',
+      },
+
+      /** 文件模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
+      templates: {
+        note: 'A new file is filled with the template for its language (resolved from the extension). Imported problem code uses it too. Broke one? Hit “Restore default”. Templates travel with cloud sync.',
+        hint: 'Initial text for a new .{ext} file (written verbatim, no variable substitution)',
+        lang: {
+          cpp: 'C++',
+          python: 'Python 3',
+          markdown: 'Markdown',
+        },
+        restore: {
+          label: 'Restore default',
+          title: 'Restore the built-in template for this language',
+        },
       },
 
       /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */

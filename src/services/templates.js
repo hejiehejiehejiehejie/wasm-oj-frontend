@@ -101,8 +101,17 @@ int main() {
 \`\`\`
 `
 
-const TEMPLATES = { cpp: CPP_TEMPLATE, python: PYTHON_TEMPLATE, markdown: MARKDOWN_TEMPLATE }
+/**
+ * 内置模板表。这里是**纯内置默认**，用户改过的那一份在 services/fileTemplates.js
+ * 的覆盖层里，两者刻意分开：内置改版后没自定义过的用户能自动跟着升级。
+ * 导出是为了让 fileTemplates.js 能读内置值来实现「恢复默认」，本模块自身的行为不变。
+ */
+export const BUILTIN_TEMPLATES = { cpp: CPP_TEMPLATE, python: PYTHON_TEMPLATE, markdown: MARKDOWN_TEMPLATE }
 
+/**
+ * 旧草稿迁移 / 首启兜底文件专用：**永远给内置默认**，不认识的语言回落 cpp。
+ * 刻意不读用户覆盖 —— 那两处需要一个固定语义（见 fileTemplates.js 的文件头）。
+ */
 export function defaultCode(id) {
-  return TEMPLATES[id] ?? TEMPLATES.cpp
+  return BUILTIN_TEMPLATES[id] ?? BUILTIN_TEMPLATES.cpp
 }

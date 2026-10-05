@@ -56,6 +56,15 @@ import {
   WHITESPACE_MODES,
   WRAP_MODES,
 } from '../services/editorOptions.js'
+import {
+  TEMPLATE_LANGUAGE_IDS,
+  TEMPLATE_MAX_LENGTH,
+  isTemplateModified,
+  resetTemplate,
+  setTemplate,
+  templateForLanguage,
+} from '../services/fileTemplates.js'
+import { LANGUAGES } from '../services/templates.js'
 
 const props = defineProps({
   settings: { type: Object, required: true },
@@ -314,12 +323,27 @@ const SECTIONS = [
   { id: 'common', titleKey: 'settings.section.common', icon: 'star' },
   { id: 'appearance', titleKey: 'settings.section.appearance', icon: 'sliders' },
   { id: 'editor', titleKey: 'settings.section.editor', icon: 'code' },
+  { id: 'templates', titleKey: 'settings.section.templates', icon: 'file' },
   { id: 'shortcuts', titleKey: 'settings.section.shortcuts', icon: 'keyboard' },
   { id: 'judge', titleKey: 'settings.section.judge', icon: 'check' },
   { id: 'cloud', titleKey: 'settings.section.cloud', icon: 'cloud' },
   { id: 'app', titleKey: 'settings.section.app', icon: 'install' },
   { id: 'help', titleKey: 'settings.section.help', icon: 'help' },
 ]
+
+// 文件模板的两张查表：语言 id → 文案 key / 扩展名。
+// 表里存 key、模板里再 t() 一次，切界面语言才会跟着变；
+// 扩展名从 templates.js 的 LANGUAGES 取，不在面板里另写一份 'cpp' / 'py' / 'md'。
+const TEMPLATE_LABEL_KEYS = {
+  cpp: 'settings.templates.lang.cpp',
+  python: 'settings.templates.lang.python',
+  markdown: 'settings.templates.lang.markdown',
+}
+const TEMPLATE_EXTENSIONS = {
+  cpp: LANGUAGES.cpp.extension,
+  python: LANGUAGES.python.extension,
+  markdown: LANGUAGES.markdown.extension,
+}
 
 const activeSection = ref('common')
 
@@ -1684,6 +1708,47 @@ watch(pendingUnbind, (open) => {
         </template>
       </section>
 
+      <!-- 文件模板：新建文件时按扩展名归一到语言、填入对应模板。
+           三条都不落 cp.editorSettings，走 services/fileTemplates.js 自己的模块单例
+           （与「界面语言」同一体例：模块自己读写 localStorage，不经 props / emits 中转）。 -->
+      <section v-else-if="activeSection === 'templates'" class="setting-group">
+        <p class="setting-group__title">{{ t('settings.section.templates') }}</p>
+        <p class="setting-group__note">{{ t('settings.templates.note') }}</p>
+
+        <div
+          v-for="id in TEMPLATE_LANGUAGE_IDS"
+          :key="id"
+          class="setting-row setting-row--template"
+          :class="{ 'is-modified': isTemplateModified(id) }"
+        >
+          <span class="setting-row__head">
+            <span class="setting-row__label">{{ t(TEMPLATE_LABEL_KEYS[id]) }}</span>
+            <button
+              type="button"
+              class="download-button setting-row__restore"
+              :disabled="!isTemplateModified(id)"
+              :title="t('settings.templates.restore.title')"
+              @click="resetTemplate(id)"
+            >
+              <AppIcon name="reset" :size="13" />
+              <span>{{ t('settings.templates.restore.label') }}</span>
+            </button>
+          </span>
+          <span class="setting-row__hint">
+            {{ t('settings.templates.hint', { ext: TEMPLATE_EXTENSIONS[id] }) }}
+          </span>
+          <textarea
+            class="setting-textarea"
+            :value="templateForLanguage(id)"
+            :maxlength="TEMPLATE_MAX_LENGTH"
+            :spellcheck="false"
+            :aria-label="t(TEMPLATE_LABEL_KEYS[id])"
+            rows="10"
+            @input="setTemplate(id, $event.target.value)"
+          ></textarea>
+        </div>
+      </section>
+
       <section v-else-if="activeSection === 'shortcuts'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.shortcuts') }}</p>
         <p class="setting-group__note">
@@ -2891,6 +2956,50 @@ watch(pendingUnbind, (open) => {
 .download-button:disabled {
   cursor: default;
   color: var(--text-faint);
+}
+
+/* -------------------------------------------------------- 文件模板
+   一行 = 语言名 + 「恢复默认」+ 提示 + 一个多行文本框。整行竖排（.setting-row 默认是横排），
+   故覆写 flex-direction；「恢复默认」靠 margin-left: auto 推到行右端。 */
+.setting-row--template {
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* head 默认 align-items: baseline，和 28px 高的按钮对不齐，这里改成居中对齐 */
+.setting-row--template .setting-row__head {
+  align-items: center;
+}
+
+.setting-row__restore {
+  margin-left: auto;
+}
+
+/* 模板正文的多行输入。配色与边框抄 TestCaseCard 的 .ta（同一套输入控件语言），
+   等宽字体是因为这里装的是代码。base.css 有全局 `textarea { resize: none }`，
+   想给用户留一条「拉高」的路就得在这里显式写回 vertical。 */
+.setting-textarea {
+  display: block;
+  width: 100%;
+  height: 200px;
+  padding: 8px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--mono-font);
+  font-size: 12.5px;
+  line-height: 1.55;
+  /* 软换行：设置视图自己就是滚动容器，别再套一层横向滚动 */
+  white-space: pre-wrap;
+  overflow: auto;
+  resize: vertical;
+  tab-size: 4;
+}
+
+.setting-textarea:focus {
+  outline: none;
+  border-color: var(--focus);
 }
 
 .download-button.is-failed {

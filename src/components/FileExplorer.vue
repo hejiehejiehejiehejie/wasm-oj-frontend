@@ -20,6 +20,7 @@ import InlineCreateRow from './InlineCreateRow.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
 import { useTreeDrag } from '../composables/useTreeDrag.js'
 import { t } from '../i18n/index.js'
+import { templateForPath } from '../services/fileTemplates.js'
 import {
   activeLanguage,
   createDirectory,
@@ -184,7 +185,9 @@ async function commitCreate() {
   try {
     assertName(name)
     const path = join(state.targetPath, name)
-    if (state.type === 'file') await createFile(path)
+    // 按扩展名归一到语言、取该语言的模板当初始正文（认不出的扩展名给空串＝空文件）。
+    // 设置页可改这三份模板，见 services/fileTemplates.js。
+    if (state.type === 'file') await createFile(path, templateForPath(path))
     else await createDirectory(path)
     // 只关掉自己这一轮：创建是异步的，等它回来的这段时间里用户可能又点了一次「新建文件」
     // （blur 会先提交上一轮），无条件清空会把刚打开的新输入框一起抹掉。
