@@ -23,6 +23,11 @@
  * 那种情况下没有任何可套用的东西，留着 /<handle> 只会让人以为这里真有一套配置、刷新还要再判一次。
  * 于是 confirmCloudEntry 直接 replaceState 回根路径，并在页面上弹一句「还没保存过配置」——
  * 判定与抹地址都发生在会话启动后的那一次探测里（App.vue 的 onMounted；为什么不是 mount 之前，见那里的注释）。
+ *
+ * 【反方向：本机改用某个 handle 的配置后，主动把 /<handle> 写进地址栏】
+ * 上面说的是「别人给的链接打开后不要擅自抹掉」，这里说的是「本机自己认下了某个 handle」
+ * （导入 / 上传 / 登录 / 下载到本机，见 writeCloudEntryPath）。写上去之后地址栏本身就是
+ * 「我现在用的是谁的配置」，可以直接收藏或分享。两个方向不冲突：一个只管自己写、一个只管不抹。
  */
 import { ref } from 'vue'
 import { fetchCloudProfile } from './cloudProfile.js'
@@ -43,6 +48,9 @@ let entryHandle = ''
  * （vercel.json 里的 rewrite 用的也是同一条规则。）
  */
 const HANDLE_PATH = /^\/([A-Za-z0-9_-]+)\/?$/
+
+/** 单个 handle 的字符集（与 HANDLE_PATH 同一套；后端 normalizeHandle 还多认点号，见下） */
+const HANDLE_NAME = /^[A-Za-z0-9_-]+$/
 
 /** 历史条目上的「这次入口已经答过了」标记 */
 const ENTRY_STATE_KEY = 'cpCloudEntry'
@@ -67,6 +75,35 @@ export function captureCloudHandleFromPath() {
 function resetCloudEntryPath() {
   if (!HANDLE_PATH.test(window.location.pathname)) return
   window.history.replaceState(window.history.state, '', '/')
+}
+
+/**
+ * 把 /<handle> 写进地址栏 —— 「这个地址 = 这套配置」。
+ *
+ * 本机自己认下了某个 handle 之后调用（导入 / 上传 / 登录 / 下载到本机）：地址栏从此就是
+ * 「我现在用的是谁的配置」，用户可以直接收藏或分享这条链接。与文件头那条「打开别人的链接
+ * 不擅自抹地址」是两个方向，互不冲突。
+ *
+ * 用 replaceState 而不是 pushState：这不是一次跳转，只是把「我现在是谁」补进地址。
+ * push 会多出一条历史记录，按返回键会把地址退回根路径，和眼前这份已经生效的配置对不上。
+ *
+ * 顺手把「这次入口已经答过了」的标记一并写上：地址是自己写上去的，刷新不该再弹一次
+ * 「要不要套用」—— 否则上传完一刷新，界面会问「要把你自己的配置套到你自己身上吗」。
+ *
+ * 不认的 handle（带点号等）直接放弃：这类名字写进路径会和 guide.html / sw.js 这些静态资源
+ * 撞车（见 HANDLE_PATH 的注释，vercel.json 的 rewrite 同样不认）。宁可地址留在根路径，
+ * 也不能写出一条刷新就 404 的链接。
+ */
+export function writeCloudEntryPath(handle) {
+  if (!handle || !HANDLE_NAME.test(handle)) return
+  // 标记先算好：地址已经是同一个 handle 时只补标记（还可能是另一种大小写，不去改它）
+  const state = { ...window.history.state, [ENTRY_STATE_KEY]: handle }
+  const current = window.location.pathname.match(HANDLE_PATH)?.[1]
+  if (current && current.toLowerCase() === handle.toLowerCase()) {
+    window.history.replaceState(state, '')
+    return
+  }
+  window.history.replaceState(state, '', `/${handle}`)
 }
 
 /**

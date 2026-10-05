@@ -350,6 +350,7 @@
         </ol>
         <p>预览要先下载一次渲染器（marked + KaTeX，约 578KB），和本地运行环境一样只下一次、可随时卸载。</p>
         <p>题解不参与评测：打开 <code>.md</code> 时运行按钮会置灰，按 <kbd>Mod</kbd> + <kbd>Enter</kbd> 也不会进编译。</p>
+        <p>同一时刻<strong>添加测试样例</strong>也一并置灰 —— 样例是挂在当前文件上的，题解这类文件没有能跑它们的地方；灰掉的原因写在评测栏页脚。</p>
 
         <h2 id="keys" data-page-node-id="VTanqcFYn4wzctVfyaPF6g">8. 有哪些快捷键？</h2>
         <p data-page-node-id="uIBuEEXmEbGWcFJttEB1Gq">macOS 上 <kbd data-page-node-id="eBK69u4O38bHeb5yFEGz1q">Mod</kbd> 是 <kbd data-page-node-id="BZwfGTpmfWHgLFSJFGWUzg">⌘</kbd>，其它平台是 <kbd data-page-node-id="NiYEe6IlFKWB5JCgxgPW9k">Ctrl</kbd>。</p>
@@ -463,7 +464,9 @@
         <p data-page-node-id="wylE7ikyyWnHPZMUkhvmMy">都只在这台设备的这个浏览器里，清除浏览器数据会一并清掉。</p>
 
         <h3>上传到云端的设置是公开的吗？</h3>
-        <p>是。云端配置的读取不需要登录，把 Codeforces 用户名接在站点网址后面就能取回，形如 <code>https://www.998244353.best/he-jie</code>。</p>
+        <p>是。读取不需要登录，有两条路：在<strong>设置</strong> › <strong>云端同步</strong>里填上 Codeforces 用户名、点<strong>导入</strong>；或者把用户名接在站点网址后面，形如 <code>https://www.998244353.best/he-jie</code>。装成独立窗口的应用（PWA）没有地址栏，用前者。</p>
+        <p><strong>导入</strong>与<strong>登录</strong>是两件事：导入只是取回一份公开的配置，不用取码验证，也不会把这台设备绑到那个用户名上。</p>
+        <p>导入、上传或登录成功之后，地址栏会自动变成 <code>网址/用户名</code> 的形式（形如 <code>https://www.998244353.best/he-jie</code>）—— 这条地址记的就是「我现在用的是这套配置」，可以直接收藏，也可以原样发给别人。</p>
         <p>所以点<strong>上传本机设置</strong>就等于同意公开这份配置。</p>
         <p>上传的只有偏好类项：主题、快捷键、界面缩放、侧边栏位置、两栏比例、运行时限这些。</p>
         <p>判题服务器地址、手写的测试用例、文件树与文件正文都不会上传。</p>

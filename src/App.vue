@@ -797,6 +797,10 @@ async function runOne(target) {
 }
 
 function addCase() {
+  // 兜底：跑不了的活跃文件（题解这类非代码文件、或一个文件都没打开）页脚那颗「添加测试样例」
+  // 已经置灰，快捷键 `new-case` 那条也一并挡在这里 —— 用例是写进活跃文件的 config.tests 的，
+  // 加在一个根本跑不起来的文件上，只会凭空多出一份永远用不到的样例
+  if (runBlockedReason.value) return
   testCases.value = [...testCases.value, createCase()]
   nextTick(() => {
     const list = workspace.value?.querySelector('.cases')

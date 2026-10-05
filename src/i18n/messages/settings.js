@@ -284,7 +284,16 @@ export default {
         },
         handlePlaceholder: '例如 he-jie',
         login: '登录',
-        loginTitle: '在这台设备上登录这个用户名；登录不会改动云端已存的配置',
+        loginTitle:
+          '在这台设备上登录这个用户名；登录不会改动云端已存的配置',
+        /**
+         * 「导入」与「登录」并排在同一行，但两件事完全不同：导入是**取一份公开的云端配置**
+         * （GET /api/config/<handle> 本来就不需要鉴权），取完也不把这台设备绑到那个用户名上；
+         * 登录则要证明你是主人、且会建立绑定。标题里必须把「不需要验证」说出来，
+         * 否则没人会知道还有这么一条不用取码的路。
+         */
+        import: '导入',
+        importTitle: '只把云端的配置取回本机，不需要验证；本机设置会被覆盖，之后页面重新加载',
         loginNoCloud: '已登录。云端还没有这个用户名的配置 —— 点「上传本机设置」把当前设置存上去',
         loggedIn: '已登录。点「下载到本机」把云端配置取回本机',
         codeIntro: '云端已有你的配置。这一步只确认「这是你的」，不会改动云端内容。',
@@ -633,6 +642,10 @@ export default {
         login: 'Sign in',
         loginTitle:
           'Sign in with this handle on this device; signing in never changes the copy already in the cloud',
+        /** 见 zh-CN 那侧的说明：与「登录」并排，但只取一份公开配置、不建立绑定 */
+        import: 'Import',
+        importTitle:
+          'Just pull the cloud settings onto this device — no verification needed; local settings are overwritten and the page reloads',
         loginNoCloud:
           'Signed in. The cloud has no copy for this handle yet — use “Upload local settings” to store the current setup',
         loggedIn: 'Signed in. Use “Download to this device” to pull the cloud copy back',

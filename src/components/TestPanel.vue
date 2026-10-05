@@ -83,6 +83,8 @@ const elapsedText = computed(() => {
              格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它**不在消息表里**。
              抓样提示（notice）保留 —— 它是插件自动抓样例那一路唯一的反馈，且仍按语言翻。 -->
         <p class="empty__title">No test cases yet.</p>
+        <!-- 空态就这一行：跑不了的原因不在这里解释（那行字在页脚），这一栏越干净越好。
+             抓样那三条提示仍然照旧（它们说的是「样例为什么还没到手」，与能不能运行无关）。 -->
         <p v-if="notice" class="empty__notice" :data-tone="notice.tone">
           <!-- 带题目链接的形状：before + <a> + after 三段拼成一句（另两段是纯文本，见 props 说明） -->
           <template v-if="notice.url">
@@ -113,7 +115,9 @@ const elapsedText = computed(() => {
            所以「为什么不能运行」必须写成一行看得见的字，不能只塞进 title -->
       <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
       <div class="panel__foot-row">
-        <button class="add" @click="emit('add')" :disabled="running">
+        <!-- 跑不了的活跃文件也加不出用例：用例是挂在活跃文件上的（写进它的 config.tests），
+             题解这类文件根本没有能跑它们的地方 —— 与两个 ▶ 一起置灰，别让这一颗还亮着 -->
+        <button class="add" @click="emit('add')" :disabled="running || Boolean(runBlocked)">
           <AppIcon name="plus" :size="14" />
           <span>{{ t('tests.panel.addCase') }}</span>
         </button>
@@ -294,8 +298,10 @@ const elapsedText = computed(() => {
   border-color: var(--info-soft-border-hover);
 }
 
+/* 页脚两颗按钮的禁用态必须是同一档（2026-10-06）：原先 .add 是 0.5、.run-inline 是 0.45，
+   两档差不出所以然，却会让「题解这类文件下三颗按钮全灰」的那一屏看起来像两个不同的系统。 */
 .add:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 

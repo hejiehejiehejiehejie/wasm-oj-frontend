@@ -18,7 +18,7 @@ export default {
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
          * 页脚那行说明与它们的 title。「没打开文件」与「打开的不是代码」分开写。
          */
-        runBlocked: '题解等非代码文件不参与评测，无法运行',
+        runBlocked: '非代码文件不参与评测，无法运行',
         runBlockedNoFile: '没有打开的文件，无法运行',
       },
 
@@ -130,7 +130,7 @@ export default {
         addCase: 'Add test case',
         runAll: 'Run all test cases',
         /** 见 zh-CN 那侧的说明 */
-        runBlocked: 'Notes and other non-code files aren’t judged, so they can’t be run',
+        runBlocked: 'Non-code files aren’t judged, so they can’t be run',
         runBlockedNoFile: 'No file is open, so there is nothing to run',
       },
 

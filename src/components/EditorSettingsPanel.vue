@@ -32,6 +32,7 @@ import {
   cloudEntryMissingHandle,
   markCloudEntryHandled,
   pendingCloudHandle,
+  writeCloudEntryPath,
 } from '../services/cloudEntry.js'
 import {
   applyProfile,
@@ -1214,7 +1215,7 @@ async function verifyAndLogin() {
   cloudRemoteProfile.value = null
   cloudRemoteUpdatedAt.value = ''
   // 刷新成功的话后面就不用走了；只有云端那份一个白名单键都没有时才会走到这里
-  if (!(await adoptCloudProfile(profile))) {
+  if (!(await adoptCloudProfile(profile, handle))) {
     cloudNotice.value = t('settings.cloud.loggedIn')
   }
 }
@@ -1252,6 +1253,8 @@ async function uploadWithToken(handle) {
   if (result.success) {
     cloudAccount.value = { handle, updatedAt: result.updatedAt ?? '' }
     cloudNotice.value = t('settings.cloud.saved')
+    // 云端现在存着的就是这一套，地址栏跟着认下这位（见 cloudEntry.js 的 writeCloudEntryPath）
+    writeCloudEntryPath(handle)
     return
   }
   if (result.status !== 401) {
@@ -1290,6 +1293,8 @@ async function verifyAndUpload() {
   cloudCode.value = ''
   cloudPendingHandle.value = ''
   cloudNotice.value = t('settings.cloud.saved')
+  // 同上：云端刚存下这一套，地址栏跟着认下这位
+  writeCloudEntryPath(handle)
 }
 
 /**
@@ -1312,7 +1317,7 @@ async function downloadCloudProfile() {
       : cloudFailure(result)
     return
   }
-  if (!(await adoptCloudProfile(result.data))) {
+  if (!(await adoptCloudProfile(result.data, cloudAccount.value.handle))) {
     cloudError.value = t('settings.cloud.emptyProfile')
   }
 }
@@ -1325,10 +1330,15 @@ async function downloadCloudProfile() {
  *
  * 「登录成功」与「点下载」共用这里：两者的语义都是「这台设备改用云端那一套设置」。
  * 注意方向始终是**只下不传**：这个函数不碰云端一个字节。
+ *
+ * 真的落下去之后顺手把 /<handle> 写进地址栏（见 writeCloudEntryPath）：既然这台设备现在
+ * 用的就是这位的配置，地址栏就该是这条可收藏、可分享的链接。写在那次 reload 之前，
+ * 否则刷新完就晚了。
  */
-async function adoptCloudProfile(data) {
+async function adoptCloudProfile(data, handle) {
   if (!applyProfile(data)) return false
   cloudNotice.value = t('settings.cloud.downloaded')
+  writeCloudEntryPath(handle)
   await flush()
   window.location.reload()
   return true
@@ -1372,6 +1382,34 @@ watch(
 )
 
 /**
+ * 只填用户名就把一份云端配置取回来（2026-10-06）：不发验证码、不认领用户名。
+ *
+ * 为什么要有它：`GET /api/config/<handle>` 本来就是公开接口（见 services/cloudProfile.js），
+ * 读一份配置根本不需要证明身份 —— 可「下载到本机」那颗按钮挂在 cloudAccount 上，而
+ * cloudAccount 只能由「登录」建立，于是「只想拿一份公开配置」被迫走完取码 → 改 Codeforces
+ * 资料的 Last name → 验证那一圈。装成 Web App 之后更别扭：地址栏那条 `/<handle>` 的路
+ * 恰恰是「只填用户名就取回」，但安装版窗口没有地址栏，走不了。
+ *
+ * 实现上直接复用地址栏那条路：把用户名交给 cloudApplyHandle，后面的拉取、确认、
+ * 覆盖本机、刷新全由同一个弹窗与 confirmCloudApply 承担。因此也**不写**
+ * cp.cloudAccount / cp.cloudToken —— 理由与那边一致（公开副本不代表身份，见
+ * confirmCloudApply 上面的注释）。
+ * （confirmCloudApply 里顺带调用的 clearPendingCloudHandle / markCloudEntryHandled 在这里
+ *   是空转：这两个按钮路径上没有地址栏带来的 handle，而标记只对 `/<handle>` 那个历史条目
+ *   有意义。）
+ */
+function importCloudByHandle() {
+  if (cloudBusy.value) return
+  const target = cloudHandleInput.value.trim()
+  clearCloudFeedback()
+  if (!target) {
+    cloudError.value = t('settings.cloud.errorHandle')
+    return
+  }
+  cloudApplyHandle.value = target
+}
+
+/**
  * 套用地址里带来的那份云端配置。
  *
  * 走的是「下载到本机」同一条路（fetchCloudProfile → adoptCloudProfile → 刷新），
@@ -1399,7 +1437,7 @@ async function confirmCloudApply() {
       : cloudFailure(result)
     return
   }
-  if (!(await adoptCloudProfile(result.data))) {
+  if (!(await adoptCloudProfile(result.data, handle))) {
     cloudError.value = t('settings.cloud.emptyProfile')
   }
 }
@@ -2320,12 +2358,20 @@ watch(pendingUnbind, (open) => {
               />
               <button
                 type="button"
+                class="download-button"
+                :disabled="cloudBusy"
+                :title="t('settings.cloud.importTitle')"
+                @click="importCloudByHandle"
+              >
+                {{ t('settings.cloud.import') }}
+              </button>
+              <button
+                type="button"
                 class="download-button cloud-primary"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.loginTitle')"
                 @click="loginCloud"
               >
-                <AppIcon name="cloud" :size="14" />
                 <span>{{ t('settings.cloud.login') }}</span>
               </button>
             </span>

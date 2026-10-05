@@ -360,6 +360,10 @@
           Notes are not judged: opening a <code>.md</code> greys out the run button, and <kbd>Mod</kbd> + <kbd>Enter</kbd>
           will not start a compilation.
         </p>
+        <p>
+          <strong>Add test case</strong> is greyed out along with it — test cases hang off the current file, and a
+          file like a note has nowhere to run them. The reason is printed in the panel footer.
+        </p>
 
         <h2 id="keys">8. What shortcuts are there?</h2>
         <p>On macOS <kbd>Mod</kbd> is <kbd>⌘</kbd>; on every other platform it is <kbd>Ctrl</kbd>.</p>
@@ -473,7 +477,9 @@
         <p>All of it is confined to this browser on this device. Clearing your browser data clears it as well.</p>
 
         <h3>Are cloud-synced settings public?</h3>
-        <p>Yes. Reading the cloud copy needs no sign-in — append your Codeforces handle to the site URL, e.g. <code>https://www.998244353.best/he-jie</code>, to fetch it.</p>
+        <p>Yes. Reading needs no sign-in, and there are two ways in: open <strong>Settings</strong> › <strong>Cloud sync</strong>, enter the Codeforces handle and click <strong>Import</strong>; or append the handle to the site URL, e.g. <code>https://www.998244353.best/he-jie</code>. Installed as a standalone app (PWA) there is no address bar, so use the former.</p>
+        <p><strong>Import</strong> and <strong>Sign in</strong> are two different things: importing only pulls a public copy, needs no verification code, and does not bind this device to that handle.</p>
+        <p>After a successful import, upload or sign-in the address bar switches to <code>site/handle</code> (e.g. <code>https://www.998244353.best/he-jie</code>) — that address records “this is the setup I am using”, so you can bookmark it or send it to someone as is.</p>
         <p>So clicking <strong>Upload local settings</strong> means you agree to make this configuration public.</p>
         <p>Only preference keys are uploaded: theme, shortcuts, UI scale, sidebar side, column split, run time limit and the like.</p>
         <p>The judge URL you entered, hand-written test cases, the file tree and file contents are never uploaded.</p>
