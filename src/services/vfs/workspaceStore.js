@@ -309,19 +309,13 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   // nodeIndex 由事件异步重建，刚写完的文件可能还没进索引：用调用方给的节点兜底
   const node = nodeIndex.get(id) ?? (nodeHint?.id === id ? nodeHint : null)
   if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path: id }))
-  // 先把新文件的 model 备好，下面所有改动才能落在同一个 tick 里。预览顶替是「删旧 +
-  // 插新」两步，若中间夹着这个 await，就会分成两次更新：标签条上旧的先淡出、新的再
-  // 淡入，中间空一拍，看起来是闪一下。
+  // 顶替上一个预览页签：走 closeTab 才顺带 release model（refs 归零即 dispose）
+  if (preview && workspace.previewTabId && workspace.previewTabId !== id) {
+    closeTab(workspace.previewTabId)
+  }
   await modelManager.getModel(node)
   modelManager.retain(id)
-  const prevPreview = preview ? workspace.previewTabId : null
-  const replacedAt =
-    prevPreview && prevPreview !== id ? workspace.openTabIds.indexOf(prevPreview) : -1
-  // 顶替上一个预览页签：走 closeTab 才顺带 release model（refs 归零即 dispose）
-  if (replacedAt !== -1) closeTab(prevPreview)
-  // 新预览接在旧预览的原位，而不是追加到末尾 —— 标签条上的位置不跳
-  if (replacedAt !== -1) workspace.openTabIds.splice(replacedAt, 0, id)
-  else workspace.openTabIds.push(id)
+  workspace.openTabIds.push(id)
   workspace.activeId = id
   if (preview) workspace.previewTabId = id
   revealId(id)

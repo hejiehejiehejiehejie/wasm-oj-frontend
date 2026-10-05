@@ -426,10 +426,15 @@ function onLongCopy(event, full) {
      若再允许收缩（默认 flex-shrink:1），用例一多就会被压扁，
      列表 scrollHeight 永远等于 clientHeight，滚不动。 */
   flex: 0 0 auto;
+  /* 上边不画线（2026-10-06）：卡片顶上那条横线 + 卡片底色比面板亮一档带来的「色差」，
+     会让每张用例都像一块浮起来的卡；这两样一起去掉，用例读起来就是一条平铺的列表。
+     用 border-top: 0 而不是透明色 —— 悬停那条 border-color 是简写，会把透明色一起改回来。 */
   border: 1px solid var(--border-soft);
+  border-top: 0;
   border-left: 3px solid var(--case-border);
   border-radius: 8px;
-  background: var(--bg-card);
+  /* 与面板同色（--bg-panel），不再用 --bg-card：色差就是这一档造成的 */
+  background: var(--bg-panel);
   overflow: hidden;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
 }

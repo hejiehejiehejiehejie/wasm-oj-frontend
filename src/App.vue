@@ -1207,35 +1207,6 @@ onBeforeUnmount(() => {
   transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
   min-width: 0;
   flex-grow: 0;
-  /* 抽屉盖住图标栏：图标栏固定在 order 最外侧（0/4），侧栏展开时它从 0 长到 share，
-     左边缘本来会被「图标栏右边缘」这个起点一路拖到 0，看着像从中间炸开。
-     抬 z-index 让侧栏压在图标栏之上，再沿主轴做反向补偿（见下面两条 drawer-grow），
-     使侧栏**外边缘恒等于工作区边缘**、朝内拉开 —— 就是抽屉从固定边滑出来的样子。 */
-  z-index: 1;
-}
-
-/* 抽屉拉出的位移补偿：侧栏在动画里被图标栏的 48px 起步位推着走，
-   用等量反向 transform 抵消，外边缘就钉在工区边上（左栏先左移 48 再归零、右栏镜像）。
-   48px 与 ActivityBar 的 `flex: 0 0 48px` 同源，两处都经 postcss-pxtorem 转 rem，
-   随全局缩放一起走 —— 改一处要一起改。 */
-.workspace.is-left .pane--tests.is-animating.is-expanding {
-  animation: drawer-grow-left 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.workspace.is-right .pane--tests.is-animating.is-expanding {
-  animation: drawer-grow-right 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-@keyframes drawer-grow-left {
-  from {
-    transform: translateX(-48px);
-  }
-}
-
-@keyframes drawer-grow-right {
-  from {
-    transform: translateX(48px);
-  }
 }
 
 /* 第二段：浮现。展开时侧栏页头那几颗控件与内容一起，等宽度那一段收得差不多了再淡入。
@@ -1278,44 +1249,15 @@ onBeforeUnmount(() => {
   border-right-color: transparent;
 }
 
-/* 残留。宽度段（200ms）走完后侧栏已经收到 0，但全局 border-box 加上左右各 1px 边框，
-   边框盒最小就是 2px，收不到真正的 0；而闸门还要再压 100ms 才把元素摘掉（见 PANEL_LOCK_MS），
-   那 100ms 里一条 2px 竖线是静止显形的（运动已经停了，所以反而比运动中的接缝更扎眼）。
-   到点直接把它隐掉即可：visibility 不进布局、不触发重排，写法与上面那段浮现同源 ——
-   那边是 backwards 等入场，这边是 forwards 等收尾。
-   图标栏那侧不走这条：它在展开方向整条淡到透明度 0（见 ActivityBar.vue），
-   收尾时本就是隐的，不需要再补一次 visibility。
+/* 残留。宽度段（200ms）走完后「要消失的那一侧」已经收到 0，但全局 border-box 加上
+   左右各 1px 边框，边框盒最小就是 2px，收不到真正的 0；而闸门还要再压 100ms 才把元素
+   摘掉（见 PANEL_LOCK_MS），那 100ms 里一条 2px 竖线是静止显形的（运动已经停了，
+   所以反而比运动中的接缝更扎眼）。到点直接把它隐掉即可：visibility 不进布局、
+   不触发重排，写法与上面那段浮现同源 —— 那边是 backwards 等入场，这边是 forwards 等收尾。
    「减弱动效」下 App 不给 is-animating，这些规则整段不存在（也没有 delay 空等的问题）。 */
-.workspace.is-left .pane--tests.is-animating:not(.is-expanding) {
-  animation: drawer-shrink-left 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    panel-ghost 1ms linear 200ms forwards;
-}
-
-.workspace.is-right .pane--tests.is-animating:not(.is-expanding) {
-  animation: drawer-shrink-right 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    panel-ghost 1ms linear 200ms forwards;
-}
-
-@keyframes drawer-shrink-left {
-  to {
-    transform: translateX(-48px);
-  }
-}
-
-@keyframes drawer-shrink-right {
-  to {
-    transform: translateX(48px);
-  }
-}
-
-/* 展开方向：图标栏整条淡出（见 ActivityBar.vue），这里只把它抬到侧栏之上 ——
-   侧栏是 --bg-panel 实色，长出来时会在几毫秒内把整条图标栏盖死（宽度段曲线很前倾），
-   淡出根本没机会被看见。抬到上面之后，抽屉是从图标栏背后滑出来、图标栏在原地溶解，
-   而不是被侧栏的边缘一刀切掉。
-   只抬展开方向（:not(.is-collapsed)）：折叠方向侧栏要压在图标栏之上，
-   侧栏外边缘钉在工区边、朝里合拢，那一侧靠的是 .pane--tests 的 z-index。 */
+.pane--tests.is-animating:not(.is-expanding),
 .workspace :deep(.activity-bar.is-animating:not(.is-collapsed)) {
-  z-index: 2;
+  animation: panel-ghost 1ms linear 200ms forwards;
 }
 
 @keyframes panel-ghost {

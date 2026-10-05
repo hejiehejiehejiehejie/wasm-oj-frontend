@@ -347,6 +347,31 @@ const TEMPLATE_EXTENSIONS = {
   markdown: LANGUAGES.markdown.extension,
 }
 
+/**
+ * 模板文本框里按 Tab 插入制表符，而不是跳到下一个控件。
+ *
+ * 这里装的是代码，编辑器默认也是「按 Tab 出制表符」（设置 › 编辑器 › 空格代替 Tab 默认关），
+ * 让焦点跳走等于「想缩进却跳到了别处」—— 空档感来自 tab-size（CSS）而光标又不真插入。
+ * 代价是没法靠 Tab 离开本框，Shift+Tab 照常放行（那个分支不拦）。
+ *
+ * 直接写 DOM 再 setTemplate()：`el.value` 先落到目标值，Vue 回来 patch `:value` 时
+ * 新值与之相等、不会重新赋值，光标因此留得住（被 TEMPLATE_MAX_LENGTH 截断时才会归位到末尾）。
+ * @param {KeyboardEvent} event
+ * @param {string} id 语言 id
+ */
+function onTemplateKeydown(event, id) {
+  if (event.key !== 'Tab' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+  event.preventDefault()
+  const el = event.target
+  const start = el.selectionStart ?? el.value.length
+  const end = el.selectionEnd ?? start
+  const next = `${el.value.slice(0, start)}\t${el.value.slice(end)}`
+  el.value = next
+  setTemplate(id, next)
+  const caret = start + 1
+  el.setSelectionRange(caret, caret)
+}
+
 const activeSection = ref('common')
 
 // 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
@@ -1765,6 +1790,7 @@ watch(pendingUnbind, (open) => {
             :aria-label="t(TEMPLATE_LABEL_KEYS[id])"
             rows="10"
             @input="setTemplate(id, $event.target.value)"
+            @keydown="onTemplateKeydown($event, id)"
           ></textarea>
         </div>
       </section>
