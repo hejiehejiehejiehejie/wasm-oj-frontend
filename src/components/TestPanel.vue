@@ -216,7 +216,9 @@ const elapsedText = computed(() => {
   flex: 1 1 auto;
   min-height: 0;
   margin: 0;
-  padding: 12px;
+  /* 12px → 8px：卡片改成无边框之后，两边这 12px 纯粹是把用例往里挤，
+     收到 8px 就换回来 8px 实际宽度（再多贴边就顶到面板与分隔条上了） */
+  padding: 8px;
   list-style: none;
   display: flex;
   flex-direction: column;

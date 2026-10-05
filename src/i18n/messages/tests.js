@@ -71,6 +71,8 @@ export default {
         timingTitle: '程序运行耗时（不含编译）',
         remove: '删除该用例',
         copyOutput: '复制实际输出',
+        /** 实际输出标签行上的第二个按钮：把 stdout 誊进期望输出（结论已过期的标记由写入那条路带上） */
+        useActual: '把实际输出写入期望输出',
         notRun: '尚未运行',
 
         /**
@@ -157,6 +159,8 @@ export default {
         timingTitle: 'Program run time (excludes compilation)',
         remove: 'Delete this case',
         copyOutput: 'Copy actual output',
+        /** 同中文：实际输出那一行左侧那颗按钮（写入期望输出） */
+        useActual: 'Write the actual output into Expected Output',
         notRun: 'Not run yet',
 
         // 与 zh-CN 那栏严格对应：三个小标题都是写死的英文，见 zh-CN 那侧的注释。

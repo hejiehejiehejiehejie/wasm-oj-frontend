@@ -259,6 +259,27 @@ async function copyText(text) {
 
 const copyOutput = () => copyText(outputText.value)
 
+/**
+ * 把这一次跑出来的 stdout 原样写成期望输出 —— 手调样例时最常用的一步「就按它算对」。
+ *
+ * 取的是 `actualOutput`（纯 stdout），**不是**卡片上显示的那份「实际输出」
+ * （= actualOutput + detail）：期望输出只跟 stdout 比对，编译错误 / 运行诊断
+ * 一起誊进去就不是样例了。
+ *
+ * 写入走 `expectedOutput` 那个 field setter，与用户手敲进框里是同一条路 ——
+ * 「结论已过期」的 stale 标记也因此自动带上，不需要在这里另写一遍。
+ * 跑动中不给点（locked）：这一轮的判定还在路上，此刻改写期望输出没有意义。
+ */
+function useActualAsExpected() {
+  const text = props.testCase.actualOutput ?? ''
+  if (!text) return
+  expectedOutput.value = text
+  // 整段替换（可能一下从短变长），省略量得按新内容重算 —— 手敲那条路是 commitEdit 补的
+  // 这一脚，这里绕过了它，不补的话框里会按旧边界显示、凭空少一截。
+  expectedHidden.value = hiddenOf(text)
+  nextTick(growAll)
+}
+
 // 省略行是「被省略内容的把手」：选区里带上它，就等于把省略段也圈进来了，直接给完整内容。
 // 三个框共用这一条 —— textarea 走 selectionStart/End，<pre> 走 window.getSelection()。
 // 只选了一段、没碰到省略行时一律不接管：那时浏览器给的本来就是准确的那一段，
@@ -394,14 +415,26 @@ function onLongCopy(event, full) {
       <div class="field">
         <span class="field__label field__label--row">
           <span>Actual Output</span>
-          <button
-            class="icon-btn"
-            :title="t('tests.card.copyOutput')"
-            :disabled="!outputText"
-            @click="copyOutput"
-          >
-            <AppIcon name="copy" :size="12" />
-          </button>
+          <!-- 两个动作包一层：这一行是 space-between，三个孩子会有一个被摊到正中间 -->
+          <span class="field__actions">
+            <!-- 把这次跑出来的实际输出誊进期望输出框（WA 之后最常用的一步） -->
+            <button
+              class="icon-btn"
+              :title="t('tests.card.useActual')"
+              :disabled="locked || !testCase.actualOutput"
+              @click="useActualAsExpected"
+            >
+              <AppIcon name="swap" :size="12" />
+            </button>
+            <button
+              class="icon-btn"
+              :title="t('tests.card.copyOutput')"
+              :disabled="!outputText"
+              @click="copyOutput"
+            >
+              <AppIcon name="copy" :size="12" />
+            </button>
+          </span>
         </span>
         <pre
           class="out"
@@ -426,39 +459,65 @@ function onLongCopy(event, full) {
      若再允许收缩（默认 flex-shrink:1），用例一多就会被压扁，
      列表 scrollHeight 永远等于 clientHeight，滚不动。 */
   flex: 0 0 auto;
-  /* 上边不画线（2026-10-06）：卡片顶上那条横线 + 卡片底色比面板亮一档带来的「色差」，
-     会让每张用例都像一块浮起来的卡；这两样一起去掉，用例读起来就是一条平铺的列表。
-     用 border-top: 0 而不是透明色 —— 悬停那条 border-color 是简写，会把透明色一起改回来。 */
-  border: 1px solid var(--border-soft);
-  border-top: 0;
-  border-left: 3px solid var(--case-border);
+  /* 无外框（2026-10-06）：右侧与下侧的 1px 发丝线不画了，底色与面板同色，
+     于是用例读起来是一条平铺的列表，而不是一叠浮起来的卡。
+     左侧那条 3px 状态竖线还在，但改由 ::before 画（见下），不占布局 ——
+     运行中那圈 1px 蓝描边同样去掉了（它就是一条「边框」，而徽标本来就在闪）。 */
+  border: 0;
   border-radius: 8px;
   /* 与面板同色（--bg-panel），不再用 --bg-card：色差就是这一档造成的 */
   background: var(--bg-panel);
+  /* 给左侧那条状态竖线（::before）当定位基准 */
+  position: relative;
   overflow: hidden;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+  transition: background-color 0.18s ease, opacity 0.18s ease;
 }
 
+/* 左侧状态竖线：闲置灰、AC 绿、WA 红、报错琥珀、运行中蓝。
+   走绝对定位的伪元素，**不用 border-left** —— border 会从卡片里实打实吃掉 3px，
+   刚收回来的内容宽度就白收了；这 3px 现在是压在左内边距上画的，不占布局。
+   z-index 是为了压住标题栏的底色（伪元素在 DOM 顺序上排在 .card__head 前面，
+   不给层级的话那条 34 号灰会把它盖掉）；pointer-events: none 免得它挡住标题栏的点击。 */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--case-border);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 悬停时闲置卡片的竖线跟着亮一档 —— 判定过的卡片保持自己的状态色（与加回之前一致：
+   那条 border-left-color: currentColor 也只对闲置卡片生效） */
+.card:hover::before {
+  background: currentColor;
+}
+
+.card[data-status='passed']::before {
+  background: var(--ok);
+}
+
+.card[data-status='failed']::before {
+  background: var(--fail);
+}
+
+.card[data-status='error']::before {
+  background: var(--err);
+}
+
+.card[data-status='running']::before {
+  background: var(--info);
+}
+
+/* 悬停：边框没了，浮起感改由底色给（与文件树行同一档 --bg-hover-soft）。
+   卡片身体与标题栏必须一起换色 —— 只亮下半截的话，看着像谁把卡撕成了两半。 */
 .card:hover {
-  border-color: var(--border);
-  border-left-color: currentColor;
+  background: var(--bg-hover-soft);
 }
 
-.card[data-status='passed'] {
-  border-left-color: var(--ok);
-}
-
-.card[data-status='failed'] {
-  border-left-color: var(--fail);
-}
-
-.card[data-status='error'] {
-  border-left-color: var(--err);
-}
-
-.card[data-status='running'] {
-  border-left-color: var(--info);
-  box-shadow: 0 0 0 1px rgba(79, 193, 255, 0.25);
+.card:hover .card__head {
+  background: var(--bg-hover-soft);
 }
 
 .card.is-stale {
@@ -474,9 +533,11 @@ function onLongCopy(event, full) {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 7px 10px;
+  /* 左边距跟着卡片身体一起收到 6px：外框没了之后，这两个数不再对齐就会显得标题歪在一边 */
+  padding: 7px 8px 7px 6px;
   background: var(--bg-card-head);
   border-bottom: 1px solid var(--border-soft);
+  transition: background-color 0.18s ease;
 }
 
 .card__title {
@@ -630,7 +691,9 @@ function onLongCopy(event, full) {
 }
 
 .card__body {
-  padding: 10px;
+  /* 横向内边距 10px → 6px（纵向不动）：卡片没有外框之后，这 4px 连同左竖线那 3px
+     都是纯白送的空当，收掉就直接变成输入/期望/实际输出三只框的实际宽度。 */
+  padding: 10px 6px;
   display: grid;
   gap: 10px;
 }
@@ -667,6 +730,14 @@ function onLongCopy(event, full) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* 标签行右侧的动作组（写入期望输出 + 复制）。两个图标按钮挨着放、间距 2px ——
+   它们各自的 22px 方格里已经有留白，再拉开就显得跟标签不是一行了。 */
+.field__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .ta {
