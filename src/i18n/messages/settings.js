@@ -28,12 +28,12 @@ export default {
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
       templates: {
-        note: '新建文件时按扩展名归一到语言、填入对应模板；插件抓来的题目代码文件也用它。改坏了点「恢复默认」即可，模板与开关都会随云端同步跟人走。',
+        note: '新建文件时填入对应模板',
         enable: {
           label: '启用模板',
-          hint: '关闭后新建文件与插件抓来的代码文件都是空的；下面的模板文本会原样留着，重新打开即可复用',
+          hint: '关闭后代码文件为空',
         },
-        hint: '新建 .{ext} 文件时的初始文本（原样写入，不做变量替换）',
+        hint: '新建 .{ext} 文件时的初始文本',
         lang: {
           cpp: 'C++',
           python: 'Python 3',
@@ -47,7 +47,7 @@ export default {
 
       /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
       common: {
-        note: '集中了最常改的几项；它们与「外观 / 编辑器」里的是同一个偏好，改哪边都会同步。',
+        note: '集中了最常改的几项',
       },
 
       appearance: {
@@ -240,7 +240,7 @@ export default {
 
       extension: {
         groupNote:
-          '装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站，不用手抄。',
+          '装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站。',
         downloadHint:
           '装上后需在 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。插件不在应用商店里，所以没法一键安装。',
         /** 上面那句里夹着一个 <code>chrome://extensions/shortcuts</code>，拆成前后两半 */
@@ -278,7 +278,7 @@ export default {
 
       cloud: {
         groupNote:
-          '把本机的偏好设置（编辑器、快捷键、界面、评测引擎等）存到云端，换一台设备输入同一个用户名就能取回来。题目文件、测试样例与判题服务器地址不会上传。',
+          '把本机的偏好设置（编辑器、快捷键、界面、评测引擎等）存到云端。题目文件、测试样例与判题服务器地址不会上传。',
         handle: {
           label: 'Codeforces 用户名',
         },
@@ -331,7 +331,7 @@ export default {
         errorBadBody: '接口返回了 HTTP {status}，但内容不是预期的格式（这次请求可能没走到本站的 /api）',
         tokenExpired: '设备令牌已失效，请重新取一枚码验证',
         publicNotice:
-          '上传后这份配置就是公开的：不需要登录，把用户名接在网址后面（如 www.998244353.best/he-jie）即可取回。点「上传本机设置」就等于同意公开它 —— 参与同步的只有主题、快捷键、界面缩放这类偏好项。',
+          '上传后这份配置就是公开的：不需要登录，把 cfid 接在网址后面（如 www.998244353.best/he-jie）即可取回。点「上传本机设置」就等于同意公开它 —— 参与同步的只有主题、快捷键、界面缩放这类偏好项。',
       },
 
       help: {
@@ -587,7 +587,7 @@ export default {
 
       extension: {
         groupNote:
-          'With the extension installed, click its icon on any problem page and the statement, samples and limits are pushed straight into this site — no copy-pasting.',
+          'With the extension installed, click its icon on any problem page and the statement, samples and limits are pushed straight into this site.',
         downloadHint:
           'After downloading, open chrome://extensions, turn on Developer mode, and use “Load unpacked” to select the folder you extracted. The extension is not on the store, so there is no one-click install.',
         shortcutsManagedPrefix:
@@ -687,7 +687,7 @@ export default {
           'The endpoint answered HTTP {status}, but the body was not the expected JSON (this request may not have reached this site’s /api)',
         tokenExpired: 'The device token is no longer valid — request a new code to verify again',
         publicNotice:
-          'Once uploaded, this copy is public: no sign-in is needed — append your handle to the site URL (e.g. www.998244353.best/he-jie) to fetch it. Clicking “Upload local settings” means you agree to make it public; only preference keys such as theme, shortcuts and UI scale are synced.',
+          'Once uploaded, this copy is public: no sign-in is needed — append the cfid to the site URL (e.g. www.998244353.best/he-jie) to fetch it. Clicking “Upload local settings” means you agree to make it public; only preference keys such as theme, shortcuts and UI scale are synced.',
       },
 
       help: {
