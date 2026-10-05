@@ -7,10 +7,13 @@
    **题解渲染器（/md/，katex + marked）同理**：它不算构建产物，进不了
    precache-manifest，用户在设置里点「下载」时才由页面写进 MD_CACHE。
 
-   两条边界：
+   三条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
-      /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）。
+      /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）；
+   3) 不能拦截 /api/* —— 那是**随时会变**的数据（同一 handle 的云端配置每次上传都换一份），
+      没有内容哈希可依赖，落进 cacheFirst 就等于把第一次读到的那份永久钉死。
+      见下面 fetch 处理器里的放行判断。
 
    ⚠ 下面用到的桶名常量（SHELL_CACHE / TOOLCHAIN_CACHE / MD_CACHE / LEGACY_BUCKETS）
    **不在本文件里定义**。SW 是 classic worker，没有 import，读不到 services/storageNames.js，
@@ -150,6 +153,13 @@ self.addEventListener('fetch', (event) => {
 
   // Range 请求的响应是 206，塞进 Cache Storage 会抛错，直接放行
   if (request.headers.has('range')) return
+
+  // /api/* 一律放行（边界 3）：云端配置是**会变**的数据，必须每次问网络。
+  // 之前它落到下面 cacheFirst 的兜底桶 cp-shell-v4，而那个桶在 activate 的 keep 白名单里
+  // 永不过期 —— 同一台设备第二次点「下载到本机」拿回的永远是**第一次**读到的那份，
+  // 表现就是「上传了新配置，云端同步却没起作用」。写入走 POST，本来就被上面的
+  // method 判断挡掉了；这里要挡的是读配置的 GET /api/config/<handle>。
+  if (url.pathname.startsWith('/api/')) return
 
   event.respondWith(request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(request))
 })
