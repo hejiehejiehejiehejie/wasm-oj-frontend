@@ -12,7 +12,6 @@ export default {
     tests: {
       panel: {
         ariaLabel: 'unnamed 评测面板',
-        addFirst: '添加第一个用例',
         addCase: '添加测试样例',
         runAll: '运行全部测试用例',
         /**
@@ -24,14 +23,19 @@ export default {
       },
 
       empty: {
-        title: '暂无测试用例',
-        text: '点击下方按钮新增一个用例，填写标准输入与期望输出。',
         /**
-         * 空态里追加的一行提示，只在「当前文件是一道题、而它的样例还是空的」时出现
+         * ⚠️ 这张表里**没有空态那行标题**：它就是 `TestPanel.vue` 模板里写死的
+         * `No test cases yet.`（用户 2026-10-06 定），中英界面都不翻，与三个小标题
+         * input / Expected / Actual 同一个理由。曾经有过 `title` 这一条（`暂无测试用例`
+         * / `No test cases yet`）与一句说明 `text`，两点都在 2026-10-06 删掉了 ——
+         * 别再好心把它们翻回来。
+         * 下面这几条抓样提示是**另一回事、保留**：只在当前文件是一道题、样例还没到手时出现，
+         * 它们仍然跟着界面语言走。
+         *
+         * 这一行提示只在「当前文件是一道题、而它的样例还是空的」时出现
          * （判据与状态机都在 useCompanionBridge.js 的 autoScrapeState）。
          * 三种状态的文案与那三个值一一对应，别只改一边。
-         */
-        /**
+         *
          * 「样例还没到手」这句被拆成三段：中间的「题目链接」是个可点的 <a>
          * （href 是当前文件的 meta.url，由 TestPanel 拼），三段合起来才是一句完整的话。
          * 改任何一段都要看另外两段，别把句子改断了。
@@ -39,9 +43,14 @@ export default {
         awaitingFetchBefore: '打开',
         awaitingFetchLink: '题目链接',
         awaitingFetchAfter: '，浏览器插件会自动抓取样例',
-        /** 没检测到插件时的替代句：链接再点也不会有人抓，得先把插件这环修好 */
+        /**
+         * 没检测到插件时的替代句（2026-10-06 收紧）：原来那句从「这是一道题目，样例还没到手。」
+         * 开头，是空态还有说明文字时留下的 —— 现在空态标题已经把「没有用例」说完了
+         * （写死的 No test cases yet.），再铺垫一遍就是啰嗦。现在只留「没人抓」这个坏消息
+         * 与两步做法：原因 → 后果 → 怎么办，两句读完。
+         */
         awaitingNoExtension:
-          '这是一道题目，样例还没到手。但未检测到浏览器插件，打开题目页也不会自动抓——先安装或重新加载插件，再刷新本页',
+          '未检测到浏览器插件，打开题目页也不会自动抓取样例。安装或重新加载插件后再刷新本页。',
         fetching: '正在从题目页自动抓取样例…',
         fetchFailed: '自动抓取样例没成功，重新打开题目页可以再试一次',
       },
@@ -76,15 +85,18 @@ export default {
         notRun: '尚未运行',
 
         /**
-         * ⚠️ **这张表里**没有**输入框 / 期望输出 / 实际输出的小标题与输入框的占位提示**。
-         * 它们三个是 `TestCaseCard.vue` 模板里写死的英文：`input` / `Expected Output` /
-         * `Actual Output`（用户 2026-09-29 定的：三个并排的小标签要长得一致，都是拉丁词、
-         * 由 CSS `text-transform: uppercase` 变大字，中英界面都不变）。
-         * 中途曾试着全接 i18n（zh 给 `输入` / `期望输出` / `实际输出`），用户要求**改回去**。
+         * ⚠️ 这张表里没有**输入框 / 期望输出 / 实际输出的小标题**：它们是 `TestCaseCard.vue`
+         * 模板里写死的英文 `input` / `Expected` / `Actual`（用户 2026-09-29 定：三个并排的
+         * 小标签要长得一致，都是拉丁词、由 CSS `text-transform: uppercase` 变大字，中英界面
+         * 都不变；末二词 2026-10-06 砍掉 `Output`，那一行窄，而每个框本来就是「标题 + 框」，
+         * Output 二字没有增量信息）。中途曾试着全接 i18n（zh 给 `输入` / `期望输出` / `实际输出`），
+         * 用户要求**改回去**——小标题别再翻。
          *
-         * 于是**只剩期望输出的占位提示跟着语言走**：前面两个框的首行就被上面的标签说明了，
-         * 占位再重复一遍是噪音，而期望输出这个框在空态默认可见、需要它自己说清楚。
+         * 两个**占位提示**（框里的灰字）则跟着语言走：期望输出那个框空态默认可见，需要它自己
+         * 说清楚；输入框那条 2026-10-06 按用户要求从写死的 `input` 接回本表（中文「输入」、
+         * 英文仍是 `input`）。翻的只是框里的灰字，与上面「小标题不翻」不冲突。
          */
+        inputPlaceholder: '输入',
         expectedPlaceholder: '期望输出',
 
         copyFull: '复制完整内容（全选后 Ctrl+C 同样有效）',
@@ -115,7 +127,6 @@ export default {
     tests: {
       panel: {
         ariaLabel: 'unnamed judge panel',
-        addFirst: 'Add first test case',
         addCase: 'Add test case',
         runAll: 'Run all test cases',
         /** 见 zh-CN 那侧的说明 */
@@ -124,16 +135,14 @@ export default {
       },
 
       empty: {
-        title: 'No test cases yet',
-        text: 'Use the button below to add one, then fill in the standard input and expected output.',
-        /** 见 zh-CN 那侧的说明：三种状态与 autoScrapeState 的三个值一一对应。
-         *  「样例还没到手」这句拆成三段，中间一段是可点的题目链接（见 zh-CN） */
+        /** 见 zh-CN 那侧的说明：空态那行标题写死在 TestPanel.vue 里，这张表不管它。
+         *  下面这几条与 autoScrapeState 的三个值一一对应，中间一段是可点的题目链接（见 zh-CN） */
         awaitingFetchBefore: 'Open the ',
         awaitingFetchLink: 'problem link',
         awaitingFetchAfter: ' and the browser extension will fetch the samples',
-        /** 同 zh-CN：没检测到插件时的替代句 */
+        /** 同 zh-CN：没检测到插件时的替代句（2026-10-06 收紧，与中文同结构） */
         awaitingNoExtension:
-          'This problem has no samples yet, and no browser extension was detected — opening the problem page will not fetch them. Install or reload the extension, then refresh this page',
+          'No browser extension was detected, so opening the problem page will not fetch any samples. Install or reload the extension, then refresh this page.',
         fetching: 'Fetching samples from the problem page…',
         fetchFailed: 'Could not fetch the samples automatically. Open the problem page again to retry',
       },
@@ -160,11 +169,12 @@ export default {
         remove: 'Delete this case',
         copyOutput: 'Copy actual output',
         /** 同中文：实际输出那一行左侧那颗按钮（写入期望输出） */
-        useActual: 'Write the actual output into Expected Output',
+        useActual: 'Write the actual output into Expected',
         notRun: 'Not run yet',
 
-        // 与 zh-CN 那栏严格对应：三个小标题都是写死的英文，见 zh-CN 那侧的注释。
-        // 别担心大小写——占位提示的大写由 CSS `text-transform: uppercase` 负责，与这里的写法无关。
+        // 与 zh-CN 那栏严格对应：三个小标题都是写死的英文（`input` / `Expected` / `Actual`），
+        // 见 zh-CN 那侧的注释；只有两个框的占位提示走这张表。
+        inputPlaceholder: 'input',
         expectedPlaceholder: 'Expected output',
 
         copyFull: 'Copy the full content (Ctrl+C after Select All works too)',

@@ -76,8 +76,13 @@ const elapsedText = computed(() => {
 
     <ul class="cases">
       <li v-if="!cases.length" class="empty">
-        <p class="empty__title">{{ t('tests.empty.title') }}</p>
-        <p class="empty__text">{{ t('tests.empty.text') }}</p>
+        <!-- 空态只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个用例…」和一颗
+             「添加第一个用例」大按钮，前者是废话、后者与页脚那颗「添加测试样例」重复。
+             这句话**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是这行
+             居中的淡灰字）：与三个小标题 input / Expected / Actual 同一个理由 —— 它是一句
+             格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它**不在消息表里**。
+             抓样提示（notice）保留 —— 它是插件自动抓样例那一路唯一的反馈，且仍按语言翻。 -->
+        <p class="empty__title">No test cases yet.</p>
         <p v-if="notice" class="empty__notice" :data-tone="notice.tone">
           <!-- 带题目链接的形状：before + <a> + after 三段拼成一句（另两段是纯文本，见 props 说明） -->
           <template v-if="notice.url">
@@ -89,10 +94,6 @@ const elapsedText = computed(() => {
           </template>
           <template v-else>{{ notice.text }}</template>
         </p>
-        <button class="add add--inline" @click="emit('add')">
-          <AppIcon name="plus" :size="13" />
-          <span>{{ t('tests.panel.addFirst') }}</span>
-        </button>
       </li>
 
       <TestCaseCard
@@ -228,31 +229,25 @@ const elapsedText = computed(() => {
   container-type: inline-size;
 }
 
+/* 空态（2026-10-06 照参照稿改）：一行居中的淡灰字，上下各 40px 留白。
+   原来是个虚线框 + 底色 + 左对齐的一堆东西 —— 参照稿里根本没有框，那层虚线只是把
+   一行字围起来，删掉之后空态才真的「空」。 */
 .empty {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 6px;
-  padding: 22px 18px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  background: var(--bg-input);
+  padding: 40px 0;
+  text-align: center;
 }
 
 .empty__title {
   margin: 0;
-  font-size: 13px;
-  color: var(--text);
-}
-
-.empty__text {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 14px;
+  /* 参照稿用的 text-muted，落到本项目的变量上就是最淡的那一档 */
   color: var(--text-faint);
 }
 
-/* 自动抓取样例那一路的提示：与上一行同字号，靠颜色区分「等着 / 正在抓 / 抓失败了」 */
+/* 自动抓取样例那一路的提示：见模板里的说明 */
 .empty__notice {
   margin: 0;
   font-size: 12px;
@@ -304,18 +299,14 @@ const elapsedText = computed(() => {
   cursor: default;
 }
 
-.add--inline {
-  width: auto;
-  margin-top: 6px;
-}
-
 .panel__foot {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid var(--border-soft);
+  /* 不再画上边那条发丝线（2026-10-06）：页脚底色本来就是 --bg-panel-head，与正文的
+     --bg-panel 不同，这层色差已经把「这里是页脚」说清楚了，再描一条线是重复的分隔。 */
   background: var(--bg-panel-head);
 }
 

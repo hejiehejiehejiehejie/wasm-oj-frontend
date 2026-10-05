@@ -21,12 +21,14 @@ const emit = defineEmits(['remove', 'run'])
 
 // 徽标文案：跑完的用例用 runner 给的判定码（AC / WA / CE / TLE / RE / ERR），
 // 没跑过或正在跑才用状态名。判定码比「通过 / 未通过」短一个量级，窄面板下不会被挤成竖排。
+// 只有文字、不带图标（2026-10-06）：判定码本身已经是最短的表达，再加一颗对勾/叉
+// 会把胶囊撑宽一倍，也抢掉了 11px 字号那点可读性。
 const STATUS = {
-  idle: { labelKey: 'tests.card.idle', icon: '' },
-  running: { labelKey: 'tests.card.running', icon: '' },
-  passed: { label: 'AC', icon: 'check' },
-  failed: { label: 'WA', icon: 'close' },
-  error: { label: 'ERR', icon: 'alert' },
+  idle: { labelKey: 'tests.card.idle' },
+  running: { labelKey: 'tests.card.running' },
+  passed: { label: 'AC' },
+  failed: { label: 'WA' },
+  error: { label: 'ERR' },
 }
 
 const status = computed(() => STATUS[props.testCase.status] ?? STATUS.idle)
@@ -184,7 +186,10 @@ const expectedEl = ref(null)
 // 不是我们加的。下面这个函数因此不再向 Vue 报告溢出状态，纯粹摆盒子。
 function autoGrow(el) {
   if (!el) return
-  // v-show 折叠时元素不可见，scrollHeight 为 0，此时不动高度，展开后会重新计算。
+  // 面板所在页签没打开时（display: none）scrollHeight 为 0，此时不动高度，
+  // 切到该页签时由下面的 ResizeObserver 重算。
+  // （折叠不再是 display: none 了 —— 2026-10-06 起走 .card__fold 的行高动画，
+  //   折叠态只是被裁到 0 高，元素仍在布局里，scrollHeight 照旧量得到。）
   if (!el.scrollHeight) return
   const cs = getComputedStyle(el)
   const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
@@ -312,13 +317,18 @@ function onLongCopy(event, full) {
         :aria-label="t(isCollapsed ? 'tests.card.expand' : 'tests.card.collapse')"
         @click="toggleCollapse"
       >
-        <AppIcon name="chevron" :size="13" />
+        <!-- chevron 的字形（m6 9 6 6 6-6）只占 24 网格里的 12×6 单位，是 sibling 图标里
+             最扁的一枚：13px 下墨迹实测只有 6.5×3.3px，而同一行的 trash（13px）有 8.7px 宽。
+             所以它要 17px 才和别的图标一样宽（墨迹 8.5×4.2）。stroke-width 同步 2.6 → 2：
+             描边绝对值 = 2.6/24×13 = 2/24×17 ≈ 1.4px，字形放大而笔画不跟着变粗。 -->
+        <AppIcon name="chevron" :size="17" :stroke-width="2" />
       </button>
-      <span class="card__title">#{{ index + 1 }}</span>
-      <span class="badge" :data-status="testCase.status">
-        <AppIcon v-if="status.icon" :name="status.icon" :size="11" :stroke-width="2.6" />
-        <span>{{ badgeLabel }}</span>
-      </span>
+      <!-- 状态圆点（2026-10-06）：原先压在卡片左边缘的那条 3px 竖线换成这颗点，
+           位置就落在原来 # 这一格 —— 点在前、序号在后。判定色沿用同一套状态变量，
+           与右侧徽标同源；头栏其余元素的位置一个没动。 -->
+      <span class="card__dot" :data-status="testCase.status"></span>
+      <span class="card__title">{{ index + 1 }}</span>
+      <span class="badge" :data-status="testCase.status">{{ badgeLabel }}</span>
       <!-- 判定区从状态徽标右侧一直延伸到删除按钮左侧：视觉不变，只把整条空白变成点得到的运行按钮 -->
       <button
         class="run-zone"
@@ -337,7 +347,7 @@ function onLongCopy(event, full) {
         <span class="grow"></span>
         <span v-if="timing" class="metric" :title="t('tests.card.timingTitle')">{{ timing }}</span>
         <span class="run-zone__icon">
-          <AppIcon name="play" :size="12" />
+          <AppIcon name="play" :size="14" />
         </span>
       </button>
       <button
@@ -346,107 +356,116 @@ function onLongCopy(event, full) {
         :disabled="locked"
         @click="emit('remove', testCase)"
       >
-        <AppIcon name="trash" :size="13" />
+        <AppIcon name="trash" :size="15" />
       </button>
     </header>
 
-    <div v-show="!isCollapsed" class="card__body">
-      <!-- 三个字段的小标题（`.field__label`，10px、由 CSS text-transform 变大字）**刻意写死成英文**，
-           中英界面都一样：input / Expected Output / Actual Output（用户 2026-09-29 定，理由是
-           并排的三个标签要长得一致）。曾接过 i18n，同日要求**改回去**——别再顺手翻。
-           输入框的占位提示同为 `input`；只有期望输出那条占位跟着语言走（见 messages/tests.js）。 -->
-      <div class="io">
-        <div class="field">
-          <label class="field__label" :for="inputId">input</label>
-          <textarea
-            :id="inputId"
-            ref="inputEl"
-            v-model="inputModel"
-            class="ta"
-            :class="{ 'ta--truncated': inputHidden > 0 }"
-            spellcheck="false"
-            placeholder="input"
-            :disabled="locked"
-            @copy="onLongCopy($event, testCase.input)"
-          ></textarea>
-          <div v-if="inputHidden > 0" class="ionote">
-            <span class="ionote__text">
-              {{ t('tests.card.omitted', { n: fmt(inputHidden) }) }}
-            </span>
-            <button
-              type="button"
-              class="ionote__btn"
-              :title="t('tests.card.copyFull')"
-              @click="copyText(testCase.input)"
-            >
-              {{ t('tests.card.copyFullShort') }}
-            </button>
+    <!-- 外壳只为展开 / 折叠那一下动画而存在（2026-10-06）：原来这里是 v-show，
+         盒子的显示与隐藏是瞬间的。改成「grid 行高 1fr ↔ 0fr」的过渡，见 .card__fold。 -->
+    <div class="card__fold" :class="{ 'is-collapsed': isCollapsed }">
+      <div class="card__body">
+        <!-- 三个字段的小标题（`.field__label`，10px、由 CSS text-transform 变大字）**刻意写死成英文**，
+             中英界面都一样：input / Expected / Actual（用户 2026-09-29 定，理由是并排的三个标签要长得
+             一致）。曾接过 i18n，同日要求**改回去**——别再顺手翻。末二词 2026-10-06 由
+             `Expected Output` / `Actual Output` 砍短：这一行本来就窄，而三个框各自都已经是
+             「标题 + 框」的结构，Output 二字没有增量信息。
+             两个占位提示（框内的灰字）则跟着语言走，见 messages/tests.js。 -->
+        <div class="io">
+          <div class="field">
+            <label class="field__label" :for="inputId">input</label>
+            <textarea
+              :id="inputId"
+              ref="inputEl"
+              v-model="inputModel"
+              class="ta"
+              :class="{ 'ta--truncated': inputHidden > 0 }"
+              spellcheck="false"
+              :placeholder="t('tests.card.inputPlaceholder')"
+              :disabled="locked"
+              @copy="onLongCopy($event, testCase.input)"
+            ></textarea>
+            <div v-if="inputHidden > 0" class="ionote">
+              <span class="ionote__text">
+                {{ t('tests.card.omitted', { n: fmt(inputHidden) }) }}
+              </span>
+              <button
+                type="button"
+                class="ionote__btn"
+                :title="t('tests.card.copyFull')"
+                @click="copyText(testCase.input)"
+              >
+                {{ t('tests.card.copyFullShort') }}
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field__label" :for="expectedId">Expected</label>
+            <textarea
+              :id="expectedId"
+              ref="expectedEl"
+              v-model="expectedModel"
+              class="ta"
+              :class="{ 'ta--truncated': expectedHidden > 0 }"
+              spellcheck="false"
+              :placeholder="t('tests.card.expectedPlaceholder')"
+              :disabled="locked"
+              @copy="onLongCopy($event, testCase.expectedOutput)"
+            ></textarea>
+            <div v-if="expectedHidden > 0" class="ionote">
+              <span class="ionote__text">
+                {{ t('tests.card.omitted', { n: fmt(expectedHidden) }) }}
+              </span>
+              <button
+                type="button"
+                class="ionote__btn"
+                :title="t('tests.card.copyFull')"
+                @click="copyText(testCase.expectedOutput)"
+              >
+                {{ t('tests.card.copyFullShort') }}
+              </button>
+            </div>
           </div>
         </div>
-        <div class="field">
-          <label class="field__label" :for="expectedId">Expected Output</label>
-          <textarea
-            :id="expectedId"
-            ref="expectedEl"
-            v-model="expectedModel"
-            class="ta"
-            :class="{ 'ta--truncated': expectedHidden > 0 }"
-            spellcheck="false"
-            :placeholder="t('tests.card.expectedPlaceholder')"
-            :disabled="locked"
-            @copy="onLongCopy($event, testCase.expectedOutput)"
-          ></textarea>
-          <div v-if="expectedHidden > 0" class="ionote">
-            <span class="ionote__text">
-              {{ t('tests.card.omitted', { n: fmt(expectedHidden) }) }}
-            </span>
-            <button
-              type="button"
-              class="ionote__btn"
-              :title="t('tests.card.copyFull')"
-              @click="copyText(testCase.expectedOutput)"
-            >
-              {{ t('tests.card.copyFullShort') }}
-            </button>
-          </div>
-        </div>
-      </div>
 
-      <div class="field">
-        <span class="field__label field__label--row">
-          <span>Actual Output</span>
-          <!-- 两个动作包一层：这一行是 space-between，三个孩子会有一个被摊到正中间 -->
-          <span class="field__actions">
-            <!-- 把这次跑出来的实际输出誊进期望输出框（WA 之后最常用的一步） -->
-            <button
-              class="icon-btn"
-              :title="t('tests.card.useActual')"
-              :disabled="locked || !testCase.actualOutput"
-              @click="useActualAsExpected"
-            >
-              <AppIcon name="swap" :size="12" />
-            </button>
-            <button
-              class="icon-btn"
-              :title="t('tests.card.copyOutput')"
-              :disabled="!outputText"
-              @click="copyOutput"
-            >
-              <AppIcon name="copy" :size="12" />
-            </button>
+        <div class="field">
+          <span class="field__label field__label--row">
+            <span>Actual</span>
+            <!-- 两个动作包一层：这一行是 space-between，三个孩子会有一个被摊到正中间 -->
+            <span class="field__actions">
+              <!-- 把这次跑出来的实际输出誊进期望输出框（WA 之后最常用的一步）。
+                   图标是朝上的箭头（2026-10-06 由 swap 换过来）：目标框就在上面。
+                   尺寸给 14：arrow-up 的墨迹只占 14×14 个网格单位，邻居 copy 占 16.5×18，
+                   同样的 12 号下箭头会明显小一圈（7px 对 8.25×9px）。 -->
+              <button
+                class="icon-btn"
+                :title="t('tests.card.useActual')"
+                :disabled="locked || !testCase.actualOutput"
+                @click="useActualAsExpected"
+              >
+                <AppIcon name="arrow-up" :size="14" />
+              </button>
+              <button
+                class="icon-btn"
+                :title="t('tests.card.copyOutput')"
+                :disabled="!outputText"
+                @click="copyOutput"
+              >
+                <AppIcon name="copy" :size="12" />
+              </button>
+            </span>
           </span>
-        </span>
-        <pre
-          class="out"
-          :class="{ 'is-empty': !outputView.text, 'is-truncated': outputView.long }"
-          tabindex="0"
-          @copy="onLongCopy($event, outputText)"
-          >{{ outputView.text || t('tests.card.notRun') }}</pre
-        >
-        <div v-if="outputView.long" class="ionote">
-          <span class="ionote__text">
-            {{ t('tests.card.omitted', { n: outputView.hidden }) }}
-          </span>
+          <pre
+            class="out"
+            :class="{ 'is-empty': !outputView.text, 'is-truncated': outputView.long }"
+            tabindex="0"
+            @copy="onLongCopy($event, outputText)"
+            >{{ outputView.text || t('tests.card.notRun') }}</pre
+          >
+          <div v-if="outputView.long" class="ionote">
+            <span class="ionote__text">
+              {{ t('tests.card.omitted', { n: outputView.hidden }) }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -461,83 +480,101 @@ function onLongCopy(event, full) {
   flex: 0 0 auto;
   /* 无外框（2026-10-06）：右侧与下侧的 1px 发丝线不画了，底色与面板同色，
      于是用例读起来是一条平铺的列表，而不是一叠浮起来的卡。
-     左侧那条 3px 状态竖线还在，但改由 ::before 画（见下），不占布局 ——
-     运行中那圈 1px 蓝描边同样去掉了（它就是一条「边框」，而徽标本来就在闪）。 */
+     状态色也不再由卡片承担：改由头栏那颗 .card__dot 显示（见下）。 */
   border: 0;
   border-radius: 8px;
   /* 与面板同色（--bg-panel），不再用 --bg-card：色差就是这一档造成的 */
   background: var(--bg-panel);
-  /* 给左侧那条状态竖线（::before）当定位基准 */
-  position: relative;
   overflow: hidden;
-  transition: background-color 0.18s ease, opacity 0.18s ease;
+  /* 只剩透明度还在过渡（.is-stale 的降透明度）；底色不再变，那条过渡已无对象 */
+  transition: opacity 0.18s ease;
 }
 
-/* 左侧状态竖线：闲置灰、AC 绿、WA 红、报错琥珀、运行中蓝。
-   走绝对定位的伪元素，**不用 border-left** —— border 会从卡片里实打实吃掉 3px，
-   刚收回来的内容宽度就白收了；这 3px 现在是压在左内边距上画的，不占布局。
-   z-index 是为了压住标题栏的底色（伪元素在 DOM 顺序上排在 .card__head 前面，
-   不给层级的话那条 34 号灰会把它盖掉）；pointer-events: none 免得它挡住标题栏的点击。 */
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
+/* 状态圆点：8px，位置在头栏原来 # 那一格（见模板）。
+   闲置是纯灰点；判定过带一圈同色淡晕（参考稿那种「发光」感）；
+   运行中做向外扩散的脉冲。 */
+.card__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   background: var(--case-border);
-  z-index: 1;
-  pointer-events: none;
 }
 
-/* 悬停时闲置卡片的竖线跟着亮一档 —— 判定过的卡片保持自己的状态色（与加回之前一致：
-   那条 border-left-color: currentColor 也只对闲置卡片生效） */
-.card:hover::before {
-  background: currentColor;
-}
-
-.card[data-status='passed']::before {
+.card__dot[data-status='passed'] {
   background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(137, 209, 133, 0.16);
 }
 
-.card[data-status='failed']::before {
+.card__dot[data-status='failed'] {
   background: var(--fail);
+  box-shadow: 0 0 0 3px rgba(244, 135, 113, 0.16);
 }
 
-.card[data-status='error']::before {
+.card__dot[data-status='error'] {
   background: var(--err);
+  box-shadow: 0 0 0 3px rgba(224, 163, 78, 0.18);
 }
 
-.card[data-status='running']::before {
+/* 运行中：蓝底 + 一圈常亮光晕，**不受动效偏好影响**（2026-10-06）。
+   状态色是信息、不是装饰 —— 之前把 background 和动画一起塞进 no-preference，
+   系统一开「减少动态效果」，运行中的圆点就退回闲置的灰（实测 rgb(69,69,74)），
+   与「没跑」完全分不出来。 */
+.card__dot[data-status='running'] {
   background: var(--info);
+  box-shadow: 0 0 0 3px rgba(79, 193, 255, 0.18);
 }
 
-/* 悬停：边框没了，浮起感改由底色给（与文件树行同一档 --bg-hover-soft）。
-   卡片身体与标题栏必须一起换色 —— 只亮下半截的话，看着像谁把卡撕成了两半。 */
-.card:hover {
-  background: var(--bg-hover-soft);
+/* 涟漪只在「没有把动效调弱」时才挂上去：全局那条 prefers-reduced-motion 兜底只压
+   animation-duration，一个 infinite 动画被压到 0.01ms 会变成逐帧闪，比不动更糟。
+   这么包掉动画之后，开着「减少动态效果」留下的就是上面那圈静态光晕，
+   与 AC / WA / ERR 的圆点同构，状态照样看得出来。 */
+@media (prefers-reduced-motion: no-preference) {
+  .card__dot[data-status='running'] {
+    animation: dot-ripple 1.1s ease-out infinite;
+  }
 }
 
-.card:hover .card__head {
-  background: var(--bg-hover-soft);
+/* 扩散必须**前重后轻**：一个用例真正「运行中」通常只有几百毫秒 —— 实测同一份代码
+   第 1 次运行中窗口 351ms、第 2、3 次连一帧都采不到（<32ms，编译产物命中了缓存）。
+   旧的 1.5s / 0→5px / 全程渐缓在 208ms 时只扩到 1.47px、alpha 已掉到 0.32，
+   用例都跑完了涟漪还没离开圆点，等于没有。
+   所以起点直接接上那圈静态光晕（3px / 0.18 → 3px / 0.5，同几何只提亮、不跳），
+   45% 处扩到 8px 并褪尽：头 200ms 扩出的距离是旧版的四倍多。 */
+@keyframes dot-ripple {
+  0% {
+    box-shadow: 0 0 0 3px rgba(79, 193, 255, 0.5);
+  }
+  45% {
+    box-shadow: 0 0 0 8px rgba(79, 193, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgba(79, 193, 255, 0);
+  }
 }
 
+/* 卡片不再有悬停底色（2026-10-06）：边框、头栏底色、分隔线都拿掉之后，
+   悬停时整块变亮反而把「平铺的列表」又推回「一叠卡」的观感。
+   于是卡片真的没有任何自己的边界了 —— 结构完全由留白、状态点与序号承担。
+   卡片本身不可点（可点的是头栏那颗折叠箭头、判定区与各图标按钮，它们各自有反馈），
+   所以少掉这层反馈不会让人找不到落点。 */
 .card.is-stale {
   opacity: 0.86;
-}
-
-/* 折叠后只剩标题栏，去掉那条悬空的分隔线 */
-.card.is-collapsed .card__head {
-  border-bottom-color: transparent;
 }
 
 .card__head {
   display: flex;
   align-items: center;
   gap: 8px;
-  /* 左边距跟着卡片身体一起收到 6px：外框没了之后，这两个数不再对齐就会显得标题歪在一边 */
-  padding: 7px 8px 7px 6px;
-  background: var(--bg-card-head);
-  border-bottom: 1px solid var(--border-soft);
-  transition: background-color 0.18s ease;
+  /* 左 3px + 箭头那 -3px 外边距：折叠箭头的 22px 盒子左边正好贴到卡片左缘。
+     两数之所以不再与卡片身体那 6px 对齐（2026-10-06）：箭头墨迹在按钮盒内还要再缩进
+     10.25px（实测：6px 是 svg 在盒内的内缩、4.25px 是字形在 24 网格里只占中间一半），
+     于是左内边距给 6px 时墨迹落在 13.25px —— 比正文的 6px 缩进一大截，头栏看着是歪的。
+     给 3px 后墨迹回到 10.25px。再往左就要让按钮盒探出卡片了。 */
+  padding: 7px 8px 7px 3px;
+  /* 标题栏不给自己上底色（2026-10-06）：卡片外框、头栏分隔线都拿掉之后，头栏那层
+     --bg-card-head 就成了列表里最后一块色斑，卡片被切成了「亮盖子 + 暗身子」两截。
+     改成透明后整张卡是一个面，头栏与正文的分区完全交给留白与 12.5px/600 的标题字重。 */
 }
 
 .card__title {
@@ -555,41 +592,41 @@ function onLongCopy(event, full) {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   /* 徽标不参与压缩、也不换行：窄面板下宁可让判定区先让位，否则中文会被挤成竖排单字 */
   flex: 0 0 auto;
   white-space: nowrap;
-  padding: 1px 7px;
+  /* 参考稿那颗胶囊：实心淡底 + 同色字，**不描边** —— 形状完全靠底色撑起来。
+     少了原来那条 0.4 的描边，底色就得自己重一档（0.13 → 0.18），否则会显得没边没沿。
+     字重与字距也是照抄参考稿：600 + 0.05em，判定码那种两个大写字母最吃这一套。
+     左右 padding 从 7 加到 8：里面只剩文字了，得靠自己把胶囊撑出形状。 */
+  padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
-  border: 1px solid transparent;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   color: var(--text-dim);
   background: var(--case-chip-bg);
-  transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+  transition: color 0.18s ease, background-color 0.18s ease;
 }
 
 .badge[data-status='passed'] {
   color: var(--ok);
-  background: rgba(137, 209, 133, 0.13);
-  border-color: rgba(137, 209, 133, 0.4);
+  background: rgba(137, 209, 133, 0.18);
 }
 
 .badge[data-status='failed'] {
   color: var(--fail);
-  background: rgba(244, 135, 113, 0.13);
-  border-color: rgba(244, 135, 113, 0.4);
+  background: rgba(244, 135, 113, 0.18);
 }
 
 .badge[data-status='error'] {
   color: var(--err);
-  background: rgba(224, 163, 78, 0.13);
-  border-color: rgba(224, 163, 78, 0.4);
+  background: rgba(224, 163, 78, 0.18);
 }
 
 .badge[data-status='running'] {
   color: var(--info);
-  background: rgba(79, 193, 255, 0.12);
-  border-color: rgba(79, 193, 255, 0.4);
+  background: rgba(79, 193, 255, 0.16);
   animation: breathe 1.15s ease-in-out infinite;
 }
 
@@ -683,19 +720,101 @@ function onLongCopy(event, full) {
 
 .icon-btn--toggle {
   margin-left: -3px;
-  transition: transform 0.18s ease, background-color 0.15s ease, color 0.15s ease;
+  /* 只给这一颗按钮重置内边距（2026-10-06）：`.icon-btn` 一直没管 <button> 默认的
+     1px 6px 内边距，22px 的盒子里内容区只剩 10px，17px 的 svg 装不下、溢出后靠在
+     内容区左侧 —— 墨迹因此从盒左缘往里缩了 6 + 4.25 = 10.25px（4.25px 是 chevron
+     在 24 网格里只占中间一半），比正文那 6px 缩进还深，头栏左边看着发飘。
+     补上 padding: 0 后内容区回到 22px，svg 正常居中（左右各 2.5px），墨迹落到
+     6.75px、与正文对齐，且**不动盒、也不动后面的状态点与标题**（内边距不占布局位）。
+     另外两颗图标按钮（trash / arrow-up / copy）不跟着改：它们两侧都有别的元素挡着，
+     那 3.5px 看不出来；要给它们也补上就是另一件事（会连带整排图标的图形一起左移，
+     折叠箭头的旋转轴那 3.5px 偏移也会跟着消失）。 */
+  padding: 0;
+  transition: color 0.15s ease;
 }
 
-.icon-btn--toggle.is-collapsed {
+/* 折叠箭头不要悬停底色（2026-10-06）：它只有 8.5px 宽的一点墨迹，鼠标停上去时
+   那颗 22×22 的灰方块（--bg-hover）比字形本身还抢眼，点完鼠标还停在那里，看着
+   像「选中了还亮着」。反馈留给文字由灰变亮（--text-faint → --text）。
+   必须写在这里：与 .icon-btn:hover:not(:disabled) 同权重，靠后面这条覆盖掉。 */
+.icon-btn--toggle:hover:not(:disabled) {
+  background: transparent;
+}
+
+/* 折叠箭头的旋转挂在 svg 上，**不挂在按钮上**（2026-10-06）：
+   起因是这颗按钮当时并不水平居中 —— `.icon-btn` 没重置 <button> 默认的 1px 6px 内边距，
+   22px 的盒子里内容区只剩 10px，17px 的 svg 溢出后靠在内容区左侧（左内缩 6px，
+   居中该是 2.5px），墨迹中心因此落在按钮盒中心右边 3.5px。旋转若由按钮承担，默认
+   transform-origin 取按钮盒中心，视觉上就成了「绕字形左边缘转」，折叠一瞬间箭头
+   先往右跳 3.5px 再转。
+   后来那颗按钮补上了 padding: 0（见上），svg 已归位到盒子正中，转按钮与转 svg
+   在数学上就等价了；但**这条仍要挂在 svg 上**：① svg 的 viewBox 中心正是字形中心
+   （chevron 占 x6..18、y9..15，中心 12,12），旋转轴天然落在墨迹中心，与按钮盒的
+   内边距设置彻底解耦；② 哪天想再调这颗按钮的 padding / margin 把箭头往左挪，
+   也不会再把旋转轴带偏。实测展开态、动画半程、折叠态三处墨迹中心完全重合。
+   transition 也随之挂在 svg 上，否则这里会变成瞬变、动画消失。 */
+.icon-btn--toggle svg {
+  transition: transform 0.18s ease;
+}
+
+.icon-btn--toggle.is-collapsed svg {
   transform: rotate(-90deg);
 }
 
-.card__body {
-  /* 横向内边距 10px → 6px（纵向不动）：卡片没有外框之后，这 4px 连同左竖线那 3px
-     都是纯白送的空当，收掉就直接变成输入/期望/实际输出三只框的实际宽度。 */
-  padding: 10px 6px;
+/* 展开 / 折叠动画（2026-10-06）：grid 行高 1fr ↔ 0fr。
+   这是纯 CSS 里唯一能「过渡到内容高度」的写法 —— max-height 得先猜一个上限，猜大了
+   折叠后半程在空转、猜小了直接把正文截断，而这里的正文高度是活的（两个输入框按内容
+   自适应、实际输出最多能到 320px）。行高走 fr 就没有上限问题，中途掉头也接得住。
+   子项必须 min-height: 0 + overflow: hidden：否则 0fr 那一行仍被内容的最小高度撑着，
+   收不下去。 */
+.card__fold {
   display: grid;
-  gap: 10px;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.2s ease;
+}
+
+.card__fold.is-collapsed {
+  grid-template-rows: 0fr;
+}
+
+/* 折叠后把正文移出 Tab 序：原来靠 v-show 的 display: none 顺手做到这件事，现在为了
+   动画不能再用 display（display 不可过渡），改成 visibility。延迟 0.2s 与行高动画同步
+   —— 折叠过程中文字还看得见，收完才隐藏；展开时没有延迟，立刻可见。
+   （「减少动态效果」下 transition-duration 被全局压成 0.01ms，但 delay 不跟着改，
+   于是收完那一下内容还会多留 0.2s —— 看不见，因为那时行高已经是 0、被 overflow 裁掉了。）
+
+   上下内边距要跟着收到 0：**padding 是不可压缩的**，min-height: 0 只能把内容盒收到 0，
+   6 + 10 那 16px 仍然撑着行 —— 不补这一脚，折叠后卡在头栏下面留一条 16px 的空档（实测
+   卡片高 52px，其中 16px 是这个）。左右不动：收横向内边距会让正文宽度变化、里面的输入框
+   重排（ResizeObserver 还会跟着重算高度），白添抖动。 */
+.card__fold > .card__body {
+  min-height: 0;
+  overflow: hidden;
+  visibility: visible;
+  transition: visibility 0s linear, padding 0.2s ease;
+}
+
+.card__fold.is-collapsed > .card__body {
+  padding-top: 0;
+  padding-bottom: 0;
+  visibility: hidden;
+  transition: visibility 0s linear 0.2s, padding 0.2s ease;
+}
+
+.card__body {
+  /* 横向内边距 6px：卡片没有外框之后，原来的 10px 连同左竖线那 3px 都是纯白送的空当，
+     收掉就直接变成三只框的实际宽度。
+     顶部 10px → 6px（2026-10-06）：头栏现在是透明的、没有分隔线，那 10px 加上头栏
+     自身的 7px 下内边距，让 input 标签离标题行足有 17px，读起来像断了层。
+     底部仍是 10px：卡片是平铺的，这 10px 与列表 gap 一起构成用例之间的呼吸。
+     纵向 gap 10px → 6px：Actual 那行标签当时被右侧两颗 22px 图标按钮撑到 22px，
+     文字在行内垂直居中、顶着 5px 空白，所以它到上一块的视觉距离本是 10 + 5 = 15px，
+     比 input → Expected 那处（10px）明显远。gap 收到 6px 后两处视觉距离拉平到 11px。
+     （2026-10-06 起那行已被 .field__label--row 定死成 1.4em = 14px、只白留 1px，
+     该行靠 margin-top 4px 补回缩掉的 4px，所以 6 + 4 + 1 = 11px 这个结论不变。） */
+  padding: 6px 6px 10px;
+  display: grid;
+  gap: 6px;
 }
 
 .io {
@@ -730,6 +849,16 @@ function onLongCopy(event, full) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 行高按文字行盒定死（2026-10-06）：右侧动作组是两颗 22px 的图标按钮，不干预的话
+     行高被它们撑到 22px，而 10px 标签文字的行盒只有 12px、垂直居中 → 文字底下白留 5px，
+     再叠 .field__label 的 4px 外边距，实测「文字底 → 框顶」9px，而 input / Expected
+     那两处都只有 4px，看着就是这一栏离框格外远。
+     1.4em = 14px（比 12px 行盒多 2px）：文字在行内只白留 1px，标签到框回到 5px；
+     22px 的按钮上下各溢出 4px，底边正好落在框顶，悬停灰块不会压到框上。
+     margin-top 4px 是补回行高缩掉的那 4px，让上一块到 ACTUAL 文字的视觉距离仍是 11px
+     （配 .card__body 的 gap 6px，与 input → Expected 那处对齐）。 */
+  height: 1.4em;
+  margin-top: 4px;
 }
 
 /* 标签行右侧的动作组（写入期望输出 + 复制）。两个图标按钮挨着放、间距 2px ——
@@ -852,20 +981,26 @@ function onLongCopy(event, full) {
    折叠箭头、#N、徽标、删除按钮都是 flex: 0 0 auto，不参与压缩，只剩判定区能缩。
    所以按重要性逐级让步，而不是让它们挤在一起。
 
-   注意优先级：**每例的运行耗时（.metric）与徽标图标（✓/✕）任何宽度下都不隐藏** ——
-   前者是这一行里唯一「看完会想改代码」的信息；后者与 AC / WA 文字是一体的判定图示，
-   单独把图标藏掉会让徽标看起来缺了一角。唯一还能让位的是「结果待刷新」
+   注意优先级：**每例的运行耗时（.metric）与徽标在任何宽度下都不隐藏** ——
+   前者是这一行里唯一「看完会想改代码」的信息；后者是 AC / WA 唯一的判定结论。
+   唯一还能让位的是「结果待刷新」
    （它还有面板头部的 ?/N AC 徽标与卡片降透明度在提示）。 */
 @container (max-width: 22.5rem) {
   .card__head {
     gap: 6px;
-    padding: 7px 6px 7px 8px;
+    /* 左内边距与基础值同为 3px：省宽度的活交给右边（8 → 6），左边一让，
+       折叠箭头就会跟着左右横跳，而它才是这一行的起点。 */
+    padding: 7px 6px 7px 3px;
   }
 
-  /* 正文同步收一点内边距，把省下的宽度留给输入框与输出框 */
+  /* 正文：横向与基础值同为 6px —— 省宽度这个活早就由基础值干完了，旧的 8px 是基础值
+     还是 10px 时留下的，落在窄屏上反而比宽屏更松。纵向只把收尾再压 2px。
+     gap 4px 配 .io 的 8px：Actual 那行标签行高定死在 1.4em = 14px、文字白留 1px，
+     另有 margin-top 4px（见 .field__label--row 的注释），
+     所以 4 + 4 + 1 = 9px，与 input → Expected 那处的 8 + 1 = 9px 齐平。 */
   .card__body {
-    padding: 8px;
-    gap: 8px;
+    padding: 6px 6px 8px;
+    gap: 4px;
   }
 
   .io {
@@ -878,12 +1013,12 @@ function onLongCopy(event, full) {
   }
 }
 
-/* 再挤一档：间距收到最小，只让掉「结果待刷新」，把宽度省给运行耗时与徽标图标。
-   徽标图标（✓/✕）不藏：它与 AC / WA 文字是一体的，藏了徽标就缺一角。 */
+/* 再挤一档：间距收到最小，只让掉「结果待刷新」，把宽度省给运行耗时与徽标。
+   徽标不藏：AC / WA 是这一行唯一的判定结论。 */
 @container (max-width: 15.625rem) {
   .card__head {
     gap: 4px;
-    padding: 7px 5px 7px 6px;
+    padding: 7px 5px 7px 3px;
   }
 
   .stale {
