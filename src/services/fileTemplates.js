@@ -17,17 +17,26 @@
  * 注意 `''` 是**合法覆盖**（表示新建该语言文件时留空），所以取值一律 `??`、
  * 判型一律 `typeof === 'string'`，绝不能用 `||` 或真值判断 —— 那会把空模板吃掉。
  *
- * 【持久化时机】模块加载时先写回一次，让 `cp.fileTemplates` **总是存在**（空表就是
- * `{}`）。云同步的 applyProfile() 只写云端存在的键，键若缺席，「下载一份干净配置」
- * 就清不掉另一台设备上残留的自定义。之后每次 setTemplate / resetTemplate 同步落盘，
- * 与 i18n.setLocale、mdView.persist 同一体例（人工打字频率，不需要 debounce）。
+ * 【总开关单列一个键】`cp.fileTemplates.enabled`（'1' / '0'）与覆盖表分开，因为两者
+ * 性质不同：覆盖表是「内容」、开关是「偏好」。分开之后关掉功能不动用户的模板文本，
+ * 再打开还是原样；也不会出现「关掉就得清空覆盖」这种毁用户东西的做法。它同样进
+ * 云同步白名单。
+ *
+ * 【持久化时机】模块加载时把两个键都先写回一次，让它们**总是存在**（空表就是 `{}`、
+ * 开关就是 '1'）。云同步的 applyProfile() 只写云端存在的键，键若缺席，「下载一份干净
+ * 配置」就清不掉另一台设备上残留的自定义 / 关掉的开关。之后每次 setTemplate /
+ * resetTemplate / setTemplatesEnabled 同步落盘，与 i18n.setLocale、mdView.persist
+ * 同一体例（人工操作频率，不需要 debounce）。
  */
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { BUILTIN_TEMPLATES, LANGUAGE_IDS, langMetaByMonaco } from './templates.js'
 import { languageForPath } from './monaco/language.js'
 
 /** 云同步白名单里的成员（见 services/cloudProfile.js），改名要一起改 */
 export const FILE_TEMPLATES_KEY = 'cp.fileTemplates'
+
+/** 模板功能总开关的键，同样在白名单里 */
+export const FILE_TEMPLATES_ENABLED_KEY = 'cp.fileTemplates.enabled'
 
 /** 单份模板的字符上限：给云同步那份 64KB 的整包上限留余量（3 × 8000 ≈ 24K 码元） */
 export const TEMPLATE_MAX_LENGTH = 8000
@@ -67,14 +76,44 @@ function persist() {
   }
 }
 
+/** 读总开关：只有明确存过 '0' 才算关；缺省、存档损坏、隐私模式一律按「开」 */
+function readEnabled() {
+  try {
+    return window.localStorage.getItem(FILE_TEMPLATES_ENABLED_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+/** 落盘总开关。与 persist() 同一套「失败就只在本次会话里生效」 */
+function persistEnabled() {
+  try {
+    window.localStorage.setItem(FILE_TEMPLATES_ENABLED_KEY, templatesEnabled.value ? '1' : '0')
+  } catch {
+    /* 忽略 */
+  }
+}
+
 /**
  * 模块级单例：设置面板直接 import 它当响应式源（与 i18n 的 locale 同一体例）。
  * 只可**原地增删键**（overrides[id] = x / delete overrides[id]），整体换引用会丢响应式。
  */
 export const templateOverrides = reactive(readOverrides())
 
-// 让键恒存：见文件头「持久化时机」
+/** 模板功能总开关（设置 › 模板 顶部那颗）。与覆盖表同一体例的模块级单例 */
+export const templatesEnabled = ref(readEnabled())
+
+// 让两个键都恒存：见文件头「持久化时机」
 persist()
+persistEnabled()
+
+/** 开 / 关模板功能。关闭后新建文件与抓题的代码文件都给空内容，模板文本原样留着 */
+export function setTemplatesEnabled(value) {
+  const next = !!value
+  if (templatesEnabled.value === next) return
+  templatesEnabled.value = next
+  persistEnabled()
+}
 
 /**
  * 某语言的内置默认。未知名给空串，**刻意不做 cpp 回退** ——
@@ -97,11 +136,15 @@ export function templateForLanguage(id) {
  * 路径 → 模板。先归一到语言（复用 monaco/language.js 那张唯一的扩展名表，不另抄一份），
  * 再由 langMetaByMonaco 反查 LANGUAGES 里的语言 id。
  *
+ * 总开关关着时一律返回空串 —— 这是模板功能的**唯一写入口**，闸门设在这里就够了
+ * （新建文件与抓题都走它），不必去改两处调用方。
+ *
  * 认不出的扩展名（`.c` 的 Monaco 语言是 'c'、`.txt` 是 'plaintext'、无扩展名文件）
  * 一律返回空串，即「没有模板 → 内容为空」，与不传 initialContent 完全等价。
  * @param {string} path
  */
 export function templateForPath(path) {
+  if (!templatesEnabled.value) return ''
   // 空路径不能喂给 languageForPath：它内部的 normalize() 对非绝对路径会抛
   if (!path) return ''
   const meta = langMetaByMonaco(languageForPath(path))

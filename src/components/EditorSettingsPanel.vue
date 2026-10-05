@@ -62,7 +62,9 @@ import {
   isTemplateModified,
   resetTemplate,
   setTemplate,
+  setTemplatesEnabled,
   templateForLanguage,
+  templatesEnabled,
 } from '../services/fileTemplates.js'
 import { LANGUAGES } from '../services/templates.js'
 
@@ -331,7 +333,7 @@ const SECTIONS = [
   { id: 'help', titleKey: 'settings.section.help', icon: 'help' },
 ]
 
-// 文件模板的两张查表：语言 id → 文案 key / 扩展名。
+// 模板的两张查表：语言 id → 文案 key / 扩展名。
 // 表里存 key、模板里再 t() 一次，切界面语言才会跟着变；
 // 扩展名从 templates.js 的 LANGUAGES 取，不在面板里另写一份 'cpp' / 'py' / 'md'。
 const TEMPLATE_LABEL_KEYS = {
@@ -1708,12 +1710,30 @@ watch(pendingUnbind, (open) => {
         </template>
       </section>
 
-      <!-- 文件模板：新建文件时按扩展名归一到语言、填入对应模板。
-           三条都不落 cp.editorSettings，走 services/fileTemplates.js 自己的模块单例
+      <!-- 模板：新建文件时按扩展名归一到语言、填入对应模板。
+           总开关与三条模板都不落 cp.editorSettings，走 services/fileTemplates.js 自己的模块单例
            （与「界面语言」同一体例：模块自己读写 localStorage，不经 props / emits 中转）。 -->
       <section v-else-if="activeSection === 'templates'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.templates') }}</p>
         <p class="setting-group__note">{{ t('settings.templates.note') }}</p>
+
+        <div class="setting-row setting-row--template">
+          <span class="setting-row__head">
+            <span class="setting-row__label">{{ t('settings.templates.enable.label') }}</span>
+            <button
+              type="button"
+              class="switch setting-row__switch"
+              :class="{ 'is-on': templatesEnabled }"
+              role="switch"
+              :aria-checked="templatesEnabled"
+              :aria-label="t('settings.templates.enable.label')"
+              @click="setTemplatesEnabled(!templatesEnabled)"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+          <span class="setting-row__hint">{{ t('settings.templates.enable.hint') }}</span>
+        </div>
 
         <div
           v-for="id in TEMPLATE_LANGUAGE_IDS"
@@ -2958,7 +2978,7 @@ watch(pendingUnbind, (open) => {
   color: var(--text-faint);
 }
 
-/* -------------------------------------------------------- 文件模板
+/* -------------------------------------------------------- 模板
    一行 = 语言名 + 「恢复默认」+ 提示 + 一个多行文本框。整行竖排（.setting-row 默认是横排），
    故覆写 flex-direction；「恢复默认」靠 margin-left: auto 推到行右端。 */
 .setting-row--template {
@@ -2972,6 +2992,12 @@ watch(pendingUnbind, (open) => {
 }
 
 .setting-row__restore {
+  margin-left: auto;
+}
+
+/* 总开关那颗：与「恢复默认」同一摆法（推到行尾）。别照抄 .setting-row__control，
+   那套是「文本块 + 控件」两栏，而模板行是 flex-direction: column 的单栏。 */
+.setting-row__switch {
   margin-left: auto;
 }
 

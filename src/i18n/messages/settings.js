@@ -16,7 +16,7 @@ export default {
         common: '常用设置',
         appearance: '外观',
         editor: '编辑器',
-        templates: '文件模板',
+        templates: '模板',
         shortcuts: '快捷键',
         judge: '评测',
         runtime: '本地运行环境',
@@ -26,9 +26,13 @@ export default {
         help: '帮助',
       },
 
-      /** 文件模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
+      /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
       templates: {
-        note: '新建文件时按扩展名归一到语言、填入对应模板；插件抓来的题目代码文件也用它。改坏了点「恢复默认」即可，模板会随云端同步跟人走。',
+        note: '新建文件时按扩展名归一到语言、填入对应模板；插件抓来的题目代码文件也用它。改坏了点「恢复默认」即可，模板与开关都会随云端同步跟人走。',
+        enable: {
+          label: '启用模板',
+          hint: '关闭后新建文件与插件抓来的代码文件都是空的；下面的模板文本会原样留着，重新打开即可复用',
+        },
         hint: '新建 .{ext} 文件时的初始文本（原样写入，不做变量替换）',
         lang: {
           cpp: 'C++',
@@ -349,7 +353,7 @@ export default {
         common: 'Common',
         appearance: 'Appearance',
         editor: 'Editor',
-        templates: 'File templates',
+        templates: 'Templates',
         shortcuts: 'Shortcuts',
         judge: 'Judge',
         runtime: 'Local runtime',
@@ -359,9 +363,13 @@ export default {
         help: 'Help',
       },
 
-      /** 文件模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
+      /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
       templates: {
-        note: 'A new file is filled with the template for its language (resolved from the extension). Imported problem code uses it too. Broke one? Hit “Restore default”. Templates travel with cloud sync.',
+        note: 'A new file is filled with the template for its language (resolved from the extension). Imported problem code uses it too. Broke one? Hit “Restore default”. Templates and the switch travel with cloud sync.',
+        enable: {
+          label: 'Enable templates',
+          hint: 'When off, new files and imported problem code start empty; the templates below are kept as-is and reused once you turn it back on',
+        },
         hint: 'Initial text for a new .{ext} file (written verbatim, no variable substitution)',
         lang: {
           cpp: 'C++',

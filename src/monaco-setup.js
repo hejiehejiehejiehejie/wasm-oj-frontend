@@ -36,6 +36,13 @@ monaco.editor.defineTheme('dark', {
     // 但不构成一圈显眼的边。注意**不能**写成 null 或省略 —— 那会退回 #282828 默认值，等于没改。
     // 浅色主题（base: 'vs'）刻意不写：那边的默认值 #eeeeee 在落白底上本来就淡。
     'editor.lineHighlightBorder': '#222225',
+    // 行号。默认值（#858585，光标那一行再自动提亮到 #c6c6c6）跟正文灰得很近，
+    // 一栏数字在左边一直是「满格」的，读代码时视线容易被它拉过去。这里整体压暗一档，
+    // 让行号退成参考信息：普通行取 --text-faint，光标那一行取 --text-dim（仍保留
+    // Monaco 固有的「当前行行号更亮」层级，只是两档都往下走了一格）。
+    // 只影响代码文件 —— .md 的行号被 lineNumbers: 'md-off' 收掉了，看不见。
+    'editorLineNumber.foreground': '#6d6d72',
+    'editorLineNumber.activeForeground': '#9b9b9b',
     // 括号对的引导线：光标所在那一层的竖线 + 上下横线（见 indentGuides 的
     // .vertical / .horizontal-top / .horizontal-bottom）。这三项不配的话 Monaco 会兜底
     // 成括号色**原色**（#FFD700 / #DA70D6 / #179FFF），一整条线拉满饱和太抢眼。

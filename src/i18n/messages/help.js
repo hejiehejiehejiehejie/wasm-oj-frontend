@@ -134,7 +134,7 @@ export default {
               ],
               notes: [
                 '题目落进 〈年月〉/〈OJ〉/未分类/（工作区根下），样例整体替换进**评测样例**',
-                '代码文件的初始正文取自**文件模板**（按扩展名归到语言，设置 › 文件模板 里可改），题解归你写',
+                '代码文件的初始正文取自**模板**（按扩展名归到语言，设置 › 模板 里可改、也能整体关掉），题解归你写',
                 '重抓同一道题只刷新样例与元数据，你的题解一个字都不动',
                 '认题靠**题目链接**，不靠文件名',
                 '难度要自己填；本站要开着，插件才送得进来',
@@ -151,7 +151,7 @@ export default {
                 '输入名字后回车。输入框只选中主干，改完不用补后缀',
               ],
               notes: [
-                '新建文件的初始正文来自**文件模板**：按扩展名归到语言（.cpp / .py / .md），在设置 › **文件模板** 里可改、可逐份恢复默认',
+                '新建文件的初始正文来自**模板**：按扩展名归到语言（.cpp / .py / .md），在设置 › **模板** 里可改、可逐份恢复默认、也能整体关掉',
                 '右键文件还有**重命名**与**删除**',
                 '**题目信息**填五项：**题目链接**、**OJ**、**难度**、**日期**、**时限（秒）**',
                 '难度跟着 OJ 走：CF 与 AtCoder 用 800–3500 分数段，洛谷用官方八级',
@@ -318,7 +318,7 @@ export default {
               ],
               notes: [
                 'The problem lands in 〈year-month〉/〈OJ〉/未分类/ (under the workspace root), and its samples replace the contents of **Test cases**',
-                'The code file starts from the **file template** for its language (you can edit these under Settings › File templates) — the solution is yours to write',
+                'The code file starts from the **template** for its language (editable under Settings › Templates, and can be switched off entirely) — the solution is yours to write',
                 'Importing the same problem again only refreshes the samples and metadata; not a character of your solution is touched',
                 'Problems are identified by **Problem URL**, not by file name',
                 'You fill in the difficulty yourself, and this site has to be open for the extension to deliver anything',
@@ -335,7 +335,7 @@ export default {
                 'Type a name and press Enter. Only the stem is selected, so you do not need to retype the extension',
               ],
               notes: [
-                'A new file starts from its **file template**: the extension picks the language (.cpp / .py / .md), and Settings › **File templates** lets you edit each one or restore its default',
+                'A new file starts from its **template**: the extension picks the language (.cpp / .py / .md), and Settings › **Templates** lets you edit each one, restore its default, or switch the whole feature off',
                 'Right-clicking a file also offers **Rename** and **Delete**',
                 '**Problem info** holds five fields: **Problem URL**, **Judge**, **Difficulty**, **Date** and **Time limit (s)**',
                 'Difficulty follows the judge: Codeforces and AtCoder use the 800–3500 rating scale, Luogu uses its eight official levels',
