@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/src/styles/guide.css">
+    <link rel="canonical" href="https://www.998244353.best/privacy.en.html">
+    <!-- Language versions: x-default points at the Chinese page (the site's main audience).
+         privacy.html has the same three lines in reverse; change one, change the other. -->
+    <link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/privacy.html">
+    <link rel="alternate" hreflang="en" href="https://www.998244353.best/privacy.en.html">
+    <link rel="alternate" hreflang="x-default" href="https://www.998244353.best/privacy.html">
+    <meta name="robots" content="index, follow">
+    <meta name="description" content="Privacy policy for unnamed and its CC for Web browser extension: what stays in your browser, what the optional cloud sync uploads, what the extension reads, and how to reach us.">
+    <title>Privacy Policy · unnamed</title>
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="unnamed">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:locale:alternate" content="zh_CN">
+    <meta property="og:url" content="https://www.998244353.best/privacy.en.html">
+    <meta property="og:title" content="Privacy Policy · unnamed">
+    <meta property="og:description" content="What stays in your browser, what the optional cloud sync uploads, what the extension reads, and how to reach us.">
+    <!--
+      Theme sync: same localStorage contract as the main app (cp.editorSettings.theme).
+      Without a data-theme attribute base.css defaults to dark, so only switch for light.
+      Deliberately not type="module": a plain inline script is not moved or bundled by the build.
+
+      Sync obligation: this is the English version of the privacy policy and corresponds
+      item by item with privacy.html (the Chinese version). Change one, check the other.
+    -->
+    <script>
+      try {
+        var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
+        var theme = saved && saved.theme
+        if (theme === 'light' || theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch (error) {
+        /* private mode, or a corrupt entry: dark by default is fine */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page__top">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
+          <span class="brand__name">unnamed</span>
+        </a>
+        <div class="page__top-actions">
+          <a class="lang-link" href="/privacy.html" hreflang="zh-CN" lang="zh-CN">简体中文</a>
+          <a class="cta" href="/">Open unnamed</a>
+        </div>
+      </header>
+
+      <main class="doc">
+        <h1>Privacy Policy</h1>
+
+        <p class="note">
+          This policy covers <strong>unnamed</strong> (<code>www.998244353.best</code>) and its browser
+          extension <strong>CC for Web</strong>. Last updated: 2026-10-06.
+        </p>
+
+        <h2 id="summary">In one paragraph</h2>
+        <p>
+          There are no accounts here. Your code, problems and hand-written test cases stay in your own browser
+          and are never uploaded to our servers. The only thing that is ever uploaded is the preference profile
+          you <strong>explicitly</strong> push with &ldquo;Upload local settings&rdquo; &mdash; and that profile is
+          publicly readable.
+        </p>
+
+        <h2 id="local">What the site keeps in your browser</h2>
+        <p>All of the following lives in this browser on this device only. The site cannot read it and keeps no copy:</p>
+        <ul>
+          <li><strong>Editor preferences</strong> (theme, shortcuts, UI scale, sidebar position and split ratio, time limit) &mdash; in <code>localStorage</code>.</li>
+          <li><strong>File tree and file contents</strong> (your problems, code and notes) &mdash; in <code>IndexedDB</code>.</li>
+          <li><strong>Caches such as precompiled headers</strong> &mdash; also in <code>IndexedDB</code>.</li>
+        </ul>
+        <p>Clearing your browser data removes all of it. We have no way to get it back.</p>
+
+        <h2 id="cloud">The optional cloud sync</h2>
+        <p>
+          It only happens when you click &ldquo;Upload local settings&rdquo;, and only <strong>preference
+          items</strong> are uploaded: theme, shortcuts, UI scale, sidebar position, split ratio and time limit.
+        </p>
+        <p>
+          Once uploaded, that profile is <strong>publicly readable</strong>: anyone who knows your Codeforces
+          handle can fetch the same profile at an address of the form
+          <code>https://www.998244353.best/your-handle</code>, with no login required. Clicking
+          &ldquo;Upload local settings&rdquo; therefore means agreeing to publish that profile.
+        </p>
+        <p>
+          <strong>The judge server address, your hand-written test cases, the file tree and file contents are
+          never uploaded.</strong> To have an uploaded profile deleted, see the contact details below.
+        </p>
+
+        <h2 id="code">When your code leaves your device</h2>
+        <p>Only in these two cases, both of which you trigger yourself:</p>
+        <ul>
+          <li>
+            <strong>When you switch to an external judge service.</strong> If you switch the judging engine to
+            Piston or Judge0, your code is sent to <strong>the service address you entered yourself</strong>.
+            That deployment is yours and its data handling is up to you; this site is not involved and keeps nothing.
+          </li>
+          <li>
+            <strong>When you use the browser extension to grab a problem.</strong> The extension reads the current
+            problem page and delivers the statement and samples to the target you picked (a tool running on your own
+            machine, or the editor on this site you are already using). It does not go through our servers.
+          </li>
+        </ul>
+        <p>With the built-in local WASM sandbox, your code never leaves your device at all.</p>
+
+        <h2 id="extension">What the browser extension reads</h2>
+        <ul>
+          <li>Only when you click the extension icon or press its shortcut, it reads <strong>the URL of the current tab</strong> to decide whether the page is supported.</li>
+          <li>On supported problem sites, it reads <strong>the statement and sample text</strong> on that page.</li>
+          <li>It does not read other tabs, does not record browsing history, and collects no personally identifying information.</li>
+          <li>What it parses is sent only to the target you chose, and <strong>never through our servers</strong>.</li>
+        </ul>
+
+        <h2 id="never">What we do not do</h2>
+        <ul>
+          <li>We do not collect names, email addresses or phone numbers, and there is no sign-up.</li>
+          <li>No advertising, no analytics tracking, no profiling.</li>
+          <li>We do not sell, rent or share any data with third parties.</li>
+          <li>We never upload any file without your knowledge.</li>
+        </ul>
+
+        <h2 id="third-party">Third-party services</h2>
+        <ul>
+          <li>The site is hosted on Vercel and its static assets are distributed through Cloudflare; access logs are handled by those providers under their own privacy policies, and we keep nothing extra.</li>
+          <li>The three open-source monospace fonts bundled with the code area (JetBrains Mono / Fira Code / Cascadia Code) are downloaded only when you select one under <em>Settings &rsaquo; Editor &rsaquo; Font</em>.</li>
+          <li>See <a href="/notice.en.html">Third-party components and licences</a> for the full list.</li>
+        </ul>
+
+        <h2 id="children">Children</h2>
+        <p>This site is not aimed at children under 13, and we do not knowingly collect their personal information.</p>
+
+        <h2 id="changes">Changes to this policy</h2>
+        <p>
+          When this policy changes we update the &ldquo;Last updated&rdquo; date at the top of the page. Material
+          changes to our data practices will be called out on the site as well.
+        </p>
+
+        <h2 id="contact">Contact</h2>
+        <p>For questions about our data practices, or to have an uploaded profile deleted, please open an issue on GitHub:</p>
+        <ul>
+          <li>Site and cloud sync: <a href="https://github.com/hejiehejiehejiehejie/wasm-oj-frontend/issues">wasm-oj-frontend</a></li>
+          <li>Browser extension: <a href="https://github.com/hejiehejiehejiehejie/cph-companion/issues">cph-companion</a></li>
+        </ul>
+      </main>
+
+      <footer class="page__foot">
+        <a class="cta" href="/">Open unnamed</a>
+        <p><a href="/guide.en.html">User Guide</a> &middot; <a href="/notice.en.html">Third-party components and licences</a></p>
+        <p>An online IDE that compiles and runs C++ and Python in your browser.</p>
+      </footer>
+    </div>
+  </body>
+</html>

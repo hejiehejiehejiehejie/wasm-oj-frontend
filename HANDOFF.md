@@ -52,7 +52,8 @@
 index.html                      # 主应用入口：挂载点 + PWA（manifest / apple-touch-icon / theme-color，见第 9 节）+ 一整套 SEO 头（canonical / og / ld+json）+ 服务无脚本抓取器的 noscript 兜底正文（见第 12 节；那块正文**是给搜索引擎看的文案**，改界面能力时别忘了它）
 guide.html                      # 第二个 Vite 入口：使用指南长文（静态、无 Vue、无 JS），给搜索引擎直接抓取；样式在 src/styles/guide.css（见第 12 节）
 guide.en.html                   # 第三个 Vite 入口：上面那页的**英文版**，逐条对应（同为 12 节、同序、同数字），共用同一份 guide.css；两页用 hreflang 互链 + 页头各有一颗语言切换链接。**内容改了必须两版一起改**（见第 12 节）
-vite.config.js                  # 五个 rollup 入口（index / guide / guideEn / notice / noticeEn）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
+privacy.html / privacy.en.html  # 隐私政策的中英两版（2026-10-06 加，**手写**，复用 guide.css 与同一套页头/主题脚本）。存在的直接原因：Edge Add-ons 与 Firefox AMO 上架都要求填一个可访问的隐私政策 URL（见第 13 节）。**内容必须与站点实际行为一致**，重点两处：云端同步上传的是公开可读的偏好项、切到 Piston/Judge0 时代码发往你自己填的地址
+vite.config.js                  # 七个 rollup 入口（index / guide / guideEn / notice / noticeEn / privacy / privacyEn）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头 + sitemap.xml 的 MIME（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
 public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
@@ -60,7 +61,7 @@ public/favicon.svg              # 站点图标（唯一进 STATIC_ASSETS 的 svg
 public/og-cover.png             # 社交分享大图 1200×630（被 index.html / guide.html / guide.en.html 的 og:image 引用）
 public/extension/               # 站内分发的浏览器扩展安装包：cc-for-web-<版本>.zip（文件名带版本号是刻意的，见第 1 节与第 13 节）
 public/robots.txt               # 抓取规则 + 指向 sitemap
-public/sitemap.xml              # 站点地图（三条 URL：/ 与 guide 的中英两版，两版之间用 xhtml:link hreflang 互指）
+public/sitemap.xml              # 站点地图（五条 URL：/ 、guide 的中英两版、privacy 的中英两版；双语对之间用 xhtml:link hreflang 互指。notice 两页刻意不进）
 public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm-ld.wasm / clang-fs.tar.gz（约 52MB，进仓库）
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
 public/md/                      # 自托管的题解渲染器：katex.min.js / katex.min.css / marked.min.js / fonts/*.woff2（20 个字重）/ assets.json（清单，约 578KB）。**不进仓库**（.gitignore 已忽略）——它是构建输入而不是源码，由 `npm run md:runtime` 从 node_modules 生成，跟着 katex 版本走；同样不在 SW 预缓存清单里，用户点了「下载」才进 `cp-md-runtime`
@@ -605,7 +606,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 2026-09 加。主应用是纯前端 SPA，抓取器拿到空壳壳；为此补了**真正的静态 HTML 入口**——使用指南长文（不带 Vue、不带任何 JS 逻辑），并在 `index.html` 里给不执行 JS 的抓取器留了一段正文。全程零新增依赖。2026-09-29 起指南页有**中英两版**（`guide.html` / `guide.en.html`）。
 
-**五个 Vite 入口**（`vite.config.js` 的 `build.rollupOptions.input`）：`main` → `index.html`、`guide` → `guide.html`、`guideEn` → `guide.en.html`、`notice` → `notice.html`、`noticeEn` → `notice.en.html`。加新的静态页时照抄 `guide` 那一行即可——**`.html` 不列进 `input` 就不会被构建**（它不在 `public/` 下，不会被原样拷贝）。
+**七个 Vite 入口**（`vite.config.js` 的 `build.rollupOptions.input`）：`main` → `index.html`、`guide` → `guide.html`、`guideEn` → `guide.en.html`、`notice` → `notice.html`、`noticeEn` → `notice.en.html`、`privacy` → `privacy.html`、`privacyEn` → `privacy.en.html`。加新的静态页时照抄 `guide` 那一行即可——**`.html` 不列进 `input` 就不会被构建**（它不在 `public/` 下，不会被原样拷贝）。
 
 **`guide.css`（`src/styles/guide.css`）的两条硬约束**（两版 guide 共用这一份，别为英文版另起一个）：
 
@@ -647,12 +648,14 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 **其余 SEO 落点**（都在 `public/`，直接进产物）：
 
 - `public/robots.txt`：`Allow: /`，`Disallow: /wasm/`（52MB 工具链只在用户点下载时才请求，别占抓取预算）与 `/precache-manifest.json`；**不要** Disallow `/assets/`（Google 需要抓 JS/CSS 才能渲染页面）；末尾指 `Sitemap:` 绝对地址。
-- `public/sitemap.xml`：只有三条 URL（`/`、`/guide.html`、`/guide.en.html`），**故意不写 `lastmod`**（写死的日期会变成假信息；`changefreq` / `priority` 已被 Google 忽略）。指南页两条 URL 上各挂一组 `<xhtml:link rel="alternate" hreflang=…>` 互指（含 `x-default` 指中文页），`urlset` 因此要带 `xmlns:xhtml`——**不加这组互指，Google 会把两版当成互相竞争的重复内容**。
+- `public/sitemap.xml`：五条 URL（`/`、`/guide.html`、`/guide.en.html`、`/privacy.html`、`/privacy.en.html`），**故意不写 `lastmod`**（写死的日期会变成假信息；`changefreq` / `priority` 已被 Google 忽略）。每一对双语页的两条 URL 上各挂一组 `<xhtml:link rel="alternate" hreflang=…>` 互指（含 `x-default` 指中文页），`urlset` 因此要带 `xmlns:xhtml`——**不加这组互指，Google 会把两版当成互相竞争的重复内容**。notice 两页**刻意不进**（许可义务页，不抢排名）。
 - `public/og-cover.png`：1200×630 的分享大图，被 `index.html` / `guide.html` / `guide.en.html` 的 `og:image` 引用（`og:image` 必须是绝对地址）。
 - canonical / `og:*` / `twitter:*` / `ld+json` 都写在各自的 HTML `<head>` 里；站点主地址是**带 `www`** 的 `https://www.998244353.best`（apex 会 308 跳过来，canonical 用来收掉 Vercel 预览域等重复地址）。
 - **主应用与两版 guide 的语言声明方式不同，别套用**：主应用是**同一个 URL 服务两种语言**（`cp.uiLocale` 存档优先、否则跟随浏览器），所以 `index.html` 里只写 `og:locale` + `og:locale:alternate`、`ld+json` 的 `inLanguage` 给成数组，**刻意不写 hreflang**（没有「另一语言版本的 URL」这回事，写了反而错）；两版 guide 是**一页一语言**，那边才需要 hreflang 三件套。
 
-**致谢页也是「一页一语言」的一对**（2026-09-30 加）：`NOTICE.md` → `notice.html`（中文）、`NOTICE.en.md` → `notice.en.html`（英文），两页由 `scripts/render-notice.mjs` 一次生成（`npm run notice`，已挂 `prebuild`），页头各有一颗语言切换链接 + 一组对称的三行 hreflang，canonical 各指自己。**`notice.en.html` 与两版 guide 同列 `vite.config.js` 的 `input`，否则不会被构建**。**它刻意不进 `public/sitemap.xml`**（那份地图只有 `/` 与两版 guide 三条 URL，致谢页是许可义务页、不是要抢排名的内容页——要加就两页一起加，并带上 `xhtml:link` 互指）。两份源文件之间**没有自动同步**：章节与表格行逐条对应，改一份就要手改另一份（同 guide 的双语约定）；语言相关的外壳文案不写在 markdown 里，集中在 `render-notice.mjs` 的 `PAGES` 表。
+**致谢页也是「一页一语言」的一对**（2026-09-30 加）：`NOTICE.md` → `notice.html`（中文）、`NOTICE.en.md` → `notice.en.html`（英文），两页由 `scripts/render-notice.mjs` 一次生成（`npm run notice`，已挂 `prebuild`），页头各有一颗语言切换链接 + 一组对称的三行 hreflang，canonical 各指自己。**`notice.en.html` 与两版 guide 同列 `vite.config.js` 的 `input`，否则不会被构建**。**它刻意不进 `public/sitemap.xml`**（那份地图只有五条 URL，见上；致谢页是许可义务页、不是要抢排名的内容页——要加就两页一起加，并带上 `xhtml:link` 互指）。两份源文件之间**没有自动同步**：章节与表格行逐条对应，改一份就要手改另一份（同 guide 的双语约定）；语言相关的外壳文案不写在 markdown 里，集中在 `render-notice.mjs` 的 `PAGES` 表。
+
+**隐私政策也是一对「一页一语言」**（2026-10-06 加）：`privacy.html`（中文）/ `privacy.en.html`（英文），**手写**——没走 notice 那套生成器，因为这份文档改一次就长期不动，不值得再造一条 markdown 管线。复用 `guide.css` 与同一套页头 / 主题脚本 / 语言切换链接，canonical 各指自己 + 三行对称 hreflang，并与 `sitemap.xml` 里那两条 URL 逐字对齐。**它存在的直接原因是商店上架**：Edge Add-ons 与 Firefox AMO 都要求填一个可访问的隐私政策 URL，所以它有一条额外纪律——**内容必须与站点实际行为一致**。目前强制对齐的三处行为：① 云端同步上传的是偏好类项、且上传后公开可读；② 切到 Piston / Judge0 时代码发往**你自己填的**服务地址；③ 扩展只读当前标签页网址与受支持站点的题面样例。**改这三处行为就要回来改这两页**。页脚与正文的联系方式指向两个仓库的 issue（站点 → `wasm-oj-frontend`，扩展 → `cph-companion`），换仓库要同步。
 
 **部署侧的 MIME**（`vercel.json`，见第 10 节）：`/robots.txt` 补 `text/plain; charset=utf-8`、`/sitemap.xml` 补 `application/xml; charset=utf-8`，两者都禁缓存（`max-age=0, must-revalidate`）。
 

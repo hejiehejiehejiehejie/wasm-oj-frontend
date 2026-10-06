@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/src/styles/guide.css">
+    <link rel="canonical" href="https://www.998244353.best/privacy.html">
+    <!-- 双语互链：hreflang 告诉搜索引擎这两页是同一份内容的两套语言；
+         x-default 指本页（站点的主要受众）。privacy.en.html 里有对称的三行，改一处要同步另一处。 -->
+    <link rel="alternate" hreflang="zh-CN" href="https://www.998244353.best/privacy.html">
+    <link rel="alternate" hreflang="en" href="https://www.998244353.best/privacy.en.html">
+    <link rel="alternate" hreflang="x-default" href="https://www.998244353.best/privacy.html">
+    <meta name="robots" content="index, follow">
+    <meta name="description" content="unnamed 与浏览器扩展 CC for Web 的隐私政策：数据保存在你浏览器本地、什么情况下会上传到云端、扩展会读取什么，以及联系方式。">
+    <title>隐私政策 · unnamed</title>
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="unnamed">
+    <meta property="og:locale" content="zh_CN">
+    <meta property="og:locale:alternate" content="en_US">
+    <meta property="og:url" content="https://www.998244353.best/privacy.html">
+    <meta property="og:title" content="隐私政策 · unnamed">
+    <meta property="og:description" content="数据保存在你浏览器本地、什么情况下会上传到云端、扩展会读取什么，以及联系方式。">
+    <!--
+      主题同步：和主应用读同一份 localStorage 契约（cp.editorSettings.theme）。
+      不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
+      故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
+
+      同步义务：本页是隐私政策的「中文版」，与 privacy.en.html（英文版）逐条对应 ——
+      章节顺序与条目必须两边都对得上。改任意一处都要检查另一处。
+    -->
+    <script>
+      try {
+        var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
+        var theme = saved && saved.theme
+        if (theme === 'light' || theme === 'cph-light') {
+          document.documentElement.dataset.theme = 'light'
+        }
+      } catch (error) {
+        /* 隐私模式或存档损坏：按默认深色渲染即可 */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page__top">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true">&lt;/&gt;</span>
+          <span class="brand__name">unnamed</span>
+        </a>
+        <div class="page__top-actions">
+          <!-- lang 属性让屏幕阅读器用英文读这颗链接本身，与它指向的页面一致 -->
+          <a class="lang-link" href="/privacy.en.html" hreflang="en" lang="en">English</a>
+          <a class="cta" href="/">打开 unnamed</a>
+        </div>
+      </header>
+
+      <main class="doc">
+        <h1>隐私政策</h1>
+
+        <p class="note">
+          本政策适用于本站 <strong>unnamed</strong>（<code>www.998244353.best</code>）与浏览器扩展
+          <strong>CC for Web</strong>。最后更新：2026-10-06。
+        </p>
+
+        <h2 id="summary">一句话总结</h2>
+        <p>
+          本站没有账号体系，你的代码、题目与手写测试用例都只存在你自己的浏览器里，不会上传到我们的服务器。
+          唯一会上传的是你<strong>主动点击</strong>「上传本机设置」的那份偏好配置，而且它是公开可读的。
+        </p>
+
+        <h2 id="local">站点在你的浏览器本地保存什么</h2>
+        <p>下列数据都只在这台设备的这个浏览器里，本站无法读取，也没有副本：</p>
+        <ul>
+          <li><strong>编辑器偏好</strong>（主题、快捷键、界面缩放、侧边栏位置与两栏比例、运行时限）——存在浏览器的 <code>localStorage</code> 里。</li>
+          <li><strong>文件树与文件正文</strong>（你的题目、代码、题解）——存在浏览器的 <code>IndexedDB</code> 里。</li>
+          <li><strong>预编译头等缓存</strong>——同样在 <code>IndexedDB</code> 里。</li>
+        </ul>
+        <p>清除浏览器数据会把这些一并清掉。我们没有任何途径把它们取回。</p>
+
+        <h2 id="cloud">可选的云端同步</h2>
+        <p>
+          只有你主动点击「上传本机设置」时才会发生，上传的只有<strong>偏好类项</strong>：
+          主题、快捷键、界面缩放、侧边栏位置、两栏比例、运行时限。
+        </p>
+        <p>
+          上传之后这份配置是<strong>公开可读</strong>的：任何人不需要登录，只要知道你的 Codeforces 用户名，
+          就能通过形如 <code>https://www.998244353.best/用户名</code> 的地址取到同一份配置。
+          所以点「上传本机设置」就等于同意公开这份配置。
+        </p>
+        <p>
+          <strong>判题服务器地址、手写测试用例、文件树与文件正文都不会上传。</strong>
+          若你希望删除已上传的配置，见文末联系方式。
+        </p>
+
+        <h2 id="code">代码什么时候会离开你的设备</h2>
+        <p>只有两种情况，且都由你主动触发：</p>
+        <ul>
+          <li>
+            <strong>切换到外部评测服务时。</strong>当你把评测引擎切到 Piston 或 Judge0，
+            代码会被发送到<strong>你自己填写的那个服务地址</strong>。那是你自己的部署，数据处理方式由你决定，
+            本站不经手、也不留存。
+          </li>
+          <li>
+            <strong>使用浏览器扩展抓题时。</strong>扩展读取当前题目页，把题面与样例投递给你指定的接收端
+            （本机运行的工具，或你自己正在使用的本站编辑器），不经过我们的服务器。
+          </li>
+        </ul>
+        <p>使用内置的本地 WASM 沙箱时，代码始终留在你的设备上。</p>
+
+        <h2 id="extension">浏览器扩展会读取什么</h2>
+        <ul>
+          <li>只在你点击扩展图标或按下快捷键时，读取<strong>当前标签页的网址</strong>，用来判断这个页面是否受支持。</li>
+          <li>在受支持的题目站点上，读取该页面的<strong>题面与样例文本</strong>。</li>
+          <li>不读取其它标签页，不记录浏览历史，不采集任何个人身份信息。</li>
+          <li>解析结果只发送到你自己选择的目标，<strong>不经过我们的服务器</strong>。</li>
+        </ul>
+
+        <h2 id="never">我们不做什么</h2>
+        <ul>
+          <li>不收集姓名、邮箱、手机号等个人身份信息，本站也不需要注册。</li>
+          <li>不做广告，不做埋点统计，不做用户画像。</li>
+          <li>不出售、不出租、不共享任何数据给第三方。</li>
+          <li>不在你不知情的情况下上传任何文件。</li>
+        </ul>
+
+        <h2 id="third-party">第三方服务</h2>
+        <ul>
+          <li>本站通过 Vercel 托管、Cloudflare 分发静态资源；访问日志由这两家服务商按各自的隐私政策处理，我们不做额外留存。</li>
+          <li>代码区内置的三款开源等宽字体（JetBrains Mono / Fira Code / Cascadia Code）只在你于「设置 › 编辑器 › 字体」里选中时才下载。</li>
+          <li>完整组件与许可证清单见<a href="/notice.html">第三方开源组件与许可</a>。</li>
+        </ul>
+
+        <h2 id="children">儿童</h2>
+        <p>本站不面向 13 岁以下儿童，也不会在知情的情况下收集其个人信息。</p>
+
+        <h2 id="changes">政策变更</h2>
+        <p>
+          本政策更新时会修改本页顶部的「最后更新」日期。若涉及数据实践的实质性变更，
+          我们会在站内另行说明。
+        </p>
+
+        <h2 id="contact">联系方式</h2>
+        <p>对数据实践有疑问，或希望删除你已上传的云端配置，请在 GitHub 上提 issue：</p>
+        <ul>
+          <li>站点与云端同步：<a href="https://github.com/hejiehejiehejiehejie/wasm-oj-frontend/issues">wasm-oj-frontend</a></li>
+          <li>浏览器扩展：<a href="https://github.com/hejiehejiehejiehejie/cph-companion/issues">cph-companion</a></li>
+        </ul>
+      </main>
+
+      <footer class="page__foot">
+        <a class="cta" href="/">打开 unnamed</a>
+        <p><a href="/guide.html">使用指南</a> · <a href="/notice.html">第三方开源组件与许可</a></p>
+        <p>在浏览器里编译运行 C++ 与 Python 的在线 IDE。</p>
+      </footer>
+    </div>
+  </body>
+</html>
