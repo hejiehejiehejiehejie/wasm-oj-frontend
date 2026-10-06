@@ -13,6 +13,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "verify": "node scripts/verify-ui.mjs",
+    "screenshots:store": "node scripts/generate-store-screenshots.mjs",
     "notice": "node scripts/render-notice.mjs",
     "notice:check": "node scripts/render-notice.mjs --check",
     "wasm:opt": "node scripts/optimize-wasm.mjs",

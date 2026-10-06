@@ -66,6 +66,7 @@ public/wasm/8.0.1/              # 自托管的 C++ 工具链：clang.wasm / wasm
 public/wasm/python-3.11.3/      # 自托管的 CPython（wasm32-wasi）：python.wasm + python-fs.tar.gz（约 24MB，进仓库）
 public/md/                      # 自托管的题解渲染器：katex.min.js / katex.min.css / marked.min.js / fonts/*.woff2（20 个字重）/ assets.json（清单，约 578KB）。**不进仓库**（.gitignore 已忽略）——它是构建输入而不是源码，由 `npm run md:runtime` 从 node_modules 生成，跟着 katex 版本走；同样不在 SW 预缓存清单里，用户点了「下载」才进 `cp-md-runtime`
 scripts/verify-ui.mjs           # 无头回归脚本（B–H 应当是绿的，A 是已知竞态，见第 8 节；B 步走的是「设置页签」；H 步是 2026-09-30 加的题解回归）
+scripts/generate-store-screenshots.mjs # 出浏览器扩展商店的截图（npm run screenshots:store）：自己挑空闲端口起 dev server → 用 postMessage 投一条真的 cp-task（Codeforces 158A 的题目 JSON）走 importProblem 落盘 → 截 1280×800。产出在 screenshots/（.gitignore 已忽略，是本地物料）。**只产「站点工作区」这一张**：工具栏图标画在浏览器 UI 上、系统通知画在操作系统层，自动化够不着，那两张只能真机手拍（操作单在 cph-companion/SUBMISSION-EDGE.md 第 5.1 节）
 scripts/optimize-wasm.mjs       # wasm-opt 体积优化（npm run wasm:opt）——**刻意未接进构建**，结论见第 7 节
 scripts/prepare-md-runtime.mjs  # 把 node_modules 里的 katex / marked 抄进 public/md/（裁掉 CSS 里的 woff / ttf 回退、写 assets.json），挂在 predev / prebuild 上
 scripts/render-notice.mjs       # NOTICE.md / NOTICE.en.md → notice.html / notice.en.html（`npm run notice`，已挂在 prebuild 上；`--check` 校验两页是否最新）。语言相关的外壳文案（lang / canonical / 标题 / 描述 / 页头语言链 / 页脚）在文件内的 PAGES 表里，**不写进 markdown**；自写的极简 markdown 子集渲染，不引第三方解析器
