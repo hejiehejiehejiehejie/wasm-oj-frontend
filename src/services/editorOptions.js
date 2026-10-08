@@ -284,6 +284,21 @@ export function editorOptions(settings, scale = 1, { markdown = false } = {}) {
       useShadows: false,
     },
     stickyScroll: { enabled: settings.stickyScroll },
+    // 智能提示。补全内容本身在 services/monaco/completion.js（C/C++/Python 的关键字 /
+    // 标准库 / 片段）；这里只管「什么时候弹、按什么键收」——这几项 Monaco 各有默认值，
+    // 显式写出来是为了不随版本漂移，也方便一处看清编辑器的补全行为。
+    // comments / strings 关掉是刻意的：那两处的词多半是行文，弹一屏建议只会碍事。
+    quickSuggestions: { other: 'on', comments: 'off', strings: 'off' },
+    // 输入 `.` `:` 等触发字符时也要弹（provider 的 triggerCharacters 见上）
+    suggestOnTriggerCharacters: true,
+    // 同文档里出现过的词也参与补全（Monaco 默认就是这个档，写出来备查）
+    wordBasedSuggestions: 'currentDocument',
+    // Tab 接受当前建议（没有建议时 Tab 照常插入制表符 / 空格）
+    tabCompletion: 'on',
+    // 'smart'：光标处已经写完一个完整词时 Enter 才是换行，避免敲回车顺手吞掉一条建议
+    acceptSuggestionOnEnter: 'smart',
+    // 片段不挤掉同文档词汇（completion.js 里给片段排了 zz_ 前缀，两者同屏）
+    suggest: { snippetsPreventQuickSuggestions: false },
   }
 }
 

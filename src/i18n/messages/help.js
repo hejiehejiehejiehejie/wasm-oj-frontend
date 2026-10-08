@@ -174,6 +174,20 @@ export default {
                 '工具栏右端那颗**全屏**按钮让编辑区占满窗口，按 Esc 退出',
               ],
             },
+            {
+              name: '编辑器有自动补全吗？',
+              role: '有，但只给 C / C++ / Python 三种语言的代码文件。',
+              steps: [
+                '在 .c / .cpp / .py 里打几个字母，候选框会自动弹出',
+                '方向键翻动，Tab 采用当前那条，Esc 关掉',
+                '片段带占位符：采用后按 Tab 在占位符之间跳',
+              ],
+              notes: [
+                '候选分三类：关键字、常用标准库（vector / sort / printf / print）与代码片段（main / fori / ifmain）',
+                '它是**查表**，不是语言服务：不认变量名与类型、不能跳转定义，也不会实时报错',
+                '同一个文件里出现过的词也会一起建议；.md 等其它文件不参与',
+              ],
+            },
           ],
         },
         {
@@ -356,6 +370,20 @@ export default {
                 'Notes are not judged: opening a .md greys out the run button, and ⌘/Ctrl + Enter will not start a compilation',
                 'Hover a toolbar button to see its shortcut; those 14 shortcuts only apply inside .md',
                 'The **full screen** button at the right end of the toolbar gives the editor the whole window — press Esc to leave',
+              ],
+            },
+            {
+              name: 'Does the editor autocomplete?',
+              role: 'Yes — but only for C, C++ and Python code files.',
+              steps: [
+                'Type a few letters in a .c / .cpp / .py file and the suggestion box appears on its own',
+                'Arrow keys move through the list, Tab accepts the highlighted one, Esc dismisses it',
+                'Snippets carry placeholders — press Tab after accepting one to jump between them',
+              ],
+              notes: [
+                'Three kinds of candidate: keywords, common standard-library names (vector / sort / printf / print) and snippets (main / fori / ifmain)',
+                'It is a **lookup table**, not a language service: it does not know your variable names or types, cannot jump to definitions and reports no errors',
+                'Words already used in the same file are suggested too; .md and other files are not covered',
               ],
             },
           ],

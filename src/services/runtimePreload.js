@@ -12,6 +12,7 @@
  *    失败只意味着「这次没提前下好」，之后真正要用时照样会按需下载。
  */
 import { preload, probeRuntime } from './wasmRuntime.js'
+import { IS_DESKTOP } from './platform.js'
 
 /** 勾选项落在这个键里：运行时 id 的数组，`[]`（默认）表示一个都不预下载 */
 export const AUTO_PRELOAD_KEY = 'cp.autoPreload'
@@ -46,6 +47,10 @@ export async function runAutoPreload() {
 
 /** 等浏览器空闲再动手；没有 requestIdleCallback（老 Safari）就退回一个短延时 */
 export function scheduleAutoPreload() {
+  // 桌面端没有 Cache Storage，这套自托管运行时在那边既下不了也用不上
+  // （用系统 clang++ 取代，见 HANDOFF 第 14 节第 3、4 条），不预下载。
+  if (IS_DESKTOP) return
+
   const run = () => {
     void runAutoPreload()
   }

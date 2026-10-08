@@ -119,7 +119,7 @@ src/
     mdRuntime.js                # 题解渲染运行时的本地侧：/md/assets.json 清单 + cp-md-runtime 缓存桶 + 探针 / 下载 / 卸载 / 注入
     editorOptions.js            # 编辑器偏好的单一出处：默认值 24 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24。最后一项 `statusBar`（默认开，2026-09-30 加）**不是 Monaco 选项**、不进 `editorOptions()`，它只管编辑区底部那条状态栏的显隐
     problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()。meta **五项**：url / oj / difficulty / date / **timeLimit**（毫秒，100–60000，0 = 未设置；判题时优先于全局档位，见第 5 节坑 17）
-    engines/                    # 引擎注册表：piston（默认）/ judge0 / wasm / echo
+    engines/                    # 引擎注册表：wasm（网页默认）/ native（桌面默认）/ piston / judge0 / echo。平台专属引擎在对象上写 `platforms: ['web'|'desktop']` 限定，注册表的 engineChoices / defaultBases / getEngine / DEFAULT_ENGINE_ID 都按它过滤（见第 14 节）
     wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热。**另外它还兼着「运行时」这个概念的三个出口**（probeRuntime / preload / uninstallRuntime），`language === 'markdown'` 时转给 mdRuntime —— 设置视图「应用 › 本地运行环境」才能用同一套代码渲染三行
     runnoSandbox.js             # runno 双管线：C++ 编译（工具链地址、编译产物缓存、PCH 生成）+ Python 解释运行
     vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
@@ -468,6 +468,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **全局快捷键（2026-09 加）**：可绑定的只有 6 个动作——运行全部用例 / 显示隐藏侧边栏 / **切换侧栏面板** / 侧边栏左右对调 / 新增测试用例 / 打开收起设置（表在 `SHORTCUT_ACTIONS`）。**没登记的动作就是做不到的**：格式化没进来，因为 Monaco 内置的 `Shift+Alt+F` 在 C++ / Python 下没有注册 formatter，绑了也是空按。**题解那 14 条格式键位刻意不在这个表里**（它们不可改、也只在 `.md` 里说得通，注册在 Monaco 上）。绑定的键在编辑器里同样生效（监听在 window 捕获阶段，见第 5 节坑 21）；侧边栏折叠时按运行键会先把结果亮出来（见第 3 节「开跑必亮结果」），它和评测面板页脚那颗 ▶ 走的是同一个出口。**插件的快捷键改不了**：浏览器不允许网页改写扩展键位，也没法跳转到 `chrome://extensions/shortcuts`，所以设置视图里那一块只做「查看 + 复制该地址」。
 - **模板（2026-10-06 加）**：新建文件时按扩展名归一到语言、填入该语言的初始正文（`.cpp` → C++、`.py` → Python、`.md` → 题解）。归链是 `languageForPath()`（`services/monaco/language.js`）→ Monaco languageId → `langMetaByMonaco()` → 语言 id；**认不出的扩展名（`.c` / `.txt` / 无扩展名）给空文件**，`.c` 不会落到 C++ 模板。插件抓题生成的代码文件走同一条路（`vfs/problemImport.js` 里 `vfs.createFile(codePath, templateForPath(codePath))`，仍守着 `if (!existingCode)` 那道闸门——已存在的题解一个字都不动）。三份模板可在 设置 › **模板** 里改、可逐份**恢复默认**；那一节顶部的**启用模板**总开关可以整体关掉（关掉后新建与抓题都给空文件，模板文本原样留着，闸门只在 `templateForPath()` 一处）。**不支持占位符变量**（纯静态文本、原样写入）。覆盖表与开关都随云同步走（见第 6 节）。`templateForPath('')` 有护栏——`languageForPath('')` 会抛 `error.pathNotAbsolute`。
 - **代码区的字体是自托管的（2026-10-02 加）**：界面（代码区以外）仍然只用系统字体；代码区另内置三款等宽字体（JetBrains Mono / Fira Code / Cascadia Code，latin 子集、合计 149KB），**只在下拉里选中时才下载**，不依赖任何第三方服务。写文案时别写成「界面全面自带字体」——「默认」档与其余 4 项仍是系统字体；另外「字体连写」只对**带连字的字体**有效：这三款有，系统内置的 SF Mono / Menlo / Consolas / Courier New 一款都没有。
+- **编辑器自动补全（2026-10-08 加）**：C / C++ / Python 有一张**静态补全表**——关键字 + 常用标准库（`vector` / `sort` / `printf` / `cin` / `print` / `sorted` …）+ 代码片段（`main` / `fastio` / `fori` / `ifmain` / `readints` …）。表在 `services/monaco/completion.js`，由 `monaco-setup.js` 顶层**副作用导入**注册（模块只求值一次，注册也就一次），**不加设置开关、恒开**。写文案时别写成「IntelliSense / 语言服务」：它**不是**语义分析——不认变量名与类型、没有跳转定义、没有实时报错，只是「表里的候选 + 同文档里出现过的词」，`markdown` 也不在这张表里（散文用不上）。Monaco 内置的高亮 / 括号配对 / 注释 / 自动闭合 / 缩进规则本来就都有，这次没动。补全的**弹法**（快捷建议 / 触发字符 / Tab 接受 / Enter 策略）显式写在 `editorOptions.js` 里，不再依赖 Monaco 各版本的默认值。一条实现纪律：**每条候选都必须给 `insertText`**（表里没写的由 provider 用 `label` 兜底）——漏给的话补全框照样弹，但 Monaco 的内联补全适配层会拿 `undefined` 去调 `.replaceAll`，控制台整片红。文案五处已同步（`guide.html` §11 / `guide.en.html` §11 / `help.js`「抓题与文件」组 / `docs/使用手册.md` §4 / `index.html` noscript 那条 Monaco 特性行）。另一条实现纪律：**`#` 不在 Monaco 的 `wordPattern` 里**，打 `#inc` 时它只认单词 `inc`，默认的替换范围漏掉那个 `#`，采用 `#include <bits/stdc++.h>` 会得到 `##include …`（症状像是「在已有内容后面又贴了一段」）。provider 里把紧贴单词左边的 `#` 一并算进 range（`swallowHash`，**只给 C / C++**——Python 的 `#` 是注释开头，吞了反而错）；顺带过滤也准了，因为 Monaco 是拿 range 里的文本去比 label 的。
 
 ## 8. 验证方式
 
@@ -750,4 +751,135 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 加/改「网页能改的扩展配置」→ 三处要一起动：扩展 `background.ts` 的 `WRITABLE_CONFIG_KEYS`、`getExtensionInfo()` 里读出来的 `config` 字段、站点 `EditorSettingsPanel.vue` 的 `EXTENSION_DESTINATIONS`（键名与文案），以及 `useCompanionBridge.js` 里 `cp-config` 回包的处理。网页端**没有**写扩展存储的能力，只能走这条消息通路。
 - 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
 - 改 `useCompanionBridge.js` 里的**消息名**（`cp-ping` / `cp-task` / …）→ 那是与 `cph-companion` 的**跨仓契约**，必须同步改扩展的 `src/bridge.ts` + `src/background.ts`，再升版本号发新版（2026-10-01 就是一次这样的改动：`cph-*` 全改成 `cp-*`）。**结论是「两边不同版就完全失联」**，而且失败是静默的——只剩「未检测到插件」。注意 `EXTENSION_SOURCE`（`competitive-companion`）是**扩展上游的标识，不是这次那批消息名，改它等于单方面毁约**；`PAGE_SOURCE` 才是本站自己的那半边。
+
+## 14. 多平台移植（**目标已定，尚未开工**：Tauri 桌面端）
+
+**目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
+
+**架构定调（照这个做）**：前端只负责 UI，**凡是碰系统的东西——读写文件、调编译器、起子进程——全部放在 Rust 侧**，前端只通过 `invoke` 递一个字符串 / 数据对象过去，结果再拿回来。所以 Tauri 侧**不用**给前端开 `shell` / `fs` 权限插件，权限面收到最小（这是这条路线最主要的价值）。参考方案里那段 `main.rs` 的 `run_cpp` 就是这个形状：前端送 `code`，Rust 落盘 → 调 `clang++` → 跑 → 回 stdout/stderr。
+
+**先纠正参考方案里与本仓不符的地方（照抄会直接踩坑）**：
+
+| 参考方案 | 本仓实际 |
+| --- | --- |
+| React 项目、产物目录 `build` | **Vue 3 + Vite**，产物目录 **`dist`**（第 10 节） |
+| dev server `localhost:3000` / `5173` | **`http://localhost:5199`**（`vite.config.js` 写死，扩展的 `TARGET_SITE_PATTERNS` 也认它，见第 13 节） |
+| `npm run start` | `npm run dev` / `npm run build` |
+| `main.rs` 里写死 `clang++` + `env::temp_dir()` + 固定名 `temp_code.cpp` / `temp_exec` | **只能当原型**：固定文件名在并发用例（`runner.js` 并发 2）下会互相覆盖；要按运行轮次隔离临时目录、跑完即清，并接上本仓既有的时限 / kill / stdin / 退出码语义（见下） |
+
+**接进本仓时要对齐的既有契约**：
+
+- **走引擎注册表，别绕过它**：新引擎落在 `src/services/engines/`，由 `runner.js` 调度；网页构建的 `DEFAULT_ENGINE_ID` 仍是 wasm 沙箱（第 7 节），桌面端由**运行时探测**（`'__TAURI_INTERNALS__' in window`）改指向原生引擎 —— 两端共用同一份 `dist`，所以没用构建期变量，见 14.C。
+- **命运要与现有沙箱一致**：时限（`--timeLimit` 同口径，只计运行段）、超时 `kill()`、stdin 分块推、编译产物缓存（对应 `compileCache`）、卡片耗时口径（第 7 节「耗时口径」那段，别改回去）、引擎 outcome 词表（`ok / compile-error / runtime-error / timeout / unreachable / cancelled`）→ `runner.js` 翻成 `AC / WA / CE / TLE / RE / ERR`。原生引擎只是把「怎么跑」换了，**上面这些口径一个都不许另起一套**。
+- **命令名与参数名是跨语言契约**：Rust `#[tauri::command] fn run_cpp(code: String)` 与前端 `invoke('run_cpp', { code })` 必须逐字对上；Tauri v2 的 `invoke` 从 `@tauri-apps/api/core` 引（不是 `@tauri-apps/api/tauri`）。多参数（如 `entryPath`）要按 Tauri 的 `rename_all` 规则对齐大小写，写错了只会得到一句「参数缺失」。
+
+**落地前必须一起想清楚的九件事（都是本仓硬约束的延伸）**：
+
+1. **COOP / COEP 与 `SharedArrayBuffer`**：浏览器版沙箱靠 `vite.config.js` + `vercel.json` 那组 `Cross-Origin-Opener-Policy: same-origin` / `Cross-Origin-Embedder-Policy: require-corp` 才拿到 `SharedArrayBuffer`（第 10 节第 1 条）。Tauri 的 webview 不走 Vercel，**这组头要在 Tauri 配置侧另设一份**（`tauri.conf.json` 的 `app.security.headers` / 自定义协议的响应头，具体字段开工时按所用 Tauri 版本核），否则桌面端连现有的 WASM 沙箱都起不来。
+2. **存储契约照旧，但数据不通用**：`cp.*` / `cp-vfs` / `cp-pch` 的唯一出处仍是 `storageNames.js`（第 1 节）。桌面端 webview 是另一个 origin，localStorage / IndexedDB 与浏览器版**不共享**，要迁移得另做导入导出，别指望自动带过去，也别为此改键名（改名要配迁移，见第 1 节）。
+3. **Cache Storage 在 webview 里不存在**：`cp-toolchain` / `cp-md-runtime` 那两套探针（第 5 节坑 23）在桌面端会一律判「未就绪」。桌面端要么把运行时改由 Rust 读本地文件，要么直接用原生编译器、不再下那 76MB。
+4. **原生编译取代自托管工具链（但别删）**：桌面端用系统 `clang++`（macOS 需 Xcode CLT：`xcode-select --install`），`public/wasm/` 那 52MB 在桌面产物里可以不打包；**仓库里必须留着**——浏览器版与 PWA 离线全靠它（第 9 节）。
+5. **Service Worker / PWA 在 Tauri 里没有**：`sw.js` / `precache-manifest.json` / 安装入口（`useInstallPrompt`）在桌面端都是死路，要按平台关掉，别让桌面界面出现「安装到设备」。
+6. **扩展抓题链路只在浏览器**：`useCompanionBridge` 走 `window.postMessage` + 内容脚本（第 13 节），桌面端拿不到扩展。桌面版要么不做抓题、要么另开通路；**那批 `cp-*` 消息名是跨仓契约，不许单方面改**。
+7. **新增依赖要先讨论**（第 0 节）：`@tauri-apps/cli`（devDependency）与 `@tauri-apps/api` 是本项目第一次为桌面端引 npm 依赖；Rust 侧的 `tauri` crate 版本与 `src-tauri/tauri.conf.json` 也要一并记进本文件。
+8. **多平台 = 每平台各自构建**：Tauri 不能一次交叉编译出全套，macOS / Windows / Linux 各自 CI 构建；发布还涉及签名（macOS 公证 / Windows 代码签名）。这与 Vercel 部署（第 10 节）是**两条独立的发布线**。
+9. **文案五处同步照旧**（第 12 节）：桌面版一上，guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` 的 `<noscript>` 里「在浏览器里跑」这类口径要按平台补。
+
+**建议的推进顺序（每步单独验收，别一次铺开；每步跑通后回写本节）**：
+
+1. **环境与空壳**：Rust（`rustup`）+ Xcode CLT + `@tauri-apps/cli`；`npx tauri init` 把 web assets 指到 `dist`、dev server 指到 `http://localhost:5199`；`npx tauri dev` 能起一个只显示现有前端的原生窗口。
+2. **最小链路**：Rust 侧 `run_cpp`（临时目录按运行隔离、带时限与 kill），先**不碰引擎注册表**，单独验一次能编能跑。
+3. **并进引擎表**：包成 `services/engines/` 里的一个新引擎，接上 `runner.js` 的调度与 outcome / 耗时口径，桌面构建改 `DEFAULT_ENGINE_ID`。
+4. **平台分流**：桌面构建里关掉 SW / PWA / 安装入口 / 扩展抓题 / 工具链下载；COOP/COEP 在桌面侧另设一份。
+5. **打包发布**：`npx tauri build`，产物在 `src-tauri/target/release/bundle/`；macOS 先出 `.dmg` / `.app`，再考虑 Windows / Linux 与 CI。
+
+**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`；Windows / Linux 构建、CI、签名与公证仍未做。**
+
+### 14.A 第 1 步落地记录（环境与空壳，2026-10-08 实测通过）
+
+- **新增依赖**：`@tauri-apps/cli` `^2.12.1`（devDependency，本仓第一个为桌面端引的 npm 包）。前端运行时包 `@tauri-apps/api` **尚未安装**，第 3 步要写 `invoke` 时再装。
+- **新增目录**：`src-tauri/`，即 Tauri v2 标准结构（`Cargo.toml` / `Cargo.lock` / `build.rs` / `tauri.conf.json` / `src/main.rs` / `src/lib.rs` / `capabilities/default.json` / `icons/`）。它自带的 `src-tauri/.gitignore` 忽略 `/target/` 与 `/gen/schemas`，所以只有源码与 `Cargo.lock` 进仓库。
+- **Rust 工具链**：本机装的是 rustup **rustc / cargo 1.99.0**。`static.rust-lang.org` 对本机网络不稳（`curl: (56) Recv failure`），最后是从 USTC 镜像取 `rustup-init` 装的；crate 侧 `crates.io` 直连正常，**没**配镜像。生成的 crate 版本：`tauri 2.12.1` / `tauri-build 2.7.1` / `tauri-plugin-log 2.10.0`。
+- **仓库外的系统级改动**：`~/.zprofile` 追加了一行 `. "$HOME/.cargo/env"`。rustup 默认只写 `~/.profile`，而本机 shell 是 zsh、**不读它**，不加这行自己在终端敲 `cargo` 会 command not found。另新增 `~/.cargo/`、`~/.rustup/`。
+- **`tauri.conf.json` 关键值**：`productName` `unnamed`、`identifier` `best.998244353.unnamed`、`frontendDist` `../dist`、`devUrl` `http://localhost:5199`、`beforeDevCommand` `npm run dev`、`beforeBuildCommand` `npm run build`。窗口 1280×820（最小 960×640）。
+  - `identifier` 必须早点定：生成时的默认值 `com.tauri.dev` 打包会被 Tauri 直接拒绝，而且它同时是 webview 的数据目录名（`~/Library/Application Support/<identifier>`），**后改等于把用户的题解全丢**。
+  - 窗口尺寸同理改了默认的 800×600 —— 那个尺寸装不下三栏 IDE。
+- **验证**：`npx tauri dev` 首次整树编译 **2m01s** 后弹出原生窗口。硬证据是 WebKit 的 `WebContent` / `Networking` / `GPU` 三个 XPC 进程都在跑，且 `com.apple.WebKit.Networking` 与 vite 的 `5199` 之间存在 ESTABLISHED 连接（本机没给终端授「屏幕录制 / 辅助功能」权限，截图取证做不了，只能靠这条连接 + 目视）。
+- **坑（记下来，别再踩）**：`npx tauri dev` 从**非登录 shell** 起会找不到 `cargo`（报 `failed to run 'cargo metadata'`），因为 PATH 里没有 `~/.cargo/bin`。临时办法是在命令前 `export PATH="$HOME/.cargo/bin:$PATH"`，长期就靠上面那行 `.zprofile`。
+- **待决**：`vite.config.js` 的 `strictPort` 仍是 `false` —— 5199 被占时 vite 会静默换端口，而 Tauri 还死等 5199，`tauri dev` 会挂住不给提示。改 `true` 会影响 `npm run verify`，**当前刻意未动**，列此备查。
+
+### 14.B 第 2 步落地记录（最小链路 `run_cpp`，2026-10-08 实测通过）
+
+- **新增文件**：`src-tauri/src/native.rs`（命令 + 核心逻辑 + 单元测试，一个文件装完）。`src-tauri/src/lib.rs` 加了两行：`mod native;` 与 `.invoke_handler(tauri::generate_handler![native::run_cpp])`。
+- **命令契约**：`run_cpp(code: String, stdin: String, time_limit_ms: Option<u64>) -> RunOutcome`。Tauri v2 按 camelCase 反序列化参数，所以前端要写 `invoke('run_cpp', { code, stdin, timeLimitMs })`；`timeLimitMs` 不传时 Rust 侧取 1000。
+- **返回体**：`RunOutcome { outcome, stdout, stderr, durationMs, detail }`，带 `#[serde(rename_all = "camelCase")]`，与 `src/services/engines/index.js` 里的 `EngineExecution` **同构** —— 第 3 步包引擎时把 `invoke` 的结果原样递回去即可。`detail` 为空时不序列化（避免前端拿到 `null` 而不是 `undefined`）。
+- **口径对齐（逐条）**：
+  - 编译参数 `-std=c++17 -O2`，与 `src/services/runnoSandbox.js` 的 `FRONTEND_ARGS` 同值；沙箱那边刻意没开 `-fno-exceptions`，这里同样不开。
+  - 时限**只计运行段**（从 `spawn` 到进程退出的墙钟），不含编译，默认 1000ms —— 同 `runner.js` 的 `TIME_LIMIT_DEFAULT_MS`。
+  - 到点 `child.kill()`，记为 `timeout`；非 0 退出码与「被信号杀死」（`code()` 为 `None`）都归 `runtime-error`；退出码 0 记 `ok`。
+  - `ok` 时把 `stderr` 清空、`ok` 之外的三种（timeout / runtime-error / compile-error）保留 `stdout`；编译失败 `durationMs` 记 `null`（卡片就不显示耗时）—— 全部照 `src/services/engines/wasm.js` 的处理。
+- **临时目录隔离**：`$TMPDIR/cp-native-<pid>-<自增序号>-<纳秒>`，一次运行独占一个，跑完（含报错路径）`remove_dir_all` 清掉。**三个分量缺一不可**：`runner.js` 的 `concurrency = 2` 会同时跑两次，参考方案里那个固定名 `temp_code.cpp` 会直接互相覆盖。
+- **三条管道各一个线程**：stdout / stderr 边跑边读（读晚了会被管道缓冲区堵死，程序写满 64KB 就卡住，我们又等它退出，死锁）；stdin 也在独立线程里推、推完 drop 掉写端（不发 EOF 的话 `while (std::cin >> x)` 会永远等下去）。
+- **不产出界面文案**：Rust 侧只回原始 stdout / stderr 与机器可读状态，`detail` 一律不填 —— 文案仍由前端 i18n 数据表兜底（`错因就让它空着`，见「界面文案一律不写死」）。编译错误的 `stderr` 是 clang 自己的诊断原文，与沙箱行为一致。
+- **验证**：`cargo test` **5 个用例全过**（0.41s）：编译并运行 / stdin 推入 / 编译错误且 `durationMs` 为 null / 非零退出且保留已输出的 stdout / 死循环被 kill（用 `volatile` 累加防 `-O2` 把无副作用的无限循环整段删掉）。`cargo test` 直接调 `run_cpp_core`，不需要起窗口。
+- **尚未做（第 3 步的活）**：编译阶段没有看门狗（`clang++` 卡住会一直等）；没有编译产物缓存（对应 `compileCache`）；没有 `cancelled` 通路（前端 `AbortSignal` 还传不进来）；`-ferror-limit` / `-fmessage-length` 这两个诊断格式开关没跟沙箱对齐。
+
+### 14.C 第 3 步落地记录（并进引擎表，2026-10-08）
+
+- **新增依赖**：`@tauri-apps/api` `^2.12.1`（**dependencies**，前端运行时包；与 devDependency 的 `@tauri-apps/cli` 同版本）。装它才有 `invoke`。npm 官方源当时超时，重试一次即成功（`--fetch-retries` 用不着改源）。
+- **新增文件**：`src/services/engines/native.js`。**改动文件**：`src/services/engines/index.js`、`src/services/engines/wasm.js`、`src/i18n/messages/engines.js`、`src/App.vue`、`src-tauri/src/native.rs`、`src-tauri/src/lib.rs`。
+- **平台判定用运行时探测**（不是构建期变量）：`'__TAURI_INTERNALS__' in window`（Tauri v2 必注入）。理由：两端**共用同一份 `dist`**，构建期变量会逼出第二条构建线，还有「忘设变量就跑错引擎」的隐患。代价是 `@tauri-apps/api` 也进了网页包（很小，值得）。
+- **引擎对象新增可选字段 `platforms: ['web'|'desktop']`**（不写 = 两端都可用）。`wasm` 标 `['web']`、`native` 标 `['desktop']`。注册表四处按它过滤：`engineChoices()`（列不出来的就是选不到）、`defaultBases()`、`getEngine()`（存档里的 id 来自另一端就退回本端默认）、`DEFAULT_ENGINE_ID`（= 列表里第一个能在本端跑的：网页 wasm / 桌面 native）。**这不是第 4 步抢跑**：不过滤就会在网页版露出一个点了必报错的「本机原生编译器」，在桌面版露出跑不起来的沙箱（§14 第 1、3 条）。
+- **`App.vue` 的 `cp.engine` 存档会当场归位**：dev 里桌面 webview 加载的是 `http://localhost:5199`，与浏览器**同源**，`cp.engine` 是共享的；云端同步也会把另一端的 id 带过来。所以启动时若 `getEngine(id).id !== id` 就改回本端默认，免得面板高亮的引擎与真正生效的那个对不上。
+- **Rust 侧加 `run_python`**（`run_cpp` 契约不变）：把原先的 `run_cpp_core` 抽成 `run_core(Language, …)`，`run_in_workspace` 按语言组装命令（C++：clang++ 编译后跑 `main.bin`；Python：直接 `python3 main.py`），两者最后都进同一个 `run_program`（原 `run_binary`）—— 时限 / kill / 三管道 / 退出码口径**完全共用，没有第二套**。文件顶部新增 `enum Language`，`source_name()` 决定 `main.cpp` / `main.py`。
+- **Python 的口径**：没有编译段，耗时就是「解释器启动 + 程序执行」的墙钟（同 `engines/wasm.js`）；语法错误发生在运行段，按既有词表归 `runtime-error`（**不是** `compile-error`），`durationMs` 照常有值；`ok` 时同样清空 `stderr`。`python3` 用系统 PATH 里的那个（本机是 `/Library/Frameworks/Python.framework/.../3.14.6`；Windows 的 `python` 别名未处理，属已知限制）。
+- **`native.js` 的职责**：`invoke` 包装 + 把 Rust 的 `unreachable` 翻成人话（`runner.js` 那条分支只看 `detail`，不看 `stderr`）+ `health()`。命令名用一张 `COMMANDS = { cpp: 'run_cpp', python: 'run_python' }` 表与 Rust 逐字对账；`timeLimitMs` 只在是数字时才放进参数（不依赖「缺字段等价于 None」）。
+- **`health()` 自检两项系统依赖**：先跑一句 C++（验 clang++，macOS 缺则提示 `xcode-select --install`），再跑一句 `print(1)`（验 python3）；任一不过就报出来。
+- **取消**：只认「还没开始跑就被取消」（`signal.aborted` 进 `execute` 时）。Rust 侧仍无中途 kill 通路，与 14.B 的「尚未做」一致。
+- **i18n**：新增 `engine.native.*` 八条（label / hint / ready / cppUnavailable / pythonUnavailable / unavailable / unsupportedLanguage / noDetail，中英各一份）。另外把 `engine.localNoBase` 从「本地沙箱在浏览器里跑…」改成「该引擎在本机运行，不需要服务地址。」—— 现在两个本地引擎共用这一行，原话术对新引擎不成立。
+- **验证**：
+  - `cargo test` **8 个用例全过**（原 5 个 C++ + 新增 3 个 Python：stdin 求和 / 语法错误归 runtime-error 且耗时非空 / `while True` 被 kill）。注意 Python `print` 自带换行，断言写 `\"3\\n\"`；判定侧由 `compare.js` 的 `normalizeLines` 抹掉行尾空白，不影响 AC。
+  - `npm run build` 通过（网页包能正常 import `@tauri-apps/api/core`）。
+  - 网页版回归（浏览器实测 localhost:5199）：设置 › 评测引擎 列表仍是「本地 WASM 沙箱 / Piston / Judge0 / 自检」，**没有**混入「本机原生编译器」，`localNoBase` 新文案已生效。
+  - 桌面端：`npx tauri dev` 起窗口，前端接的是 `run_cpp` / `run_python`，真实评测由用户目视确认（本机终端没给录屏权限，截不了图）。
+- **尚未做（留给第 4 / 5 步）**：桌面端仍在跑 SW / PWA / 安装入口（那些在 Tauri 里是死路，勿点）；COOP/COEP 未在 Tauri 侧另设；扩展抓题链路在桌面端不通；**guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处文案尚未按平台补** —— 刻意等桌面版真能发布时再动，现在网页文档描述的仍是网页产品，不会误导读者。
+- **坑**：`cargo test` 里 Python 用例依赖系统 `python3`，CI 机器若没有会挂；桌面端正式支持 Python 前，得先决定是「依赖系统解释器」还是「随包带一个」。
+
+### 14.D 第 4 步落地记录（平台分流，2026-10-08）
+
+- **新增文件**：`src/services/platform.js`。这是「我在哪一端」的**唯一出处**：`IS_DESKTOP`（`'__TAURI_INTERNALS__' in window`）与 `IS_WEB`。第 3 步写在 `engines/index.js` 里的那份判定已改为引用它 —— **以后不要再任何地方手写 `'__TAURI_INTERNALS__' in window`**。
+- **改动文件**：`src/services/engines/index.js`、`src/main.js`、`src/composables/useCompanionBridge.js`、`src/services/runtimePreload.js`、`src/App.vue`、`src/components/EditorSettingsPanel.vue`、`src-tauri/tauri.conf.json`。
+- **桌面端关掉的五处（逐条）**：
+  1. **Service Worker**：`main.js` 的注册条件加 `IS_WEB`（dev 与桌面端都不注册）。`vite.config.js` 仍照常产出 `dist/sw.js` —— 网页版与 PWA 离线要用它，只是桌面端不去注册。
+  2. **PWA 安装入口**：设置 › 应用 的「安装到设备」那一行 `v-if="!isDesktop"`。`useInstallPrompt` 本身没动（那行藏了就没有入口，`beforeinstallprompt` 在桌面端本来也不触发）。
+  3. **扩展抓题**：`useCompanionBridge` 的 `refreshExtensionInfo()` 与 `attach()` 在桌面端**直接 return** —— 不挂 `message` 监听、不发 ping，`extensionInfo` 恒为 `null`；设置 › 应用 的整组「浏览器插件」块（状态 / 下载 / 投递开关 / 快捷键）`v-if="!isDesktop"`；`App.vue` 的 `emptyNotice` 在桌面端直接返回 `null`（不再说「未检测到浏览器插件」这种在桌面端不成立的话）。**消息名与 `EXTENSION_SOURCE` 一个都没动**（跨仓契约）。
+  4. **工具链下载**：设置 › 应用 的「本地运行环境」三行（C++ / Python 3 / 题解渲染器）、设置 › 云端同步 的「预下载」三个开关，都在桌面端 `v-if="!isDesktop"`；`runtimePreload.scheduleAutoPreload()` 在桌面端直接 return，启动不预下载。（桌面端改用系统 `clang++` / `python3`，见 14.B / 14.C；`public/wasm/` 与 `probeRuntime` 都**照旧保留**，网页版要用。）
+  5. **COOP / COEP**：`src-tauri/tauri.conf.json` 的 `app.security.headers` 加 `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`。Tauri v2 会把它们加到自建协议的每个响应上；dev 走 vite，那两份头 `vite.config.js` 本来就有，所以 dev 不受影响。
+- **验证**：
+  - `npm run build` 通过。
+  - 网页版回归（浏览器实测 localhost:5199，用户界面逐项核对）：设置 › 应用 三块（安装到设备 / 本地运行环境三行 / 浏览器插件）都在；设置 › 评测 的引擎列表仍是「本地 WASM 沙箱 / Piston / Judge0 / 自检」四项、**没有**混入 native；设置 › 云端同步 的预下载三开关都在。控制台无红色报错（仅有两条与本地 WASM 资源相关的 `ERR_CACHE_MISS`，改动前就有）。
+  - 桌面端界面由用户目视确认（本机终端无录屏权限，截不了图）。
+- **尚未做 / 待决（第 5 步或后续）**：
+  - **题解渲染器在桌面端装不上**：Markdown / LaTeX 预览同样靠 Cache Storage（`mdRuntime.js`），桌面端因此会停在「缺渲染器」。本步只按 §14 纪律收起了「本地运行环境」里的下载入口，**预览面板自己那颗「下载渲染器」按钮没管** —— 要么让 Rust 读本地文件，要么桌面端不提供题解预览，得单独定。
+  - **桌面端云端同步**：`/api/*` 是相对路径，在 tauri 自定义协议下没有对应后端，需另配绝对地址（未做，不属本步范围）。
+  - `index.html` 的 `manifest.webmanifest` / `apple-*` 元标签是静态的、两端共用，未按平台拆（桌面端忽略它们，无害）。
+  - **文案五处仍未补**（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）：口径仍是「等桌面版真能发布再动」。
+
+### 14.E 第 5 步落地记录（打包发布，2026-10-08）
+
+- **四个决定（发布前定死，先问后做，别再自己拍）**：
+  1. **`productName` `unnamed` / `identifier` `best.998244353.unnamed` 定稿不动**。`identifier` 同时是 webview 的数据目录名（`~/Library/Application Support/<identifier>`），**发布后再改等于把用户的题解全丢**；`unnamed` 也不是占位符，它就是本站的品牌名（网页标题、PWA manifest、结构化数据三处一致）。
+  2. **应用图标换成本项目自己的**：`npx tauri icon public/icons/icon-512.png` 覆盖掉 `tauri init` 的默认图标，`src-tauri/icons/` 下全套（`.icns` / `.ico` / 各尺寸 png / iOS / Android）一并重生成。
+  3. **`public/wasm/`（约 52MB）照常打包**：桌面端跑的是系统 `clang++` / `python3`，用不到它，但两端**共用同一份 `dist`**，排除要另加一条「打包前从 dist 删 wasm」的构建步骤并小心别影响网页版部署链路。先出可用产物，出包瘦身留到以后单独做。
+  4. **macOS 不做签名与公证**：先出未签名产物。
+- **命令**：`export PATH="$HOME/.cargo/bin:$PATH"; npx tauri build`（非登录 shell 没有 `~/.cargo/bin`，见 14.A 的坑）。首次整树 release 编译 1m12s，改完前端再打一次增量只要 15.7s。
+- **产物**（都在 `src-tauri/target/release/bundle/`）：
+  - `macos/unnamed.app`（41.10 MiB）
+  - `dmg/unnamed_0.1.0_aarch64.dmg`（34.20 MiB）
+  - 架构是 **aarch64**（本机 Apple Silicon），**没做** universal / x86_64 交叉构建。
+- **重打过一次**：补全的 `#` 替换范围修好后（见第 7 节那条末句）又跑了一次 `npx tauri build`，两个产物都是修好之后的版本。
+- **未签名的影响**：首次打开会被 Gatekeeper 拦（「无法验证开发者」），得右键「打开」或在「系统设置 › 隐私与安全性」里放行。要对外分发就得补 Apple Developer 证书 + `notarytool` 公证。
+- **本次产物包含当日新做的编辑器补全**（见第 7 节那条「编辑器自动补全」）：补全改动先落在前端，`beforeBuildCommand` 会重跑 `npm run build` 重新出 `dist`，所以重打一次包即可带上，不必单独处理。
+- **尚未做（留给后续）**：Windows / Linux 构建（Tauri 不能一次交叉编译出全套，得各自 CI 出，另见本条第 8 项）；签名与公证；`public/wasm/` 出包瘦身；**桌面端云端同步**（`/api/*` 是相对路径，Tauri 自定义协议下没有对应后端，见 14.D）；**文案五处**（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）仍未按平台补。
+
 

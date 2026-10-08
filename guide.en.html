@@ -458,6 +458,11 @@
         <p>For anything else, switch to Piston or Judge0.</p>
         <p>What you get depends on the service you connect to.</p>
 
+        <h3>Does the editor autocomplete?</h3>
+        <p>Yes — but only for the three languages it knows: C, C++ and Python (<code>.c</code>, <code>.cpp</code>, <code>.py</code>). Start typing a prefix and the suggestion box appears on its own: arrow keys move through the list, <kbd>Tab</kbd> accepts the highlighted entry and <kbd>Esc</kbd> dismisses it.</p>
+        <p>There are three kinds of candidate: keywords, common standard-library names (<code>vector</code>, <code>sort</code>, <code>printf</code>, <code>print</code>) and snippets (<code>main</code>, <code>fori</code>, <code>ifmain</code>). Snippets carry placeholders — press <kbd>Tab</kbd> after accepting one to jump between them.</p>
+        <p>It is a <strong>lookup table</strong>, not a language service: it does not know your variable names or types, cannot jump to definitions and reports no errors. Words already used in the same file are suggested too. <code>.md</code> and other files are not covered.</p>
+
         <h3>Why is the first run so much slower?</h3>
         <p>The runtime is downloaded on the first run.</p>
         <p>After that, the first case of every new piece of code pays the compilation cost once.</p>

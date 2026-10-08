@@ -18,6 +18,16 @@ export default {
         noIsolation: '页面没有跨域隔离，SharedArrayBuffer 不可用：确认 dev server 已注入 COOP / COEP 响应头',
         unavailable: '本地沙箱不可用：{message}',
       },
+      native: {
+        label: '本机原生编译器',
+        hint: '桌面端专用：直接用本机已装好的编译器运行，不下载任何运行时；支持 C++（clang++）与 Python',
+        ready: '本机编译链可用（C++ 与 Python）',
+        cppUnavailable: 'C++ 编译器不可用：{message}（macOS 可执行 xcode-select --install 装命令行工具）',
+        pythonUnavailable: 'Python 解释器不可用：{message}',
+        unavailable: '本机运行失败：{message}',
+        unsupportedLanguage: '原生引擎不支持该语言：{language}',
+        noDetail: '没有更多信息',
+      },
       piston: {
         label: 'Piston',
         hint: '推荐自建：docker run -p 2000:2000 ghcr.io/piston-cli/piston:stable，然后填 http://localhost:2000',
@@ -44,7 +54,7 @@ export default {
       notExecutes: '不执行代码',
       /** 服务地址输入框的标签与保存按钮 */
       baseLabel: '服务地址',
-      localNoBase: '本地沙箱在浏览器里跑，不需要服务地址。',
+      localNoBase: '该引擎在本机运行，不需要服务地址。',
       selfTest: '自检',
       checking: '探测中…',
       /** 引擎对象上没有 health() 时，自检按钮给出的说明 */
@@ -167,6 +177,17 @@ export default {
           'This page is not cross-origin isolated, so SharedArrayBuffer is unavailable. Check that your dev server sends the COOP / COEP response headers.',
         unavailable: 'Local sandbox unavailable: {message}',
       },
+      native: {
+        label: 'Native compiler (desktop)',
+        hint: 'Desktop only: runs your code with the compilers already installed on this machine — no runtime download. Supports C++ (clang++) and Python.',
+        ready: 'The native toolchain is available (C++ and Python)',
+        cppUnavailable:
+          'The C++ compiler is unavailable: {message} (on macOS, run xcode-select --install to install the command line tools)',
+        pythonUnavailable: 'The Python interpreter is unavailable: {message}',
+        unavailable: 'Native run failed: {message}',
+        unsupportedLanguage: 'The native engine does not support this language: {language}',
+        noDetail: 'no further details',
+      },
       piston: {
         label: 'Piston',
         hint: 'Self-hosting is recommended: docker run -p 2000:2000 ghcr.io/piston-cli/piston:stable, then enter http://localhost:2000',
@@ -191,7 +212,7 @@ export default {
       },
       notExecutes: 'Does not run code',
       baseLabel: 'Service URL',
-      localNoBase: 'The local sandbox runs in your browser and needs no service URL.',
+      localNoBase: 'This engine runs on this machine and needs no service URL.',
       selfTest: 'Test connection',
       checking: 'Testing…',
       selfTestUnsupported: 'This engine does not provide a connection test',

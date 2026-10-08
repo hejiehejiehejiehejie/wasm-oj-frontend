@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@runno/wasi": "0.10.0",
+    "@tauri-apps/api": "^2.12.1",
     "dompurify": "^3.4.8",
     "katex": "^0.18.9",
     "marked": "^14.0.0",
@@ -28,6 +29,7 @@
     "vue": "^3.5.42"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
     "@vitejs/plugin-vue": "^6.0.9",
     "binaryen": "^132.0.0",
     "postcss-pxtorem": "^6.1.0",

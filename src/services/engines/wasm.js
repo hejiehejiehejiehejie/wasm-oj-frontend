@@ -19,6 +19,9 @@ export const wasmEngine = {
   executesCode: true,
   // 内置引擎没有服务地址，按注册表约定固定填 'local'
   defaultBase: 'local',
+  // 只在网页版出现：桌面壳里没有 COOP/COEP（SharedArrayBuffer 起不来）也没有 Cache Storage，
+  // 沙箱在那里跑不动，桌面端由 engines/native.js 顶上（见 HANDOFF 第 14 节）
+  platforms: ['web'],
 
   supports(languageId) {
     return SUPPORTED_LANGUAGES.has(languageId)

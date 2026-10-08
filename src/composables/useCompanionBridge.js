@@ -1,6 +1,7 @@
 import { onBeforeUnmount, ref } from 'vue'
 
 import { findProblemByUrl, problemUrlKey } from '../services/vfs/workspaceStore.js'
+import { IS_DESKTOP } from '../services/platform.js'
 
 /**
  * 浏览器扩展（改造版 Competitive Companion）的网页接收端。
@@ -70,6 +71,10 @@ function sendPing() {
 
 /** 主动问一次扩展：装没装、版本号、快捷键绑定 */
 export function refreshExtensionInfo() {
+  // 桌面端没有浏览器扩展这条路（见 HANDOFF 第 14 节第 6 条）：桥的另一端根本不存在，
+  // 探活只会白等一轮超时。整条链路直接不接，extensionInfo 永远停在 null。
+  if (IS_DESKTOP) return
+
   clearPingTimers()
   // 刻意**不**先清空 extensionInfo：设置面板里那一整块（投递开关、快捷键）挂在
   // v-if="extensionInfo" 上，清空会让它整块消失再长回来 —— 每次切到「应用」栏都闪一下。
@@ -282,6 +287,9 @@ function onMessage(event) {
 function attach() {
   if (attached) return
   attached = true
+
+  // 桌面端不挂 message 监听：没有内容脚本会往页面投递题目（见上面 refreshExtensionInfo）
+  if (IS_DESKTOP) return
 
   window.addEventListener('message', onMessage)
   // 挂上就先探一次，设置面板打开之前状态就已经就绪

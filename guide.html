@@ -445,6 +445,11 @@
         <p data-page-node-id="AdWjTAUbH0R3164MXyvUCw">其它语言请切到 Piston 或 Judge0。</p>
         <p data-page-node-id="EHMn2sGP3SHTV1HDVeuX5v">支持范围取决于你所连的那台服务。</p>
 
+        <h3>编辑器有自动补全吗？</h3>
+        <p>有，但只给 C / C++ / Python 三种语言的代码文件（<code>.c</code>、<code>.cpp</code>、<code>.py</code>）。打几个字母候选框会自动弹出：方向键翻动，<kbd>Tab</kbd> 采用当前那条，<kbd>Esc</kbd> 关掉。</p>
+        <p>候选分三类：关键字、常用标准库（<code>vector</code>、<code>sort</code>、<code>printf</code>、<code>print</code>）与代码片段（<code>main</code>、<code>fori</code>、<code>ifmain</code>）。片段带占位符，采用后按 <kbd>Tab</kbd> 在占位符之间跳。</p>
+        <p>它是<strong>查表</strong>，不是语言服务：不认变量名与类型、不能跳转定义，也不会实时报错；同一个文件里出现过的词也会一起建议。<code>.md</code> 等其它文件不参与。</p>
+
         <h3 data-page-node-id="XSjGGeBKZ1r0RTgz1D4odi">为什么第一次运行明显更慢？</h3>
         <p data-page-node-id="m1h7dTI9rKWS0uTz9Ig2xG">首次要下运行时。</p>
         <p data-page-node-id="nnfEl2BEEJ8fhOo7V68RND">之后每份新代码的第一个用例要付一次编译开销。</p>

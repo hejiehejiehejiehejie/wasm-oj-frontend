@@ -8,6 +8,9 @@ import * as monaco from 'monaco-editor'
 // covers everything this tool needs. Add the json/css/html/ts workers here if a
 // new language ever requires them.
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
+// 副作用导入：在这里给 C / C++ / Python 注册静态补全 provider（见该文件头）。
+// 放在 MonacoEnvironment 之前无妨 —— 注册 provider 不起 worker，worker 只在建 model 时才要。
+import './services/monaco/completion.js'
 
 self.MonacoEnvironment = {
   getWorker() {

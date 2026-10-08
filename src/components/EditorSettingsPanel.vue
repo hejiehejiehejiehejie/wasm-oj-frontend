@@ -9,6 +9,7 @@ import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
+import { IS_DESKTOP } from '../services/platform.js'
 import {
   comboFromChromeShortcut,
   formatCombo,
@@ -381,6 +382,10 @@ const { resetAll } = useShortcutManager()
 
 // 安装到设备（2026-09 顶栏删除后从顶栏那颗按钮搬进来的）：浏览器判定可安装时才亮出来
 const { canInstall, install } = useInstallPrompt()
+
+// 桌面端（Tauri）关掉的那几块 —— PWA 安装入口、本地运行环境下载、浏览器扩展 ——
+// 在这里一次性读出来给模板用（判定见 services/platform.js）。
+const isDesktop = IS_DESKTOP
 
 // ------------------------------------------------------------ 存储占用
 // 申请持久化是隐性的：App.vue 启动时静默做过一次，这里不展示状态、也不给按钮。
@@ -1914,7 +1919,9 @@ watch(pendingUnbind, (open) => {
         <p class="setting-subtitle">{{ t('settings.app.basics') }}</p>
 
         <div class="app-card">
-          <div class="setting-row setting-row--action">
+          <!-- 安装到设备是网页版独有的入口：桌面端本身就是个独立应用，没有「再装一次」
+               这回事，也没有 beforeinstallprompt（见 HANDOFF 第 14 节第 5 条） -->
+          <div v-if="!isDesktop" class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__head">
                 <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
@@ -2017,10 +2024,13 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
-        <p class="setting-subtitle">{{ t('settings.section.runtime') }}</p>
-        <p class="setting-group__note">{{ t('runtime.groupNote') }}</p>
+        <!-- 本地运行环境（C++ / Python / 题解渲染器）是网页版自托管的那套资产，全靠
+             Cache Storage；桌面端的 webview 里没有 Cache Storage，改用系统 clang++ 直接跑，
+             所以这一整块在桌面端收起（见 HANDOFF 第 14 节第 3、4 条） -->
+        <p v-if="!isDesktop" class="setting-subtitle">{{ t('settings.section.runtime') }}</p>
+        <p v-if="!isDesktop" class="setting-group__note">{{ t('runtime.groupNote') }}</p>
 
-        <div class="runtime-list">
+        <div v-if="!isDesktop" class="runtime-list">
           <div v-for="entry in runtimeEntries" :key="entry.id" class="runtime-row">
             <span class="runtime-row__icon" :class="`is-${entry.icon}`">
               <AppIcon :name="entry.icon" :size="17" />
@@ -2116,10 +2126,12 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
-        <p class="setting-subtitle">{{ t('settings.section.extension') }}</p>
-        <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
+        <!-- 浏览器扩展抓题链路只在网页版成立：桌面端拿不到扩展，postMessage 桥也不接
+             （见 HANDOFF 第 14 节第 6 条），所以整组（状态、下载、投递开关、快捷键）收起 -->
+        <p v-if="!isDesktop" class="setting-subtitle">{{ t('settings.section.extension') }}</p>
+        <p v-if="!isDesktop" class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
-        <div class="app-card">
+        <div v-if="!isDesktop" class="app-card">
           <div class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__head">
@@ -2163,7 +2175,7 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
-        <template v-if="extensionInfo">
+        <template v-if="!isDesktop && extensionInfo">
           <!-- 旧版扩展不上报 config，写也写不动，整组藏起来比亮出一排假开关好 -->
           <template v-if="extensionInfo.config">
             <p class="setting-subtitle">{{ t('settings.extension.destinations') }}</p>
@@ -2438,30 +2450,33 @@ watch(pendingUnbind, (open) => {
 
         <!-- 预下载：它是**偏好**而不是「这台设备下好了没有」，所以归在云同步这边，
              不跟「本地运行环境」那张事实清单混同 —— 那边的每一行都在回答「现在本机有没有」。
-             排在登录之后：这一栏第一眼要看到的是「怎么把配置同步过来 / 传上去」。 -->
-        <p class="setting-subtitle">{{ t('runtime.autoPreload.label') }}</p>
-        <div v-for="item in RUNTIMES" :key="item.id" class="setting-row setting-row--switch">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t(item.titleKey) }}</span>
+             排在登录之后：这一栏第一眼要看到的是「怎么把配置同步过来 / 传上去」。
+             桌面端没有那套自托管运行时（同上），这一组偏好一并收起。 -->
+        <template v-if="!isDesktop">
+          <p class="setting-subtitle">{{ t('runtime.autoPreload.label') }}</p>
+          <div v-for="item in RUNTIMES" :key="item.id" class="setting-row setting-row--switch">
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ t(item.titleKey) }}</span>
+              </span>
             </span>
-          </span>
-          <span class="setting-row__control">
-            <button
-              type="button"
-              class="switch"
-              :class="{ 'is-on': isAutoPreload(item.id) }"
-              role="switch"
-              :aria-checked="isAutoPreload(item.id)"
-              :aria-label="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
-              :title="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
-              @click="toggleAutoPreload(item.id)"
-            >
-              <span class="switch__thumb"></span>
-            </button>
-          </span>
-        </div>
-        <p class="setting-group__note">{{ t('runtime.autoPreload.note') }}</p>
+            <span class="setting-row__control">
+              <button
+                type="button"
+                class="switch"
+                :class="{ 'is-on': isAutoPreload(item.id) }"
+                role="switch"
+                :aria-checked="isAutoPreload(item.id)"
+                :aria-label="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
+                :title="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
+                @click="toggleAutoPreload(item.id)"
+              >
+                <span class="switch__thumb"></span>
+              </button>
+            </span>
+          </div>
+          <p class="setting-group__note">{{ t('runtime.autoPreload.note') }}</p>
+        </template>
 
         <!-- 「默认安装」开关：与上面那组预下载同为**偏好**，所以也归在云同步这边、
              跟着账号走；抽题组件本机的安装状态在「应用」一栏的组件行里。 -->

@@ -4,6 +4,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { captureCloudHandleFromPath } from './services/cloudEntry.js'
 import { ensureCfPickerInstalled } from './services/cfRuntime.js'
+import { IS_WEB } from './services/platform.js'
 import './styles/base.css'
 
 // 仅开发环境：把 Monaco / modelManager 暴露到 window，供浏览器端自动化断言
@@ -29,9 +30,10 @@ createApp(App).mount('#app')
 // 刻意放在 mount 之后：首帧渲染不该等一个 2MB 的网络请求
 void ensureCfPickerInstalled()
 
-// Service Worker 只在生产构建里注册：dev server 的模块是即时编译的，
-// 把它们缓存下来只会让改完代码看到旧页面。
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+// Service Worker 只在网页版的生产构建里注册：
+// - dev server 的模块是即时编译的，把它们缓存下来只会让改完代码看到旧页面；
+// - 桌面端（Tauri）没有 Service Worker，注册也起不来（见 HANDOFF 第 14 节第 5 条）。
+if (import.meta.env.PROD && IS_WEB && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   })

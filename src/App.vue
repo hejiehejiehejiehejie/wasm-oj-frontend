@@ -17,6 +17,7 @@ import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/i
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
 import { requestPersistence } from './services/storageQuota.js'
+import { IS_DESKTOP } from './services/platform.js'
 import { initWorkspace } from './services/vfs/migrate.js'
 import {
   activeLanguage,
@@ -51,6 +52,9 @@ const panelVisible = usePersistentRef('cp.panelVisible', true)
 // 语言不独立持久化：由活跃文件扩展名派生（activeLanguage），顶栏已无语言下拉
 const editorShare = usePersistentRef('cp.editorShare', 60)
 const engineId = usePersistentRef('cp.engine', DEFAULT_ENGINE_ID)
+// 存档里的引擎 id 可能是另一端写下的（云端同步带过来，或同一个 localhost 源在浏览器与桌面壳之间
+// 来回切）：本端跑不了就当场归位到本端默认引擎，否则面板高亮的引擎与真正生效的那个会对不上
+if (engineId.value !== getEngine(engineId.value).id) engineId.value = DEFAULT_ENGINE_ID
 const judgeBases = usePersistentRef('cp.judgeBases', defaultBases())
 // 全局时限（毫秒，只计运行段）：所有用例统一，超了判 TLE。
 // 这是「没有题目时限时的默认值」；带 meta.timeLimit 的题目文件优先用题目时限。
@@ -710,6 +714,10 @@ const runBlockedReason = computed(() => {
 const emptyNotice = computed(() => {
   const node = activeNode.value
   if (!node?.meta?.url || testCases.value.length) return null
+
+  // 桌面端没有浏览器扩展，也没有别的自动抓题通路（见 HANDOFF 第 14 节第 6 条）：
+  // 那几句「打开题目页会自动抓」「没检测到插件」在那边全是假话，一句都不说。
+  if (IS_DESKTOP) return null
 
   const state = autoScrapeState(node.meta.url)
   if (state === 'fetching') return { text: t('tests.empty.fetching'), tone: 'info' }
