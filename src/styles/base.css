@@ -98,16 +98,6 @@
      深色主题里卡片靠边框分层，投影只会糊成一团，所以直接不给 */
   --card-shadow: none;
 
-  /* 存储占用条的分类色（设置 › 应用 › 存储）。六段要能在同一张条里互相分开，
-     所以刻意散在色相环上；深色底上取亮一档，浅色主题里换回压得住白底的深色。
-     名字跟着「本地运行环境 / 组件」用的那套叫法走（C++ / Python 3 / Markdown / LaTeX / CF 抽题）。 */
-  --storage-cpp: #6aa9ff;
-  --storage-python: #4fc0b8;
-  --storage-markdown: #b58cf2;
-  --storage-cf: #e0b155;
-  --storage-code: #5ec27f;
-  --storage-other: #6d6d72;
-
   /* 语言/文件图标（沿用 VS Code 的约定色） */
   --icon-code: #519aba;
   /* 语言标志：深色底上取官方色的亮一档（浅色主题里换回官方深色，见下） */
@@ -209,14 +199,6 @@
   --splitter-dot: #b0b0b0;
 
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-
-  /* 存储占用条的分类色：压在白底上的深色版，与深色主题那组一一对应 */
-  --storage-cpp: #2d7dd2;
-  --storage-python: #0f7a72;
-  --storage-markdown: #7c4dd1;
-  --storage-cf: #b07400;
-  --storage-code: #17803d;
-  --storage-other: #9a9aa0;
 
   /* 语言标志：浅底上用官方原色，否则蓝色在浅色下对比不足 */
   --icon-cpp: #00599c;

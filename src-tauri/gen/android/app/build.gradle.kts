@@ -14,6 +14,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// release 签名口令与密钥路径：key.properties 与 keystore/ 都在 .gitignore 里，不进版本库。
+// 文件缺席时不建 signingConfig —— release 仍能构建，只是产出未签名包。
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("key.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+val hasKeystore = keystoreProperties.getProperty("storeFile") != null
+
 android {
     compileSdk = 37
     namespace = "best.prime998244353.unnamed"
@@ -30,6 +40,17 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        // storeFile 相对 android 工程根（src-tauri/gen/android），不是 app 模块目录
+        if (hasKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".debug"
@@ -45,6 +66,9 @@ android {
             }
         }
         getByName("release") {
+            if (hasKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             optimization {
                enable = true
             }
@@ -62,6 +86,12 @@ android {
     }
     buildFeatures {
         buildConfig = true
+    }
+    lint {
+        // 只关这一条，不关整个 lintVital。targetSdk 停在 28 是有意的（见 defaultConfig 上方的注释：
+        // >= 29 落到 untrusted_app 域，私有目录里的自备编译器就 execve 不了），而这条规则是面向
+        // Google Play 上架的、且为 fatal 级 —— 不关掉，release 构建会直接失败。其余 lint 检查照旧跑。
+        disable += "ExpiredTargetSdkVersion"
     }
 }
 

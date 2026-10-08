@@ -23,3 +23,14 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.12.1", features = [] }
 tauri-plugin-log = "2"
+
+# 随包 C++ 工具链只在 Android 上有：解 APK assets（ndk / ndk-sys / jni）、
+# 取应用私有目录（ndk-context）、把 tar.gz 解开（tar + flate2）。
+# 全部按目标平台收敛，桌面端构建一行都不受影响。
+[target.'cfg(target_os = "android")'.dependencies]
+flate2 = "1"
+jni = "0.21"
+ndk = "0.9"
+ndk-context = "0.1"
+ndk-sys = "0.6"
+tar = "0.4"

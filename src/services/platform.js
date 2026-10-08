@@ -14,6 +14,20 @@ export const IS_DESKTOP = typeof window !== 'undefined' && '__TAURI_INTERNALS__'
 export const IS_WEB = !IS_DESKTOP
 
 /**
+ * Tauri 壳里、宿主是 Android 时为 true。
+ *
+ * 与上面两个不同，这一条只能从 UA 认：Tauri 没有把宿主系统暴露给前端的免依赖通路
+ * （os 插件要额外引一个 npm 包 + 一个 Rust crate，见项目约定「新增依赖要先讨论」）。
+ * Android WebView 的 UA 必含 `Android`，认错的代价只是「Android 专有的那条分支」走错。
+ *
+ * **只在 Android 专有的事上用**（目前唯一一处：随包 C++ 工具链的准备，
+ * 见 services/nativeToolchain.js）。「是不是桌面壳」仍旧看 IS_DESKTOP —— 那才是
+ * 那个二值判定的正确粒度。
+ */
+export const IS_ANDROID =
+  IS_DESKTOP && typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+
+/**
  * 宿主系统：`'windows'` / `'mac'` / `'other'`。
  *
  * **只用于挑「按系统写」的提示文案**（比如自检失败时告诉用户去哪儿装编译器），

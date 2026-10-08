@@ -2,8 +2,8 @@
 //! C++ 调本机的 clang++ / g++ 编译后运行，Python 直接起本机解释器，都按既有的时限口径跑一遍。
 //!
 //! 「本机到底用哪个编译器、哪个解释器、产物叫什么」一律交给 `toolchain` 模块探测
-//! —— 那是唯一出处。本文件不写死任何工具名，也不按平台分岔（macOS 与 Windows 的差别
-//! 全在那边，见其文件头）。
+//! —— 那是唯一出处。本文件不写死任何工具名；平台差异基本都收在那边（macOS / Windows / Android），
+//! 留在这里的只有一处 `#[cfg]`：一次性工作区落在哪儿（见 `workspace_root`）。
 //!
 //! 这一层刻意**不碰**前端的引擎注册表（`src/services/engines/`）：这里只暴露
 //! `run_cpp` / `run_python` 两条命令，返回值与 `EngineExecution` 同构，
@@ -16,6 +16,9 @@
 //!   Python 没有编译段，耗时就是「解释器启动 + 程序执行」的墙钟（同 `engines/wasm.js`）
 //! - `ok` 时 `stderr` 清空、编译失败的 `durationMs` 记 `null`：`src/services/engines/wasm.js`
 //! - outcome 词表：`ok` / `compile-error` / `runtime-error` / `timeout` / `unreachable` / `cancelled`
+//! - 编译缓存：`compile_cpp` 按「源码原文 + 编译器路径」留最近一份编译结论，同一批用例里
+//!   同一份代码只编一次 —— 与 `src/services/runnoSandbox.js` 的 `compileCache` 同义；
+//!   命中与否都不改 `durationMs` 的口径（那只计运行段）
 //!
 //! 另外，本文件**不产出任何面向用户的话术**：界面文案一律由前端的 i18n 数据表翻译
 //! （见项目约定「界面文案一律不写死」），这里只回原始 stdout / stderr 与机器可读的
@@ -25,6 +28,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -139,43 +143,15 @@ fn run_in_workspace(
                 return missing_toolchain(toolchain::cxx_names());
             };
             // 产物名按平台取：Windows 上不带 .exe 的文件是执行不了的
-            let binary = workspace.join(toolchain::binary_name());
-
-            // 编译：与浏览器沙箱同一组参数（src/services/runnoSandbox.js 的 FRONTEND_ARGS）。
-            // 这组开关只认 clang / gcc 两族 —— 所以 toolchain 那边也只找这两族，
-            // **不给 MSVC 的 cl.exe 加分支**，否则编译参数就成了第二套口径。
-            // 这里不加 -fcolor-diagnostics 之类的开关：没有 TTY 时 clang 本来就不着色，
-            // 卡片是纯文本渲染，正好对上。
-            let compile = Command::new(compiler)
-                .arg("-std=c++17")
-                .arg("-O2")
-                .arg(&source)
-                .arg("-o")
-                .arg(&binary)
-                .current_dir(workspace)
-                .output();
-
-            let compile = match compile {
-                Ok(output) => output,
-                Err(err) => return internal_failure(err),
+            let binary = match compile_cpp(code, &source, workspace, compiler) {
+                Ok(binary) => binary,
+                Err(outcome) => return outcome,
             };
-
-            if !compile.status.success() {
-                // 编译区没有「运行段」，所以耗时记 null；诊断正文是 clang 自己的原文，
-                // 前端 runner.js 已经会在它为空时兜底 t('tests.outcome.compileFailed')
-                return RunOutcome {
-                    outcome: "compile-error",
-                    stdout: String::new(),
-                    stderr: String::from_utf8_lossy(&compile.stderr).into_owned(),
-                    duration_ms: None,
-                    detail: None,
-                };
-            }
 
             let mut command = Command::new(&binary);
             command.current_dir(workspace);
             // MinGW 编出来的 exe 依赖编译器同目录的 DLL，而那个目录不一定在 PATH 里
-            toolchain::with_toolchain_dir(&mut command, compiler);
+            toolchain::with_run_env(&mut command, compiler);
             command
         }
         Language::Python => {
@@ -186,12 +162,148 @@ fn run_in_workspace(
             };
             let mut command = Command::new(interpreter);
             command.arg(&source).current_dir(workspace);
-            toolchain::with_toolchain_dir(&mut command, interpreter);
+            toolchain::with_run_env(&mut command, interpreter);
             command
         }
     };
 
     run_program(command, stdin, time_limit_ms)
+}
+
+/// 一份被缓存下来的编译结论。
+///
+/// 「编译成功」存产物字节，「编译不过」存编译器原文 —— 两种都缓存，因为同一份源码的结论
+/// 必然相同，第二次省掉的是同一次编译（失败的那次也一样要等 clang 跑完）。
+struct CachedCompile {
+    /// 源码原文。与浏览器沙箱的单槽缓存同一把钥匙：代码一改缓存必然失效
+    code: String,
+    /// 编译器绝对路径。轻微防呆：随包工具链在会话中途才落地（首次准备刚做完）时，
+    /// 别把「在那之前」的结论接着复用
+    compiler: PathBuf,
+    /// `Ok` 是产物字节，`Err` 是编译器的 stderr 原文
+    artifact: Result<Vec<u8>, String>,
+}
+
+impl CachedCompile {
+    /// 把缓存结论落到本次运行的工作区：成功就写产物并补上可执行位，失败就原样回放当时那段诊断
+    fn materialize(&self, binary: &Path) -> Result<PathBuf, RunOutcome> {
+        match &self.artifact {
+            Ok(bytes) => {
+                if let Err(err) = std::fs::write(binary, bytes) {
+                    return Err(internal_failure(err));
+                }
+                if let Err(err) = make_executable(binary) {
+                    return Err(internal_failure(err));
+                }
+                Ok(binary.to_path_buf())
+            }
+            Err(stderr) => Err(compile_error(stderr.clone())),
+        }
+    }
+}
+
+/// 编译缓存：只有一个槽位，且整段编译都在这把锁里做。
+///
+/// 为什么只留一份：判题总是成批跑同一份代码，代码一改缓存必然作废，多留槽位没有收益
+/// （与 `src/services/runnoSandbox.js` 的 `compileCache` 同款）。缓存活在进程内 ——
+/// `#[tauri::command]` 与页面同进程，一次「全部运行」里 N 个用例都命中这同一个槽位。
+/// 锁覆盖编译全程：前端并发是 2（见 `runner.js` 的 `concurrency`），不锁的话头两个用例
+/// 会各编一遍同一份代码，白付一次最贵的开销。
+static COMPILE_CACHE: Mutex<Option<CachedCompile>> = Mutex::new(None);
+
+/// 编译 C++，返回可执行产物的路径；命中缓存时不再起编译器。
+///
+/// 返回的 `Err` 是要原样回给前端的运行结果：编译不过就是 `compile-error`（会被缓存），
+/// 环境层失败（起不了编译器、写不了产物）是 `unreachable`（不缓存，它不反映代码性质）。
+fn compile_cpp(
+    code: &str,
+    source: &Path,
+    workspace: &Path,
+    compiler: &Path,
+) -> Result<PathBuf, RunOutcome> {
+    let binary = workspace.join(toolchain::binary_name());
+    // 锁被毒化（某个线程 panic 在锁里）不该让判题跟着崩：取回内层数据继续用
+    let mut cache = COMPILE_CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if let Some(entry) = cache.as_ref() {
+        if entry.code == code && entry.compiler == compiler {
+            return entry.materialize(&binary);
+        }
+    }
+
+    // 编译：与浏览器沙箱同一组参数（src/services/runnoSandbox.js 的 FRONTEND_ARGS）。
+    // 这组开关只认 clang / gcc 两族 —— 所以 toolchain 那边也只找这两族，
+    // **不给 MSVC 的 cl.exe 加分支**，否则编译参数就成了第二套口径。
+    // 这里不加 -fcolor-diagnostics 之类的开关：没有 TTY 时 clang 本来就不着色，
+    // 卡片是纯文本渲染，正好对上。
+    //
+    // `cxx_extra_args()` 与 `with_run_env()` 在桌面端都是空的，不影响上面那组口径；
+    // 它们只在 Android 上起作用 —— 随包 clang 的路径前缀烧死在二进制里，
+    // 得靠 `--sysroot` 参数、`LD_LIBRARY_PATH` 与 `TMPDIR` 重新指路才跑得起来
+    // （连 clang 自己都要 `LD_LIBRARY_PATH` 才加载得上 libclang-cpp.so / libLLVM.so，
+    // 而 `TMPDIR` 缺了它就死在「建不了临时文件」上）。
+    let mut compile = Command::new(compiler);
+    compile
+        .arg("-std=c++17")
+        .arg("-O2")
+        .args(toolchain::cxx_extra_args())
+        .arg(source)
+        .arg("-o")
+        .arg(&binary)
+        .current_dir(workspace);
+    toolchain::with_run_env(&mut compile, compiler);
+
+    let output = match compile.output() {
+        Ok(output) => output,
+        Err(err) => return Err(internal_failure(err)),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        *cache = Some(CachedCompile {
+            code: code.to_string(),
+            compiler: compiler.to_path_buf(),
+            artifact: Err(stderr.clone()),
+        });
+        return Err(compile_error(stderr));
+    }
+
+    // 产物在这里读完就进了缓存，随后工作区照旧会被整个删掉
+    let bytes = match std::fs::read(&binary) {
+        Ok(bytes) => bytes,
+        Err(err) => return Err(internal_failure(err)),
+    };
+    *cache = Some(CachedCompile {
+        code: code.to_string(),
+        compiler: compiler.to_path_buf(),
+        artifact: Ok(bytes),
+    });
+    Ok(binary)
+}
+
+/// 编译不过：诊断正文是 clang 自己的原文，前端 `runner.js` 会在它为空时兜底
+/// `t('tests.outcome.compileFailed')`；没有运行段，所以 `durationMs` 记 null
+fn compile_error(stderr: String) -> RunOutcome {
+    RunOutcome {
+        outcome: "compile-error",
+        stdout: String::new(),
+        stderr,
+        duration_ms: None,
+        detail: None,
+    }
+}
+
+/// 缓存命中的产物是 `std::fs::write` 落盘的，默认没有可执行位（编译出来那份有）。
+/// Windows 只看扩展名，不需要这一步。
+#[cfg(unix)]
+fn make_executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// 起子进程、推 stdin、读输出、跑不完就杀
@@ -280,6 +392,28 @@ fn run_program(mut command: Command, stdin: &str, time_limit_ms: u64) -> RunOutc
     }
 }
 
+/// 一次性工作区落在哪儿（这就是本文件唯一的平台分岔）。
+///
+/// 桌面端用系统临时目录。Android 上不行：`std::env::temp_dir()` 那边是 `/tmp`，
+/// 既不存在也建不出来 —— 更要紧的是**产物得能被执行**。真机探针量过，targetSdk 28 下
+/// 整个应用只有私有目录 `filesDir` 允许 `execve` 自备二进制，所以工作区必须落在它下面。
+/// 落点直接问 `android_toolchain`：JNI 那套（取 JavaVM、附线程、调 `getFilesDir`、缓存结果）
+/// 已经长在那儿了，这里不重抄一遍。
+///
+/// 后者的错因是「拿不到私有目录」，本不是 IO 错；但这里的调用方（`run_core`）只认
+/// `io::Error` 通道，转一道交给它，原文照旧回给前端。
+#[cfg(not(target_os = "android"))]
+fn workspace_root() -> std::io::Result<PathBuf> {
+    Ok(std::env::temp_dir())
+}
+
+#[cfg(target_os = "android")]
+fn workspace_root() -> std::io::Result<PathBuf> {
+    crate::android_toolchain::files_dir()
+        .map(|files| files.join("run"))
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+}
+
 /// 一次运行独占一个目录：进程号 + 自增序号 + 纳秒时间戳，三者凑一起才够唯一
 fn unique_workspace() -> std::io::Result<PathBuf> {
     let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -287,7 +421,7 @@ fn unique_workspace() -> std::io::Result<PathBuf> {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("cp-native-{}-{seq}-{nanos}", std::process::id()));
+    let dir = workspace_root()?.join(format!("cp-native-{}-{seq}-{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -409,5 +543,44 @@ mod tests {
     fn kills_a_python_program_that_never_ends() {
         let result = run_core(Language::Python, "while True:\n    pass\n", "", 300);
         assert_eq!(result.outcome, "timeout");
+    }
+
+    /// 缓存命中那一路：产物是复制过去的，必须自己补上可执行位，否则就是「编译成功却起不来」。
+    ///
+    /// 直接测 `materialize` 而不是整跑两遍 `run_core`，是因为缓存是进程内单槽、而测试并发跑，
+    /// 别的用例随时会把槽位顶掉 —— 那样这条断言就成了看运气。
+    #[test]
+    fn materializes_a_cached_binary_with_the_executable_bit() {
+        let dir = std::env::temp_dir().join(format!("cp-native-cache-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let binary = dir.join(toolchain::binary_name());
+
+        let hit = CachedCompile {
+            code: "int main(){}".to_string(),
+            compiler: PathBuf::from("clang++"),
+            artifact: Ok(b"cached".to_vec()),
+        };
+        let written = hit.materialize(&binary).expect("命中缓存该把产物落下来");
+        assert_eq!(std::fs::read(&written).expect("产物可读"), b"cached");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&written).expect("取元数据").permissions().mode();
+            assert_eq!(mode & 0o111, 0o111, "缓存产物必须可执行");
+        }
+
+        // 编译不过的结论也要能原样回放，且仍是「没有运行段耗时」的 compile-error
+        let failed = CachedCompile {
+            code: "x".to_string(),
+            compiler: PathBuf::from("clang++"),
+            artifact: Err("boom".to_string()),
+        };
+        let outcome = failed.materialize(&binary).expect_err("失败的结论该原样回放");
+        assert_eq!(outcome.outcome, "compile-error");
+        assert_eq!(outcome.stderr, "boom");
+        assert_eq!(outcome.duration_ms, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

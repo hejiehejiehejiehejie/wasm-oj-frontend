@@ -95,7 +95,7 @@ src/
     HotkeyRecorder.vue          # 单个动作的快捷键录制框：点一下开录、冲突红字且拒绝写入、Esc 放弃、Delete 清除绑定；开录时置 recordingActive 让全局监听让路（见第 13 节）
     EditorPane.vue              # 编辑区容器：Monaco 画布 + 设置视图（两者 v-show 互斥）+ 底部状态栏；把 judge / connection 透传给设置视图（运行状态不再透传——页签栏那颗运行按钮已删）。**题解那一行（工具栏 / 插入行 / 字数 / 视图胶囊 / 全屏按钮 / 预览面板）与 Monaco 侧那 14 条 `addAction` 也都在这个文件里**；状态栏的四道闸门在样式表末尾
     EditorTabs.vue              # 编辑器标签栏：只有一条 `strip`（文件页签 + 「设置」合成页签，横向滚动）。右端那颗「运行 / 停止」按钮已于 2026-09-28 删除（运行入口见第 1 节硬约束表）
-    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；宽面板下是「目录 + 内容」两栏、窄面板下目录折成顶部横条（判定走容器查询，见第 5 节坑 7），目录 = **常用设置** / 外观 / 编辑器 / **快捷键** / 评测 / **云端同步** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动；B 步自 2026-10-01 起逐项点开验行为、不再数个数）。「常用设置」是最前面那个分类、也是默认选中项，里面的主题 / 界面缩放 / 字体大小 / 侧边栏位置与原分类是**同一份数据**（不是副本）；「云端同步」管登录绑定与「预下载本地运行环境」开关，后端见 `docs/云端同步服务.md`；未绑定时输入框右侧还有一颗**导入**按钮（2026-10-06 加）——只取一份公开的云端配置（`fetchCloudProfile`），不取码、不写 `cp.cloudAccount` / `cp.cloudToken`、不建立绑定，实现上是把用户名交给 `cloudApplyHandle`，复用地址栏 `/<handle>` 那条确认弹窗与 `confirmCloudApply()`。它是装成 PWA（独立窗口、没有地址栏）后导入云端设置的唯一入口。这四条路（导入 / 上传 / 登录 / 下载到本机）成功之后都会把 `/<handle>` 写进地址栏，见 `cloudEntry.js` 的 `writeCloudEntryPath`：上传两处在各自成功分支里直接调它，导入 / 登录 / 下载走 `adoptCloudProfile(data, handle)` 的第二个参数（**登录只下不传、也不因此建立绑定**的规矩没变）。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 22 行；2026-09-30 在「视图」小节末尾加了 `statusBar`）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「应用」那栏除「安装到设备 / 存储占用」外还并入两块（用 `.setting-subtitle` 分区）：**本地运行环境**按 `RUNTIMES` 表渲染**三行运行时**（C++ / Python / 题解渲染器，同一套代码，`language === 'markdown'` 时由 wasmRuntime 转给 mdRuntime）；**浏览器插件**管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
+    EditorSettingsPanel.vue     # 设置视图：铺满编辑区、与代码文件平级的合成页签（不再是抽屉 / Teleport）；宽面板下是「目录 + 内容」两栏、窄面板下目录折成顶部横条（判定走容器查询，见第 5 节坑 7），目录 = **常用设置** / 外观 / 编辑器 / **快捷键** / 评测 / **云端同步** / 应用 / 帮助（共 8 项，`SECTIONS` 常量驱动；B 步自 2026-10-01 起逐项点开验行为、不再数个数）。「常用设置」是最前面那个分类、也是默认选中项，里面的主题 / 界面缩放 / 字体大小 / 侧边栏位置与原分类是**同一份数据**（不是副本）；「云端同步」管登录绑定与「预下载本地运行环境」开关，后端见 `docs/云端同步服务.md`；未绑定时输入框右侧还有一颗**导入**按钮（2026-10-06 加）——只取一份公开的云端配置（`fetchCloudProfile`），不取码、不写 `cp.cloudAccount` / `cp.cloudToken`、不建立绑定，实现上是把用户名交给 `cloudApplyHandle`，复用地址栏 `/<handle>` 那条确认弹窗与 `confirmCloudApply()`。它是装成 PWA（独立窗口、没有地址栏）后导入云端设置的唯一入口。这四条路（导入 / 上传 / 登录 / 下载到本机）成功之后都会把 `/<handle>` 写进地址栏，见 `cloudEntry.js` 的 `writeCloudEntryPath`：上传两处在各自成功分支里直接调它，导入 / 登录 / 下载走 `adoptCloudProfile(data, handle)` 的第二个参数（**登录只下不传、也不因此建立绑定**的规矩没变）。「外观」那组管主题 / 字体大小（`APPEARANCE_ROWS`，仍是 editorSettings 的键）与侧边栏位置 / 界面缩放（各有自己的出口）；「编辑器」那组按 `EDITOR_GROUPS`（字体 / 编辑 / 光标与高亮 / 视图 4 小节，共 22 行；2026-09-30 在「视图」小节末尾加了 `statusBar`）数据驱动渲染，每行只写「键 + 标签 + 控件类型 + 可选项」，可选项表全部来自 services/editorOptions.js；「快捷键」那组按 `SHORTCUT_ACTIONS` 渲染 `HotkeyRecorder`；「应用」那栏除「安装到设备」外还并入两块（用 `.setting-subtitle` 分区）：**本地运行环境**按 `RUNTIMES` 表渲染**三行运行时**（C++ / Python / 题解渲染器，同一套代码，`language === 'markdown'` 时由 wasmRuntime 转给 mdRuntime）；**浏览器插件**管扩展的安装包下载 / 状态探测 / 插件侧快捷键查看（两个常量 `EXTENSION_VERSION` / `EXTENSION_FILE` 决定下载地址，升版本只改这里 + 换 zip）
     EngineSettingsPanel.vue     # 「评测」分组里的引擎列表 + 服务地址 + 自检（原顶栏「评测引擎设置」弹层的正文）
     HelpPanel.vue               # 「帮助」分组里的问答列表 + 完整指南链接（原顶栏「?」抽屉的正文，现只读、无按钮 / Teleport，与 docs/使用手册.md 同源）。**体例（2026-09-29 定）**：`GROUPS` 是「分组 → 条目」两层，每条 = `name`（**必须是疑问句**，它就是小标题）/ `role`（一句话答案）/ `steps`（操作步骤，渲染成 `<ol>` 1. 2. 3.）/ `notes`（要点与口径，渲染成圆点）/ 可选 `table`（判定码、性能实测这类多列短值）；正文里用 `**…**` 标出界面上的按钮名与页面名，`segments()` 负责拆成加粗片段（**不走 `v-html`**：文案里会出现 `<vector>` 这类头文件名，交给 HTML 解析会被当标签吃掉）
     MarkdownPreview.vue         # 题解预览面板（2026-09-30 加）：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载渲染器」入口、与编辑器的**双向滚动同步**（比例 + 回音吃掉 + 重渲染后按 lastRatio 复位）。只接受 source 字符串、不认识 Monaco
@@ -125,7 +125,7 @@ src/
     vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
     settingsTab.js              # 「设置」合成页签的 UI 状态（刻意不进 workspaceStore/openTabIds、不建模型、不落 localStorage；见第 5 节坑 7）
-    cloudProfile.js             # ★ 云同步的前端唯一边界：`SYNC_KEYS` 白名单（15 个键）+ `collectProfile` / `applyProfile` + 四个接口封装（`requestCode` / `verifyAndSave` / `saveWithToken` / `fetchCloudProfile`）+ `postJson`（网络失败折成 `{success:false}`、失败带 `status` 以区分 401 与 400）。接口一律走同源相对路径 `/api/*`，理由与坑见 `docs/云端同步服务.md`
+    cloudProfile.js             # ★ 云同步的前端唯一边界：`SYNC_KEYS` 白名单（15 个键）+ `collectProfile` / `applyProfile` + 四个接口封装（`requestCode` / `verifyAndSave` / `saveWithToken` / `fetchCloudProfile`）+ `postJson`（网络失败折成 `{success:false}`、失败带 `status` 以区分 401 与 400）。接口地址按平台分岔：网页版走同源相对路径 `/api/*`，Tauri 壳走 `https://www.998244353.best/api/*`（壳的资源协议不认 `/api`，理由与坑见 `docs/云端同步服务.md` 第 1 节，落地记录见 14.K）
     cloudEntry.js               # 网址形态的云配置入口：`captureCloudHandleFromPath()`（启动时读 `location.pathname` 的 `/<handle>`）+ `confirmCloudEntry()`（探一次云端到底有没有这份配置，据此决定要不要开设置页）+ `markCloudEntryHandled()` / `clearPendingCloudHandle()` + `writeCloudEntryPath(handle)`（2026-10-06 加，反方向）。**只登记**：不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`；「已答过」的记号写在 `history.state`（键 `cpCloudEntry`）、地址**保持原样不抹回根路径** —— 唯一例外是云端没有这份配置时（不打开设置页，地址 replaceState 回根路径 + `cloudEntryMissingHandle` 弹一句提示）。`writeCloudEntryPath` 是另一头：本机自己认下某个 handle（导入 / 上传 / 登录 / 下载到本机）之后把 `/<handle>` 写进地址栏并顺手打上同一个记号（读那两条注释：**一个只管自己写、一个只管不抹**，别把它们合成一条规则）。用 replaceState 不用 pushState；带点号的 handle 直接放弃（会和静态资源撞车）
     vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，无外层 wrapper；题目信息与样例挂在**该文件节点**的 `meta` / `config` 上）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
 ```
@@ -319,7 +319,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 4. **localStorage 里存的是 JSON 字符串**：`cp.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
 5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换按钮（`SidebarSwitcher`）在两个面板的页头里各有一份实例，**按选择器取它时必须先落到「当前可见的那个 `.sidebar__panel`」里**（用 `getClientRects().length > 0` 判可见），否则会同时拿到隐藏那份，脚本/断言会凭空多出一倍。（c）**同一原因让「跨这两个实例的运动」做不了 `transition`**：点一下就是把刚点的那份藏了、另一份亮出来，高亮不是同一个元素在动，`transition` 永远看不到。胶囊的滑动高亮（`SidebarSwitcher` 的 `sidebar-indicator-from-*`，挂在选中段的 `::before` 上、段本身不参与位移）因此用 `animation` ——元素从 `display: none` 变成可见时动画会从头播；并用 `[data-switched]` 挡掉首屏那次（首屏同样是「从隐藏变可见」，可那时并没有发生任何切换）。两份胶囊在屏幕上的位置完全相同，所以「新亮出来的那份从旧位置滑过来」看起来就是同一枚高亮在横移。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
-7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身**默认单列**（目录折成顶部横向标签条、内容在下），编辑区够宽时才升级成**「目录 + 内容」两栏**（2026-09 建，2026-10 反转默认值）：`.settings-nav` 是分类目录（常用设置 / 外观 / 编辑器 / 快捷键 / 评测 / 云端同步 / 应用 / 帮助，`SECTIONS` 常量驱动），内容区同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「应用」那一栏会顺带 `refreshExtension()` 重探一次扩展状态、并刷新存储占用（两个 `watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」组是 2026-09 新加的（见第 13 节）；「浏览器插件」原先也是独立一组，2026-10-01 与「本地运行环境」一起并入「应用」。宽度判断不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `container-name: settings`，用 `@container settings (min-width: 35rem)` 把默认的单列升级成两栏（阈值与目录项字号都是 rem，全局缩放后目录与内容都会变大、要更早翻回竖排）。**方向必须保持「默认单列 + `min-width` 升级」，别改回「默认两栏 + `max-width` 降级」**：生产构建会把 `max-width` 压成区间语法 `width<=35rem`，不支持它的浏览器（荣耀自带浏览器实测，2026-10）整条查询匹配不上、直接回落到基线两栏，手机上就被挤成两列；反着写的话认不认容器查询都落在安全的一列（代价是不支持的浏览器上永远吃横条目录，可接受）。
+7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/settingsTab.js`）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `settingsTab.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身**默认单列**（目录折成顶部横向标签条、内容在下），编辑区够宽时才升级成**「目录 + 内容」两栏**（2026-09 建，2026-10 反转默认值）：`.settings-nav` 是分类目录（常用设置 / 外观 / 编辑器 / 快捷键 / 评测 / 云端同步 / 应用 / 帮助，`SECTIONS` 常量驱动），内容区同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「应用」那一栏会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」组是 2026-09 新加的（见第 13 节）；「浏览器插件」原先也是独立一组，2026-10-01 与「本地运行环境」一起并入「应用」。宽度判断不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `container-name: settings`，用 `@container settings (min-width: 35rem)` 把默认的单列升级成两栏（阈值与目录项字号都是 rem，全局缩放后目录与内容都会变大、要更早翻回竖排）。**方向必须保持「默认单列 + `min-width` 升级」，别改回「默认两栏 + `max-width` 降级」**：生产构建会把 `max-width` 压成区间语法 `width<=35rem`，不支持它的浏览器（荣耀自带浏览器实测，2026-10）整条查询匹配不上、直接回落到基线两栏，手机上就被挤成两列；反着写的话认不认容器查询都落在安全的一列（代价是不支持的浏览器上永远吃横条目录，可接受）。
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠、以及整个「评测样例」页签被切走时元素都是 `display: none`，此刻 `scrollHeight` 为 0，代码会跳过重算——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。重算的触发有两处：`watch`（输入变化 / 卡片展开）+ 一个挂在输入框上的 **`ResizeObserver`**（只认宽度从 0 变有值、或面板被拖宽，宽度变大才算，避免回调环）。页签是 `v-show` 切换的，没有重新挂载的时刻，**没有这个 observer 就会一直塌成一行**（旧版只在 `onMounted` 跑一次，切到「评测样例」时必然塌）。
 9. **`.run-zone` 是撑满中段的 `<button>`**：里面的 `padding: 0` 不是装饰，是在抵消浏览器给按钮的默认内边距（不抵消的话 ▶ 图标位置会跑偏）；`.run-zone__icon` 才是那个 22px 的 ▶ 本体，悬停点亮的是它。
 10. **`theme-color` 是 JS 写的，不是静态 meta**：`App.vue` 切主题时会把 `--bg-chrome` 读出来写进 `<meta name="theme-color">`（装成独立应用后浏览器拿它画窗口标题栏）。`index.html` 里那个 `content` 只是首帧兜底，别在那里维护第二份色值。
@@ -752,7 +752,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
 - 改 `useCompanionBridge.js` 里的**消息名**（`cp-ping` / `cp-task` / …）→ 那是与 `cph-companion` 的**跨仓契约**，必须同步改扩展的 `src/bridge.ts` + `src/background.ts`，再升版本号发新版（2026-10-01 就是一次这样的改动：`cph-*` 全改成 `cp-*`）。**结论是「两边不同版就完全失联」**，而且失败是静默的——只剩「未检测到插件」。注意 `EXTENSION_SOURCE`（`competitive-companion`）是**扩展上游的标识，不是这次那批消息名，改它等于单方面毁约**；`PAGE_SOURCE` 才是本站自己的那半边。
 
-## 14. 多平台移植（Tauri 桌面端：**macOS 已落地**，Windows 第 1–3 步已落地、待实机实测，Linux 未开工）
+## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；Linux 未开工）
 
 **目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
 
@@ -793,7 +793,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 4. **平台分流**：桌面构建里关掉 SW / PWA / 安装入口 / 扩展抓题 / 工具链下载；COOP/COEP 在桌面侧另设一份。
 5. **打包发布**：`npx tauri build`，产物在 `src-tauri/target/release/bundle/`；macOS 先出 `.dmg` / `.app`，再考虑 Windows / Linux 与 CI。
 
-**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`。Windows 移植见 14.F–14.H：第 1 步（Rust 侧跨平台）、第 2 步（打包配置）、第 3 步（GitHub Actions，已出 `unnamed_0.1.0_x64-setup.exe`）均已落地，**第 4 步（实机实测 + 文案五处）未做**；Linux 仍未开工；签名与公证未做。**
+**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`。Windows 移植见 14.F–14.H：第 1 步（Rust 侧跨平台）、第 2 步（打包配置）、第 3 步（GitHub Actions，已出 `unnamed_0.1.0_x64-setup.exe`）均已落地，**第 4 步（实机实测 + 文案五处）未做**。Android 移植见 14.I：工具链组装、Rust 侧解压与转指、前端准备遮罩均已落地，**真机上 C++ 用例能编能跑（2026-10-09 实测）**，Python 侧无解；签名与公证未做；Linux 仍未开工。**
 
 ### 14.A 第 1 步落地记录（环境与空壳，2026-10-08 实测通过）
 
@@ -861,7 +861,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 桌面端界面由用户目视确认（本机终端无录屏权限，截不了图）。
 - **尚未做 / 待决（第 5 步或后续）**：
   - **题解渲染器在桌面端装不上**：Markdown / LaTeX 预览同样靠 Cache Storage（`mdRuntime.js`），桌面端因此会停在「缺渲染器」。本步只按 §14 纪律收起了「本地运行环境」里的下载入口，**预览面板自己那颗「下载渲染器」按钮没管** —— 要么让 Rust 读本地文件，要么桌面端不提供题解预览，得单独定。
-  - **桌面端云端同步**：`/api/*` 是相对路径，在 tauri 自定义协议下没有对应后端，需另配绝对地址（未做，不属本步范围）。
+  - **桌面端云端同步**：✅ **2026-10-09 已落地，见 14.K**（原记录：`/api/*` 是相对路径，在 tauri 自定义协议下没有对应后端，需另配绝对地址）。
   - `index.html` 的 `manifest.webmanifest` / `apple-*` 元标签是静态的、两端共用，未按平台拆（桌面端忽略它们，无害）。
   - **文案五处仍未补**（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）：口径仍是「等桌面版真能发布再动」。
 
@@ -870,7 +870,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **四个决定（发布前定死，先问后做，别再自己拍）**：
   1. **`productName` `unnamed` / `identifier` `best.998244353.unnamed` 定稿不动**。`identifier` 同时是 webview 的数据目录名（`~/Library/Application Support/<identifier>`），**发布后再改等于把用户的题解全丢**；`unnamed` 也不是占位符，它就是本站的品牌名（网页标题、PWA manifest、结构化数据三处一致）。
   2. **应用图标换成本项目自己的**：`npx tauri icon public/icons/icon-512.png` 覆盖掉 `tauri init` 的默认图标，`src-tauri/icons/` 下全套（`.icns` / `.ico` / 各尺寸 png / iOS / Android）一并重生成。
-  3. **`public/wasm/`（约 52MB）照常打包**：桌面端跑的是系统 `clang++` / `python3`，用不到它，但两端**共用同一份 `dist`**，排除要另加一条「打包前从 dist 删 wasm」的构建步骤并小心别影响网页版部署链路。先出可用产物，出包瘦身留到以后单独做。
+  3. ~~**`public/wasm/`（约 52MB）照常打包**：桌面端跑的是系统 `clang++` / `python3`，用不到它，但两端**共用同一份 `dist`**，排除要另加一条「打包前从 dist 删 wasm」的构建步骤并小心别影响网页版部署链路。先出可用产物，出包瘦身留到以后单独做。~~ ✅ **2026-10-09 已落地，见 14.L** —— 做法就是壳端单独一条 `build:tauri`，网页版仍走 `npm run build`，两条链路各不相干。
   4. **macOS 不做签名与公证**：先出未签名产物。
 - **命令**：`export PATH="$HOME/.cargo/bin:$PATH"; npx tauri build`（非登录 shell 没有 `~/.cargo/bin`，见 14.A 的坑）。首次整树 release 编译 1m12s，改完前端再打一次增量只要 15.7s。
 - **产物**（都在 `src-tauri/target/release/bundle/`）：
@@ -880,7 +880,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **重打过一次**：补全的 `#` 替换范围修好后（见第 7 节那条末句）又跑了一次 `npx tauri build`，两个产物都是修好之后的版本。
 - **未签名的影响**：首次打开会被 Gatekeeper 拦（「无法验证开发者」），得右键「打开」或在「系统设置 › 隐私与安全性」里放行。要对外分发就得补 Apple Developer 证书 + `notarytool` 公证。
 - **本次产物包含当日新做的编辑器补全**（见第 7 节那条「编辑器自动补全」）：补全改动先落在前端，`beforeBuildCommand` 会重跑 `npm run build` 重新出 `dist`，所以重打一次包即可带上，不必单独处理。
-- **尚未做（留给后续）**：Windows / Linux 构建（Tauri 不能一次交叉编译出全套，得各自 CI 出，另见本条第 8 项）；签名与公证；`public/wasm/` 出包瘦身；**桌面端云端同步**（`/api/*` 是相对路径，Tauri 自定义协议下没有对应后端，见 14.D）；**文案五处**（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）仍未按平台补。
+- **尚未做（留给后续）**：Windows / Linux 构建（Tauri 不能一次交叉编译出全套，得各自 CI 出，另见本条第 8 项）；签名与公证；~~`public/wasm/` 出包瘦身~~ ✅ **2026-10-09 已落地，见 14.L**；~~**桌面端云端同步**（`/api/*` 是相对路径，Tauri 自定义协议下没有对应后端，见 14.D）~~ ✅ **2026-10-09 已落地，见 14.K**；**文案五处**（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）仍未按平台补。
 
 ### 14.F Windows 移植 · 第 1 步落地记录（Rust 侧跨平台，2026-10-08）
 
@@ -945,5 +945,279 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 **本机验不到的**：这一趟只证明「**能编出安装包**」。**工具链探测在真实 Windows 上的表现**（用户机器上装的是 MSYS2 还是 LLVM、`python` 会不会落到商店别名）与 **COOP/COEP 响应头在 WebView2 下是否真生效**，都得等第 4 步装一次才算验过。
 
 **尚未做**：第 4 步实机实测与文案五处（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）。
+
+### 14.I Android 移植落地记录（2026-10-09 真机实测通过：C++ 能编能跑）
+
+**目标**：同一套前端 + Tauri，出 Android 包，**用随包 clang 在设备上原生编译并运行 C++**。Web 版与桌面版两条线照旧并行。
+
+#### 承重点（先看这三条，动它们前先读本节）
+
+1. **`targetSdk` 必须停在 28**（`app/build.gradle.kts`，`minSdk 24` / `compileSdk 37`）。Android 10 起（`targetSdk >= 29`）应用落到 `untrusted_app` 域，SELinux 对 `app_data_file` 收掉了 `execute`，**私有目录里的可执行文件会被 `EACCES` 挡掉**；降到 28 落 `untrusted_app_27` 域才允许。本项目要起随包 clang 与它编出来的产物，全部落在 `filesDir` 下，所以这一项是**承重的**（这也是 Termux 长期停在 28 的原因）。真机探针实测：targetSdk 37 时 `filesDir` / `cacheDir` 里 execve 一律 `EACCES`，28 时正常。
+2. **编译器随 APK 打包、首启解到私有目录**。Android 上 `resource_dir()` 解析出来是 `asset://localhost/`，**不是文件系统路径**，所以 `bundle.resources` 这条路走不通；工具链只能进 APK 的 `assets/`，由 NDK 的 `AAssetManager` 读出、解到 `<filesDir>`。assets 只读、跑不了里面的二进制，所以必须解出来。
+3. **WASM 沙箱在 Android WebView 上不可行**（宿主无 site isolation，`SharedArrayBuffer` 拿不到），所以 Android 端**只有原生编译这一条路**，没有退路。
+
+#### 工具链组装（`scripts/prepare-android-toolchain.mjs`，npm 脚本 `android:toolchain`）
+
+- 从**清华 Termux 镜像**取 pinned 版本的 11 个 `.deb`，解出 `clang` 的动态库闭包（**BFS 从 `clang-21` 出发**，含 `libLLVM.so` / `libclang-cpp.so` / `libc++_shared.so` 等；只算直接依赖会漏 `libffi.so` 之类，运行期才炸），按 **Termux 布局**重组后打成 `tar.gz`，落 `src-tauri/gen/android/app/src/main/assets/`。
+- 产物：**2659 条目（2515 文件）**，解压 **212 MB**，包 **68.6 MiB**；sha256 `f8d8b4f5f85eec77a3873746fe03f5abdabe65e5f8bbecc1d9b12398f73c7338`（可复现 —— tar 头里 mtime/uid/gid 固定为 0）。**历史值**：首版 3537 条目 / 219 MB / 69.5 MiB / `21c63237…`；再往前未瘦身时 3737 条目 / 264 MB / 77.5 MiB。
+- **瘦身（2026-10-09）**：`assemble()` 第 6.5 步 `pruneUnusedAssets()` 就地删掉两类判题永不需要的资产，共 **200 个文件 / 45 MiB（解压后）**，设备 Data **264 → 219 MB**、tgz **77.5 → 69.5 MiB**：
+  - `lib/clang/21/lib/linux/` 下除 `libclang_rt.builtins-*` 外的 compiler-rt 运行库 —— sanitizer（asan/tsan/ubsan/lsan/hwasan）、fuzzer、profile、stats、orc-jit，33 个。它们只有 `-fsanitize=` / `-fprofile-` 才会被链上，判题不带这些开关；`builtins` 是每次普通链接都要的，**必须留**。
+  - `lib/clang/21/include/` 下按架构分的 intrinsic 头，166 个：x86/ppc/s390/mips/hexagon/loongarch 全系（`*intrin.h`、`altivec.h`、`vecintrin.h`、`hexagon*` 等），外加 **ARM 自己的 NEON/SVE/MVE/SME 与 `opencl-c.h`**（手写 SIMD / OpenCL 在判题范围外，而单一个 `arm_neon.h` 就 3 MiB）。libc++ 的 `c++/v1`、bionic 的 C 头、`stddef.h` / `stdint.h` / `float.h` 这些基础头全部保留。
+  - 验证：解压后 218.6 MiB，`bin/clang-21`、`bin/lld`、`libLLVM.so`、`libclang-cpp.so`、`libc++_shared.so`、`libclang_rt.builtins-aarch64-android.a`、`include/c++/v1/{vector,iostream}`、`include/stddef.h` 均在。**尚未在真机上跑过一次编译**（见「待办」）。
+- **再瘦身（2026-10-09 第二轮）**：`assemble()` 第 3.5 步 `pruneSysrootIncludes()` 再删 **7 处系统头**（`c++/v1/__cxx03`、`camera`、`drm`、4 个非本架构头目录），设备 Data **219 → 212 MB**、tgz **69.45 → 68.56 MiB**。详见 **14.M**。
+- 两个坑：**大小写冲突**（`xt_MARK.h` / `xt_mark.h` 等 8 对，macOS 这种大小写不敏感的文件系统上必须在内存里处理，不能落盘）；**可执行位**（`bin/clang-21`、`bin/lld` 必须 0755，其余 0644 —— tar 头的 mode 是特意带进去的，解压端要开 `preserve_permissions` 才还原，否则落成 0644 直接 `can't execute`）。
+- 依赖系统 `tar` 支持 `ar` + `xz`（macOS bsdtar 可行；Linux 需 `libarchive-tools`）。下载缓存到 `node_modules/.cache/android-toolchain`（每次构建约 71 MB，缓存后不再重下）。**pinned 版本会随 Termux 滚动仓库过期**，需定期重 pin。
+
+#### Rust 侧（A2–A4）
+
+- **新增 `src-tauri/src/android_toolchain.rs`**：读 assets → 解压 → 写版本标记。
+  - 落点：**`<filesDir>/compiler/usr/{bin,include,lib,lib/clang}`**，外加 `<filesDir>/compiler/.version`（存随包版本文件原文 = tgz 的 sha256）。下次启动据此判断要不要重解 —— 212 MB 不该每次启动都解一遍。
+  - 解压用 `flate2` + `tar`（`set_preserve_permissions(true)`），必须先 `remove_dir_all` 清旧树（换版本时旧版本有、新版本没有的文件不该留下），**标记最后写**（中途被打断就下次重解，不会拿半棵树去用）。
+  - `prepare_toolchain` 标 `#[tauri::command(async)]`：函数体同步但丢线程池，解压几秒不会 ANR。
+- **`toolchain.rs` 加 Android 分支**：`cxx()` 先看随包那份（`bundled_cxx`），再退回 PATH 探测；`cxx_extra_args()` 给编译参数；`with_run_env()` 给子进程环境变量（**A7 期间由 `with_toolchain_dir` 改名而来**，因为它早已不只是「目录」：Windows 补 `PATH`、Android 补 `LD_LIBRARY_PATH` + `TMPDIR`）。
+- **`native.rs`**：工作区从 `std::env::temp_dir()` 改到 **`<filesDir>/run`**（`std::env::temp_dir()` 在 Android 上是 `/tmp`，既不存在也建不出来；更要紧的是产物得能被执行）。
+- **转指三件套（Android 专有，桌面端全为空实现）**：
+  1. **`--sysroot=<filesDir>/compiler`** —— 见下面「真机证伪」。
+  2. **`LD_LIBRARY_PATH=<filesDir>/compiler/usr/lib`** —— 承重：随包 clang 是从 Termux 搬来的，二进制里的 `RUNPATH` 指向不存在的 Termux 路径，不给它直接 `CANNOT LINK EXECUTABLE ... library "libclang-cpp.so" not found`；编译段与运行段都要给（运行段是让产物找得到 `libc++_shared.so`）。
+  3. **`TMPDIR=<filesDir>/tmp`** —— 见下面「真机发现」。
+
+#### 真机证伪 A3 的推导：`--sysroot` 是 `<filesDir>/compiler`，**不是** `.../compiler/usr`
+
+- **症状**：按 A3 推的参数编译报 `fatal error: 'asm/types.h' file not found`。
+- **诊断**：`clang++ -v -E -x c++ -` 打印搜索列表对比两组 —— 取 `<root>/usr` 时列表里**没有** `usr/include/aarch64-linux-android`；取 `<root>` 才有，而 `asm/types.h` 正在那个目录下。
+- **机制**：Termux 的 clang 按 `<sysroot>/usr/include/...`、`<sysroot>/usr/lib` 推搜索路径，原生 Termux 里 sysroot = `$PREFIX` 的**上一层**。取对之后 clang 自动补齐：`usr/include/c++/v1`、`usr/lib/clang/21/include`、`usr/include/aarch64-linux-android`、`usr/include`，并**自动**加 `-rpath=<sysroot>/usr/lib` —— 所以原来那两条 `-isystem` / `-L` / `-Wl,-rpath` **全不需要**，只留一条 `--sysroot`。
+- **旁证**：4b 原型产物 `hello.bin` 的 `RUNPATH` 正是 `<filesDir>/compiler/usr/lib`，反过来说明**当时那份 sysroot 就是 `<root>`**（A3 推导时把它当成了 `<root>/usr`）。
+- **实测（修复后）**：`clang++ -std=c++17 -O2 --sysroot=<filesDir>/compiler` 编译通过，运行输出 `ok sum=10 n=4`、exit 0；再把产物**去掉 `LD_LIBRARY_PATH`** 单独跑一次仍成功，证明 `RUNPATH` 确由 `<sysroot>/usr/lib` 自动写对。
+
+#### 真机发现 A4 漏了 `TMPDIR`
+
+- **症状**：`clang++: error: unable to make temporary file: No such file or directory`。
+- **诊断**：app 进程 environ 里**没有 `TMPDIR`**（只有 `PATH` / `BOOTCLASSPATH` / `DEX2OATBOOTCLASSPATH` / `SYSTEMSERVERCLASSPATH`）；设备的 `/tmp` 是 `drwxrwx--x shell shell`，应用写不进去。
+- **修法**：落点 **`<filesDir>/tmp`**（与工具链是**兄弟**目录，重解工具链时的 `remove_dir_all` 不会顺手清掉它）；在 `android_toolchain::prepare()` 里、**`is_current` 提前返回之前** `create_dir_all` —— 复用那一路也必须保证它在（装完第一次之后就总走复用，建在返回之后等于没建）；`with_run_env()` 的 Android 分支设 `command.env("TMPDIR", ...)`。
+- **真机验证**：`rm -rf files/tmp` → 杀掉应用 → 重新启动 → `tmp` 重新出现（02:15），而 `compiler` 的 mtime 仍是 02:07（= 走了 `reused` 分支）。即**复用路径下也把 tmp 建起来了**。
+
+#### 真机上已量到的其余事实
+
+- 首启解压 **~10s**，`.version` 内容与 A1 记录的 sha256 **逐字一致**；二次启动 mtime 未变（`reused`）。
+- 权限位正确：`bin/clang-21`、`bin/lld` 均 0755，`bin/clang++` 是软链（指向 `clang-21`）。
+- 构建：`npx tauri android build --debug --target aarch64`（需显式给 `ANDROID_HOME` / `NDK_HOME` / `ANDROID_SDK_ROOT`，本机这几个环境变量为空；NDK 用 `29.0.14206865`）。通用 debug APK **418,224,623 B**（≈418 MB）—— A6 回滚 `jniLibs.useLegacyPackaging = true` 之后 libs 在 APK 内不再解包（APK 变大、**装机占用变小**），这是有意为之。
+
+#### 前端（A5）：首次准备的等待遮罩
+
+- **新增 `src/services/nativeToolchain.js`**：`toolchainState`（`idle|preparing|ready|failed`）、`toolchainError`（原文，不翻译）、`prepareNativeToolchain()`（非 Android 立即 resolve `null`；同一发 pending Promise 全进程复用，失败清空以便重试）。
+- **新增 `src/components/ToolchainGate.vue`**：`REVEAL_DELAY_MS = 300` 延迟显形（`preparing` 才排定时器，`ready` 收遮罩，`failed` 立即显形）；失败态给「重试」与「先进入」。**只在 Android 显形**（`IS_ANDROID`）。
+- **`src/services/platform.js`** 加 `IS_ANDROID`（只能从 UA 认；「是不是桌面壳」仍旧看 `IS_DESKTOP`）。
+- **`src/App.vue`** 的 `onMounted` 最前面 `void prepareNativeToolchain()`（不 await）；模板挂 `<ToolchainGate />`。
+- **`src/i18n/messages/app.js`** 加 `app.toolchain.{title,note,failedTitle,skip}` 中英两栏。
+
+#### 验证清单
+
+- **本机**：`cargo check`（桌面）**0 警告**；`cargo check --target aarch64-linux-android` **0 警告**；`cargo test --lib` **16 passed / 0 failed**；`npm run build` ✓。
+- **真机**（`OPD2515`，serial `fe906c3d`）：`adb install -r` 成功；启动后 `<filesDir>/tmp` 在 `reused` 路径下被重建（见上）；用 `run-as` 复刻**与 Rust 完全相同的参数与环境变量**（`--sysroot=<root>` + `LD_LIBRARY_PATH=<root>/usr/lib` + `TMPDIR=<filesDir>/tmp`）编译并运行，`ok sum=10 n=4`、exit 0。
+
+#### 本机 / 本次未验到的（如实记）
+
+- **UI → `invoke('run_cpp')` 的整条链路没有程序化驱动**：想把 WebView 的 devtools 拉出来（`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`）在 `curl /json` 上没响应，未走通。**参数与环境变量那一层是 `run-as` 逐字复刻验证的**，Rust 侧 `prepare_toolchain` 则是**真跑过**（上条 tmp 重建就是它干的）。**建议人工在 app 里跑一次带用例的 C++ 编译**，把最后这一格补上。
+- **Python 侧在 Android 上无解**：系统里没有解释器，随包也没带（Termux 的 python 依赖太多）。按设计如实报「找不到解释器」（`unreachable`），不是缺陷。
+- **只验了 `arm64-v8a`**；`armeabi-v7a` / `x86_64` 未验。
+- **release 包与签名**：已于 **14.J** 落地（v2 验签通过，APK 118.6 MiB）；但**功能未在真机验证** —— 只验到「能启动、界面正常、无崩溃」，没在 release 包里真跑过一次编译。
+
+#### 尚未做 / 待办
+
+- **`src-tauri/gen/` 已纳入版本库**（A7 收尾 `git add`，40 项；`gen/android/.gitignore` 另补了 `.kotlin`）。`targetSdk = 28` 这条承重配置与 Android 工程模板都在里面。`assets/android-toolchain.tgz` / `.version` 已由 `gen/android/app/.gitignore` 挡住（脚本生成，不入库，构建前须 `npm run android:toolchain`）。
+- **CI 若要出 Android 包**：构建前必须先跑 `npm run android:toolchain`（assets 不在仓库里），且需要 Android SDK / NDK。
+- **`.tgz` 是否加 `noCompress`**：未加时首启解压 ~10s，可接受，**倾向不加**，待最终拍板。
+- **文案五处已补（2026-10-09）**：guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 各加了一条**「开发中」口径** —— 说明另有 macOS / Windows / Android 原生版在开发、编译与运行都在本机完成，**不承诺下载渠道**（五处措辞一致）。**自此 14.C「文案五处仍未补」与 14.D「口径仍是『等桌面版真能发布再动』」作废。**
+- 探针脚手架（`probe.rs` / `services/probe.js` / `libprobe_sh.so`）已在 A6 拆除，`invoke_handler` 只剩 `native::run_cpp` / `native::run_python` / `android_toolchain::prepare_toolchain`。
+
+### 14.J Android 包瘦身与 release 签名（2026-10-09）
+
+**目标**：把真机装机占用压下来，并让 release 包能签名出包。三项里两项落地，第三项经实测收益过低而放弃（见「被否掉的那一项」）。
+
+#### 占用账本（先看这条脚注，两个来源对不上）
+
+| 来源 | App | Data | Cache |
+|---|---|---|---|
+| `dumpsys diskstats`（debug 包；`Latency: 0ms`，**疑为缓存**） | 242.4 MiB | 220.8 MiB | 22.5 MiB |
+| `run-as … du -sm files`（debug 包；**更新、更可信**） | — | **273 MB** | — |
+
+两者对不上：`files` 单目录就有 273 MB，已大于 diskstats 报的「App Data Size 220.8 MiB」——说明 **diskstats 那组是旧缓存**（它自己的 `Latency: 0ms` 也指向缓存）。**算占用时 Data 取 `du` 的 273 MB。** 于是 debug 包真实占用 ≈ **242.4 + 273 + 22.5 ≈ 538 MiB**。
+
+Data 的绝对大头就是工具链树：`files/compiler` **273 MB**（同一份 tgz 解出来的），`files/tmp` 1 MB。
+
+#### 事项一：APK 里的 157.7 MiB 孤儿（已消除）
+
+- **现象**：debug arm64 APK **418,224,623 B（398.9 MiB）**，但 `lib/arm64-v8a/libapp_lib.so` 本该只有一份 157.7 MiB。按各条目的局部头部重算，发现 offset **5,506,078 → 170,842,488** 是一段 **157.7 MiB 的死字节，且不在 zip 中央目录**里（安装器不读它，但整份 APK 会原样落到 `/data/app`，照样吃空间）。
+- **成因**：14.I 的 A6 回滚 `jniLibs.useLegacyPackaging = true` 之后，**增量打包**把上一版已解包的 `libapp_lib.so` 留在了原位，中央目录改指新条目，旧字节就成了孤儿。**不是配置问题，是脏构建目录。**
+- **修法/验证**：`src-tauri/gen/android/gradlew clean` 后重打即消失，debug arm64 APK 降到 **252,891,107 B（241.2 MiB）**，局部头部之间只剩 15 KB 对齐填充。
+
+#### 事项二：debug → release + 签名（已落地）
+
+- **`.so` 收益**：cargo release 的 `libapp_lib.so` = **40.5 MiB**（debug 是 157.7 MiB）。
+- **产物**：`app/build/outputs/apk/universal/release/app-universal-release.apk` = **124,408,387 B（118.6 MiB）**。构成：`libapp_lib.so` 40.6 MiB + `assets/android-toolchain.tgz` 76.5 MiB + dex/资源 ~1.5 MiB；678 条目、仅 1 处 9 KB 间隙（无孤儿）。
+- **签名**：`apksigner verify --verbose` → **v2 方案 verified**（v1/v3 未启用；`minSdk 24` 下 v2 已充分）。证书 `CN=unnamed, OU=Android, O=unnamed, L=Beijing, ST=Beijing, C=CN`，RSA 2048，SHA-256 `708776608f965ba224649919455116ac4cc1639d5a506c9578b64e1304965eb6`。
+- **装机预期**：App 242.4 → **118.6** MiB；Data 不变（工具链与 VFS 都在 data 里，与 APK 无关）。即 **~538 → ~393 MiB**，省 **~145 MiB**（其中 ~124 MiB 来自 APK）。
+
+#### ⚠️ 出包命令必须钉死 `--target aarch64`
+
+不带 `--target` 会**把四个 ABI 全塞进去**：arm64 157.7 + armv7 143.2 + x86 149.4 + x86_64 158.1，加 tgz 后 **725,510,279 B（691.9 MiB）**。**任何 Android 出包都写全 `--apk --target aarch64`。**
+
+```
+ANDROID_HOME=$HOME/Library/Android/sdk \
+ANDROID_SDK_ROOT=$HOME/Library/Android/sdk \
+NDK_HOME=$HOME/Library/Android/sdk/ndk/29.0.14206865 \
+ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/29.0.14206865 \
+npx tauri android build --apk --target aarch64
+```
+
+（本机这几个环境变量为空，必须显式给；工程内没有 npm 封装脚本，走 `@tauri-apps/cli`。）
+
+#### 构建配置的三处改动（都在 `src-tauri/gen/android/`）
+
+1. **根 `build.gradle.kts` 前置阿里云镜像**。国内直连 `dl.google.com` 拉 release 的 lint 工具（`intellij-core` / `kotlin-compiler` 两个 jar）会 `Read timed out`，release 构建直接失败（**debug 不跑 lintVital，所以一直没暴露**）。`buildscript` 与 `allprojects` 各加 `maven.aliyun.com/repository/{google,public}` 且**必须放在 `google()` 之前**（Gradle 按顺序试，镜像排在后等于白加），原仓库保留作后备。
+2. **`app/build.gradle.kts` 加 `lint { disable += "ExpiredTargetSdkVersion" }`，只关这一条**。lint 能跑起来后就报 `Error: Google Play requires that apps target API level 33 or higher. [ExpiredTargetSdkVersion]`，fatal 级、掐死 release。而 `targetSdk = 28` 是 14.I 的**承重点**（≥29 落 `untrusted_app` 域、私有目录执行被 EACCES），**不能为了过 lint 去改它**，只能关规则。**若要上 Google Play，这条矛盾得先解决。**
+3. **`app/build.gradle.kts` 加 `signingConfigs.release`**，从 `key.properties` 读 `storeFile` / `storePassword` / `keyAlias` / `keyPassword`；**`key.properties` 缺席时不建 signingConfig**，仍能出未签名包（CI 上不塞密钥也不至于整条构建挂掉）。`gen/android/.gitignore` 新增 `/keystore/`（`key.properties` 原本就在忽略列表里）。两者均已 `git check-ignore -v` 复核、`git status --ignored` 显示 `!!`。
+
+**密钥**（**离线备份，上架后不可更换**）：`keystore/release.jks`，alias `unnamed-release`，RSA 2048，有效期 10000 天，SHA384withRSA。
+
+#### 真机冒烟（release，2026-10-09）
+
+- `adb install -r` 成功。release 的 applicationId **不带 `.debug`**，与 debug 包**共存**而非覆盖 —— 所以量测期间设备上同时有两份安装，这点在解读数字时要注意。
+- 启动后 WebView 正常：文件树、Monaco 编辑器、状态栏（`main.cpp · 空格:4 行19,列5 · C++ · Ctrl+Enter`）都在（已截图留证）。`monkey -c android.intent.category.LAUNCHER` 拉起后 60s 进程仍在（pid 12852）。
+- 设备上 `base.apk` 实测 **124,408,387 B**，与宿主产物逐字节一致。
+- **crash buffer 无该包记录**；tombstones 最新为 2026-07-20（今日无新增）。03:10 再查进程已不在，**无崩溃/低内存日志**，按正常回收论。
+- 顺带看到一条**旧记录**：`02:07:33 F linker: CANNOT LINK EXECUTABLE "…unnamed.debug/files/compiler/usr/bin/clang++": library "libclang-cpp.so" not found`。同一时刻 `files/compiler` 的 mtime 也是 02:07，而 `libclang-cpp.so` 现已在位（62,972,824 B）。**成因未查**（可能是首解压窗口内被并发调用），本次未复现，**留作疑点**。
+
+#### 本机做不到的两件事（如实记）
+
+1. **release 的 Data 体积量不到**。release 不是 debuggable → `run-as` 不可用；`/data/data/<pkg>` 对 shell 是 `Permission denied`；`dumpsys diskstats` 的包列表（430 项）**在安装后两分钟内仍未收录**新装的 release 包。**本次没找到非 root 的读法。** 上面所有 Data 数字都取自 debug 包（两包解压同一份 tgz、落点与布局相同，可作代理）。
+2. **UI → `invoke('run_cpp')` 整条链路仍未程序化驱动**（14.I 也挂着同一格）。本次只验到「能启动、界面正常、无崩溃」，**没在 release 包里实际跑过一次编译**。release 开了 `optimization { enable = true }` 且带 proguardFiles，建议人工在 app 里跑一次带用例的 C++ 编译把这一格补上。
+
+#### 「精简工具链」：曾否掉，2026-10-09 重做并落地
+
+第一轮估算「删 sanitizer/fuzzer 与非 aarch64 头可省 55–60 MiB」**是把解压后体积当成了 tgz 体积**，逐项实测后（独立 tar + gzip -9）得：
+
+| 待删 | 文件数 | 解压后 | tgz 内实际减少 |
+|---|---|---|---|
+| sanitizer/fuzzer/orc 运行时 | 33 | 31.7 MB | **7.0 MB** |
+| 非 aarch64 的 android 头（4 个目录） | 210 | 0.4 MB | **0.1 MB** |
+| `include/c++/v1/__cxx03`（c++03 兼容层） | 582 | 4.7 MB | **0.6 MB** |
+
+于是按「tgz 只值 ~7.7 MiB，不值一次版本 bump」判了**放弃**。2026-10-09 重做，两处前提变了：
+
+1. 上一轮的「非 aarch64 头」只数了 4 个目录的 210 个文件（0.4 MB），**漏掉 `lib/clang/21/include/` 里那批按架构分的 intrinsic 头** —— 光 `arm_neon.h` / `arm_sve.h` / `arm_mve.h` / `opencl-c.h` 加 x86 全系就 13 MiB（解压后）。
+2. 「版本 bump 会让已装机重解 264 MB」在本项目**不成立** —— app 尚未发布，没有存量装机。
+
+落地后（`pruneUnusedAssets()`）：**解压后 264 → 219 MB（−45 MiB）、tgz 77.5 → 69.5 MiB（−8 MiB）**。真正的收益大头在**设备 Data**、不在 APK —— 只盯 tgz 会把账看小 5 倍。未采用 `__cxx03` 那一项（C++03 兼容层，判题可能用到）→ ✅ **2026-10-09 已推翻并采用，见 14.M**：`__cxx03` 只在定义了 `_LIBCPP_USE_FROZEN_CXX03_HEADERS` 时才会被 include，而我们从不定义 —— 实测 `-std=c++03` / `c++17` / `c++20` 三档都能编过。
+
+天花板依旧在 `libLLVM.so`（127.4 MB 原始 / 40.4 MB 压缩，占 tgz 的 52%），且它**已 stripped**（无 `.symtab` / `.debug*`），删无可删。
+
+> 若要继续瘦 APK，只剩**换压缩格式**：`tar.xz` / `tar.zst` 在这类内容上通常比 gzip 小 25–35%，即再省 20+ MiB；代价是 `android_toolchain.rs` 要新增一个 Rust 解压依赖（xz2/liblzma 或 zstd）。**尚未实测、尚未决策。** 另一条更大的路是**不随包、首启联网下载**（APK 直接 −76.5 MiB），代价是离线不可用 —— 同样未决策。
+
+#### 待办
+
+- **release 包的功能验证**：真机上跑一次带用例的 C++ 编译。**瘦身后的工具链尤其要补这一格** —— 被删的 sanitizer/fuzzer 运行库与非本架构内建头理论上不被普通编译链路引用，但**没有实机编译验证过**（2026-10-09 只验到 `prepare_toolchain` 成功、界面正常、无崩溃）。
+- **决定是否换 tgz 压缩格式**（见上）。
+- **仓库状态：本轮改动未提交。** 除 `gen/android/{build.gradle.kts, app/build.gradle.kts, .gitignore}`（`AM`）外，本轮还新增/改了：`scripts/prepare-android-toolchain.mjs`（瘦身）、`src/services/storageQuota.js`（删配额与明细，只留持久化）、`src/components/EditorSettingsPanel.vue` / `src/i18n/messages/settings.js` / `src/styles/base.css`（删设置里的存储行）、`src/services/nativeToolchain.js` 与 `src-tauri/src/android_toolchain.rs`（注释数字）。`key.properties` 与 `keystore/` 已被忽略，**不要**加进版本库。
+- **设备上只剩下 release 一个包**（`pm list packages -u -f` 证实；曾装过的 `.debug` 已卸载）。`dumpsys diskstats` 在这台 ROM（OPPO OPD2515）上是**开机快照、不刷新**，里面的 `….unnamed.debug` 是陈旧条目、不是真实占用 —— 要拿 release 的准确 App/Data 尺寸，得先重启手机再读。
+- **这台 ROM 上读 app 私有数据无路可走**：`adb shell pm clear` 抛 SecurityException（shell 无 `CLEAR_APP_USER_DATA`）；非调试包不能 `run-as`，`du /data/data/<pkg>` 直接 Permission denied。设备侧要量 Data，只能用 debug 包 + `run-as`，或重启后读 diskstats。
+
+### 14.K Tauri 壳的云端同步（2026-10-09 落地，补上 14.D / 14.E 挂着的那一格）
+
+**症状**（Android 真机上点「登录 / 取码」）：报「接口返回了 HTTP 200，但内容不是预期的格式（这次请求可能没走到本站的 /api）」—— 即 `cloudProfile.js` 的 `transport: 'badBody'`。
+
+**根因（两层，缺一层都不通）**：
+
+1. **相对路径被壳的资源协议接住**。壳里的页面不在站点域下，而是来自 Tauri 自带的资源协议：**Windows / Android 是 `http://tauri.localhost`**，**macOS / Linux / iOS 是 `tauri://localhost`**（Tauri v2 的 `app.security.useHttpsScheme` 默认 `false`，见 `node_modules/@tauri-apps/cli/config.schema.json` 里那条字段说明，2026-10-09 核对）。所以 `fetch('/api/get-code')` 打的是壳自己而不是本站 —— 它不认识 `/api`，回一份 `index.html` 加状态 200，于是 `response.json()` 失败。
+2. **跨源没被放行**。改成站点绝对地址后请求就变成跨源，而 Worker 的 `ALLOWED_ORIGINS` 只列了站点域名与 `localhost:5199`。2026-10-09 用 curl 实测确认：带 `Origin: http://tauri.localhost` 的预检回 204、`vary: Origin`，**没有任何 `Access-Control-Allow-Origin`** —— 改完第一层而不改第二层，只会从 `badBody` 变成 `unreachable`。
+
+**落地内容**：
+
+- 前端 `src/services/cloudProfile.js`：`API_BASE` 按 `IS_WEB` 分岔 —— 网页版仍 `/api`（dev 走 vite 代理、PWA 完全不受影响），壳里 `https://www.998244353.best/api`。**写死的仍是站点自己的域名**，不是 Worker 的 workers.dev 子域（那个国内不通），所以 `docs/云端同步服务.md` 里「别写死 Worker 域名」那条规矩没有被破坏，只是文档里补了这条例外。
+- Worker（附录 A，**权威版本在 Cloudflare Dashboard 上**）：`ALLOWED_ORIGINS` 补三条壳来源 —— `http://tauri.localhost`、`https://tauri.localhost`、`tauri://localhost`。三条都列是刻意的（自定义协议的来源序列化在不同 WebView 上不一致，多列一条没有副作用）。
+- `docs/云端同步服务.md`：第 1 节由「两条约定」改成「三条约定」并写明两层根因；第 3 节 OPTIONS 那行注明现在服务两个跨源来源；附录 A 同步更新；变更记录加一行。
+
+**为什么不是「改用 Rust 发请求」**：`src-tauri/Cargo.toml` 里没有任何 HTTP 客户端（只有一个 `tauri-plugin-log`），那条路要引新依赖，而绝对地址本身就在 14.D 定好的方向上。顺带确认 `COEP: require-corp`（`tauri.conf.json` 的 `app.security.headers`）不挡这条路：跨源请求走的是 CORS 模式，CORS 过了即满足 COEP，不需要额外加 `Cross-Origin-Resource-Policy`。
+
+**验证方式**（部署 Worker 后可复跑）：
+
+```bash
+# 预检：应回 204，且**有** Access-Control-Allow-Origin: http://tauri.localhost
+curl -s -i -X OPTIONS https://www.998244353.best/api/get-code \
+  -H 'Origin: http://tauri.localhost' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'
+
+# 读接口：public 且是简单请求，没有预检，同样应带 ACAO
+curl -s -i -H 'Origin: http://tauri.localhost' \
+  https://www.998244353.best/api/config/he-jie | head -12
+```
+
+**尚未做**：Android 真机上再跑一次「取码 / 登录 / 上传」把整条链路补验（需要先把附录 A 粘进 Dashboard 并 Deploy）。**没有新增界面文案，所以 guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处不用动。**
+
+### 14.L 壳端出包剔掉 `dist/wasm`（2026-10-09）
+
+**问题**：`public/wasm/`（74 MB = C++ 51 MB + Python 24 MB）被 vite 原样拷进 `dist`，而壳端（桌面 + Android）跑的是原生编译器，从头到尾没有一个代码路径会取它 —— 这 74 MB 被 `tauri::generate_context!` 嵌进了 `libapp_lib.so` / 桌面可执行文件，白占包体。这一格同时对应 14.C 第 3 项与 14.C 末尾「尚未做」里的「`public/wasm/` 出包瘦身」。
+
+**为什么「壳端没有代码路径会用它」这话是硬的**（四条闸门，互不相干）：`wasmEngine` 的 `platforms: ['web']`（`engines/index.js`）；设置页「本地运行环境」整组 `v-if="!isDesktop"`（`EditorSettingsPanel.vue`）；预下载在桌面端早退（`runtimePreload.js` 的 `scheduleAutoPreload`）；SW 注册要求 `IS_WEB`（`main.js`）。所以设置页那个「下载」按钮也不会在壳里冒出来报 404。
+
+**为什么必须删在编译前**：前端产物不是放在 APK 的 assets 里，而是被 `tauri::generate_context!` **编进产物本体**的 —— 只有先删 dist 里那一份，字节才真的省下来。
+
+**落地内容**：
+
+- 新脚本 `scripts/strip-wasm-assets.mjs`：删 `dist/wasm/` 并报出省了多少；目录不存在时**报错退出**，当「vite 输出位置变了」的哨兵。
+- `package.json` 新增 `build:tauri` = `npm run build && node scripts/strip-wasm-assets.mjs`。**`build` 一个字没改**，网页版 / Vercel 部署链路照旧。
+- `tauri.conf.json` 的 `beforeBuildCommand` 由 `npm run build` 改成 `npm run build:tauri` —— 因为**所有** Tauri 目标（桌面 + Android）都不需要 wasm，挂在基础配置上比逐平台覆盖干净；`tauri.android.conf.json` 因此没有 `build` 覆盖（仍只有 identifier 一项）。
+- 不动 `dist/md/`（约 1 MB）：桌面端没有 Cache Storage，Markdown 预览靠随包这份直接可用。
+
+**预期收益**：约 **25~30 MiB**（wasm 在产物里是压缩存的，所以不等于 74）—— Android release APK 应从 118.6 MiB 降下来，Windows NSIS 安装器同理。
+
+**已验证（本机）**：`npm run build:tauri` → `strip-wasm-assets: 去掉 dist/wasm（73.5 MiB）`，`dist/wasm` 已移除、`dist/md` 完整、`precache-manifest.json` 不受影响（该插件只收 rollup 输出，不收 `public/`）。
+
+**待验**：Android 真机包的体积与装机后 C++ 判题照常 AC（走 `npx tauri android build --apk --target aarch64`，它现在会先跑 `build:tauri`）；Windows 安装包体积（走 CI 的 `desktop.yml`）。
+
+**没有新增界面文案**，所以 guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处不用动。
+
+### 14.M Android 工具链再裁 7 处系统头（2026-10-09）
+
+**背景**：14.J 那轮把 `__cxx03`（4.7 MB 原始 / 0.6 MB 压缩）与 4 个非本架构头目录判了「放弃」，理由是「tgz 只值 ~7.7 MiB，不值一次版本 bump」。该判断里 `__cxx03` 的前提**是错的**，本次推翻并落地，同时补上当时没数到的 `camera/` `drm/`。
+
+**为什么 `__cxx03` 是死代码**（这次拿证据说话）：libc++ 引用它的那 134 个头，include 全部落在
+`#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)` 之下 —— 两个条件**同时**成立才展开，而 `_LIBCPP_USE_FROZEN_CXX03_HEADERS` 是 libc++ 的构建期开关，我们从不定义。实测三档都编得过：
+
+| `-std=` | 裁剪后结果 |
+|---|---|
+| `c++03` | 通过 |
+| `c++17`（判题固定这档） | 通过 |
+| `c++20` | 通过 |
+
+**落地内容**：`scripts/prepare-android-toolchain.mjs` 新增 `PRUNE_SYSROOT_INCLUDE` + `pruneSysrootIncludes()`，在 `assemble()` 第 3 步（`cpSync` 系统头之后、登记进 tar 清单之前）调用 —— 删在登记之前，所以它们连 tar 条目都不会有。删 7 处：
+
+`include/c++/v1/__cxx03`、`include/camera`、`include/drm`、`include/{x86_64-linux-android, i686-linux-android, arm-linux-androideabi, riscv64-linux-android}`
+
+**必须留**的两处：`include/aarch64-linux-android/`（本架构的 `asm/` 那类头）、`include/android/`（bionic 的正经 API 头，`api-level.h` 那批，C 头会 include 过去）。
+
+**收益（实测，比估计小）**：
+
+| | 改前 | 改后 | 差 |
+|---|---|---|---|
+| 解压后（脚本口径） | 219 MB | **212 MB** | **−6.2 MB** |
+| tgz | 72,825,236 B（69.45 MiB） | 71,892,740 B（**68.56 MiB**） | **−0.88 MiB** |
+| 条目 | 3537（3348 文件） | **2659（2515 文件）** | |
+| sha256 | `21c63237…` | `f8d8b4f5…` | 变了 → 已装机下次启动重解 |
+
+**别把账看错**：真正省下来的是**设备 Data 6.2 MB**；APK 只瘦 **0.88 MiB**。原因是这 7 处全是**文本头文件**，gzip 能压到 ~1/7 —— 6.2 MB 的头只让 tgz 掉 0.88 MiB。（这与 14.J 表格里 `__cxx03` 那一行估的 0.6 MB 压缩量吻合，当初的估算没错，错的是「判题可能用到」这个理由。）
+
+**已验证（本机）**：
+
+1. tgz 内 7 处路径条目数全为 0；`c++/v1` 1140 条、`aarch64-linux-android` 40 条、`android` 68 条、`linux` 852 条俱在。
+2. **头文件 smoke**：把新树解到 `usr/`，用 NDK r29 的 clang 21 以 `--target=aarch64-linux-android28 --sysroot=<树根> -std=c++17` 编译一份覆盖 30 个常用 C++ 头的源文件 → 通过，产物是合法 aarch64 ELF。（**只编译不链接**：链接期要找的是 Termux 专属的 `<sysroot>/lib/aarch64-linux-android/` 布局，宿主 clang 复现不了，与本次改动无关。）
+3. 连跑两次 `npm run android:toolchain`，sha256 一致 —— 可复现性未被破坏。
+
+**待验**：真机出包装机 + 判一道 C++ 题照常 AC（`npx tauri android build --apk --target aarch64`）。
+
+**天花板与下一步**：`libLLVM.so`（127.4 MiB）+ `libclang-cpp.so`（60.1 MiB）仍是整棵树的 83%，且**都已 stripped**（无 `.symtab` / `.debug_*`，再跑一次 `llvm-strip` 每个文件只掉 408 字节）—— 体积全在 `.text` / `.rodata` 里，是**别的 CPU 后端的机器码**。实测 Termux 的 `libLLVM.so` 烘焙了全部后端（符号计数：X86 463 / AArch64 313 / RISCV 268 / PPC 145 / SystemZ 138 / Mips 115 / LoongArch 92 …），而 NDK r29 自己就是定向构建（只 X86/AArch64/RISCV/BPF）—— **自建单目标 LLVM 是唯一能真正压设备占用的路**（预估解包 226 → 120~140 MB），已单独做过一份可行性评估，尚未开工。
+
+**没有新增界面文案**，所以 guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处不用动。
 
 

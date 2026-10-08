@@ -18,6 +18,8 @@ build
 local.properties
 key.properties
 keystore.properties
+# release 签名密钥本体（口令在 key.properties 里，两者都不进版本库）
+/keystore/
 
 /.tauri
 /tauri.settings.gradle

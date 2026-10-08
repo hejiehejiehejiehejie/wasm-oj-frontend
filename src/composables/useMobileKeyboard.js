@@ -1,4 +1,5 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { IS_ANDROID } from '../services/platform.js'
 
 // 触摸屏默认开启（鼠标设备上不生效）：键盘弹起之后只做三件事——
 //   1. 改变窗口大小：把整块应用收缩到键盘上方（visualViewport 的 height / offsetTop
@@ -79,17 +80,57 @@ export function useMobileKeyboard() {
   let focusBeforeTouch = null
   let keyboardUpAtTouchStart = false
 
-  // 键盘可见性（见 KEYBOARD_MIN）：baselineHeight 是「没弹键盘时」的布局视口高
+  // 键盘可见性。两条来源，优先系统给的那条：
+  //
+  // 1) `navigator.virtualKeyboard`（Chromium 系支持，Android WebView 就是它）：键盘几何
+  //    直接给出来，不用猜。**但它必须真报过一次非零高度之后才被采信** —— 有的实现里这个
+  //    API 存在却永远回 0，拿它当唯一判据会把保焦整个弄坏（键盘明明弹着却判成没弹，
+  //    点按钮就把键盘收了）。
+  //    **只在 Android 壳里用**：网页版（含 Android Chrome）那套高度差口径 2026-10-01 已在
+  //    真机上标定通过，没坏就不动它；报故障的是壳，而壳里的键盘行为从没标定过。
+  // 2) 视口高度差（本文件原有口径，KEYBOARD_MIN 就是为它取的阈值）：`baselineHeight`
+  //    是「键盘没弹时」的布局视口高，它那道只在 syncViewport() 里的上界见那里的注释。
+  let vkVisibleSeen = false
+  let vkHeight = 0
+  const virtualKeyboard =
+    IS_ANDROID && typeof navigator !== 'undefined' ? navigator.virtualKeyboard : null
+
+  function syncVirtualKeyboard() {
+    if (!virtualKeyboard) return
+    vkHeight = Math.round(virtualKeyboard.boundingRect?.height ?? 0)
+    if (vkHeight > 0) vkVisibleSeen = true
+  }
+
   let baselineHeight = window.innerHeight
   let lastWidth = window.innerWidth
   let keyboardUp = false
 
   function isKeyboardUp() {
+    if (vkVisibleSeen) return vkHeight > 0
     const viewport = window.visualViewport
     return (
       baselineHeight - window.innerHeight > KEYBOARD_MIN ||
       (viewport ? window.innerHeight - viewport.height > KEYBOARD_MIN : false)
     )
+  }
+
+  // ---- 临时调试读数条（定位 Android 上保焦判错用，验完即删：连带 App.vue 里的
+  //      `.focus-probe`、`probe` 取值、这条注释一起删）
+  const probe = ref('')
+
+  function describeActive() {
+    const el = document.activeElement
+    if (!el || el === document.body) return 'body'
+    const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/)[0] : ''
+    return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}`
+  }
+
+  function updateProbe(focusLabel) {
+    const viewport = window.visualViewport
+    probe.value =
+      `ih=${window.innerHeight} vv=${Math.round(viewport ? viewport.height : 0)} ` +
+      `base=${Math.round(baselineHeight)} src=${vkVisibleSeen ? 'vk' : 'h'} vk=${vkHeight} ` +
+      `kbd=${keyboardUp ? 1 : 0} el=${focusLabel || describeActive()}`
   }
 
   // 滑动不该改变焦点：编辑器里的焦点直接清掉（理由见下），其余情况把焦点还回滑动前那个；
@@ -130,6 +171,8 @@ export function useMobileKeyboard() {
     startY = touch ? touch.clientY : 0
     panning = false
     keyboardUpAtTouchStart = keyboardUp
+    // 读数条要的是「落手那一刻」的现场：再过几行 focus 就可能被清掉了
+    const focusLabel = describeActive()
     const current = document.activeElement
     focusBeforeTouch = current instanceof HTMLElement && current !== document.body ? current : null
     // 「用户在键盘上按返回键把键盘收掉了，但焦点还留在编辑器 / 普通输入框里」这一种，和下面
@@ -153,6 +196,7 @@ export function useMobileKeyboard() {
       current.blur()
       focusBeforeTouch = null
     }
+    updateProbe(focusLabel)
   }
 
   function onTouchMove(event) {
@@ -204,6 +248,16 @@ export function useMobileKeyboard() {
       baselineHeight = window.innerHeight
     }
     baselineHeight = Math.max(baselineHeight, window.innerHeight)
+    // 基线只增不减是个坑：它的初值取在 App.vue 的 setup 里，也就是**应用刚起那一瞬**，
+    // 那时 webview 若报一个偏大的高度（系统栏 / 启动窗口还没稳定），基线就一辈子回不去，
+    // keyboardUp 恒为真、保焦那道闸门永远关着 —— 真机症状正是「收键盘后点哪都把输入框捞回来」。
+    // 拿屏幕高度当上界：键盘和系统栏都不可能让 webview 比屏幕还高。
+    // （边到边的壳里这道上界会把基线压到 innerHeight 之下，于是第一项失效、只剩
+    //  visualViewport 那一项 —— 这正是要的：拿不准时宁可信视口，上面还有 vk 那条。）
+    const cap = window.screen?.availHeight || window.screen?.height
+    if (cap && baselineHeight > cap) baselineHeight = cap
+
+    syncVirtualKeyboard()
     keyboardUp = isKeyboardUp()
 
     const viewport = window.visualViewport
@@ -213,6 +267,7 @@ export function useMobileKeyboard() {
     shortViewport.value = height < SHORT_VIEWPORT
     style.setProperty('--vvh', `${height}px`)
     style.setProperty('--vv-top', `${top}px`)
+    updateProbe()
   }
 
   function start() {
@@ -228,6 +283,8 @@ export function useMobileKeyboard() {
     window.addEventListener('orientationchange', syncViewport)
     window.visualViewport?.addEventListener('resize', syncViewport)
     window.visualViewport?.addEventListener('scroll', syncViewport)
+    // 系统的键盘几何：有它就比高度差准，详见上面 isKeyboardUp() 的注释
+    virtualKeyboard?.addEventListener('geometrychange', syncViewport)
     syncViewport()
   }
 
@@ -243,6 +300,7 @@ export function useMobileKeyboard() {
     window.removeEventListener('orientationchange', syncViewport)
     window.visualViewport?.removeEventListener('resize', syncViewport)
     window.visualViewport?.removeEventListener('scroll', syncViewport)
+    virtualKeyboard?.removeEventListener('geometrychange', syncViewport)
   }
 
   onMounted(() => {
@@ -250,5 +308,5 @@ export function useMobileKeyboard() {
   })
   onBeforeUnmount(stop)
 
-  return { active, shortViewport }
+  return { active, shortViewport, probe }
 }

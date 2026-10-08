@@ -11,13 +11,16 @@
     "dev": "vite",
     "prebuild": "npm run notice && npm run md:runtime",
     "build": "vite build",
+    "build:tauri": "npm run build && node scripts/strip-wasm-assets.mjs",
     "preview": "vite preview",
+    "tauri": "tauri",
     "verify": "node scripts/verify-ui.mjs",
     "screenshots:store": "node scripts/generate-store-screenshots.mjs",
     "notice": "node scripts/render-notice.mjs",
     "notice:check": "node scripts/render-notice.mjs --check",
     "wasm:opt": "node scripts/optimize-wasm.mjs",
-    "md:runtime": "node scripts/prepare-md-runtime.mjs"
+    "md:runtime": "node scripts/prepare-md-runtime.mjs",
+    "android:toolchain": "node scripts/prepare-android-toolchain.mjs"
   },
   "dependencies": {
     "@runno/wasi": "0.10.0",

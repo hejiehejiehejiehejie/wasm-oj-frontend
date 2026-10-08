@@ -6,11 +6,21 @@
  * 自己 Codeforces 个人资料的 Last name 上，服务端再去读回来比对。
  * 所以「用户名」指的始终是 Codeforces，Cloudflare 只是这个 Worker 的托管平台。
  *
- * 接口一律走相对路径 `/api/*`：那条路由挂在站点自己的域名上（Worker Route），
+ * 【接口地址按平台分岔，见下面的 API_BASE】
+ *
+ * 网页版走相对路径 `/api/*`：那条路由挂在站点自己的域名上（Worker Route），
  * 所以浏览器看来全是同源请求，既不需要 CORS，也不会和 COEP: require-corp 冲突。
- * 本地开发由 vite 的 server.proxy 把 /api 转发到线上域名（见 vite.config.js），
- * 别在这里写死 Worker 域名 —— workers.dev 子域在国内网络不通。
+ * 本地开发由 vite 的 server.proxy 把 /api 转发到线上域名（见 vite.config.js）。
+ *
+ * Tauri 壳（桌面 / Android）**必须**改写成站点绝对地址：壳里的页面不在站点域下、
+ * 而是来自自带的资源协议（Windows / Android 是 `http://tauri.localhost`，
+ * macOS / Linux / iOS 是 `tauri://localhost`）。相对路径会被那个协议接住 ——
+ * 它不认识 /api，回一份 index.html 加状态 200，前端只能报 badBody。
+ * 绝对地址仍是**站点自己的域名**，不是 Worker 的 workers.dev 子域（那个国内不通），
+ * 所以只是多了一趟 CORS 预检，不引入不可达的域名。
  */
+
+import { IS_WEB } from './platform.js'
 
 /**
  * 参与云同步的键（15 个）。**只有这里列出来的键会离开这台设备。**
@@ -48,7 +58,14 @@ export const SYNC_KEYS = [
   'cp.fileTemplates.enabled',
 ]
 
-const API_BASE = '/api'
+const SITE_ORIGIN = 'https://www.998244353.best'
+
+/**
+ * 网页版走同源相对路径（dev 由 vite 代理转发）；Tauri 壳里必须走绝对地址，
+ * 理由见文件头。跨源那一趟需要 Worker 的 `ALLOWED_ORIGINS` 放行壳的来源，
+ * 三条壳来源已记在 `docs/云端同步服务.md` 第 1 节与附录 A。
+ */
+const API_BASE = IS_WEB ? '/api' : `${SITE_ORIGIN}/api`
 
 /**
  * 统一的 POST。网络层失败（离线 / 本地代理没起）在这里折成 `{ success: false }`，

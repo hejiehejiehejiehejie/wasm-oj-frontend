@@ -78,8 +78,9 @@ jobs:
       - name: 清理上次残留的安装包
         run: Remove-Item -Recurse -Force src-tauri/target/release/bundle -ErrorAction SilentlyContinue
 
-      # npx tauri build 会先跑 tauri.conf.json 里的 beforeBuildCommand（npm run build），
-      # 即 prebuild（notice + md:runtime）→ vite build，所以前端产物一定是最新的。
+      # npx tauri build 会先跑 tauri.conf.json 里的 beforeBuildCommand（npm run build:tauri），
+      # 即 prebuild（notice + md:runtime）→ vite build → 去掉 dist/wasm（壳端用原生编译器，
+      # 那 74 MB 是死重，见 HANDOFF 14.L），所以前端产物一定是最新的、也是最瘦的。
       - name: 构建 Windows 安装包
         run: npx tauri build
 

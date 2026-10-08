@@ -17,6 +17,15 @@ export default {
       /** 评测面板页脚那颗 ▶ 的 title */
       runAllTests: '运行全部测试用例',
 
+      /** Android 端首次准备随包编译器时的等待遮罩（ToolchainGate） */
+      toolchain: {
+        title: '正在准备编译环境',
+        note: '首次启动要把随包的 clang 工具链解到应用目录，需要几秒钟；只做这一次，之后启动直接跳过。',
+        failedTitle: '编译环境准备失败',
+        /** 失败时的退路：不准备也能用编辑器，只是点运行会报缺编译器 */
+        skip: '先进入',
+      },
+
       /** 编辑器底部状态栏（{count} / {line} / {column} 都是数字） */
       status: {
         spaces: '空格: {count}',
@@ -122,6 +131,13 @@ export default {
 
       emptyEditor: 'Open or create a file from the Explorer in the sidebar',
       runAllTests: 'Run all test cases',
+
+      toolchain: {
+        title: 'Preparing the compiler environment',
+        note: 'The first launch extracts the bundled clang toolchain into the app directory. It takes a few seconds and happens only once — later launches skip it.',
+        failedTitle: 'Could not prepare the compiler environment',
+        skip: 'Continue anyway',
+      },
 
       status: {
         spaces: 'Spaces: {count}',

@@ -214,28 +214,6 @@ export default {
         },
         installAction: '安装',
         installedAction: '已安装',
-        /**
-         * 存储占用。只报数，不报持久化状态 —— 申请是隐性的（见 services/storageQuota.js）。
-         * 折叠时只报总量（整个源的占用，含工具链与外壳缓存，不只是用户代码），展开才列明细；
-         * 分类体积是按缓存条目与本地数据库估的，总量取浏览器给的权威值，差额并进 other
-         * —— 口径说明见 readStorageBreakdown() 上面的注释。
-         *
-         * 这里只放存储独有的那三条分类名。C++ / Python 3 / Markdown / LaTeX 直接复用
-         * 「本地运行环境」的词条（runtime.*.title），免得同一批资产两处各叫一个名
-         * —— 映射见 EditorSettingsPanel 的 STORAGE_CATEGORY_LABEL。
-         */
-        storage: {
-          label: '存储',
-          used: '已用 {used}',
-          expand: '展开存储明细',
-          collapse: '收起存储明细',
-          measuring: '正在统计各分类占用…',
-          categories: {
-            cf: 'CF 抽题',
-            code: '我的代码',
-            other: '外壳与其它',
-          },
-        },
       },
 
       extension: {
@@ -573,25 +551,6 @@ export default {
         },
         installAction: 'Install',
         installedAction: 'Installed',
-        /** Storage usage only — persistence is requested silently, so no state is shown.
-         *  Collapsed it reports the total only (the whole origin, toolchain caches included);
-         *  the breakdown appears on expand. Per-category sizes are estimated, the total comes
-         *  from the browser, and the difference is folded into "other".
-         *
-         *  Only the three storage-only category names live here. C++ / Python 3 / Markdown / LaTeX
-         *  reuse the "Local runtime" entries (runtime.*.title) — see STORAGE_CATEGORY_LABEL. */
-        storage: {
-          label: 'Storage',
-          used: '{used} used',
-          expand: 'Show storage breakdown',
-          collapse: 'Hide storage breakdown',
-          measuring: 'Measuring each category…',
-          categories: {
-            cf: 'CF problem picker',
-            code: 'My code',
-            other: 'Shell & other',
-          },
-        },
       },
 
       extension: {

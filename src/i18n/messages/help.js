@@ -54,6 +54,15 @@ export default {
                 '入口在**设置** › **评测**，下方有服务地址与自检',
               ],
             },
+            {
+              name: '有桌面版或手机版吗？',
+              role: '能用的是网页版，不需要安装。',
+              notes: [
+                '网页版现在就可用，也不用安装',
+                'macOS / Windows / Android 的原生版本**正在开发中**：编译与运行都在本机完成，不再依赖浏览器沙箱',
+                '原生版能发布时会在这里补上获取方式；网页版不受影响、会继续维护',
+              ],
+            },
           ],
         },
         {
@@ -250,6 +259,15 @@ export default {
                 '**Self-test (does not run code)**: echoes the standard input back, for exercising the UI only',
                 'Once you switch to a remote engine, your code is sent to the URL you entered',
                 'The setting lives under **Settings** › **Judge**, together with the service URL and the connection test',
+              ],
+            },
+            {
+              name: 'Is there a desktop or mobile app?',
+              role: 'The web version is what is available today, and it needs no installation.',
+              notes: [
+                'The web version works right now and needs no installation',
+                'Native builds for macOS / Windows / Android are **in development**: compiling and running happen natively on your machine instead of in the browser sandbox',
+                'Download details will be added here once they are ready to ship; the web version is unaffected and keeps being maintained',
               ],
             },
           ],

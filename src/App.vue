@@ -5,6 +5,7 @@ import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import ActivityBar from './components/ActivityBar.vue'
 import FileExplorer from './components/FileExplorer.vue'
+import ToolchainGate from './components/ToolchainGate.vue'
 import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { applyUiScale, DEFAULT_UI_SCALE, normalizeUiScale, uiScale } from './composables/useUiScale.js'
@@ -16,8 +17,9 @@ import { flush, initAutoSave, setAutoSaveEnabled } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
+import { prepareNativeToolchain } from './services/nativeToolchain.js'
 import { requestPersistence } from './services/storageQuota.js'
-import { IS_DESKTOP } from './services/platform.js'
+import { IS_ANDROID, IS_DESKTOP } from './services/platform.js'
 import { initWorkspace } from './services/vfs/migrate.js'
 import {
   activeLanguage,
@@ -351,7 +353,7 @@ const sidebarPanels = computed(() => sidebarRef.value?.panels ?? [])
 
 // 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
 // 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
-const { active: keyboardMode, shortViewport } = useMobileKeyboard()
+const { active: keyboardMode, shortViewport, probe: focusProbe } = useMobileKeyboard()
 // 页头耗时 = 本轮最慢的那张卡片，口径与卡片完全一致（只计运行段）：
 // 编译 / 链接 / 排队 / WASI 启动都不算，跑完一批后不会比最快的样例大出一个量级。
 const elapsed = computed(() => {
@@ -931,6 +933,10 @@ function onVisibilityChange() {
 }
 
 onMounted(async () => {
+  // Android 端先把随包编译器解到应用目录（首次几秒，之后瞬间返回）。**刻意不 await**：
+  // 它只是把文件铺好，不参与下面任何一步；界面由 ToolchainGate 按状态铺遮罩。
+  // 非 Android 上是空调用（见 nativeToolchain.js），桌面端与网页版都不受影响。
+  void prepareNativeToolchain()
   // 捕获阶段：见上面 onKeydown 的说明（要抢在 Monaco 之前）
   window.addEventListener('keydown', onKeydown, true)
   // 订阅编辑事件（回调是运行时读集合，所以早于 / 晚于 model 创建都不影响）
@@ -993,6 +999,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
+    <!-- 临时调试读数条：定位 Android 上「收键盘后点哪都回到输入框」，验完与本行一起删 -->
+    <div v-if="IS_ANDROID" class="focus-probe">{{ focusProbe }}</div>
     <main
       ref="workspace"
       class="workspace"
@@ -1080,6 +1088,9 @@ onBeforeUnmount(() => {
         @select="selectSidebarPanel"
       />
     </main>
+
+    <!-- Android 端首次准备随包编译器时的等待遮罩（固定定位，不参与上面的排版） -->
+    <ToolchainGate />
   </div>
 </template>
 
@@ -1110,6 +1121,26 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   height: var(--vvh, 100%);
+}
+
+/* 临时调试读数条（只在 Android 显示）：定位「收键盘后点哪都回到输入框」，验完即删 */
+.focus-probe {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  padding: 2px 4px;
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border);
+  color: var(--ok);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 .workspace {
