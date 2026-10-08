@@ -1,0 +1,10 @@
+/src/main/**/generated
+/src/main/jniLibs/**/*.so
+/src/main/assets/tauri.conf.json
+# 随包 C++ 工具链：构建期由 scripts/prepare-android-toolchain.mjs 生成，配方在脚本里，
+# 产物 75 MB 不进版本库（详见 HANDOFF 第 14 节 Android 部分）
+/src/main/assets/android-toolchain.tgz
+/src/main/assets/android-toolchain.version
+/tauri.build.gradle.kts
+/proguard-tauri.pro
+/tauri.properties

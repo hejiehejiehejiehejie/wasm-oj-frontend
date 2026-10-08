@@ -1,0 +1,23 @@
+*.iml
+.gradle
+# Kotlin 编译缓存，各模块（根 / buildSrc / app）下都会生成 .kotlin/。
+# Tauri 模板漏了这一条，而模板只在 `tauri android init` 时生成一次，故就地补上。
+.kotlin
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+key.properties
+keystore.properties
+
+/.tauri
+/tauri.settings.gradle
