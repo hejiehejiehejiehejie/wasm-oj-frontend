@@ -1,0 +1,94 @@
+# 桌面端（Windows）构建。
+#
+# 【为什么是「手动 + tag」触发】仓库是私有的，Actions 分钟数计费，而 Windows runner
+# 按 2× 扣减。若跟着 main 的每次 push 跑，纯前端 / 文档改动也要付一份 Windows 账单，
+# 所以这里只留两个明确的口子：Actions 页面点「Run workflow」，或推一个 v* 的 tag。
+#
+# 【为什么需要它】本机是 macOS，出不了也测不了 Windows 产物。这里既是唯一的 Windows
+# 构建入口，也是第 4 步在真机上实测的产物来源。
+#
+# 【为什么不改主配置】targets / installMode / languages 全在 src-tauri/tauri.windows.conf.json 里，
+# 由 Tauri 按 RFC 7396 合并进来；主文件 tauri.conf.json 保持平台无关（见 HANDOFF §14.G）。
+
+name: Desktop (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# 手动连点两次时让旧的那次让位，别并行烧分钟
+concurrency:
+  group: desktop-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+# 构建只需要读仓库
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+    # 首次编译依赖十几分钟起步，缓存命中后快得多；给个上限，免得异常时一直烧下去
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      # node 版本对齐 package.json 的 engines（22.x）；cache: npm 复用 package-lock.json
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # windows-latest 镜像自带 rustup 与 stable，这里仍显式对齐一次：Cargo.toml 用的是
+      # edition 2024（需 ≥1.85），不能让镜像的默认版本变化悄悄把构建搞红。
+      # --no-self-update：镜像里的 rustup 偶尔会因为无法覆盖自身而报错，白搭一步。
+      - name: 准备 Rust 工具链
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      # 私有仓库的 Windows 分钟数按 2× 计费，依赖与编译产物值得留着。
+      # key 跟着 Cargo.lock 走，依赖一变就自动换一份；restore-keys 前缀负责增量复用。
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 安装前端依赖
+        run: npm ci --no-audit --no-fund
+
+      # 缓存会把上次的 target/ 一并还原，其中 bundle/ 是**上次**的安装器。不先清掉的话，
+      # 一旦 productName 或 version 变了，新旧两个版本的安装器会同时被上传步骤收走。
+      # 这一步专为消掉那层不确定性，失败即忽略（干净环境下目录本就不存在）。
+      - name: 清理上次残留的安装包
+        run: Remove-Item -Recurse -Force src-tauri/target/release/bundle -ErrorAction SilentlyContinue
+
+      # npx tauri build 会先跑 tauri.conf.json 里的 beforeBuildCommand（npm run build），
+      # 即 prebuild（notice + md:runtime）→ vite build，所以前端产物一定是最新的。
+      - name: 构建 Windows 安装包
+        run: npx tauri build
+
+      # if-no-files-found: error 是刻意留的：这是第一次在真 Windows 上出产物，
+      # 路径若与预期不符，宁可让这次构建红掉，也不要静静地传一个空包上去。
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
