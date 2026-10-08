@@ -1,0 +1,216 @@
+# LLVM 体积 spike —— **一次性探针，拿到结论就删掉这个文件**。
+#
+# 【要回答什么】HANDOFF §14.M 把 Android 工具链的体积账算到了底：
+#
+#   libLLVM.so       133,597,776 B（127.4 MiB）
+#   libclang-cpp.so   62,972,824 B（ 60.1 MiB）
+#   合计             196,570,600 B（187.5 MiB）
+#
+# 这两个都已 stripped（无 .symtab / .debug_*），体积全落在 .text / .rodata —— 那是
+# **另外十几个 CPU 后端的机器码**。Termux 的 libLLVM.so 实测烘焙了 X86 / AArch64 / RISCV /
+# PPC / SystemZ / Mips / LoongArch … 共 15 个后端，而我们判题只需要 AArch64。
+#
+# 能真正压下去的只有一条路：自己构建一份**只带 AArch64 后端**的 LLVM。这个 workflow
+# 就是把「据说能省一半」这个假设拿去实测。
+#
+# 【判据】两个 .so 合计（strip 后）
+#   ≤ 110 MiB  → go：值得走生产化（CI 构建一次 → 发 Release 资产 + 钉 sha256 → 本地改成下载）
+#   > 110 MiB  → no-go：收益不够抵 CI 复杂度，回头考虑 tgz 换压缩格式 / 首启联网下载
+#
+# 【为什么直接做真的 NDK 交叉编译，而不是宿主原生构建当代理】产物必须是能塞进 Termux
+# 那棵树里的 aarch64/bionic .so；宿主 x86_64 构建只能给个 ±10% 的体积代理，而这一趟本来
+# 就要验证「NDK + CMake 出不出得来东西」—— 与其跑两轮，不如一轮把配方也验了。
+#
+# 【为什么 ANDROID_PLATFORM 是 24 而不是 28】28 是 app 的 targetSdk（只为 SELinux 域），
+# 设备侧 minSdk 是 24。工具链产物按 28 编的话，会引用 Android 9 才有的符号，在 7~9 上挂。
+#
+# 【为什么单独一个文件而不是加进 desktop.yml】这是探针、不是产品的一部分，做完就删，
+# 免得以后有人以为它是正式流程。
+
+name: LLVM size spike (Android)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 重复点两次时让旧的那次让位：这是按分钟计费的私有仓库，不能并行烧两份
+concurrency:
+  group: llvm-size-spike
+  cancel-in-progress: true
+
+env:
+  LLVM_VERSION: 21.1.8
+  # 与 Termux 那套同 tag：这样「只换了后端集合」这个前提才成立，体积差才归因得清
+  LLVM_TAG: llvmorg-21.1.8
+  # 与 app 的 minSdk 对齐（见文件头）
+  ANDROID_PLATFORM: android-24
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    # LLVM 全量构建在 4 核 runner 上 1.5~2.5 h；给个上限，免得异常时一直烧分钟
+    timeout-minutes: 300
+
+    steps:
+      # 这一格要的不是「省一点」，而是要放下：构建树 6~8 GB + NDK 2.6 GB + 源码 2.9 GB，
+      # 而 runner 的 / 只有 ~14 GB 空闲。下面这几坨对我们全是无用负载 —— 尤其是镜像自带的
+      # Android SDK（~10 GB），因为我们自带 NDK、全程不走 sdkmanager。
+      # 用 rm 而不是 jlumbroso/free-disk-space 之类的第三方 action，符合本项目「不引第三方依赖」。
+      # 注意别动 /opt/hostedtoolcache 本身：后面的 JS action（upload-artifact）要里面的 Node。
+      - name: 腾磁盘
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost \
+            /usr/share/swift
+          df -h /
+
+      # 走官方 zip 而不是 sdkmanager：sdkmanager 拉的也是同一个包，还多一层 Java 依赖。
+      # 版本钉 r29，与开发机上的 29.0.14206865 一致（HANDOFF 14.M 里那些后端符号计数就是在它上面数的）。
+      - name: 取 NDK r29
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o "$RUNNER_TEMP/ndk.zip" \
+            https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          unzip -q "$RUNNER_TEMP/ndk.zip" -d "$RUNNER_TEMP"
+          rm -f "$RUNNER_TEMP/ndk.zip"
+          echo "ANDROID_NDK=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version
+
+      - name: 取 LLVM 源码
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o "$RUNNER_TEMP/llvm.src.tar.xz" \
+            "https://github.com/llvm/llvm-project/releases/download/${LLVM_TAG}/llvm-project-${LLVM_VERSION}.src.tar.xz"
+          mkdir -p "$RUNNER_TEMP/src"
+          tar -xf "$RUNNER_TEMP/llvm.src.tar.xz" -C "$RUNNER_TEMP/src"
+          rm -f "$RUNNER_TEMP/llvm.src.tar.xz"
+          echo "LLVM_SRC=$RUNNER_TEMP/src/llvm-project-${LLVM_VERSION}.src" >> "$GITHUB_ENV"
+          echo "BUILD_DIR=$RUNNER_TEMP/build" >> "$GITHUB_ENV"
+          du -sh "$RUNNER_TEMP/src"
+
+      # 逐条都要有理由，否则「只带 AArch64」这个结论会被别的东西污染：
+      #   LLVM_TARGETS_TO_BUILD=AArch64  ← 整件事的自变量
+      #   LLVM_BUILD_LLVM_DYLIB / LLVM_LINK_LLVM_DYLIB / CLANG_LINK_CLANG_DYLIB
+      #       ← 复刻 Termux 的「libclang-cpp.so 动态链到 libLLVM.so」形状，不然量出来的不是一回事
+      #   MinSizeRel  ← 默认是 Debug，那体积没有可比性；MinSizeRel 给 -Os
+      #   -Wl,-s      ← Termux 那两个 .so 是 stripped 的，链接期就剥掉才好比
+      #   关 zlib / zstd / libxml2 / terminfo / libedit / curl / bindings
+      #       ← 判题用不到；关掉还顺带让新 .so 不再依赖那几个小库
+      #   关静态分析器与 ARCMT ← libclang-cpp 里的一大块，且与编译/运行无关
+      #   LLVM_PARALLEL_LINK_JOBS=1 ← libLLVM.so 那个巨型链接峰值内存不小，别和编译抢
+      # 不设 LLVM_USE_LINKER：Android 目标下 clang 本来就默认用 lld，而显式指定会连
+      # 宿主 tablegen 子构建一起改，宿主上未必有 lld。
+      - name: 配置
+        run: |
+          set -euo pipefail
+          cmake -G Ninja -S "$LLVM_SRC" -B "$BUILD_DIR" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-s" \
+            -DLLVM_TARGETS_TO_BUILD=AArch64 \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_BUILD_LLVM_DYLIB=ON \
+            -DLLVM_LINK_LLVM_DYLIB=ON \
+            -DCLANG_LINK_CLANG_DYLIB=ON \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_ENABLE_DUMP=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBEDIT=OFF \
+            -DLLVM_ENABLE_CURL=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_PARALLEL_LINK_JOBS=1
+          grep -E 'CMAKE_CXX_COMPILER:|LLVM_TARGETS_TO_BUILD|CMAKE_BUILD_TYPE' "$BUILD_DIR/CMakeCache.txt" || true
+
+      # 只构建这两个目标：`clang-cpp` 会把整个 clang 前端编出来（这也是本次耗时的大头），
+      # `LLVM` 出 libLLVM.so。lld 留着不编 —— 它不影响这两个 .so 的体积。
+      # 目标名万一没命中（同版本改名之类），回退到整树构建，别让这一趟白跑。
+      - name: 构建两个 .so
+        run: |
+          set -euo pipefail
+          time ninja -C "$BUILD_DIR" LLVM clang-cpp || {
+            echo "::warning::目标名 LLVM / clang-cpp 未命中，回退整树构建"
+            time ninja -C "$BUILD_DIR"
+          }
+
+      - name: 量尺寸并判定
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/out"
+          STRIP="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          mkdir -p "$OUT"
+          cp -L "$BUILD_DIR/lib/libLLVM.so" "$OUT/libLLVM.so"
+          cp -L "$BUILD_DIR/lib/libclang-cpp.so" "$OUT/libclang-cpp.so"
+          chmod 644 "$OUT"/*.so
+
+          mib() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1048576 }'; }
+          pct() { awk -v a="$1" -v b="$2" 'BEGIN { printf "%+.0f%%", (a - b) / b * 100 }'; }
+
+          # Termux 现值：基线，用来算「省了多少」
+          REF_LLVM=133597776
+          REF_CPP=62972824
+          LIMIT=115343360   # 110 MiB
+
+          raw_llvm=$(stat -c %s "$OUT/libLLVM.so")
+          raw_cpp=$(stat -c %s "$OUT/libclang-cpp.so")
+
+          # 链接期已经带了 -Wl,-s，这里再补一刀并量差：如果这一刀几乎不掉字节，
+          # 说明符号表确实已经剥净，和 Termux 那两个可比的。
+          "$STRIP" --strip-unneeded "$OUT/libLLVM.so" "$OUT/libclang-cpp.so"
+          st_llvm=$(stat -c %s "$OUT/libLLVM.so")
+          st_cpp=$(stat -c %s "$OUT/libclang-cpp.so")
+          total=$((st_llvm + st_cpp))
+
+          {
+            echo "## LLVM ${LLVM_VERSION}（仅 AArch64）体积实测"
+            echo
+            echo "交叉编译：NDK r29 / \`arm64-v8a\` / \`${ANDROID_PLATFORM}\` / MinSizeRel / clang;lld"
+            echo
+            echo "| 文件 | 本次（strip 后） | 链接期未剥 | Termux 现值 | 变化 |"
+            echo "|---|---|---|---|---|"
+            echo "| \`libLLVM.so\` | $(mib "$st_llvm") MiB | $(mib "$raw_llvm") MiB | $(mib "$REF_LLVM") MiB | $(pct "$st_llvm" "$REF_LLVM") |"
+            echo "| \`libclang-cpp.so\` | $(mib "$st_cpp") MiB | $(mib "$raw_cpp") MiB | $(mib "$REF_CPP") MiB | $(pct "$st_cpp" "$REF_CPP") |"
+            echo "| **合计** | **$(mib "$total") MiB** | **$(mib $((raw_llvm + raw_cpp))) MiB** | **187.5 MiB** | **$(pct "$total" 196570600)** |"
+            echo
+            echo "字节数：\`$st_llvm\` + \`$st_cpp\` = \`$total\`（判据上限 110 MiB = \`$LIMIT\`）"
+            echo
+            if [ "$total" -le "$LIMIT" ]; then
+              echo "**判定：go** —— 低于 110 MiB，值得走生产化。"
+            else
+              echo "**判定：no-go** —— 高于 110 MiB，收益不够抵 CI 复杂度。"
+            fi
+            echo
+            echo '```'
+            ls -l "$OUT"
+            echo '```'
+          } | tee "$OUT/sizes.txt"
+          tee -a "$GITHUB_STEP_SUMMARY" < "$OUT/sizes.txt"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-aarch64-spike
+          path: |
+            ${{ runner.temp }}/out/libLLVM.so
+            ${{ runner.temp }}/out/libclang-cpp.so
+            ${{ runner.temp }}/out/sizes.txt
+          # 只是探针产物，别占着配额
+          retention-days: 7
