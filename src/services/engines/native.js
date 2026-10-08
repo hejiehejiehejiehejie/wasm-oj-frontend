@@ -1,6 +1,7 @@
 /**
- * 桌面端原生引擎 —— 代码交给 Tauri 的 Rust 侧跑：C++ 落盘后用系统 clang++ 编译，
- * Python 直接起系统解释器，都不下载任何运行时。
+ * 桌面端原生引擎 —— 代码交给 Tauri 的 Rust 侧跑：C++ 落盘后用本机的 clang++ / g++ 编译，
+ * Python 直接起本机解释器，都不下载任何运行时。「本机是哪一个」由 Rust 侧的
+ * `src-tauri/src/toolchain.rs` 探测（那是唯一出处），这里不关心。
  *
  * 【跨语言契约】命令名与参数名必须与 src-tauri/src/native.rs 里
  * `#[tauri::command] fn run_cpp / run_python` 逐字对上：Tauri v2 按 camelCase
@@ -14,6 +15,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { t } from '../../i18n/index.js'
+import { HOST_OS } from '../platform.js'
 
 /** languageId → Rust 命令名。加语言时，这张表与 native.rs 的 #[tauri::command] 一起改。 */
 const COMMANDS = { cpp: 'run_cpp', python: 'run_python' }
@@ -27,6 +29,17 @@ const SELF_TEST = {
 /** 只有环境出错时才有 detail；都没有就补一句「无更多信息」，别让卡片空着 */
 function failureText(result) {
   return (result.detail || result.stderr || '').trim() || t('engine.native.noDetail')
+}
+
+/**
+ * 按宿主系统挑「去哪儿装」的提示。
+ *
+ * 键名与 i18n 表里的 `cppHint*` / `pythonHint*` 对齐；表里三套后缀（Windows / Mac /
+ * Other）都备着，免得在某台机器上拼出一个不存在的键、提示直接变成 key 本身。
+ */
+function osHint(kind) {
+  const suffix = { windows: 'Windows', mac: 'Mac', other: 'Other' }[HOST_OS]
+  return t(`engine.native.${kind}Hint${suffix}`)
 }
 
 /**
@@ -91,13 +104,20 @@ export const nativeEngine = {
   },
 
   /**
-   * 自检两项系统依赖：C++ 要 clang++（macOS 需 Xcode 命令行工具），Python 要 python3。
+   * 自检两项系统依赖：C++ 要 clang++ 或 g++，Python 要有能用的解释器。
    * 各跑一句最小程序，比只看命令存不存在可靠 —— 缺的是整条编译 / 解释链路。
+   * 失败时按宿主系统补一句「去哪儿装」（见 osHint）。
    */
   async health() {
     const cpp = await runNative(COMMANDS.cpp, { ...SELF_TEST.cpp, stdin: '', timeLimitMs: 10_000 })
     if (cpp.outcome !== 'ok' || cpp.stdout.trim() !== '1') {
-      return { ok: false, message: t('engine.native.cppUnavailable', { message: failureText(cpp) }) }
+      return {
+        ok: false,
+        message: t('engine.native.cppUnavailable', {
+          message: failureText(cpp),
+          hint: osHint('cpp'),
+        }),
+      }
     }
 
     const python = await runNative(COMMANDS.python, {
@@ -106,7 +126,13 @@ export const nativeEngine = {
       timeLimitMs: 10_000,
     })
     if (python.outcome !== 'ok' || python.stdout.trim() !== '1') {
-      return { ok: false, message: t('engine.native.pythonUnavailable', { message: failureText(python) }) }
+      return {
+        ok: false,
+        message: t('engine.native.pythonUnavailable', {
+          message: failureText(python),
+          hint: osHint('python'),
+        }),
+      }
     }
 
     return { ok: true, message: t('engine.native.ready') }

@@ -752,7 +752,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
 - 改 `useCompanionBridge.js` 里的**消息名**（`cp-ping` / `cp-task` / …）→ 那是与 `cph-companion` 的**跨仓契约**，必须同步改扩展的 `src/bridge.ts` + `src/background.ts`，再升版本号发新版（2026-10-01 就是一次这样的改动：`cph-*` 全改成 `cp-*`）。**结论是「两边不同版就完全失联」**，而且失败是静默的——只剩「未检测到插件」。注意 `EXTENSION_SOURCE`（`competitive-companion`）是**扩展上游的标识，不是这次那批消息名，改它等于单方面毁约**；`PAGE_SOURCE` 才是本站自己的那半边。
 
-## 14. 多平台移植（**目标已定，尚未开工**：Tauri 桌面端）
+## 14. 多平台移植（Tauri 桌面端：**macOS 已落地**，Windows 进行中，Linux 未开工）
 
 **目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
 
@@ -793,7 +793,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 4. **平台分流**：桌面构建里关掉 SW / PWA / 安装入口 / 扩展抓题 / 工具链下载；COOP/COEP 在桌面侧另设一份。
 5. **打包发布**：`npx tauri build`，产物在 `src-tauri/target/release/bundle/`；macOS 先出 `.dmg` / `.app`，再考虑 Windows / Linux 与 CI。
 
-**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`；Windows / Linux 构建、CI、签名与公证仍未做。**
+**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`。Windows 移植已开工，见 14.F–14.G（第 1、2 步已落地，第 3、4 步未做）；Linux 仍未开工；签名与公证未做。**
 
 ### 14.A 第 1 步落地记录（环境与空壳，2026-10-08 实测通过）
 
@@ -881,5 +881,44 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **未签名的影响**：首次打开会被 Gatekeeper 拦（「无法验证开发者」），得右键「打开」或在「系统设置 › 隐私与安全性」里放行。要对外分发就得补 Apple Developer 证书 + `notarytool` 公证。
 - **本次产物包含当日新做的编辑器补全**（见第 7 节那条「编辑器自动补全」）：补全改动先落在前端，`beforeBuildCommand` 会重跑 `npm run build` 重新出 `dist`，所以重打一次包即可带上，不必单独处理。
 - **尚未做（留给后续）**：Windows / Linux 构建（Tauri 不能一次交叉编译出全套，得各自 CI 出，另见本条第 8 项）；签名与公证；`public/wasm/` 出包瘦身；**桌面端云端同步**（`/api/*` 是相对路径，Tauri 自定义协议下没有对应后端，见 14.D）；**文案五处**（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）仍未按平台补。
+
+### 14.F Windows 移植 · 第 1 步落地记录（Rust 侧跨平台，2026-10-08）
+
+**先定的三项**（用户拍板）：工具链走**检测系统已装**，不做随包便携工具链；产物由 **GitHub Actions 的 `windows-latest`** 出；**这一轮只做 Windows**，Linux 之后再说。
+
+**前端零改动**：`platform.js` 只分 `desktop` / `web`，Windows 与 macOS 同属 `desktop`，原生引擎本来就显示。真正的活全在 Rust 侧。
+
+- **新增 `src-tauri/src/toolchain.rs`**：「用哪个编译器 / 哪个解释器 / 产物叫什么」的唯一出处。原先 `native.rs` 里写死的三处都是 macOS 的答案，逐条按平台分岔：
+  1. **`clang++` → 候选表 `clang++` / `g++`**。Windows 上系统自带没有 clang++，除 PATH 外还要扫常见安装目录：MSYS2 四种环境（mingw64 / ucrt64 / clang64 / mingw32）、`Program Files\LLVM`、`C:\MinGW`、`C:\mingw64`、TDM-GCC-64、CodeBlocks 自带 MinGW、scoop。
+  2. **`python3` → 候选表 `python3` / `python` / `py`**（Windows 上没有 `python3`；`py` 是官方启动器）。两个 Windows 专属的坑：**必须跳过 `%LOCALAPPDATA%\Microsoft\WindowsApps`** —— 那里的 `python.exe` 是 0 字节占位符，跑它只会弹 Microsoft Store，不跳过就会「找到一个假解释器」；还要补扫 `%LOCALAPPDATA%\Programs\Python\Python3XX` 与盘符根下的 `C:\Python3XX` —— 官方安装器的默认落点，「Add Python to PATH」**默认不勾**，不扫就漏掉最常见的一种装法（多版本按版本号从新到旧排）。
+  3. **产物名 `main.bin` → Windows 上是 `main.exe`**。`CreateProcess` 只对**没有扩展名**的路径补 `.exe`，所以带 `.bin` 的产物在 Windows 上根本执行不了，症状是「编译成功却起不来」。
+- **只认 clang / gcc 两族，不给 MSVC 加分支**：`-std=c++17 -O2` 是这两族的口径，而 `cl.exe` 是另一套（`/std:c++17 /O2`）—— 支持它等于让编译参数出现第二套口径，违反第 14 节那条「不许另起一套」。
+- **`with_toolchain_dir`**：MinGW 的 `g++` 编出来的 exe 依赖**编译器同目录**的 `libstdc++-6.dll` / `libgcc_s_seh-1.dll`，而我们从常见安装目录按绝对路径捞出来的编译器，那个目录**不一定在 PATH 里** —— 不补就会「编译成功、一运行报缺 DLL」。运行前把工具链目录插进子进程 PATH（非 Windows 是空实现，调用处不必套 `cfg`）。
+- **结果缓存**：`OnceLock`，一次运行里同一个工具只找一遍，不必每个用例都 stat 一串目录。
+- **找不到工具链**：新增 `missing_toolchain()`，沿用 `unreachable` 口径，`stderr` 回机器可读的原始文本（`clang++ / g++ not found`），人话仍由前端 i18n 拼 —— 本文件不产出话术的约定不变。
+- **文案**：`engine.native.cppUnavailable` / `pythonUnavailable` 拆成「正文 + `{hint}`」，按宿主系统填 `cppHintWindows` / `cppHintMac` / `cppHintOther`（Python 侧同理）。**macOS 的渲染结果与改动前逐字一致**（已逐条核对）。宿主系统取自 `platform.js` 新增的 `HOST_OS`：UA 猜的，**只用来挑提示文案，不当功能开关**；没为它引 Tauri 的 os 插件（一个 npm 包 + 一个 Rust crate 换一句提示不划算）。
+
+**验证**：`cargo test` **16 passed**（原 8 个 + 新增 8 个），`cargo build` 无 warning，`npm run build` 通过。新增用例覆盖名字优先级（跨目录也成立）、目录不该被当成可执行文件、商店别名目录规则（纯逻辑，**在 macOS 上真跑**而非只编译）、结果缓存、找到的路径必须是绝对路径。
+
+**本机验不到的**：Windows 专属分支（`extra_dirs` 的具体目录、`.exe` 后缀、商店别名过滤的实际生效）在 macOS 上只被编译、未被执行。要等第 3 步 CI 编译 + 装完实跑才算验过 —— 不假装本机验过。
+
+**尚未做**：第 2 步打包配置（`bundle.targets` 从 `all` 收成 `nsis`，避免顺带拉 WiX）、第 3 步 CI、第 4 步实机实测与文案五处。
+
+### 14.G Windows 移植 · 第 2 步落地记录（打包配置，2026-10-08）
+
+- **新增 `src-tauri/tauri.windows.conf.json`**（平台专用配置文件，不动主文件）。这么做是因为 `bundle.targets` 两个平台要的值不同：
+  - macOS 要 `all` → 出 `.app` + `.dmg`（14.E 就是这么来的）；
+  - Windows 要 `nsis` → 只出单个 `.exe` 安装器。Windows 上 `all` 会把 MSI 一起出了，而 MSI 走 WiX、要另外下载工具链、还多一个失败点，所以收成 NSIS 一种。
+  - Tauri v2 会读 `tauri.<平台>.conf.json` 并按 **RFC 7396（JSON Merge Patch）** 与主配置合并 —— 该规则下**数组是整体替换**（不是逐项合并），所以 `targets` 能被这样覆盖。已对过官方文档与本地 `@tauri-apps/cli` 的 `config.schema.json`，不是凭记忆写的。
+- **NSIS 两项设置**：
+  - `installMode: "currentUser"` —— 这本来就是默认值，**写出来是为了把「装到用户目录、不弹 UAC」变成仓库里的契约**（默认值以后可能变）。
+  - `languages: ["English", "SimpChinese"]` —— **顺序有讲究**：NSIS 默认按系统语言选，系统语言不在表里时回落到**第一项**。把 `English` 放前面，中文系统照样得到中文（中文在表里，按系统语言命中），而日语之类没覆盖的系统会落到英文而不是中文。`SimpChinese` 是 NSIS 的语言名（Language ID 2052，已核对 NSIS 仓库的 `Contrib/Language files/SimpChinese.nlf`）。
+- **刻意没动的**：`productName` / `identifier`（已定稿，见 14.E）；`webviewInstallMode` 保持默认的 `downloadBootstrapper` —— 它只在机器**缺** WebView2 时才去下载，而 Win11 自带、Win10 基本随 Edge 装上了，为省这一步去嵌 1.5MB 引导器不划算（真正能离线的是 `offlineInstaller`，127MB，不考虑）。图标 `.ico` 在第 5 步换项目图标时已生成，不用管。
+
+**验证**：两份 JSON 都能解析；键名与取值逐条对过本地 `config.schema.json`（`nsis` 是合法 target、`currentUser` 是合法 installMode、`languages` 是字符串数组）；按 RFC 7396 手工模拟合并，确认 Windows 侧 `targets` 变成 `["nsis"]` 且 macOS 侧不受影响。**macOS 回归打包通过** —— 仍出 `.app` + `.dmg` 两份（约 41.1 / 34.2 MiB，体积随构建有零点几 MiB 的浮动，不必追），说明多出来的平台配置文件没干扰 mac 侧。
+
+**本机验不到的**：`tauri.windows.conf.json` 只在 Windows 目标上被加载，macOS 上跑 `tauri build` 根本不读它 —— 所以「合并确实生效」本机证不了。要等第 3 步 CI 出产物时看是不是**只**出一个 NSIS `.exe`（有没有多出 MSI 就是判据）。
+
+**尚未做**：第 3 步 CI、第 4 步实机实测与文案五处。
 
 

@@ -1,5 +1,9 @@
 //! 原生（桌面端）代码执行 —— 把前端递过来的一串代码落到一次性临时目录，
-//! C++ 调系统 clang++ 编译后运行，Python 直接起系统解释器，都按既有的时限口径跑一遍。
+//! C++ 调本机的 clang++ / g++ 编译后运行，Python 直接起本机解释器，都按既有的时限口径跑一遍。
+//!
+//! 「本机到底用哪个编译器、哪个解释器、产物叫什么」一律交给 `toolchain` 模块探测
+//! —— 那是唯一出处。本文件不写死任何工具名，也不按平台分岔（macOS 与 Windows 的差别
+//! 全在那边，见其文件头）。
 //!
 //! 这一层刻意**不碰**前端的引擎注册表（`src/services/engines/`）：这里只暴露
 //! `run_cpp` / `run_python` 两条命令，返回值与 `EngineExecution` 同构，
@@ -23,6 +27,8 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::toolchain;
 
 /// 与 `src/services/runner.js` 的 `TIME_LIMIT_DEFAULT_MS` 一致（毫秒）
 const DEFAULT_TIME_LIMIT_MS: u64 = 1000;
@@ -128,12 +134,19 @@ fn run_in_workspace(
     // 两种语言最后都交回同一个 run_program，时限 / kill / 管道 / 退出码口径完全共用。
     let command = match language {
         Language::Cpp => {
-            let binary = workspace.join("main.bin");
+            // 编译器由 toolchain 探测，不写死名字：Windows 上没有系统自带的 clang++
+            let Some(compiler) = toolchain::cxx() else {
+                return missing_toolchain(toolchain::cxx_names());
+            };
+            // 产物名按平台取：Windows 上不带 .exe 的文件是执行不了的
+            let binary = workspace.join(toolchain::binary_name());
 
             // 编译：与浏览器沙箱同一组参数（src/services/runnoSandbox.js 的 FRONTEND_ARGS）。
+            // 这组开关只认 clang / gcc 两族 —— 所以 toolchain 那边也只找这两族，
+            // **不给 MSVC 的 cl.exe 加分支**，否则编译参数就成了第二套口径。
             // 这里不加 -fcolor-diagnostics 之类的开关：没有 TTY 时 clang 本来就不着色，
             // 卡片是纯文本渲染，正好对上。
-            let compile = Command::new("clang++")
+            let compile = Command::new(compiler)
                 .arg("-std=c++17")
                 .arg("-O2")
                 .arg(&source)
@@ -161,13 +174,19 @@ fn run_in_workspace(
 
             let mut command = Command::new(&binary);
             command.current_dir(workspace);
+            // MinGW 编出来的 exe 依赖编译器同目录的 DLL，而那个目录不一定在 PATH 里
+            toolchain::with_toolchain_dir(&mut command, compiler);
             command
         }
         Language::Python => {
-            // 没有编译段：直接 `python3 main.py`。耗时从 spawn 起算，也就是
-            // 「解释器启动 + 程序执行」的墙钟，与沙箱侧 Python 同口径。
-            let mut command = Command::new("python3");
+            // 没有编译段：直接 `python3 main.py`（Windows 上是 `python` / `py`，由探测决定）。
+            // 耗时从 spawn 起算，也就是「解释器启动 + 程序执行」的墙钟，与沙箱侧 Python 同口径。
+            let Some(interpreter) = toolchain::python() else {
+                return missing_toolchain(toolchain::python_names());
+            };
+            let mut command = Command::new(interpreter);
             command.arg(&source).current_dir(workspace);
+            toolchain::with_toolchain_dir(&mut command, interpreter);
             command
         }
     };
@@ -280,6 +299,20 @@ fn internal_failure(err: std::io::Error) -> RunOutcome {
         outcome: "unreachable",
         stdout: String::new(),
         stderr: err.to_string(),
+        duration_ms: None,
+        detail: None,
+    }
+}
+
+/// 机器上压根没有这条工具链（PATH 与常见安装目录里都没有）。
+///
+/// 与 `internal_failure` 同一个 `unreachable` 口径，只是原因不是 `io::Error`；
+/// 回的仍是机器可读的原始文本（「哪些名字都没找到」），人话由前端 i18n 拼上去。
+fn missing_toolchain(names: &[&str]) -> RunOutcome {
+    RunOutcome {
+        outcome: "unreachable",
+        stdout: String::new(),
+        stderr: format!("{} not found", names.join(" / ")),
         duration_ms: None,
         detail: None,
     }

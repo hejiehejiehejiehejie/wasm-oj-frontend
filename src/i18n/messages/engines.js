@@ -20,10 +20,16 @@ export default {
       },
       native: {
         label: '本机原生编译器',
-        hint: '桌面端专用：直接用本机已装好的编译器运行，不下载任何运行时；支持 C++（clang++）与 Python',
+        hint: '桌面端专用：直接用本机已装好的编译器运行，不下载任何运行时；支持 C++（clang++ / g++）与 Python',
         ready: '本机编译链可用（C++ 与 Python）',
-        cppUnavailable: 'C++ 编译器不可用：{message}（macOS 可执行 xcode-select --install 装命令行工具）',
-        pythonUnavailable: 'Python 解释器不可用：{message}',
+        cppUnavailable: 'C++ 编译器不可用：{message}{hint}',
+        cppHintMac: '（macOS 可执行 xcode-select --install 装命令行工具）',
+        cppHintWindows: '（Windows 可装 LLVM 或 MSYS2，也可以装 MinGW-w64；装完确认它在 PATH 里）',
+        cppHintOther: '',
+        pythonUnavailable: 'Python 解释器不可用：{message}{hint}',
+        pythonHintMac: '',
+        pythonHintWindows: '（Windows 可装 python.org 版；应用商店那个 python 别名不算）',
+        pythonHintOther: '',
         unavailable: '本机运行失败：{message}',
         unsupportedLanguage: '原生引擎不支持该语言：{language}',
         noDetail: '没有更多信息',
@@ -179,11 +185,19 @@ export default {
       },
       native: {
         label: 'Native compiler (desktop)',
-        hint: 'Desktop only: runs your code with the compilers already installed on this machine — no runtime download. Supports C++ (clang++) and Python.',
+        hint: 'Desktop only: runs your code with the compilers already installed on this machine — no runtime download. Supports C++ (clang++ / g++) and Python.',
         ready: 'The native toolchain is available (C++ and Python)',
-        cppUnavailable:
-          'The C++ compiler is unavailable: {message} (on macOS, run xcode-select --install to install the command line tools)',
-        pythonUnavailable: 'The Python interpreter is unavailable: {message}',
+        cppUnavailable: 'The C++ compiler is unavailable: {message}{hint}',
+        cppHintMac:
+          ' (on macOS, run xcode-select --install to install the command line tools)',
+        cppHintWindows:
+          ' (on Windows, install LLVM or MSYS2 — or MinGW-w64 — and make sure it is on PATH)',
+        cppHintOther: '',
+        pythonUnavailable: 'The Python interpreter is unavailable: {message}{hint}',
+        pythonHintMac: '',
+        pythonHintWindows:
+          ' (on Windows, install Python from python.org; the Microsoft Store python alias does not count)',
+        pythonHintOther: '',
         unavailable: 'Native run failed: {message}',
         unsupportedLanguage: 'The native engine does not support this language: {language}',
         noDetail: 'no further details',
