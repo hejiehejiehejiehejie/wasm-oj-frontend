@@ -36,6 +36,7 @@ export default {
       tabs: {
         listLabel: '打开的文件',
         dirty: '未保存',
+        diskChanged: '磁盘上的这个文件已被外部修改；保存会以编辑器里的内容覆盖它',
         untitled: '未命名',
         closeTab: '关闭标签',
         closeSettings: '关闭设置',
@@ -148,6 +149,7 @@ export default {
       tabs: {
         listLabel: 'Open files',
         dirty: 'Unsaved',
+        diskChanged: 'This file changed on disk; saving will overwrite it with the editor content',
         untitled: 'Untitled',
         closeTab: 'Close tab',
         closeSettings: 'Close settings',

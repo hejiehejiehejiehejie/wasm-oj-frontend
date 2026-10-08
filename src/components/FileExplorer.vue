@@ -12,7 +12,7 @@
  * 内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由 InlineCreateRow
  * 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
  */
-import { computed, nextTick, provide, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
@@ -34,6 +34,7 @@ import {
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import { assertName, basename, join } from '../services/vfs/paths.js'
+import { onStartupNotice } from '../services/vfs/workspaceNotices.js'
 import {
   OJ_LIST,
   difficultyOptionsFor,
@@ -409,6 +410,11 @@ function showNotice(text) {
   }, 4000)
 }
 
+// 工作区启动期的一次性提示（如侧车 JSON 损坏）：provider 只投递 i18n key，这里翻成文案弹横幅。
+// 订阅放在这里（组件 setup）而不是 onMounted —— FileExplorer 比 App.vue 的 onMounted 先初始化，
+// 于是 provider 在 init() 里投递时订阅已就位。
+onUnmounted(onStartupNotice((key) => showNotice(t(key))))
+
 // ------------------------------------------------------------ 焦点（roving tabindex）
 
 function isTabbable(id) {
@@ -447,6 +453,8 @@ function onTreeClick(event) {
 provide('openContextMenu', openContextMenu)
 provide('requestDelete', requestDelete)
 provide('treeRootEl', rootEl)
+// 树项需要报一句「这个文件打不开」（本机文件夹里的二进制 / 超大文件），用的就是上面那条横幅
+provide('showNotice', showNotice)
 provide('renameTarget', renameTarget)
 provide('isTabbable', isTabbable)
 provide('setFocusedId', setFocusedId)

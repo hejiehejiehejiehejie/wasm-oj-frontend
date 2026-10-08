@@ -184,6 +184,23 @@ export default {
               ],
             },
             {
+              name: '可以打开本机的文件夹吗？',
+              role: '桌面版可以，网页版只用自己的虚拟工作区。',
+              steps: [
+                '打开**设置** › **工作区**',
+                '点**选择文件夹**，在系统弹窗里挑一个目录',
+                '界面会重新加载，之后文件树画的就是那个目录',
+              ],
+              notes: [
+                '新建、改名、删除动的都是磁盘上真实的文件，用别的编辑器改了它也会自动更新',
+                '点开看不了的：二进制文件与超过 5MB 的大文件会调暗，点一下只弹一句提示，不会开页签',
+                '题目信息与抓到的样例存在目录里的 **.unnamed/** 下，不在文件正文里，随目录一起搬走',
+                '点开头的隐藏项与 **node_modules** 不进文件树',
+                '本地文件夹里撞名会拒绝并提示，不会替你改磁盘上的文件名',
+                '想换回来：**设置** › **工作区** › **回到虚拟工作区**，文件不会被删',
+              ],
+            },
+            {
               name: '编辑器有自动补全吗？',
               role: '有，但只给 C / C++ / Python 三种语言的代码文件。',
               steps: [
@@ -388,6 +405,23 @@ export default {
                 'Notes are not judged: opening a .md greys out the run button, and ⌘/Ctrl + Enter will not start a compilation',
                 'Hover a toolbar button to see its shortcut; those 14 shortcuts only apply inside .md',
                 'The **full screen** button at the right end of the toolbar gives the editor the whole window — press Esc to leave',
+              ],
+            },
+            {
+              name: 'Can I open a folder on my computer?',
+              role: 'Yes in the desktop build; the web version uses its own virtual workspace.',
+              steps: [
+                'Open **Settings** › **Workspace**',
+                'Click **Choose folder** and pick a directory in the system dialog',
+                'The interface reloads, and the file tree becomes that directory',
+              ],
+              notes: [
+                'Creating, renaming and deleting act on real files on disk, and changes made in another editor show up automatically',
+                'Files you cannot open: binaries and anything over 5MB are dimmed — clicking only shows a one-line notice and opens no tab',
+                'Problem info and captured samples live in **.unnamed/** inside the folder, never in the files themselves, so they travel with it',
+                'Hidden entries (names starting with a dot) and **node_modules** stay out of the file tree',
+                'A name clash in a local folder is refused with a notice — files on your disk are never renamed for you',
+                'To switch back: **Settings** › **Workspace** › **Back to virtual workspace**; nothing is deleted',
               ],
             },
             {

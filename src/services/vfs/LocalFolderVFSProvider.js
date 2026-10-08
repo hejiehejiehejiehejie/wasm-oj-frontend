@@ -18,9 +18,11 @@
  * 失败时靠 `refresh()` 重扫对齐内存索引（见 #withDisk / batch 覆写）。
  */
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { BaseVFSProvider } from './BaseVFSProvider.js'
 import { t } from '../../i18n/index.js'
 import { scanIgnore } from './ignoreRules.js'
+import { pushStartupNotice } from './workspaceNotices.js'
 import { getWorkspaceRoot } from './workspaceMode.js'
 import { assertName, dirname, isWithin, normalize, splitPath } from './paths.js'
 import {
@@ -81,6 +83,12 @@ export class LocalFolderVFSProvider extends BaseVFSProvider {
   #pathIndex = new Map()
   /** @type {Map<string, Set<string>>} parentId → 子节点 id */
   #childrenIndex = new Map()
+  /** 是否已经按至少一次扫描建过索引。首个 refresh（init）必须无条件建，不能走指纹短路 */
+  #built = false
+  /** 重扫的串行链：Watcher 事件与失败恢复可能同时要求重扫，排队跑避免两次重建交错 */
+  #refreshChain = Promise.resolve()
+  /** @type {(() => void) | null} 订阅 Rust 侧 `workspace://changed` 的退订函数 */
+  #unlisten = null
 
   // ------------------------------------------------------------ 初始化与重扫
 
@@ -90,11 +98,14 @@ export class LocalFolderVFSProvider extends BaseVFSProvider {
 
     // 侧车先读：ids.json 决定每个路径的节点 id，扫描时要用
     if (!(await initSidecar())) {
-      // 坏 JSON 按空表处理、不阻断启动。重新分配 id 的代价只是上次页签会话失效一次。
-      console.warn('[workspace] .unnamed/ids.json 无法解析，已按空表处理')
+      // 坏 JSON 按空表处理、不阻断启动。id 重新分配的代价只是上次页签会话失效一次，
+      // 但 meta / config 里的题目链接与样例是真丢了 —— 值得在界面上说一声。
+      // 投递给侧栏横幅（见 workspaceNotices.js：provider 够不到组件的局部横幅）。
+      pushStartupNotice('error.workspaceSidecarBroken')
     }
 
-    // 页面重载 / 应用重启后 Rust 侧的授权状态是空的，把上次记住的路径再递一次重新授权。
+    // 页面重载 / 应用重启后 Rust 侧的授权状态是空的，把上次记住的路径再递一次重新授权
+    //（Rust 侧顺带把递归文件监听挂上）。
     try {
       await invoke('workspace_open', { root })
     } catch (error) {
@@ -102,16 +113,53 @@ export class LocalFolderVFSProvider extends BaseVFSProvider {
     }
 
     await this.refresh()
+    await this.#watchChanges()
   }
 
   /**
-   * 全量重扫授权根、重建内存索引，然后对外发一个 reset（整树重建）。
-   * 由 init 与失败恢复调用；第 5 步的文件监听也会自动调它。
+   * 订阅 Rust 侧的文件监听。每个事件只换来一次全量重扫 —— 去抖已经在 Rust 那边做过
+   * （一波事件静默 200ms 才推一次），差异则由 `refresh()` 的指纹比对负责吞掉。
+   */
+  async #watchChanges() {
+    if (this.#unlisten) return
+    try {
+      this.#unlisten = await listen('workspace://changed', () => {
+        this.refresh().catch(() => {
+          /* 一次重扫失败不致命（目录可能正在被删改），下个事件会再来 */
+        })
+      })
+    } catch (error) {
+      // 订阅不上不该让整个工作区打不开：退化成「外部改动了界面不自动跟进」，
+      // 与 Rust 侧监听起不来时的降级是同一条思路（磁盘数据本身不受影响）。
+      console.warn('[workspace] 文件监听订阅失败，外部改动需要手动刷新', error)
+    }
+  }
+
+  /**
+   * 全量重扫授权根，重建内存索引；**确有差异**才对外发一个 reset（整树重建）。
+   *
+   * 之所以要指纹比对：Rust 那边的监听把「自己写自己」的回环事件挡掉了，但那只覆盖
+   * 400ms 的窗口，而且外部工具改写后写回同样的内容也会推事件。这里用
+   * 「rel 集合 + mtime + size」与**当前内存索引**比：一样就直接吞掉，界面一动不动。
+   * 反过来说，只有真变了才重置，`git checkout` 这类一次改一批的场景也不会连着重扫。
+   *
+   * 调用一律串行（见 #refreshChain）：Watcher 事件与写失败后的恢复重扫可能撞在一起。
    * @returns {Promise<void>}
    */
-  async refresh() {
+  refresh() {
+    const run = this.#refreshChain.then(() => this.#scanAndRebuild())
+    // 链上挂的是「已吞掉错误」的版本，一次失败不会把后续重扫全卡死
+    this.#refreshChain = run.catch(() => {})
+    return run
+  }
+
+  async #scanAndRebuild() {
     const report = await invoke('fs_scan', { ignore: scanIgnore() })
     const entries = Array.isArray(report?.nodes) ? report.nodes : []
+
+    if (this.#built && this.#fingerprintOf(entries) === this.#indexFingerprint()) return
+    this.#built = true
+
     // 与侧车对账：新路径分配 uuid、消失的路径回收（外部新建 / 删除在这里被认领）
     const ids = reconcile(entries.map((entry) => entry.rel))
 
@@ -143,7 +191,10 @@ export class LocalFolderVFSProvider extends BaseVFSProvider {
         updatedAt: entry.mtimeMs ?? 0,
         size: entry.size,
         mtimeMs: entry.mtimeMs ?? null,
+        // 磁盘事实：二进制 / 超大由 Rust 扫描时判好（只看文件头 8KB 与 size 阈值），
+        // 这里原样带进节点，树据此把图标调暗、点开时拦下（见 FileTreeItem）
         binary: Boolean(entry.binary),
+        tooLarge: Boolean(entry.tooLarge),
       }
       // 题目元数据与抓题配置都存在侧车里（磁盘上只有正文），这里按 id 挂回节点
       const meta = getMeta(id)
@@ -154,6 +205,37 @@ export class LocalFolderVFSProvider extends BaseVFSProvider {
     }
 
     this._emit({ type: 'reset', id: '', path: '/' })
+  }
+
+  /**
+   * 一份扫描结果的内容指纹。目录只看路径（目录的 mtime 变化对界面没有意义，
+   * 而且新建目录时我们压根没记它的 mtime），文件看路径 + mtime + 大小。
+   * @param {Array<{rel: string, kind: string, mtimeMs?: number|null, size?: number}>} entries
+   */
+  #fingerprintOf(entries) {
+    return entries
+      .map((entry) =>
+        entry.kind === 'directory'
+          ? `${entry.rel}\u0000dir`
+          : `${entry.rel}\u0000file\u0000${entry.mtimeMs ?? ''}\u0000${entry.size ?? ''}`,
+      )
+      .sort()
+      .join('\u0001')
+  }
+
+  /** 当前内存索引的同一份指纹（口径必须与 #fingerprintOf 完全一致） */
+  #indexFingerprint() {
+    const parts = []
+    for (const node of this.#nodes.values()) {
+      if (node.id === ROOT_ID) continue
+      const rel = node.path.slice(1)
+      parts.push(
+        node.type === 'directory'
+          ? `${rel}\u0000dir`
+          : `${rel}\u0000file\u0000${node.mtimeMs ?? ''}\u0000${node.size ?? ''}`,
+      )
+    }
+    return parts.sort().join('\u0001')
   }
 
   // ------------------------------------------------------------ 索引维护
@@ -469,7 +551,8 @@ export class LocalFolderVFSProvider extends BaseVFSProvider {
 
   get capabilities() {
     // realFolder 让 workspaceStore 避开「在真实磁盘上凭空创建 /main.cpp」这类
-    // 只在虚拟工作区成立的动作；watch 到第 5 步接上文件监听后才转 true。
-    return { watch: false, persistent: true, remote: false, realFolder: true }
+    // 只在虚拟工作区成立的动作；watch 为真：外部编辑器的改动能被 Rust 侧监听感知，
+    // 由 refresh() 转成普通的重扫事件（见 init 里的 #watchChanges）。
+    return { watch: true, persistent: true, remote: false, realFolder: true }
   }
 }

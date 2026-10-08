@@ -23,6 +23,8 @@ const URI_PREFIX = 'vfs://file/'
  * @property {import('monaco-editor').ITextModel} model
  * @property {import('../vfs/BaseVFSProvider.js').VFSNode} node
  * @property {number} refs
+ * @property {number|null} diskMtimeMs 上一次见到的磁盘 mtime（本机文件夹工作区用来认外部改写）
+ * @property {boolean} silent 正在程序化写入正文：这次内容变化不算用户的编辑
  */
 
 class ModelManager {
@@ -30,6 +32,12 @@ class ModelManager {
   #entries = new Map()
   /** 当前未保存的文件 id（响应式，供标签圆点 / 文件树使用） */
   dirtyIds = reactive(new Set())
+  /**
+   * 「磁盘上的内容变过、但本地还有没保存的改动」的文件 id（响应式，供页签上的琥珀点）。
+   * 只在本机文件夹工作区可能出现：外部编辑器改了同一个文件，而用户这里的缓冲还没落盘。
+   * 用户一保存（缓冲覆盖磁盘）就清掉。
+   */
+  staleIds = reactive(new Set())
   /**
    * 编辑事件订阅者（自动保存用，见 services/autoSave.js）。
    *
@@ -69,26 +77,49 @@ class ModelManager {
 
     if (registered) {
       registered.setLanguage(languageForPath(node.path))
-      this.#entries.set(node.id, { model: registered, node, refs: 0 })
+      this.#entries.set(node.id, {
+        model: registered,
+        node,
+        refs: 0,
+        // 正文刚从磁盘读进来，此刻的 mtime 就是基准 —— 之后它变了才叫「外部改写」
+        diskMtimeMs: node.mtimeMs ?? null,
+        silent: false,
+      })
       return registered
     }
 
     const content = await vfs.readFile(node.path)
     const model = monaco.editor.createModel(content, languageForPath(node.path), uri)
+    const entry = {
+      model,
+      node,
+      refs: 0,
+      diskMtimeMs: node.mtimeMs ?? null,
+      silent: false,
+    }
+    this.#entries.set(node.id, entry)
     model.onDidChangeContent(() => {
+      // 程序化替换正文（外部改写的同步）也会走到这里，但那不是用户的编辑
+      if (entry.silent) return
       this.dirtyIds.add(node.id)
       for (const listener of this.#editListeners) listener(node.id)
     })
-    this.#entries.set(node.id, { model, node, refs: 0 })
     return model
   }
 
   /**
-   * 同步节点元数据（改名后 store 用事件里的新 node 调用）。
-   * 若扩展名随改名变化，同步切换 model 语言。
+   * 用最新的节点元数据对齐 model：改名（路径 / 语言）与**磁盘版本**都走这里。
+   *
+   * 磁盘版本分三种情形：
+   * - mtime 没变：什么都不做（绝大多数调用）；
+   * - mtime 变了、缓冲是干净的：直接以磁盘正文替换 model —— 外部编辑器的改动照单全收；
+   * - mtime 变了、缓冲里有没保存的内容：**保留用户缓冲**，只把页签标成 stale，
+   *   等用户保存时由缓冲覆盖磁盘（见 save）。绝不静默丢掉用户敲进去的东西。
+   *
    * @param {import('../vfs/BaseVFSProvider.js').VFSNode} node
+   * @returns {Promise<void>}
    */
-  syncNode(node) {
+  async syncNode(node) {
     const entry = this.#entries.get(node.id)
     if (!entry) return
     const previousPath = entry.node.path
@@ -96,6 +127,44 @@ class ModelManager {
     const previousLanguage = languageForPath(previousPath)
     const nextLanguage = languageForPath(node.path)
     if (previousLanguage !== nextLanguage) entry.model.setLanguage(nextLanguage)
+
+    const nextMtime = node.mtimeMs ?? null
+    const previousMtime = entry.diskMtimeMs ?? null
+    if (nextMtime === null || nextMtime === previousMtime) return
+    const firstSighting = previousMtime === null
+    entry.diskMtimeMs = nextMtime
+    // 首次登记（本机制之前建的 model）只记基准，不当作外部改写
+    if (firstSighting) return
+
+    // mtime 变了不见得真的有冲突：我们自己那次保存落盘也会推一个事件，而它可能比
+    // save() 的续体先到。所以先读一次磁盘、与缓冲比一比，再决定是「冲突」还是「回声」。
+    const content = await getVFS().readFile(node.path)
+    if (entry.model.getValue() === content) {
+      // 磁盘 == 缓冲：没有可保护的内容，顺手把可能残留的标记清掉
+      this.staleIds.delete(node.id)
+      return
+    }
+    if (this.dirtyIds.has(node.id)) {
+      // 有没保存的内容：保留用户缓冲，只标记「磁盘已变更」，保存时由缓冲覆盖磁盘
+      this.staleIds.add(node.id)
+      return
+    }
+    this.#replaceContent(entry, content)
+  }
+
+  /**
+   * 程序化替换 model 正文。走 `silent` 闸门：`onDidChangeContent` 里不记 dirty、
+   * 也不通知自动保存 —— 否则「外部改一次」会被当成用户编辑，转手又写回磁盘。
+   * @param {ModelEntry} entry
+   * @param {string} content
+   */
+  #replaceContent(entry, content) {
+    entry.silent = true
+    try {
+      entry.model.setValue(content)
+    } finally {
+      entry.silent = false
+    }
   }
 
   /**
@@ -120,6 +189,7 @@ class ModelManager {
       entry.model.dispose()
       this.#entries.delete(fileId)
       this.dirtyIds.delete(fileId)
+      this.staleIds.delete(fileId)
     }
   }
 
@@ -129,14 +199,32 @@ class ModelManager {
   }
 
   /**
+   * 磁盘上的正文变过、而本地还有没保存的改动？页签据此提示「磁盘已变更」。
+   * @param {string} fileId
+   * @returns {boolean}
+   */
+  isStale(fileId) {
+    return this.staleIds.has(fileId)
+  }
+
+  /**
    * 保存单个文件：model 正文写回 VFS，清 dirty。
+   *
+   * 顺手把磁盘基准 mtime 推进到这次写入的结果上 —— 这笔写入本身会触发一次监听事件
+   * （Rust 侧 400ms 抑制窗之外的漏网之鱼），不更新基准就会被自己误判成「外部改写」。
+   * stale 也在这里清掉：缓冲已覆盖磁盘，冲突解除了。
    * @param {string} fileId
    */
   async save(fileId) {
     const entry = this.#entries.get(fileId)
     if (!entry) return
-    await getVFS().writeFile(entry.node.path, entry.model.getValue())
+    const node = await getVFS().writeFile(entry.node.path, entry.model.getValue())
+    if (node) {
+      entry.node = node
+      entry.diskMtimeMs = node.mtimeMs ?? entry.diskMtimeMs
+    }
     this.dirtyIds.delete(fileId)
+    this.staleIds.delete(fileId)
   }
 
   /**

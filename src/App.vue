@@ -516,6 +516,23 @@ let panelAnimTimer = 0
 // 只会变成闪一下，所以这种情况下整段走直切（不挂 is-animating）。
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
+// View Transitions 支持探测：侧栏折叠 / 展开与布局换边共用同一个判据
+// （toggleLayout 里那道检查保持原样，这一轮 spike 只动侧栏这一条路径）
+const canViewTransition = () => typeof document.startViewTransition === 'function'
+
+// SPIKE 2：过渡期间把两栏的 view-transition-name 临时摘掉。
+// 命名的元素会各自成为一个过渡组，组盒子在改尺寸时快照位图会被拉伸（文字横向变形）；
+// 不命名则它们并进 root 快照，而 root 的盒子恒等于整个应用、尺寸不变，
+// 于是只剩「旧帧淡出 / 新帧淡入」的交叉淡化，没有拉伸。
+// 必须在 startViewTransition **之前**同步改掉：旧快照那一刻就得是没名字的状态，
+// 所以直接操作 DOM 而不是走响应式（响应式要等 nextTick，晚一帧就来不及了）。
+// 传 '' 恢复，让样式表里那条 view-transition-name 重新生效（布局换边还要用）。
+function setPaneTransitionNames(name) {
+  workspace.value?.querySelectorAll('.pane').forEach((el) => {
+    el.style.viewTransitionName = name
+  })
+}
+
 // 内层定宽 + 外层裁切：把 .pane__inner 的宽度钉在外层 .pane--tests 的实测宽度上。
 // 折叠 / 展开那 200ms 里外层的宽度一直在变，内层若跟着变，里面的文件树与用例卡片就会
 // 逐帧重排（文字反复换行、@container 规则反复重算），看着是「内容被挤扁」而不是「被推出画面」。
@@ -547,6 +564,9 @@ function pinSidebarWidth() {
 function syncSidebarPin() {
   // 动画期间冻结：宽度不动 → 内容不重排，多出来的部分由外层裁掉
   if (panelAnimating.value) return
+  // 折叠态不量：外层这时只有 1px（见样式表里 .pane--tests.is-collapsed），
+  // 量了会把「展开要用的那个宽度」覆盖成 1px，下次展开的快照就是一条缝。
+  if (!panelVisible.value) return
   pinSidebarWidth()
 }
 
@@ -556,6 +576,37 @@ function togglePanel({ instant = false } = {}) {
   // - 系统开了「减弱动效」；
   // - 题解全屏还盖在上面（例如全屏里点运行，自动亮出评测面板但侧栏整块是藏着的）。
   const animate = !instant && !mdFullscreen.value && !reduceMotion.matches
+
+  // ---------------------------------------------------------------- SPIKE
+  // View Transitions 路径：只翻一次状态，宽度 / 位置全交给浏览器按快照补间。
+  // 好处是动画期间 DOM 一动不动（不再逐帧改 flex-basis），Monaco 也就不会逐帧重排，
+  // 现在这套定宽冻结 / 接缝 / 残留的补丁本就是为了伺候「逐帧改宽度」才存在的。
+  // 代价是文字会被快照拉伸 —— 这个 spike 就是来看它到底能不能接受的。
+  // 这条路径下 is-animating 恒为 false，下面四段手写动画整段不参与。
+  if (animate && canViewTransition()) {
+    panelAnimating.value = false
+    // 翻状态前先把定宽壳退回流体：VT 只翻一次 DOM，「防逐帧重排」那件事不存在，
+    // 而旧钉子（折叠时可能已被写成 1px）会被原样带进快照，反而把内容压扁。
+    sidebarPinned.value = false
+    if (sidebarInner.value) sidebarInner.value.style.width = ''
+    // 摘名字必须发生在 startViewTransition 之前：旧快照就得不带名字，
+    // 否则两栏仍各自成组、组盒子改尺寸那条拉伸路径照旧。
+    setPaneTransitionNames('none')
+    const transition = document.startViewTransition(() => {
+      panelVisible.value = !panelVisible.value
+      virtualShare = panelVisible.value ? editorShare.value : 100
+      return nextTick()
+    })
+    // 收尾：先恢复名字（布局换边还要用），再把钉子校准回这一帧的实测宽度
+    // （折叠到底时不钉，见 syncSidebarPin）。成功与失败两路都要走，否则名字会永久留在 none。
+    const settled = () => {
+      setPaneTransitionNames('')
+      if (panelVisible.value) pinSidebarWidth()
+    }
+    transition.finished.then(settled, settled)
+    return
+  }
+
   // 直切：一步到位。不挂 is-animating，宽度第二段也就不存在，钉子交给 RO 那条路补。
   panelAnimating.value = animate
   if (!animate) {
@@ -970,7 +1021,8 @@ onMounted(async () => {
   // 紧接着的这次调用是为了首帧就有钉子（回调要等下一帧）
   sidebarPinObserver = new ResizeObserver(syncSidebarPin)
   if (sidebarPane.value) sidebarPinObserver.observe(sidebarPane.value)
-  pinSidebarWidth()
+  // 走 syncSidebarPin 而不是直接 pin：首帧就是折叠态时（外层只有 1px）不能把钉子钉上去
+  syncSidebarPin()
   // 「本地运行环境」里勾了预下载的，等浏览器空闲再悄悄补齐（见 runtimePreload.js）
   scheduleAutoPreload()
   // 趁早申请存储持久化：IndexedDB 默认是 best-effort，存储吃紧时浏览器能静默清掉
@@ -1043,11 +1095,18 @@ onBeforeUnmount(() => {
 
       <!-- 统一侧边栏：资源管理器与评测样例合并成一个页签容器，
            整体仍按原来的 .pane--tests 参与分屏拖拽与折叠（宽度 / 阈值逻辑不变） -->
+      <!-- SPIKE：折叠态不再 display:none，而是留在排版里、宽度收到 1px
+           （见样式表里 .pane--tests.is-collapsed）。View Transitions 需要「旧状态也有盒子」
+           才做得出尺寸过渡；display:none 的元素没有旧快照，展开就成了凭空出现。 -->
       <section
         ref="sidebarPane"
-        v-show="(panelVisible || panelAnimating) && !mdFullscreen"
+        v-show="!mdFullscreen"
         class="pane pane--tests"
-        :class="{ 'is-animating': panelAnimating, 'is-expanding': panelAnimating && panelVisible }"
+        :class="{
+          'is-collapsed': !panelVisible,
+          'is-animating': panelAnimating,
+          'is-expanding': panelAnimating && panelVisible,
+        }"
         :style="testsPaneStyle"
       >
         <!-- 定宽壳：宽度由 pinSidebarWidth 钉住，折叠动画期间内部的排版一动不动
@@ -1236,6 +1295,21 @@ onBeforeUnmount(() => {
     calc(var(--tests-min-cap) * var(--ui-scale, 1))
   );
   view-transition-name: pane-tests;
+}
+
+/* SPIKE：折叠态留在排版里、宽度收到 1px（不再 display: none）。
+   View Transitions 靠「旧快照 vs 新快照」补间，display:none 的元素没有旧快照，
+   展开会退化成凭空出现，所以折叠态必须有个（哪怕很小的）盒子。
+   取 1px 而不是 0：零面积的盒子各家浏览器可能干脆不给快照；1px 又在视觉上不可见。
+   三件事必须一起改，否则收不干净：
+   - flex-grow 归 0：.pane--tests 是 flex: 1 1 auto，basis 归零后它仍会从剩余空间里
+     分走一半，编辑器就涨不满；
+   - min-width：上面那个 clamp()（宽屏 240px）会把宽度钉在那儿，收不下去；
+   - border-width 归 0：border-box 的边框盒最小就是 2px，不收掉会留一条常驻竖线。 */
+.pane--tests.is-collapsed {
+  flex-grow: 0;
+  min-width: 1px;
+  border-width: 0;
 }
 
 /* 收起 / 展开的这 200ms（曲线与布局切换同一支）。过渡只写在这个状态里，
@@ -1456,4 +1530,6 @@ onBeforeUnmount(() => {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+
+/* SPIKE 临时块已移到浏览器运行时注入（见对话记录），此处保持干净 */
 </style>

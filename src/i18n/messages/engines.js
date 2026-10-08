@@ -174,6 +174,7 @@ export default {
       workspaceOutsideRoot: '该路径不在当前工作区内',
       workspaceBinary: '这是二进制文件，编辑器无法打开',
       workspaceTooLarge: '文件太大，编辑器无法打开',
+      workspaceSidecarBroken: '工作区元数据已损坏，本次按空白打开：题目链接、难度与样例可能丢失',
 
       /** 题目导入 */
       importEmpty: '题目数据为空',
@@ -342,6 +343,8 @@ export default {
       workspaceOutsideRoot: 'That path is outside the current workspace',
       workspaceBinary: 'This is a binary file; the editor cannot open it',
       workspaceTooLarge: 'This file is too large for the editor to open',
+      workspaceSidecarBroken:
+        'The workspace metadata is corrupted; it was opened empty — problem links, difficulty and samples may be lost',
 
       importEmpty: 'The problem data is empty',
     },

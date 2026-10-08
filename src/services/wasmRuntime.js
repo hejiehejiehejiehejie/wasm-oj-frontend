@@ -237,7 +237,7 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
         ? await runPython({
             code,
             entryPath: entryFile,
-            fs: await vfsToRunnoFs({ overrides: { [entryFile]: code } }),
+            fs: await vfsToRunnoFs({ overrides: { [entryFile]: code }, entryPath: entryFile }),
             stdin,
             onStatus: entry.onStatus,
             onHost: entry.onHost,

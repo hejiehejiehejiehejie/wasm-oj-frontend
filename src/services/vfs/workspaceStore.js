@@ -145,10 +145,16 @@ async function rebuildTree() {
   }
   walk(rawTree)
 
-  // 1) 同步存活 model 的最新节点元数据（改名后 path 变了）
+  // 1) 同步存活 model 的最新节点元数据：改名后 path 变了；本机文件夹里还要认磁盘版本
+  //    （mtime 变了就换成磁盘正文，或在不干净时标成「磁盘已变更」，见 modelManager.syncNode）
   for (const id of workspace.openTabIds) {
     const node = nodeIndex.get(id)
-    if (node) modelManager.syncNode(node)
+    if (!node) continue
+    try {
+      await modelManager.syncNode(node)
+    } catch {
+      /* 单个文件同步失败（外部正好把它删了 / 读不动）不该拖垮整树重建 */
+    }
   }
   // 2) 清理指向已删除节点的 tab（release model）
   const surviving = workspace.openTabIds.filter((id) => nodeIndex.has(id))

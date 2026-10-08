@@ -49,6 +49,15 @@ function isDirtyTab(id) {
 }
 
 /**
+ * 页签上这个「磁盘已变更」标记要不要显示：外部编辑器改了这个文件，而这里还有没保存的
+ * 内容（见 modelManager.staleIds）。保存一次就清除 —— 本地缓冲覆盖磁盘，冲突解除。
+ * @param {string} id
+ */
+function isStaleTab(id) {
+  return modelManager.isStale(id)
+}
+
+/**
  * 页签上的文件 logo。走 services/fileIcons.js —— 与资源管理器同一份映射，
  * 别在这儿另写一套（同名的图标同时是着色类后缀，见下面 .editor-tabs__icon.is-*）。
  * 节点还没索引出来时回落 'file'，与标签的 untitled 回退对齐。
@@ -216,7 +225,13 @@ function onTabEnter(el) {
         @mousedown="onMouseDown($event, id)"
       >
         <span
-          v-if="isDirtyTab(id)"
+          v-if="isStaleTab(id)"
+          class="editor-tabs__stale"
+          :title="t('app.tabs.diskChanged')"
+          :aria-label="t('app.tabs.diskChanged')"
+        ></span>
+        <span
+          v-else-if="isDirtyTab(id)"
           class="editor-tabs__dot"
           :title="t('app.tabs.dirty')"
         ></span>
@@ -377,6 +392,15 @@ function onTabEnter(el) {
   height: 7px;
   border-radius: 50%;
   background: var(--text-dim);
+}
+
+/* 「磁盘已变更」：与未保存圆点同一个槽（stale 必然也是 dirty，所以它优先显示），
+   靠琥珀色与灰色圆点区分。悬停 title 说明缘由，保存一次即消失。 */
+.editor-tabs__stale {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
 }
 
 .editor-tabs__label {

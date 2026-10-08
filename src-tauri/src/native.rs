@@ -12,6 +12,10 @@
 //! 与浏览器沙箱逐条对齐的口径（依据见各处的注释引用，**不许另起一套**）：
 //! - 编译参数 `-std=c++17 -O2`：与 `src/services/runnoSandbox.js` 的 `FRONTEND_ARGS` 同值；
 //!   沙箱那边刻意没开 `-fno-exceptions`，这里也不开
+//! - `bits/stdc++.h`：clang 带的是 libc++，**没有**这只 GCC 万能头，而前端 C++ 模板第一行
+//!   恰恰是它（`src/services/templates.js` 的 `CPP_TEMPLATE`）。网页端为此自注入一份同名头
+//!   （`runnoSandbox.js` 的 `UNIVERSAL_HEADER`），原生端按**同一份清单**补上 —— 两处内容
+//!   必须一致，改一边就得改另一边
 //! - 时限**只计运行段、不含编译**：`src/services/runner.js` 的 `TIME_LIMIT_DEFAULT_MS`；
 //!   Python 没有编译段，耗时就是「解释器启动 + 程序执行」的墙钟（同 `engines/wasm.js`）
 //! - `ok` 时 `stderr` 清空、编译失败的 `durationMs` 记 `null`：`src/services/engines/wasm.js`
@@ -43,6 +47,48 @@ const POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// 临时目录名的去重序号：同一纳秒内并发起两次（`runner.js` 的 concurrency = 2）
 /// 也必须落到两个不同目录，否则用例之间会互相覆盖源码与可执行文件
 static RUN_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// `bits/stdc++.h` 的内容 —— 与网页端 `src/services/runnoSandbox.js` 的 `UNIVERSAL_HEADER`
+/// **逐字一致**，改一边就得改另一边（两套引擎必须保证同一个 `#include` 都能编过）。
+///
+/// clang 带的是 libc++，没有 GCC 的那只万能头；前端模板第一行又恰恰是它，所以必须自己补一份。
+/// 列进来的头都在 libc++ 上核过：全是核心头，桌面端与 Android 的随包工具链里都有。
+/// 线程 / 文件系统 / 正则这些**不给** —— 网页端没有，这里也跟着不给，三个引擎保持同一个子集。
+/// guard 名与网页端照抄同一字面（连 `SANDBOX` 那个词都不改），就是为了「两处有没有漂移」
+/// 用肉眼一比就能看出来。
+const UNIVERSAL_HEADER: &str = r#"#ifndef OJ_SANDBOX_BITS_STDCXX_H
+#define OJ_SANDBOX_BITS_STDCXX_H
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <deque>
+#include <list>
+#include <queue>
+#include <stack>
+#include <set>
+#include <map>
+#include <unordered_map>
+#include <unordered_set>
+#include <bitset>
+#include <algorithm>
+#include <numeric>
+#include <functional>
+#include <iterator>
+#include <utility>
+#include <tuple>
+#include <array>
+#include <limits>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+#include <cctype>
+#include <cassert>
+#include <cstdint>
+#endif
+"#;
 
 /// 支持的语言。决定源码文件名、有没有编译段、用哪个程序去跑。
 ///
@@ -231,6 +277,14 @@ fn compile_cpp(
         }
     }
 
+    // 补一份 `bits/stdc++.h`（clang 的 libc++ 没有它，而前端模板第一行就是它）。
+    // 只落在本次工作区的 include/ 下、靠 `-I` 引进来：桌面端与 Android 走同一条路径，
+    // 不依赖 `--sysroot` 指向哪儿，也就不必为两个平台各写一套。
+    let include_dir = match write_universal_header(workspace) {
+        Ok(dir) => dir,
+        Err(err) => return Err(internal_failure(err)),
+    };
+
     // 编译：与浏览器沙箱同一组参数（src/services/runnoSandbox.js 的 FRONTEND_ARGS）。
     // 这组开关只认 clang / gcc 两族 —— 所以 toolchain 那边也只找这两族，
     // **不给 MSVC 的 cl.exe 加分支**，否则编译参数就成了第二套口径。
@@ -246,6 +300,10 @@ fn compile_cpp(
     compile
         .arg("-std=c++17")
         .arg("-O2")
+        // `-I` 目录在搜索顺序里排在 `--sysroot` 那些内部路径之前，只在「谁都没有 bits/stdc++.h」
+        // 这件事上起作用，不会挤掉工具链自己的头
+        .arg("-I")
+        .arg(&include_dir)
         .args(toolchain::cxx_extra_args())
         .arg(source)
         .arg("-o")
@@ -279,6 +337,19 @@ fn compile_cpp(
         artifact: Ok(bytes),
     });
     Ok(binary)
+}
+
+/// 把 `UNIVERSAL_HEADER` 落成工作区里的一份 `include/bits/stdc++.h`，返回那个 include 目录。
+///
+/// 为什么放工作区而不是塞进随包工具链的 sysroot：桌面端根本没有 sysroot 这回事，
+/// 塞工具链就得为 Android 单独维护一份内容、还会让 tgz 的 sha 变一次（设备端要重解 200 MB）。
+/// 落在工作区则两端同一条路，`-I` 一给就行；工作区跑完即删，也不会留下任何常驻文件。
+fn write_universal_header(workspace: &Path) -> std::io::Result<PathBuf> {
+    let include_dir = workspace.join("include");
+    let header_dir = include_dir.join("bits");
+    std::fs::create_dir_all(&header_dir)?;
+    std::fs::write(header_dir.join("stdc++.h"), UNIVERSAL_HEADER)?;
+    Ok(include_dir)
 }
 
 /// 编译不过：诊断正文是 clang 自己的原文，前端 `runner.js` 会在它为空时兜底
@@ -474,6 +545,24 @@ mod tests {
         // ok 时 stderr 必须是空的，否则卡片会显示不该显示的东西
         assert_eq!(result.stderr, "");
         assert!(result.duration_ms.is_some());
+    }
+
+    /// 前端 C++ 模板第一行就是 `<bits/stdc++.h>`，而 clang 的 libc++ 里没有这只 GCC 头
+    /// —— 原生端必须自己补一份，否则真机上任何用默认模板的题解都直接编译不过。
+    ///
+    /// 断言里带上本 shim 的 include guard：开发机上 `-I` 的 dir 之外可能也躺着别人装的
+    /// `/usr/local/include/bits/stdc++.h`，光「编得过」证明不了用的是**我们这份**；
+    /// guard 没定义就直接 `#error`，逼着这条测试认准工作区里的那一份。
+    #[test]
+    fn compiles_the_universal_header() {
+        let code = "#include <bits/stdc++.h>\n\
+                    #ifndef OJ_SANDBOX_BITS_STDCXX_H\n\
+                    #error \"shim not used\"\n\
+                    #endif\n\
+                    int main(){ std::vector<int> v{1, 2}; std::cout << v.size() << '\\n'; }\n";
+        let result = run_core(Language::Cpp, code, "", 5_000);
+        assert_eq!(result.outcome, "ok", "stderr = {}", result.stderr);
+        assert_eq!(result.stdout, "2\n");
     }
 
     #[test]

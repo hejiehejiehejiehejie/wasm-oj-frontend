@@ -239,9 +239,16 @@ try {
   await step('A. 首屏：Monaco 与评测面板真实渲染', async () => {
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     await page.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
-    // 新契约（2026-09 统一侧边栏）：侧边栏默认停在「资源管理器」，用例卡在「评测样例」
-    // 里、被 v-show 藏着（节点在 DOM 里，但不可见）。先确认页头那枚胶囊在，再点过去，
-    // 卡片才是真的渲染出来——这也是切面板这条路本身的回归。
+    // Monaco 画出行 ≠ 工作区就绪（VFS 根是在 init() 里索引的，界面会先渲染出来）。
+    // 首启要等 /main.cpp 真的被打开、正文落进编辑器，再往下读面板状态，否则会抓到
+    // 「编辑器还空着」的中间态（届时侧栏停在哪儿都不作数）。
+    await page.waitForFunction(() => document.querySelectorAll('.view-line').length > 3, {
+      timeout: 40000,
+    })
+    // 新契约（2026-09 统一侧边栏）：侧边栏默认停在「资源管理器」，评测面板被 v-show 藏着。
+    // 先确认页头那枚胶囊在，再点过去，面板才真的渲染出来——这也是切面板这条路本身的回归。
+    // 首启的虚拟工作区**没有样例**：样例只来自当前文件的 config.tests（见 App.vue 的
+    // normalizeTests），而 /main.cpp 是普通模板，所以这里守的是空态，不是在数卡片。
     // 切换入口已并入两个面板各自的页头，所以要落在当前可见的那个面板里找；
     // 它只画 logo 不写字，所以认 aria-label 而不是 textContent。
     // 面板那枚胶囊整体是一颗 toggle，文案是「将要去的那一个」；两段在它里面，
@@ -263,7 +270,7 @@ try {
       )
     })
     await showPanel(page, 'tests')
-    await page.waitForSelector('.card', { visible: true, timeout: 20000 })
+    await page.waitForSelector('.cases .empty', { visible: true, timeout: 20000 })
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cp-1-default-right.png` })
     const ok =
@@ -277,9 +284,9 @@ try {
       state.editorText.includes('include') &&
       !state.minimapVisible &&
       state.flexDirection === 'row' &&
-      state.cardCount === 2 &&
-      state.stdinBoxes === 4 &&
-      state.readonlyOuts === 2 &&
+      state.cardCount === 0 &&
+      state.stdinBoxes === 0 &&
+      state.readonlyOuts === 0 &&
       state.storedPanel === 'left' &&
       !state.horizontalScroll
     record('A. 首屏：Monaco 与评测面板真实渲染', ok, state)
@@ -438,6 +445,7 @@ try {
       btn?.click()
     })
     await wait(400)
+    // 加之前面板是空的（首启工作区不带默认样例），所以这一下是 0 → 1
     const added = await page.evaluate(() => document.querySelectorAll('.card').length)
     // 先把侧栏切回「资源管理器」再单击分隔条折叠它——为的是验新契约：点运行按钮时
     // 侧栏要自己展开、并切到「评测样例」，不然点了运行看不到结果。
@@ -473,8 +481,8 @@ try {
     await page.screenshot({ path: `${SHOTS}cp-5-run-all.png` })
     record(
       'E. 添加用例并运行全部（真实评测）',
-      added === 3 &&
-        state.badges.length === 3 &&
+      added === 1 &&
+        state.badges.length === 1 &&
         collapsed &&
         revealed.visible &&
         revealed.activePanel === 'tests',
@@ -636,7 +644,7 @@ try {
         // 状态栏是 v-if 存在、靠 .editor-pane.is-md 收掉，所以只能看渲染盒
         statusVisible: visible('.editor-pane__status'),
         // 运行按钮在「评测样例」页签里（v-show 藏着，但节点在 DOM 里，disabled 读得到）；
-        // 此刻有用例（E 步加的 3 条）、没在运行，唯一能置灰它的就是题解这条闸门
+        // 此刻有用例（E 步加的那 1 条）、没在运行，唯一能置灰它的就是题解这条闸门
         runDisabled: runButton ? runButton.disabled : null,
         runBlocked: document.querySelector('.run-blocked')?.textContent.trim() ?? '',
         sidebarVisible: document.querySelector('.pane--tests').getClientRects().length > 0,

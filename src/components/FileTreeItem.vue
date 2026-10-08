@@ -38,6 +38,7 @@ const emit = defineEmits(['rename-done'])
 const openContextMenu = inject('openContextMenu')
 const requestDelete = inject('requestDelete')
 const treeRootEl = inject('treeRootEl')
+const showNotice = inject('showNotice')
 const renameTarget = inject('renameTarget')
 const isTabbable = inject('isTabbable')
 const creating = inject('creating')
@@ -58,6 +59,14 @@ const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(prop
 /** 拖拽态：被拖的那一行变淡，合法落点那一行铺选中色 */
 const isDragging = computed(() => draggingId?.value === props.node.id)
 const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
+
+/**
+ * 打不开的文件：本机文件夹里由 Rust 扫描判出的二进制 / 超大文件。
+ * 行照常画（用户得看得见它存在），但图标调暗，点下去只弹一句提示 —— 不建 model、不开页签。
+ */
+const unopenable = computed(
+  () => props.node.type === 'file' && (props.node.binary || props.node.tooLarge),
+)
 
 /** 选中项的父目录 id。选中目录时不算——只有节点才有「它属于哪个文件夹」这回事 */
 const selectedParentId = computed(() => {
@@ -86,8 +95,16 @@ function activate({ preview = false } = {}) {
   if (consumeClickSuppression?.()) return
   // 先把这一行选中（文件 / 目录同一套高亮），再干它本来该干的事：目录折叠/展开、文件预览打开
   selectNode(props.node.id)
-  if (props.node.type === 'directory') toggleExpand(props.node.id)
-  else openFile(props.node.id, null, { preview }).catch(() => {})
+  if (props.node.type === 'directory') {
+    toggleExpand(props.node.id)
+    return
+  }
+  // 二进制 / 超大文件：只报一句，不建 model、不开页签（阅读器拿它们没辙，硬开还会卡住界面）
+  if (unopenable.value) {
+    showNotice?.(t(props.node.binary ? 'error.workspaceBinary' : 'error.workspaceTooLarge'))
+    return
+  }
+  openFile(props.node.id, null, { preview }).catch(() => {})
 }
 
 function onClick() {
@@ -286,6 +303,7 @@ function onKeyDown(event) {
         'tree-item__row--active': selected,
         'tree-item__row--dragging': isDragging,
         'tree-item__row--drop': isDropTarget,
+        'tree-item__row--muted': unopenable,
       }"
       :style="{ '--depth': depth }"
       :title="metaTooltip || undefined"
@@ -461,6 +479,13 @@ function onKeyDown(event) {
 .tree-item__row--dragging {
   opacity: 0.5;
   cursor: grabbing;
+}
+
+/* 打不开的文件（本机文件夹里的二进制 / 超大文件）：图标与名字调暗一档，说明「这一行点了也看不
+   了」，但行本身照旧可选中 / 可改名 / 可删。点下去弹一句提示，见 activate()。 */
+.tree-item__row--muted .tree-item__icon,
+.tree-item__row--muted .tree-item__label {
+  opacity: 0.45;
 }
 
 /* 合法落点：色块铺满**整个文件夹**（它自己那一行 + 展开的全部后代），而不是只铺那一行——
