@@ -752,7 +752,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
 - 改 `useCompanionBridge.js` 里的**消息名**（`cp-ping` / `cp-task` / …）→ 那是与 `cph-companion` 的**跨仓契约**，必须同步改扩展的 `src/bridge.ts` + `src/background.ts`，再升版本号发新版（2026-10-01 就是一次这样的改动：`cph-*` 全改成 `cp-*`）。**结论是「两边不同版就完全失联」**，而且失败是静默的——只剩「未检测到插件」。注意 `EXTENSION_SOURCE`（`competitive-companion`）是**扩展上游的标识，不是这次那批消息名，改它等于单方面毁约**；`PAGE_SOURCE` 才是本站自己的那半边。
 
-## 14. 多平台移植（Tauri 桌面端：**macOS 已落地**，Windows 进行中，Linux 未开工）
+## 14. 多平台移植（Tauri 桌面端：**macOS 已落地**，Windows 第 1–3 步已落地、待实机实测，Linux 未开工）
 
 **目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
 
@@ -782,7 +782,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 5. **Service Worker / PWA 在 Tauri 里没有**：`sw.js` / `precache-manifest.json` / 安装入口（`useInstallPrompt`）在桌面端都是死路，要按平台关掉，别让桌面界面出现「安装到设备」。
 6. **扩展抓题链路只在浏览器**：`useCompanionBridge` 走 `window.postMessage` + 内容脚本（第 13 节），桌面端拿不到扩展。桌面版要么不做抓题、要么另开通路；**那批 `cp-*` 消息名是跨仓契约，不许单方面改**。
 7. **新增依赖要先讨论**（第 0 节）：`@tauri-apps/cli`（devDependency）与 `@tauri-apps/api` 是本项目第一次为桌面端引 npm 依赖；Rust 侧的 `tauri` crate 版本与 `src-tauri/tauri.conf.json` 也要一并记进本文件。
-8. **多平台 = 每平台各自构建**：Tauri 不能一次交叉编译出全套，macOS / Windows / Linux 各自 CI 构建；发布还涉及签名（macOS 公证 / Windows 代码签名）。这与 Vercel 部署（第 10 节）是**两条独立的发布线**。
+8. **多平台 = 每平台各自构建**：Tauri 不能一次交叉编译出全套，macOS / Windows / Linux 各自 CI 构建；发布还涉及签名（macOS 公证 / Windows 代码签名）。这与 Vercel 部署（第 10 节）是**两条独立的发布线**。（Windows 那份已落地：`.github/workflows/desktop.yml`，见 14.H；macOS 目前仍是本机手打，未进 CI。）
 9. **文案五处同步照旧**（第 12 节）：桌面版一上，guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` 的 `<noscript>` 里「在浏览器里跑」这类口径要按平台补。
 
 **建议的推进顺序（每步单独验收，别一次铺开；每步跑通后回写本节）**：
@@ -793,7 +793,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 4. **平台分流**：桌面构建里关掉 SW / PWA / 安装入口 / 扩展抓题 / 工具链下载；COOP/COEP 在桌面侧另设一份。
 5. **打包发布**：`npx tauri build`，产物在 `src-tauri/target/release/bundle/`；macOS 先出 `.dmg` / `.app`，再考虑 Windows / Linux 与 CI。
 
-**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`。Windows 移植已开工，见 14.F–14.G（第 1、2 步已落地，第 3、4 步未做）；Linux 仍未开工；签名与公证未做。**
+**纪律**：按上面 5 步逐步做，每步实测通过后把结论回写到下面「落地记录」，并把动到的契约同步到对应章节（尤其第 0、6、7、9、13 节）。**当前进度：第 1–5 步已落地（见 14.A–14.E），macOS 已能出未签名的 `.app` / `.dmg`。Windows 移植见 14.F–14.H：第 1 步（Rust 侧跨平台）、第 2 步（打包配置）、第 3 步（GitHub Actions，已出 `unnamed_0.1.0_x64-setup.exe`）均已落地，**第 4 步（实机实测 + 文案五处）未做**；Linux 仍未开工；签名与公证未做。**
 
 ### 14.A 第 1 步落地记录（环境与空壳，2026-10-08 实测通过）
 
@@ -920,5 +920,30 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 **本机验不到的**：`tauri.windows.conf.json` 只在 Windows 目标上被加载，macOS 上跑 `tauri build` 根本不读它 —— 所以「合并确实生效」本机证不了。要等第 3 步 CI 出产物时看是不是**只**出一个 NSIS `.exe`（有没有多出 MSI 就是判据）。
 
 **尚未做**：第 3 步 CI、第 4 步实机实测与文案五处。
+
+### 14.H Windows 移植 · 第 3 步落地记录（GitHub Actions CI，2026-10-08 实测通过）
+
+- **新增 `.github/workflows/desktop.yml`**，是 Windows 产物的**唯一构建入口**（本机是 macOS，出不了也测不了 Windows 包）。
+- **触发只留两个口子**：`workflow_dispatch`（Actions 页面手动点）与 `push` 打 `v*` tag。**刻意不跟 `main` 的 push 跑** —— 仓库私有，Actions 分钟数计费，而 **Windows runner 按 2× 扣减**，跟着每次 push 跑会把额度烧在纯前端 / 文档改动上。代价是「改了桌面相关代码得记得手动点一次」。
+- **workflow 必须先在默认分支上存在**，`workflow_dispatch` 才认得它 —— 新增或改这个文件都要**推上去**才谈得上触发。
+- **只用官方 action，不引第三方**（对齐第 0 节的依赖纪律）：`actions/checkout@v4` / `setup-node@v4` / `cache@v4` / `upload-artifact@v4`。**没用 `dtolnay/rust-toolchain`，也没用 `swatinem/rust-cache`** —— Rust 工具链走镜像预装的 `rustup`，缓存走 `actions/cache`。
+- **Rust 显式对齐 stable**：`rustup toolchain install stable --profile minimal --no-self-update` + `rustup default stable`。镜像本来就带 stable，写出来是因为 `Cargo.toml` 用的是 `edition 2024`（需 ≥1.85），不能让镜像默认版本的变化悄悄把构建搞红；`--no-self-update` 是躲 rustup 无法覆盖自身时的报错。
+- **缓存 Cargo registry + `src-tauri/target`**，key 跟 `Cargo.lock` 走、`restore-keys` 前缀增量复用。2× 计费下编译产物缓存是实打实的省钱。
+- **构建前必须清 `src-tauri/target/release/bundle`**：缓存会把上次的 `target/` 一并还原，其中 `bundle/` 是**上次**的安装器；不清掉的话，`productName` 或 `version` 一变就会把新旧两个安装器一起传上去。这一步专为消掉那层不确定性。
+- **上传步骤 `if-no-files-found: error`**：第一次在真 Windows 上出产物，路径若与预期不符宁可让构建红掉，也不要静默传一个空包。
+- 其余：`runs-on: windows-latest`、`timeout-minutes: 60`（防异常时一直烧）、`concurrency` 取消重复触发、`permissions: contents: read`。
+- **不改任何主配置**：`targets` / `installMode` / `languages` 仍全在 `tauri.windows.conf.json` 里（14.G），workflow 不碰它们。
+
+**实测（run 37793609192，`workflow_dispatch`）**：**成功，14m20s**，八步全绿（检出 → Node → Rust → 缓存 → `npm ci` → 清理 → `npx tauri build` → 上传）。产物 `unnamed_0.1.0_x64-setup.exe`，**33.20 MiB**（artifact `windows-nsis-installer.zip` 34,805,448 字节，内含 1 个文件）。**只出了这一个 NSIS `.exe`、没有 MSI** —— 这正是 14.G 里「本机证不了」的那条判据，至此「平台配置合并确实生效」已验。runner 上的 Rust 是 `1.99.0 (b940084d7 2026-09-28)`，与本机 macOS **同版本**，无版本漂移。取产物：`gh run download 37793609192 -n windows-nsis-installer`。
+
+**顺带排掉的疑虑**：`npm ci` 在 Windows 上跑得通（无平台相关依赖问题）；rustup 装得上；`prebuild` 链（`notice` + `md:runtime`）是纯 Node 文本处理，Windows 无碍；`render-notice.mjs` 会先把 `\r\n` 归一成 `\n` 再算哈希，换行差异不会把构建搞红。
+
+**成本**：这趟按 Windows 2× 口径约 **29 分钟**额度。缓存已在收尾时写入，下次会便宜得多。
+
+**已知 warning（不是缺陷）**：Actions 报 annotation —— `checkout@v4` / `setup-node@v4` / `cache@v4` / `upload-artifact@v4` 仍以 Node 20 为目标、被 GitHub 强制跑在 Node 24 上。是 GitHub 侧的迁移过渡（见其 2025-09-19 changelog），等官方发新版本即可。
+
+**本机验不到的**：这一趟只证明「**能编出安装包**」。**工具链探测在真实 Windows 上的表现**（用户机器上装的是 MSYS2 还是 LLVM、`python` 会不会落到商店别名）与 **COOP/COEP 响应头在 WebView2 下是否真生效**，都得等第 4 步装一次才算验过。
+
+**尚未做**：第 4 步实机实测与文案五处（guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript）。
 
 
