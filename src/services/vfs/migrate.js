@@ -16,6 +16,7 @@
  */
 import { defaultCode } from '../templates.js'
 import { createVFSProvider } from './vfsFactory.js'
+import { getWorkspaceMode } from './workspaceMode.js'
 import { stem } from './paths.js'
 
 const MIGRATION_KEY = 'cp.vfsMigrated'
@@ -144,13 +145,32 @@ async function migrateProblemMetaInline(vfs) {
 }
 
 /**
+ * 解析启动时要用的 provider 类型：`'folder'` = 本机文件夹，其余（含缺省）= 本地虚拟工作区。
+ *
+ * 兼容三种入参：`undefined`（读持久化的模式，App.vue 走这条）、字符串 `'folder'` / `'local'`、
+ * 以及 `{ kind }` 对象。**folder 与 vfs 是两套后端**，这里只认这一个二值判定。
+ * @param {string|{kind?: string}|undefined} mode
+ * @returns {'local'|'folder'}
+ */
+function resolveKind(mode) {
+  const raw = typeof mode === 'string' ? mode : mode?.kind
+  return (raw ?? getWorkspaceMode()) === 'folder' ? 'folder' : 'local'
+}
+
+/**
  * 初始化工作区 VFS。
- * @param {string} [kind] provider 类型，默认本地
+ * @param {string|{kind?: string}} [mode] 工作区类型；缺省时读 cp.workspaceMode
  * @returns {Promise<import('./BaseVFSProvider.js').BaseVFSProvider>}
  */
-export async function initWorkspace(kind = 'local') {
+export async function initWorkspace(mode) {
+  const kind = resolveKind(mode)
   const vfs = createVFSProvider(kind)
   await vfs.init()
+
+  // 本机文件夹：磁盘上已有的东西就是工作区全部内容。**不播种、不跑三个一次性迁移、
+  // 也不写迁移标记** —— 那三个标记是全局的（属于虚拟工作区那份数据），写了会让切回
+  // 虚拟工作区时迁移本体丢失、永远不再执行。
+  if (kind === 'folder') return vfs
 
   if (window.localStorage.getItem(MIGRATION_KEY) !== '1') {
     const tree = await vfs.getTree()

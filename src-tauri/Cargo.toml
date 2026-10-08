@@ -34,3 +34,10 @@ ndk = "0.9"
 ndk-context = "0.1"
 ndk-sys = "0.6"
 tar = "0.4"
+
+# 桌面端「打开本机文件夹」用到的两件东西：原生目录选择器（选工作区根）与文件系统监听。
+# 只在非 Android 目标上声明 —— Android 上这套桌面原语不成立（那边走 SAF），
+# 且 Android 构建不该被它们拖慢。用法见 src/workspace.rs。
+[target.'cfg(not(target_os = "android"))'.dependencies]
+notify = "8"
+tauri-plugin-dialog = "2"

@@ -10,6 +10,15 @@ import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { IS_DESKTOP } from '../services/platform.js'
+import { invoke } from '@tauri-apps/api/core'
+import {
+  CAN_USE_LOCAL_FOLDER,
+  getWorkspaceMode,
+  getWorkspaceRoot,
+  MODE_FOLDER,
+  MODE_VIRTUAL,
+  switchWorkspace,
+} from '../services/vfs/workspaceMode.js'
 import {
   comboFromChromeShortcut,
   formatCombo,
@@ -324,6 +333,8 @@ const LOCALE_OPTIONS = LOCALES.map((item) => ({ id: item.id, label: item.label }
 // 初值是目录里的第一项「常用设置」——第一次打开（或刷新后）就落在这里。
 const SECTIONS = [
   { id: 'common', titleKey: 'settings.section.common', icon: 'star' },
+  // 工作区只在桌面端可见（打开本机文件夹是 Tauri 壳独有的能力），见下面 visibleSections
+  { id: 'workspace', titleKey: 'settings.section.workspace', icon: 'folder' },
   { id: 'appearance', titleKey: 'settings.section.appearance', icon: 'sliders' },
   { id: 'editor', titleKey: 'settings.section.editor', icon: 'code' },
   { id: 'templates', titleKey: 'settings.section.templates', icon: 'file' },
@@ -385,6 +396,47 @@ const { canInstall, install } = useInstallPrompt()
 // 桌面端（Tauri）关掉的那几块 —— PWA 安装入口、本地运行环境下载、浏览器扩展 ——
 // 在这里一次性读出来给模板用（判定见 services/platform.js）。
 const isDesktop = IS_DESKTOP
+
+// 「工作区」这一栏只在能打开本机文件夹的平台上出现：网页版没有这回事，Android 走 SAF
+// 也没有（见 workspaceMode.js 的 CAN_USE_LOCAL_FOLDER）。
+const visibleSections = computed(() =>
+  CAN_USE_LOCAL_FOLDER ? SECTIONS : SECTIONS.filter((section) => section.id !== 'workspace'),
+)
+
+// ------------------------------------------------------------ 工作区（仅桌面端）
+// 模式与根路径在页面加载时就定下来（切换会 reload，见 workspaceMode.js），所以这里读一次即可。
+const workspaceMode = ref(getWorkspaceMode())
+const workspaceRoot = ref(getWorkspaceRoot())
+const workspaceBusy = ref(false)
+const workspaceError = ref('')
+
+const workspaceIsFolder = computed(() => workspaceMode.value === MODE_FOLDER)
+
+/** 弹原生目录选择器；取消则什么都不做，选中就切过去（写盘 + reload） */
+async function chooseWorkspaceFolder() {
+  if (workspaceBusy.value) return
+  workspaceBusy.value = true
+  workspaceError.value = ''
+  try {
+    const picked = await invoke('workspace_choose')
+    if (!picked) return
+    await switchWorkspace(MODE_FOLDER, picked.root)
+  } catch (error) {
+    workspaceError.value = t('settings.workspace.chooseFailed', {
+      message: error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error ?? ''),
+    })
+    workspaceBusy.value = false
+  }
+  // 成功分支不会走到这里：switchWorkspace 会 reload 掉整个页面
+}
+
+/** 切回虚拟工作区 */
+async function useVirtualWorkspace() {
+  if (workspaceBusy.value || !workspaceIsFolder.value) return
+  workspaceBusy.value = true
+  workspaceError.value = ''
+  await switchWorkspace(MODE_VIRTUAL)
+}
 
 // ------------------------------------------------------------ 浏览器插件
 // 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
@@ -1425,7 +1477,7 @@ watch(pendingUnbind, (open) => {
       <!-- 目录：点哪一项，右边就只渲染那一组设置（原来是四段纵向平铺） -->
       <nav class="settings-nav" :aria-label="t('settings.navAriaLabel')">
         <button
-          v-for="section in SECTIONS"
+          v-for="section in visibleSections"
           :key="section.id"
           type="button"
           class="settings-nav__item"
@@ -1528,6 +1580,77 @@ watch(pendingUnbind, (open) => {
             </span>
           </span>
         </label>
+      </section>
+
+      <!-- 工作区（仅桌面端）：显示当前工作区，提供「打开本机文件夹」与「切回虚拟工作区」。
+           切换会重新加载界面（见 services/vfs/workspaceMode.js），所以这里不做热切换。 -->
+      <section v-else-if="activeSection === 'workspace'" class="setting-group">
+        <p class="setting-group__title">{{ t('settings.section.workspace') }}</p>
+        <p class="setting-group__note">{{ t('settings.workspace.note') }}</p>
+
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.workspace.current') }}</span>
+            </span>
+            <span class="setting-row__hint">
+              {{ workspaceIsFolder ? t('settings.workspace.modeFolder') : t('settings.workspace.modeVirtual') }}
+            </span>
+          </span>
+        </div>
+
+        <div v-if="workspaceIsFolder" class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.workspace.rootLabel') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ workspaceRoot || '—' }}</span>
+          </span>
+        </div>
+
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.workspace.flow') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.workspace.note2') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              class="download-button"
+              :disabled="workspaceBusy"
+              :title="t('settings.workspace.chooseTitle')"
+              @click="chooseWorkspaceFolder"
+            >
+              <AppIcon name="folder" :size="13" />
+              <span>{{ workspaceBusy ? t('settings.workspace.switching') : t('settings.workspace.choose') }}</span>
+            </button>
+          </span>
+        </div>
+
+        <div v-if="workspaceIsFolder" class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.workspace.back') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.workspace.backHint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              class="download-button"
+              :disabled="workspaceBusy"
+              :title="t('settings.workspace.backTitle')"
+              @click="useVirtualWorkspace"
+            >
+              <AppIcon name="reset" :size="13" />
+              <span>{{ t('settings.workspace.back') }}</span>
+            </button>
+          </span>
+        </div>
+
+        <p v-if="workspaceError" class="setting-group__note setting-group__note--warn">
+          {{ workspaceError }}
+        </p>
       </section>
 
       <!-- 外观：主题（editorSettings 的键，与编辑器组同源）与界面偏好。

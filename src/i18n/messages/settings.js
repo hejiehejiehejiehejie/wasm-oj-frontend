@@ -14,6 +14,7 @@ export default {
       /** 左侧目录，同时也是右侧每一组的标题 */
       section: {
         common: '常用设置',
+        workspace: '工作区',
         appearance: '外观',
         editor: '编辑器',
         templates: '模板',
@@ -48,6 +49,24 @@ export default {
       /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
       common: {
         note: '集中了最常改的几项',
+      },
+
+      /** 工作区（仅桌面端）：在当前文件里打开/切换「本机文件夹」 */
+      workspace: {
+        note: '工作区是这套 IDE 存放代码的地方。虚拟工作区把文件存在浏览器本地存储里；本机文件夹则直接读写磁盘上的一个目录，外部编辑器改动能被自动感知。切换会让界面重新加载。',
+        current: '当前工作区',
+        modeVirtual: '虚拟工作区',
+        modeFolder: '本机文件夹',
+        rootLabel: '文件夹路径',
+        flow: '打开文件夹',
+        note2: '选择一个本机目录作为工作区，用它替换当前的虚拟工作区。隐藏项（点开头的条目）与 node_modules 不会出现在文件树里。',
+        choose: '选择文件夹',
+        chooseTitle: '选择一个本机目录作为工作区，之后界面会重新加载',
+        switching: '正在切换…',
+        chooseFailed: '打开文件夹失败：{message}',
+        back: '切回虚拟工作区',
+        backTitle: '回到存在浏览器里的虚拟工作区，之后界面会重新加载',
+        backHint: '本机文件夹里的文件不会被删除，随时可以再切回去。',
       },
 
       appearance: {
@@ -338,6 +357,7 @@ export default {
 
       section: {
         common: 'Common',
+        workspace: 'Workspace',
         appearance: 'Appearance',
         editor: 'Editor',
         templates: 'Templates',
@@ -372,6 +392,24 @@ export default {
       /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
       common: {
         note: 'The settings changed most often, gathered in one place. Each is the same preference as in Appearance / Editor — editing either side syncs both.',
+      },
+
+      /** Workspace (desktop only): open / switch a local folder as the current workspace */
+      workspace: {
+        note: 'A workspace is where this IDE keeps your code. The virtual workspace stores files in the browser; a local folder reads and writes a directory on your disk, and changes made in other editors are picked up automatically. Switching reloads the interface.',
+        current: 'Current workspace',
+        modeVirtual: 'Virtual workspace',
+        modeFolder: 'Local folder',
+        rootLabel: 'Folder path',
+        flow: 'Open a folder',
+        note2: 'Pick a folder on this machine to use as the workspace, replacing the current virtual one. Hidden entries (names starting with a dot) and node_modules are left out of the file tree.',
+        choose: 'Choose folder',
+        chooseTitle: 'Pick a folder on this machine as the workspace; the interface reloads afterwards',
+        switching: 'Switching…',
+        chooseFailed: 'Could not open the folder: {message}',
+        back: 'Back to virtual workspace',
+        backTitle: 'Return to the workspace stored in the browser; the interface reloads afterwards',
+        backHint: 'Files in the local folder are never deleted — you can switch back at any time.',
       },
 
       appearance: {

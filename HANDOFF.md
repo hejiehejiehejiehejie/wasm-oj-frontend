@@ -752,7 +752,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 动过扩展就要**升版本号 + 换 zip 文件名**（同版本号原地覆盖会被 SW 的 `cacheFirst` 坑住，见第 5 节坑 20），站点侧四个消费方一并改（见 13.3）。
 - 改 `useCompanionBridge.js` 里的**消息名**（`cp-ping` / `cp-task` / …）→ 那是与 `cph-companion` 的**跨仓契约**，必须同步改扩展的 `src/bridge.ts` + `src/background.ts`，再升版本号发新版（2026-10-01 就是一次这样的改动：`cph-*` 全改成 `cp-*`）。**结论是「两边不同版就完全失联」**，而且失败是静默的——只剩「未检测到插件」。注意 `EXTENSION_SOURCE`（`competitive-companion`）是**扩展上游的标识，不是这次那批消息名，改它等于单方面毁约**；`PAGE_SOURCE` 才是本站自己的那半边。
 
-## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；Linux 未开工）
+## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；Linux 未开工）
 
 **目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
 
@@ -1153,7 +1153,23 @@ curl -s -i -H 'Origin: http://tauri.localhost' \
   https://www.998244353.best/api/config/he-jie | head -12
 ```
 
-**尚未做**：Android 真机上再跑一次「取码 / 登录 / 上传」把整条链路补验（需要先把附录 A 粘进 Dashboard 并 Deploy）。**没有新增界面文案，所以 guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处不用动。**
+**Worker 侧已落地并验证（2026-10-09）**：附录 A 的五条 `ALLOWED_ORIGINS` 已粘进 Dashboard 并 Deploy。实测四条来源的预检全部放行（`HTTP/2 204` + `access-control-allow-origin`）：
+
+```
+== http://tauri.localhost   → 204 + ACAO ✅
+== https://tauri.localhost  → 204 + ACAO ✅
+== tauri://localhost        → 204 + ACAO ✅
+== https://www.998244353.best → 204 + ACAO ✅（原有那条没被挤掉）
+```
+
+再按壳真实的请求形状打两发，确认拿到的是 JSON 而不是 `index.html`（即不再 `badBody`）：
+
+```
+POST /api/get-code   -H 'Origin: http://tauri.localhost'  → 200 + content-type: application/json + ACAO
+GET  /api/config/<未存过的 handle>                          → 404 + content-type: application/json + ACAO
+```
+
+**尚未做**：Android 真机上再跑一次「取码 / 登录 / 上传」把整条链路补验（需要用户把自己的 CF 验证码填进个人资料，agent 代不了）。**没有新增界面文案，所以 guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处不用动。**
 
 ### 14.L 壳端出包剔掉 `dist/wasm`（2026-10-09）
 
@@ -1219,5 +1235,32 @@ curl -s -i -H 'Origin: http://tauri.localhost' \
 **天花板与下一步**：`libLLVM.so`（127.4 MiB）+ `libclang-cpp.so`（60.1 MiB）仍是整棵树的 83%，且**都已 stripped**（无 `.symtab` / `.debug_*`，再跑一次 `llvm-strip` 每个文件只掉 408 字节）—— 体积全在 `.text` / `.rodata` 里，是**别的 CPU 后端的机器码**。实测 Termux 的 `libLLVM.so` 烘焙了全部后端（符号计数：X86 463 / AArch64 313 / RISCV 268 / PPC 145 / SystemZ 138 / Mips 115 / LoongArch 92 …），而 NDK r29 自己就是定向构建（只 X86/AArch64/RISCV/BPF）—— **自建单目标 LLVM 是唯一能真正压设备占用的路**（预估解包 226 → 120~140 MB），已单独做过一份可行性评估，尚未开工。
 
 **没有新增界面文案**，所以 guide 双语 / `help.js` / `docs/使用手册.md` / `index.html` noscript 这五处不用动。
+
+### 14.N 壳里「收键盘后点哪都把输入框捞回来」修复（2026-10-09）
+
+**症状**（用户报）：安卓壳里点进输入框、按返回键/收起键收掉键盘后，**再点任意位置键盘都会自己弹回来**，焦点被拽回原来那个输入框。
+
+**真机取证**（adb 驱动，屏幕顶部临时读数条 `ih / vv / base / kbd / el`）：
+
+| 步骤 | 读数条 | 结论 |
+| --- | --- | --- |
+| 初始 | `ih=960 vv=960 base=960 kbd=0 el=body` | 基线正常 |
+| 点测试用例 INPUT 框 | `ih=960 vv=596 base=960 kbd=1 el=textarea.ta` | 键盘判定对（`vv` 掉 364 > `KEYBOARD_MIN`） |
+| 按返回键收键盘 | `ih=960 vv=960 base=960 kbd=0 el=textarea.ta` | **键盘可见性判对，但焦点仍钉在 `textarea.ta`** |
+| 点侧栏空白处 | `ih=960 vv=596 base=960 kbd=1 el=textarea.ta` | **键盘被系统重新捞起 ← 复现** |
+
+**根因**：不是键盘可见性判错（`kbd` 全程正确），而是 `useMobileKeyboard.js` 的 touchstart 清焦闸门判据只认 `isInputBox`（`closest('input')`）与 `isInEditor`（Monaco）。**测试用例的 `.ta` 是 `<textarea>`**，收键盘后焦点不被清掉；Android 对「已聚焦的可编辑节点 + 一次点按」会重新拉起 IME，而这一步连 `focusin` 都不派发，`over-mousedown` / 手势 Tap 两道闸都看不见。
+
+**落地**（仅此一处）：把判据放宽为整片 `FOCUSABLE_SURFACE`（`isEditable`），两条豁免原样保留 —— 落点就在该节点内时不 blur（`isTouchOn`）、`data-native-focus` 面板不受「键盘是否弹着」这道闸约束。键盘弹着时的保焦行为不变（`keyboardUpAtTouchStart` 那道闸仍在）。
+
+**已验证（真机，同一台 OPPO，adb 驱动）**：收键盘后点空白处 `kbd` 保持 0、蓝色焦点边消失、键盘不回来；再点回 INPUT 框 `kbd=1` 键盘正常弹回（`isTouchOn` 豁免没坏）。`npx vite build` 通过。
+
+**走错又撤回的一版**（留档，别再走）：初版把病因猜成「键盘可见性判错」，加了 `navigator.virtualKeyboard` 双来源（带 `vkVisibleSeen` 自校验）与 `baselineHeight` 的 `screen.availHeight` 上界。真机读数条显示 `navigator.virtualKeyboard` **在这台设备上压根没报数据**（`vv` 与 `ih` 两条口径均由高度差得出），那套是死代码，已全部撤回。
+
+**待办**：
+
+1. 用户在原报场景（设置 / 弹窗里的 `input`）复现确认；本机设置面板里几个都是下拉框、文本输入在别的分类下，adb 没翻到，故只验到 `textarea.ta` 这条同机制的路径。
+2. 确认后**删掉临时读数条**：`useMobileKeyboard.js` 的 `probe` / `describeActive()` / `updateProbe()` 及其调用点，连同 App.vue 的 `focusProbe` 解构、模板里的 `.focus-probe` 与对应 CSS。
+3. 本次**没有新增界面文案**，五处文档同步不用动。
 
 

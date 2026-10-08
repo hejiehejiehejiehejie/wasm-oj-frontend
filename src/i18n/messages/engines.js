@@ -167,6 +167,14 @@ export default {
       notInitialized: 'VFS 尚未初始化：请先 createVFSProvider().init()',
       retainFailed: 'retain 失败：model 尚未创建（{id}）',
 
+      /** 本机文件夹工作区（仅桌面端；错误码由 Rust 侧回，人话在这里翻） */
+      workspaceRootMissing: '还没有选择要打开的本机文件夹',
+      workspaceNoRoot: '尚未授权任何文件夹，请重新选择',
+      workspaceOpenFailed: '打不开这个文件夹：{message}',
+      workspaceOutsideRoot: '该路径不在当前工作区内',
+      workspaceBinary: '这是二进制文件，编辑器无法打开',
+      workspaceTooLarge: '文件太大，编辑器无法打开',
+
       /** 题目导入 */
       importEmpty: '题目数据为空',
     },
@@ -326,6 +334,14 @@ export default {
       unknownProvider: 'Unknown VFS provider: {kind}',
       notInitialized: 'The VFS is not initialised yet: call createVFSProvider().init() first',
       retainFailed: 'retain failed: the model has not been created yet ({id})',
+
+      /** Local-folder workspace (desktop only; codes come from Rust, wording is translated here) */
+      workspaceRootMissing: 'No local folder has been selected yet',
+      workspaceNoRoot: 'No folder is authorised — please pick one again',
+      workspaceOpenFailed: 'Could not open this folder: {message}',
+      workspaceOutsideRoot: 'That path is outside the current workspace',
+      workspaceBinary: 'This is a binary file; the editor cannot open it',
+      workspaceTooLarge: 'This file is too large for the editor to open',
 
       importEmpty: 'The problem data is empty',
     },

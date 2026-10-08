@@ -6,11 +6,14 @@
  * 其余代码零修改。
  */
 import { t } from '../../i18n/index.js'
+import { LocalFolderVFSProvider } from './LocalFolderVFSProvider.js'
 import { LocalVFSProvider } from './LocalVFSProvider.js'
 
 /** @type {Record<string, () => import('./BaseVFSProvider.js').BaseVFSProvider>} */
 const REGISTRY = {
   local: () => new LocalVFSProvider(),
+  // 本机文件夹工作区（仅桌面端；由 migrate.js 按 cp.workspaceMode 选择）
+  folder: () => new LocalFolderVFSProvider(),
 }
 
 /** @type {import('./BaseVFSProvider.js').BaseVFSProvider | null} */

@@ -19,11 +19,36 @@ import { defaultCode } from '../templates.js'
 import { basename, join, normalize } from './paths.js'
 import { uniqueNameIn } from './treeOps.js'
 import { getVFS } from './vfsFactory.js'
+import { getWorkspaceMode, getWorkspaceRoot, MODE_FOLDER } from './workspaceMode.js'
 
-const EXPANDED_KEY = 'cp.vfsExpanded'
-const TABS_KEY = 'cp.openTabs'
-const ACTIVE_KEY = 'cp.activeFile'
-const SELECTED_KEY = 'cp.selectedNode'
+/**
+ * 会话键按**工作区**分桶。
+ *
+ * 两种工作区是两套完全不同的 id 空间（虚拟工作区是 uuid，本机文件夹也是 uuid，但两份
+ * 互不相干），共用一个键会让「切过去一趟再切回来」把另一边的页签会话覆盖掉。所以本机文件夹
+ * 模式给这几个键加一个由**根路径**派生的后缀；虚拟工作区后缀为空，键名与历史数据原样保留。
+ *
+ * 后缀里不能放原始绝对路径（键名会长得离谱、且路径里有 `/`）：取它的 djb2 哈希即可 ——
+ * 这里只需要「同一台设备、同一目录必然同桶；不同目录必然不同桶」，不需要抗碰撞。
+ */
+function sessionSuffix() {
+  if (getWorkspaceMode() !== MODE_FOLDER) return ''
+  const root = getWorkspaceRoot()
+  if (!root) return ''
+  let hash = 5381
+  for (let index = 0; index < root.length; index += 1) {
+    hash = ((hash << 5) + hash + root.charCodeAt(index)) | 0
+  }
+  return `.folder.${(hash >>> 0).toString(36)}`
+}
+
+/** 本页生命周期内固定不变（切模式会整页重载），求值一次即可 */
+const SESSION_SUFFIX = sessionSuffix()
+
+const EXPANDED_KEY = `cp.vfsExpanded${SESSION_SUFFIX}`
+const TABS_KEY = `cp.openTabs${SESSION_SUFFIX}`
+const ACTIVE_KEY = `cp.activeFile${SESSION_SUFFIX}`
+const SELECTED_KEY = `cp.selectedNode${SESSION_SUFFIX}`
 
 // ------------------------------------------------------------ 本地存储小工具
 
@@ -185,8 +210,10 @@ export async function initWorkspaceStore() {
     ? savedActive
     : restored[restored.length - 1] ?? null
 
-  // 首次使用（或上次所有 tab 都已失效）：默认打开规范文件 /main.cpp
-  if (!workspace.activeId) await openLanguage('cpp')
+  // 首次使用（或上次所有 tab 都已失效）：默认打开规范文件 /main.cpp。
+  // **本机文件夹工作区里绝不能这么做** —— openLanguage 在一个不存在的路径上建文件，
+  // 等于在用户真实目录里凭空造一个 main.cpp（见 capabilities.realFolder）。
+  if (!workspace.activeId && !vfs.capabilities.realFolder) await openLanguage('cpp')
 
   workspace.ready = true
 
@@ -425,7 +452,11 @@ export async function renameNode(path, newPath) {
 export async function moveNode(path, targetDirPath) {
   const vfs = getVFS()
   const type = (await vfs.stat(path))?.type ?? 'file'
-  const name = await uniqueNameIn(vfs, targetDirPath, basename(path), type)
+  // 本机文件夹里**不替用户改名**：目标是他的磁盘，撞名就拒绝并提示（provider.rename 抛
+  // duplicateName，一路冒到拖拽的提示里），而不是悄悄把文件变成 name-2。
+  const name = vfs.capabilities.realFolder
+    ? basename(path)
+    : await uniqueNameIn(vfs, targetDirPath, basename(path), type)
   const newPath = join(targetDirPath, name)
   if (newPath !== normalize(path)) await vfs.rename(path, newPath)
   return newPath

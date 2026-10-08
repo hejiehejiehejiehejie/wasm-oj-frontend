@@ -471,6 +471,6 @@ export class LocalVFSProvider extends BaseVFSProvider {
   }
 
   get capabilities() {
-    return { watch: true, persistent: this.#db !== null, remote: false }
+    return { watch: true, persistent: this.#db !== null, remote: false, realFolder: false }
   }
 }

@@ -23,6 +23,9 @@ import { t } from '../../i18n/index.js'
  * @property {VFSNodeMeta} [meta]        题目元数据（仅文件；见 problemMeta.js）
  * @property {Record<string, unknown>} [config] 抓题时的原始配置（含 samples 样例等；仅文件）
  * @property {VFSNode[]} [children]      仅 getTree() 的返回里组装；存储层不维护
+ * @property {boolean} [binary]          仅本机文件夹：文件头是二进制，能看可见性但不给编辑器打开
+ * @property {number} [size]             仅本机文件夹：文件字节数
+ * @property {number|null} [mtimeMs]     仅本机文件夹：磁盘 mtime（毫秒）；外部改写比对指纹用它
  */
 
 /**
@@ -47,6 +50,9 @@ import { t } from '../../i18n/index.js'
  * @property {boolean} watch       是否对外发出变更事件
  * @property {boolean} persistent  刷新后数据是否保留
  * @property {boolean} remote      是否为远端存储
+ * @property {boolean} realFolder  是否直接落在用户本机磁盘目录上（本机文件夹工作区）。
+ *                                 上层据此避开「凭空创建文件」这类只在虚拟工作区成立的动作
+ *                                 （见 workspaceStore 的启动兜底）。
  */
 
 /**
@@ -164,6 +170,14 @@ export class BaseVFSProvider {
     throw new Error(notImplemented())
   }
 
+  /**
+   * 重新从底层存储载入全量节点。默认 no-op —— 多数实现的内存索引就是真源
+   * （改动只可能来自本进程），只有「外面还有别人能改这份数据」的实现（本机文件夹）
+   * 才需要重扫。调用方据此驱动整树刷新（见 LocalFolderVFSProvider）。
+   * @returns {Promise<void>}
+   */
+  async refresh() {}
+
   // ------------------------------------------------------------ 事件
 
   /**
@@ -268,6 +282,6 @@ export class BaseVFSProvider {
 
   /** @returns {VFSCapabilities} */
   get capabilities() {
-    return { watch: true, persistent: true, remote: false }
+    return { watch: true, persistent: true, remote: false, realFolder: false }
   }
 }

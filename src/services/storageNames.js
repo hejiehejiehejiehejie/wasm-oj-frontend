@@ -79,6 +79,24 @@ export const LEGACY_PCH_DB_NAME = 'cph-pch'
  */
 export const CF_DB_NAME = 'cp-cf'
 
+// ---------------------------------------------------------------- 工作区模式
+
+/**
+ * 当前工作区模式：`'vfs'`（虚拟工作区，IndexedDB）或 `'folder'`（本机文件夹，仅桌面端）。
+ * 读它的是 `services/vfs/migrate.js` 的启动分岔与 `services/vfs/workspaceMode.js`。
+ *
+ * **绝不能进云同步白名单**：这是「这台设备此刻开着哪个目录」的事实，换台设备毫无意义。
+ */
+export const WORKSPACE_MODE_KEY = 'cp.workspaceMode'
+
+/**
+ * 本机文件夹工作区的根（磁盘绝对路径）。
+ *
+ * 与上面那条一起，**绝不进云同步白名单** —— 绝对路径换台设备就是一条不存在的路径。
+ * 页面重载后由 `LocalFolderVFSProvider` 读它、再交给 Rust 的 `workspace_open` 重新授权。
+ */
+export const WORKSPACE_ROOT_KEY = 'cp.workspaceRoot'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**
