@@ -517,16 +517,13 @@ let panelAnimTimer = 0
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 // View Transitions 支持探测：侧栏折叠 / 展开与布局换边共用同一个判据
-// （toggleLayout 里那道检查保持原样，这一轮 spike 只动侧栏这一条路径）
+// （toggleLayout 里那道检查保持原样，这一轮只动侧栏这一条路径）
 const canViewTransition = () => typeof document.startViewTransition === 'function'
 
-// SPIKE 2：过渡期间把两栏的 view-transition-name 临时摘掉。
-// 命名的元素会各自成为一个过渡组，组盒子在改尺寸时快照位图会被拉伸（文字横向变形）；
-// 不命名则它们并进 root 快照，而 root 的盒子恒等于整个应用、尺寸不变，
-// 于是只剩「旧帧淡出 / 新帧淡入」的交叉淡化，没有拉伸。
-// 必须在 startViewTransition **之前**同步改掉：旧快照那一刻就得是没名字的状态，
+// 过渡期间把两栏的 view-transition-name 临时摘掉（整屏交叉淡化，见 togglePanel 里的说明）。
+// 必须在 startViewTransition **之前**同步改掉：旧快照那一刻就得是不带名字的状态，
 // 所以直接操作 DOM 而不是走响应式（响应式要等 nextTick，晚一帧就来不及了）。
-// 传 '' 恢复，让样式表里那条 view-transition-name 重新生效（布局换边还要用）。
+// 传 '' 恢复，让样式表里那两条 view-transition-name 重新生效（布局换边还要用）。
 function setPaneTransitionNames(name) {
   workspace.value?.querySelectorAll('.pane').forEach((el) => {
     el.style.viewTransitionName = name
@@ -577,12 +574,14 @@ function togglePanel({ instant = false } = {}) {
   // - 题解全屏还盖在上面（例如全屏里点运行，自动亮出评测面板但侧栏整块是藏着的）。
   const animate = !instant && !mdFullscreen.value && !reduceMotion.matches
 
-  // ---------------------------------------------------------------- SPIKE
   // View Transitions 路径：只翻一次状态，宽度 / 位置全交给浏览器按快照补间。
   // 好处是动画期间 DOM 一动不动（不再逐帧改 flex-basis），Monaco 也就不会逐帧重排，
-  // 现在这套定宽冻结 / 接缝 / 残留的补丁本就是为了伺候「逐帧改宽度」才存在的。
-  // 代价是文字会被快照拉伸 —— 这个 spike 就是来看它到底能不能接受的。
-  // 这条路径下 is-animating 恒为 false，下面四段手写动画整段不参与。
+  // 下面那套定宽冻结 / 接缝 / 残留的补丁本就是为了伺候「逐帧改宽度」才存在的。
+  //
+  // 两栏的 view-transition-name 在这里被摘掉，故意不让它们各自成组：
+  // 命名元素会成为独立过渡组，而组盒子在改尺寸时会把快照位图拉过去（文字横向变形）。
+  // 摘掉之后两栏并进 root 快照，root 的盒子恒等于整个应用、尺寸不变，只剩透明度补间，
+  // 拉伸在结构上不可能发生。代价是整屏交叉淡化——旧布局（带侧栏）与新布局会同时叠印。
   if (animate && canViewTransition()) {
     panelAnimating.value = false
     // 翻状态前先把定宽壳退回流体：VT 只翻一次 DOM，「防逐帧重排」那件事不存在，
@@ -1095,9 +1094,9 @@ onBeforeUnmount(() => {
 
       <!-- 统一侧边栏：资源管理器与评测样例合并成一个页签容器，
            整体仍按原来的 .pane--tests 参与分屏拖拽与折叠（宽度 / 阈值逻辑不变） -->
-      <!-- SPIKE：折叠态不再 display:none，而是留在排版里、宽度收到 1px
-           （见样式表里 .pane--tests.is-collapsed）。View Transitions 需要「旧状态也有盒子」
-           才做得出尺寸过渡；display:none 的元素没有旧快照，展开就成了凭空出现。 -->
+      <!-- 折叠态留在排版里、宽度收到 1px（见样式表里 .pane--tests.is-collapsed）。
+           View Transitions 靠「旧快照 vs 新快照」做补间，display:none 的元素没有旧快照，
+           展开会退化成凭空出现，所以折叠态必须有个（哪怕很小的）盒子。 -->
       <section
         ref="sidebarPane"
         v-show="!mdFullscreen"
@@ -1234,12 +1233,14 @@ onBeforeUnmount(() => {
 /* 换边始终用 row，靠 order 换序（不用 row-reverse：那会把两栏一起甩到另一边） */
 
 /* 两块独立的圆角卡片容器：overflow:hidden 让内部方角（Monaco 画布、
-   面板页头页脚）被圆角裁掉，卡片边界才干净 */
+   面板页头页脚）被圆角裁掉，卡片边界才干净。
+   圆角与活动图标栏（ActivityBar 的 .activity-bar）必须同值：侧栏收起时
+   那张卡会顶到编辑器左边，不同值会在折叠/展开之间露出两种圆角。 */
 .pane {
   min-width: 0;
   display: flex;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border-soft);
   background: var(--bg-panel);
 }
@@ -1297,7 +1298,7 @@ onBeforeUnmount(() => {
   view-transition-name: pane-tests;
 }
 
-/* SPIKE：折叠态留在排版里、宽度收到 1px（不再 display: none）。
+/* 折叠态留在排版里、宽度收到 1px（不再 display: none）。
    View Transitions 靠「旧快照 vs 新快照」补间，display:none 的元素没有旧快照，
    展开会退化成凭空出现，所以折叠态必须有个（哪怕很小的）盒子。
    取 1px 而不是 0：零面积的盒子各家浏览器可能干脆不给快照；1px 又在视觉上不可见。
@@ -1530,6 +1531,4 @@ onBeforeUnmount(() => {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-
-/* SPIKE 临时块已移到浏览器运行时注入（见对话记录），此处保持干净 */
 </style>

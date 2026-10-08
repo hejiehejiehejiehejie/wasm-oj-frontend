@@ -102,7 +102,7 @@ function toggleCfPicker() {
   align-items: stretch;
   padding: 4px 0;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border-soft);
   background: var(--bg-panel);
   /* 侧栏收起 / 展开时这一栏跟着伸缩（宽度过渡 200ms，与布局切换同一支曲线）；
