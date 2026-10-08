@@ -92,14 +92,20 @@ jobs:
           mkdir -p "$RUNNER_TEMP/src"
           tar -xf "$RUNNER_TEMP/llvm.src.tar.xz" -C "$RUNNER_TEMP/src"
           rm -f "$RUNNER_TEMP/llvm.src.tar.xz"
-          echo "LLVM_SRC=$RUNNER_TEMP/src/llvm-project-${LLVM_VERSION}.src" >> "$GITHUB_ENV"
+          # 注意这个 tarball 的顶层**没有** CMakeLists.txt（只有 .ci/ clang/ cmake/ llvm/ …），
+          # 所以下面配置时 -S 要指到 $LLVM_TOP/llvm，而不是 $LLVM_TOP —— 那才是官方用法，
+          # clang / lld 这两个外部工程由 llvm/CMakeLists.txt 按 ../clang、../lld 相对找。
+          echo "LLVM_TOP=$RUNNER_TEMP/src/llvm-project-${LLVM_VERSION}.src" >> "$GITHUB_ENV"
           echo "BUILD_DIR=$RUNNER_TEMP/build" >> "$GITHUB_ENV"
           du -sh "$RUNNER_TEMP/src"
+          ls "$RUNNER_TEMP/src/llvm-project-${LLVM_VERSION}.src"
 
       # 逐条都要有理由，否则「只带 AArch64」这个结论会被别的东西污染：
       #   LLVM_TARGETS_TO_BUILD=AArch64  ← 整件事的自变量
       #   LLVM_BUILD_LLVM_DYLIB / LLVM_LINK_LLVM_DYLIB / CLANG_LINK_CLANG_DYLIB
       #       ← 复刻 Termux 的「libclang-cpp.so 动态链到 libLLVM.so」形状，不然量出来的不是一回事
+      #   ANDROID_STL=c++_shared  ← NDK 默认是 c++_static，会把 libc++ 烘进每个 .so（形状不对、
+      #       而且两个 .so 各带一份 libc++ 会让异常/RTTI 的类型身份对不上）
       #   MinSizeRel  ← 默认是 Debug，那体积没有可比性；MinSizeRel 给 -Os
       #   -Wl,-s      ← Termux 那两个 .so 是 stripped 的，链接期就剥掉才好比
       #   关 zlib / zstd / libxml2 / terminfo / libedit / curl / bindings
@@ -111,10 +117,11 @@ jobs:
       - name: 配置
         run: |
           set -euo pipefail
-          cmake -G Ninja -S "$LLVM_SRC" -B "$BUILD_DIR" \
+          cmake -G Ninja -S "$LLVM_TOP/llvm" -B "$BUILD_DIR" \
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
+            -DANDROID_STL=c++_shared \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-s" \
             -DLLVM_TARGETS_TO_BUILD=AArch64 \
@@ -138,18 +145,28 @@ jobs:
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_DOCS=OFF \
             -DLLVM_PARALLEL_LINK_JOBS=1
-          grep -E 'CMAKE_CXX_COMPILER:|LLVM_TARGETS_TO_BUILD|CMAKE_BUILD_TYPE' "$BUILD_DIR/CMakeCache.txt" || true
+          grep -E 'CMAKE_CXX_COMPILER:|LLVM_TARGETS_TO_BUILD|CMAKE_BUILD_TYPE|ANDROID_STL' "$BUILD_DIR/CMakeCache.txt" || true
+
+          # 快速闸门：配置完就确认两个 .so 的构建目标真的存在 —— 配置只花一分钟，
+          # 而「选项名不对导致目标压根没生成」这种事如果拖到编译完才发现，就是两小时。
+          ninja -C "$BUILD_DIR" -t targets all > "$RUNNER_TEMP/targets.txt"
+          for want in libLLVM.so libclang-cpp.so; do
+            if grep -q "$want" "$RUNNER_TEMP/targets.txt"; then
+              echo "目标存在：$want"
+            else
+              echo "::error::配置后找不到目标 $want —— 去看上面的 CMake 输出"
+              exit 1
+            fi
+          done
 
       # 只构建这两个目标：`clang-cpp` 会把整个 clang 前端编出来（这也是本次耗时的大头），
       # `LLVM` 出 libLLVM.so。lld 留着不编 —— 它不影响这两个 .so 的体积。
-      # 目标名万一没命中（同版本改名之类），回退到整树构建，别让这一趟白跑。
+      # 这里不给 `|| ninja` 兜底：目标名已在上一步验过，剩下的失败就是真失败，
+      # 再跑一遍整树只会多烧一次。
       - name: 构建两个 .so
         run: |
           set -euo pipefail
-          time ninja -C "$BUILD_DIR" LLVM clang-cpp || {
-            echo "::warning::目标名 LLVM / clang-cpp 未命中，回退整树构建"
-            time ninja -C "$BUILD_DIR"
-          }
+          time ninja -C "$BUILD_DIR" LLVM clang-cpp
 
       - name: 量尺寸并判定
         run: |
