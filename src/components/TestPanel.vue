@@ -231,16 +231,31 @@ const elapsedText = computed(() => {
   overflow-y: auto;
   overflow-x: hidden;
   container-type: inline-size;
+  /* 空态那行字是绝对定位的（见 .empty），这里给它一个基准盒 */
+  position: relative;
 }
 
-/* 空态（2026-10-06 照参照稿改）：一行居中的淡灰字，上下各 40px 留白。
+/* 空态（2026-10-06 照参照稿改；2026-10-11 改定位）：一行居中的淡灰字。
    原来是个虚线框 + 底色 + 左对齐的一堆东西 —— 参照稿里根本没有框，那层虚线只是把
-   一行字围起来，删掉之后空态才真的「空」。 */
+   一行字围起来，删掉之后空态才真的「空」。
+   位置原来靠 `padding: 40px 0` 顶在列表最上面，现在整块摆到黄金分割靠上的那个分点上：
+   绝对定位到「列表可视区高度的 38.2%」，再用 translateY(-50%) 让**这一块的中心**落在
+   那个点上（不是顶边）。38.2% = 1 / 1.618²，与 61.8% 互为黄金分割的两个分点，
+   略在可视区中心之上、构图更稳。
+   分母是 .cases 的 padding box 高度：.cases 是滚动的列表容器，空态时里面没有任何
+   内容、它的高度就是页头与页脚之间那整片可视区 —— 所以页头 / 页脚怎么改，这里都不用跟。
+   left / right 给 0（吃不到 .cases 的 8px 横向内边距）不影响观感：这块是 text-align:
+   center，两边多出的 8px 是对称的；它没有底色、不画框，视觉上仍在同一条中线上。 */
 .empty {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* 38.2% 是「黄金分割点」，不是随手取的近似值 —— 改它等于改这条设计决定 */
+  top: 38.2%;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 40px 0;
   text-align: center;
 }
 

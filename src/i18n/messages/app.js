@@ -33,6 +33,16 @@ export default {
         cursor: '行 {line}，列 {column}',
       },
 
+      /** 编辑区的上下文菜单（桌面鼠标右键 / 触屏长按，2026-10-10 加） */
+      editorMenu: {
+        cut: '剪切',
+        copy: '复制',
+        paste: '粘贴',
+        selectAll: '全选',
+        changeAll: '更改所有匹配项',
+        commandPalette: '命令面板',
+      },
+
       tabs: {
         listLabel: '打开的文件',
         dirty: '未保存',
@@ -144,6 +154,15 @@ export default {
         spaces: 'Spaces: {count}',
         selected: '{count} characters selected',
         cursor: 'Ln {line}, Col {column}',
+      },
+
+      editorMenu: {
+        cut: 'Cut',
+        copy: 'Copy',
+        paste: 'Paste',
+        selectAll: 'Select All',
+        changeAll: 'Change All Occurrences',
+        commandPalette: 'Command Palette',
       },
 
       tabs: {

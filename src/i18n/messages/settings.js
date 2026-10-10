@@ -196,6 +196,11 @@ export default {
         toggleLayout: { label: '侧边栏左右对调' },
         newCase: { label: '新增一条测试用例' },
         openSettings: { label: '打开 / 收起设置' },
+        renameNode: { label: '重命名（文件 / 文件夹）', hint: '焦点在资源管理器里才生效' },
+        deleteNode: {
+          label: '删除（文件 / 文件夹）',
+          hint: '焦点在资源管理器里才生效 · Delete 就是它自己的键位，清除这行请用 × 或 Backspace',
+        },
 
         restore: { label: '恢复默认', hint: '把上面所有快捷键还原成初始设置', title: '恢复默认快捷键' },
 
@@ -551,6 +556,11 @@ export default {
         toggleLayout: { label: 'Swap sidebar side' },
         newCase: { label: 'Add a test case' },
         openSettings: { label: 'Open / close settings' },
+        renameNode: { label: 'Rename (file / folder)', hint: 'Applies while the focus is in the explorer' },
+        deleteNode: {
+          label: 'Delete (file / folder)',
+          hint: 'Applies while the focus is in the explorer · Delete is its own binding, clear this row with × or Backspace',
+        },
 
         restore: {
           label: 'Restore defaults',

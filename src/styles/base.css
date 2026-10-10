@@ -103,8 +103,32 @@
   --case-border: #45454a;
   --case-chip-bg: #303034;
 
-  /* 分隔条正中的三点抓手：常驻，色调比边框略亮但不抢眼 */
-  --splitter-dot: #525258;
+  /* 分隔条正中的三点抓手：常驻，好让人一眼看出这里能拖。
+     2026-10-11 压暗一档（#525258 → #3f3f45）：原来比 --case-border（#45454a）还亮，
+     在深色底上有点跳；现在退到边框以下，只留「看得见」这一档。 */
+  --splitter-dot: #3f3f45;
+
+  /* 右键菜单（文件树 / 编辑区共用，只有 components/ContextMenu.vue 一个消费者）。
+     2026-10-10：整组换成 VS Code Dark+ 的原装调色板 —— 用户指定以一份 vanilla IDE
+     右键菜单模板为准，而那份模板用的正是 Dark+ 的字面值，所以这里不是「照着调」，是照抄。
+     浅色那支（见下）取 Monaco 官方注册表里同一批颜色 id 的 light 项，两套主题严格配对：
+       主文字 = foreground          深 #CCCCCC / 浅 #616161
+       悬停底 = list.activeSelectionBackground   深 #04395E / 浅 #0060C0
+       悬停字 = list.activeSelectionForeground   两套都是白
+     ⚠️ --menu-hover-bg 是**蓝**的，与站内通用的灰悬停（--bg-hover）不同源：模板如此，
+     而且它本来就是 VS Code 列表选中色。别为了「与文件树悬停一致」把它换成灰的。 */
+  --menu-bg: #252526;
+  --menu-border: #454545;
+  --menu-text: #cccccc;
+  /* 快捷键那一列（11px）比主文字暗一档；与 --text-faint 无关，别合并 */
+  --menu-muted: #858585;
+  --menu-hover-bg: #04395e;
+  --menu-hover-text: #ffffff;
+  /* 悬停那一行的快捷键：压在深蓝底上要够亮，模板给的就是这抹淡蓝（两套主题同值 —— 两边的
+     悬停底都是深蓝，同一支淡蓝都压得住） */
+  --menu-hover-muted: #b0d0ff;
+  --menu-separator: #454545;
+  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 
   /* 卡片投影：只有浅色主题下卡片是「浮在白底上的纸」，才需要这层淡影；
      深色主题里卡片靠边框分层，投影只会糊成一团，所以直接不给 */
@@ -223,7 +247,24 @@
   --case-border: #d6d6d6;
   --case-chip-bg: #ececec;
 
-  --splitter-dot: #b0b0b0;
+  /* 与深色同步退一档（#b0b0b0 → #c8c8c8）：往 --case-border（#d6d6d6）那边靠，
+     浅色底上不再是一个偏暗的小点 */
+  --splitter-dot: #c8c8c8;
+
+  /* 右键菜单：Dark+ ↔ Light+ 的官方配对，来源 id 见深色主题那段注释。
+     与深色的唯一「不同值」是 --menu-muted —— 模板的 #858585 压在白底上只有 3.4:1、
+     11px 的字太虚，这里压到 #767676（4.5:1），保住「比主文字暗一档但仍读得清」的关系。 */
+  --menu-bg: #ffffff;
+  --menu-border: #cecece;
+  --menu-text: #616161;
+  --menu-muted: #767676;
+  --menu-hover-bg: #0060c0;
+  --menu-hover-text: #ffffff;
+  --menu-hover-muted: #b0d0ff;
+  /* 模板的 #454545 压在深色底上是一道看得清的发丝线；白底上同等的可见度约在 #d4d4d4 */
+  --menu-separator: #d4d4d4;
+  /* 深色那份 0.5 的黑影是为 #252526 那种暗面准备的，白底上会糊成一圈脏边，单独调淡 */
+  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
 

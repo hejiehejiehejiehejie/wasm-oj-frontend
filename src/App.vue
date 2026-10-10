@@ -320,6 +320,9 @@ const totals = computed(() => {
 
 const workspace = ref(null)
 const editorPane = ref(null)
+// 资源管理器：F2 / Delete 两条快捷键要落进它里面去执行（见 SHORTCUT_TREE_HANDLERS）。
+// 它在 Sidebar 的具名插槽里，而那是 v-show 切换的，所以实例一直都在、这个 ref 稳定可用。
+const fileExplorer = ref(null)
 const sidebarRef = ref(null)
 // 侧栏那一栏的外层 .pane--tests，与它里面那层负责定宽的壳（折叠动画的裁切对象，
 // 见下面的 pinSidebarWidth）
@@ -888,6 +891,8 @@ watch(
 
 // ------------------------------------------------------------ 全局快捷键
 // 键位表在 useShortcutManager 里（含持久化与冲突检测），这里只把动作 id 接上真正的函数。
+// 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那 6 条；另有两条**作用域受限**的
+// （F2 重命名 / Delete 删除资源树节点）在它下面单独一张表里，理由见那里的注释。
 // 监听挂在 window 的**捕获**阶段：Monaco 的键位服务挂在编辑器内部的 DOM 上，捕获是从外
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
 const SHORTCUT_HANDLERS = {
@@ -913,6 +918,38 @@ const SHORTCUT_HANDLERS = {
 
 /** 题解在编辑器里生效的那 14 条键位（注册在 Monaco，见 EditorPane 的 registerMarkdownActions） */
 const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
+
+/**
+ * 作用域受限的两条动作（F2 重命名 / Delete 删除 资源树里的节点）：只有焦点在资源树的**某一行**
+ * 上时才生效。
+ *
+ * 为什么不放进 SHORTCUT_HANDLERS：上面那 6 条都是「在哪儿按都算」，而这两条得先过一道闸门 ——
+ * 尤其 Delete 不带修饰键，不设闸门的话在编辑器里按一下删字符，就会顺手把一个文件弹进删除确认框。
+ * 闸门**必须拦在 preventDefault 之前**：不在树里时就整条放行，原生行为（删字符、退格……）照旧。
+ *
+ * 执行落在资源管理器里（`FileExplorer` 经 defineExpose 给出 startRename / requestDelete），
+ * 与右键菜单那两条**同源**。作用对象取「有焦点的那一行」—— 树里的焦点与选中是同步的
+ * （见 FileExplorer.onTreeFocus），所以这与原先写在 FileTreeItem 行内 keydown 里的行为完全一致。
+ */
+const SHORTCUT_TREE_HANDLERS = {
+  'rename-node': (row) => fileExplorer.value?.startRename(row.dataset.treeId),
+  'delete-node': (row) => fileExplorer.value?.requestDelete(row.dataset.treeId),
+}
+
+/**
+ * 这一发按键落在资源树的哪一行上？不在树上就返回 null。
+ *
+ * 两类都要排掉：**可编辑元素**（内联新建那个输入框、以及内联重命名的输入框 —— 后者就在行
+ * **内部**，不排掉的话改名时按 Delete 会删不掉字符、反倒弹出删除确认框），以及树之外的一切。
+ * @param {KeyboardEvent} event
+ * @returns {Element|null} 带 data-tree-id 的那一行
+ */
+function treeRowFrom(event) {
+  const target = event.target
+  if (!(target instanceof Element)) return null
+  if (target.closest('input, textarea, select, [contenteditable]')) return null
+  return target.closest('[data-tree-id]')
+}
 
 /** 这一发按键是不是发生在 Monaco 编辑器内部 */
 function inMonacoEditor(event) {
@@ -944,6 +981,16 @@ function onKeydown(event) {
     event.preventDefault()
     event.stopPropagation()
     cycleMdView()
+    return
+  }
+
+  // 作用域受限的两条（F2 / Delete）：不在资源树的行上就整条放行，不拦原生行为
+  if (actionId && SHORTCUT_TREE_HANDLERS[actionId]) {
+    const row = treeRowFrom(event)
+    if (!row) return
+    event.preventDefault()
+    event.stopPropagation()
+    SHORTCUT_TREE_HANDLERS[actionId](row)
     return
   }
 
@@ -1116,7 +1163,7 @@ onBeforeUnmount(() => {
         <div ref="sidebarInner" class="pane__inner" :class="{ 'is-fixed': sidebarPinned }">
           <Sidebar ref="sidebarRef">
             <template #explorer>
-              <FileExplorer />
+              <FileExplorer ref="fileExplorer" />
             </template>
             <template #tests>
               <TestPanel

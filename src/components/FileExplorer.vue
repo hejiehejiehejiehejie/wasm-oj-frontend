@@ -8,9 +8,11 @@
  * 选中态（`workspace.selectedId`）是唯一来源，读取与写入都在 workspaceStore 里。
  * 名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
  *
- * 通过 provide 向递归树项提供能力：右键菜单、删除确认、根 DOM、重命名目标、焦点管理，
+ * 通过 provide 向递归树项提供能力：右键菜单、根 DOM、重命名目标、焦点管理，
  * 内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由 InlineCreateRow
  * 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
+ * 另经 defineExpose 对外给出两个入口（`startRename` / `requestDelete`，都收节点 id），
+ * 供全局快捷键 F2 / Delete 调用 —— 见文件末尾。
  */
 import { computed, nextTick, onUnmounted, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -19,6 +21,7 @@ import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
 import { useTreeDrag } from '../composables/useTreeDrag.js'
+import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
 import { templateForPath } from '../services/fileTemplates.js'
 import {
@@ -46,6 +49,9 @@ import {
 } from '../services/problemMeta.js'
 
 const rootEl = ref(null)
+
+/** 快捷键绑定表：菜单右列的键位读它（设置里改绑，这里跟着变，见 shortcutOf） */
+const { bindings } = useShortcutManager()
 
 /** 内联新建状态：{ type:'file'|'directory', targetId, targetPath, value, error } | null
  *  targetId 为 'root' 或目标目录的节点 id；targetPath 是它的绝对路径（根为 '/'）。 */
@@ -229,6 +235,9 @@ function problemUrl(node) {
 /**
  * 题目信息只对文件有意义；新建只对目录有意义——目标就是被右键的那个目录。
  * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
+ *
+ * 「重命名 / 删除」两项挂上右列键位：它们是真的能按的（F2 / Delete，见下 shortcutOf），
+ * 不是装饰。目录与文件共用同一组键位。
  */
 function buildMenuItems(node) {
   const items = []
@@ -239,9 +248,20 @@ function buildMenuItems(node) {
     items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
     items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
   }
-  items.push({ id: 'rename', label: t('explorer.menu.rename') })
-  items.push({ id: 'delete', label: t('explorer.menu.delete') })
+  items.push({ id: 'rename', label: t('explorer.menu.rename'), shortcut: shortcutOf('rename-node') })
+  items.push({ id: 'delete', label: t('explorer.menu.delete'), shortcut: shortcutOf('delete-node') })
   return items
+}
+
+/**
+ * 菜单右列的键位。读的是快捷键绑定表 —— 在设置里改绑这里跟着变（与 `EditorPane` 状态栏读
+ * `formatCombo(bindings.run)` 是同一个口径，**别写成写死的 'F2' / 'Delete'**）。
+ * 未绑定时给空串，`ContextMenu` 那边 `v-if` 一挡，右列那一格就不出现。
+ * @param {string} actionId
+ * @returns {string}
+ */
+function shortcutOf(actionId) {
+  return bindings.value[actionId] ? formatCombo(bindings.value[actionId]) : ''
 }
 
 async function onMenuSelect(id) {
@@ -282,7 +302,21 @@ function requestDelete(node) {
 }
 
 function cancelDelete() {
+  const node = pendingDelete.value
   pendingDelete.value = null
+  // 弹窗一出现就把焦点送进了「删除」那颗按钮（见下面那条 watch），弹窗一撤焦点就落到 <body> 上。
+  // 交还给原来那一行 —— 否则「Esc 取消删除」之后紧接着再按 Delete 是没反应的，得先点回那一行。
+  if (node) refocusRow(node.id)
+}
+
+/**
+ * 把焦点交还给树上的某一行（节点已经不在时静默什么也不做）。
+ * 目前只有「取消删除」这一条调用：同样的事在重命名那边由 `FileTreeItem.refocusRow` 负责，
+ * 但那是组件内部的事，这里需要按 id 跨层找行。
+ * @param {string} id
+ */
+function refocusRow(id) {
+  nextTick(() => rootEl.value?.querySelector(`[data-tree-id="${CSS.escape(id)}"]`)?.focus())
 }
 
 async function confirmDelete() {
@@ -453,7 +487,8 @@ function onTreeClick(event) {
 }
 
 provide('openContextMenu', openContextMenu)
-provide('requestDelete', requestDelete)
+// 删除确认不再经 provide 下发：唯一的调用方是全局快捷键 Delete（原来在 FileTreeItem 的
+// 行内 keydown 里），2026-10-10 改走 defineExpose 那条路，见文件末尾。
 provide('treeRootEl', rootEl)
 // 树项需要报一句「这个文件打不开」（本机文件夹里的二进制 / 超大文件），用的就是上面那条横幅
 provide('showNotice', showNotice)
@@ -474,6 +509,24 @@ provide('draggingId', draggingId)
 // 触屏长按的两段提示：按压进度（还在等）与就绪态（已经可以拖 / 可以松手弹菜单）
 provide('pressingId', pressingId)
 provide('armedId', armedId)
+
+/**
+ * 全局快捷键（F2 重命名 / Delete 删除）的入口。
+ *
+ * 这两条动作的键位登记在 `useShortcutManager` 的 SHORTCUT_ACTIONS 里，但**执行不了在那里**：
+ * 它要做的事全在本组件手上（起内联重命名、弹删除确认框），而它作用于「资源管理器里当前有焦点的
+ * 那一行」。所以 App.vue 的全局监听先过一道作用域闸门，再从这里进来 —— 动作与右键菜单那两条
+ * **完全同源**（`beginRename` / `requestDelete`），不另写一份。
+ *
+ * 只收**节点 id**（调用方手里只有事件落点那一行的 `dataset.treeId`），节点在这里查一次；
+ * 节点已经不在了就静默什么也不做（`requestDelete(null)` 自带 `if (node)` 保护）。
+ */
+defineExpose({
+  /** @param {string} id 要重命名的节点 id */
+  startRename: (id) => beginRename(id),
+  /** @param {string} id 要删除的节点 id */
+  requestDelete: (id) => requestDelete(getNodeById(id)),
+})
 </script>
 
 <template>

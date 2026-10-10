@@ -36,6 +36,11 @@ export const IS_MAC =
  * 所以这里存 key，界面（EditorSettingsPanel / HotkeyRecorder）再 t()。
  * 这里只登记「本应用真的做得到」的动作：格式化没有进来，因为 Monaco 内置的
  * Shift+Alt+F 在 C++ / Python 下没有注册 formatter，绑了也是空按。
+ *
+ * `bareCodes`（可选）= 这个动作额外允许的**裸键**（不带任何修饰键）。默认只有功能键与 Esc
+ * 能裸按（见 SAFE_BARE_CODES），目前唯一的例外是「删除节点」的 Delete —— 它敢裸按是因为
+ * 有一道作用域闸门兜着：只有焦点在文件树上时才触发（App.vue 的 treeRowFrom）。
+ * **给别的动作加裸键之前先想清楚有没有同款闸门**，否则打字时会被全局吃掉。
  */
 export const SHORTCUT_ACTIONS = [
   { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
@@ -49,6 +54,24 @@ export const SHORTCUT_ACTIONS = [
   { id: 'toggle-layout', labelKey: 'settings.shortcut.toggleLayout.label', default: 'Mod+Shift+KeyB' },
   { id: 'new-case', labelKey: 'settings.shortcut.newCase.label', default: 'Mod+Alt+Enter' },
   { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
+  // 下面两条（2026-10-10 加）与上面六条不是一回事：它们**不跟着焦点走遍全站**，
+  // 只作用于「资源管理器里当前有焦点的那一行」。执行入口不在 SHORTCUT_HANDLERS 里，
+  // 而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
+  {
+    id: 'rename-node',
+    labelKey: 'settings.shortcut.renameNode.label',
+    hintKey: 'settings.shortcut.renameNode.hint',
+    default: 'F2',
+  },
+  {
+    id: 'delete-node',
+    labelKey: 'settings.shortcut.deleteNode.label',
+    hintKey: 'settings.shortcut.deleteNode.hint',
+    default: 'Delete',
+    // Delete 不是功能键，SAFE_BARE_CODES 不放行；这里是它唯一的开口。范围越窄越好：
+    // 只点名这一个键，别写成「所有非字母键」。
+    bareCodes: ['Delete'],
+  },
 ]
 
 /** 单按修饰键时 keydown 也会来，这时还没到真正的键码，先不处理 */
@@ -105,6 +128,27 @@ const BROWSER_RESERVED = new Set([
 
 /** 允许单独按（不带修饰键）的键：功能键与 Esc 不会和打字冲突 */
 const SAFE_BARE_CODES = /^(F([1-9]|1[0-2])|Escape)$/
+
+/**
+ * 某个动作能不能裸按这个键（不带任何修饰键）。
+ *
+ * 默认只有功能键 / Esc —— 它们在任何输入场合都不会和打字撞上。个别动作还能在自己的
+ * `bareCodes` 里额外点名（目前只有「删除节点」的 Delete）。**这个口子要开得尽可能窄**：
+ * 多放行一个字母键，就等于在全局吃掉用户的一次正常打字。
+ *
+ * 录制框也用它：Delete / Backspace 在录制态是「清除绑定」，可「删除节点」的正式键位
+ * 就是 Delete —— 不对着 bareCodes 判一下，它一旦被清掉就再也录不回来了。
+ *
+ * @param {string} actionId
+ * @param {string} combo
+ * @returns {boolean}
+ */
+export function bareAllowedFor(actionId, combo) {
+  if (!combo || combo.includes('+')) return false
+  if (SAFE_BARE_CODES.test(combo)) return true
+  const action = SHORTCUT_ACTIONS.find((item) => item.id === actionId)
+  return Boolean(action?.bareCodes?.includes(combo))
+}
 
 /** 键码 → 界面上的写法 */
 const KEY_LABELS = {
@@ -345,7 +389,7 @@ export function actionForCombo(combo) {
 export function shortcutConflict(actionId, combo) {
   if (!combo) return null
   if (BROWSER_RESERVED.has(combo)) return t('settings.shortcut.reserved')
-  if (!hasModifier(combo)) {
+  if (!hasModifier(combo) && !bareAllowedFor(actionId, combo)) {
     return t('settings.shortcut.needModifier')
   }
   const owner = SHORTCUT_ACTIONS.find((action) => action.id !== actionId && bindings.value[action.id] === combo)
@@ -354,9 +398,7 @@ export function shortcutConflict(actionId, combo) {
 }
 
 function hasModifier(combo) {
-  const parts = combo.split('+')
-  if (parts.length > 1) return true
-  return SAFE_BARE_CODES.test(parts[0])
+  return combo.split('+').length > 1
 }
 
 /** @param {string} actionId @param {string} combo */

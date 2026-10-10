@@ -5,7 +5,8 @@
  * - 单击：先把这一行选中（文件与目录同一套高亮，选中目录 = 页头新建落进它里面），
  *   然后目录折叠、文件以**预览页签**打开（斜体临时页签，再点别的文件就顶替掉它）。
  * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
- * - 右键菜单、删除确认、键盘导航均通过 FileExplorer provide 的能力完成。
+ * - 右键菜单与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
+ *   而 F2 重命名与 Delete 删除是全局快捷键，见 onKeyDown 末尾那条注释）。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
 import { computed, inject, nextTick, ref, watch } from 'vue'
@@ -36,7 +37,6 @@ const props = defineProps({
 const emit = defineEmits(['rename-done'])
 
 const openContextMenu = inject('openContextMenu')
-const requestDelete = inject('requestDelete')
 const treeRootEl = inject('treeRootEl')
 const showNotice = inject('showNotice')
 const renameTarget = inject('renameTarget')
@@ -149,6 +149,8 @@ const renameMode = ref(false)
 const renameValue = ref('')
 const renameError = ref('')
 const renameInput = ref(null)
+/** 这一行的 DOM（重命名结束后把焦点交还给它，见 refocusRow） */
+const rowEl = ref(null)
 
 watch(renameTarget, (value) => {
   if (value === props.node.id) startRename()
@@ -176,10 +178,34 @@ function startRename() {
  * 组字期间敲下去会把半截拼音当成新名字落盘 —— 和全局快捷键同一条规矩（见 App.vue 的 onKeydown）：
  * 组字中一律不当成提交。keyCode 229 是部分输入法在组字时不报 isComposing 的补漏。
  */
-function submitRenameOnEnter(event) {
+async function submitRenameOnEnter(event) {
   if (event.isComposing || event.keyCode === 229) return
   event.preventDefault()
-  commitRename()
+  await commitRename()
+  // 提交成功才把焦点交还这一行；撞名失败时输入框还在（renameMode 仍是 true），
+  // 那时抢走焦点用户就没法接着改了（refocusRow 里也有这道闸）。
+  refocusRow()
+}
+
+/**
+ * 重命名结束后把焦点交还这一行。
+ *
+ * 只走「回车提交 / Esc 取消」两条明确的键盘路径 —— **失焦提交那条不能走**：那条正是
+ * 「用户点到别处去了」，把焦点拽回来刚好违反他的意图。所以这两个入口各调一次，而不是塞进
+ * `cancelRename()` 里（它同时被失焦那条路用着）。
+ *
+ * 少了这一步会怎样：重命名框一消失，焦点就落到 `<body>` 上，紧接着按 F2 / Delete 是没反应的
+ * —— 得再点一次那一行才认，快捷键的观感就成了「只能用一次」。
+ */
+function refocusRow() {
+  if (renameMode.value) return
+  nextTick(() => rowEl.value?.focus())
+}
+
+/** Esc 取消重命名。单独一个入口只为一件事：取消之后把焦点交还这一行（见 refocusRow） */
+function cancelRenameByEsc() {
+  cancelRename()
+  refocusRow()
 }
 
 async function commitRename() {
@@ -288,14 +314,11 @@ function onKeyDown(event) {
       event.preventDefault()
       onEnter()
       break
-    case 'F2':
-      event.preventDefault()
-      startRename()
-      break
-    case 'Delete':
-      event.preventDefault()
-      requestDelete?.(props.node)
-      break
+    // F2（重命名）与 Delete（删除）**刻意不在这里**：2026-10-10 起它们是登记在
+    // useShortcutManager 里的全局动作，由 App.vue 那个窗口捕获监听统一处理（先过作用域闸门
+    // 「焦点在这一行、且不在输入框上」，再进 FileExplorer 的 startRename / requestDelete）。
+    // 留在这里就等于第二份真相：全局那条在捕获阶段就 stopPropagation 了，下面这两个分支
+    // 永远收不到按键；而且设置里改绑了键位，这里也不会跟着变。
   }
 }
 </script>
@@ -303,6 +326,7 @@ function onKeyDown(event) {
 <template>
   <div class="tree-item" :class="{ 'tree-item--drop': isDropTarget }">
     <div
+      ref="rowEl"
       class="tree-item__row"
       :class="{
         'tree-item__row--dir': node.type === 'directory',
@@ -350,7 +374,7 @@ function onKeyDown(event) {
         class="tree-item__input"
         data-keep-focus-on-pan
         @keydown.enter="submitRenameOnEnter"
-        @keydown.esc.prevent="cancelRename"
+        @keydown.esc.prevent="cancelRenameByEsc"
         @blur="commitRename"
       />
     </div>

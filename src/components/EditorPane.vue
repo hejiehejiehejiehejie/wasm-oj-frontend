@@ -19,6 +19,8 @@ import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { activeDropZone, registerDropZone } from '../composables/useTreeDrag.js'
+import { useEditorMenu } from '../composables/useEditorMenu.js'
+import { useSelectionHandles } from '../composables/useSelectionHandles.js'
 import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
@@ -53,6 +55,7 @@ import {
 } from '../services/vfs/workspaceStore.js'
 import AppIcon from './AppIcon.vue'
 import CfPickerPanel from './CfPickerPanel.vue'
+import ContextMenu from './ContextMenu.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import EditorTabs from './EditorTabs.vue'
 import MarkdownPreview from './MarkdownPreview.vue'
@@ -81,15 +84,38 @@ const emit = defineEmits([
 ])
 
 const host = ref(null)
+/** 内容区（Monaco / 预览 / 设置 / 空态都在这层里）—— 落点矩形、右键菜单与选区手柄的定位层都挂它 */
+const stage = ref(null)
 const editor = shallowRef(null)
 const preview = ref(null)
 const cursor = ref({ lineNumber: 1, column: 1 })
 const selectedChars = ref(0)
 
+// 编辑区的上下文菜单：桌面鼠标右键与触屏长按共用一份（见 composables/useEditorMenu.js）。
+// 它同时负责拦掉 Monaco 自己的英文内置菜单。
+const {
+  menu: editorMenu,
+  closeMenu: closeEditorMenu,
+  onMenuSelect: onEditorMenuSelect,
+} = useEditorMenu({ editor, host })
+
+// 触屏选区手柄（见 composables/useSelectionHandles.js）：Monaco 没有这个能力，整层自己画。
+// 只在触摸下出现，且编辑区真的露着时才出手柄 —— 被设置 / 抽题面板盖住时那一行是 v-show，
+// 浮层若不收掉会浮在那些面板上面。
+const handlesActive = computed(() => !viewActive.value && mdViewMode.value !== 'preview')
+const {
+  handles: selectionHandles,
+  dragging: handlesDragging,
+  onHandleDown: onSelectionHandleDown,
+} = useSelectionHandles({
+  editor,
+  host,
+  stage,
+  active: handlesActive,
+})
+
 // ------------------------------------------------------------ 拖文件到编辑区
 
-/** 内容区（Monaco / 预览 / 设置 / 空态都在这层里）—— 落点矩形与高亮层都挂它 */
-const stage = ref(null)
 /** 本组件登记给拖拽模块的落点；跟 activeDropZone 比同一个对象引用才知道该不该亮 */
 const dropZone = shallowRef(null)
 const isDropTarget = computed(() => dropZone.value !== null && activeDropZone.value === dropZone.value)
@@ -706,6 +732,33 @@ defineExpose({
         :class="{ 'is-split': mdViewSplit, 'is-hidden': mdViewMode === 'preview' }"
       ></div>
 
+      <!-- 触屏选区手柄：Monaco 没有「拖两端圆点改选区」的能力，这一层整块自己画
+           （见 composables/useSelectionHandles.js）。坐标是相对 stage 的**盒子左上角**，
+           由那边算好夹在编辑器可视区内；两颗手柄只在触摸下、有选区、且编辑区没被
+           合成视图盖住时出现。z-index 取 4：压在编辑器正文之上、Monaco 自己的浮层
+           （提示 / 补全）与站点菜单之下 -->
+      <div
+        v-if="selectionHandles"
+        class="selection-handles"
+        :class="{ 'is-dragging': handlesDragging }"
+        aria-hidden="true"
+      >
+        <span
+          v-if="selectionHandles.start"
+          class="selection-handle selection-handle--start"
+          :style="{ left: `${selectionHandles.start.left}px`, top: `${selectionHandles.start.top}px` }"
+          @pointerdown="onSelectionHandleDown('start', $event)"
+          @contextmenu.prevent
+        ></span>
+        <span
+          v-if="selectionHandles.end"
+          class="selection-handle selection-handle--end"
+          :style="{ left: `${selectionHandles.end.left}px`, top: `${selectionHandles.end.top}px` }"
+          @pointerdown="onSelectionHandleDown('end', $event)"
+          @contextmenu.prevent
+        ></span>
+      </div>
+
       <MarkdownPreview
         v-show="mdViewPreview"
         ref="preview"
@@ -769,6 +822,16 @@ defineExpose({
       <span class="dot"></span>
       <span :title="t('app.runAllTests')">{{ formatCombo(bindings.run) }}</span>
     </footer>
+
+    <!-- 编辑区的右键 / 长按菜单。组件自己 Teleport 到 body，所以挂在哪一层都行 -->
+    <ContextMenu
+      v-if="editorMenu"
+      :x="editorMenu.x"
+      :y="editorMenu.y"
+      :items="editorMenu.items"
+      @select="onEditorMenuSelect"
+      @close="closeEditorMenu"
+    />
   </div>
 </template>
 
@@ -792,6 +855,9 @@ defineExpose({
 .editor-pane__host {
   position: absolute;
   inset: 0;
+  /* iOS 长按会在我们自己的菜单之外再弹一份系统菜单（拷贝 / 查询 + 放大镜），两套叠在一起。
+     关掉系统那份（Monaco 自己管选区，不受影响）。见 composables/useEditorMenu.js。 */
+  -webkit-touch-callout: none;
 }
 
 /* 双栏：编辑器让出右半边，预览占另一半。两边各占 50% 是刻意的 ——
@@ -804,6 +870,91 @@ defineExpose({
 /* 仅预览：编辑器让位但仍按原尺寸待着，切回来即用 */
 .editor-pane__host.is-hidden {
   visibility: hidden;
+}
+
+/* ------------------------------------------------------------ 触屏选区手柄 */
+
+/* 浮层本身不吃事件，只有两颗手柄吃（否则整块编辑区都被这一层盖住）。
+   overflow 同时干两件事：裁掉盒子里那点为了凑满 44px 触摸目标而伸到编辑器外的透明部分，
+   以及让被裁掉的那部分**不参与命中测试**（否则它会盖住页签栏 / 状态栏上的一条）。
+   圆点由 useSelectionHandles.js 夹在可视区内，不会被裁到。 */
+.selection-handles {
+  position: absolute;
+  inset: 0;
+  /* 压在编辑器正文之上；Monaco 自己的浮层（提示 / 补全，z-index 40+）与站点菜单（120）仍在上 */
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 盒子 44×44 是触摸目标的最小尺寸；**尺寸必须与 useSelectionHandles.js 的 HANDLE_BOX 一致**
+   （那边读 --ui-scale 再乘上去做夹取，两边对不上手柄就会偏离选区端点）。
+   圆点与杆都是伪元素画的，盒子本身透明 —— 起点那盒往文字上方伸、终点那盒往下方伸，
+   两块都不会盖住被选中的那一行。 */
+.selection-handle {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  pointer-events: auto;
+  /* 「按住再拖」三件套之一：这一层自己处理手势，别交给浏览器去滚页面 */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 拖动中把两颗手柄都设成对命中测试隐身（pointer-events: none 的元素会被
+   `document.elementFromPoint` 跳过）。不这么做的话，手指移进手柄自己那 44px 的盒子时，
+   Monaco 的 `getTargetAtClientPoint` 会命中手柄这个「编辑器之外的元素」而返回 position: null，
+   拖动当场卡死 —— 详见 composables/useSelectionHandles.js 文件头那条 ⚠️。
+   拖动本身不受影响：pointermove / pointerup 挂在 window 上，触摸另有隐式指针捕获。 */
+.selection-handles.is-dragging .selection-handle {
+  pointer-events: none;
+}
+
+/* 圆点：两个手柄共用，位置由下面的 --start / --end 各自摆 */
+.selection-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+/* 杆：把圆点接到选区端点那一条文字边上，不然圆点看着像凭空飘着 */
+.selection-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+
+/* 起点：盒子的**下边**落在选区上沿，圆点在上、杆向下接文字 —— 同 iOS 左侧那颗。
+   盒子本身不带位移：JS 直接给盒子左上角（已夹在编辑器可视区内），
+   所以圆点水平居中就是靠盒子宽度撑出来的，盒宽必须与 HANDLE_BOX 一致。 */
+.selection-handle--start::before {
+  bottom: 6px;
+}
+
+.selection-handle--start::after {
+  bottom: 0;
+  height: 10px;
+}
+
+/* 终点：盒子的**上边**落在选区下沿，圆点在下、杆向上接文字 —— 同 iOS 右侧那颗 */
+.selection-handle--end::before {
+  top: 6px;
+}
+
+.selection-handle--end::after {
+  top: 0;
+  height: 10px;
 }
 
 .editor-pane__preview {

@@ -838,6 +838,13 @@ function onLongCopy(event, full) {
 
 .field__label {
   display: block;
+  /* 右移 4px（2026-10-10）：三个小标题原先贴着卡片左内边距（6px）的边，与下方输入框
+     内文字（6 + 9 = 15px）之间空出 9px，看着像被挤在左边缘上。给 4px 后标签起点落到
+     10px，与框内文字仍差 5px、保留「标签在框外」的从属感。
+     写 px 让它跟着全局缩放一起走（.ta 的 9px 内边距同理，两者是同一套坐标）。
+     .field__label--row 那份（ACTUAL）同样吃到这条左内边距：它是 space-between 行，
+     左内边距只推文字、右侧动作组仍贴右缘，不会跟着左移。 */
+  padding-left: 4px;
   margin-bottom: 4px;
   font-size: 10px;
   letter-spacing: 0.6px;
