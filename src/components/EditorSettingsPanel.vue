@@ -445,6 +445,9 @@ async function useVirtualWorkspace() {
 const EXTENSION_VERSION = '2.66.2'
 const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
 const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
+// Firefox 版已上架 AMO，直接外链过去一键装；Chrome 仍未上架，只能给 zip 手动加载。
+// 这个地址不随版本走（AMO 那个页面永远是「最新版」），所以不在上面「发新版改两个常量」之列。
+const FIREFOX_EXTENSION_URL = 'https://addons.mozilla.org/zh-CN/firefox/addon/cc-for-web/'
 
 // 扩展对外只暴露 _execute_action 这类内部 id，显示名只能在这边维护
 const EXTENSION_COMMAND_KEYS = {
@@ -2138,10 +2141,20 @@ watch(pendingUnbind, (open) => {
               </span>
               <span class="setting-row__hint">{{ t('settings.extension.downloadHint') }}</span>
             </span>
-            <span class="setting-row__control">
+            <span class="setting-row__control setting-row__control--pair">
               <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
                 <AppIcon name="download" :size="15" />
                 <span>{{ t('app.download') }}</span>
+              </a>
+              <a
+                class="download-button"
+                :href="FIREFOX_EXTENSION_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                :title="t('settings.extension.download.firefoxTitle')"
+              >
+                <AppIcon name="install" :size="15" />
+                <span>{{ t('settings.extension.download.firefox') }}</span>
               </a>
             </span>
           </div>
@@ -2832,6 +2845,15 @@ watch(pendingUnbind, (open) => {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
+}
+
+/* 同一行并排两颗按钮（插件下载行：站内 zip + Firefox 商店外链）。
+   可折行，窄面板下不让左边的标签被挤没（不折行时靠右对齐，与原单按钮摆法一致） */
+.setting-row__control--pair {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
 }
 
 /* 输入框 / 下拉：文本在上、控件独立成行落在左下，避免控件把标签挤窄。

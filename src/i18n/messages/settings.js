@@ -239,7 +239,7 @@ export default {
         groupNote:
           '装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站。',
         downloadHint:
-          '装上后需在 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。插件不在应用商店里，所以没法一键安装。',
+          'Firefox 用户点右侧「Firefox 版」去附加组件商店一键安装；Chrome 用户下载 zip 后到 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。',
         /** 上面那句里夹着一个 <code>chrome://extensions/shortcuts</code>，拆成前后两半 */
         shortcutsManagedPrefix: '插件快捷键由浏览器管理，网页没有权限改写，也没有权限跳转到',
         shortcutsManagedSuffix: '（浏览器会拦掉指向 chrome:// 的跳转）。只能复制地址后自己到地址栏粘贴打开。',
@@ -250,7 +250,7 @@ export default {
         recheckTitle: '重新检测插件',
         checking: '检测中',
         checkingHint: '检测中…',
-        download: { label: '下载插件' },
+        download: { label: '下载插件', firefox: 'Firefox 版', firefoxTitle: '前往 Firefox 附加组件商店安装' },
         /** 下载那一行标题后面的版本号：标的是这个网站提供的安装包版本 */
         downloadVersion: '最新版本 v{version}',
         destinations: '投递目标',
@@ -595,7 +595,7 @@ export default {
         groupNote:
           'With the extension installed, click its icon on any problem page and the statement, samples and limits are pushed straight into this site.',
         downloadHint:
-          'After downloading, open chrome://extensions, turn on Developer mode, and use “Load unpacked” to select the folder you extracted. The extension is not on the store, so there is no one-click install.',
+          'On Firefox, click “Firefox version” to install straight from the add-ons store. On Chrome, download the zip, then open chrome://extensions, turn on Developer mode, and use “Load unpacked” to select the folder you extracted.',
         shortcutsManagedPrefix:
           'Extension shortcuts are managed by the browser: a web page cannot rebind them, nor navigate to',
         shortcutsManagedSuffix:
@@ -607,7 +607,7 @@ export default {
         recheckTitle: 'Check for the extension again',
         checking: 'Checking',
         checkingHint: 'Checking…',
-        download: { label: 'Download the extension' },
+        download: { label: 'Download the extension', firefox: 'Firefox version', firefoxTitle: 'Install from Firefox Add-ons' },
         /** Version of the package this site ships */
         downloadVersion: 'Latest v{version}',
         destinations: 'Delivery targets',
