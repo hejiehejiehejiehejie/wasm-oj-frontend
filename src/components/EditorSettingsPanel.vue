@@ -39,8 +39,10 @@ import { flush } from '../services/autoSave.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
+  forgetActiveProfile,
   markCloudEntryHandled,
   pendingCloudHandle,
+  writeActiveProfile,
   writeCloudEntryPath,
 } from '../services/cloudEntry.js'
 import {
@@ -1185,6 +1187,10 @@ async function verifyAndLogin() {
   // 先把绑定关系与设备令牌落下（会写 localStorage；下面那步会刷新页面，晚了就写不进去了），
   // 再做会刷新页面的那一步
   const profile = cloudRemoteProfile.value
+  // 两处时间刻意不是同一个值：账号行显示的是「读到的旧时间」（回写会把服务端的 updatedAt 顶成
+  // 此刻，可那不是「用户改了配置」，显示它只会误导）；而「本机在跟哪一版」要记**回写后的那一版**
+  // —— 云端现在存着的就是它，记旧值会让下次打开站点白对齐一次（见 cloudEntry.js 的闸门）
+  const appliedVersion = result.updatedAt ?? cloudRemoteUpdatedAt.value
   cloudAccount.value = { handle, updatedAt: cloudRemoteUpdatedAt.value }
   cloudToken.value = result.token ?? ''
   cloudHandleInput.value = ''
@@ -1193,7 +1199,7 @@ async function verifyAndLogin() {
   cloudRemoteProfile.value = null
   cloudRemoteUpdatedAt.value = ''
   // 刷新成功的话后面就不用走了；只有云端那份一个白名单键都没有时才会走到这里
-  if (!(await adoptCloudProfile(profile, handle))) {
+  if (!(await adoptCloudProfile(profile, handle, appliedVersion))) {
     cloudNotice.value = t('settings.cloud.loggedIn')
   }
 }
@@ -1231,8 +1237,11 @@ async function uploadWithToken(handle) {
   if (result.success) {
     cloudAccount.value = { handle, updatedAt: result.updatedAt ?? '' }
     cloudNotice.value = t('settings.cloud.saved')
-    // 云端现在存着的就是这一套，地址栏跟着认下这位（见 cloudEntry.js 的 writeCloudEntryPath）
+    // 云端现在存着的就是这一套，地址栏跟着认下这位（见 cloudEntry.js 的 writeCloudEntryPath），
+    // 「本机在跟哪一版」也一起记上 —— 刚传上去的这一版就是本机正在用的那一版，
+    // 不记的话下次打开站点会白对齐一次（见那边的 writeActiveProfile）
     writeCloudEntryPath(handle)
+    writeActiveProfile(handle, result.updatedAt ?? '')
     return
   }
   if (result.status !== 401) {
@@ -1271,8 +1280,9 @@ async function verifyAndUpload() {
   cloudCode.value = ''
   cloudPendingHandle.value = ''
   cloudNotice.value = t('settings.cloud.saved')
-  // 同上：云端刚存下这一套，地址栏跟着认下这位
+  // 同上：云端刚存下这一套，地址栏跟着认下这位，「本机在跟哪一版」一起记上
   writeCloudEntryPath(handle)
+  writeActiveProfile(handle, result.updatedAt ?? '')
 }
 
 /**
@@ -1295,7 +1305,7 @@ async function downloadCloudProfile() {
       : cloudFailure(result)
     return
   }
-  if (!(await adoptCloudProfile(result.data, cloudAccount.value.handle))) {
+  if (!(await adoptCloudProfile(result.data, cloudAccount.value.handle, result.updatedAt ?? ''))) {
     cloudError.value = t('settings.cloud.emptyProfile')
   }
 }
@@ -1309,14 +1319,17 @@ async function downloadCloudProfile() {
  * 「登录成功」与「点下载」共用这里：两者的语义都是「这台设备改用云端那一套设置」。
  * 注意方向始终是**只下不传**：这个函数不碰云端一个字节。
  *
- * 真的落下去之后顺手把 /<handle> 写进地址栏（见 writeCloudEntryPath）：既然这台设备现在
- * 用的就是这位的配置，地址栏就该是这条可收藏、可分享的链接。写在那次 reload 之前，
- * 否则刷新完就晚了。
+ * 真的落下去之后顺手办两件事，都必须落在那次 reload 之前（晚了就写不进去）：
+ * - 把 /<handle> 写进地址栏（见 writeCloudEntryPath）：既然这台设备现在用的就是这位的配置，
+ *   地址栏就该是这条可收藏、可分享的链接；
+ * - 把「本机在跟谁 + 套用的是哪一版」记进 `cp.cloudActive`（见 cloudEntry.js 的
+ *   writeActiveProfile）：下次打开站点直接对齐这一套，不必再点一次。
  */
-async function adoptCloudProfile(data, handle) {
+async function adoptCloudProfile(data, handle, updatedAt = '') {
   if (!applyProfile(data)) return false
   cloudNotice.value = t('settings.cloud.downloaded')
   writeCloudEntryPath(handle)
+  writeActiveProfile(handle, updatedAt)
   await flush()
   window.location.reload()
   return true
@@ -1394,6 +1407,10 @@ function importCloudByHandle() {
  * 但**不写 cp.cloudAccount / cp.cloudToken**：链接是公开的，谁都能构造一条指向别人的，
  * 套用它不该把这台设备绑到那个用户名上 —— 那会凭空多出「上传本机设置」与「解绑」两个
  * 入口，而它们本来只该属于账号的主人。
+ *
+ * 「绑定」与「本机在跟谁」是两件事：这一步会记下 `cp.cloudActive`（见 adoptCloudProfile）——
+ * 用户点了套用就等于认下了这套配置，下次打开站点接着用它；但那不等于绑定，仍然没有
+ * 上传 / 解绑两个入口。想不再跟着它，解绑不行（那是账号的事），重新导入 / 登录另一位即可。
  */
 async function confirmCloudApply() {
   const handle = cloudApplyHandle.value
@@ -1415,7 +1432,7 @@ async function confirmCloudApply() {
       : cloudFailure(result)
     return
   }
-  if (!(await adoptCloudProfile(result.data, handle))) {
+  if (!(await adoptCloudProfile(result.data, handle, result.updatedAt ?? ''))) {
     cloudError.value = t('settings.cloud.emptyProfile')
   }
 }
@@ -1463,6 +1480,9 @@ function confirmUnbind() {
   // （服务端也会因为 owner !== handle 而回 401，但那是兜底，不该靠它）
   cloudToken.value = ''
   cloudHandleInput.value = ''
+  // 「本机在跟谁」一并忘掉：留着的话，下次打开站点会把这位的配置又自动套回来 ——
+  // 那正是「解绑」最不该有的后果（这一步只删本机存档，仍然不发任何请求，见上面那段）
+  forgetActiveProfile()
 }
 
 // 弹窗一出现就把焦点送到「解绑」上，Enter / Esc 都能纯键盘走完
@@ -2567,8 +2587,10 @@ watch(pendingUnbind, (open) => {
     </Teleport>
 
     <!-- 地址里带来的 /<handle>：问一次要不要套用这份云端配置。
-         刻意**不**自动套用也不自动登录 —— 链接谁都能构造，替换本机设置该由用户点头才发生
-         （见 services/cloudEntry.js）。与上面两个确认同款自绘弹窗。 -->
+         别人的链接刻意**不**自动套用也不自动登录 —— 链接谁都能构造，替换本机设置该由用户点头才发生。
+         （地址里那位正是本机在跟的那位时不走弹窗：cloudEntry.js 已经直接对齐了，见那里的文件头。
+           反过来，用户在这儿点了「套用」就等于认下这位，之后打开站点会继续用它那一套。）
+         与上面两个确认同款自绘弹窗。 -->
     <Teleport to="body">
       <div v-if="cloudApplyHandle" class="confirm" @pointerdown.self="cancelCloudApply">
         <div

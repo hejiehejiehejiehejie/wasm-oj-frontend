@@ -97,6 +97,21 @@ export const WORKSPACE_MODE_KEY = 'cp.workspaceMode'
  */
 export const WORKSPACE_ROOT_KEY = 'cp.workspaceRoot'
 
+// ---------------------------------------------------------------- 云端配置的「本机在跟谁」
+
+/**
+ * 本机正在跟着谁的云端配置：`{ handle, updatedAt }`。
+ *
+ * `updatedAt` 是**已经套用过的那一版**云端的更新时间（服务端给的 ISO 串，空串 = 不知道）。
+ * 启动时拿它跟云端比，**相同就不重复套用** —— 少了这道闸门，每次打开站点都会覆盖本机一次，
+ * 本机的临时改动被冲掉，而且会「套用 → 刷新 → 又套用」转不出去（那次刷新是没有条件的）。
+ *
+ * 与上面两条一样是**这台设备**的事实，**绝不进云同步白名单**：同步过去等于让另一台设备
+ * 自动套用一份它从没认领过的配置。读写都在 `services/cloudEntry.js`
+ * （`readActiveProfile` / `writeActiveProfile` / `forgetActiveProfile`）。
+ */
+export const CLOUD_ACTIVE_KEY = 'cp.cloudActive'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**
