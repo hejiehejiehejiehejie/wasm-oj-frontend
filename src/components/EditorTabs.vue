@@ -6,6 +6,10 @@
  *   存回 openTabIds（含持久化）。手势与落点判据全在 composables/useTabDrag.js，本文件
  *   只提供根元素、转交 pointerdown、渲染拖拽态与插入指示条。**只排文件页签** ——
  *   设置 / 抽题那两个合成视图页签恒定排在后面，理由见 useTabDrag 的文件头。
+ * - **触屏**（同日补）：长按 450ms 起手，中间有「按住进度 → 就绪弹一下」两段反馈
+ *   （`--pressing` / `--armed`，与文件树的同款逐条对应）；页签上还声明了
+ *   `touch-action: pan-x` + `user-select: none` + `-webkit-touch-callout: none`。
+ *   四条各自的理由写在样式表那两处注释里，**改拖拽时别忘了它们**。
  * - 预览页签（单击文件树开出来的那个）标签用斜体，见 workspace.previewTabId。
  * - dirty 文件显示圆点替代图标；活跃标签顶边取主题强调色。开着自动保存时不显示圆点
  *   （dirty 只存在几百毫秒，圆点只会闪一下），见下面的 isDirtyTab。
@@ -155,10 +159,11 @@ const instantSwap = ref(false)
 
 // 拖动排序：只对文件页签起手（useTabDrag 认 data-tab-id），落盘走 store 的 moveTab。
 // 放在 rootEl 之后 —— useTabDrag 拿的是这个 ref 对象，声明顺序上不能提前。
-const { draggingId, indicatorX, onTabPointerDown, consumeClickSuppression } = useTabDrag({
-  rootEl,
-  onDrop: moveTab,
-})
+const { draggingId, indicatorX, pressingId, armedId, onTabPointerDown, consumeClickSuppression } =
+  useTabDrag({
+    rootEl,
+    onDrop: moveTab,
+  })
 
 // 被顶替那一格在更新前的宽度，供新页签的宽度过渡当起点（见 onTabEnter）
 let swapFromWidth = 0
@@ -238,6 +243,8 @@ function onTabEnter(el) {
           'editor-tabs__item--active': id === workspace.activeId && !viewActive,
           'editor-tabs__item--preview': id === workspace.previewTabId,
           'editor-tabs__item--dragging': id === draggingId,
+          'editor-tabs__item--pressing': id === pressingId,
+          'editor-tabs__item--armed': id === armedId,
         }"
         role="tab"
         :data-tab-id="id"
@@ -382,6 +389,24 @@ function onTabEnter(el) {
   color: var(--text-dim);
   font-size: 12.5px;
   cursor: pointer;
+  /* --------------------------------------------------------- 触屏（2026-10-10 补）
+     拖动排序在鼠标下能用、到真机上「长按半天没反应」，差的就是这三条 ——
+     它们与文件树行 `.tree-item__row` 的 `touch-action: pan-y` 是同一套判据、方向相反。
+     ⚠️ 无头探针里的合成触摸事件**不跑浏览器的手势识别器**，所以这三条在探针里全测不出来，
+     只有真机能暴露；改页签拖拽时别把它们删了。
+     · touch-action: pan-x —— 把「横向滑动」明确留给浏览器去滚页签条（**不能写 none**：
+       条带是横向滚动容器，写 none 之后手指在页签上再也滚不动了）。顺带关掉这一块上的
+       双指缩放 / 双击缩放：拖动中途若有第二根手指落下来，会立刻触发 pointercancel 把那一帧打断。
+       触屏「长按起手后不让它滚」靠的是 useTabDrag 的非被动 touchmove 拦，不是靠这一条。
+     · user-select / -webkit-user-select: none —— 长按起手那 450ms 里不许选中标签文字。
+       iOS 一旦进入选词就会连 callout（放大镜 + 菜单）一起弹出来，拖拽当场变成选词；
+       `-webkit-` 那条是给老 WebKit 的，只写标准属性在 iOS 上不生效。
+     · -webkit-touch-callout: none —— 同上，iOS 专属：长按不许弹那个 callout。
+       系统长按菜单（contextmenu）另外由 useTabDrag 从按下那一刻 preventDefault 掉。 */
+  touch-action: pan-x;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* 悬停（2026-10-10 改）：从「页签下沿一条 1px 细线从中心展开」换成**整块底色换一档**。
@@ -409,6 +434,57 @@ function onTabEnter(el) {
   color: var(--text);
 }
 
+/* ---------------------------------------------------------------- 触屏长按的两段反馈
+   （2026-10-10 加，与文件树那套 FileTreeItem 的 --pressing / --armed 逐条对应）
+   触屏借不到 hover，而从按住到「能拖」中间隔着 450ms 的等待 —— 这一段不给反馈，手感就是
+   「按了没反应」。所以拆成两段（两个 id 只在 pointerType !== 'mouse' 时置位，鼠标路径不受影响）：
+   - `--pressing`「还在等」：整块底色当进度条，从当前底色线性走到 --bg-hover，到点那一刻刚好走完
+     （时长必须与 useTabDrag.js 的 LONG_PRESS_MS 一致，改一边就得改另一边）。
+   - `--armed`「已经就绪」：弹一下，底色停在 --bg-hover 上，一直留到松手或真的开始拖。
+     弹一下本身就是「长按成功了」的信号，不再叠一层别的色 —— 换成选中色（--bg-tab-active）
+     会被读成「这个页签被选中了」，而此刻它其实只是「可以被拖」。
+   为什么用 `--bg-hover` 而不是页签自己的 `--bg-tab-hover`（2026-10-10 实拍量出来的）：
+   那一档只比栏底亮 / 深 6 阶（深色 #222225 → #28282b），进度走到一半实测只有 **3 阶**差别，
+   等于没有反馈；而 `--bg-hover`（#323539 / #e8e8e8）与文件树那套按压进度是同一档，隔着 16 阶。
+   另外它也必须**不等于** `--bg-tab-hover`：触屏浏览器在按下那一刻会补一个 :hover 把页签先染成
+   悬停色，如果进度终点就是悬停色，那 450ms 里底色一点不动 —— 这正是下面双类选择器要防的同一件事。
+   也不能用 `--bg-tab-active`：深色下它比栏底更暗（方向相反、看着像「凹进去」），还会被读成选中。
+   两条都写成「元素 + 类」的双类 (0,2,0)：单类是 (0,1,0)，压不过上面 :hover / --active:hover；
+   而触屏浏览器常常在按下那一刻就补一个 :hover，写成单类的话进度条一上来就被悬停色顶掉、根本
+   出不来。还要**排在上面 --active 之后**：同为 (0,2,0) 靠源序取胜 —— 长按「当前选中那一张」时
+   也得有反馈（少了它，`--active:hover` 会把进度色整个顶掉，选中的页签按下去一点动静都没有）。
+   进度的起点就是它当时的底色，所以从 --bg-tab-active 走到 --bg-tab-hover 也是一条看得见的进度。
+   刻意**不加投影**（文件树那一行有）：页签在 35px 的条里与左右邻签紧贴，往下打的投影会被
+   `.editor-tabs` 的 overflow: hidden 从下沿切掉，只剩一圈脏边。 */
+.editor-tabs__item.editor-tabs__item--pressing {
+  background: var(--bg-hover);
+  /* 线性（不加缓动）：进度条要走得均匀，到头才是「正好可以松手」的那一瞬。
+     减弱动效时会被 base.css 的 prefers-reduced-motion 压成 0.01ms —— 那就只剩到点时的弹一下。 */
+  transition: background-color 450ms linear;
+}
+
+.editor-tabs__item.editor-tabs__item--armed {
+  /* 弹起来的页签要盖住左右邻签：它是 position: relative，靠 z-index 提到同层兄弟之上 */
+  z-index: 2;
+  background: var(--bg-hover);
+  /* 只动 transform，页签盒子的宽度不变、邻签一个像素都不动，播完自己回到原样。
+     放 animation 而不是 transition，是为了让它**只播这一次** —— 留在就绪态里等松手时
+     不会再被任何属性变化重新触发。 */
+  animation: tab-press-pop 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes tab-press-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 /* 被拖动的页签（2026-10-10 加）：**留在原位**，只压暗表示「它正跟着指针走」。
    真正换位发生在松手那一刻（见 useTabDrag 文件头）：中途改 openTabIds 会让被拖的那一个
    也被 TransitionGroup 的 .tab-move 补间一次，与指针底下的拖拽视觉打架。
@@ -418,8 +494,9 @@ function onTabEnter(el) {
   cursor: grabbing;
 }
 
-/* 拖动中：整条栏换成抓取光标；指针划过沿途页签时不再给悬停反馈（注意力留给插入指示条）；
-   顺手屏蔽文字选中 —— 横向拖久了浏览器容易把标签文字拖出一片选区。 */
+/* 拖动中：整条栏换成抓取光标；指针划过沿途页签时不再给悬停反馈（注意力留给插入指示条）。
+   这里的 user-select 现在是**兜底**了 —— 每条页签自己已经常开 `user-select: none`（见基类里
+   那组触屏声明），留着是防「拖拽时把标签文字拖出一片选区」在别的子元素上再冒出来。 */
 .editor-tabs.is-dragging {
   cursor: grabbing;
   user-select: none;
