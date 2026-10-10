@@ -391,6 +391,8 @@ const {
   dropTargetRowId,
   isRootDrop,
   suppressContextMenu,
+  pressingId,
+  armedId,
   onRowPointerDown,
   consumeClickSuppression,
 } = useTreeDrag({ treeEl: rootEl, onDrop: onDropNode, openContextMenu })
@@ -469,6 +471,9 @@ provide('consumeClickSuppression', consumeClickSuppression)
 provide('suppressContextMenu', suppressContextMenu)
 provide('dropTargetRowId', dropTargetRowId)
 provide('draggingId', draggingId)
+// 触屏长按的两段提示：按压进度（还在等）与就绪态（已经可以拖 / 可以松手弹菜单）
+provide('pressingId', pressingId)
+provide('armedId', armedId)
 </script>
 
 <template>

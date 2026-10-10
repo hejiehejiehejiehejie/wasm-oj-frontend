@@ -48,6 +48,8 @@ const consumeClickSuppression = inject('consumeClickSuppression')
 const suppressContextMenu = inject('suppressContextMenu')
 const dropTargetRowId = inject('dropTargetRowId')
 const draggingId = inject('draggingId')
+const pressingId = inject('pressingId')
+const armedId = inject('armedId')
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
 /** 这一行是不是选中项。文件与目录同一套判据（选中是**单选**的）—— 目录也能被选中，
@@ -59,6 +61,10 @@ const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(prop
 /** 拖拽态：被拖的那一行变淡，合法落点那一行铺选中色 */
 const isDragging = computed(() => draggingId?.value === props.node.id)
 const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
+/** 触屏按住了、还没到长按阈值：整行用底色当「按住进度」，见样式里的 --pressing */
+const isPressing = computed(() => pressingId?.value === props.node.id)
+/** 触屏长按已成：弹一下 + 换成就绪底色与投影（此刻松手弹菜单，拖动即移动），见 --armed */
+const isArmed = computed(() => armedId?.value === props.node.id)
 
 /**
  * 打不开的文件：本机文件夹里由 Rust 扫描判出的二进制 / 超大文件。
@@ -303,6 +309,8 @@ function onKeyDown(event) {
         'tree-item__row--active': selected,
         'tree-item__row--dragging': isDragging,
         'tree-item__row--drop': isDropTarget,
+        'tree-item__row--pressing': isPressing,
+        'tree-item__row--armed': isArmed,
         'tree-item__row--muted': unopenable,
       }"
       :style="{ '--depth': depth }"
@@ -479,6 +487,51 @@ function onKeyDown(event) {
 .tree-item__row--dragging {
   opacity: 0.5;
   cursor: grabbing;
+}
+
+/* ---------------------------------------------------------------- 触屏长按（2026-10-10 加）
+   触屏上借不到 hover，而从按住到「能拖」中间隔着 450ms 的等待 —— 这一段不给反馈，
+   手感就是「按了没反应」。所以拆成两段提示（两个 id 都只在 pointerType !== 'mouse' 时置位，
+   鼠标路径完全不受影响）：
+
+   - `--pressing`「还在等」：整行底色当作进度条，从透明线性走到 --bg-hover，
+     到点那一刻刚好走完（时长必须与 useTreeDrag.js 的 LONG_PRESS_MS 一致）。
+   - `--armed`「已经就绪」：弹一下，并落下一层投影，一直留到松手或真的开始拖。
+     此刻的行为分叉是「原地松手 = 弹右键菜单」「继续移动 = 拖走」，动画本身不区分这两条，
+     只负责说「长按已经成功」。
+
+   两条都写成「元素 + 类」的双类 (0,2,0)：单类 (0,1,0) 压不过上面那两条 :hover / --active:hover；
+   而触屏浏览器常常在按下时就补一个 :hover，写成单类的话进度条一上来就被悬停色顶掉、根本出不来。 */
+.tree-item__row.tree-item__row--pressing {
+  background: var(--bg-hover);
+  /* 线性（不加缓动）：进度条要走得均匀，到头才是「正好可以松手」的那一瞬。
+     减弱动效时这条会被 base.css 的 prefers-reduced-motion 兜底压成 0.01ms —— 那就只剩
+     到点时的弹一下与投影，仍然说得清「成功了」。 */
+  transition: background-color 450ms linear;
+}
+
+.tree-item__row.tree-item__row--armed {
+  /* 投影得盖住上下相邻的两行，否则会被它们切断 */
+  position: relative;
+  z-index: 2;
+  background: var(--bg-hover);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.32);
+  /* 「弹一下」：只动 transform，行不位移也不留形变，播完自己回到原样。
+     放到 animation 而不是 transition，是为了让它**只播这一次**——留在就绪态里等松手时
+     不会再被任何属性变化重新触发。 */
+  animation: tree-press-pop 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes tree-press-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* 打不开的文件（本机文件夹里的二进制 / 超大文件）：图标与名字调暗一档，说明「这一行点了也看不

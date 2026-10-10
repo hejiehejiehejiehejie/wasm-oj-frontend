@@ -23,7 +23,9 @@ import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { getNodeById, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, isWithin } from '../services/vfs/paths.js'
 
-/** 触屏长按多久算「我要拖了」。与系统长按菜单的阈值无关（按下即接管，见下）——450ms 只是手感 */
+/** 触屏长按多久算「我要拖了」。与系统长按菜单的阈值无关（按下即接管，见下）——450ms 只是手感。
+ *  ⚠️ 这个数牵着一处样式：`FileTreeItem.vue` 里按压进度那条 `transition: background-color 450ms linear`
+ *  ——底色要在到点那一刻刚好走完，改一边就得改另一边（见那两个类上的注释）。 */
 const LONG_PRESS_MS = 450
 /** 鼠标判定成拖拽的位移（像素） */
 const MOUSE_MOVE_PX = 4
@@ -106,6 +108,17 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
   /** 长按已接管 contextmenu（触屏原地松手时会自己弹菜单，不能让系统菜单再插一脚） */
   const suppressContextMenu = ref(false)
 
+  /**
+   * 触屏按压中的行 id —— 行上的「按住进度」底色靠它（见 FileTreeItem 的 --pressing）。
+   * 只对触屏置位：鼠标按下就该立刻拖，中间那段「等待」不存在，给进度反而像卡了。
+   */
+  const pressingId = shallowRef(null)
+  /**
+   * 长按已成、但还没松手也没开始拖的行 id —— 行上的「弹一下」动画与就绪底色 / 投影靠它。
+   * 与 pressingId 的分工：pressing 是「还在等」，armed 是「已经就绪，现在松手弹菜单、拖动可移动」。
+   */
+  const armedId = shallowRef(null)
+
   /** 当前这一轮按压的全部临时状态；null = 没有按压在途 */
   let press = null
   let scrollFrame = 0
@@ -145,6 +158,9 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
       timer: 0,
     }
     if (press.pointerType !== 'mouse') {
+      // 按压进度：行的底色从透明线性走到 --bg-hover（450ms 那条过渡写在 FileTreeItem 里，
+      // 与下面这张表同步）；到点由 arm() 换成「就绪态」。
+      pressingId.value = node.id
       press.timer = window.setTimeout(arm, LONG_PRESS_MS)
       // 触屏从**按下这一刻**就接管 contextmenu：各家系统长按菜单的阈值并不一致（多数 ~500ms，
       // 但某些 WebView / 系统设置更短），等到 armed 再拦可能已经晚了一步 —— 那会弹出第二个菜单，
@@ -163,6 +179,12 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
     if (!press || press.dragging) return
     press.timer = 0
     press.armed = true
+    // 到点了：行换成「就绪态」——弹一下 + 底色加深 + 一层投影，一直留到松手或开始拖。
+    // 这一刻是整条手势里唯一「告诉用户长按成功了」的信号，别把它省掉。
+    // pressing 必须同时退场：两态是互斥的（等 → 已就绪），而且 --pressing 自带那条
+    // 450ms linear 的过渡会跟着留下，松手时整行要用 450ms 才淡回去、比别的行慢一拍。
+    pressingId.value = null
+    armedId.value = press.node.id
     window.addEventListener('touchmove', onTouchMoveBlock, { passive: false, capture: true })
   }
 
@@ -244,6 +266,10 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
       press.timer = 0
     }
     draggingNode.value = press.node
+    // 真的拖起来了：按压 / 就绪那一套退场，改由 draggingId 表达（行变淡 + 幽灵跟手）。
+    // 留着的话，被拖的那一行会同时挂着就绪底色与投影，跟「变淡」叠在一起很脏。
+    pressingId.value = null
+    armedId.value = null
     ghostPos.value = { x: event.clientX, y: event.clientY }
     suppressContextMenu.value = true
 
@@ -414,6 +440,10 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
     stopAutoScroll()
     clearSpringOpen()
     press = null
+    // 触屏那两个提示态统一在这里收：松手、Esc、pointercancel、组件卸载都汇到这条路上，
+    // 漏掉任何一个出口，行上的「弹过了 / 正按着」的样子就会一直挂在那儿
+    pressingId.value = null
+    armedId.value = null
     draggingNode.value = null
     dropTarget.value = null
     // 松手 / Esc / pointercancel / 卸载都汇到这儿：外部落点的高亮也一并收掉
@@ -452,6 +482,10 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu }) {
     dropTargetRowId,
     isRootDrop,
     suppressContextMenu,
+    /** 触屏按压中的行 id（「按住进度」底色） */
+    pressingId,
+    /** 长按已成、尚未松手的行 id（「弹一下」动画 + 就绪底色 / 投影） */
+    armedId,
     onRowPointerDown,
     consumeClickSuppression,
   }
