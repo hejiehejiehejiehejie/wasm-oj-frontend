@@ -354,7 +354,9 @@ function onTabEnter(el) {
   display: inline-flex;
   align-items: center;
   position: relative;
-  /* 切换页签：底色与文字色淡入淡出（选中那条蓝线见下方的 ::after）。
+  /* 切换页签：底色与文字色淡入淡出 —— **这就是点选页签时看见的那段动画**
+     （2026-10-10 起：原先那条会「上浮 + 变蓝」的高亮线已去掉，选中只由底色表示，
+     见下面的 .editor-tabs__item--active）。
      与场次动画（.tab-*）用同一支缓动，观感是一次动作。 */
   transition:
     background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
@@ -384,6 +386,8 @@ function onTabEnter(el) {
   color: var(--text);
 }
 
+/* 选中：**只有底色**（2026-10-10 起不再有顶部高亮条）。点选页签看见的动画就是
+   底色从页签栏底色淡入到 --bg-tab-active（顺带文字转亮），过渡写在上面基类那两行。 */
 .editor-tabs__item--active {
   background: var(--bg-tab-active);
   color: var(--text);
@@ -409,23 +413,23 @@ function onTabEnter(el) {
   transform: scaleX(0);
 }
 
-/* 指示线（2026-10-10 加，同日把「悬停线」与独立的选中高亮条合并成这一条）：页签上一条 1px。
-   三种状态走同一个元素，只有位置与颜色不同：
+/* 悬停指示线：页签下沿一条 1px 的 --text-faint，只在鼠标划过时从**中心向两侧**展开。
    - 静止：隐藏（scaleX(0)），停在页签下沿；
-   - 悬停：从**中心向两侧**展开（scaleX 0 → 1），灰色 --text-faint；
-   - 选中：整条**上浮**到页签顶端（top: calc(100% - 1px) → 0）并转为 --focus 蓝 ——
-     落点就是原先由 .editor-tabs__item::before 画的那道高亮条，于是点下页签能看见这条线
-     「变蓝 + 升上去」，而不是凭空淡入。::before 那一整块已删掉：同位置留两条只会互相盖。
+   - 悬停：展开（scaleX 0 → 1），灰色。
+   **选中不再走这条线**（2026-10-10 改）：点选页签的反馈换成页签**底色的淡入**，
+   见下面的 .editor-tabs__item--active（过渡在基类的 background-color 上）。
+   原先那条「上浮到页签顶端并变蓝」的高亮条整块去掉 —— 页签上不再有会移动的东西，
+   点选时只有底色在变。
    几条取舍：
-   - **悬停从中心展开而不是从左滑出**：页签宽度随文件名自适应、长短不一，从中心展开时起点
+   - **从中心展开而不是从左滑出**：页签宽度随文件名自适应、长短不一，从中心展开时起点
      永远落在页签正中，划过一排长短不齐的页签是同一个动作；从左滑出则每个页签的终点不同。
-   - **悬停用 --text-faint 而不是 --text-dim**：--text-dim 是未悬停时的文字色，压在页签下沿
+   - **用 --text-faint 而不是 --text-dim**：--text-dim 是未悬停时的文字色，压在页签下沿
      会与文字一样重；--text-faint 只比页签栏底边线（--border-soft）亮一档，
-     正好是「指针在这儿」而不抢选中那条蓝线。
-   - **上浮的起点写 calc(100% - 1px)、不写死 34px**：页签高度由 .editor-tabs 的
-     `flex: 0 0 35px` 定，写百分比能跟着一起变（改条高不必回来改这里）；减掉的 1px 是线自身
-     的高度，它低于 pxtorem 的 minPixelValue(3) 不参与缩放，所以两端都不转、永远对齐。
-   - **transform-origin: center** 只服务悬停那条「从中心展开」；上浮走的是 top，与它无关。
+     正好是「指针在这儿」而不抢选中的底色。
+   - **top 写 calc(100% - 1px)、不写死 34px**：页签高度由 .editor-tabs 的 `flex: 0 0 35px`
+     定，写百分比能跟着一起变；减掉的 1px 是线自身的高度，它低于 pxtorem 的 minPixelValue(3)
+     不参与缩放，所以两端都不转、永远对齐。
+   - **transform-origin: center** 只服务上面那条「从中心展开」。
    缓动与 .tab-move / 侧栏指示器同源（house 曲线）；180ms 与页签进出场的位移同长。 */
 .editor-tabs__item::after {
   content: '';
@@ -437,10 +441,7 @@ function onTabEnter(el) {
   background: var(--text-faint);
   transform: scaleX(0);
   transform-origin: center;
-  transition:
-    top 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    background-color 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* 只给真能悬停的设备（鼠标 / 触控板）：触屏的 :hover 是在 tap 那一刻套上并**黏住**的，
@@ -449,17 +450,6 @@ function onTabEnter(el) {
   .editor-tabs__item:hover::after {
     transform: scaleX(1);
   }
-}
-
-/* 选中：上浮到顶端 + 变蓝。必须写在上面那条 :hover 规则**之后**，且两条都要留着 ——
-   `.editor-tabs__item:hover::after` 的特异性是 (0,2,1)（:hover 按类级计），单写
-   `.editor-tabs__item--active::after` 只有 (0,1,1)，光靠顺序赢不了（2026-10-10 踩过）。
-   好在两条只在 scaleX 上重合、取值相同（都是 1）；真正区分状态的 top 与 background
-   只有这一条在设，所以不会再互相盖。 */
-.editor-tabs__item--active::after {
-  top: 0;
-  background: var(--focus, var(--accent));
-  transform: scaleX(1);
 }
 
 /* ------------------------------------------------------ 拖动排序的插入指示条
