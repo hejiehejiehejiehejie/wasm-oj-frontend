@@ -334,8 +334,10 @@ function onTabEnter(el) {
      「× 墨迹 → 页签右缘」与「代码图标墨迹 → 页签左缘」的留白基本齐平。 */
   padding: 0 7px 0 10px;
   background: transparent;
+  /* 页签之间那条 1px 竖线（原 border-right: 1px solid var(--border-soft)）2026-10-10 去掉：
+     相邻页签不再互相描边，未选中页签靠「透明底色 + 文字色」、选中页签靠 --bg-tab-active
+     与之区分。注意 border: none 必须留着 —— 全局 button 样式带着边框，去掉会露出系统描边。 */
   border: none;
-  border-right: 1px solid var(--border-soft);
   color: var(--text-dim);
   font-size: 12.5px;
   cursor: pointer;
