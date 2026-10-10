@@ -385,6 +385,29 @@ export function setActiveTab(id) {
 }
 
 /**
+ * 把页签挪到新位置（页签栏拖动排序）。
+ *
+ * 只动 `openTabIds` 的顺序，**不碰** activeId / previewTabId / model —— 节点 id 没变，
+ * 所以 Monaco model、undo 栈、预览槽一个都不受影响；开着的文件不会因此重载。
+ *
+ * `insertIndex` 是**「去掉被拖那一项之后」**的插入下标（取值 `0..rest.length`）。
+ * 这样定义是因为调用方（useTabDrag）算落点时手里拿的就是「其余页签」的列表，
+ * 换算成「在含被拖项的数组里的目标下标」要额外判方向、极易错；这里一句 filter 说清楚：
+ * `rest[0..at]` 排在被拖项左边、`rest[at..]` 排在它右边。
+ *
+ * 落在原位时是空操作（新数组与原数组逐项相同），也就不会白播一次 `.tab-move` 补间。
+ *
+ * @param {string} id
+ * @param {number} insertIndex
+ */
+export function moveTab(id, insertIndex) {
+  if (!workspace.openTabIds.includes(id)) return
+  const rest = workspace.openTabIds.filter((tabId) => tabId !== id)
+  const at = Math.max(0, Math.min(rest.length, insertIndex))
+  workspace.openTabIds = [...rest.slice(0, at), id, ...rest.slice(at)]
+}
+
+/**
  * 选中树里的一行（文件或目录）。作用有二：那一行高亮；页头「新建文件 / 文件夹」落进那个目录
  * （选中文件时取其父目录）。
  *

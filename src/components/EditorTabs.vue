@@ -2,6 +2,10 @@
 /**
  * EditorTabs —— 编辑器标签栏（单编辑器组）。
  * - 点击切换活跃标签；中键关闭；× 按钮关闭；双击钉住预览页签。
+ * - **拖动页签改顺序**（2026-10-10 加）：按住文件页签横向拖，落在别处即交换位置，顺序
+ *   存回 openTabIds（含持久化）。手势与落点判据全在 composables/useTabDrag.js，本文件
+ *   只提供根元素、转交 pointerdown、渲染拖拽态与插入指示条。**只排文件页签** ——
+ *   设置 / 抽题那两个合成视图页签恒定排在后面，理由见 useTabDrag 的文件头。
  * - 预览页签（单击文件树开出来的那个）标签用斜体，见 workspace.previewTabId。
  * - dirty 文件显示圆点替代图标；活跃标签顶边取主题强调色。开着自动保存时不显示圆点
  *   （dirty 只存在几百毫秒，圆点只会闪一下），见下面的 isDirtyTab。
@@ -13,6 +17,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { useTabDrag } from '../composables/useTabDrag.js'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
 import { fileIconName } from '../services/fileIcons.js'
@@ -31,16 +36,25 @@ import {
 import {
   closeTab,
   getNodeById,
+  moveTab,
   pinTab,
   setActiveTab,
   workspace,
 } from '../services/vfs/workspaceStore.js'
 
 function activate(id) {
+  // 拖动收尾那一下会顺带来一个 click：吃掉它，否则拖完顺带把页签切过去
+  if (consumeClickSuppression()) return
   // 点文件页签＝要看代码：先把合成视图（设置 / 抽题）让开。已经停在同一个文件上时
   // activeId 不变，editorViews 里那条 watch 不会触发，所以这里必须显式让一次。
   deactivateViews()
   setActiveTab(id)
+}
+
+/** 双击钉住预览页签；拖动收尾那一串点击同样要挡掉（否则拖完会顺带把它钉住） */
+function onTabDblClick(id) {
+  if (consumeClickSuppression()) return
+  pinTab(id)
 }
 
 /** 页签上这个未保存标记要不要显示：开了自动保存就不显示（dirty 只存在几百毫秒） */
@@ -138,6 +152,14 @@ function onTabBeforeLeave(el) {
    认出来：长度不变、只有一处 id 不同。固定标签的打开/关闭、中键关闭等仍走 name="tab"。 */
 const rootEl = ref(null)
 const instantSwap = ref(false)
+
+// 拖动排序：只对文件页签起手（useTabDrag 认 data-tab-id），落盘走 store 的 moveTab。
+// 放在 rootEl 之后 —— useTabDrag 拿的是这个 ref 对象，声明顺序上不能提前。
+const { draggingId, indicatorX, onTabPointerDown, consumeClickSuppression } = useTabDrag({
+  rootEl,
+  onDrop: moveTab,
+})
+
 // 被顶替那一格在更新前的宽度，供新页签的宽度过渡当起点（见 onTabEnter）
 let swapFromWidth = 0
 
@@ -368,6 +390,48 @@ function onTabEnter(el) {
 
 .editor-tabs__item--active::before {
   opacity: 1;
+}
+
+/* 悬停指示线（2026-10-10 加）：底部那条 1px 从**中心向两侧**展开（scaleX 0 → 1）。
+   三条取舍：
+   - **放底部不放顶部**：顶部那条已经归「选中」了（上面 ::before，--focus 蓝，1px 高亮）。
+     同一条位置再画一条悬停线，指针停在哪儿与「现在打开的是哪个」就分不清了。
+   - **从中心展开而不是从左滑出**：页签宽度随文件名自适应、长短不一，从中心展开时起点
+     永远落在页签正中，划过一排长短不齐的页签是同一个动作；从左滑出则每个页签的终点不同。
+   - **用 --text-faint 而不是 --text-dim**：--text-dim 是未悬停时的文字色，压在页签下沿
+     会与文字一样重；--text-faint 只比页签栏底边线（--border-soft）亮一档，
+     正好是「指针在这儿」而不抢选中的蓝条。
+   缓动与 .tab-move / 侧栏指示器同源（house 曲线）；180ms 与页签进出场的位移同长。 */
+.editor-tabs__item::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--text-faint);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 只给真能悬停的设备（鼠标 / 触控板）：触屏的 :hover 是在 tap 那一刻套上并**黏住**的，
+   点一下页签这条线就会一直亮着。理由与下面 .editor-tabs__close 那条完全相同。
+   第二条是**选中页签的例外**：它不画悬停线。除了「顶部已经有 ::before 的蓝色高亮、
+   再来一条要问谁才是当前」之外，更硬的理由是文件末尾那条设计 ——「选中页签与编辑区
+   连成一片」：它的底色与编辑区同色、底边那条 1px 本来就是故意被它盖住的，
+   在这里画线等于把连成一片的那块重新切开。
+   两条必须都待在 media 里：`.editor-tabs__item:hover::after` 的特异性是 (0,2,1)
+   （:hover 按类级计），而单写 `.editor-tabs__item--active::after` 只有 (0,1,1)
+   —— 光靠写在后面赢不了，得把第二个类补上凑到同级、再由顺序取胜（2026-10-10 踩过）。 */
+@media (hover: hover) {
+  .editor-tabs__item:hover::after {
+    transform: scaleX(1);
+  }
+
+  .editor-tabs__item--active:hover::after {
+    transform: scaleX(0);
+  }
 }
 
 .editor-tabs__icon {
