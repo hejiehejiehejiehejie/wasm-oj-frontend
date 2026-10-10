@@ -63,7 +63,7 @@ const isDragging = computed(() => draggingId?.value === props.node.id)
 const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
 /** 触屏按住了、还没到长按阈值：整行用底色当「按住进度」，见样式里的 --pressing */
 const isPressing = computed(() => pressingId?.value === props.node.id)
-/** 触屏长按已成：弹一下 + 换成就绪底色与投影（此刻松手弹菜单，拖动即移动），见 --armed */
+/** 触屏长按已成：跳一下 + 换成就绪底色（此刻松手弹菜单，拖动即移动），见 --armed */
 const isArmed = computed(() => armedId?.value === props.node.id)
 
 /**
@@ -496,7 +496,7 @@ function onKeyDown(event) {
 
    - `--pressing`「还在等」：整行底色当作进度条，从透明线性走到 --bg-hover，
      到点那一刻刚好走完（时长必须与 useTreeDrag.js 的 LONG_PRESS_MS 一致）。
-   - `--armed`「已经就绪」：弹一下，并落下一层投影，一直留到松手或真的开始拖。
+   - `--armed`「已经就绪」：跳一下（放大回弹），就绪底色一直留到松手或真的开始拖。
      此刻的行为分叉是「原地松手 = 弹右键菜单」「继续移动 = 拖走」，动画本身不区分这两条，
      只负责说「长按已经成功」。
 
@@ -506,17 +506,17 @@ function onKeyDown(event) {
   background: var(--bg-hover);
   /* 线性（不加缓动）：进度条要走得均匀，到头才是「正好可以松手」的那一瞬。
      减弱动效时这条会被 base.css 的 prefers-reduced-motion 兜底压成 0.01ms —— 那就只剩
-     到点时的弹一下与投影，仍然说得清「成功了」。 */
+     到点时的跳一下，仍然说得清「成功了」。 */
   transition: background-color 450ms linear;
 }
 
 .tree-item__row.tree-item__row--armed {
-  /* 投影得盖住上下相邻的两行，否则会被它们切断 */
+  /* 跳一下时行会短暂溢出，压在上下相邻两行之上，免得被它们切断 */
   position: relative;
   z-index: 2;
   background: var(--bg-hover);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.32);
-  /* 「弹一下」：只动 transform，行不位移也不留形变，播完自己回到原样。
+  /* 「跳一下」：只动 transform，行不位移也不留形变，播完自己回到原样。
+     刻意不加投影（2026-10-10 按要求去掉）：就绪感只靠「底色保持 + 跳一下」表达。
      放到 animation 而不是 transition，是为了让它**只播这一次**——留在就绪态里等松手时
      不会再被任何属性变化重新触发。 */
   animation: tree-press-pop 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
