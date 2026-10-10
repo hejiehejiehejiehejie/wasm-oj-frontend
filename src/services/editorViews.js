@@ -67,6 +67,11 @@ export function deactivateViews() {
 /** 此刻有没有合成视图正盖着编辑器（Monaco / 空态 / 状态栏 / 题解工具栏都据此让位） */
 export const viewActive = computed(() => EDITOR_VIEW_IDS.some((id) => state[id].active))
 
+/** 有没有合成视图页签开着（不管有没有盖着编辑器）。页签栏的去留看它而不是 viewActive：
+ *  没有活跃文件、但页签还开着时，条也得留着 —— 否则关掉最后一个代码页签，
+ *  这两颗页签会跟着整条横栏一起凭空消失（2026-10-10 修的正是这个）。 */
+export const anyViewOpen = computed(() => EDITOR_VIEW_IDS.some((id) => state[id].open))
+
 // ------------------------------------------------------------------ 设置
 
 export const settingsTab = state.settings
@@ -112,4 +117,11 @@ export function deactivateCfPickerTab() {
 
 // 「活跃文件变了」就等于用户想看代码：点资源管理器、点文件页签、会话恢复都走 activeId，
 // 在这里统一收口，省得每个入口各自记得把视图让开（漏一个就会出现「点了文件还在看设置」）。
-watch(() => workspace.activeId, deactivateViews)
+// activeId 变成 null 只发生在「最后一个代码页签被关掉 / 活跃文件被删」：没有代码可看，
+// 开着的视图就留在原地 —— 收掉只会让页签栏跟着塌掉（见 EditorPane.editorEmpty）。
+watch(
+  () => workspace.activeId,
+  (id) => {
+    if (id) deactivateViews()
+  },
+)

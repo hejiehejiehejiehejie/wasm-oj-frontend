@@ -23,7 +23,13 @@ import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
-import { cfPickerTab, deactivateViews, settingsTab, viewActive } from '../services/editorViews.js'
+import {
+  anyViewOpen,
+  cfPickerTab,
+  deactivateViews,
+  settingsTab,
+  viewActive,
+} from '../services/editorViews.js'
 import {
   MD_VIEW_MODES,
   MD_VIEW_SHORTCUT,
@@ -118,10 +124,11 @@ const MD_VIEW_ICONS = { edit: 'edit', split: 'split', preview: 'eye' }
 /** 工具栏与预览都只对题解有意义，且设置视图盖上来时整块让位（判据与 App 共用一份） */
 const mdBarVisible = mdActive
 
-/** 编辑区空着的判据：没有活跃文件、也没在看合成视图（设置 / 抽题）。
-    与中间那块占位提示同一个条件 —— 上面的页签栏此时一条页签都没有，
-    那条空横条也要跟着让位（有合成视图时页签栏得留着显示那一颗页签） */
-const editorEmpty = computed(() => !activeNode.value && !viewActive.value)
+/** 编辑区空着的判据：没有活跃文件、也没有任何合成视图页签**开着**（anyViewOpen，
+    不是 viewActive —— 页签开着但没盖着编辑器时（比如刚关掉最后一个代码页签），
+    这条横栏必须留着，不然那两颗页签就凭空消失了（2026-10-10）。
+    中间那块占位提示的条件在下面模板里另写，只看 viewActive：视图没盖上来时空态照旧露出。 */
+const editorEmpty = computed(() => !activeNode.value && !anyViewOpen.value)
 
 /** 预览的正文来源：活跃 model 的当前内容 */
 const mdSource = ref('')

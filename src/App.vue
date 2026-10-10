@@ -1285,6 +1285,12 @@ onBeforeUnmount(() => {
 
 .pane--tests {
   flex: 1 1 auto;
+  /* 侧边栏不再画自己那一圈 1px 边框（2026-10-10 试改）：`.pane` 统一给的 `border`
+     在这里收掉，只保留圆角与面板底色。编辑器那半张卡仍带边框，所以「卡片」
+     的语言只落在编辑器一侧；侧边栏靠底色与 4px 留白与编辑器分开。
+     `border: none` 与 box-sizing: border-box 并存，外框尺寸不变，折叠态那条
+     `border-width: 0` 与动画里那两条「让出朝向对方那条边」的规则随之变成空操作。 */
+  border: none;
   /* 统一侧边栏的最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 240px；
      窄屏不再是硬邦邦的 240px，否则 375px 的屏上编辑器会被压成一条缝。
      floor / cap 要乘 --ui-scale 才会跟全局缩放一起变大（它们留在 px、吃不到 rem，
