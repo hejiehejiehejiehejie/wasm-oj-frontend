@@ -32,13 +32,16 @@ monaco.editor.defineTheme('dark', {
     'editor.background': '#181818',
     'editorGutter.background': '#181818',
     'minimap.background': '#181818',
-    // 光标所在行那个 2px 方框（Monaco 的 current-line-exact 装饰）。
-    // vs-dark 自己不定义这一项，于是落到注册表默认值 #282828 —— 而我们的编辑区底色被
-    // 压到了 #181818（比 vs-dark 原装的 #1e1e1e 更暗），那个灰框的对比被放大，很抢眼。
-    // 取深色主题的 --bg-panel-head（#222225）：比 #181818 只亮一档，「光标在哪一行」看得出来，
-    // 但不构成一圈显眼的边。注意**不能**写成 null 或省略 —— 那会退回 #282828 默认值，等于没改。
-    // 浅色主题（base: 'vs'）刻意不写：那边的默认值 #eeeeee 在落白底上本来就淡。
-    'editor.lineHighlightBorder': '#222225',
+    // 光标所在行：整行铺底色，不要 2px 方框（Monaco 的 current-line-exact 装饰会同时画
+    // 背景（lineHighlightBackground）和边框（lineHighlightBorder），两色取同一个值就只剩
+    // 一条干净的色带）。底色取深色主题的 --bg-card（#252528）：比编辑区底 #181818 亮约
+    // 4 阶，比先前试过的 --bg-tab-hover（#28282b）再暗一档 —— 那一档实机偏亮、有点抢眼。
+    // 阶梯（由暗到亮，都是调色板里现成的值）：#181818 编辑区 → #1d1d1e 面板 →
+    // #222225 面板头 → #252528 卡片 ← 当前 → #28282b 页签悬停。
+    // 注意**不能**省略 —— 省略会退回注册表默认值（背景透明 + 边框 #282828），又变回那个灰框。
+    // 浅色主题同理，见下面 light 主题的注释。
+    'editor.lineHighlightBackground': '#252528',
+    'editor.lineHighlightBorder': '#252528',
     // 行号。默认值（#858585，光标那一行再自动提亮到 #c6c6c6）跟正文灰得很近，
     // 一栏数字在左边一直是「满格」的，读代码时视线容易被它拉过去。这里整体压暗一档，
     // 让行号退成参考信息：普通行取 --text-faint，光标那一行取 --text-dim（仍保留
@@ -65,6 +68,11 @@ monaco.editor.defineTheme('light', {
     'editor.background': '#ffffff',
     'editorGutter.background': '#ffffff',
     'minimap.background': '#ffffff',
+    // 光标所在行：与深色主题同口径，整行铺底色而非方框。取浅色主题的 --bg-control-hover
+    // （#e0e0e0），比白底压深 8 阶（深色那支同一天连降两档，这支跟着降一档保持一致；
+    // 浅色下「暗」＝更明显，方向与深色相反）。边框取同色，免得又画出一圈边。
+    'editor.lineHighlightBackground': '#e0e0e0',
+    'editor.lineHighlightBorder': '#e0e0e0',
   },
 })
 

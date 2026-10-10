@@ -144,7 +144,11 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   // 口径默认取「仅 Markdown 隐藏」——.md 收掉行号，代码文件照常。
   lineNumbers: 'md-off',
   renderWhitespace: 'selection',
-  renderLineHighlight: 'all',
+  // 当前行突出：'all' 会把行号那一栏也铺上底色，'line' 只铺正文。默认取 'line' —— 2026-10-11
+  // 起色带改成实心底色（见 monaco-setup.js），铺进行号栏会把左侧的参考列一起染色，太吵。
+  // 行号文字自身的「当前行提亮」（--text-dim 那档）不受影响：Monaco 的 active-line-number
+  // 只看光标所在行，与这个选项无关。四档仍全部开放，想连行号栏一起铺底色的选 'all' 即可。
+  renderLineHighlight: 'line',
   bracketPairColorization: true,
   indentGuides: true,
   bracketGuides: true,
