@@ -354,9 +354,10 @@ function onTabEnter(el) {
   display: inline-flex;
   align-items: center;
   position: relative;
-  /* 切换页签：底色与文字色淡入淡出 —— **这就是点选页签时看见的那段动画**
-     （2026-10-10 起：原先那条会「上浮 + 变蓝」的高亮线已去掉，选中只由底色表示，
-     见下面的 .editor-tabs__item--active）。
+  /* 底色与文字色淡入淡出 —— **这段过渡同时服务两处底色变化**：
+     ① 悬停时整块底色压深一档（见下面的 :hover，2026-10-10 由「下沿一条 1px 细线」改来）；
+     ② 选中时底色淡入到 --bg-tab-active（原先那条会「上浮 + 变蓝」的高亮线已去掉，
+     选中只由底色表示，见 .editor-tabs__item--active）。
      与场次动画（.tab-*）用同一支缓动，观感是一次动作。 */
   transition:
     background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
@@ -374,21 +375,35 @@ function onTabEnter(el) {
   padding: 0 7px 0 10px;
   background: transparent;
   /* 页签之间那条 1px 竖线（原 border-right: 1px solid var(--border-soft)）2026-10-10 去掉：
-     相邻页签不再互相描边，未选中页签靠「透明底色 + 文字色」、选中页签靠 --bg-tab-active
-     与之区分。注意 border: none 必须留着 —— 全局 button 样式带着边框，去掉会露出系统描边。 */
+     相邻页签不再互相描边，三种态全靠底色与文字色区分 —— 静止「透明底 + --text-dim 文字」、
+     悬停 --bg-tab-hover、选中 --bg-tab-active。
+     注意 border: none 必须留着 —— 全局 button 样式带着边框，去掉会露出系统描边。 */
   border: none;
   color: var(--text-dim);
   font-size: 12.5px;
   cursor: pointer;
 }
 
+/* 悬停（2026-10-10 改）：从「页签下沿一条 1px 细线从中心展开」换成**整块底色压深一档**。
+   取 --bg-tab-hover（比页签栏底 --bg-panel-head 各通道深 6 阶），过渡走上面基类那两行，
+   于是鼠标划过去是底色的淡入淡出，页签上不再有任何会移动的东西。
+   两条注意：
+   - **刻意不放进 @media (hover: hover)**：与下面 .editor-tabs__close 那条不同 —— 触屏上
+     这层底色不会误伤，因为手指点页签必定把它切成选中态，选中规则的背景会盖住这里
+     （见下面两条注释）。
+   - 必须写在 .editor-tabs__item--active 那组**之前**，靠顺序让选中色胜出。 */
 .editor-tabs__item:hover {
+  background: var(--bg-tab-hover);
   color: var(--text);
 }
 
 /* 选中：**只有底色**（2026-10-10 起不再有顶部高亮条）。点选页签看见的动画就是
-   底色从页签栏底色淡入到 --bg-tab-active（顺带文字转亮），过渡写在上面基类那两行。 */
-.editor-tabs__item--active {
+   底色从页签栏底色淡入到 --bg-tab-active（顺带文字转亮），过渡写在上面基类那两行。
+   `--active:hover` 那一条**不是冗余**：`.editor-tabs__item:hover` 的特异性是 (0,2,0)，
+   高过单写 `.editor-tabs__item--active` 的 (0,1,0) —— 少了它，鼠标停在当前页签上时
+   底色会被换成 --bg-tab-hover（选中色一闪一闪）。两条同为 (0,2,0)，靠这里的顺序取胜。 */
+.editor-tabs__item--active,
+.editor-tabs__item--active:hover {
   background: var(--bg-tab-active);
   color: var(--text);
 }
@@ -409,47 +424,13 @@ function onTabEnter(el) {
   user-select: none;
 }
 
-.editor-tabs.is-dragging .editor-tabs__item:hover::after {
-  transform: scaleX(0);
-}
-
-/* 悬停指示线：页签下沿一条 1px 的 --text-faint，只在鼠标划过时从**中心向两侧**展开。
-   - 静止：隐藏（scaleX(0)），停在页签下沿；
-   - 悬停：展开（scaleX 0 → 1），灰色。
-   **选中不再走这条线**（2026-10-10 改）：点选页签的反馈换成页签**底色的淡入**，
-   见下面的 .editor-tabs__item--active（过渡在基类的 background-color 上）。
-   原先那条「上浮到页签顶端并变蓝」的高亮条整块去掉 —— 页签上不再有会移动的东西，
-   点选时只有底色在变。
-   几条取舍：
-   - **从中心展开而不是从左滑出**：页签宽度随文件名自适应、长短不一，从中心展开时起点
-     永远落在页签正中，划过一排长短不齐的页签是同一个动作；从左滑出则每个页签的终点不同。
-   - **用 --text-faint 而不是 --text-dim**：--text-dim 是未悬停时的文字色，压在页签下沿
-     会与文字一样重；--text-faint 只比页签栏底边线（--border-soft）亮一档，
-     正好是「指针在这儿」而不抢选中的底色。
-   - **top 写 calc(100% - 1px)、不写死 34px**：页签高度由 .editor-tabs 的 `flex: 0 0 35px`
-     定，写百分比能跟着一起变；减掉的 1px 是线自身的高度，它低于 pxtorem 的 minPixelValue(3)
-     不参与缩放，所以两端都不转、永远对齐。
-   - **transform-origin: center** 只服务上面那条「从中心展开」。
-   缓动与 .tab-move / 侧栏指示器同源（house 曲线）；180ms 与页签进出场的位移同长。 */
-.editor-tabs__item::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% - 1px);
-  height: 1px;
-  background: var(--text-faint);
-  transform: scaleX(0);
-  transform-origin: center;
-  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-/* 只给真能悬停的设备（鼠标 / 触控板）：触屏的 :hover 是在 tap 那一刻套上并**黏住**的，
-   点一下页签这条线就会一直亮着。理由与下面 .editor-tabs__close 那条完全相同。 */
-@media (hover: hover) {
-  .editor-tabs__item:hover::after {
-    transform: scaleX(1);
-  }
+/* 拖动中压掉沿途页签的悬停底色（注意力留给插入指示条）。**必须排除当前选中那颗**：
+   这一条的特异性是 (0,5,0)，高过 .editor-tabs__item--active:hover 的 (0,2,0)，
+   不排除的话拖动期间当前页签会连选中底色一起被抹成透明。
+   （2026-10-10 从同形态的 `:hover::after { scaleX(0) }` 版本改来 —— 那时它压的是悬停细线，
+   而选中线画在另一个伪元素上，所以不排除也不会露馅；改成底色之后必须补这个 :not。） */
+.editor-tabs.is-dragging .editor-tabs__item:not(.editor-tabs__item--active):hover {
+  background: transparent;
 }
 
 /* ------------------------------------------------------ 拖动排序的插入指示条
@@ -458,9 +439,10 @@ function onTabEnter(el) {
    - **不放进 strip**：strip 是横向滚动容器，放进去就得再补一个 scrollLeft，且自动滚动
      滚一帧重算一次，两个偏移量很容易对不齐。所以它是 .editor-tabs 的直接子元素
      （也是上面那条 position: relative 的来由）。
-   - **宽度 2px 且不转 rem**：1px 会与页签下沿那条 1px 悬停线（.editor-tabs__item::after）
-     分不开，这一条要能一眼认出来是「落点」；低于 pxtorem 的 minPixelValue(3) 所以两端
-     都不缩放 —— 与 margin-left 的 -1px 同源，必须一起保持物理 px 才对得齐中心。
+   - **宽度 2px 且不转 rem**：1px 在深色栏底上几乎看不出是一条「线」，2px 才够一眼认出是
+     「落点」（它原先还兼着「与页签下沿那条 1px 悬停线分开」的差事，那条线 2026-10-10
+     已改成悬停底色）；低于 pxtorem 的 minPixelValue(3) 所以两端都不缩放 —— 与 margin-left
+     的 -1px 同源，必须一起保持物理 px 才对得齐中心。
    - **上下各留 4px**：顶满 35px 的条高会看着像页签间的分隔线，短一截才像「插在这儿」。 */
 .editor-tabs__indicator {
   position: absolute;
