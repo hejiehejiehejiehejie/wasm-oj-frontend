@@ -92,6 +92,8 @@ function toggleCfPicker() {
 
 <style scoped>
 /* 与两块 .pane 同一种卡片外观（圆角 / 细边 / 面板底色），只是收窄成 48px 一竖条。
+   边框用 --border-faint 而不是 .pane 那条 --border-soft：折叠态下它是全界面唯一在场
+   的卡片边界（侧栏收起、编辑器那半张卡离得远），同一支笔在这里会偏亮、抢戏。
    宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。 */
 .activity-bar {
   flex: 0 0 48px;
@@ -103,7 +105,7 @@ function toggleCfPicker() {
   padding: 4px 0;
   overflow: hidden;
   border-radius: 10px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-faint);
   background: var(--bg-panel);
   /* 侧栏收起 / 展开时这一栏跟着伸缩（宽度过渡 200ms，与布局切换同一支曲线）；
      展开方向还要整条淡出（见下面那条），与宽度同一支曲线、同一段时长。

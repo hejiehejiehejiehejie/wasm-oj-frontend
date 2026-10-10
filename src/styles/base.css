@@ -42,6 +42,11 @@
 
   --border: #3d3d3d;
   --border-soft: #2d2d32;
+  /* 卡片描边再淡一档：只给「常显且没有第二条线作伴」的那处用 —— 折叠态图标栏
+     （ActivityBar）是整个界面上唯一在场的卡片边界，用它那条 1px 走 --border-soft
+     会比展开时亮一档、跳出来。与 --border-soft 的差距保持「看得见是张卡、
+     看不出是一条线」的量级。 */
+  --border-faint: #26262a;
 
   /* 文件树的目录范围线：刻意比 --border-soft 更淡，常显也不扎眼 */
   --tree-guide: rgba(255, 255, 255, 0.10);
@@ -153,6 +158,8 @@
 
   --border: #cecece;
   --border-soft: #e4e4e4;
+  /* 与深色主题同义（见上）：折叠态图标栏的卡片描边，比 --border-soft 淡一档 */
+  --border-faint: #eeeeee;
 
   /* 文件树的目录范围线：浅色下同等的「看得见但不抢戏」 */
   --tree-guide: rgba(0, 0, 0, 0.12);

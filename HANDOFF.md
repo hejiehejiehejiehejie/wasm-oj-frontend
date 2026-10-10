@@ -279,7 +279,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | --- | --- |
 | 底色层次 | `--bg-editor` 页面留白 / `--bg-panel` 卡片面板 / `--bg-panel-head` 面板头脚 / `--bg-card`、`--bg-card-head` 用例卡片 / `--bg-chrome` 应用外壳（2026-09-28 顶栏删除后只服务于 `theme-color`） / `--bg-tab-active` |
 | 浮层与控件 | `--bg-raised` 浮层底色（右键菜单 `ContextMenu` / 删除确认卡 `.confirm__card`，**已无抽屉**） / `--bg-control`、`--bg-control-hover` 按钮下拉 / `--bg-input` 输入框 / `--bg-hover` / `--bg-selection` |
-| 描边 | `--border`、`--border-soft` |
+| 描边 | `--border`、`--border-soft` / `--border-faint`（比 soft 再淡一档，只给折叠态图标栏 `ActivityBar` 那条常显的卡片边界用，2026-10-10 加） |
 | 文字 | `--text`、`--text-dim`、`--text-faint`、`--text-on-accent`、`--statusbar-text` |
 | 强调 | `--accent`、`--accent-hover`、`--accent-strong`、`--accent-deep`、`--focus`（焦点框与分隔条高亮） |
 | 运行（评测样例面板页脚那颗 ▶） | `--run-green`、`--run-green-hover` |
