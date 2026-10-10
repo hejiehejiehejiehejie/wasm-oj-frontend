@@ -77,9 +77,13 @@ watch(uiScalePref, applyUiScale)
 // ------------------------------------------------------------ 编辑器偏好
 const EDITOR_SETTINGS_KEY = 'cp.editorSettings'
 // 存档版本号用于「一次性迁移」，见 readEditorSettings：v4 及以前只有主题 id 换算，
-// v5（2026-10-11）把「当前行突出」的旧默认 'all' 改写为 'line'
+// v5（2026-10-11）/ v6（同一天补）把「当前行突出」的旧默认 'all' 改写为 'line'。
+// v5 与 v6 是同一条改写：v5 当天把「抬版本号」和「加改写分支」分成了两次编辑落地，
+// 中间那段窗口里 HMR 重载过的页面会写进「版本号 = 5、值还是 'all'」的存档 —— 版本号
+// 既然已经追上，< 的判定就永远不成立，那条改写对这份存档失效。抬到 6 把它捞回来。
+// **教训：动这个常量时必须和它对应的迁移分支在同一次编辑里落地，别分两步。**
 const EDITOR_SETTINGS_VERSION_KEY = 'cp.editorSettingsVersion'
-const EDITOR_SETTINGS_VERSION = 5
+const EDITOR_SETTINGS_VERSION = 6
 // 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
 const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
 
@@ -93,10 +97,12 @@ function readEditorSettings() {
     // v3 之前主题只作用于编辑器（选项有 vs-dark / vs / hc-black），原本选浅色 vs 的迁到浅色；
     // v4（2026-09-29）起主题 id 去掉了 `cph-` 前缀，旧存档的 cph-light 照样认。
     // 其余旧值（vs-dark / hc-black / cph-dark）交给 normalizeEditorSetting 丢掉，回落到默认深色。
-    // v5（2026-10-11）：'当前行突出' 的旧默认 'all' 会把行号栏一起铺上底色，新默认是 'line'。
+    // v5 / v6（2026-10-11）：'当前行突出' 的旧默认 'all' 会把行号栏一起铺上底色，新默认是 'line'。
     // 这条立刻读得到——存档里存的是旧默认 'all'，而存档值优先于 EDITOR_SETTINGS_DEFAULTS，
     // 不改写的话新默认对老用户等于不存在（写入方见下面 immediate 的那条 watch）。
-    // 换过之后版本号就是 5，之后再手动选 'all' 不会被这条覆盖。
+    // v6 只是把这条改写再跑一遍（v5 的版本号先落地、改写分支后落地，中间被 HMR 重载写进过
+    // 「版本号 5 + 值 'all'」的存档，见上面常量的注释）。改写本身是幂等的。
+    // 换过之后版本号就是 6，之后再手动选 'all' 不会被这条覆盖。
     if (Number(window.localStorage.getItem(EDITOR_SETTINGS_VERSION_KEY)) < EDITOR_SETTINGS_VERSION) {
       if (parsed.theme === 'vs' || parsed.theme === 'cph-light') parsed.theme = 'light'
       if (parsed.renderLineHighlight === 'all') parsed.renderLineHighlight = 'line'
@@ -374,9 +380,20 @@ const elapsed = computed(() => {
 })
 const swapping = ref(false)
 const dragging = ref(false)
-// 当前这次拖拽的收尾函数（由 beginDrag 挂上）。拖动越过折叠 / 展开阈值时，
-// applyShare 要先把这次拖拽就地结束，再交给折叠动画，用的就是它（见 handoffDrag）。
-let dragFinish = null
+// 拖拽手势的状态位（都只在一次按下—松手之内有意义，见 beginDrag / handoffDrag）：
+// - dragLive：手势还活着（window 上的 move / up 监听还挂着）。
+//   注意它和 dragging 是两码事 —— dragging 只管视觉与「跟手」，越界移交动画时会被摘掉
+//   （那条 .is-dragging 规则会把 .pane 的过渡整段让掉，动画就起不来），而手势本身不能跟着结束。
+// - handoffPending：一次越界翻转还没落到 panelVisible 上（VT 的更新回调是异步的），
+//   这期间再来的重复触发要挡掉，否则同一帧翻两次等于没翻。
+// - dragReanchor / dragPointerX：越界那一刻要把「指针当前位置 ↔ 宽度」重新锚一次
+//   （reanchor 由 beginDrag 挂上，dragPointerX 由 move 记指针横坐标）。不重锚的话，
+//   翻转落地后 raw 仍按「按下点」算，而手早停在很远的地方了 —— 宽度会被立刻拽回去：
+//   展开落不到最窄宽度、展开后也接着不了加宽（用户报的正是这两条）。
+let dragLive = false
+let handoffPending = false
+let dragReanchor = null
+let dragPointerX = 0
 
 let abortController = null
 
@@ -404,10 +421,10 @@ function toggleLayout() {
 // 参数写在 .workspace 的三个 CSS 变量上，与 .pane--tests 的 min-width 同源）；82% 只是兜底上限
 const MIN_SHARE = 24
 const MAX_SHARE = 82
-// 「贴边」与「拖离边缘」的判定距离：鼠标进到最后 32px 算贴边 → 折叠；
-// 折叠后往外拖出 60px 才算离开边缘 → 展开。两个值错开，避免停在临界点上反复闪。
+// 「贴边」判定距离：鼠标进到最后 32px 算贴边 → 折叠。展开阈值不再是固定距离，
+// 而是「拖到最窄宽度对应的位置」（raw ≤ maxShare，见 applyShare），保证展开时
+// 分隔条已经停在最窄位置上、不必从边缘跳过去（2026-10-11 用户反馈「展开位置不对」）。
 const EDGE_PX = 32
-const RELEASE_PX = 60
 
 // 拖拽与方向键共用的虚拟比例：它可能超出面板能压缩的范围，用来表达「鼠标离边缘还有多远」。
 // 面板可见时它就等于 editorShare；折叠后 editorShare 冻结在折叠前的宽度（展开时原样回来），
@@ -417,7 +434,7 @@ let virtualShare = editorShare.value
 // 量一次工作区，推出拖拽界线
 function measureLimits() {
   const surface = workspace.value
-  if (!surface) return { width: 1, left: 0, maxShare: MAX_SHARE, edgeShare: 100, releaseShare: 96 }
+  if (!surface) return { width: 1, left: 0, maxShare: MAX_SHARE, edgeShare: 100 }
   // 百分比 flex-basis 是按「内容盒」算的，而 getBoundingClientRect 含外侧留白，
   // 用后者会把鼠标位移折算小了、分隔条跟不满 1:1，所以这里要扣掉 padding。
   const style = getComputedStyle(surface)
@@ -444,31 +461,33 @@ function measureLimits() {
     left: surface.getBoundingClientRect().x + Number.parseFloat(style.paddingLeft),
     maxShare: Math.min(MAX_SHARE, ((width - minTests) / width) * 100),
     edgeShare: ((width - EDGE_PX) / width) * 100,
-    releaseShare: ((width - RELEASE_PX) / width) * 100,
   }
 }
 
 // 统一收口规则，拖拽与方向键共用：
 // 面板可见时比例先跟着鼠标走，但压到最低宽度（见 measureLimits）就不再变窄（被 maxShare 卡住）；
 // 只有一直顶到贴边（edgeShare）才折叠。
-// 折叠后往外拖出 60px（releaseShare）就展开，面板先以最小宽度露出来，再继续跟手加宽。
+// 折叠后往外拖到「最窄宽度对应的位置」才展开（raw ≤ maxShare）：展开这一刻分隔条已经停在
+// 最窄位置，不需要从边缘跳过去 —— 用户要的正是「展开位置与侧边栏最窄宽度一致」（2026-10-11）。
 //
-// 两条阈值各自的落点（2026-10-11）：
-// - 折叠：拖拽路径交给动画（handoffDrag），不再一帧硬切到 1px；方向键 / 收敛仍直接切。
-// - 展开：拖拽路径也交给动画，且终点恒为面板最窄宽度（maxShare），不取指针所在位置 ——
-//   否则快速甩出去一下，raw 会一次跨过阈值落到很远，侧栏一展开就是半屏宽。
+// 两条阈值各自的落点：
+// - 折叠：raw 顶到 edgeShare（贴边 32px）时交给动画（handoffDrag），不再一帧硬切到 1px。
+// - 展开：raw 降到 maxShare（最窄宽度）时交给动画，终点恒为最窄宽度，不取指针所在位置。
+//
+// 一旦越过阈值，本次手势仍继续跟手，只是先把「当前指针位置 ↔ 落点」重锚一次
+// （见 handoffDrag）：展开锚到最窄宽度，往回拖则回到折叠阈值。
 function applyShare(raw, limits) {
   const share = Math.round(Math.min(limits.maxShare, Math.max(MIN_SHARE, raw)) * 10) / 10
   if (panelVisible.value) {
     editorShare.value = share
     if (raw >= limits.edgeShare) {
-      if (dragging.value) handoffDrag(false, limits)
+      if (dragLive) handoffDrag(false, limits)
       else panelVisible.value = false
     }
     return
   }
-  if (raw <= limits.releaseShare) {
-    if (dragging.value) handoffDrag(true, limits)
+  if (raw <= limits.maxShare) {
+    if (dragLive) handoffDrag(true, limits)
     else {
       editorShare.value = share
       panelVisible.value = true
@@ -476,15 +495,30 @@ function applyShare(raw, limits) {
   }
 }
 
-// 拖动越过阈值（折叠 / 展开）：本次拖拽到此为止，改走与「单击分隔条」完全同一套折叠 / 展开。
-// 先结束拖拽（摘监听、拖拽态归位），再等一帧让 is-dragging 从 DOM 上退掉 —— 那条规则在时会
-// 把 .pane 的过渡整段让掉（见样式表 .workspace.is-dragging .pane），动画根本起不来。
-// 展开方向的 editorShare 在翻状态之前钉到 maxShare，展开就停在面板最窄宽度上。
+// 拖动越过阈值（折叠 / 展开）：交给与「单击分隔条」完全同一套折叠 / 展开。
+// 手势不结束 —— 监听留着，好让光标反向再越过对面阈值时能接着触发（不然一次按住只能翻一下）。
+// 摘 is-dragging 只对「靠 CSS transition 播放」的非 VT 路径有意义：那条规则会把 .pane 的过渡
+// 整段让掉（见样式表 .workspace.is-dragging .pane），动画起不来。VT 走 ::view-transition 伪元素、
+// 本就不受它影响，而且摘了反而有害：动画收尾时 pinSidebarWidth 会把内层壳钉成 flex:0 0 auto，
+// 靠那条 .is-dragging .pane__inner.is-fixed 覆盖规则才能恢复流体，摘了拖拽就跟手迟一帧
+// （用户报的「几轮展开后不跟手」正是这一条）。所以 VT 下不摘；非 VT 摘掉后由 togglePanel 的
+// 动画结束回调恢复（见那里，若有的话）。
+// 展开方向的 editorShare 先钉到最窄宽度（落点与「未折叠时拖到最窄」同一格），再把手势重锚到
+// 它上面：于是「越界那一帧」之后 raw 从落点起算，接着往外拖是继续 1:1 加宽、往回拖则是再次折叠。
+// 取 maxShare 时要走上 applyShare 同一条舍入：否则两条路径停在 82 与 82.4 上，差出零点几像素。
 function handoffDrag(expand, limits) {
-  dragFinish?.()
-  if (expand) editorShare.value = limits.maxShare
+  if (handoffPending) return
+  handoffPending = true
+  if (!canViewTransition()) dragging.value = false
+  if (expand) editorShare.value = Math.round(limits.maxShare * 10) / 10
+  dragReanchor?.(expand ? limits.maxShare : 100)
   nextTick(() => togglePanel())
 }
+
+// 越界翻转真正落到 panelVisible 上时才解锁，重复的那一帧才有得挡。
+watch(panelVisible, () => {
+  handoffPending = false
+})
 
 function nudgeShare(delta) {
   virtualShare = Math.min(100, Math.max(MIN_SHARE, virtualShare + delta))
@@ -645,6 +679,8 @@ function togglePanel({ instant = false } = {}) {
     panelVisible.value = !panelVisible.value
     virtualShare = panelVisible.value ? editorShare.value : 100
     nextTick(() => {
+      // 直切没动画可让，handoffDrag 非 VT 下摘掉的拖拽态要补回来，否则内层壳一直钉死不跟手
+      if (dragLive) dragging.value = true
       if (panelVisible.value) pinSidebarWidth()
     })
     return
@@ -663,6 +699,9 @@ function togglePanel({ instant = false } = {}) {
     clearTimeout(panelAnimTimer)
     panelAnimTimer = window.setTimeout(() => {
       panelAnimating.value = false
+      // 动画播完、手势还活着就把拖拽态补回来（handoffDrag 非 VT 下为让动画摘下它，
+      // 拖拽还在继续时得恢复，否则内层定宽壳被钉死、不跟手）。
+      if (dragLive) dragging.value = true
       // 展开到底后把钉子校准到这一帧的实测宽度。折叠到底时外层已经收到 0，
       // 不能拿这个 0 去覆盖钉子 —— 下次展开还得用它。
       if (panelVisible.value) pinSidebarWidth()
@@ -683,18 +722,28 @@ function beginDrag(event) {
   // 而是在下面的 pointerup 上自己认（见 stop）。
   event.preventDefault()
   let moved = 0
-  const startX = event.clientX
+  let startX = event.clientX
   const startY = event.clientY
   const limits = measureLimits()
   // 面板换到左侧后编辑器在右半边，拖拽方向要取反。
   const direction = panelPosition.value === 'right' ? 1 : -1
   // 可见时锚在分隔条当前宽度上（保证 1:1 跟手）；折叠后锚在虚拟比例 100% 上。
   // 折叠态不能用鼠标位置来锚（早先的写法）：现在分隔条停在图标栏左侧、不再贴窗口边缘，
-  // 若把图标栏那 48px 算进「离边缘的距离」里，往外一拖就立刻越过 releaseShare 展开。
-  // 锚在 100% 后，「往外拖 60px 才展开」仍是实打实的 60px 位移，与图标栏宽度无关。
-  const startRaw = panelVisible.value ? editorShare.value : 100
+  // 若把图标栏那 48px 算进「离边缘的距离」里，往外一拖就会立刻越过展开阈值展开。
+  // 锚在 100% 后，「拖到最窄宽度位置才展开」是实打实的、以分隔条当前为起点的位移，
+  // 与图标栏宽度无关（展开阈值见 applyShare 的 raw ≤ maxShare）。
+  let startRaw = panelVisible.value ? editorShare.value : 100
   virtualShare = startRaw
   dragging.value = true
+  // 新手势：可能上一次的越界翻转还卡在 pending 上（例如中途被别的入口翻了状态），一并清掉。
+  dragLive = true
+  handoffPending = false
+  dragPointerX = event.clientX
+  // 越界时由 handoffDrag 调用：把「指针当前位置」重锚到落点上（见那里）。
+  dragReanchor = (nextStartRaw) => {
+    startRaw = nextStartRaw
+    startX = dragPointerX
+  }
 
   // 抓住指针。折叠阈值（EDGE_PX = 32）要求把鼠标一直拖到窗口边缘，松手时指针往往已经压在
   // 窗口边框上、甚至跑到窗口外，这一发 pointerup 可能根本到不了页面。捕获之后事件始终投给
@@ -716,6 +765,8 @@ function beginDrag(event) {
       stop(moveEvent)
       return
     }
+    // 记下指针横坐标：越界那一刻 dragReanchor 就锚在它上面（见 beginDrag）。
+    dragPointerX = moveEvent.clientX
     moved = Math.max(moved, Math.abs(moveEvent.clientX - startX), Math.abs(moveEvent.clientY - startY))
     // 虚拟比例始终从按下那一刻起算，来回拖动才连续
     const raw = startRaw + ((moveEvent.clientX - startX) * direction * 100) / limits.width
@@ -723,14 +774,15 @@ function beginDrag(event) {
     applyShare(virtualShare, limits)
     editorPane.value?.layout()
   }
-  // 收尾：摘监听 + 拖拽态归位。阈值内那次 handoffDrag 也要走它（先结束拖拽再播动画），
-  // 所以提成具名函数、挂到模块级的 dragFinish 上给 applyShare 用。
+  // 收尾：摘监听 + 手势态归位（越界移交动画时只摘 is-dragging，不走这里，见 handoffDrag）。
   const finish = () => {
     dragging.value = false
+    dragLive = false
+    handoffPending = false
+    dragReanchor = null
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
-    if (dragFinish === finish) dragFinish = null
   }
   const stop = (upEvent) => {
     finish()
@@ -741,9 +793,6 @@ function beginDrag(event) {
     if (upEvent.type !== 'pointerup' || moved > TAP_SLOP) return
     togglePanel()
   }
-  // 拖拽越界那次折叠 / 展开会把 dragFinish 用掉（在动画播完后清空），
-  // 这之后 pointerup 已经摘了监听、不会再把状态翻第二遍。
-  dragFinish = finish
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
   window.addEventListener('pointercancel', stop)
@@ -1571,10 +1620,11 @@ onBeforeUnmount(() => {
    净空隙会从 4px 变成 16px —— 折叠前后两块卡片的间距就不一样了。
    折叠态因此直接用上面那条 12px 热区（触屏按媒体查询走 24px / −10px，净空隙同为 4px）。 */
 
-/* 两栏各有自己的边，空隙里默认不再画线；指针移上来时才显出一条中性灰线
-   （2026-10-11 由 --focus 亮蓝改暗：亮蓝太抢眼；同日加粗到 3px —— 小圆点在
-   展开态已收起，这条线得自己扛住「这里能拖」的分量），提示「这里可以拖，
-   一直拖到侧边栏那侧就会折叠」。悬停、键盘聚焦、拖拽三态同色，改这一处即可 */
+/* 两栏各有自己的边，空隙里默认不再画线；指针移上来时才显出一条蓝线
+   （2026-10-11 当天在「--focus 亮蓝 → 中性灰 → 比 --focus 暗一档的干净蓝」之间落定，
+   取值见 base.css 的 --splitter-line：同色相压亮度、饱和度拉满，不掺灰），
+   提示「这里可以拖，一直拖到侧边栏那侧就会折叠」。悬停、键盘聚焦、拖拽三态同色，
+   改这一处即可 */
 .splitter__line {
   position: absolute;
   /* 不顶到两栏的上下边，上下各让出 4px（全长比通栏短 8px）。写 px 而不是百分比：
@@ -1582,22 +1632,25 @@ onBeforeUnmount(() => {
   top: 4px;
   bottom: 4px;
   left: 50%;
-  /* 用 translate 居中，不写 margin-left: -1.5px：3px 会被 postcss-pxtorem 转成 rem
-     跟着界面缩放走，而 <3px 的值留在 px 坐标系（vite.config.js 的 minPixelValue），
-     两者到 125% 比例就差了半个像素、线不再压在中缝上 */
+  /* 用 translate 居中，不写 margin-left: -1px：这样居中与线的宽度无关，将来宽度
+     若涨到 3px 以上（会被 postcss-pxtorem 转成 rem 跟着界面缩放走），也不会偏 */
   transform: translateX(-50%);
-  width: 3px;
-  background: var(--border);
+  width: 2px;
+  background: var(--splitter-line);
   opacity: 0;
   transition: opacity 0.16s ease;
   pointer-events: none;
 }
 
-/* 正中间的三点抓手：只在**折叠态**显示（2026-10-11 定，见下面那条 display: none），
-   纯装饰。**不给底色**（2026-10-11 定）：它有底色时会把身后的线挡出一个缺口（容器
-   3 + 3 + 3 点 + 上下各 3px 内边距 = 21px 高），线亮起来就断成三段；不给底色，
-   三个点只是叠在线上，线到哪都是连贯的一条。三点靠 align-items 落在中缝正中，
-   与容器尺寸无关 */
+/* 正中间的三点抓手：只在**折叠态**、且那条线没亮的时候显示（收起规则见下面两条）。
+
+   两条纪律（都是 2026-10-11 定的）：
+   1. 不给底色 —— 有底色时会遮出整整一段缺口（容器高 ≈ 点高 × 3 + 点间距 × 2 +
+      上下内边距），线亮起来就断成三段；
+   2. 线亮的三种情形（悬停 / 键盘聚焦 / 拖拽）下把点隐去 —— 光去掉底色还不够，
+      这三个实心点本身就压在线身上，看着线被啃掉三小段。
+   结果是「点」与「线」互斥出现：平时给点提示能拖，线亮起来时只剩一条完整的线。
+   三点靠 align-items 落在中缝正中，与容器尺寸无关 */
 .splitter__dots {
   position: absolute;
   top: 50%;
@@ -1608,18 +1661,23 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 3px;
   padding: 3px 0.5px;
+  opacity: 1;
+  /* 与 .splitter__line 同时长：点淡出的同一段时间里线淡入，不会出现「线亮了点还在」 */
+  transition: opacity 0.16s ease;
   pointer-events: none;
 }
 
 /* 展开态收起小圆点（2026-10-11 定）：它是常驻的，会把线切成一段一段；收起后
-   灰线从上到下连贯。折叠态仍留着，提示「往这边拖能拉出来」 */
+   线从上到下连贯。折叠态仍留着，提示「往这边拖能拉出来」 */
 .workspace:not(.is-collapsed) .splitter__dots {
   display: none;
 }
 
+/* 点径 2px（2026-10-11 由 3px 调小）。注意 2px < postcss-pxtorem 的 minPixelValue，
+   不再参与 rem 缩放，是固定像素；要它跟着界面缩放就得写回 3px 以上 */
 .splitter__dots i {
-  width: 3px;
-  height: 3px;
+  width: 2px;
+  height: 2px;
   border-radius: 50%;
   background: var(--splitter-dot);
 }
@@ -1629,12 +1687,23 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
+/* 线亮起来时把三个点隐去（原因见 .splitter__dots 上面第 2 条）：点、线互斥出现，
+   线才是完整的。注意必须与上面那条线规则成对写上，漏一条就会出现「线亮了还带点」 */
+.splitter:focus-visible .splitter__dots,
+.workspace.is-dragging .splitter__dots {
+  opacity: 0;
+}
+
 /* 「悬停显影」只在真有悬停能力的指针上生效。触屏没有 hover，浏览器会把点按瞬间的 :hover
-   粘在元素上直到点了别处，于是点按折叠/展开后那条灰线留在原处不灭；键盘焦点（上面的
+   粘在元素上直到点了别处，于是点按折叠/展开后那条蓝线留在原处不灭；键盘焦点（上面的
    :focus-visible）和拖拽态不受影响，触屏下这两条路仍然可用 */
 @media (hover: hover) {
   .splitter:hover .splitter__line {
     opacity: 1;
+  }
+
+  .splitter:hover .splitter__dots {
+    opacity: 0;
   }
 }
 </style>
