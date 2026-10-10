@@ -4,6 +4,10 @@
  *
  * - 单击：先把这一行选中（文件与目录同一套高亮，选中目录 = 页头新建落进它里面），
  *   然后目录折叠、文件以**预览页签**打开（斜体临时页签，再点别的文件就顶替掉它）。
+ * - **⌘ / Ctrl + 单击**：直接在新标签页打开这一行的题目；这一行没有题目链接时退化成普通单击。
+ *   这就是「打开题目」的快捷键本身（用户点名的就是它），**不是**另配的键盘组合键 ——
+ *   它是鼠标事件的修饰键，`useShortcutManager` 那套 keydown 管线（comboFromEvent）接不住，
+ *   所以也不进绑定表、不占任何键位。
  * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
  * - 右键菜单与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
  *   而 F2 重命名与 Delete 删除是全局快捷键，见 onKeyDown 末尾那条注释）。
@@ -14,6 +18,7 @@ import AppIcon from './AppIcon.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
+import { IS_MAC } from '../composables/useShortcutManager.js'
 import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import {
@@ -37,6 +42,8 @@ const props = defineProps({
 const emit = defineEmits(['rename-done'])
 
 const openContextMenu = inject('openContextMenu')
+/** 「打开题目」的唯一出口（在 FileExplorer 里，判据与菜单那一项同源）；开成了返回 true */
+const openProblem = inject('openProblem')
 const treeRootEl = inject('treeRootEl')
 const showNotice = inject('showNotice')
 const renameTarget = inject('renameTarget')
@@ -63,7 +70,7 @@ const isDragging = computed(() => draggingId?.value === props.node.id)
 const isDropTarget = computed(() => dropTargetRowId?.value === props.node.id)
 /** 触屏按住了、还没到长按阈值：整行用底色当「按住进度」，见样式里的 --pressing */
 const isPressing = computed(() => pressingId?.value === props.node.id)
-/** 触屏长按已成：跳一下 + 换成就绪底色（此刻松手弹菜单，拖动即移动），见 --armed */
+/** 触屏长按已成（菜单也在这一刻弹出来了）：跳一下 + 换成就绪底色，此后移动即拖动，见 --armed */
 const isArmed = computed(() => armedId?.value === props.node.id)
 
 /**
@@ -113,7 +120,13 @@ function activate({ preview = false } = {}) {
   openFile(props.node.id, null, { preview }).catch(() => {})
 }
 
-function onClick() {
+function onClick(event) {
+  // ⌘ / Ctrl + 单击 = 在新标签页打开题目（与右键菜单「打开题目」同一个出口）。
+  // 开成了就到此为止 —— 不能再落到 activate() 上，否则会顺手把这个文件也打开成页签。
+  // 没链接时 openProblem 回 false，整条退化成普通单击，不吞掉这次点击。
+  // 平台主修饰键按 IS_MAC 分岔：macOS 上 Control + 单击是系统右键，不能拿来当「打开」。
+  const withModifier = IS_MAC ? event.metaKey : event.ctrlKey
+  if (withModifier && openProblem?.(props.node)) return
   activate({ preview: true })
 }
 
@@ -138,7 +151,7 @@ function onPointerDown(event) {
 function onContextMenu(event) {
   event.preventDefault()
   // 触屏的 contextmenu 已被 useTreeDrag 从按下那一刻全程接管（见 useTreeDrag.js 的 pointerdown）：
-  // 菜单由它在手抬起时自己弹，这里绝不能再弹一个。鼠标右键不走那条路，照旧在这里弹。
+  // 菜单由它在长按到点那一刻自己弹，这里绝不能再弹一个。鼠标右键不走那条路，照旧在这里弹。
   if (suppressContextMenu?.value) return
   openContextMenu?.(event, props.node)
 }
@@ -520,8 +533,9 @@ function onKeyDown(event) {
 
    - `--pressing`「还在等」：整行底色当作进度条，从透明线性走到 --bg-hover，
      到点那一刻刚好走完（时长必须与 useTreeDrag.js 的 LONG_PRESS_MS 一致）。
-   - `--armed`「已经就绪」：跳一下（放大回弹），就绪底色一直留到松手或真的开始拖。
-     此刻的行为分叉是「原地松手 = 弹右键菜单」「继续移动 = 拖走」，动画本身不区分这两条，
+   - `--armed`「已经到点」：跳一下（放大回弹），就绪底色一直留到松手或真的开始拖。
+     这一刻菜单已经弹出来了（2026-10-11 改，以前要等抬手才弹），此后的分叉看指头怎么走：
+     「就此移动 = 收掉菜单改判拖走」「原地抬手 = 菜单留着接着点」。动画本身不区分这两条，
      只负责说「长按已经成功」。
 
    两条都写成「元素 + 类」的双类 (0,2,0)：单类 (0,1,0) 压不过上面那两条 :hover / --active:hover；

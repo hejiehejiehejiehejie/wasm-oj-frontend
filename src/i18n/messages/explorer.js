@@ -20,7 +20,9 @@ export default {
 
       menu: {
         meta: '题目信息',
-        openUrl: '打开题目链接',
+        openUrl: '打开题目',
+        /** 「打开题目」右列的提示：⌘ / Ctrl + 单击。{mod} 由调用方按平台给 ⌘ 或 Ctrl */
+        openUrlClick: '{mod} + 单击',
         newFile: '新建文件',
         newFolder: '新建文件夹',
         rename: '重命名',
@@ -91,7 +93,8 @@ export default {
 
       menu: {
         meta: 'Problem info',
-        openUrl: 'Open problem link',
+        openUrl: 'Open problem',
+        openUrlClick: '{mod} + Click',
         newFile: 'New file',
         newFolder: 'New folder',
         rename: 'Rename',

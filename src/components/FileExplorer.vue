@@ -1,6 +1,6 @@
 <script setup>
 /**
- * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（打开题目链接 / 题目信息 / 新建 / 重命名 / 删除）。
+ * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（打开题目 / 题目信息 / 新建 / 重命名 / 删除）。
  *
  * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
  * 新建的目标目录可以是任意已存在目录：页头按钮跟随**选中的那一行**（选中文件时取其父目录；
@@ -8,7 +8,7 @@
  * 选中态（`workspace.selectedId`）是唯一来源，读取与写入都在 workspaceStore 里。
  * 名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
  *
- * 通过 provide 向递归树项提供能力：右键菜单、根 DOM、重命名目标、焦点管理，
+ * 通过 provide 向递归树项提供能力：右键菜单、**打开题目**、根 DOM、重命名目标、焦点管理，
  * 内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由 InlineCreateRow
  * 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
  * 另经 defineExpose 对外给出两个入口（`startRename` / `requestDelete`，都收节点 id），
@@ -21,7 +21,7 @@ import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
 import { useTreeDrag } from '../composables/useTreeDrag.js'
-import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
+import { IS_MAC, formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
 import { templateForPath } from '../services/fileTemplates.js'
 import {
@@ -215,6 +215,14 @@ function openContextMenu(event, node) {
 }
 
 /**
+ * 收掉右键菜单。触屏那条路是 useTreeDrag 在用：长按到点它会自己把菜单弹出来（`openContextMenu`），
+ * 手指随后一移就把这次手势改判成拖拽，菜单得跟着退场（见 useTreeDrag.js 的 startDrag）。
+ */
+function closeContextMenu() {
+  menu.value = null
+}
+
+/**
  * 取出可安全打开的题目链接，拿不到就返回空串。
  *
  * `meta.url` 是不可信输入（一半来自扩展解析结果、一半来自用户手输），`javascript:` 这类
@@ -233,6 +241,21 @@ function problemUrl(node) {
 }
 
 /**
+ * 在新标签页打开这一行的题目。返回「到底开没开」—— 调用方（树项里的 ⌘ / Ctrl + 单击）要靠它
+ * 决定要不要退化成普通单击，所以拿不到链接时**必须**回 false，不能只是静默。
+ *
+ * 菜单里那一项与 ⌘ / Ctrl + 单击共用这一个出口，判据（`problemUrl`）也只有一份。
+ * @param {object} node
+ * @returns {boolean}
+ */
+function openProblem(node) {
+  const url = problemUrl(node)
+  if (!url) return false
+  window.open(url, '_blank', 'noopener')
+  return true
+}
+
+/**
  * 题目信息只对文件有意义；新建只对目录有意义——目标就是被右键的那个目录。
  * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
  *
@@ -242,7 +265,15 @@ function problemUrl(node) {
 function buildMenuItems(node) {
   const items = []
   if (node?.type === 'file') {
-    if (problemUrl(node)) items.push({ id: 'open-url', label: t('explorer.menu.openUrl') })
+    // 右列不是 keydown 组合键，是 ⌘ / Ctrl + 单击这个**手势**本身 —— 走不了 formatCombo
+    // （它只吃 'Mod+KeyX' 那种串），但它是真的能按的，所以照旧填右列、不留空。
+    if (problemUrl(node)) {
+      items.push({
+        id: 'open-url',
+        label: t('explorer.menu.openUrl'),
+        shortcut: t('explorer.menu.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
+      })
+    }
     items.push({ id: 'meta', label: t('explorer.menu.meta') })
   } else if (node?.type === 'directory') {
     items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
@@ -269,10 +300,8 @@ async function onMenuSelect(id) {
   menu.value = null
   if (!node) return
   if (id === 'meta') beginEditMeta(node)
-  else if (id === 'open-url') {
-    const url = problemUrl(node)
-    if (url) window.open(url, '_blank', 'noopener')
-  } else if (id === 'new-file') startCreate('file', node)
+  else if (id === 'open-url') openProblem(node)
+  else if (id === 'new-file') startCreate('file', node)
   else if (id === 'new-folder') startCreate('directory', node)
   else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node)
@@ -429,7 +458,7 @@ const {
   armedId,
   onRowPointerDown,
   consumeClickSuppression,
-} = useTreeDrag({ treeEl: rootEl, onDrop: onDropNode, openContextMenu })
+} = useTreeDrag({ treeEl: rootEl, onDrop: onDropNode, openContextMenu, closeContextMenu })
 
 /** 幽灵元素上的图标：只分文件 / 目录，够用来认出手里拖的是谁 */
 const ghostIcon = computed(() => (draggingNode.value?.type === 'directory' ? 'folder' : 'file'))
@@ -487,6 +516,8 @@ function onTreeClick(event) {
 }
 
 provide('openContextMenu', openContextMenu)
+// 「打开题目」的出口：菜单里那一项与树项上的 ⌘ / Ctrl + 单击都归它，判据只有 problemUrl 一份
+provide('openProblem', openProblem)
 // 删除确认不再经 provide 下发：唯一的调用方是全局快捷键 Delete（原来在 FileTreeItem 的
 // 行内 keydown 里），2026-10-10 改走 defineExpose 那条路，见文件末尾。
 provide('treeRootEl', rootEl)
@@ -506,7 +537,7 @@ provide('consumeClickSuppression', consumeClickSuppression)
 provide('suppressContextMenu', suppressContextMenu)
 provide('dropTargetRowId', dropTargetRowId)
 provide('draggingId', draggingId)
-// 触屏长按的两段提示：按压进度（还在等）与就绪态（已经可以拖 / 可以松手弹菜单）
+// 触屏长按的两段提示：按压进度（还在等）与就绪态（已经到点 —— 菜单已弹出，此后移动即拖动）
 provide('pressingId', pressingId)
 provide('armedId', armedId)
 

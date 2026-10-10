@@ -1,11 +1,19 @@
 /**
- * useEditorMenu —— 编辑区的上下文菜单（桌面鼠标右键 / 触屏长按）。
+ * useEditorMenu —— 编辑区的上下文菜单（桌面鼠标右键 / 触屏长按）与触屏的多击手势。
  *
  * 两端共用同一份菜单（2026-10-10 加），取代 Monaco 内置那份英文菜单：
  * - **桌面**：鼠标右键弹它。内置菜单的文案是英文的，与站点的双语界面不一致；
  * - **触屏**：长按 `LONG_PRESS_MS` 弹它，并且**先选中手指下的词** —— 这是 iOS / Android
  *   原生文本控件与 VS Code 移动版的通行分工：轻点 = 光标、双击 = 选词、长按 = 选词 + 菜单。
  *   若长按处本来就在选区里，则保持原选区不动（同 iOS：长按已选中的内容 = 直接弹菜单）。
+ *
+ * 多击手势（2026-10-11 加）：**三击 = 选中整行、四击 = 全选**，对齐 Monaco 自己在鼠标下的
+ * 口径；触屏上 Monaco 数不到 3，只能由这里接着数（见 `onMonacoGestureTap`）。
+ *
+ * 键盘的防抖（2026-10-11 加）：编辑器没有焦点时，这一轮轻点**先不聚焦** —— Monaco 的 Tap 会
+ * 顺带 `focusTextArea()`，键盘一弹 App 就收矮（`--vvh`），后面几击的落点全跟着偏。
+ * 补聚焦推迟到 `TAP_SETTLE_MS`（与 Monaco 的双击窗口同口径）：单击 = 光标立刻落下、键盘晚约
+ * 0.4s；双击及以上 = 选完才弹。焦点已经在编辑器里时不做这套（视口不会动，交给 Monaco 更快）。
  *
  * 【为什么自己判长按，而不是用 Monaco 的】
  * Monaco 的手势识别（`vs/base/browser/touch.js`）在按住 `HOLD_DELAY`（**700ms**）时派发
@@ -36,6 +44,18 @@ import { formatCombo } from './useShortcutManager.js'
 const LONG_PRESS_MS = 450
 /** 判定前手指移动超过这个距离就当滚动，撤掉长按（与平台点按 slop 同量级） */
 const MOVE_SLOP = 10
+/**
+ * Monaco 手势识别里的 Tap 事件名（`vs/base/browser/touch.js` 的 `EventType.Tap`）。
+ * 与 `useMobileKeyboard.js` 里那个同名常量指向同一份实现 —— 改一处记得对另一处。
+ */
+const MONACO_GESTURE_TAP = '-monaco-gesturetap'
+/**
+ * 一轮连续轻点「到头了」的等待时长，也等于**把键盘推迟多久弹出来**。
+ * 与 Monaco 判定双击的窗口同口径（`touch.js` 的 `Gesture.CLEAR_TAP_COUNT_TIME = 400`）——
+ * 取一样的值，「这一轮还有没有下一击」两边才是同一个答案（口径对不上就会出现
+ * 「Monaco 认为还在双击、我们已经把键盘弹了」）。
+ */
+const TAP_SETTLE_MS = 400
 
 /**
  * 菜单项 → Monaco 的 action id。
@@ -79,6 +99,19 @@ export function useEditorMenu({ editor, host }) {
   let press = null
   /** 本次触摸是否已被我们接管成长按 —— 用来拦掉 Monaco 700ms 时那一发 */
   let handledTouch = false
+  /**
+   * 这一轮连续轻点已经点到第几下（1 = 单击、2 = 双击、3 = 三击…）。
+   * 由 Monaco 的 `tapCount` 驱动：它报 1 就说明这一轮断了（间隔超 400ms），报 2 就往下数。
+   */
+  let tapSequence = 0
+  /**
+   * 这一轮轻点是不是由我们接管（编辑器没有焦点时才置真）。置真期间 Monaco 的每一击都被拦掉，
+   * 光标 / 选词 / 选行 / 全选全由这里做 —— 因为 Monaco 的 Tap 里带着 `focusTextArea()`，
+   * 而我们要的正是「这一轮先别聚焦」。
+   */
+  let deferFocus = false
+  /** 补聚焦的定时器（0 = 没有待补的）。每来一击就重新计，到点了才真的聚焦 */
+  let settleTimer = 0
 
   /**
    * 菜单项随选区实时算：没有选区时「剪切 / 复制」置灰。
@@ -125,7 +158,13 @@ export function useEditorMenu({ editor, host }) {
   function onMenuSelect(id) {
     const instance = editor.value
     closeMenu()
-    if (instance && ACTIONS[id]) instance.trigger('editor-menu', ACTIONS[id], null)
+    if (!instance || !ACTIONS[id]) return
+    // 先把焦点还给 Monaco 再触发。菜单是 Teleport 到 body 的按钮，点它会把 DOM 焦点从
+    // Monaco 的 textarea 上抢走；而「命令面板」（editor.action.quickCommand）这类 action
+    // 明确要求当前有聚焦的编辑器，否则直接抛 "Quick input service needs a focused editor
+    // to work."。剪贴板那几条不挑焦点，但也一并没有坏处。
+    instance.focus()
+    instance.trigger('editor-menu', ACTIONS[id], null)
   }
 
   // ------------------------------------------------------------ 触屏：长按
@@ -151,6 +190,9 @@ export function useEditorMenu({ editor, host }) {
       Math.abs(event.clientY - press.y) > MOVE_SLOP
     ) {
       clearPress() // 是滚动，不是长按
+      // 也在告诉上一轮轻点：这次不是轻点，别把那笔「补聚焦」补上 ——
+      // 否则键盘会在滚动途中弹出来，把用户正在看的位置顶走（口径：滑动只滚动，轻点才聚焦）。
+      cancelSettleFocus()
     }
   }
 
@@ -159,6 +201,9 @@ export function useEditorMenu({ editor, host }) {
     const { x, y } = press
     clearPress()
     handledTouch = true
+    // 长按接管的这一轮不再补聚焦：用户要的是菜单，不是键盘（400ms 的防抖若照常到点，
+    // 键盘会在菜单已经弹出来之后把视口收矮，菜单看着就像跳了一下）。
+    cancelSettleFocus()
     selectWordUnder(x, y)
     openAt(x, y)
   }
@@ -180,6 +225,118 @@ export function useEditorMenu({ editor, host }) {
     } else {
       instance.setPosition(position)
     }
+  }
+
+  // -------------------------------------------- 触屏：轻点的多击手势 + 键盘防抖
+
+  /**
+   * 触屏轻点的总入口：单击 = 落光标、双击 = 选词、三击 = 选行、四击 = 全选。
+   * 后三个的口径与 Monaco 自己在鼠标下的那一套对齐
+   * （`viewController.dispatchMouse` 的 `mouseDownCount`：2 = 选词 / 3 = 选行 / ≥4 = 全选），
+   * 而 3 和 4 在触屏上 Monaco 根本喂不到（见 `tapCount` 那段注释）。
+   *
+   * 【为什么要自己数】Monaco 的手势识别把 `tapCount` 封顶在 2（`touch.js` 的
+   * `CLEAR_TAP_COUNT_TIME`）：第 3、4 次轻点仍旧报 2，它自己那边三次轻点的结果是
+   * 「选词、选词、选词」。这里借它的 `tapCount` 接着往下数 —— 顺带把「一轮到头了」也
+   * 交给它：它报 1 就说明距上一次轻点已超过那 400ms，新的一轮从这里重新数。
+   *
+   * 【数到 3 就得把 Monaco 那一发拦掉】第 3 次轻点若原样放过去，Monaco 会按「双击」再选一次
+   * 词，刚选好的整行又被缩回一个词。事件派发在 `.view-lines` 上（`bubbles: false`），
+   * 所以挂在祖先的**捕获阶段**拦（与 `useMobileKeyboard.js` 拦 Tap 是同一招）。
+   *
+   * 【键盘的防抖 —— 编辑器没焦点时整轮都由我们接管】
+   * Monaco 的 Tap 里除了落光标还带着 `focusTextArea()`：第一击就把键盘弹起来，而键盘一弹，
+   * App 就按 `--vvh` 把自己收矮（见 useMobileKeyboard / App.vue 的 `.app.is-keyboard`），
+   * 编辑区跟着重新排版 —— **后面几击的落点因此全部偏掉**（双击选到别的词、三击选到别的行），
+   * 因为 Monaco 给我们的 `pageX / pageY` 是手指抬起那一刻的、按下时早就不是那个坐标了。
+   * 所以只要编辑器本来没有焦点，这一轮就**先不聚焦**：每一击都由这里自己落地（光标 / 选词 /
+   * 选行 / 全选），并把「补聚焦」推迟到 `TAP_SETTLE_MS` 之后 —— 期间任何一击都会把它重新计时，
+   * 于是单击是「键盘晚约 0.4s 弹」（光标立刻落下），双击及以上则是「选完才弹」。
+   * 焦点本来就在编辑器里（键盘弹着打字）时不做这套：那时视口不会动，原样交给 Monaco 更快。
+   */
+  function onMonacoGestureTap(event) {
+    // 这一发是长按松手带出来的（450ms 时已经被我们接管）：整轮早结束了，别拿它当下一轮的第一击。
+    // 也不拦 —— 只把计数让开，行为与加这段逻辑之前完全一致。
+    if (handledTouch) return
+    tapSequence = event.tapCount === 2 ? tapSequence + 1 : 1
+    // 手势事件带的是 page 坐标。本站没有文档级滚动，两者本来就是同一个数，
+    // 减一下只是不让「哪天真能滚页面」时悄悄错位。
+    const clientX = event.pageX - window.scrollX
+    const clientY = event.pageY - window.scrollY
+
+    if (tapSequence === 1) deferFocus = !editor.value?.hasTextFocus()
+    if (deferFocus) {
+      event.stopPropagation()
+      event.preventDefault()
+      if (tapSequence === 1) placeCursor(clientX, clientY)
+      else if (tapSequence === 2) selectWordUnder(clientX, clientY)
+      else if (tapSequence === 3) selectLine(clientX, clientY)
+      else selectAll()
+      armSettleFocus()
+      return
+    }
+
+    if (tapSequence < 3) return // 焦点在编辑器里：单击、双击照旧交给 Monaco（光标、选词）
+    event.stopPropagation()
+    event.preventDefault()
+    if (tapSequence === 3) selectLine(clientX, clientY)
+    else selectAll()
+  }
+
+  /**
+   * 轻点落光标。Monaco 的 Tap 在 `dispatchMouse` 里对 `mouseDownCount === 1` 走的就是 `moveTo`，
+   * 这里用 `setPosition` 是同一件事（只是不聚焦）。
+   */
+  function placeCursor(clientX, clientY) {
+    const instance = editor.value
+    const position = instance?.getTargetAtClientPoint(clientX, clientY)?.position
+    if (position) instance.setPosition(position)
+  }
+
+  /**
+   * 把「补聚焦」推到 `TAP_SETTLE_MS` 之后；这一轮里每来一击都重新计时。
+   * 到点才真的聚焦 —— 键盘与它带来的视口收缩都挪到手指停下之后，多击的落点就不会被带偏。
+   */
+  function armSettleFocus() {
+    if (settleTimer) window.clearTimeout(settleTimer)
+    settleTimer = window.setTimeout(() => {
+      settleTimer = 0
+      deferFocus = false
+      editor.value?.focus()
+    }, TAP_SETTLE_MS)
+  }
+
+  /** 撤销待补的聚焦：长按接管（用户要的是菜单，不是键盘）与卸载时都要用 */
+  function cancelSettleFocus() {
+    if (settleTimer) window.clearTimeout(settleTimer)
+    settleTimer = 0
+    deferFocus = false
+  }
+
+  /**
+   * 三击：选中轻点处那一整行。连**行尾的换行一起**选（末行没有换行可选到行尾）——
+   * 与 Monaco 自己的三击同一个口径（`CursorMoveCommands.expandLineSelection`，也就是 Ctrl+L），
+   * 于是退格一下正好删掉一整行，而不是删掉一行文字、留下一个空行。
+   */
+  function selectLine(clientX, clientY) {
+    const instance = editor.value
+    const model = instance?.getModel()
+    if (!instance || !model) return
+    const hit = instance.getTargetAtClientPoint(clientX, clientY)?.position
+    // 命中测试被自己画的浮层吃掉时（HANDOFF 第 5 节坑 32）退回「双击刚选好的那个词」所在的行
+    const line = (hit || instance.getSelection()?.getStartPosition())?.lineNumber
+    if (!line) return
+    const lastLine = model.getLineCount()
+    instance.setSelection(
+      line < lastLine
+        ? new monaco.Range(line, 1, line + 1, 1)
+        : new monaco.Range(line, 1, line, model.getLineMaxColumn(line)),
+    )
+  }
+
+  /** 四击及以上：全选。走 Monaco 的 action —— 与菜单里那一项是同一条路，选区与撤销栈都交给它 */
+  function selectAll() {
+    editor.value?.trigger('touch-gesture', ACTIONS.selectAll, null)
   }
 
   // ------------------------------------------------------------ 两端的原生菜单
@@ -210,11 +367,14 @@ export function useEditorMenu({ editor, host }) {
     el.addEventListener('pointercancel', clearPress, true)
     el.addEventListener('contextmenu', onContextMenu, true)
     el.addEventListener('-monaco-gesturecontextmenu', onMonacoMenu, true)
+    // 必须在捕获阶段：Monaco 的 Tap 监听挂在 .view-lines 自己身上，冒泡阶段就晚了
+    el.addEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
   })
 
   onBeforeUnmount(() => {
     const el = host.value
     clearPress()
+    cancelSettleFocus()
     if (!el) return
     el.removeEventListener('pointerdown', onPointerDown, true)
     el.removeEventListener('pointermove', onPointerMove, true)
@@ -222,6 +382,7 @@ export function useEditorMenu({ editor, host }) {
     el.removeEventListener('pointercancel', clearPress, true)
     el.removeEventListener('contextmenu', onContextMenu, true)
     el.removeEventListener('-monaco-gesturecontextmenu', onMonacoMenu, true)
+    el.removeEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
   })
 
   return { menu, closeMenu, onMenuSelect }
