@@ -138,8 +138,18 @@ const subShiftX = ref(0)
  */
 let subObserver = null
 
-const rows = SETTINGS_MENU_ROWS
-const FIRST_SELECTABLE = rows.findIndex((row) => row.kind !== 'divider')
+/**
+ * 此刻要画的那几行 = 表里通过 `when` 的那些。
+ *
+ * 过滤放在这里、判据留在表里（见 `settingsMenu.js` 文件头）：组件只认「这一行在不在」，
+ * 不必知道「装没装扩展」这类业务事实。表里大多数行没有 `when`，缺省就是在。
+ * 下标（`activeIndex` / `openSubmenu`）一律按**过滤后**这一份算，所以条件行的位置要挑对：
+ * 它们都排在 `cloud` 之后、两颗导航行之前 —— 于是**所有可展开的行都在它们上面**，
+ * `openSubmenu` 存的那份下标不会被它们出现 / 消失推着走（下面那两颗导航行只是行号会挪，
+ * 它们本来就不存下标）。
+ */
+const rows = computed(() => SETTINGS_MENU_ROWS.filter((row) => row.when?.() ?? true))
+const FIRST_SELECTABLE = computed(() => rows.value.findIndex((row) => row.kind !== 'divider'))
 
 // ------------------------------------------------------------------ 云端同步表单
 /** 这台设备有没有绑着一位：`cp.cloudAccount` 里有用户名就是已绑定 */
@@ -242,14 +252,14 @@ async function confirmPending() {
 }
 
 function optionsOf(index) {
-  const row = rows[index]
+  const row = rows.value[index]
   return row && row.kind === 'radio' ? row.options() : []
 }
 
 /** 从 from 往 delta 方向找下一个可选项，找不到就原地不动 */
 function step(from, delta) {
-  for (let i = from + delta; i >= 0 && i < rows.length; i += delta) {
-    if (rows[i].kind !== 'divider') return i
+  for (let i = from + delta; i >= 0 && i < rows.value.length; i += delta) {
+    if (rows.value[i].kind !== 'divider') return i
   }
   return from
 }
@@ -265,7 +275,7 @@ function closeSubmenu() {
 }
 
 function openSubmenuAt(index) {
-  const row = rows[index]
+  const row = rows.value[index]
   // 云端同步那一行展开的是表单，没有档位可算高亮
   if (row?.kind === 'cloud') {
     openSubmenu.value = index
@@ -284,7 +294,7 @@ function openSubmenuAt(index) {
 
 /** 执行一级行（switch 翻面 / radio 展开二级 / action 打开面板） */
 function trigger(index) {
-  const row = rows[index]
+  const row = rows.value[index]
   if (!row || row.kind === 'divider') return
   if (row.kind === 'radio' || row.kind === 'cloud') {
     openSubmenuAt(index)
@@ -342,17 +352,17 @@ function onRootKeydown(event) {
       focusRow(subIndex)
     } else if (event.key === 'Enter' || event.key === 'ArrowRight') {
       event.preventDefault()
-      pickOption(rows[subIndex], options[subActiveIndex.value])
+      pickOption(rows.value[subIndex], options[subActiveIndex.value])
     }
     return
   }
 
   if (event.key === 'ArrowDown') {
     event.preventDefault()
-    focusRow(activeIndex.value < 0 ? FIRST_SELECTABLE : step(activeIndex.value, 1))
+    focusRow(activeIndex.value < 0 ? FIRST_SELECTABLE.value : step(activeIndex.value, 1))
   } else if (event.key === 'ArrowUp') {
     event.preventDefault()
-    focusRow(step(activeIndex.value < 0 ? rows.length : activeIndex.value, -1))
+    focusRow(step(activeIndex.value < 0 ? rows.value.length : activeIndex.value, -1))
   } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
     event.preventDefault()
     trigger(activeIndex.value)
@@ -391,7 +401,7 @@ function onRootPointerLeave(event) {
 // 打开即接过焦点：不然 Esc / 方向键都落在别处。高亮钉在第一行而不是容器上，
 // 上下键才有起点（滚动容器自身不可聚焦也不会吞掉方向键）。
 watch(ready, (shown) => {
-  if (shown) nextTick(() => focusRow(FIRST_SELECTABLE))
+  if (shown) nextTick(() => focusRow(FIRST_SELECTABLE.value))
 })
 
 /**
@@ -516,7 +526,7 @@ watch(openSubmenu, async (index) => {
   await nextTick()
   // 云端同步那一行：表单一展开就把焦点送进用户名框。框空着时把本机认得的那一位填进去
   // （先认已绑定的账号、再认「本机在跟谁」），导入过一次之后就不必把用户名重打一遍。
-  if (rows[index]?.kind === 'cloud') {
+  if (rows.value[index]?.kind === 'cloud') {
     if (!cloudHandle.value.trim()) {
       cloudHandle.value = cloudAccount.value.handle || readActiveProfile().handle
     }
@@ -752,7 +762,7 @@ function optionLabel(option) {
                   autocomplete="off"
                   autocapitalize="off"
                   :aria-label="t('settings.cloud.handle.label')"
-                  :placeholder="t('settings.cloud.handlePlaceholder')"
+                  :placeholder="t('settings.menu.cloudHandlePlaceholder')"
                   @keydown.enter.prevent="cloudBound ? runCloudImport() : loginCloud()"
                 />
                 <button

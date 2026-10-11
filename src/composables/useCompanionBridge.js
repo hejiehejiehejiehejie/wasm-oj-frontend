@@ -50,8 +50,14 @@ const PING_TIMEOUT = 500
  *  扩展被重载过、页面一直没刷新时会失联，所以隔一段时间多探几次。 */
 const PING_DELAYS = [0, 400, 1500]
 
-/** null = 未检测到扩展 */
-const extensionInfo = ref(null)
+/**
+ * null = 未检测到扩展。
+ *
+ * **导出的是这份模块级 ref 本身**（2026-10-12 加 export）：除了设置面板，齿轮菜单里那一行
+ * 「安装 / 下载浏览器插件」也要按它决定在不在（见 `services/settingsMenu.js`）——
+ * 「扩展装没装」是全局事实，两处读的必须是同一份（同文件上面那条纪律）。
+ */
+export const extensionInfo = ref(null)
 /** 正在探测。设置面板据此显示「检测中」，而不是一上来就断言「未安装」 */
 const checking = ref(false)
 

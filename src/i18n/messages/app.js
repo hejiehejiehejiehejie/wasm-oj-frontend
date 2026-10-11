@@ -39,8 +39,17 @@ export default {
         copy: '复制',
         paste: '粘贴',
         selectAll: '全选',
+        exportImage: '生成图片',
         changeAll: '更改所有匹配项',
         commandPalette: '命令面板',
+      },
+
+      /** 「生成图片」之后那一次询问：要复制还是保存（设置里可关掉，见 codeImageAsk） */
+      imageAsk: {
+        title: '图片已生成',
+        desc: '要复制这张图，还是保存成 PNG 文件？',
+        copy: '复制',
+        save: '保存',
       },
 
       tabs: {
@@ -164,8 +173,16 @@ export default {
         copy: 'Copy',
         paste: 'Paste',
         selectAll: 'Select All',
+        exportImage: 'Export image',
         changeAll: 'Change All Occurrences',
         commandPalette: 'Command Palette',
+      },
+
+      imageAsk: {
+        title: 'Image ready',
+        desc: 'Copy it, or save it as a PNG file?',
+        copy: 'Copy',
+        save: 'Save',
       },
 
       tabs: {

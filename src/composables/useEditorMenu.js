@@ -38,6 +38,13 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { monaco } from '../monaco-setup.js'
 import { t } from '../i18n/index.js'
+import { editorSettings } from '../services/editorSettings.js'
+import {
+  copyImageToClipboard,
+  downloadImage,
+  renderCodeToImage,
+} from '../services/codeImage.js'
+import { notify } from '../services/notifications.js'
 import { formatCombo } from './useShortcutManager.js'
 
 /** 触屏长按多久算「按住 = 选词 + 菜单」。与 useTreeDrag.js 的 LONG_PRESS_MS 同口径 */
@@ -94,6 +101,10 @@ const SHORTCUT = {
 export function useEditorMenu({ editor, host }) {
   /** 打开中的菜单：`{ x, y, items }`；null = 没开 */
   const menu = ref(null)
+  /** 「复制还是保存」那一次询问是否开着（codeImageAsk 开着时才可能为真） */
+  const ask = ref(false)
+  /** 询问的兑现口：弹窗一答就 resolve，见 askImageAction */
+  let askResolve = null
 
   /** 本次触摸的现场；`timer` 归零表示已撤销或已触发 */
   let press = null
@@ -138,6 +149,10 @@ export function useEditorMenu({ editor, host }) {
       { id: 'copy', label: t('app.editorMenu.copy'), shortcut: SHORTCUT.copy, disabled: !hasSelection },
       { id: 'paste', label: t('app.editorMenu.paste'), shortcut: SHORTCUT.paste },
       { id: 'selectAll', label: t('app.editorMenu.selectAll'), shortcut: SHORTCUT.selectAll },
+      { id: 'sep-image', divider: true },
+      // 生成图片：无选区时置灰（与剪切 / 复制同口径 —— 没有选中的代码就没有可导出的东西）。
+      // 走自己的实现，不是 Monaco action：Monaco 没有这条命令。
+      { id: 'exportImage', label: t('app.editorMenu.exportImage'), disabled: !hasSelection },
       { id: 'sep-cmd', divider: true },
       {
         id: 'commandPalette',
@@ -147,7 +162,21 @@ export function useEditorMenu({ editor, host }) {
     ]
   }
 
+  /**
+   * 打开菜单。**编辑器没有 model 就整份不开**（2026-10-12 用户点名的 bug：没开任何文件、
+   * 编辑区只剩中间那个占位提示时，右键照样弹出「剪切 / 复制 / 粘贴 / 全选 / 命令面板」）。
+   *
+   * 判据取 `getModel()` 而不是「活跃文件 id 空不空」：`EditorPane.vue` 那条 watch 在
+   * `activeId` 为空时正是 `setModel(null)`，所以这一条既等价、又不必把面板那边的状态搬进来。
+   * 那几条菜单项没有一条离得开 model —— 「粘贴」「命令面板」还都要求有聚焦的编辑器，
+   * 空编辑区弹出来只会误导。
+   *
+   * ⚠️ **是拦住、不是放行**：调用方（右键 / 长按）该 `preventDefault` 的照旧做，所以空编辑区
+   * 右键**什么都不弹**，连浏览器原生菜单也不露 —— 用户当场定的口径，别「顺手」改成放行。
+   * 鼠标右键与触屏长按都从这里过，拦在这一处就够。
+   */
   function openAt(clientX, clientY) {
+    if (!editor.value?.getModel()) return
     menu.value = { x: clientX, y: clientY, items: buildItems() }
   }
 
@@ -155,9 +184,120 @@ export function useEditorMenu({ editor, host }) {
     menu.value = null
   }
 
+  /**
+   * 「生成图片」：选区 → PNG → **复制还是保存由用户当场定**（设置项 codeImageAsk，默认问）。
+   *
+   * 顺序是「**先渲染、再问**」：图已经画好了，弹窗上点哪一边都是立刻兑现，不用再等一次渲染；
+   * 取消则是真的什么都没发生（图丢掉，不发通知）。
+   * 关掉询问（codeImageAsk = false）时按设置里的 `codeImageAction` 直接走，一次弹窗也不弹。
+   *
+   * 「复制」这条路上还留着原来的兜底：浏览器不给写图片剪贴板时退化成下载 ——
+   * 那是**用户选了复制却做不到**的情形，下载下来总比什么都不给好。
+   * 两条结果各发一条通知 —— 这条链路没有别的可见反馈，用户看不到图，只能靠通知知道成了没有。
+   * 失败发常驻 error 通知：那是需要人来看一眼的情形。
+   */
+  async function exportSelectionImage() {
+    const instance = editor.value
+    const model = instance?.getModel()
+    const selection = instance?.getSelection()
+    if (!model || !selection || selection.isEmpty()) return
+    const code = model.getValueInRange(selection)
+    if (!code.trim()) return
+    try {
+      // 字体取 Monaco 当前真实生效的那一份（getOption(fontInfo)），排版才和编辑器里一致；
+      // 字号不取 —— 导出图固定字号，见 codeImage.js 的 EXPORT_FONT_SIZE
+      const fontInfo = instance.getOption(monaco.editor.EditorOption.fontInfo)
+      const dataUrl = await renderCodeToImage({
+        code,
+        languageId: model.getLanguageId(),
+        showDots: editorSettings.value.codeImageDots,
+        showLineNumbers: editorSettings.value.codeImageLineNumbers,
+        quality: editorSettings.value.codeImageQuality,
+        // 彩色括号跟编辑器同一个开关（编辑器在 .md 下也会自己关掉，这里同口径）
+        bracketColorize:
+          editorSettings.value.bracketPairColorization && model.getLanguageId() !== 'markdown',
+        // 行号从选区所在的那一行起算（选区在文件中间时编号才对得上）
+        startLine: selection.startLineNumber,
+        // 制表符的宽度取当前文件真正生效的那一份（model 级选项，可能被「按内容猜缩进」改过），
+        // 图里的缩进才和编辑器里看到的一致
+        tabSize: model.getOptions().tabSize,
+        fontFamily: fontInfo?.fontFamily,
+      })
+      const action = editorSettings.value.codeImageAsk
+        ? await askImageAction()
+        : editorSettings.value.codeImageAction
+      // 取消（Esc / 点遮罩 / 「取消」）：图丢掉，什么都不做
+      if (!action) return
+      if (action !== 'save' && (await copyImageToClipboard(dataUrl))) {
+        notify({
+          type: 'success',
+          title: t('notifications.image.copiedTitle'),
+          message: t('notifications.image.copiedBody'),
+          duration: 3000,
+        })
+        return
+      }
+      downloadImage(dataUrl, imageFileName(model))
+      notify({
+        type: 'info',
+        title: t('notifications.image.downloadedTitle'),
+        message: t('notifications.image.downloadedBody'),
+        duration: 3000,
+      })
+    } catch {
+      notify({
+        type: 'error',
+        title: t('notifications.image.failedTitle'),
+        message: t('notifications.image.failedBody'),
+      })
+    }
+  }
+
+  /**
+   * 「复制还是保存」这一次询问：Promise 包着弹窗，UI 由调用方（EditorPane）画。
+   *
+   * 与右键菜单同一套分工：composable 只管状态与结果，模板交给组件 —— 这里没有模板，
+   * 而弹窗必须 Teleport 到 body（编辑区内有 transform / overflow，就地定位会被裁）。
+   * @returns {Promise<'copy' | 'save' | null>} 取消 = null
+   */
+  function askImageAction() {
+    // 上一问还没答就又来一问（理论上够不着：弹窗是模态的）→ 先把旧的按取消结掉，
+    // 免得那个 Promise 永远悬着、调用方卡在 await 上
+    if (askResolve) answerImageAction(null)
+    return new Promise((resolve) => {
+      askResolve = resolve
+      ask.value = true
+    })
+  }
+
+  /**
+   * 弹窗上点了哪一边。'copy' / 'save' 兑现，其余（取消 / Esc / 点遮罩）一律按 null ——
+   * 调用方据此整段收手。
+   * @param {'copy' | 'save' | null} action
+   */
+  function answerImageAction(action) {
+    if (!ask.value) return
+    ask.value = null
+    const resolve = askResolve
+    askResolve = null
+    resolve?.(action ?? null)
+  }
+
+  /** 下载用的文件名：取当前文件的基名换 .png；没有路径信息时兜底 code.png */
+  function imageFileName(model) {
+    const path = String(model.uri?.path ?? '')
+    const base = path.split('/').pop() ?? ''
+    const stem = base.replace(/\.[^.]*$/, '')
+    return `${stem || 'code'}.png`
+  }
+
   function onMenuSelect(id) {
     const instance = editor.value
     closeMenu()
+    if (id === 'exportImage') {
+      exportSelectionImage()
+      return
+    }
     if (!instance || !ACTIONS[id]) return
     // 先把焦点还给 Monaco 再触发。菜单是 Teleport 到 body 的按钮，点它会把 DOM 焦点从
     // Monaco 的 textarea 上抢走；而「命令面板」（editor.action.quickCommand）这类 action
@@ -375,6 +515,7 @@ export function useEditorMenu({ editor, host }) {
     const el = host.value
     clearPress()
     cancelSettleFocus()
+    answerImageAction(null) // 弹窗还开着就卸载：把那次 await 结掉，别让它永远悬着
     if (!el) return
     el.removeEventListener('pointerdown', onPointerDown, true)
     el.removeEventListener('pointermove', onPointerMove, true)
@@ -385,5 +526,8 @@ export function useEditorMenu({ editor, host }) {
     el.removeEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
   })
 
-  return { menu, closeMenu, onMenuSelect }
+  // exportSelectionImage 也出栈：给 EditorPane 的 defineExpose 用，让 ⌘ / Ctrl+P 那条
+  // 全局快捷键能落到同一份实现上（App.vue 的 SHORTCUT_HANDLERS 里调它）。
+  // ask / answerImageAction 是那一次「复制还是保存」的状态与兑现口，弹窗画在 EditorPane 里。
+  return { menu, closeMenu, onMenuSelect, exportSelectionImage, ask, answerImageAction }
 }

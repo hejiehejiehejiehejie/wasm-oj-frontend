@@ -46,6 +46,7 @@ export const SYNC_KEYS = [
   'cp.sidebarTab', // 侧边栏停在「资源管理器」还是「评测样例」
   'cp.mdView', // 题解视图模式（仅编辑 / 双栏 / 仅预览）
   'cp.timeLimitMs', // 全局运行时限
+  'cp.memoryLimitBytes', // 全局内存上限（判 MLE 用）
   'cp.engine', // 评测引擎
   'cp.autoPreload', // 「启动时预下载」勾选的运行时 id（见 runtimePreload.js）
   'cp.cfPicker.autoInstall', // 抽题组件「默认安装」开关（见 cfRuntime.js）

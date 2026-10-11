@@ -35,8 +35,17 @@ export default {
         /* 菜单里那一行**不复用** section.cloud（2026-10-11 用户定的）：同一个功能在下拉里
            读作「同步设置」，进了设置面板那一栏仍叫「云端同步」——两处刻意不同名，别顺手统一 */
         cloudSync: '同步设置',
+        /* 同理：下拉里那个用户名框的占位文字也不复用 cloud.handlePlaceholder
+           （2026-10-11 用户定的，只改下拉里那一个） */
+        cloudHandlePlaceholder: '如：he-jie（CFID）',
         decrease: '减小',
         increase: '增大',
+        /* 下面三条是**条件行**（能装且还没装时才出现，见 services/settingsMenu.js 的 `when`）：
+           「安装为应用」的判据就是 canInstall；插件那条按这台机器的实际路径二选一 ——
+           Firefox 走 AMO（叫「安装」），Chromium 系桌面版下载 zip（叫「下载」） */
+        installApp: '安装为应用',
+        installExtension: '安装浏览器插件',
+        downloadExtension: '下载浏览器插件',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -104,6 +113,7 @@ export default {
         groupEdit: '编辑',
         groupCursor: '光标与高亮',
         groupView: '视图',
+        groupImage: '代码图片',
 
         fontFamily: { label: '字体', hint: '代码编辑器使用的等宽字体' },
         lineHeightRatio: { label: '行高', hint: '行间距相对字号的倍数' },
@@ -153,6 +163,26 @@ export default {
           label: '底部状态栏',
           hint: '显示编辑器底部的状态栏（文件名、光标位置、判题语言等）。题解（.md）下始终不显示',
         },
+        codeImageQuality: {
+          label: '导出质量',
+          hint: '画布尺寸固定（图里的字号不随编辑器字号或屏幕变化），质量只决定渲染倍率：越高越清晰，文件也越大',
+        },
+        codeImageDots: {
+          label: '窗口栏圆点',
+          hint: '在卡片左上角画出 macOS 风格的红、黄、绿三个圆点',
+        },
+        codeImageLineNumbers: {
+          label: '显示行号',
+          hint: '在卡片正文左侧画出行号栏，从选区所在的行开始编号（默认：开启）',
+        },
+        codeImageAsk: {
+          label: '每次询问复制还是保存',
+          hint: '生成图片后弹一次窗让你挑；关掉之后按「默认动作」直接执行（默认：开启）',
+        },
+        codeImageAction: {
+          label: '默认动作',
+          hint: '只在关掉上面那条「每次询问」后才用得上（默认：复制）',
+        },
       },
 
       /** 偏好选项的取值名（下拉里的那一项） */
@@ -193,6 +223,11 @@ export default {
         sbThick: '粗',
         sideLeft: '左侧',
         sideRight: '右侧',
+        qualityMedium: '中',
+        qualityHigh: '高',
+        qualityUltra: '极致',
+        imageCopy: '复制',
+        imageSave: '保存',
       },
 
       shortcut: {
@@ -203,6 +238,7 @@ export default {
         toggleLayout: { label: '侧边栏左右对调' },
         newCase: { label: '新增一条测试用例' },
         openSettings: { label: '打开 / 收起设置' },
+        exportImage: { label: '生成图片', hint: '把选中的代码导成 PNG；没有选区时不响应' },
         renameNode: { label: '重命名（文件 / 文件夹）', hint: '焦点在资源管理器里才生效' },
         deleteNode: {
           label: '删除（文件 / 文件夹）',
@@ -232,6 +268,7 @@ export default {
 
       judge: {
         timeLimit: { label: '运行时限', hint: '只计程序运行阶段，不含编译' },
+        memoryLimit: { label: '内存上限', hint: '超出判 MLE；抓来的题优先用题目限制，这里只是默认值。wasm 沙箱与 Judge0 支持，其余引擎忽略' },
         engines: '评测引擎',
       },
 
@@ -253,6 +290,20 @@ export default {
           statusAvailable: '当前浏览器支持',
           statusUnsupported: '当前浏览器不支持',
           statusInstalled: '已安装',
+          /**
+           * 灰按钮的唯一解释（面板那边叫 `installUnavailable`）：引擎有这套 API、此刻也没装，
+           * 却拿不到一键安装的入口。**不是错误，是浏览器的正常状态** —— 安装事件只由浏览器
+           * 在自己认为「没装」时派发一次，站点既不能问也不能催。中间夹着 `<code>chrome://apps</code>`，
+           * 所以拆成前后两半（与插件快捷键那条同一套写法）。2026-10-12 用户报障：装过一次、
+           * 把应用删了，按钮就一直是灰的 —— 因为从 Finder 删图标不算卸载。
+           */
+          blockedPrefix:
+            '一键安装入口此刻不可用。常见两种原因：装过又删掉（从 Finder 删图标不算卸载，浏览器里还留着记录）、或之前取消过安装对话框。到',
+          blockedSuffix: '里右键移除那个应用，再刷新本页，入口就会回来。',
+          copyApps: '复制地址',
+          copied: '已复制',
+          copyAppsTitle:
+            '复制 chrome://apps —— 网页没有权限跳转过去，只能复制后自己到地址栏粘贴打开',
         },
         installAction: '安装',
         installedAction: '已安装',
@@ -298,9 +349,13 @@ export default {
           edge: 'Edge 版',
           edgeTitle: '前往 Edge 加载项商店安装',
         },
+        /** 装了旧版时，这一行的标题换成它（说明同时换成 updateHint*，按钮照旧） */
+        update: {
+          label: '更新插件',
+        },
         /** 下载那一行标题后面的版本号：标的是这个网站提供的安装包版本 */
         downloadVersion: '最新版本 v{version}',
-        /** 装上的是旧版时那一行提示：前面是版本对照，后面按浏览器接一句怎么更新 */
+        /** 装上的是旧版时那一行警告：只说版本对不上，怎么换新由上面那一行（带按钮）负责 */
         updateAvailable: '你装的是 v{current}，本站最新是 v{latest}。',
         updateHintManual: '重新下载安装包、替换掉旧目录后，在扩展管理页点一次刷新。',
         updateHintFirefox: 'Firefox 会自动更新；也可以在附加组件管理器里手动检查一次。',
@@ -314,6 +369,17 @@ export default {
         configSaveFailed: '保存失败：没收到插件的回执，请确认插件已启用后重试',
         commandShortcuts: '插件快捷键',
         shortcutUnset: '未设置',
+        /**
+         * 键位为空**不是故障**，是 Chrome 的常态：它只在**安装插件那一刻**按 manifest 的
+         * suggested_key 绑一次，那一刻键位被别的扩展占着（或用户清掉过）就再也不自动绑，
+         * 插件读回来就是空串。光摆一个「未设置」会让人以为站点读不到 ——
+         * 必须说清「为什么没有」和「去哪儿绑」。（2026-10-12）
+         */
+        shortcutUnassignedNote:
+          '浏览器没给这个命令分配键位：Chrome 只在安装插件那一刻按建议键位绑一次，被别的扩展占了或清掉过就不会再绑。复制上面的地址，去设置页给「激活该扩展程序」绑一个空闲键，回来点「重新检测」。',
+        /** 插件一条命令都没报上来（重探没救回来时，多半是插件版本过旧） */
+        shortcutEmptyNote:
+          '没读到插件上报的快捷键。先点上面的「重新检测」；仍为空的话多半是插件版本过旧，按上面那一行更新到最新版再看。',
         shortcutsPage: '快捷键设置页',
         shortcutsHint: '复制后在地址栏粘贴打开',
         shortcutsCopiedHint: '已复制，粘贴到地址栏回车即可',
@@ -460,8 +526,17 @@ export default {
         /* Deliberately NOT reusing section.cloud (decided 2026-10-11): in the dropdown the row
            reads "Sync settings", while the panel section stays "Cloud sync" — do not unify. */
         cloudSync: 'Sync settings',
+        /* Same story for the handle box's placeholder: the dropdown has its own copy
+           (decided 2026-10-11 — only the one in the dropdown was changed). */
+        cloudHandlePlaceholder: 'he-jie (CF ID)',
         decrease: 'Decrease',
         increase: 'Increase',
+        /* Conditional rows: they only exist when the thing can be installed and is not yet
+           installed (see `when` in services/settingsMenu.js). The extension row follows this
+           machine's actual route — AMO on Firefox ("Install"), the zip on Chromium ("Download"). */
+        installApp: 'Install as an app',
+        installExtension: 'Install the extension',
+        downloadExtension: 'Download the extension',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -528,6 +603,7 @@ export default {
         groupEdit: 'Editing',
         groupCursor: 'Cursor & highlighting',
         groupView: 'View',
+        groupImage: 'Code image',
 
         fontFamily: { label: 'Font family', hint: 'The monospace font used by the code editor' },
         lineHeightRatio: { label: 'Line height', hint: 'Line spacing as a multiple of the font size' },
@@ -592,6 +668,26 @@ export default {
           label: 'Bottom status bar',
           hint: 'Show the status bar at the bottom of the editor (file name, cursor position, judge language…). Never shown for editorials (.md)',
         },
+        codeImageQuality: {
+          label: 'Export quality',
+          hint: 'The canvas size is fixed (the font size in the image follows neither the editor font size nor the screen), so quality only sets the render scale: higher is sharper and larger',
+        },
+        codeImageDots: {
+          label: 'Window dots',
+          hint: 'Draw the three macOS-style dots (red, yellow, green) in the card’s top-left corner',
+        },
+        codeImageLineNumbers: {
+          label: 'Line numbers',
+          hint: 'Draw a line-number gutter left of the code, numbered from the first line of the selection (default: on)',
+        },
+        codeImageAsk: {
+          label: 'Ask copy or save every time',
+          hint: 'Pop up once after the image is built to let you choose; off means the “Default action” below runs straight away (default: on)',
+        },
+        codeImageAction: {
+          label: 'Default action',
+          hint: 'Only used when “Ask copy or save every time” above is off (default: copy)',
+        },
       },
 
       option: {
@@ -631,6 +727,11 @@ export default {
         sbThick: 'Thick',
         sideLeft: 'Left',
         sideRight: 'Right',
+        qualityMedium: 'Medium',
+        qualityHigh: 'High',
+        qualityUltra: 'Ultra',
+        imageCopy: 'Copy',
+        imageSave: 'Save',
       },
 
       shortcut: {
@@ -640,6 +741,10 @@ export default {
         toggleLayout: { label: 'Swap sidebar side' },
         newCase: { label: 'Add a test case' },
         openSettings: { label: 'Open / close settings' },
+        exportImage: {
+          label: 'Export image',
+          hint: 'Turns the selected code into a PNG; does nothing when nothing is selected',
+        },
         renameNode: { label: 'Rename (file / folder)', hint: 'Applies while the focus is in the explorer' },
         deleteNode: {
           label: 'Delete (file / folder)',
@@ -670,6 +775,7 @@ export default {
 
       judge: {
         timeLimit: { label: 'Time limit', hint: 'Counts the run phase only, excluding compilation' },
+        memoryLimit: { label: 'Memory limit', hint: 'Exceeding it reports MLE; imported problems use their own limit first, this is only the default. Supported by the wasm sandbox and Judge0, ignored by other engines' },
         engines: 'Judge engine',
       },
 
@@ -693,6 +799,21 @@ export default {
           statusAvailable: 'Supported by this browser',
           statusUnsupported: 'Not supported by this browser',
           statusInstalled: 'Installed',
+          /**
+           * The only explanation for the greyed-out button (`installUnavailable` in the panel):
+           * the engine has the API, nothing is installed, yet there is no one-click entry.
+           * Not an error — a normal browser state: the install event is dispatched once, by the
+           * browser, only while it believes the app is not installed. A `<code>chrome://apps</code>`
+           * sits in the middle, hence the two halves.
+           */
+          blockedPrefix:
+            'The one-click install entry is unavailable right now. Two common causes: you installed it before and deleted the app (deleting the icon in Finder is not an uninstall — the browser keeps the record), or you dismissed the install dialog earlier. Open',
+          blockedSuffix:
+            'and remove that app (right-click → Remove from Chrome), then reload this page and the entry returns.',
+          copyApps: 'Copy address',
+          copied: 'Copied',
+          copyAppsTitle:
+            'Copy chrome://apps — a web page cannot navigate there, so paste it into the address bar yourself',
         },
         installAction: 'Install',
         installedAction: 'Installed',
@@ -739,9 +860,13 @@ export default {
           edge: 'Edge version',
           edgeTitle: 'Install from Edge Add-ons',
         },
+        /** Title of that row when the installed build is older (paired with updateHint*) */
+        update: {
+          label: 'Update the extension',
+        },
         /** Version of the package this site ships */
         downloadVersion: 'Latest v{version}',
-        /** Shown when the installed version is older: version pair, then how to update */
+        /** Shown when the installed version is older: the version pair only — how to swap it lives in the row above, which carries the button */
         updateAvailable: 'You have v{current}; this site ships v{latest}.',
         updateHintManual: 'Download the archive again, replace the old folder, then hit refresh on the extension manager page.',
         updateHintFirefox: 'Firefox updates it automatically; you can also check for updates in the add-ons manager.',
@@ -755,6 +880,12 @@ export default {
         configSaveFailed: 'Could not save: no reply from the extension. Make sure it is enabled and try again.',
         commandShortcuts: 'Extension shortcuts',
         shortcutUnset: 'Not set',
+        /** An empty key is not a bug: Chrome only binds suggested_key at install time and skips it on conflict */
+        shortcutUnassignedNote:
+          'The browser has not assigned a key to this command: Chrome binds the suggested shortcut once, at install time, and skips it if another extension already holds that combo (or if it was cleared). Copy the address above, bind “Activate the extension” there, then hit “Recheck”.',
+        /** The extension reported no commands at all (usually an outdated build) */
+        shortcutEmptyNote:
+          'No shortcuts came back from the extension. Hit “Recheck” above first; if it stays empty, the extension is probably outdated — update it with the row above.',
         shortcutsPage: 'Shortcut settings page',
         shortcutsHint: 'Copy it, then paste it into the address bar',
         shortcutsCopiedHint: 'Copied — paste it into the address bar and press Enter',

@@ -25,6 +25,7 @@ const NAMES = [
   'sidebarTab',
   'mdView',
   'timeLimitMs',
+  'memoryLimitBytes',
   'engine',
   'judgeBases',
   'testCases',

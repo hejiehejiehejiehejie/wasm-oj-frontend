@@ -10,7 +10,19 @@ import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { BROWSER, BROWSER_PLATFORM, IS_DESKTOP } from '../services/platform.js'
+// 安装包的版本 / 文件名 / 两个商店地址，以及「这台机器该走哪条路」—— 那份数据的唯一出处是
+// `services/extensionPackage.js`（齿轮菜单里那两颗一次性动作也读它，所以不能再在本组件里存一份）
+import {
+  EDGE_EXTENSION_URL,
+  EXTENSION_DOWNLOAD_URL,
+  EXTENSION_FILE,
+  EXTENSION_ROUTES,
+  EXTENSION_VERSION,
+  FIREFOX_EXTENSION_URL,
+} from '../services/extensionPackage.js'
 import { settingsSectionEntry } from '../services/editorViews.js'
+// 通知系统（2026-10-12）：目前唯一的消费点是下面「应用」节里的演示入口
+import { dismissAllNotifications, notify } from '../services/notifications.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
   CAN_USE_LOCAL_FOLDER,
@@ -35,7 +47,7 @@ import {
   uninstallCfPicker,
 } from '../services/cfRuntime.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
-import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
+import { MEMORY_LIMIT_OPTIONS, TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
@@ -79,6 +91,8 @@ import { fetchCloudProfile } from '../services/cloudProfile.js'
 import { PANEL_POSITIONS } from '../services/shellSettings.js'
 import {
   CURSOR_BLINKINGS,
+  CODE_IMAGE_ACTIONS,
+  CODE_IMAGE_QUALITIES,
   CURSOR_STYLES,
   EDITOR_SETTING_RANGES,
   EDITOR_SETTINGS_DEFAULTS,
@@ -109,6 +123,8 @@ const props = defineProps({
   panelPosition: { type: String, required: true },
   // 全局运行时限（毫秒，只计运行段），与 App.vue 的 cp.timeLimitMs 同源
   timeLimit: { type: Number, required: true },
+  // 全局内存上限（字节），与 App.vue 的 cp.memoryLimitBytes 同源
+  memoryLimit: { type: Number, required: true },
   // 评测引擎状态（引擎列表 / 服务地址 / 自检结果）从 App 一路传下来，
   // 与侧边栏「评测样例」面板读到的是同一份
   judge: { type: Object, required: true },
@@ -123,6 +139,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:settings',
   'update:time-limit',
+  'update:memory-limit',
   'update:ui-scale',
   'toggle-layout',
   'select-engine',
@@ -330,9 +347,108 @@ const EDITOR_GROUPS = [
   },
 ]
 
-// 「外观」是独立的一级分类：主题与布局偏好（侧边栏位置 / 界面缩放 / 界面语言）收在这里。
+/**
+ * 「代码图片」那三条：右键「生成图片」导出 PNG 的观感（质量 / 窗口栏圆点 / 行号）。
+ *
+ * 2026-10-12 从「编辑器」分类搬到「外观」：它们管的不是编辑行为，而是**导出去那张图长什么样**，
+ * 与主题、缩放同属「看起来如何」一类。键与取值校验仍在 editorSettings（见 editorOptions.js），
+ * 行渲染也与编辑器组同源（所以下面这个循环要有 switch 那一支）。
+ * 首行自带 `groupTitleKey`：循环据此在它前面插一道小标题，两组共用一个循环。
+ */
+const CODE_IMAGE_ROWS = [
+  {
+    // 配色不在这组里：图片一律用编辑器当前主题的色（见 codeImage.js 的 currentThemeColors）
+    groupTitleKey: 'settings.editor.groupImage',
+    key: 'codeImageQuality',
+    labelKey: 'settings.editor.codeImageQuality.label',
+    hintKey: 'settings.editor.codeImageQuality.hint',
+    control: 'select',
+    options: CODE_IMAGE_QUALITIES,
+  },
+  {
+    key: 'codeImageDots',
+    labelKey: 'settings.editor.codeImageDots.label',
+    hintKey: 'settings.editor.codeImageDots.hint',
+    control: 'switch',
+  },
+  {
+    key: 'codeImageLineNumbers',
+    labelKey: 'settings.editor.codeImageLineNumbers.label',
+    hintKey: 'settings.editor.codeImageLineNumbers.hint',
+    control: 'switch',
+  },
+  // 出口两项：先「要不要问」，再「不问的时候按哪个来」。顺序不能倒 ——
+  // 默认动作只在询问关掉时才起作用（editorSettings.codeImageAsk / codeImageAction）
+  {
+    key: 'codeImageAsk',
+    labelKey: 'settings.editor.codeImageAsk.label',
+    hintKey: 'settings.editor.codeImageAsk.hint',
+    control: 'switch',
+  },
+  {
+    key: 'codeImageAction',
+    labelKey: 'settings.editor.codeImageAction.label',
+    hintKey: 'settings.editor.codeImageAction.hint',
+    control: 'select',
+    options: CODE_IMAGE_ACTIONS,
+  },
+]
+
+/**
+ * 外观栏里那三条「外壳」偏好：值不在 editorSettings 里，各有自己的出口 ——
+ * 缩放走 App 的 cp.uiScale、界面语言由 i18n 模块自己持久化、侧边栏位置只是发起一次对调。
+ *
+ * 2026-10-12 收进 APPEARANCE_ROWS、与主题和「代码图片」共用一个循环：「代码图片」那组要摆在
+ * 这一栏**末尾**（外观栏原本就有的那几行在前），拆成两段循环就得把行模板抄两遍。
+ * 差异（取值 / 落值 / 选项显示名）由 rowValue / rowSelect / rowOptionLabel 分流；
+ * `external` 用来关掉「已改动」指示线与行尾键名——那两样只对 editorSettings 的键有意义。
+ */
+const SHELL_ROWS = [
+  {
+    key: 'uiScale',
+    external: true,
+    labelKey: 'settings.appearance.uiScale.label',
+    hintKey: 'settings.appearance.uiScale.hint',
+    control: 'select',
+    options: UI_SCALE_OPTIONS.map((scale) => ({ id: scale })),
+    readValue: () => props.uiScale,
+    onSelect: (raw) => emit('update:ui-scale', Number(raw)),
+    optionLabel: (item) => scaleLabel(item.id),
+  },
+  {
+    // 界面语言与「判题语言」无关，后者由活跃文件的扩展名派生（见 HANDOFF 第 5 节坑 15）。
+    // 状态在 src/i18n/index.js 里是模块级单例，自己读写 localStorage，所以不走 props / emits。
+    // label 一律用该语言自己的写法（endonym），任何语言下都找得到自己，所以不翻译。
+    key: 'locale',
+    external: true,
+    labelKey: 'settings.appearance.locale.label',
+    hintKey: 'settings.appearance.locale.hint',
+    control: 'select',
+    options: LOCALES.map((item) => ({ id: item.id, label: item.label })),
+    readValue: () => locale.value,
+    onSelect: (raw) => setLocale(raw),
+  },
+  {
+    // 统一侧边栏的位置偏好存在 services/shellSettings.js 的 cp.panelPosition 里，这里只负责
+    // 发起一次对调；档位表也从那里 import（设置菜单的二级子菜单用的是同一份，见 PANEL_POSITIONS）。
+    // 下拉里选中的始终是「当前值」，选中另一侧就等于发起一次对调（App 那边会翻转偏好）。
+    key: 'panelPosition',
+    external: true,
+    labelKey: 'settings.appearance.panelPosition.label',
+    hintKey: 'settings.appearance.panelPosition.hint',
+    control: 'select',
+    options: PANEL_POSITIONS,
+    readValue: () => props.panelPosition,
+    onSelect: (raw) => {
+      if (raw !== props.panelPosition) emit('toggle-layout')
+    },
+  },
+]
+
+// 「外观」是独立的一级分类：顺序为 主题 → 界面缩放 · 界面语言 · 侧边栏位置 → 「代码图片」三条。
 // 字体大小本来就只对代码区有意义，已挪去「编辑器 › 字体」（见 EDITOR_GROUPS）。
-// 剩下这一行仍是 editorSettings 的键，所以照搬编辑器那套行渲染（键 / 校验 / Monaco 都同源）。
+// 除了三条外壳偏好，其余行仍是 editorSettings 的键，所以照搬编辑器那套行渲染
+// （键 / 校验 / Monaco 都同源）。
 const APPEARANCE_ROWS = [
   {
     key: 'theme',
@@ -341,20 +457,57 @@ const APPEARANCE_ROWS = [
     control: 'select',
     options: THEMES,
   },
+  ...SHELL_ROWS,
+  ...CODE_IMAGE_ROWS,
 ]
-
-// 统一侧边栏的位置偏好存在 services/shellSettings.js 的 cp.panelPosition 里，这里只负责
-// 发起一次对调；档位表也从那里 import（设置菜单的二级子菜单用的是同一份，见 PANEL_POSITIONS）
-
-// 界面语言：与「判题语言」无关，后者由活跃文件的扩展名派生（见 HANDOFF 第 5 节坑 15）。
-// 状态在 src/i18n/index.js 里是模块级单例，自己读写 localStorage，所以不走 props / emits。
-const LOCALE_OPTIONS = LOCALES.map((item) => ({ id: item.id, label: item.label }))
 
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
 // 初值是「外观」（2026-10-11 起）：原先有个排在最前的「常用设置」分类，只是把外观 / 编辑器
 // 里的高频项再摆一份、共用同一份偏好，现已删掉，默认落点顺势交给紧随其后的「外观」。
+// ---------------------------------------------------------------- 通知演示
+// 「应用」节里那组演示按钮（模板见 activeSection === 'app' 末尾）。系统暂不接业务事件，
+// 这里手动造四种类型各一条：时长与原型（ide_notification_system.html）一致 ——
+// info 3s / success 5s / warning 10s / error 常驻。将来接业务后，这一块连同词条
+// （messages/notifications.js 的 demo 组）按约定一起删。
+const DEMO_DURATIONS = { info: 3000, success: 5000, warning: 10000, error: 0 }
+
+function fireDemo(type) {
+  notify({
+    type,
+    title: t(`notifications.demo.${type}Title`),
+    message: t(`notifications.demo.${type}Body`),
+    duration: DEMO_DURATIONS[type] ?? 0,
+  })
+}
+
+function clearDemos() {
+  dismissAllNotifications()
+}
+
+/** 操作按钮演示：撤销会真的「做一件事」—— 再发一条成功通知（回调里 notify 的链式用法）；忽略没给回调，点了只是关掉 */
+function fireDemoActions() {
+  notify({
+    type: 'info',
+    title: t('notifications.demo.actionTitle'),
+    message: t('notifications.demo.actionBody'),
+    actions: [
+      {
+        label: t('notifications.demo.undo'),
+        run: () =>
+          notify({
+            type: 'success',
+            title: t('notifications.demo.undoneTitle'),
+            message: t('notifications.demo.undoneBody'),
+            duration: 3000,
+          }),
+      },
+      { label: t('notifications.demo.ignore') },
+    ],
+  })
+}
+
 const SECTIONS = [
   // 工作区只在桌面端可见（打开本机文件夹是 Tauri 壳独有的能力），见下面 visibleSections
   { id: 'workspace', titleKey: 'settings.section.workspace', icon: 'folder' },
@@ -457,6 +610,46 @@ const installButtonKey = computed(() =>
   appIsInstalled.value ? 'settings.app.installedAction' : 'settings.app.installAction',
 )
 
+/**
+ * 「引擎有这套 API、此刻也没装，却拿不到一键安装的入口」—— 也就是**按钮灰着、状态词却写着
+ * 「当前浏览器支持」**的那一格。它不是错误状态，是浏览器的正常状态，但用户从界面上看不出
+ * 为什么，所以这一栏得把原因与出路讲出来（2026-10-12 用户报障：装过一次、把应用删掉之后，
+ * 按钮一直灰着点不动）。
+ *
+ * 判据：`installSupported && !canInstall && !appIsInstalled`。两头排除掉的那两格各自都有说法
+ * —— 不支持时状态词写着「不支持」，已装时写着「已安装」—— 只剩这一格需要额外解释。
+ *
+ * ⚠️ **灰按钮本身修不了**：安装事件只由浏览器派发，站点既不能问也不能催（没有任何 API 能问
+ * 「到底装没装」），所以能做的只有如实解释 + 给出浏览器那一侧的出路。真正的根因是
+ * **从 Finder / 访达里删掉图标并不算卸载**：记录还在浏览器里，于是它永远认为「已装」、
+ * 永远不再派发安装事件。同款体例见插件快捷键那两条说明。
+ */
+const installUnavailable = computed(
+  () => installSupported && !canInstall.value && !appIsInstalled.value,
+)
+
+/**
+ * 浏览器管理「已安装的网页应用」的页面。**只能复制给用户自己去打开**：网页没有权限跳转
+ * chrome://（与插件快捷键那个地址同一条规矩，见 `SHORTCUTS_URL`）。
+ */
+const APPS_URL = 'chrome://apps'
+
+const appsCopied = ref(false)
+let appsCopyTimer = 0
+
+async function copyAppsUrl() {
+  try {
+    await navigator.clipboard.writeText(APPS_URL)
+    appsCopied.value = true
+    window.clearTimeout(appsCopyTimer)
+    appsCopyTimer = window.setTimeout(() => {
+      appsCopied.value = false
+    }, 2000)
+  } catch {
+    /* 非安全上下文或用户未授权：保持原样，说明里已写明地址 */
+  }
+}
+
 // 「工作区」这一栏只在能打开本机文件夹的平台上出现：网页版没有这回事，Android 走 SAF
 // 也没有（见 workspaceMode.js 的 CAN_USE_LOCAL_FOLDER）。
 // 两类平台独有的分类各自裁掉：工作区只在桌面端（壳里能打开本机文件夹），浏览器插件只在
@@ -505,20 +698,10 @@ async function useVirtualWorkspace() {
 }
 
 // ------------------------------------------------------------ 浏览器插件
-// 安装包放在 public/extension/ 下。文件名带版本号是刻意的：Service Worker 对同源 GET 走
-// cacheFirst 且从不重新校验，不带版本号的 URL 会把旧包一直喂给已经来过的用户。
-// 发新版插件时只需改这两个常量，再把新 zip 拷进 public/extension/。
-const EXTENSION_VERSION = '2.66.4'
-const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
-const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
-// Firefox 版已上架 AMO，直接外链过去一键装；Chrome 仍未上架，只能给 zip 手动加载。
-// 这个地址不随版本走（AMO 那个页面永远是「最新版」），所以不在上面「发新版改两个常量」之列。
-const FIREFOX_EXTENSION_URL = 'https://addons.mozilla.org/zh-CN/firefox/addon/cc-for-web/'
-// Edge 加载项商店版还没上架（上架材料见 cph-companion 的 SUBMISSION-EDGE.md：Partner Center
-// 账号未注册、截图未拍）。地址先留在这里 —— 上架后把 URL 填上，右侧那颗「Edge 版」按钮
-// 会自己出现，别的地方一个都不用改。
-// **空着就整颗不渲染**：宁可暂时少一颗按钮，也不给用户一个点开是 404 的入口。
-const EDGE_EXTENSION_URL = ''
+// 安装包那几个常量（版本 / 文件名 / 下载地址 / AMO 与 Edge 商店地址）都在上面 import 的
+// `services/extensionPackage.js` 里，**本组件不再存一份**：齿轮菜单里那两颗一次性动作
+// （安装为应用 / 拿插件）也要用同一份数据，两处各存一份必然在发新版时漏改一处。
+// 「这台机器该走哪条路」同理 —— `EXTENSION_ROUTES` 就是那份判据（见下面两颗按钮的注释）。
 
 // 扩展对外只暴露 _execute_action 这类内部 id，显示名只能在这边维护
 const EXTENSION_COMMAND_KEYS = {
@@ -563,15 +746,14 @@ const extensionHintKey = computed(() => {
   return 'settings.extension.hintChromium'
 })
 
-/** Firefox 版装不进 Chromium（反之亦然），所以只给对的那一颗；认不出就两颗都摆 */
-const showFirefoxInstall = computed(
-  () => BROWSER === 'firefox' || (!isMobileBrowser && BROWSER === 'unknown'),
-)
-
-/** 手动加载这条路对移动端与 Safari 都不成立：前者装的不是扩展，后者根本不吃这一套 */
-const showManualInstall = computed(
-  () => !isMobileBrowser && BROWSER !== 'firefox' && BROWSER !== 'safari',
-)
+/**
+ * 两颗按钮的显隐 —— 判据是 `EXTENSION_ROUTES`（`services/extensionPackage.js`），
+ * 与齿轮菜单里那两颗一次性动作**同一份**。Firefox 版装不进 Chromium（反之亦然），所以正常
+ * 情况下只会给出一颗；**认不出浏览器时两条都摆**（fail-open：猜错让人看不到入口最糟）。
+ * 手动加载这条路对移动端与 Safari 都不成立：前者装的不是扩展，后者根本不吃这一套。
+ */
+const showFirefoxInstall = computed(() => EXTENSION_ROUTES.value.includes('firefox'))
+const showManualInstall = computed(() => EXTENSION_ROUTES.value.includes('manual'))
 
 const showEdgeInstall = computed(
   () => !isMobileBrowser && BROWSER === 'edge' && EDGE_EXTENSION_URL !== '',
@@ -593,6 +775,25 @@ const extensionOutdated = computed(
 /** 更新方式两侧不同：Firefox 自己会更新，Chromium 要手动换目录再刷新 */
 const extensionUpdateHintKey = computed(() =>
   BROWSER === 'firefox' ? 'settings.extension.updateHintFirefox' : 'settings.extension.updateHintManual',
+)
+
+/**
+ * 「装包 / 换包」那一行的显隐与文案：**装旧版和没装共用同一行**，只是口径换成更新。
+ *
+ * 为什么要共用：这一行是拿包的**唯一入口**（另两颗按钮只是外链商店）。Chromium 没有商店
+ * 可点，装了旧版的人如果看不到这颗下载按钮，就只剩下面一句「本站最新是 vX」可读 ——
+ * 知道该更新、却没有任何途径拿到新包。
+ *
+ * 反过来，「装好了且是最新版」时这一行必须收起来：摆着安装说明只会让人以为哪里没配对。
+ */
+const extensionActionVisible = computed(() => !extensionInfo.value || extensionOutdated.value)
+
+const extensionActionLabelKey = computed(() =>
+  extensionOutdated.value ? 'settings.extension.update.label' : 'settings.extension.download.label',
+)
+
+const extensionActionHintKey = computed(() =>
+  extensionOutdated.value ? extensionUpdateHintKey.value : extensionHintKey.value,
 )
 
 /** `x.y.z` 逐段比大小；版本串来自扩展自报，不信任格式，非数字段按 0 算 */
@@ -622,6 +823,20 @@ const extensionShortcuts = computed(() =>
     }
   }),
 )
+
+/**
+ * 键位为空时的两句解释（模板里二选一）。
+ *
+ * **空键位不是故障**，是 Chrome 的常态：manifest 的 suggested_key 只在**安装插件那一刻**
+ * 绑定一次，那一刻被别的扩展占着（或用户清掉过）就再也不自动绑，插件回给我们的是空串 ——
+ * 此时正确做法是把「为什么没有 + 去哪儿绑」讲清楚，而不是让界面空着/只留一个「未设置」
+ * 让人以为站点读不到。（2026-10-12 实测：用另一个扩展占住 Ctrl+Shift+U，
+ * Chrome 会让两边都留空，chrome://extensions/shortcuts 上两行都摆着「输入快捷键」的空框。）
+ */
+const extensionShortcutsUnassigned = computed(
+  () => extensionShortcuts.value.length > 0 && extensionShortcuts.value.every((c) => !c.keys),
+)
+const extensionShortcutsEmpty = computed(() => extensionShortcuts.value.length === 0)
 
 // 投递目标：这两个开关的真值存在扩展的 chrome.storage 里，网页只读写镜像。
 // 键名与扩展 background.ts 的白名单一一对应，改了那边也得同步改这里。
@@ -708,7 +923,10 @@ watch(settingsSectionEntry, (sectionId) => {
   settingsSectionEntry.value = null
 })
 
-onBeforeUnmount(() => window.clearTimeout(copyTimer))
+onBeforeUnmount(() => {
+  window.clearTimeout(copyTimer)
+  window.clearTimeout(appsCopyTimer)
+})
 
 // ------------------------------------------------------------ 本地运行环境
 // 「是否已下载」不再只看一个 localStorage 布尔标记（它会过期：浏览器随时可能清缓存，
@@ -1110,6 +1328,8 @@ const normalizeForCompare = (text) => text.replace(/[^a-z0-9]/gi, '').toLowerCas
  * 这个 ref），放在函数里才能跟着切语言变——写成模块级常量会把语言冻结在那一刻。
  */
 function showKey(row) {
+  // 外观栏那三行「外壳」偏好不是 editorSettings 的键（见 SHELL_ROWS），行尾那行键名没有意义
+  if (row.external) return false
   return normalizeForCompare(t(row.labelKey)) !== normalizeForCompare(row.key)
 }
 
@@ -1125,24 +1345,32 @@ function coerce(row, raw) {
   return typeof row.options[0].id === 'number' ? Number(raw) : raw
 }
 
-// 下拉里选中的始终是「当前值」，选中另一侧就等于发起一次对调（App 那边会翻转偏好）
-function setPanelPosition(event) {
-  if (event.target.value !== props.panelPosition) emit('toggle-layout')
+/**
+ * 外观栏混着两类行：一类是 editorSettings 的键（主题、代码图片那三条），另一类是各有出口的
+ * 「外壳」偏好（缩放走 App 的 cp.uiScale、语言由 i18n 自己持久化、侧边栏位置走 toggle-layout）。
+ * 下面三个函数把这两类的差异收在一处，模板那个循环才不必为外壳行再抄一遍行模板。
+ */
+/** 行的当前值：外壳行读自己的出口，其余行读 editorSettings。
+ *  ⚠️ 判据必须是 `typeof === 'function'`，字段名也不能叫 `valueOf` —— 那三个名字在
+ *  Object.prototype 上都有同名方法，任何普通对象都会「看起来有」，于是外壳行的取值器会被
+ *  当成「这行是外壳行、但它返回整个 row 对象」，下拉直接渲染成空（2026-10-12 实测踩到）。 */
+function rowValue(row) {
+  return typeof row.readValue === 'function' ? row.readValue() : props.settings[row.key]
 }
-
-/** 缩放档位选中即生效（App 那边写进 cp.uiScale，再落到根字号） */
-function setUiScale(event) {
-  emit('update:ui-scale', Number(event.target.value))
+/** 选中新值：外壳行走自己的出口，其余行回写 editorSettings */
+function rowSelect(row, raw) {
+  if (row.onSelect) row.onSelect(raw)
+  else set(row.key, coerce(row, raw))
+}
+/** 选项的显示名：只有缩放档要现算（「110%」），其余行的 options 自带 label / labelKey */
+function rowOptionLabel(row, item) {
+  if (row.optionLabel) return row.optionLabel(item)
+  return item.labelKey ? t(item.labelKey, item.labelParams) : item.label
 }
 
 /** 缩放档位的显示名：就是百分比本身，不标默认档 */
 function scaleLabel(scale) {
   return `${Math.round(scale * 100)}%`
-}
-
-/** 界面语言选中即生效。状态由 i18n 模块自己持久化（cp.uiLocale），不经 App 中转。 */
-function setUiLocale(event) {
-  setLocale(event.target.value)
 }
 
 function limitLabel(ms) {
@@ -1151,6 +1379,14 @@ function limitLabel(ms) {
 
 function setTimeLimit(event) {
   emit('update:time-limit', Number(event.target.value))
+}
+
+function memoryLimitLabel(bytes) {
+  return `${bytes / 1024 / 1024} MB`
+}
+
+function setMemoryLimit(event) {
+  emit('update:memory-limit', Number(event.target.value))
 }
 
 // ------------------------------------------------------------ 云端同步
@@ -1471,108 +1707,65 @@ watch(pendingUnbind, (open) => {
         </p>
       </section>
 
-      <!-- 外观：主题（editorSettings 的键，与编辑器组同源）与界面偏好。
-           下面三行各有自己的出口（App 那边的 cp.panelPosition / cp.uiScale，
-           以及 i18n 模块自己管着的 cp.uiLocale）。字体大小已挪去编辑器组。 -->
+      <!-- 外观：主题、三条界面偏好（缩放 / 语言 / 侧边栏位置），末尾是「代码图片」那三条。
+           除三条界面偏好各有出口外，其余行都是 editorSettings 的键，与编辑器组同源。
+           字体大小已挪去编辑器组。 -->
       <section v-else-if="activeSection === 'appearance'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.appearance') }}</p>
 
-        <label
-          v-for="row in APPEARANCE_ROWS"
-          :key="row.key"
-          class="setting-row"
-          :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
-        >
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t(row.labelKey) }}</span>
-              <span v-if="showKey(row)" class="setting-row__key">{{ row.key }}</span>
+        <!-- 行渲染与「编辑器」那一栏同源（都在 editorSettings 上），只是这里多了三条「外壳」
+             偏好与末尾的「代码图片」组 —— 后者靠首行的 groupTitleKey 在前面插一道小标题，
+             所有行共用一个循环（顺序见 APPEARANCE_ROWS） -->
+        <template v-for="row in APPEARANCE_ROWS" :key="row.key">
+          <p v-if="row.groupTitleKey" class="setting-subtitle">{{ t(row.groupTitleKey) }}</p>
+
+          <label
+            class="setting-row"
+            :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
+          >
+            <span class="setting-row__main">
+              <span class="setting-row__head">
+                <span class="setting-row__label">{{ t(row.labelKey) }}</span>
+                <span v-if="showKey(row)" class="setting-row__key">{{ row.key }}</span>
+              </span>
+              <span v-if="row.hintKey" class="setting-row__hint">{{ t(row.hintKey) }}</span>
             </span>
-            <span v-if="row.hintKey" class="setting-row__hint">{{ t(row.hintKey) }}</span>
-          </span>
 
-          <span class="setting-row__control">
-            <input
-              v-if="row.control === 'number'"
-              class="number-input"
-              type="number"
-              step="1"
-              :min="rangeOf(row)[0]"
-              :max="rangeOf(row)[1]"
-              :value="settings[row.key]"
-              @change="setNumber(row, $event)"
-            />
+            <span class="setting-row__control">
+              <input
+                v-if="row.control === 'number'"
+                class="number-input"
+                type="number"
+                step="1"
+                :min="rangeOf(row)[0]"
+                :max="rangeOf(row)[1]"
+                :value="rowValue(row)"
+                @change="setNumber(row, $event)"
+              />
 
-            <span v-else class="select">
-              <select
-                :value="settings[row.key]"
-                @change="set(row.key, coerce(row, $event.target.value))"
+              <span v-else-if="row.control === 'select'" class="select">
+                <select :value="rowValue(row)" @change="rowSelect(row, $event.target.value)">
+                  <option v-for="item in row.options" :key="item.id" :value="item.id">
+                    {{ rowOptionLabel(row, item) }}
+                  </option>
+                </select>
+                <AppIcon name="chevron" :size="12" class="select__chevron" />
+              </span>
+
+              <button
+                v-else
+                class="switch"
+                :class="{ 'is-on': settings[row.key] }"
+                role="switch"
+                :aria-checked="settings[row.key]"
+                :aria-label="t(row.labelKey)"
+                @click="set(row.key, !settings[row.key])"
               >
-                <option v-for="item in row.options" :key="item.id" :value="item.id">
-                  {{ item.labelKey ? t(item.labelKey, item.labelParams) : item.label }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
+                <span class="switch__thumb"></span>
+              </button>
             </span>
-          </span>
-        </label>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.uiScale.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.uiScale.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="uiScale" @change="setUiScale">
-                <option v-for="scale in UI_SCALE_OPTIONS" :key="scale" :value="scale">
-                  {{ scaleLabel(scale) }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.locale.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.locale.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="locale" @change="setUiLocale">
-                <option v-for="item in LOCALE_OPTIONS" :key="item.id" :value="item.id">
-                  {{ item.label }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.panelPosition.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.panelPosition.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="panelPosition" @change="setPanelPosition">
-                <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
-                  {{ t(item.labelKey) }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
+          </label>
+        </template>
       </section>
 
       <section v-else-if="activeSection === 'editor'" class="setting-group">
@@ -1761,6 +1954,25 @@ watch(pendingUnbind, (open) => {
           </span>
         </label>
 
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.judge.memoryLimit.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.judge.memoryLimit.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="memoryLimit" @change="setMemoryLimit">
+                <option v-for="bytes in MEMORY_LIMIT_OPTIONS" :key="bytes" :value="bytes">
+                  {{ memoryLimitLabel(bytes) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
         <p class="setting-subtitle">{{ t('settings.judge.engines') }}</p>
         <EngineSettingsPanel
           :judge="judge"
@@ -1804,6 +2016,30 @@ watch(pendingUnbind, (open) => {
             </span>
           </div>
 
+          <!-- 上面那颗按钮灰着、状态词却说「当前浏览器支持」时，补一句「为什么 + 去哪儿清」
+               （见 installUnavailable）。正常能装、以及本来就不支持这两种情况下都不出现。 -->
+          <div v-if="!isDesktop && installUnavailable" class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__hint">
+                {{ t('settings.app.install.blockedPrefix') }}
+                <code class="setting-code">{{ APPS_URL }}</code>
+                {{ t('settings.app.install.blockedSuffix') }}
+              </span>
+            </span>
+            <span class="setting-row__control">
+              <button
+                class="download-button"
+                :class="{ 'is-copied': appsCopied }"
+                :title="t('settings.app.install.copyAppsTitle')"
+                @click="copyAppsUrl"
+              >
+                <AppIcon :name="appsCopied ? 'check' : 'copy'" :size="13" />
+                <span>
+                  {{ t(appsCopied ? 'settings.app.install.copied' : 'settings.app.install.copyApps') }}
+                </span>
+              </button>
+            </span>
+          </div>
         </div>
 
         <!-- 本地运行环境（C++ / Python / 题解渲染器）是网页版自托管的那套资产，全靠
@@ -1908,6 +2144,38 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
+        <!-- 通知演示（2026-10-12 加）：通知系统已上线但暂未接业务事件，这组按钮是
+             唯一的触发口。形态借用 download-button，不再另造一套按钮样式。 -->
+        <p class="setting-subtitle">{{ t('notifications.demo.label') }}</p>
+        <p class="setting-group__note">{{ t('notifications.demo.note') }}</p>
+
+        <div class="notif-demo">
+          <button class="download-button" :title="t('notifications.demo.infoBody')" @click="fireDemo('info')">
+            <AppIcon name="info" :size="13" />
+            <span>{{ t('notifications.demo.info') }}</span>
+          </button>
+          <button class="download-button" :title="t('notifications.demo.successBody')" @click="fireDemo('success')">
+            <AppIcon name="check" :size="13" />
+            <span>{{ t('notifications.demo.success') }}</span>
+          </button>
+          <button class="download-button" :title="t('notifications.demo.warningBody')" @click="fireDemo('warning')">
+            <AppIcon name="alert" :size="13" />
+            <span>{{ t('notifications.demo.warning') }}</span>
+          </button>
+          <button class="download-button" :title="t('notifications.demo.errorBody')" @click="fireDemo('error')">
+            <AppIcon name="error" :size="13" />
+            <span>{{ t('notifications.demo.error') }}</span>
+          </button>
+          <button class="download-button" :title="t('notifications.demo.actionBody')" @click="fireDemoActions">
+            <AppIcon name="check" :size="13" />
+            <span>{{ t('notifications.demo.action') }}</span>
+          </button>
+          <button class="download-button" :title="t('notifications.close')" @click="clearDemos">
+            <AppIcon name="trash" :size="13" />
+            <span>{{ t('notifications.demo.clear') }}</span>
+          </button>
+        </div>
+
       </section>
 
       <!-- 浏览器插件：网页版独有的抓题链路（桌面端的 webview 装不了扩展，抓题用的
@@ -1944,18 +2212,21 @@ watch(pendingUnbind, (open) => {
             </span>
           </div>
 
-          <!-- 安装引导只在还没检测到插件时出现：装好了还把「怎么装」摆着，
-               用户只会以为哪里没配对（状态那行已经说明白了） -->
-          <div v-if="!extensionInfo" class="setting-row setting-row--action">
+          <!-- 这一行管「把包拿到手」，两种状态都要在：一个都没探到 → 怎么装；
+               探到旧版 → 怎么换新。**旧版这一档不能把这行收掉** —— Chromium 这边没有
+               商店入口，按钮一收，装了旧版的人就再没有任何拿到新包的途径了（只能干看着
+               下面那句「本站最新是 vX」）。只有「装了且是最新版」才收起来 -->
+          <div v-if="extensionActionVisible" class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__head">
-                <span class="setting-row__label">{{ t('settings.extension.download.label') }}</span>
+                <span class="setting-row__label">{{ t(extensionActionLabelKey) }}</span>
                 <span class="setting-row__key">
                   {{ t('settings.extension.downloadVersion', { version: EXTENSION_VERSION }) }}
                 </span>
               </span>
-              <!-- 说明按浏览器分岔（见 extensionHintKey）：只留当前这台真走得通的那条 -->
-              <span class="setting-row__hint">{{ t(extensionHintKey) }}</span>
+              <!-- 说明按浏览器分岔（装法见 extensionHintKey、换新法见 extensionUpdateHintKey）：
+                   只留当前这台真走得通的那条 -->
+              <span class="setting-row__hint">{{ t(extensionActionHintKey) }}</span>
             </span>
             <span class="setting-row__control setting-row__control--pair">
               <a
@@ -1995,10 +2266,10 @@ watch(pendingUnbind, (open) => {
         </div>
 
         <!-- 装的是旧版时提示一行（版本号来自扩展自报的 cp-info）：放在 rows 外面，
-             与下面 destinations 那行警告同一个体例 -->
+             与下面 destinations 那行警告同一个体例。「怎么换新」只说一次 ——
+             上面那一行带按钮，说在那里；这里只负责讲清版本对不上 -->
         <p v-if="extensionOutdated" class="setting-group__note setting-group__note--warn">
           {{ t('settings.extension.updateAvailable', { current: extensionVersion, latest: EXTENSION_VERSION }) }}
-          {{ t(extensionUpdateHintKey) }}
         </p>
 
         <template v-if="extensionInfo">
@@ -2093,6 +2364,15 @@ watch(pendingUnbind, (open) => {
               </span>
             </div>
           </div>
+
+          <!-- 键位空着时补一句「为什么 + 去哪儿绑」：只留一个「未设置」会让人以为站点读不到插件
+               的快捷键（2026-10-12 用户报障）。两条互斥，正常有键位时都不出现。 -->
+          <p v-if="extensionShortcutsEmpty" class="setting-group__note">
+            {{ t('settings.extension.shortcutEmptyNote') }}
+          </p>
+          <p v-else-if="extensionShortcutsUnassigned" class="setting-group__note">
+            {{ t('settings.extension.shortcutUnassignedNote') }}
+          </p>
         </template>
       </section>
 
@@ -2837,6 +3117,14 @@ watch(pendingUnbind, (open) => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/* 通知演示那排按钮（「应用」节末尾）：按钮本体走 .download-button，这里只管排布 ——
+   一排放不下就换行，不与上面那种「行尾对齐」的控制列混用 */
+.notif-demo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* 一行：图标方块 + 标题 / 状态 + 行尾按钮。内边距与 .setting-row 对齐，好让图标方块

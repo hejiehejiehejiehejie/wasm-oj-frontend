@@ -115,6 +115,7 @@ export default {
       outcome: {
         compileFailed: '编译未通过',
         timeout: '运行超时 (TLE)',
+        memoryExceeded: '运行内存超过当前上限 (MLE)',
         runtimeError: '运行期出错',
         serviceUnreachable: '评测服务不可达',
         failed: '评测失败（{outcome}）',
@@ -186,6 +187,7 @@ export default {
       outcome: {
         compileFailed: 'Compilation failed',
         timeout: 'Time limit exceeded (TLE)',
+        memoryExceeded: 'Memory limit exceeded (MLE)',
         runtimeError: 'Runtime error',
         serviceUnreachable: 'Judge service unreachable',
         failed: 'Judging failed ({outcome})',

@@ -161,7 +161,44 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   // 攒在同一个存档里只是图「新增一项偏好不用再开一份 localStorage」。
   // 默认开＝改造前就有状态栏，老用户升上来零变化。
   statusBar: true,
+  // 「生成图片」的三项（都不是 Monaco 选项，与 statusBar 同理，攒在同一份存档里）：
+  // 导出质量、左上角窗口栏三点、以及正文左侧的行号栏。默认高 + 画点 + 画行号，
+  // 即用户定的形态；行号默认开是刻意的 —— 导出去给人看的代码图，没行号不好指某一行。
+  // **没有「导出配色」这一项**：图片配色一律跟编辑器当前主题走（用户 2026-10-12 定的口径，
+  // 「编辑器里什么样，图里就得什么样」），取色见 services/codeImage.js 的 currentThemeColors()。
+  // **也没有「画布尺寸」这一项**：图里字号固定（codeImage.js 的 EXPORT_FONT_SIZE），
+  // 画布只由代码本身决定，既不吃编辑器字号也不吃屏幕像素密度 —— 换台机器导出，图一样大。
+  codeImageQuality: 'high',
+  codeImageDots: true,
+  codeImageLineNumbers: true,
+  /**
+   * 「生成图片」出口的两项（用户 2026-10-12 定的口径）：
+   * 每次导出都弹一次窗问「复制还是保存」（默认开 —— 一次一选，不替用户猜）；
+   * 关掉之后按 `codeImageAction` 直接执行，不再问。
+   */
+  codeImageAsk: true,
+  codeImageAction: 'copy',
 }
+
+/**
+ * 「生成图片」的导出质量 → 渲染倍率（2 / 3 / 4，见 codeImage.js 的 QUALITY_SCALES）。
+ * PNG 无损、没有压缩质量这一说，「质量」就是清晰度：倍率越高越锐利，文件也越大。
+ * 画布的逻辑尺寸与质量无关 —— 字号固定，所以三档只是同一张图的三种像素密度。
+ */
+export const CODE_IMAGE_QUALITIES = [
+  { id: 'medium', labelKey: 'settings.option.qualityMedium' },
+  { id: 'high', labelKey: 'settings.option.qualityHigh' },
+  { id: 'ultra', labelKey: 'settings.option.qualityUltra' },
+]
+
+/**
+ * 「生成图片」的两种出口。**关掉「每次询问」时**用这一个（默认 copy：贴到别处是最常见的用途）。
+ * 询问开着时这两个值不起作用 —— 那一次由弹窗当场决定。
+ */
+export const CODE_IMAGE_ACTIONS = [
+  { id: 'copy', labelKey: 'settings.option.imageCopy' },
+  { id: 'save', labelKey: 'settings.option.imageSave' },
+]
 
 /** 整数型偏好的取值范围（读盘时越界就退回默认值；面板上的数字输入框也用它的 min/max） */
 export const EDITOR_SETTING_RANGES = {
@@ -183,6 +220,8 @@ const VALUE_SETS = {
   renderLineHighlight: LINE_HIGHLIGHTS.map((item) => item.id),
   padding: PADDINGS.map((item) => item.id),
   scrollbarSize: SCROLLBAR_SIZES.map((item) => item.id),
+  codeImageQuality: CODE_IMAGE_QUALITIES.map((item) => item.id),
+  codeImageAction: CODE_IMAGE_ACTIONS.map((item) => item.id),
 }
 
 /**

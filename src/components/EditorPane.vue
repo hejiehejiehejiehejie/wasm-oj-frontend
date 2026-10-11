@@ -65,6 +65,8 @@ const props = defineProps({
   settings: { type: Object, required: true },
   panelPosition: { type: String, required: true },
   timeLimit: { type: Number, required: true },
+  // 全局内存上限（字节）：设置视图「评测」分组用，透传（见 services/runner.js 的 MEMORY_LIMIT_*）
+  memoryLimit: { type: Number, required: true },
   // 评测引擎状态：只有设置视图里的「评测」分组用得到，这里只做透传
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
@@ -76,6 +78,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:settings',
   'update:time-limit',
+  'update:memory-limit',
   'update:ui-scale',
   'toggle-layout',
   'select-engine',
@@ -97,7 +100,26 @@ const {
   menu: editorMenu,
   closeMenu: closeEditorMenu,
   onMenuSelect: onEditorMenuSelect,
+  exportSelectionImage,
+  ask: imageAsk,
+  answerImageAction,
 } = useEditorMenu({ editor, host })
+
+// 询问弹窗一出现就把焦点送进「复制」：Enter / Esc 都能纯键盘走完（与删除确认同款）
+const askCopyBtn = ref(null)
+watch(imageAsk, (open) => {
+  if (open) nextTick(() => askCopyBtn.value?.focus())
+})
+
+/**
+ * 弹窗的答复口。取消时把焦点还给编辑器 —— 弹窗一撤焦点就落到 <body> 上，
+ * 紧接着再按 ⌘P / 右键都会像失灵。触屏上不抢（键盘一弹视口会缩，见 useMobileKeyboard）。
+ * @param {'copy' | 'save' | null} action
+ */
+function answerImage(action) {
+  answerImageAction(action)
+  if (!action && !isTouchPointer()) editor.value?.focus()
+}
 
 // 触屏选区手柄（见 composables/useSelectionHandles.js）：Monaco 没有这个能力，整层自己画。
 // 只在触摸下出现，且编辑区真的露着时才出手柄 —— 被设置 / 抽题面板盖住时那一行是 v-show，
@@ -607,6 +629,9 @@ watch(
 // 上面那个 watch 不会响，只能由调用方补一次）。触屏上同样不抢焦点，理由见上。
 defineExpose({
   layout: () => editor.value?.layout(),
+  // ⌘ / Ctrl+P（快捷键 export-image）走这条：与右键菜单那一项是同一份实现，
+  // 没有选区时它自己会静默返回
+  exportImage: () => exportSelectionImage(),
   focus: () => {
     if (isTouchPointer()) return
     editor.value?.focus()
@@ -780,12 +805,14 @@ defineExpose({
         :settings="settings"
         :panel-position="panelPosition"
         :time-limit="timeLimit"
+        :memory-limit="memoryLimit"
         :judge="judge"
         :connection="connection"
         :active="settingsTab.active"
         :ui-scale="uiScale"
         @update:settings="emit('update:settings', $event)"
         @update:time-limit="emit('update:time-limit', $event)"
+        @update:memory-limit="emit('update:memory-limit', $event)"
         @update:ui-scale="emit('update:ui-scale', $event)"
         @toggle-layout="emit('toggle-layout')"
         @select-engine="emit('select-engine', $event)"
@@ -832,6 +859,44 @@ defineExpose({
       @select="onEditorMenuSelect"
       @close="closeEditorMenu"
     />
+
+    <!-- 「生成图片」之后那一次询问：复制还是保存（设置项 codeImageAsk 关掉时不会走到这里）。
+         自绘弹窗，Teleport 到 body —— 与资源管理器那份删除确认同款（不用 window.confirm，
+         原生弹窗在装成应用窗口打开时返回值不由我们掌控）。 -->
+    <Teleport to="body">
+      <div v-if="imageAsk" class="image-ask" @pointerdown.self="answerImage(null)">
+        <div
+          class="image-ask__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="image-ask-title"
+          @keydown.esc.stop.prevent="answerImage(null)"
+        >
+          <p id="image-ask-title" class="image-ask__title">{{ t('app.imageAsk.title') }}</p>
+          <p class="image-ask__desc">{{ t('app.imageAsk.desc') }}</p>
+          <div class="image-ask__actions">
+            <button type="button" class="image-ask__btn" @click="answerImage(null)">
+              {{ t('app.cancel') }}
+            </button>
+            <button
+              type="button"
+              class="image-ask__btn"
+              @click="answerImage('save')"
+            >
+              {{ t('app.imageAsk.save') }}
+            </button>
+            <button
+              ref="askCopyBtn"
+              type="button"
+              class="image-ask__btn image-ask__btn--primary"
+              @click="answerImage('copy')"
+            >
+              {{ t('app.imageAsk.copy') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1282,5 +1347,81 @@ defineExpose({
 
 .app.is-short .editor-pane__status {
   display: none;
+}
+
+/* ---------------------------------------------------------------- 生成图片：复制还是保存
+   与资源管理器那份删除确认同款（Teleport 到 body，色值只吃主题变量）。
+   样式不共用是因为那份写在 FileExplorer 的 scoped 里 —— 抽出来会动到资源管理器，
+   这里只有一处消费，先各留一份。 */
+.image-ask {
+  position: fixed;
+  inset: 0;
+  /* 与删除确认同一层（高于右键菜单 120，低于系统级浮层） */
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.image-ask__card {
+  width: min(340px, 100%);
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+
+.image-ask__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.image-ask__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.image-ask__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.image-ask__btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 500 12.5px/1.5 var(--font-sans, system-ui);
+  cursor: pointer;
+}
+
+.image-ask__btn:hover {
+  background: var(--bg-hover);
+}
+
+/* 主按钮 = 「复制」：与「题目信息」弹窗那颗保存同款强调色 */
+.image-ask__btn--primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.image-ask__btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+.image-ask__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 </style>

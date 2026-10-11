@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 
 /**
  * 「这个引擎到底有没有『把网站装成应用』这套 API」—— 一条同步判据，开机就能读。
@@ -22,63 +22,80 @@ export const INSTALL_API_SUPPORTED =
   typeof window !== 'undefined' && 'onbeforeinstallprompt' in window
 
 /**
- * 浏览器的安装入口（PWA）。
+ * 安装入口的状态与动作 —— **模块级单例**（2026-10-12 改）。
  *
- * `beforeinstallprompt` 只在满足可安装条件后触发，而且事件本身要求由用户手势才能调用
- * `prompt()`，所以这里把它拦下来存着，交给设置面板的按钮去触发。
- * 装完之后（或已经在独立窗口里跑）按钮就不该再出现，因此额外跟踪 `appinstalled`
- * 与 `display-mode: standalone`。
+ * 【为什么必须是单例】`beforeinstallprompt` 只在开机后某一刻派发一次，而**拦下来的那个事件
+ * 对象是唯一能调 `prompt()` 的东西**：谁先听到、存在谁手里，只有那一份能用。所以这份状态
+ * 必须全局唯一。现在有两处消费它：设置面板那一行（它一直挂着，见 `EditorPane.vue` 的 `v-show`），
+ * 以及**齿轮下拉菜单里那颗「安装为应用」**（只在真能一键装时才出现，见 `services/settingsMenu.js`）。
+ * 两处读同一份，才可能都对。同款体例见 `useCompanionBridge.js`（「扩展装没装」也是模块级事实）。
+ *
+ * 【监听为什么挂在模块加载时、且没有 teardown】同一个理由：事件只在开机那一小段里派发，
+ * 挂晚了就永远错过。本模块由设置面板 import，而面板是 `v-show` 常驻的，所以挂在模块顶层与
+ * 挂在 `onMounted` 里效果一致 —— 但前者对「先打开的是菜单」这种情况也成立，更不容易坏。
+ */
+const deferred = ref(null)
+const installed = ref(false)
+
+const standalone =
+  typeof window !== 'undefined' ? window.matchMedia('(display-mode: standalone)') : null
+
+// iOS Safari 没有 beforeinstallprompt，只能用 navigator.standalone 判断是否已是独立窗口
+const isStandalone = () => Boolean(standalone?.matches) || window.navigator?.standalone === true
+
+const runningStandalone = ref(typeof window !== 'undefined' && isStandalone())
+
+export const canInstall = computed(
+  () => !installed.value && !runningStandalone.value && deferred.value !== null,
+)
+
+/** 「已知已装」：`appinstalled` 报过（刚装完那一下），或此刻正跑在独立窗口里 */
+export const appInstalled = computed(() => installed.value || runningStandalone.value)
+
+function onBeforeInstallPrompt(event) {
+  // 不拦下来的话 Chrome 会走自己的迷你信息条，我们就没机会用自己的按钮 / 菜单项触发
+  event.preventDefault()
+  /**
+   * 事件到达本身就是**「这台浏览器此刻认为没装」的证据**（Chrome 只在没装时才派发），
+   * 所以它必须能推翻 `appinstalled` 那把一次性的锁 —— 否则「装完又卸掉」在同一会话里
+   * 永远回不到「可装」，按钮一灰到底。2026-10-12 用户报的那条就落在这里。
+   *
+   * 注意这里**只清锁、不反过来设锁**：没收到事件不代表装过，可能只是这一刻条件不满足。
+   */
+  installed.value = false
+  deferred.value = event
+}
+
+function onInstalled() {
+  deferred.value = null
+  installed.value = true
+}
+
+function onDisplayModeChange() {
+  runningStandalone.value = isStandalone()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+  window.addEventListener('appinstalled', onInstalled)
+  standalone?.addEventListener('change', onDisplayModeChange)
+}
+
+// prompt() 每个事件只能调一次，用完即弃
+export async function install() {
+  const event = deferred.value
+  if (!event) return null
+  event.prompt()
+  const { outcome } = await event.userChoice
+  deferred.value = null
+  return outcome
+}
+
+/**
+ * 面板那一行的取用口（留着这个函数是为了不动调用点）。返回的就是上面那一份模块级单例 ——
+ * 它不再「每次调用各持一份状态」，所以菜单与面板拿到的东西永远一致。
  */
 export function useInstallPrompt() {
-  const deferred = ref(null)
-  const installed = ref(false)
-
-  // iOS Safari 没有 beforeinstallprompt，只能用 navigator.standalone 判断是否已是独立窗口
-  const standalone = window.matchMedia('(display-mode: standalone)')
-  const isStandalone = () => standalone.matches || window.navigator.standalone === true
-  const runningStandalone = ref(isStandalone())
-
-  const canInstall = computed(
-    () => !installed.value && !runningStandalone.value && deferred.value !== null,
-  )
-
-  function onBeforeInstallPrompt(event) {
-    // 不拦下来的话 Chrome 会走自己的迷你信息条，我们就没机会用自己的按钮触发
-    event.preventDefault()
-    deferred.value = event
-  }
-
-  function onInstalled() {
-    deferred.value = null
-    installed.value = true
-  }
-
-  function onDisplayModeChange() {
-    runningStandalone.value = isStandalone()
-  }
-
-  onMounted(() => {
-    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
-    window.addEventListener('appinstalled', onInstalled)
-    standalone.addEventListener('change', onDisplayModeChange)
-  })
-
-  onBeforeUnmount(() => {
-    window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
-    window.removeEventListener('appinstalled', onInstalled)
-    standalone.removeEventListener('change', onDisplayModeChange)
-  })
-
-  // prompt() 每个事件只能调一次，用完即弃
-  async function install() {
-    const event = deferred.value
-    if (!event) return null
-    event.prompt()
-    const { outcome } = await event.userChoice
-    deferred.value = null
-    return outcome
-  }
-
   return {
     canInstall,
     installed,

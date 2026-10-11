@@ -35,8 +35,8 @@ export const wasmEngine = {
     return { ok: true, message: t('engine.wasm.ready') }
   },
 
-  async execute({ languageId, entryPath, code, stdin, signal, timeLimitMs }) {
-    const message = await runCase({ language: languageId, entryPath, code, stdin, signal, timeLimitMs })
+  async execute({ languageId, entryPath, code, stdin, signal, timeLimitMs, memoryLimitBytes = 0 }) {
+    const message = await runCase({ language: languageId, entryPath, code, stdin, signal, timeLimitMs, memoryLimitBytes })
     // 耗时口径：C++ 只算运行段（不含编译，编译是整批用例共享的一次性开销）；
     // Python 没有编译段，这里就是解释器启动 + 程序执行的墙钟。
     // 程序没跑起来（编译失败 / 环境不可用）时是 null，卡片就不显示时间。
@@ -53,6 +53,12 @@ export const wasmEngine = {
       // 让卡片直接把原因显示出来，而不是笼统地说「服务不可达」。
       if (message.stage === 'compile') {
         return { outcome: 'compile-error', stdout: '', stderr: message.message, durationMs }
+      }
+      // 运行段 worker 崩溃（探针实测 2026-10-12：真栈溢出会炸掉 runno 的宿主，无 exitCode）
+      // 是**程序**的问题 → RE；stderr 透传 worker 消息，runner 的 RE 分支直接拿它当 detail，
+      // 卡片能显示「call stack exhausted」这类真实原因。
+      if (message.stage === 'run') {
+        return { outcome: 'runtime-error', stdout: '', stderr: message.message, durationMs }
       }
       return {
         outcome: 'unreachable',
@@ -71,6 +77,22 @@ export const wasmEngine = {
       return { outcome: 'compile-error', stdout, stderr: stderr || t('error.compileFailed'), durationMs }
     }
     if (!message.ok) {
+      // MLE 判据（实测 2026-10-12，探针系列）：开 --max-memory 后，真实超内存的程序在
+      // 第一次触碰超出上限的地址时 OOB trap → 退出码 134、stderr 为空。判据刻意收窄：
+      // 只有「开了上限 + 134 + stderr 全空」才判 MLE。
+      //
+      // 已知边界（探针实测）：
+      // - 用户自己 abort() 也是 134 + 空 stderr → 会误判成 MLE；
+      // - 「分配了但从不读写」的退化程序（vector(n) 只打印 size()）在 -O2 下零填充被
+      //   死存储消除、分配失败的 abort 分支被 libc++abi 的 unreachable 语义吞掉，
+      //   会假成功退出 0 → 判 AC。真实 OJ 的 RSS 口径下这类程序也不算超内存，可接受；
+      //   常量下标的读写同理（store-to-load 转发 + 死存储删除，探针实测）——运行期
+      //   下标的循环转发不掉，必 trap，所以真实形态的竞赛程序都会正确落进 MLE；
+      // - C 程序检查 malloc 返回 0 后自行退出的 → 退出码 1 → 判 RE。
+      // 要精确就得读峰值内存（worker 注入记 grow，二期）。
+      if (memoryLimitBytes > 0 && message.exitCode === 134 && !stderr) {
+        return { outcome: 'mle', stdout, stderr: '', durationMs }
+      }
       return {
         outcome: 'runtime-error',
         stdout,

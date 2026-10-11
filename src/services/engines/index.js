@@ -9,7 +9,7 @@ import { IS_DESKTOP } from '../platform.js'
  * 评测引擎注册表 —— 想接学校 OJ、WASM 本地执行、或者别的判题服务，
  * 只需要新增一个满足下面契约的对象并塞进 ENGINES，界面与运行器都不用改。
  *
- * @typedef {'ok'|'compile-error'|'runtime-error'|'timeout'|'rejected'|'unreachable'|'cancelled'} Outcome
+ * @typedef {'ok'|'compile-error'|'runtime-error'|'timeout'|'mle'|'rejected'|'unreachable'|'cancelled'} Outcome
  *
  * @typedef {Object} EngineExecution
  * @property {Outcome} outcome
@@ -27,11 +27,15 @@ import { IS_DESKTOP } from '../platform.js'
  * @property {string} defaultBase          默认服务地址；内置引擎填 'local'
  * @property {(languageId: string) => boolean} [supports]
  * @property {(base: string, signal?: AbortSignal) => Promise<{ok: boolean, message: string}>} health
- * @property {(input: {base: string, languageId: string, entryPath?: string, code: string, stdin: string, signal?: AbortSignal, timeLimitMs?: number}) => Promise<EngineExecution>} execute
+ * @property {(input: {base: string, languageId: string, entryPath?: string, code: string, stdin: string, signal?: AbortSignal, timeLimitMs?: number, memoryLimitBytes?: number}) => Promise<EngineExecution>} execute
  *
  * timeLimitMs 是界面上的全局时限（毫秒），**只计运行段**，不含编译。
  * 引擎自己决定怎么兑现：本地沙箱用看门狗 kill()，Piston 透传 run_timeout，
  * Judge0 换算成 cpu_time_limit；兑现不了就忽略它，不要假装遵守。
+ *
+ * memoryLimitBytes 是界面上的全局内存上限（字节），超了判 MLE（outcome 'mle'）。
+ * 同样由引擎自己兑现：wasm 沙箱在链接期给产物封顶（--max-memory），Judge0 透传
+ * memory_limit（KB）；兑现不了的引擎（piston / native）忽略它，不要假装遵守。
  *
  * entryPath 是入口文件在 VFS 里的绝对路径，给需要「文件名」的引擎用
  * （本地沙箱的 Python 就是拿它当 argv[1]）；远端引擎按 code 直接提交，忽略它即可。

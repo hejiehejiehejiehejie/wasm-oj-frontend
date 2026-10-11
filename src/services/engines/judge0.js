@@ -66,7 +66,12 @@ async function languageIdFor({ base, languageId, signal }) {
 }
 
 // 用返回字段而不是 status.id 判读，跨版本更稳。
-function classify({ stdout, stderr, compileOutput, statusId, description, durationMs }) {
+//
+// MLE 判据（ce.judge0.com 实测 2026-10-12）：提交体带 memory_limit（KB）时，进程
+// 超限被 SIGKILL（退出码 137），返回的 memory 恰好等于上限、status 落在 NZEC 类。
+// 所以「上报内存 ≥ 上限」且没被判超时/编译错误时，即可判 MLE。自建部署不支持
+// memory_limit 时不会杀进程，memory 也到不了上限，自然退回 RE —— 不误伤。
+function classify({ stdout, stderr, compileOutput, statusId, description, durationMs, memoryBytes, limitBytes }) {
   if (statusId === 5 || /timeout/i.test(description ?? '')) {
     return { outcome: 'timeout', stdout, stderr, durationMs }
   }
@@ -81,6 +86,9 @@ function classify({ stdout, stderr, compileOutput, statusId, description, durati
       detail: description || t('engine.judge0.internal'),
       durationMs,
     }
+  }
+  if (limitBytes > 0 && memoryBytes !== null && memoryBytes >= limitBytes) {
+    return { outcome: 'mle', stdout, stderr: '', durationMs }
   }
   if (stderr || (statusId !== null && statusId !== 3)) {
     return {
@@ -124,7 +132,7 @@ export const judge0Engine = {
     }
   },
 
-  async execute({ base, languageId, code, stdin, signal, timeLimitMs = 5000 }) {
+  async execute({ base, languageId, code, stdin, signal, timeLimitMs = 5000, memoryLimitBytes = 0 }) {
     const id = await languageIdFor({ base, languageId, signal })
     const query = 'base64_encoded=true&wait=true&fields=stdout,stderr,compile_output,message,status,time,memory'
     const response = await requestJson(`${trimBase(base)}/submissions?${query}`, {
@@ -137,6 +145,9 @@ export const judge0Engine = {
         // 全局时限（毫秒）换成 Judge0 的 CPU 时限（秒）。它的默认值是 5 s，
         // 也就是上面那个默认参数，自检路径（health）走的就是它。
         cpu_time_limit: timeLimitMs / 1000,
+        // 内存上限（字节）换成 Judge0 的 memory_limit（KB）。公共实例接受这个字段；
+        // 不支持的部署会忽略它，classify 那边也就探不到「memory == 上限」，不会误判。
+        ...(memoryLimitBytes > 0 ? { memory_limit: Math.round(memoryLimitBytes / 1024) } : {}),
       },
     })
 
@@ -169,6 +180,9 @@ export const judge0Engine = {
       statusId: typeof status.id === 'number' ? status.id : null,
       description: status.description ?? data.message ?? '',
       durationMs: response.durationMs,
+      // Judge0 的 memory 单位是 KB，换回字节再比
+      memoryBytes: typeof data.memory === 'number' ? data.memory * 1024 : null,
+      limitBytes: memoryLimitBytes,
     })
   },
 }

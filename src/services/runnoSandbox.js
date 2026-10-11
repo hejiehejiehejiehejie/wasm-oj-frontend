@@ -140,6 +140,23 @@ const LINKER_ARGS = [
   BINARY_PATH,
 ]
 
+/**
+ * 链接时把 wasm 线性内存封顶（--max-memory，老旗标，clang 8 的 wasm-ld 支持）。
+ * 一处改动同时做到两件事：保护宿主（以前一个吃 1.9GB 的程序能真吃掉浏览器 1.9GB，
+ * 天花板是 wasm-ld 默认的 ~2GB）+ 给 MLE 一个确定的天花板 —— 分配失败时 libc++ 在
+ * -fno-exceptions 下走 terminate → abort → SIGABRT（实测退出码 134），上层据此判 MLE。
+ * @param {number} memoryLimitBytes 界面的内存上限；不给就不加旗标，行为退回从前
+ */
+function linkerArgs(memoryLimitBytes) {
+  if (!memoryLimitBytes || memoryLimitBytes <= 0) return LINKER_ARGS
+  // wasm 线性内存按 64KiB 页对齐，上限必须是页大小的整数倍。
+  // 必须写成单 token `--max-memory=<值>`：lld 系不接受空格分隔（verify 抓过：拆成两个
+  // 参数直接 wasm-ld: error: unknown argument: --max-memory）
+  const pageBytes = 64 * 1024
+  const pages = Math.ceil(memoryLimitBytes / pageBytes)
+  return [...LINKER_ARGS, `--max-memory=${pages * pageBytes}`]
+}
+
 // clang 带的是 libc++，没有 GCC 的 <bits/stdc++.h>，自己补一个同名头进去。
 // 顶着这个名字就得对得起它：把竞赛里会用到、且这套 sysroot 确实有的头都列上
 // （逐个核对过存在性）。线程 / 文件系统 / 正则这些在 wasm 里没意义的就没放。
@@ -421,12 +438,13 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
 }
 
 /**
- * 编译产物缓存 —— 按源码原文只留最近一份。
+ * 编译产物缓存 —— 按「源码原文 + 内存上限」只留最近一份。
  *
  * 为什么要它：一次「全部运行」会把同一份代码喂给每个用例，而每个用例都会重新走
  * clang + wasm-ld。缓存命中时连工具链都不用碰，第 2..N 个用例只付运行开销。
  * 为什么只留一份：用例总是成批跑的，而代码一改缓存必然失效，多留几个槽位没有收益。
- * @type {{ code: string, outcome: { ok: true, binary: object } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
+ * 为什么键里要有内存上限：上限编在 --max-memory 里、直接烙进产物，改上限必须重链接。
+ * @type {{ code: string, memoryLimitBytes: number, outcome: { ok: true, binary: object } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
  */
 let compileCache = null
 
@@ -434,7 +452,7 @@ let compileCache = null
  * clang 编译 + wasm-ld 链接，产出可执行的 wasm 二进制。
  * 结果分成「拿到二进制」和「编译/链接失败」两种，两种都可缓存（同一份代码结论必然相同）。
  */
-async function compileAndLink(code, onStatus, onHost) {
+async function compileAndLink(code, memoryLimitBytes, onStatus, onHost) {
   const tool = await loadToolchain(onStatus)
   const pch = await loadPchBytes()
 
@@ -469,7 +487,7 @@ async function compileAndLink(code, onStatus, onHost) {
 
   const linked = await runWasi(tool.linkerURL, {
     name: 'wasm-ld',
-    args: LINKER_ARGS,
+    args: linkerArgs(memoryLimitBytes),
     fs: compiled.fs,
     onHost,
   })
@@ -517,11 +535,15 @@ function runClang(tool, baseFs, pch, onHost) {
  * 高出一截，卡片之间也就没法互相比较了。程序压根没跑起来（编译失败）时给 null，
  * 由卡片显示为空 —— 那种情况下的「耗时」是编译耗时，不是这个数字要表达的东西。
  */
-export async function runCpp({ code, stdin, onStatus = () => {}, onHost = () => {} }) {
+export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () => {}, onHost = () => {} }) {
   const source = String(code ?? '')
 
-  if (compileCache?.code !== source) {
-    compileCache = { code: source, outcome: await compileAndLink(source, onStatus, onHost) }
+  if (compileCache?.code !== source || compileCache.memoryLimitBytes !== (memoryLimitBytes || 0)) {
+    compileCache = {
+      code: source,
+      memoryLimitBytes: memoryLimitBytes || 0,
+      outcome: await compileAndLink(source, memoryLimitBytes, onStatus, onHost),
+    }
   }
   const outcome = compileCache.outcome
 

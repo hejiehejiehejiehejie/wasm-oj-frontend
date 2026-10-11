@@ -219,12 +219,13 @@ export function warmupPch() {
  * 两条线共用同一个 WASI 宿主、同一套 stdout / stderr 拦截和同一个看门狗，所以
  * 超时强杀（TLE）、取消、阶段播报在两种语言下的行为完全一致。
  *
- * @param {{ language?: string, entryPath?: string, code: string, stdin?: string, signal?: AbortSignal, timeLimitMs?: number }} options
+ * @param {{ language?: string, entryPath?: string, code: string, stdin?: string, signal?: AbortSignal, timeLimitMs?: number, memoryLimitBytes?: number }} options
  *   language   'cpp' | 'python'，缺省按 cpp（保持既有调用方不改也能跑）
  *   entryPath  入口文件在 VFS 里的绝对路径；python 用它当 argv[1]，同时决定 sys.path[0]
+ *   memoryLimitBytes  内存上限（字节），只有 cpp 兑现它（链接期 --max-memory）；Python 忽略
  * @returns {Promise<object>} result / timeout / failure / cancelled 消息
  */
-export function runCase({ language = 'cpp', entryPath, code, stdin, signal, timeLimitMs }) {
+export function runCase({ language = 'cpp', entryPath, code, stdin, signal, timeLimitMs, memoryLimitBytes }) {
   return enqueue(async () => {
     if (signal?.aborted) return { type: 'cancelled' }
     const isPython = language === 'python'
@@ -245,6 +246,7 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
         : await runCpp({
             code,
             stdin,
+            memoryLimitBytes,
             onStatus: entry.onStatus,
             onHost: entry.onHost,
           })
@@ -269,8 +271,11 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
         }
         return { type: 'failure', stage: entry.stage === 'compile' ? 'compile' : 'infra', message: timeoutMessage(entry) }
       }
-      // 工具链层面的问题（下载失败、浏览器缺 API 等）：报 infra，别说成编译错误
-      return { type: 'failure', stage: 'infra', message: error?.message || String(error) }
+      // 运行段的异常 = 程序把 runno 的宿主搞崩了（探针实测 2026-10-12：真栈溢出的 wasm
+      // trap 会从 worker 一路炸到主线程，无 exitCode）——这是**程序**的问题，标 'run'，
+      // 引擎按 RE 报；prepare / compile 段的异常才是工具链层面的问题（下载失败、浏览器
+      // 缺 API 等）：报 infra，别说成编译错误
+      return { type: 'failure', stage: entry.stage === 'run' ? 'run' : 'infra', message: error?.message || String(error) }
     } finally {
       endTask(entry)
     }

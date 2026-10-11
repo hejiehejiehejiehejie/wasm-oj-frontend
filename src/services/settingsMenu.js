@@ -9,6 +9,11 @@
  * read / checked 必须是函数，由模板在渲染时调用（Vue 因此能追到依赖）。
  * 而 `labelKey` 一律存 key 不存字符串 —— 与别处同一条 i18n 纪律（见 i18n/index.js）。
  *
+ * 【`when`：这一行此刻在不在】可选，缺省就是在。是个**函数**（同上：要读此刻的值），
+ * 组件按它过滤整张表 —— 于是「有条件才出现的一行」也留在表里，不必让组件知道任何业务判据。
+ * 用它的正是下面那几颗**一次性的安装行**（装成应用 / 拿浏览器插件）：它们的出现条件
+ * 一头挂在浏览器的能力上、一头挂在「装没装」上，两者都会在会话中途变。
+ *
  * 【写就一定经过原有单一出口】这里没有一个字面量 localStorage 键：
  * - 编辑器偏好 → `services/editorSettings.js` 的 setEditorSetting
  * - 侧边栏位置 / 缩放 → `services/shellSettings.js`
@@ -38,6 +43,13 @@ import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
 import { LOCALES, locale, setLocale } from '../i18n/index.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import { PANEL_POSITIONS, panelPosition, setPanelPosition, uiScalePref } from './shellSettings.js'
+import { canInstall, install } from '../composables/useInstallPrompt.js'
+import { extensionInfo } from '../composables/useCompanionBridge.js'
+import {
+  EXTENSION_ROUTES,
+  downloadExtensionPackage,
+  openExtensionStore,
+} from './extensionPackage.js'
 
 /** 百分比显示：放在一起是为了「菜单与设置面板两处口径一致」（面板那边叫 scaleLabel） */
 const scaleLabel = (scale) => `${Math.round(scale * 100)}%`
@@ -126,6 +138,43 @@ export const SETTINGS_MENU_ROWS = [
     // 菜单里叫「同步设置」；`settings.section.cloud`（「云端同步」）是给设置面板那一栏与
     // 「设置分类」二级用的，两处刻意不同名（2026-10-11）
     labelKey: 'settings.menu.cloudSync',
+  },
+
+  /**
+   * 下面三颗是**一次性的动作**，不是偏好：把本站装成应用、把浏览器插件拿到手。
+   * 出现条件全在 `when` 里，一句话概括：**能装、而且还没装** —— 装好了、或者这台机器本来
+   * 就没有这条路，整行就消失，菜单里不留一颗点了没用的按钮（两颗插件行按机器二选一，
+   * 所以同一时刻最多看到其中两颗）。这两件事都在「设置面板里能找到」的基础上再往前一步：
+   * 菜单是顺手的地方，不必为此专门切到设置页去。
+   */
+  {
+    id: 'installApp',
+    kind: 'action',
+    /**
+     * 「装成应用」：判据直接用 `canInstall` —— 它同时要求「引擎有这套 API」「此刻真的可一键装」
+     * 「还没装」，正好就是这一行要的语义，而且与设置面板那颗按钮**同一份状态**（模块级单例，
+     * 见 useInstallPrompt.js）。Firefox / Safari 上这个事件永远不会来，所以那两台不会出现这一行；
+     * 装过之后它自己消失。
+     */
+    when: () => canInstall.value,
+    labelKey: 'settings.menu.installApp',
+    run: () => install(),
+  },
+  {
+    id: 'installExtension',
+    kind: 'action',
+    /** 还没探到扩展、且这台机器**确实有** AMO 这条路（Firefox，含安卓 Firefox） */
+    when: () => !extensionInfo.value && EXTENSION_ROUTES.value.includes('firefox'),
+    labelKey: 'settings.menu.installExtension',
+    run: () => openExtensionStore(),
+  },
+  {
+    id: 'downloadExtension',
+    kind: 'action',
+    /** 同上，但这台机器走的是「下载 zip → 手动加载」那条（Chromium 系桌面版） */
+    when: () => !extensionInfo.value && EXTENSION_ROUTES.value.includes('manual'),
+    labelKey: 'settings.menu.downloadExtension',
+    run: () => downloadExtensionPackage(),
   },
 
   {

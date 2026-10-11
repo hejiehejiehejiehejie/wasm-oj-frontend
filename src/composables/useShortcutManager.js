@@ -54,7 +54,19 @@ export const SHORTCUT_ACTIONS = [
   { id: 'toggle-layout', labelKey: 'settings.shortcut.toggleLayout.label', default: 'Mod+Shift+KeyB' },
   { id: 'new-case', labelKey: 'settings.shortcut.newCase.label', default: 'Mod+Alt+Enter' },
   { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
-  // 下面两条（2026-10-10 加）与上面六条不是一回事：它们**不跟着焦点走遍全站**，
+  /**
+   * 生成图片：把编辑器里的选区导成 PNG（实现在 composables/useEditorMenu.js，
+   * 由 EditorPane 经 defineExpose 递给 App.vue 的 SHORTCUT_HANDLERS）。
+   * 与上面几条一样「在哪儿按都算」，但**没有选区时静默什么都不做** ——
+   * 它与右键菜单那一项同源，那边是无选区置灰，这里则没有可置灰的地方。
+   */
+  {
+    id: 'export-image',
+    labelKey: 'settings.shortcut.exportImage.label',
+    hintKey: 'settings.shortcut.exportImage.hint',
+    default: 'Mod+KeyP',
+  },
+  // 下面两条（2026-10-10 加）与上面七条不是一回事：它们**不跟着焦点走遍全站**，
   // 只作用于「资源管理器里当前有焦点的那一行」。执行入口不在 SHORTCUT_HANDLERS 里，
   // 而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
   {

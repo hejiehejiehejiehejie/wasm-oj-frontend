@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar.vue'
 import ActivityBar from './components/ActivityBar.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import ToolchainGate from './components/ToolchainGate.vue'
+import NotificationCenter from './components/NotificationCenter.vue'
 import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { uiScale } from './composables/useUiScale.js'
@@ -15,7 +16,7 @@ import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
 import { flush, initAutoSave } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
-import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
+import { MEMORY_LIMIT_DEFAULT_BYTES, TIME_LIMIT_DEFAULT_MS, runCases } from './services/runner.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
 import { prepareNativeToolchain } from './services/nativeToolchain.js'
 import { requestPersistence } from './services/storageQuota.js'
@@ -29,7 +30,9 @@ import {
   peekActiveContent,
   saveAll,
   updateFileConfig,
+  workspace as workspaceStore,
 } from './services/vfs/workspaceStore.js'
+import { clearRunNotify, notifyRunOutcome } from './services/runNotify.js'
 import { modelManager } from './services/monaco/modelManager.js'
 import {
   MD_VIEW_SHORTCUT,
@@ -59,10 +62,20 @@ const judgeBases = usePersistentRef('cp.judgeBases', defaultBases())
 // 全局时限（毫秒，只计运行段）：所有用例统一，超了判 TLE。
 // 这是「没有题目时限时的默认值」；带 meta.timeLimit 的题目文件优先用题目时限。
 const timeLimitMs = usePersistentRef('cp.timeLimitMs', TIME_LIMIT_DEFAULT_MS)
+// 全局内存上限（字节）：所有用例统一，超了判 MLE。只有能兑现的引擎会用（wasm 沙箱 / Judge0）。
+const memoryLimitBytes = usePersistentRef('cp.memoryLimitBytes', MEMORY_LIMIT_DEFAULT_BYTES)
 // 实际生效的时限：活跃文件自带题目时限就用它，否则退回全局默认
 const effectiveTimeLimitMs = computed(() => {
   const fromMeta = activeNode.value?.meta?.timeLimit
   return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
+})
+// 实际生效的内存上限，与 effectiveTimeLimitMs 同构：扩展抓来的题在 config 里带
+// memoryLimit（单位 MB，cph-companion 的 Task 契约），换算成字节优先用；不是题目
+// 文件（或抓取源没给）退回全局设置。个别 parser 硬编码的值（如 Beecrowd 1024）
+// 是该 OJ 的真实限制，照用不纠。
+const effectiveMemoryLimitBytes = computed(() => {
+  const mb = activeNode.value?.config?.memoryLimit
+  return typeof mb === 'number' && mb > 0 ? mb * 1024 * 1024 : memoryLimitBytes.value
 })
 
 // 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）连同「写一次根字号」
@@ -809,6 +822,11 @@ async function runAll() {
   revealTestsPanel()
   running.value = true
   abortController = new AbortController()
+  const signal = abortController.signal
+  // 评测结果通知（services/runNotify.js）挂在本文件名下：重跑即收掉上一条常驻
+  // CE —— 结果好坏另说，反正待会会有新的一条来接替
+  const entryPath = activeNode.value?.path
+  if (entryPath) clearRunNotify(entryPath)
   // 运行前自动保存全部 dirty model，再取活跃文件快照
   await saveAll()
   const snapshot = peekActiveContent() ?? ''
@@ -819,16 +837,24 @@ async function runAll() {
     engine: engine.value,
     base: judgeBase.value,
     languageId: activeLanguage.value,
-    entryPath: activeNode.value?.path,
+    entryPath,
     cases: queue,
     code: snapshot,
     timeLimitMs: effectiveTimeLimitMs.value,
+    memoryLimitBytes: effectiveMemoryLimitBytes.value,
     signal: abortController.signal,
     onCase: applyPatch,
   })
 
   // 中途中断时，未跑到的卡片回到待运行，不留假的“运行中”
   for (const item of testCases.value) if (item.status === 'running') item.status = 'idle'
+
+  // 结果通知在状态归位后发。**必须用 queue 而不是 testCases.value**：用例回写
+  // （flushCasesWrite → updateFileConfig → rebuildTree）会在运行途中把卡片对象
+  // 整批换成新的一批，patch 落在 queue 持有的旧引用上 —— 读 testCases.value 会
+  // 读到没跑过的新对象（实测 verdict 全空）。queue 与 patch 的落点是同一批引用。
+  // 被中断（abort）的那次不弹 —— 中断几乎总紧跟着一次新的运行，弹一条半截的结果只会误导
+  if (!signal.aborted) notifyRunOutcome({ path: entryPath, cases: queue })
 
   running.value = false
   abortController = null
@@ -839,6 +865,9 @@ async function runOne(target) {
   if (!activeLanguage.value) return // 同 runAll：UI 已置灰，这里是兜底
   running.value = true
   const controller = new AbortController()
+  // 与 runAll 同一套通知纪律：单跑也是「一次运行」，先收旧的常驻 CE，跑完发新的一条
+  const entryPath = activeNode.value?.path
+  if (entryPath) clearRunNotify(entryPath)
   target.status = 'running'
   target.actualOutput = ''
   target.detail = ''
@@ -850,14 +879,16 @@ async function runOne(target) {
       engine: engine.value,
       base: judgeBase.value,
       languageId: activeLanguage.value,
-      entryPath: activeNode.value?.path,
+      entryPath,
       cases: [target],
       code: peekActiveContent() ?? '',
       timeLimitMs: effectiveTimeLimitMs.value,
+      memoryLimitBytes: effectiveMemoryLimitBytes.value,
       signal: controller.signal,
       onCase: applyPatch,
     })
     if (target.status === 'running') target.status = 'idle'
+    if (!controller.signal.aborted) notifyRunOutcome({ path: entryPath, cases: [target] })
   } finally {
     running.value = false
   }
@@ -879,6 +910,36 @@ function removeCase(target) {
   testCases.value = testCases.value.filter((item) => item.id !== target.id)
 }
 
+// ------------------------------------------------- 常驻评测通知的页签生命周期
+// CE 通知常驻（tag = run:<路径>），「切换 / 关闭对应页签就收」在这里实现：
+// - 切走：activeNode 变了，收掉**前一个**文件的；
+// - 关页签 / 删文件：开着页签的路径集合里消失的那些，一并收。
+// 两处都调 clearRunNotify（幂等），关活跃页签时两个 watch 会重复收一次，无害。
+watch(
+  () => activeNode.value?.path,
+  (next, prev) => {
+    if (prev && prev !== next) clearRunNotify(prev)
+  },
+)
+
+// openTabIds 是原地 splice 的（workspaceStore.closeTab），watch 数组引用不会触发，
+// 所以盯着拼接后的 id 串：内容变了才算变。路径在节点还在索引里时就要取走 ——
+// 删文件走的 rebuildTree 会把节点一并清掉，那时就无从对号了。
+let lastOpenPaths = []
+watch(
+  () => workspaceStore.openTabIds.join('\n'),
+  () => {
+    const paths = workspaceStore.openTabIds
+      .map((id) => getNodeById(id)?.path)
+      .filter(Boolean)
+    for (const prev of lastOpenPaths) {
+      if (!paths.includes(prev)) clearRunNotify(prev)
+    }
+    lastOpenPaths = paths
+  },
+  { immediate: true },
+)
+
 // 用户输入（dirty 集合变化）后，之前的判定不再可信，标成「待刷新」。
 let staleTimer = 0
 watch(
@@ -895,7 +956,7 @@ watch(
 
 // ------------------------------------------------------------ 全局快捷键
 // 键位表在 useShortcutManager 里（含持久化与冲突检测），这里只把动作 id 接上真正的函数。
-// 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那 6 条；另有两条**作用域受限**的
+// 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那 7 条；另有两条**作用域受限**的
 // （F2 重命名 / Delete 删除资源树节点）在它下面单独一张表里，理由见那里的注释。
 // 监听挂在 window 的**捕获**阶段：Monaco 的键位服务挂在编辑器内部的 DOM 上，捕获是从外
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
@@ -918,6 +979,9 @@ const SHORTCUT_HANDLERS = {
   'toggle-layout': () => flipPanelPosition(),
   'new-case': () => addCase(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
+  // 生成图片：落在 EditorPane 里（那边持有 Monaco 实例与选区）。没有选区、或没开文件时
+  // 它自己静默返回 —— 与右键菜单那一项同口径（那边是置灰）
+  'export-image': () => editorPane.value?.exportImage?.(),
 }
 
 /** 题解在编辑器里生效的那 14 条键位（注册在 Monaco，见 EditorPane 的 registerMarkdownActions） */
@@ -1117,17 +1181,23 @@ onBeforeUnmount(() => {
           :settings="editorSettings"
           :panel-position="panelPosition"
           :time-limit="timeLimitMs"
+          :memory-limit="memoryLimitBytes"
           :judge="judgeSettings"
           :connection="connection"
           :ui-scale="uiScalePref"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
+          @update:memory-limit="memoryLimitBytes = $event"
           @update:ui-scale="uiScalePref = $event"
           @toggle-layout="flipPanelPosition"
           @select-engine="selectEngine"
           @update-base="updateBase"
           @test-connection="testConnection"
         />
+        <!-- 全站通知（toast）：锚在编辑区右下角（容器 absolute，含块 = 本栏）。
+             不用视口右下角：侧边栏可停靠右侧，浮层会盖在侧栏上。
+             入口只有 services/notifications.js 的 notify()，谁都能发 -->
+        <NotificationCenter />
       </section>
 
       <div
@@ -1334,6 +1404,9 @@ onBeforeUnmount(() => {
    于是分隔条只以一半幅度跟手。 */
 .pane--editor {
   flex: 1 1 60%;
+  /* 通知 toast（NotificationCenter）的含块：absolute 锚在本栏右下角，
+     侧边栏无论停靠左 / 右都不会被浮层盖到 */
+  position: relative;
   view-transition-name: pane-editor;
 }
 

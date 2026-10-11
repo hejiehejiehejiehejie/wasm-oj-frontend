@@ -99,6 +99,16 @@
   --info-soft-border-hover: #4c6377;
   --info-soft-text: #cfe3f5;
 
+  /* 通知 toast（components/NotificationCenter.vue，唯一消费者）。
+     玻璃拟态：半透明底 + backdrop-blur，压在编辑器上还能透出一层底色。
+     2026-10-12 当晚按用户要求再调透一档（0.82 → 0.62）：blur 顶上来了，透明度给足
+     才有「一层玻璃」而不是「一块灰板」。悬停仍比静置抬一档（对应原型 rgba(40,40,40,.8)）。
+     投影两套主题都要给：toast 是浮在内容上的，深色里 --card-shadow 是 none、
+     靠它分不了层，所以单独开一支。 */
+  --toast-bg: rgba(30, 30, 32, 0.62);
+  --toast-bg-hover: rgba(41, 41, 44, 0.72);
+  --toast-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+
   /* 用例卡片 */
   --case-border: #45454a;
   --case-chip-bg: #303034;
@@ -249,6 +259,12 @@
   --info-soft-bg-hover: #d3e7f8;
   --info-soft-border-hover: #94c4e6;
   --info-soft-text: #10527f;
+
+  /* 浅色下白底透明度与深色那档同幅度（0.85 → 0.7）；白底上那圈黑影单独调淡，
+     理由同 --menu-shadow */
+  --toast-bg: rgba(255, 255, 255, 0.7);
+  --toast-bg-hover: rgba(255, 255, 255, 0.82);
+  --toast-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 
   --case-border: #d6d6d6;
   --case-chip-bg: #ececec;
