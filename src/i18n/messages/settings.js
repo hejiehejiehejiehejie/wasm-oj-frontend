@@ -13,7 +13,6 @@ export default {
 
       /** 菜单（下拉）里的分类，同时也是右侧每一组的标题 */
       section: {
-        common: '常用设置',
         workspace: '工作区',
         appearance: '外观',
         editor: '编辑器',
@@ -33,6 +32,9 @@ export default {
       menu: {
         openSettings: '打开设置面板…',
         sections: '设置分类',
+        /* 菜单里那一行**不复用** section.cloud（2026-10-11 用户定的）：同一个功能在下拉里
+           读作「同步设置」，进了设置面板那一栏仍叫「云端同步」——两处刻意不同名，别顺手统一 */
+        cloudSync: '同步设置',
         decrease: '减小',
         increase: '增大',
       },
@@ -54,11 +56,6 @@ export default {
           label: '恢复默认',
           title: '恢复该语言的内置模板',
         },
-      },
-
-      /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
-      common: {
-        note: '集中了最常改的几项',
       },
 
       /** 工作区（仅桌面端）：在当前文件里打开/切换「本机文件夹」 */
@@ -243,8 +240,19 @@ export default {
         install: {
           label: '安装到设备',
           title: '安装到设备',
+          /**
+           * 三个状态词就是这一栏的全部文案了 —— 判据只有一条：**引擎有没有
+           * 「把网站装成应用」这套 API**（`useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`，
+           * 属性检测 `'onbeforeinstallprompt' in window`）。**不按浏览器型号分岔**，
+           * 所以这里没有「Chrome 怎么说 / Firefox 怎么说」那套说法。
+           *
+           * 按钮亮不亮是另一回事（看 `canInstall`），状态词不替它解释 ——
+           * 原来那样解释会同时错两处：既把「不支持」和「此刻还不能装」混成一句，
+           * 又得靠猜浏览器来补救。
+           */
           statusAvailable: '当前浏览器支持',
-          statusUnavailable: '已安装或不支持',
+          statusUnsupported: '当前浏览器不支持',
+          statusInstalled: '已安装',
         },
         installAction: '安装',
         installedAction: '已安装',
@@ -253,11 +261,29 @@ export default {
       extension: {
         groupNote:
           '装好插件后，在任意 OJ 题目页点插件图标，解析出来的题面、样例和限制会直接送进这个网站。',
-        downloadHint:
-          'Firefox 用户点右侧「Firefox 版」去附加组件商店一键安装；Chrome 用户下载 zip 后到 chrome://extensions 打开「开发者模式」，用「加载已解压的扩展程序」选中解压出来的目录。手机 / 平板上只有安卓的 Firefox 支持扩展（Chrome 的手机版完全没有扩展功能），移动端用户建议改用 Firefox。',
+        /**
+         * 安装引导按浏览器只给一条；认不出时给 `hintChromium` 那条通用步骤 ——
+         * **fail-open 是刻意的**：猜错的代价是用户看不到入口，比多给一条路糟得多。
+         * 移动端单独两句：那边能装的东西与桌面完全不是一回事。
+         */
+        hintFirefox: '点右侧「Firefox 版」去附加组件商店一键安装；装完回这里点「重新检测」。',
+        hintEdge:
+          'Edge 加载项商店版还没上架，先按 Chromium 通用步骤装：下载 zip 并解压 → 地址栏打开 edge://extensions → 开「开发人员模式」→「加载解压缩的扩展」选中解压出来的目录。',
+        hintChrome:
+          '下载 zip 并解压 → 地址栏打开 chrome://extensions → 打开「开发者模式」→「加载已解压的扩展程序」选中解压出来的目录。',
+        hintChromium:
+          '这个内核的浏览器认不出具体是哪一款，按 Chromium 通用步骤装：下载 zip 并解压 → 打开浏览器的扩展管理页 → 打开「开发者模式」→「加载已解压的扩展程序」选中解压出来的目录。',
+        hintMobileUnsupported:
+          '手机 / 平板上目前只有安卓的 Firefox 能装这个插件（安卓的 Edge 已支持扩展，但这个插件还没上架 Edge 加载项），Chrome 手机版完全不支持扩展 —— 建议改用 Firefox。',
+        /** Safari（含 iOS 上所有浏览器）：唯一「一条路都没有」的一档，别给按钮 */
+        hintUnsupported:
+          '这个浏览器装不了本插件 —— Safari 的扩展要走 App Store 分发，与 Chrome / Edge / Firefox 那套不通用（iOS 上所有浏览器都是同一套内核，同样装不了）。桌面端请换 Chrome、Edge 或 Firefox；手机 / 平板上目前只有安卓的 Firefox 能装。',
         /** 上面那句里夹着一个 <code>chrome://extensions/shortcuts</code>，拆成前后两半 */
         shortcutsManagedPrefix: '插件快捷键由浏览器管理，网页没有权限改写，也没有权限跳转到',
         shortcutsManagedSuffix: '（浏览器会拦掉指向 chrome:// 的跳转）。只能复制地址后自己到地址栏粘贴打开。',
+        /** Firefox 的快捷键不在 chrome://extensions/shortcuts（那个地址在 Firefox 上不存在） */
+        shortcutsManagedSuffixFx:
+          '（about: 页面网页同样打不开）。打开后点右上角的齿轮，选「管理扩展快捷键」即可查看与修改。',
         status: '安装状态',
         statusRunning: '已安装并运行中',
         statusMissing: '未检测到',
@@ -265,9 +291,19 @@ export default {
         recheckTitle: '重新检测插件',
         checking: '检测中',
         checkingHint: '检测中…',
-        download: { label: '下载插件', firefox: 'Firefox 版', firefoxTitle: '前往 Firefox 附加组件商店安装' },
+        download: {
+          label: '下载插件',
+          firefox: 'Firefox 版',
+          firefoxTitle: '前往 Firefox 附加组件商店安装',
+          edge: 'Edge 版',
+          edgeTitle: '前往 Edge 加载项商店安装',
+        },
         /** 下载那一行标题后面的版本号：标的是这个网站提供的安装包版本 */
         downloadVersion: '最新版本 v{version}',
+        /** 装上的是旧版时那一行提示：前面是版本对照，后面按浏览器接一句怎么更新 */
+        updateAvailable: '你装的是 v{current}，本站最新是 v{latest}。',
+        updateHintManual: '重新下载安装包、替换掉旧目录后，在扩展管理页点一次刷新。',
+        updateHintFirefox: 'Firefox 会自动更新；也可以在附加组件管理器里手动检查一次。',
         destinations: '投递目标',
         destinationsNote:
           '插件解析出的题目要送到哪里。两项可以同时打开；关掉后插件仍会正常解析，只是不再往那一侧发送。',
@@ -282,6 +318,7 @@ export default {
         shortcutsHint: '复制后在地址栏粘贴打开',
         shortcutsCopiedHint: '已复制，粘贴到地址栏回车即可',
         shortcutsTitle: '复制 chrome://extensions/shortcuts',
+        shortcutsTitleFx: '复制 about:addons',
         copyUrl: '复制地址',
         copied: '已复制',
         /** 插件内部命令 id → 中文名（扩展只暴露 _execute_action 这类内部 id） */
@@ -401,7 +438,6 @@ export default {
       navAriaLabel: 'Settings categories',
 
       section: {
-        common: 'Common',
         workspace: 'Workspace',
         appearance: 'Appearance',
         editor: 'Editor',
@@ -421,6 +457,9 @@ export default {
       menu: {
         openSettings: 'Open settings…',
         sections: 'Settings sections',
+        /* Deliberately NOT reusing section.cloud (decided 2026-10-11): in the dropdown the row
+           reads "Sync settings", while the panel section stays "Cloud sync" — do not unify. */
+        cloudSync: 'Sync settings',
         decrease: 'Decrease',
         increase: 'Increase',
       },
@@ -442,11 +481,6 @@ export default {
           label: 'Restore default',
           title: 'Restore the built-in template for this language',
         },
-      },
-
-      /** 常用设置：只是把高频项再摆一份，与「外观 / 编辑器」里的同一偏好共用一份数据 */
-      common: {
-        note: 'The settings changed most often, gathered in one place. Each is the same preference as in Appearance / Editor — editing either side syncs both.',
       },
 
       /** Workspace (desktop only): open / switch a local folder as the current workspace */
@@ -644,8 +678,21 @@ export default {
         install: {
           label: 'Install on this device',
           title: 'Install on this device',
+          /**
+           * These three status words are the whole copy for this row. One criterion:
+           * does the engine have the install-as-app API at all
+           * (`INSTALL_API_SUPPORTED` in `useInstallPrompt.js`, probed as
+           * `'onbeforeinstallprompt' in window`). Not keyed off the browser model, so
+           * there is no “what Chrome says / what Firefox says” branch here.
+           *
+           * Whether the button lights up is a separate question (`canInstall`); the
+           * status word does not try to explain it — that used to be wrong twice over,
+           * conflating “unsupported” with “not installable right now”, and needing a
+           * browser guess to patch it up.
+           */
           statusAvailable: 'Supported by this browser',
-          statusUnavailable: 'Installed or unsupported',
+          statusUnsupported: 'Not supported by this browser',
+          statusInstalled: 'Installed',
         },
         installAction: 'Install',
         installedAction: 'Installed',
@@ -654,12 +701,30 @@ export default {
       extension: {
         groupNote:
           'With the extension installed, click its icon on any problem page and the statement, samples and limits are pushed straight into this site.',
-        downloadHint:
-          'On Firefox, click “Firefox version” to install straight from the add-ons store. On Chrome, download the zip, then open chrome://extensions, turn on Developer mode, and use “Load unpacked” to select the folder you extracted. On phones and tablets only Firefox for Android supports extensions (Chrome for mobile has no extension support at all), so mobile users should switch to Firefox.',
+        /**
+         * One path per browser; `hintChromium` is the fail-open fallback when the
+         * browser cannot be told apart. Mobile gets its own two lines, because what
+         * can be installed there is a completely different story.
+         */
+        hintFirefox: 'Click “Firefox version” on the right to install straight from the add-ons store, then hit “Check again” here.',
+        hintEdge:
+          'The Edge Add-ons listing is not up yet, so use the generic Chromium steps: download and unzip the archive → open edge://extensions → turn on Developer mode → “Load unpacked” and pick the extracted folder.',
+        hintChrome:
+          'Download and unzip the archive → open chrome://extensions → turn on “Developer mode” → “Load unpacked” and pick the extracted folder.',
+        hintChromium:
+          'This browser cannot be told apart by engine alone, so use the generic Chromium steps: download and unzip the archive → open your browser’s extension manager → turn on “Developer mode” → “Load unpacked” and pick the extracted folder.',
+        hintMobileUnsupported:
+          'On phones and tablets only Firefox for Android can install this extension today (Edge for Android does support extensions, but this extension is not on Edge Add-ons yet), and Chrome for mobile has no extension support at all — so switch to Firefox.',
+        /** Safari (and every browser on iOS): the one bucket with no path at all — no buttons */
+        hintUnsupported:
+          'This browser cannot install the extension: Safari extensions are distributed through the App Store and share nothing with the Chrome / Edge / Firefox route (and on iOS every browser uses that same engine, so none of them can install it). On desktop, use Chrome, Edge or Firefox; on phones and tablets only Firefox for Android can install it today.',
         shortcutsManagedPrefix:
           'Extension shortcuts are managed by the browser: a web page cannot rebind them, nor navigate to',
         shortcutsManagedSuffix:
           '(the browser blocks navigation to chrome:// URLs). Copy the address and paste it into the address bar yourself.',
+        /** Firefox has no chrome://extensions/shortcuts — its shortcuts live in the Add-ons Manager */
+        shortcutsManagedSuffixFx:
+          '(about: pages cannot be opened by a web page either). Open it, then use the gear menu in the top right — “Manage Extension Shortcuts” — to view or change them.',
         status: 'Installation status',
         statusRunning: 'Installed and running',
         statusMissing: 'Not detected',
@@ -667,9 +732,19 @@ export default {
         recheckTitle: 'Check for the extension again',
         checking: 'Checking',
         checkingHint: 'Checking…',
-        download: { label: 'Download the extension', firefox: 'Firefox version', firefoxTitle: 'Install from Firefox Add-ons' },
+        download: {
+          label: 'Download the extension',
+          firefox: 'Firefox version',
+          firefoxTitle: 'Install from Firefox Add-ons',
+          edge: 'Edge version',
+          edgeTitle: 'Install from Edge Add-ons',
+        },
         /** Version of the package this site ships */
         downloadVersion: 'Latest v{version}',
+        /** Shown when the installed version is older: version pair, then how to update */
+        updateAvailable: 'You have v{current}; this site ships v{latest}.',
+        updateHintManual: 'Download the archive again, replace the old folder, then hit refresh on the extension manager page.',
+        updateHintFirefox: 'Firefox updates it automatically; you can also check for updates in the add-ons manager.',
         destinations: 'Delivery targets',
         destinationsNote:
           'Where the extension sends the problems it parses. Both can be on at once; turning one off still parses normally, it just stops sending to that side.',
@@ -684,6 +759,7 @@ export default {
         shortcutsHint: 'Copy it, then paste it into the address bar',
         shortcutsCopiedHint: 'Copied — paste it into the address bar and press Enter',
         shortcutsTitle: 'Copy chrome://extensions/shortcuts',
+        shortcutsTitleFx: 'Copy about:addons',
         copyUrl: 'Copy URL',
         copied: 'Copied',
         commandParsePage: 'Parse the problem on this page',

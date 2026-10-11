@@ -9,7 +9,7 @@ import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
-import { IS_DESKTOP } from '../services/platform.js'
+import { BROWSER, BROWSER_PLATFORM, IS_DESKTOP } from '../services/platform.js'
 import { settingsSectionEntry } from '../services/editorViews.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
@@ -353,9 +353,9 @@ const LOCALE_OPTIONS = LOCALES.map((item) => ({ id: item.id, label: item.label }
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
-// 初值是目录里的第一项「常用设置」——第一次打开（或刷新后）就落在这里。
+// 初值是「外观」（2026-10-11 起）：原先有个排在最前的「常用设置」分类，只是把外观 / 编辑器
+// 里的高频项再摆一份、共用同一份偏好，现已删掉，默认落点顺势交给紧随其后的「外观」。
 const SECTIONS = [
-  { id: 'common', titleKey: 'settings.section.common', icon: 'star' },
   // 工作区只在桌面端可见（打开本机文件夹是 Tauri 壳独有的能力），见下面 visibleSections
   { id: 'workspace', titleKey: 'settings.section.workspace', icon: 'folder' },
   { id: 'appearance', titleKey: 'settings.section.appearance', icon: 'sliders' },
@@ -365,6 +365,7 @@ const SECTIONS = [
   { id: 'judge', titleKey: 'settings.section.judge', icon: 'check' },
   { id: 'cloud', titleKey: 'settings.section.cloud', icon: 'cloud' },
   { id: 'app', titleKey: 'settings.section.app', icon: 'install' },
+  { id: 'extension', titleKey: 'settings.section.extension', icon: 'plugin' },
   { id: 'help', titleKey: 'settings.section.help', icon: 'help' },
 ]
 
@@ -407,23 +408,65 @@ function onTemplateKeydown(event, id) {
   el.setSelectionRange(caret, caret)
 }
 
-const activeSection = ref('common')
+const activeSection = ref('appearance')
 
 // 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
 // 录制、冲突红字、阻止绑定都收在 HotkeyRecorder 内部（它要一边录一边校验）。
 const { resetAll } = useShortcutManager()
 
-// 安装到设备（2026-09 顶栏删除后从顶栏那颗按钮搬进来的）：浏览器判定可安装时才亮出来
-const { canInstall, install } = useInstallPrompt()
-
 // 桌面端（Tauri）关掉的那几块 —— PWA 安装入口、本地运行环境下载、浏览器扩展 ——
 // 在这里一次性读出来给模板用（判定见 services/platform.js）。
 const isDesktop = IS_DESKTOP
 
+// 「浏览器跑在手机 / 平板上」：扩展与「装成应用」两条引导在移动端都与桌面端差得很远，
+// 所以几处文案都要先过这一条。判据是 UA（见 platform.js 的 BROWSER_PLATFORM）。
+const isMobileBrowser = BROWSER_PLATFORM !== 'desktop'
+
+// 安装到设备（2026-09 顶栏删除后从顶栏那颗按钮搬进来的）
+const { canInstall, installed: appInstalled, runningStandalone, installSupported, install } =
+  useInstallPrompt()
+
+/**
+ * 「装成应用」这条路的**已知已装**状态：`appinstalled` 报过，或正跑在独立窗口里。
+ * 两条都是精确信号，比任何推断都准，所以状态词先看它。
+ */
+const appIsInstalled = computed(() => appInstalled.value || runningStandalone.value)
+
+/**
+ * 那一行状态词。三态，判据只有 `installSupported` 一条 —— **引擎有没有安装 API**，
+ * 不看浏览器型号、也不看 UA（见 `useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`）：
+ *
+ * - 已装 → 「已安装」
+ * - 引擎有这套 API → 「当前浏览器支持」
+ * - 引擎没有 → 「当前浏览器不支持」
+ *
+ * 原来这里是「看 `canInstall` 猜按钮为什么灰」，再按浏览器挂五句长解释。问题在于
+ * `canInstall` 是**事件**判据：事件不来既可能是「不支持」、也可能是「这一刻条件不满足」，
+ * 于是两种情况被塞进同一句「已安装或不支持」，还得靠猜浏览器去补救
+ * —— 猜得越多越不准。现在状态词只说「支不支持」，按钮亮不亮另由 `canInstall` 决定。
+ */
+const installStatusKey = computed(() => {
+  if (appIsInstalled.value) return 'settings.app.install.statusInstalled'
+  return installSupported
+    ? 'settings.app.install.statusAvailable'
+    : 'settings.app.install.statusUnsupported'
+})
+
+/** 按钮上的字：只有真知道装过了才写「已安装」，其余一律「安装」 */
+const installButtonKey = computed(() =>
+  appIsInstalled.value ? 'settings.app.installedAction' : 'settings.app.installAction',
+)
+
 // 「工作区」这一栏只在能打开本机文件夹的平台上出现：网页版没有这回事，Android 走 SAF
 // 也没有（见 workspaceMode.js 的 CAN_USE_LOCAL_FOLDER）。
+// 两类平台独有的分类各自裁掉：工作区只在桌面端（壳里能打开本机文件夹），浏览器插件只在
+// 网页版（桌面端的 webview 装不了扩展，抓题用的 postMessage 桥也不接）。其余分类两端一致。
 const visibleSections = computed(() =>
-  CAN_USE_LOCAL_FOLDER ? SECTIONS : SECTIONS.filter((section) => section.id !== 'workspace'),
+  SECTIONS.filter(
+    (section) =>
+      (CAN_USE_LOCAL_FOLDER || section.id !== 'workspace') &&
+      (!isDesktop || section.id !== 'extension'),
+  ),
 )
 
 // ------------------------------------------------------------ 工作区（仅桌面端）
@@ -471,6 +514,11 @@ const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 // Firefox 版已上架 AMO，直接外链过去一键装；Chrome 仍未上架，只能给 zip 手动加载。
 // 这个地址不随版本走（AMO 那个页面永远是「最新版」），所以不在上面「发新版改两个常量」之列。
 const FIREFOX_EXTENSION_URL = 'https://addons.mozilla.org/zh-CN/firefox/addon/cc-for-web/'
+// Edge 加载项商店版还没上架（上架材料见 cph-companion 的 SUBMISSION-EDGE.md：Partner Center
+// 账号未注册、截图未拍）。地址先留在这里 —— 上架后把 URL 填上，右侧那颗「Edge 版」按钮
+// 会自己出现，别的地方一个都不用改。
+// **空着就整颗不渲染**：宁可暂时少一颗按钮，也不给用户一个点开是 404 的入口。
+const EDGE_EXTENSION_URL = ''
 
 // 扩展对外只暴露 _execute_action 这类内部 id，显示名只能在这边维护
 const EXTENSION_COMMAND_KEYS = {
@@ -495,6 +543,68 @@ const extensionStatusLabel = computed(() => {
   if (extensionChecking.value) return t('settings.extension.checkingHint')
   return t(extensionInfo.value ? 'settings.extension.statusRunning' : 'settings.extension.statusMissing')
 })
+
+// ------------------------------------------------------------ 按浏览器推荐安装路径
+// 判据是 platform.js 的 BROWSER / BROWSER_PLATFORM，**只用来挑文案与摆哪颗按钮**。
+// 认不出（Safari 落 unknown；360 这类套壳落 chrome，它们的装法与 Chrome 同源）时
+// 一律 fail-open：桌面端把两条路都摆出来，别因为猜错让人看不到入口。
+const extensionHintKey = computed(() => {
+  // Safari（以及 iOS 上所有浏览器）一条路都没有，先把它摘出去，别落到下面任何一条
+  if (BROWSER === 'safari') return 'settings.extension.hintUnsupported'
+  if (isMobileBrowser) {
+    // 移动端只有安卓 Firefox 这条路是真的（安卓 Edge 支持扩展，但本插件没上架 Edge 加载项）
+    return BROWSER === 'firefox'
+      ? 'settings.extension.hintFirefox'
+      : 'settings.extension.hintMobileUnsupported'
+  }
+  if (BROWSER === 'firefox') return 'settings.extension.hintFirefox'
+  if (BROWSER === 'edge') return 'settings.extension.hintEdge'
+  if (BROWSER === 'chrome') return 'settings.extension.hintChrome'
+  return 'settings.extension.hintChromium'
+})
+
+/** Firefox 版装不进 Chromium（反之亦然），所以只给对的那一颗；认不出就两颗都摆 */
+const showFirefoxInstall = computed(
+  () => BROWSER === 'firefox' || (!isMobileBrowser && BROWSER === 'unknown'),
+)
+
+/** 手动加载这条路对移动端与 Safari 都不成立：前者装的不是扩展，后者根本不吃这一套 */
+const showManualInstall = computed(
+  () => !isMobileBrowser && BROWSER !== 'firefox' && BROWSER !== 'safari',
+)
+
+const showEdgeInstall = computed(
+  () => !isMobileBrowser && BROWSER === 'edge' && EDGE_EXTENSION_URL !== '',
+)
+
+/**
+ * 装着的版本比本站发的旧时提示一行。
+ *
+ * 「装的是哪一版」不用猜 —— `cp-info` 回包里有 `info.version`（见 useCompanionBridge）。
+ * **只拿版本号报「有新版本」，不用它判能力**：能力走 `capabilities` 协商（HANDOFF 13.1），
+ * 那笔账按版本号比大小一记错方向就反了。
+ */
+const extensionVersion = computed(() => extensionInfo.value?.version ?? '')
+
+const extensionOutdated = computed(
+  () => extensionVersion.value !== '' && compareVersions(extensionVersion.value, EXTENSION_VERSION) < 0,
+)
+
+/** 更新方式两侧不同：Firefox 自己会更新，Chromium 要手动换目录再刷新 */
+const extensionUpdateHintKey = computed(() =>
+  BROWSER === 'firefox' ? 'settings.extension.updateHintFirefox' : 'settings.extension.updateHintManual',
+)
+
+/** `x.y.z` 逐段比大小；版本串来自扩展自报，不信任格式，非数字段按 0 算 */
+function compareVersions(a, b) {
+  const pa = String(a).split('.')
+  const pb = String(b).split('.')
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0)
+    if (diff !== 0) return diff > 0 ? 1 : -1
+  }
+  return 0
+}
 
 const extensionShortcuts = computed(() =>
   (extensionInfo.value?.commands ?? []).map((command) => {
@@ -551,11 +661,28 @@ async function toggleDestination(key) {
 const shortcutsCopied = ref(false)
 let copyTimer = 0
 
-// 浏览器的安全策略不允许网页改插件快捷键，也拦掉了指向 chrome:// 的跳转，
-// 所以这里只能把地址复制给用户，让他自己去地址栏粘贴。
+/**
+ * 快捷键在浏览器里的管理页地址。两家的页面不一样，得跟着 BROWSER 走：
+ * - Chrome / Edge：`chrome://extensions/shortcuts`；
+ * - Firefox 那个地址**不存在**，快捷键在「附加组件管理器」里管
+ *   （about:addons → 右上角齿轮 → 管理扩展快捷键）。
+ * 网页打不开这两种 about/chrome 页面，所以只能把地址复制给用户，让他自己去地址栏粘贴。
+ */
+const SHORTCUTS_URL = BROWSER === 'firefox' ? 'about:addons' : 'chrome://extensions/shortcuts'
+const shortcutsSuffixKey = computed(() =>
+  BROWSER === 'firefox'
+    ? 'settings.extension.shortcutsManagedSuffixFx'
+    : 'settings.extension.shortcutsManagedSuffix',
+)
+const shortcutsTitleKey = computed(() =>
+  BROWSER === 'firefox'
+    ? 'settings.extension.shortcutsTitleFx'
+    : 'settings.extension.shortcutsTitle',
+)
+
 async function copyShortcutsUrl() {
   try {
-    await navigator.clipboard.writeText('chrome://extensions/shortcuts')
+    await navigator.clipboard.writeText(SHORTCUTS_URL)
     shortcutsCopied.value = true
     window.clearTimeout(copyTimer)
     copyTimer = window.setTimeout(() => {
@@ -566,9 +693,9 @@ async function copyShortcutsUrl() {
   }
 }
 
-// 插件可能在页面打开之后才装上或才被重载，所以每次切到「应用」这一栏都重探一次
+// 插件可能在页面打开之后才装上或才被重载，所以每次切到「浏览器插件」那一栏都重探一次
 watch(activeSection, (section) => {
-  if (section === 'app') refreshExtension()
+  if (section === 'extension') refreshExtension()
 })
 
 // 侧栏设置菜单选中某分类后，把设置视图定位到那一类。菜单在 SidebarSwitcher，落点经
@@ -1273,101 +1400,9 @@ watch(pendingUnbind, (open) => {
         </button>
       </nav>
 
-      <!-- 常用设置：一级分类里排在最前，打开设置默认落在这里。
-           这几项在别处也有（主题 / 界面缩放 / 侧边栏位置在「外观」、字体大小在「编辑器」），
-           它们读写的是同一份偏好，改哪一处另一处立刻跟着变，不存第二份数据。
-           所以这里直接照搬各处的控件写法（内联），不另外造一套数据表。 -->
-      <section v-if="activeSection === 'common'" class="setting-group">
-        <p class="setting-group__title">{{ t('settings.section.common') }}</p>
-        <p class="setting-group__note">{{ t('settings.common.note') }}</p>
-
-        <label
-          class="setting-row setting-row--select"
-          :class="{ 'is-modified': isModified({ key: 'theme' }) }"
-        >
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.theme.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.theme.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="settings.theme" @change="set('theme', $event.target.value)">
-                <option v-for="item in THEMES" :key="item.id" :value="item.id">
-                  {{ t(item.labelKey) }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.uiScale.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.uiScale.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="uiScale" @change="setUiScale">
-                <option v-for="scale in UI_SCALE_OPTIONS" :key="scale" :value="scale">
-                  {{ scaleLabel(scale) }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
-
-        <label
-          class="setting-row setting-row--number"
-          :class="{ 'is-modified': isModified({ key: 'fontSize' }) }"
-        >
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.fontSize.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.fontSize.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <input
-              class="number-input"
-              type="number"
-              step="1"
-              :min="rangeOf({ key: 'fontSize' })[0]"
-              :max="rangeOf({ key: 'fontSize' })[1]"
-              :value="settings.fontSize"
-              @change="setNumber({ key: 'fontSize' }, $event)"
-            />
-          </span>
-        </label>
-
-        <label class="setting-row setting-row--select">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.appearance.panelPosition.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.appearance.panelPosition.hint') }}</span>
-          </span>
-          <span class="setting-row__control">
-            <span class="select">
-              <select :value="panelPosition" @change="setPanelPosition">
-                <option v-for="item in PANEL_POSITIONS" :key="item.id" :value="item.id">
-                  {{ t(item.labelKey) }}
-                </option>
-              </select>
-              <AppIcon name="chevron" :size="12" class="select__chevron" />
-            </span>
-          </span>
-        </label>
-      </section>
-
       <!-- 工作区（仅桌面端）：显示当前工作区，提供「打开本机文件夹」与「切回虚拟工作区」。
            切换会重新加载界面（见 services/vfs/workspaceMode.js），所以这里不做热切换。 -->
-      <section v-else-if="activeSection === 'workspace'" class="setting-group">
+      <section v-if="activeSection === 'workspace'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.workspace') }}</p>
         <p class="setting-group__note">{{ t('settings.workspace.note') }}</p>
 
@@ -1736,13 +1771,13 @@ watch(pendingUnbind, (open) => {
         />
       </section>
 
-      <!-- 应用：安装到设备、存储占用，外加两项「供应用取用」的外部资源 ——
-           本地运行环境（工具链与题解渲染器的下载 / 卸载）与浏览器插件（安装、投递目标、快捷键）。
-           三者共用这一栏，块与块之间用 setting-subtitle 分区。 -->
-      <section v-else-if="activeSection === 'app'" class="setting-group setting-group--app">
-        <p class="setting-subtitle">{{ t('settings.app.basics') }}</p>
+      <!-- 应用：安装到设备，外加本地运行环境（工具链与题解渲染器的下载 / 卸载）。
+           浏览器插件原本也挤在这一栏里，现已按内容独立成一个「浏览器插件」分类。 -->
+      <section v-else-if="activeSection === 'app'" class="setting-group">
+        <p class="setting-group__title">{{ t('settings.section.app') }}</p>
+        <p class="setting-subtitle setting-subtitle--first">{{ t('settings.app.basics') }}</p>
 
-        <div class="app-card">
+        <div class="setting-rows">
           <!-- 安装到设备是网页版独有的入口：桌面端本身就是个独立应用，没有「再装一次」
                这回事，也没有 beforeinstallprompt（见 HANDOFF 第 14 节第 5 条） -->
           <div v-if="!isDesktop" class="setting-row setting-row--action">
@@ -1750,18 +1785,10 @@ watch(pendingUnbind, (open) => {
               <span class="setting-row__head">
                 <span class="setting-row__label">{{ t('settings.app.install.label') }}</span>
               </span>
-              <!-- 状态框顶替原来那行说明：两者说的是同一件事，绿点已经把状态说清楚了 -->
-              <span class="app-status" :class="canInstall ? 'is-ok' : 'is-idle'">
+              <!-- 状态词只说「这台浏览器支不支持把本站装成应用」；能不能一键装是按钮的事 -->
+              <span class="app-status" :class="installSupported ? 'is-ok' : 'is-idle'">
                 <span class="app-status__dot"></span>
-                <span>
-                  {{
-                    t(
-                      canInstall
-                        ? 'settings.app.install.statusAvailable'
-                        : 'settings.app.install.statusUnavailable',
-                    )
-                  }}
-                </span>
+                <span>{{ t(installStatusKey) }}</span>
               </span>
             </span>
             <span class="setting-row__control">
@@ -1772,7 +1799,7 @@ watch(pendingUnbind, (open) => {
                 @click="install"
               >
                 <AppIcon name="install" :size="15" />
-                <span>{{ t(canInstall ? 'settings.app.installAction' : 'settings.app.installedAction') }}</span>
+                <span>{{ t(installButtonKey) }}</span>
               </button>
             </span>
           </div>
@@ -1881,12 +1908,18 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
-        <!-- 浏览器扩展抓题链路只在网页版成立：桌面端拿不到扩展，postMessage 桥也不接
-             （见 HANDOFF 第 14 节第 6 条），所以整组（状态、下载、投递开关、快捷键）收起 -->
-        <p v-if="!isDesktop" class="setting-subtitle">{{ t('settings.section.extension') }}</p>
-        <p v-if="!isDesktop" class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
+      </section>
 
-        <div v-if="!isDesktop" class="app-card">
+      <!-- 浏览器插件：网页版独有的抓题链路（桌面端的 webview 装不了扩展，抓题用的
+           postMessage 桥也不接，见 HANDOFF 第 14 节第 6 条），所以整栏在桌面端的导航里
+           就不出现 —— 见 visibleSections。
+           原本挤在「应用」栏里，2026-10-11 按内容独立成一栏；版式与其他栏一致，
+           不再围卡片外框，小标题也回到分组大标题那一档。 -->
+      <section v-else-if="activeSection === 'extension'" class="setting-group">
+        <p class="setting-group__title">{{ t('settings.section.extension') }}</p>
+        <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
+
+        <div class="setting-rows">
           <div class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__head">
@@ -1911,7 +1944,9 @@ watch(pendingUnbind, (open) => {
             </span>
           </div>
 
-          <div class="setting-row setting-row--action">
+          <!-- 安装引导只在还没检测到插件时出现：装好了还把「怎么装」摆着，
+               用户只会以为哪里没配对（状态那行已经说明白了） -->
+          <div v-if="!extensionInfo" class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__head">
                 <span class="setting-row__label">{{ t('settings.extension.download.label') }}</span>
@@ -1919,14 +1954,21 @@ watch(pendingUnbind, (open) => {
                   {{ t('settings.extension.downloadVersion', { version: EXTENSION_VERSION }) }}
                 </span>
               </span>
-              <span class="setting-row__hint">{{ t('settings.extension.downloadHint') }}</span>
+              <!-- 说明按浏览器分岔（见 extensionHintKey）：只留当前这台真走得通的那条 -->
+              <span class="setting-row__hint">{{ t(extensionHintKey) }}</span>
             </span>
             <span class="setting-row__control setting-row__control--pair">
-              <a class="download-button" :href="EXTENSION_DOWNLOAD_URL" :download="EXTENSION_FILE">
+              <a
+                v-if="showManualInstall"
+                class="download-button"
+                :href="EXTENSION_DOWNLOAD_URL"
+                :download="EXTENSION_FILE"
+              >
                 <AppIcon name="download" :size="15" />
                 <span>{{ t('app.download') }}</span>
               </a>
               <a
+                v-if="showFirefoxInstall"
                 class="download-button"
                 :href="FIREFOX_EXTENSION_URL"
                 target="_blank"
@@ -1936,17 +1978,36 @@ watch(pendingUnbind, (open) => {
                 <AppIcon name="install" :size="15" />
                 <span>{{ t('settings.extension.download.firefox') }}</span>
               </a>
+              <!-- Edge 版：地址填上（EDGE_EXTENSION_URL 非空）才出现，现在还没上架 -->
+              <a
+                v-if="showEdgeInstall"
+                class="download-button"
+                :href="EDGE_EXTENSION_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                :title="t('settings.extension.download.edgeTitle')"
+              >
+                <AppIcon name="install" :size="15" />
+                <span>{{ t('settings.extension.download.edge') }}</span>
+              </a>
             </span>
           </div>
         </div>
 
-        <template v-if="!isDesktop && extensionInfo">
+        <!-- 装的是旧版时提示一行（版本号来自扩展自报的 cp-info）：放在 rows 外面，
+             与下面 destinations 那行警告同一个体例 -->
+        <p v-if="extensionOutdated" class="setting-group__note setting-group__note--warn">
+          {{ t('settings.extension.updateAvailable', { current: extensionVersion, latest: EXTENSION_VERSION }) }}
+          {{ t(extensionUpdateHintKey) }}
+        </p>
+
+        <template v-if="extensionInfo">
           <!-- 旧版扩展不上报 config，写也写不动，整组藏起来比亮出一排假开关好 -->
           <template v-if="extensionInfo.config">
             <p class="setting-subtitle">{{ t('settings.extension.destinations') }}</p>
             <p class="setting-group__note">{{ t('settings.extension.destinationsNote') }}</p>
 
-            <div class="app-card">
+            <div class="setting-rows">
               <div
                 v-for="destination in EXTENSION_DESTINATIONS"
                 :key="destination.key"
@@ -1982,11 +2043,11 @@ watch(pendingUnbind, (open) => {
           <p class="setting-subtitle">{{ t('settings.extension.commandShortcuts') }}</p>
           <p class="setting-group__note">
             {{ t('settings.extension.shortcutsManagedPrefix') }}
-            <code class="setting-code">chrome://extensions/shortcuts</code>
-            {{ t('settings.extension.shortcutsManagedSuffix') }}
+            <code class="setting-code">{{ SHORTCUTS_URL }}</code>
+            {{ t(shortcutsSuffixKey) }}
           </p>
 
-          <div class="app-card">
+          <div class="setting-rows">
             <div
               v-for="command in extensionShortcuts"
               :key="command.name"
@@ -2023,7 +2084,7 @@ watch(pendingUnbind, (open) => {
                 <button
                   class="download-button"
                   :class="{ 'is-copied': shortcutsCopied }"
-                  :title="t('settings.extension.shortcutsTitle')"
+                  :title="t(shortcutsTitleKey)"
                   @click="copyShortcutsUrl"
                 >
                   <AppIcon :name="shortcutsCopied ? 'check' : 'copy'" :size="13" />
@@ -2771,35 +2832,38 @@ watch(pendingUnbind, (open) => {
 }
 
 /* ---------- 本地运行环境 ---------- */
+/* 运行环境那一组行：容器只是一列，不围外框（2026-10-11 去卡片化，与同栏其他行一致） */
 .runtime-list {
   display: flex;
   flex-direction: column;
-  margin: 0 18px;
-  border: 1px solid var(--border-soft);
-  border-radius: 7px;
-  overflow: hidden;
+  min-width: 0;
 }
 
+/* 一行：图标方块 + 标题 / 状态 + 行尾按钮。内边距与 .setting-row 对齐，好让图标方块
+   和同栏其他行的文字落在同一条左边线上 */
 .runtime-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 56px;
-  padding: 8px 12px;
-  background: var(--bg-panel);
+  min-height: 60px;
+  padding: 10px 18px 12px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
 }
 
-.runtime-row + .runtime-row {
-  border-top: 1px solid var(--border-soft);
+.runtime-row:hover {
+  background: var(--bg-hover);
 }
 
+/* 图标方块：比行内文字大一号，好认 */
 .runtime-row__icon {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
   color: var(--text-dim);
   background: var(--bg-control);
 }
@@ -2835,7 +2899,11 @@ watch(pendingUnbind, (open) => {
   font-size: 13px;
 }
 
+/* 状态点并到说明文字前面：说明可能很长会换行，所以点不参与收缩 */
 .runtime-row__hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-faint);
@@ -3190,49 +3258,20 @@ a.download-button {
   }
 }
 
-/* ---------------------------------------------------------------- 应用（卡片化）
-   参考稿的结构：每块是「小标题 + 一张卡片」，卡片内每行一条分隔线，状态用圆点 + 短标签，
-   下载类是实心主按钮、卸载/重检测/复制是描边次按钮。作用域只落在 .setting-group--app ——
-   .runtime-list / .download-button / .switch 这几个类评测栏与云端栏也在用，不能全局改。
-   色值一律走主题变量，所以深浅两套主题都成立（浅色下卡片浮白底，深色下靠描边分层）。
-   这一栏不画顶部的分组大标题（导航里已经写了「应用」），直接从小标题起步。 */
+/* ---------------------------------------------------------------- 应用 / 浏览器插件两栏的行容器
+   这两栏原是一套「卡片化」版式（描边卡片、卡片吞掉小标题、参考稿尺寸的开关），
+   2026-10-11 与其他栏统一：不围外框、小标题回到 setting-subtitle 那一档、开关回到默认尺寸。
+   留下来的三样是这两栏自己的信息特征，不算另一套风格 —— 状态胶囊、运行环境行的图标方块、
+   「下载 / 卸载」按钮的实心与警示态。
 
-/* 小标题升级成卡片的抬头：不再画顶部细线，分隔交给卡片的间距 */
-.setting-group--app .setting-subtitle {
-  margin: 2px 0 0;
-  padding: 18px 18px 8px;
-  border-top: none;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--text);
-}
+   作用域提醒：.download-button / .switch 评测栏与云端栏也在用，所以这里只加 is-* 修饰类，
+   不碰基类。 */
 
-/* 一张卡片：圆角 + 描边，浅色主题下再叠一层淡影；行与行由最淡的分隔线划界 */
-.app-card,
-.setting-group--app .runtime-list {
-  margin: 0 18px 4px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--bg-panel);
-  box-shadow: var(--card-shadow);
-  overflow: hidden;
-}
-
-/* 卡片里的行：圆角交给卡片裁，悬浮只是「摸到了」的反馈（比选中底色淡一档），
-   最后一行不画分隔线（它下面就是卡片的下边框） */
-.app-card > .setting-row {
-  padding: 12px 14px;
-  border-radius: 0;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.app-card > .setting-row:last-child {
-  border-bottom: none;
-}
-
-.app-card > .setting-row:hover {
-  background: var(--bg-hover-soft);
+/* 一组成组的行：只是把行竖着摞起来，不围外框 —— 行的边界交给悬浮底色，与「评测」
+   「云端同步」那些直接平铺的行同一套手感（原来围在这里的卡片外框已去掉） */
+.setting-rows {
+  display: flex;
+  flex-direction: column;
 }
 
 /* 状态短标签：圆点 + 一句话。比旁边那颗按钮弱一档，只说明状态、不承担点击 */
@@ -3252,12 +3291,13 @@ a.download-button {
 
 /* 状态框就放在标签底下（原来那行说明的位置）：列向 flex 默认会把它拉满整行宽，
    得自己收成内容宽；上面再留一点缝，别贴着标题 */
-.setting-group--app .setting-row__main > .app-status {
+.setting-row__main > .app-status {
   align-self: flex-start;
   margin-top: 4px;
 }
 
-/* 行内状态点：卡片列表里每行一颗，说明这项现在处于什么状态 */
+/* 行内状态点 / 标签里的圆点：is-* 挂在 .app-status 上，行内那颗自己带修饰类。
+   灰（未装 / 不支持）就是下面的兜底色，不单独写 */
 .app-status__dot,
 .app-dot {
   flex: 0 0 auto;
@@ -3267,8 +3307,6 @@ a.download-button {
   background: var(--text-faint);
 }
 
-/* 标签里的圆点跟着容器走（is-* 挂在 .app-status 上），行内圆点自己带修饰类。
-   灰（未装/不支持）就是上面的兜底色，不单独写 */
 .app-status.is-ok .app-status__dot,
 .app-dot.is-ok {
   background: var(--ok);
@@ -3284,73 +3322,36 @@ a.download-button {
   background: var(--warn);
 }
 
-/* 运行环境行：图标盒子放大成方块（参考稿的 40×40，按本站 13px 基准折到 34） */
-.setting-group--app .runtime-row {
-  min-height: 60px;
-  padding: 10px 12px;
-}
-
-.setting-group--app .runtime-row__icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  border: 1px solid var(--border-soft);
-}
-
-/* 状态点并到说明文字前面：说明可能很长会换行，所以点不能参与收缩 */
-.setting-group--app .runtime-row__hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 主按钮：参考稿里下载这类「往前走」的动作是实心深色；这里用主题主色。
-   写在 .setting-group--app 下，避免动到评测栏、云端栏的 .download-button */
-.setting-group--app .download-button.is-primary {
+/* 主按钮：下载这类「往前走」的动作是实心主题色。只写在 is-primary 这个修饰类上，
+   不碰 .download-button 基类 —— 评测栏、云端栏的描边按钮不受影响 */
+.download-button.is-primary {
   border-color: transparent;
   background: var(--accent);
   color: var(--text-on-accent);
 }
 
-.setting-group--app .download-button.is-primary:hover:not(:disabled) {
+.download-button.is-primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
-.setting-group--app .download-button.is-primary:disabled {
+.download-button.is-primary:disabled {
   background: var(--bg-control);
   color: var(--text-faint);
 }
 
 /* 失败态要盖过上面的实心态（同样是三四个类，靠写在后面取胜）：这时不是「往前走」
    而是「重来一次」，只留一个警示色 */
-.setting-group--app .download-button.is-primary.is-failed {
+.download-button.is-primary.is-failed {
   background: transparent;
   border-color: transparent;
   color: var(--fail);
 }
 
-/* 复制成功：按钮转绿 + 对勾，和参考稿一致（两秒后 shortcutsCopied 自己复位） */
-.setting-group--app .download-button.is-copied {
+/* 复制成功：按钮转绿 + 对勾（两秒后 shortcutsCopied 自己复位） */
+.download-button.is-copied {
   border-color: var(--ok);
   background: transparent;
   color: var(--ok);
-}
-
-/* 开关：参考稿的尺寸（40×22 轨道 + 16 圆点），开启色沿用本站的绿 */
-.setting-group--app .switch {
-  width: 40px;
-  height: 22px;
-}
-
-.setting-group--app .switch__thumb {
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-}
-
-.setting-group--app .switch.is-on .switch__thumb {
-  transform: translateX(18px);
 }
 
 /* ---------------------------------------------------------------- 卸载确认

@@ -44,7 +44,7 @@ const activePanelId = computed(() => panels.value.find((panel) => panel.active)?
 // ------------------------------------------------------------ 设置下拉菜单
 // 点齿轮不再直接开设置页，而是在齿轮位置弹一个 Quick Settings 菜单（SettingsMenu）：
 // 主题 / 缩放 / 字号这类常用项在菜单里当场改完（内联开关 / 步进器 / 二级子菜单），
-// 末尾两项才打开编辑区里那个设置页签 —— 「打开设置面板…」落在默认的「常用设置」，
+// 末尾两项才打开编辑区里那个设置页签 —— 「打开设置面板…」落在默认的「外观」，
 // 「设置分类」的子菜单按分类直达（落点由 openSettingsTab(sectionId) 交下去）。
 const menuAnchor = ref(null)
 const menuButton = ref(null)

@@ -26,8 +26,10 @@
  *   （「设置分类」—— 它把人送到设置面板去）在表里标 `closes: true`。
  * - `stepper`：数值 ±1，缩放那样有档位的用 radio，只有字号这个连续量用它。
  * - `cloud`：二级不是档位列表而是**一个小表单**（填用户名 → 导入 / 登录 → 取码后原地变
- *   验证码那一步）。只有「云端同步」这一行用它：它是唯一一个「要点好几下、还要跟服务端
- *   来回」的设置项。表单的状态与动作在 `services/cloudSession.js`，与设置面板共用同一份。
+ *   验证码那一步）。只有「同步设置」这一行用它（这一行在菜单里叫「同步设置」，进了设置
+ *   面板那一栏仍叫「云端同步」，2026-10-11 用户定的，见 i18n 的 `menu.cloudSync`）：它是
+ *   唯一一个「要点好几下、还要跟服务端来回」的设置项。表单的状态与动作在
+ *   `services/cloudSession.js`，与设置面板共用同一份。
  */
 import { EDITOR_SETTING_RANGES, THEMES } from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
@@ -121,7 +123,9 @@ export const SETTINGS_MENU_ROWS = [
   {
     id: 'cloud',
     kind: 'cloud',
-    labelKey: 'settings.section.cloud',
+    // 菜单里叫「同步设置」；`settings.section.cloud`（「云端同步」）是给设置面板那一栏与
+    // 「设置分类」二级用的，两处刻意不同名（2026-10-11）
+    labelKey: 'settings.menu.cloudSync',
   },
 
   {
@@ -137,12 +141,14 @@ export const SETTINGS_MENU_ROWS = [
     kind: 'radio',
     labelKey: 'settings.menu.sections',
     /**
-     * 八个一级分类。顺序与侧栏菜单定下来的那一份一致（首行「常用设置」由上面那颗
-     * 「打开设置面板」负责 —— 它打开就落在那里，不必再列一次）。
-     * 「工作区」不在表里：它是桌面端独有的分类，进了 web 版就是点不开的一项。
+     * 九个一级分类：面板 `SECTIONS` 去掉桌面端独有的「工作区」之后的那一份，顺序一致。
+     * 上面那颗「打开设置面板…」不在表里 —— 它打开就落在默认的「外观」，不必再列一次。
+     * （2026-10-11：原先排在最前的「常用设置」分类已删，这里与面板同步少了一项；
+     * 同日新增「浏览器插件」，它只在网页版的面板里出现 —— 桌面端选它会被面板忽略
+     * （落点有 visibleSections 守卫，不切栏），与本表照列并不冲突。）
      */
     options: () =>
-      ['appearance', 'editor', 'templates', 'shortcuts', 'judge', 'cloud', 'app', 'help'].map(
+      ['appearance', 'editor', 'templates', 'shortcuts', 'judge', 'cloud', 'app', 'extension', 'help'].map(
         (id) => ({ id, labelKey: `settings.section.${id}` }),
       ),
     // 分类不是「当前值」，所以没有 current —— 组件据此不画选中圆点

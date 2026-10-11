@@ -47,3 +47,55 @@ function detectHostOs() {
   if (/Macintosh|Mac OS X/i.test(ua)) return 'mac'
   return 'other'
 }
+
+/**
+ * 浏览器族：`'firefox'` / `'edge'` / `'chrome'` / `'safari'` / `'unknown'`。
+ *
+ * **只用来挑「去哪个商店装、用哪套手动步骤、该不该说移动端那套」这几句文案**，
+ * 不是精确判定 —— 它从 userAgent 猜的，而且有几处天生分不开：
+ *
+ * - **360 / QQ / 搜狗 / 2345 这些套壳浏览器一律落 `'chrome'`**：它们（多数版本）的 UA
+ *   里只有 `Chrome/`，没有自家 token，与 Chrome 本尊逐字一样。好在它们的扩展安装路径
+ *   本来就与 Chrome 同源（扩展管理页 + 加载已解压），所以不细分也不影响推荐结果。
+ *   **别为了「认出 360」去加 UA 特例** —— 认出来的那部分才是少数，反而多一份会走偏的分支。
+ * - **`'safari'` 是唯一「一条路都没有」的一档**：Safari 扩展走 App Store 分发，
+ *   与我们这套完全不通用。它同时也**收下了 iOS 上的所有浏览器** —— iOS 的 Chrome /
+ *   Firefox 用 `CriOS` / `FxiOS` 标识、UA 里同样带 `Safari/`，而 iOS 上谁都装不了本插件，
+ *   归到这一档正好是正确答案（别按桌面那套去认 `CriOS` 再分流，结论是一样的）。
+ * - `'unknown'` 只剩真正认不出的怪 UA，此时**必须 fail-open**：把能给的路都摆出来。
+ *   猜错的代价是用户看不到入口，比多给一条路糟得多。
+ */
+export const BROWSER = detectBrowser()
+
+function detectBrowser() {
+  if (typeof navigator === 'undefined') return 'unknown'
+  const ua = navigator.userAgent || ''
+  if (/Firefox\//i.test(ua)) return 'firefox'
+  // `Edg/` 是 Chromium 版 Edge，`EdgA/` 是安卓版；`Edge/` 那套 EdgeHTML 早已退役，
+  // 这里不认它（正则的 `[A-Z]?` 配不上 `Edge/` 里的小写 e）
+  if (/Edg[A-Z]?\//.test(ua)) return 'edge'
+  if (/Chrome\/|Chromium\//i.test(ua)) return 'chrome'
+  // 到这儿还带 `Safari/` 的就是 WebKit 本家（桌面 Safari 与全部 iOS 浏览器）
+  if (/Safari\//.test(ua)) return 'safari'
+  return 'unknown'
+}
+
+/**
+ * 浏览器跑在哪类设备上：`'desktop'` / `'android'` / `'ios'`。
+ *
+ * 与 `IS_ANDROID`（那个是「Tauri 壳 + 宿主是安卓」）不是一回事，别混：这里问的是
+ * **浏览器**在什么设备上，网页版也有安卓 / iOS 访客。
+ *
+ * 用途同样只有挑文案 —— 移动端与桌面端的扩展能力差得很远（见设置面板的插件一栏）。
+ */
+export const BROWSER_PLATFORM = detectBrowserPlatform()
+
+function detectBrowserPlatform() {
+  if (typeof navigator === 'undefined') return 'desktop'
+  const ua = navigator.userAgent || ''
+  if (/Android/i.test(ua)) return 'android'
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios'
+  // iPadOS 13+ 的 Safari 报的是 Macintosh，靠触点数把它与真 Mac 分开
+  if (/Macintosh/i.test(ua) && (navigator.maxTouchPoints ?? 0) > 1) return 'ios'
+  return 'desktop'
+}

@@ -323,11 +323,18 @@ const CHROME_KEY_CODES = {
 /**
  * 浏览器扩展报回来的快捷键串 → 本模块的组合键写法。
  *
- * `chrome.commands.getAll()` 给的是浏览器自己那套写法（macOS 上是 `⇧⌘U`），
- * 和站点自己的 `Mod+Shift+KeyE` 对不上，直接显示会让同一个界面出现两种键位格式。
- * 所以按浏览器写法拆开，再按本模块固定的修饰键顺序拼回去，最后交给 formatCombo 出字符串：
+ * `chrome.commands.getAll()` 给的是浏览器自己那套写法，和站点自己的 `Mod+Shift+KeyE`
+ * 对不上，直接显示会让同一个界面出现两种键位格式。所以按浏览器写法拆开，再按本模块
+ * 固定的修饰键顺序拼回去，最后交给 formatCombo 出字符串：
  * 这样两处快捷键的写法、符号、平台差异永远是同一套。
  * 认不出的键返回 ''，调用方原样显示就行。
+ *
+ * 浏览器回串有**两种形态**，按「串长什么样」分岔，不按运行平台分岔：
+ * - **符号前缀**（`⌘⇧E` / `⇧⌘E`）：Chrome 系在 macOS 上的写法；
+ * - **加号词形式**（`Ctrl+Shift+E`，macOS 上是 `Command+Shift+E` / `MacCtrl+Shift+E`）：
+ *   Firefox 全平台、以及 Chrome 在 Windows / Linux 上的写法。
+ * 同一个页面可能装在任一浏览器里（Firefox 的 API 在 macOS 上也回词形式），
+ * 只看平台分岔会漏 —— 实测 macOS + Firefox 会把 `Command+Shift+E` 原样亮进面板。
  *
  * @param {string} raw
  * @returns {string} 组合键串，或 ''
@@ -338,8 +345,8 @@ export function comboFromChromeShortcut(raw) {
   const mods = new Set()
   let key = ''
 
-  if (IS_MAC) {
-    // macOS：修饰键是连续的前缀符号，剥完剩下的就是键名
+  if (CHROME_MODS_MAC[raw[0]]) {
+    // 符号形态：修饰键是连续的前缀符号，剥完剩下的就是键名
     let rest = raw
     while (rest && CHROME_MODS_MAC[rest[0]]) {
       mods.add(CHROME_MODS_MAC[rest[0]])
@@ -347,6 +354,7 @@ export function comboFromChromeShortcut(raw) {
     }
     key = rest
   } else {
+    // 词形态：`Ctrl+Shift+E` 这样以 + 相连，末段是键名
     const parts = raw.split('+')
     key = (parts.pop() ?? '').trim()
     for (const part of parts) {
