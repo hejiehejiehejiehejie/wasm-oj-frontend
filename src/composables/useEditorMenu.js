@@ -28,8 +28,12 @@
  *    `stopPropagation` 之后它就收不到了。
  * 两条都要 `preventDefault`，否则浏览器还会再弹一次原生菜单。
  *
- * 【右列的键位】每条都取自下面的 `SHORTCUT`（`formatCombo`）——显示的就是 Monaco 自己的默认键位，
- * 按了真的会跑，不是占位提示。写法与设置页的快捷键列表同源，所以平台符号（⌘ / Ctrl）也对得上。
+ * 【右列的键位】剪切 / 复制 / 粘贴 / 全选 / 更改所有匹配项 / 命令面板取自下面的 `SHORTCUT`
+ * （`formatCombo`）——显示的就是 Monaco 自己的默认键位，按了真的会跑，不是占位提示。
+ * **「生成图片」是唯一例外**：它不是 Monaco action，键位归站内的绑定表管（设置 › 快捷键里
+ * 可改绑），所以那一列在 `buildItems()` 里现读 `bindings.value['export-image']`，不写死 ——
+ * 改绑之后菜单上那一列会跟着变；用户把它清掉了就什么都不显示。
+ * 写法与设置页的快捷键列表同源，所以平台符号（⌘ / Ctrl）也对得上。
  *
  * 【触屏那条为什么不按「先选词再弹菜单」的顺序拆分】
  * `getTargetAtClientPoint` 要的是按下那一刻的坐标，手指按住不动时一直有效；先选词再开菜单
@@ -45,7 +49,7 @@ import {
   renderCodeToImage,
 } from '../services/codeImage.js'
 import { notify } from '../services/notifications.js'
-import { formatCombo } from './useShortcutManager.js'
+import { formatCombo, useShortcutManager } from './useShortcutManager.js'
 
 /** 触屏长按多久算「按住 = 选词 + 菜单」。与 useTreeDrag.js 的 LONG_PRESS_MS 同口径 */
 const LONG_PRESS_MS = 450
@@ -101,6 +105,11 @@ const SHORTCUT = {
 export function useEditorMenu({ editor, host }) {
   /** 打开中的菜单：`{ x, y, items }`；null = 没开 */
   const menu = ref(null)
+  /**
+   * 站内的快捷键绑定表（模块级单例，这里只是取引用）。「生成图片」的键位归它管 ——
+   * 用户在设置 › 快捷键里改绑之后，菜单右列那一栏要跟着变，所以每次开菜单现读。
+   */
+  const { bindings } = useShortcutManager()
   /** 「复制还是保存」那一次询问是否开着（codeImageAsk 开着时才可能为真） */
   const ask = ref(false)
   /** 询问的兑现口：弹窗一答就 resolve，见 askImageAction */
@@ -137,7 +146,8 @@ export function useEditorMenu({ editor, host }) {
    * 两条 —— 所以补这两条就已是完整对齐，而不是挑了三四个「看着像 VS Code」的条目。
    * 分组照 Monaco 的 group 走（`1_modification` / `9_cutcopypaste` / `z_commands`），组间一条分隔线。
    * 「全选」并不属于全功能编辑器的默认菜单（它来自 Monaco 的 `SimpleEditorContext`）：是我们额外
-   * 保留的一项，并进剪贴板那一簇，不再单起一组。键位全部取自上面的 SHORTCUT，不写死字符串。
+   * 保留的一项，并进剪贴板那一簇，不再单起一组。键位取自上面的 SHORTCUT，不写死字符串；
+   * 「生成图片」是例外 —— 键位在绑定表里，见文件头【右列的键位】那段。
    */
   function buildItems() {
     const selection = editor.value?.getSelection()
@@ -152,7 +162,13 @@ export function useEditorMenu({ editor, host }) {
       { id: 'sep-image', divider: true },
       // 生成图片：无选区时置灰（与剪切 / 复制同口径 —— 没有选中的代码就没有可导出的东西）。
       // 走自己的实现，不是 Monaco action：Monaco 没有这条命令。
-      { id: 'exportImage', label: t('app.editorMenu.exportImage'), disabled: !hasSelection },
+      // 键位不在 SHORTCUT 里 —— 它是站内动作，从绑定表现读（用户可改绑，绑空了就显示空）。
+      {
+        id: 'exportImage',
+        label: t('app.editorMenu.exportImage'),
+        shortcut: formatCombo(bindings.value['export-image']),
+        disabled: !hasSelection,
+      },
       { id: 'sep-cmd', divider: true },
       {
         id: 'commandPalette',
