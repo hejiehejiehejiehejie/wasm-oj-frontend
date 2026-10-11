@@ -15,8 +15,11 @@
  * 别去单独调某一个 px，那样就不是等比了。模板原值一律留在 `calc()` 里当被乘数，
  * 免得日后有人把乘出来的结果当成手感值删掉（坑 33 明令不许凭手感调这组令牌）。
  * 站内所有右键菜单都走这一个组件（文件树、编辑区），改样式只改这里。
+ *
+ * 定位收敛与「什么时候关」两件事已抽到 `composables/usePopoverLayer.js`（2026-10-11），
+ * 与设置下拉菜单共用同一套；本组件只剩渲染。
  */
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 
 /**
  * @typedef {Object} MenuItem
@@ -36,56 +39,16 @@ const props = defineProps({
 
 const emit = defineEmits(['select', 'close'])
 
-const root = ref(null)
-const position = ref({ left: `${props.x}px`, top: `${props.y}px` })
-const ready = ref(false)
-
-function close() {
-  emit('close')
-}
+const { root, position, ready } = usePopoverLayer({
+  x: () => props.x,
+  y: () => props.y,
+  onDismiss: () => emit('close'),
+})
 
 function select(item) {
   if (!item || item.disabled || item.divider) return
   emit('select', item.id)
 }
-
-function onPointerDown(event) {
-  if (root.value && !root.value.contains(event.target)) close()
-}
-
-function onKeyDown(event) {
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    close()
-  }
-}
-
-onMounted(async () => {
-  await nextTick()
-  const el = root.value
-  if (el) {
-    const rect = el.getBoundingClientRect()
-    const gap = 8
-    const left = Math.max(gap, Math.min(props.x, window.innerWidth - rect.width - gap))
-    const top = Math.max(gap, Math.min(props.y, window.innerHeight - rect.height - gap))
-    position.value = { left: `${left}px`, top: `${top}px` }
-  }
-  ready.value = true
-  // 延迟注册：避免触发本次右键的同一事件立刻把菜单关掉
-  window.setTimeout(() => {
-    window.addEventListener('pointerdown', onPointerDown, true)
-    window.addEventListener('keydown', onKeyDown, true)
-    window.addEventListener('blur', close)
-    window.addEventListener('resize', close)
-  }, 0)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('pointerdown', onPointerDown, true)
-  window.removeEventListener('keydown', onKeyDown, true)
-  window.removeEventListener('blur', close)
-  window.removeEventListener('resize', close)
-})
 </script>
 
 <template>

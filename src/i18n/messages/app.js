@@ -55,6 +55,9 @@ export default {
       sidebar: {
         explorer: '资源管理器',
         tests: '评测样例',
+        /** 胶囊段位上的短标签（图标旁，空间够才显示；全称照旧走 explorer/tests） */
+        explorerShort: '文件',
+        testsShort: '评测',
         switcherLabel: '侧边栏面板与设置',
         /** 胶囊开关的 title / aria-label，{panel} 是目标面板名 */
         switchTo: '切换到{panel}',
@@ -177,6 +180,9 @@ export default {
       sidebar: {
         explorer: 'Explorer',
         tests: 'Test cases',
+        /** Short segment labels next to the icon (shown only when the header is wide enough) */
+        explorerShort: 'Files',
+        testsShort: 'Tests',
         switcherLabel: 'Sidebar panels and settings',
         switchTo: 'Switch to {panel}',
       },

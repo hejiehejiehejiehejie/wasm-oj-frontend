@@ -8,12 +8,12 @@ import FileExplorer from './components/FileExplorer.vue'
 import ToolchainGate from './components/ToolchainGate.vue'
 import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
-import { applyUiScale, DEFAULT_UI_SCALE, normalizeUiScale, uiScale } from './composables/useUiScale.js'
+import { uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
 import { autoScrapeState, useCompanionBridge } from './composables/useCompanionBridge.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
-import { flush, initAutoSave, setAutoSaveEnabled } from './services/autoSave.js'
+import { flush, initAutoSave } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { runCases, TIME_LIMIT_DEFAULT_MS } from './services/runner.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
@@ -41,14 +41,12 @@ import {
 import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
-import {
-  EDITOR_SETTINGS_DEFAULTS,
-  normalizeEditorSetting,
-} from './services/editorOptions.js'
+import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
+import { flipPanelPosition, panelPosition, swapping, uiScalePref } from './services/shellSettings.js'
 
 // ---------------------------------------------------------------- 持久化状态
-// panelPosition 是本项目的核心偏好：'left' | 'right'，默认在左侧。
-const panelPosition = usePersistentRef('cp.panelPosition', 'left')
+// 侧边栏位置（panelPosition）与全局缩放（uiScalePref）已下沉到 services/shellSettings.js：
+// 设置下拉菜单要直接改它们，不必再经一条通向 App 的 emit 链。
 // 是否显示统一侧边栏（只影响显隐，文件树展开态与用例数据都不丢）
 const panelVisible = usePersistentRef('cp.panelVisible', true)
 // 语言不独立持久化：由活跃文件扩展名派生（activeLanguage），顶栏已无语言下拉
@@ -67,109 +65,12 @@ const effectiveTimeLimitMs = computed(() => {
   return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
 })
 
-// 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）。CSS 的 px 已由 postcss-pxtorem
-// 转成 rem，所以这里只需要写一次根字号；物理尺寸与拖拽数学都不受影响（见 useUiScale.js）。
-const uiScalePref = usePersistentRef('cp.uiScale', DEFAULT_UI_SCALE, { revive: normalizeUiScale })
-// setup 期就落地：早于首帧渲染，不会先按 100% 画一帧再跳到目标档位
-applyUiScale(uiScalePref.value)
-watch(uiScalePref, applyUiScale)
+// 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）连同「写一次根字号」
+// 都搬到了 services/shellSettings.js（模块被 import 时就落地，早于首帧渲染）。
+// 这里仍要在拖拽数学里读当前倍数（measureLimits 的 scale），所以保留 uiScale 这个 ref。
 
-// ------------------------------------------------------------ 编辑器偏好
-const EDITOR_SETTINGS_KEY = 'cp.editorSettings'
-// 存档版本号用于「一次性迁移」，见 readEditorSettings：v4 及以前只有主题 id 换算，
-// v5（2026-10-11）/ v6（同一天补）把「当前行突出」的旧默认 'all' 改写为 'line'。
-// v5 与 v6 是同一条改写：v5 当天把「抬版本号」和「加改写分支」分成了两次编辑落地，
-// 中间那段窗口里 HMR 重载过的页面会写进「版本号 = 5、值还是 'all'」的存档 —— 版本号
-// 既然已经追上，< 的判定就永远不成立，那条改写对这份存档失效。抬到 6 把它捞回来。
-// **教训：动这个常量时必须和它对应的迁移分支在同一次编辑里落地，别分两步。**
-const EDITOR_SETTINGS_VERSION_KEY = 'cp.editorSettingsVersion'
-const EDITOR_SETTINGS_VERSION = 6
-// 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
-const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
-
-function readEditorSettings() {
-  try {
-    const raw = window.localStorage.getItem(EDITOR_SETTINGS_KEY)
-    if (!raw) return { ...EDITOR_SETTINGS_DEFAULTS }
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return { ...EDITOR_SETTINGS_DEFAULTS }
-    // 主题 id 只做一次换算，之后按键走白名单：
-    // v3 之前主题只作用于编辑器（选项有 vs-dark / vs / hc-black），原本选浅色 vs 的迁到浅色；
-    // v4（2026-09-29）起主题 id 去掉了 `cph-` 前缀，旧存档的 cph-light 照样认。
-    // 其余旧值（vs-dark / hc-black / cph-dark）交给 normalizeEditorSetting 丢掉，回落到默认深色。
-    // v5 / v6（2026-10-11）：'当前行突出' 的旧默认 'all' 会把行号栏一起铺上底色，新默认是 'line'。
-    // 这条立刻读得到——存档里存的是旧默认 'all'，而存档值优先于 EDITOR_SETTINGS_DEFAULTS，
-    // 不改写的话新默认对老用户等于不存在（写入方见下面 immediate 的那条 watch）。
-    // v6 只是把这条改写再跑一遍（v5 的版本号先落地、改写分支后落地，中间被 HMR 重载写进过
-    // 「版本号 5 + 值 'all'」的存档，见上面常量的注释）。改写本身是幂等的。
-    // 换过之后版本号就是 6，之后再手动选 'all' 不会被这条覆盖。
-    if (Number(window.localStorage.getItem(EDITOR_SETTINGS_VERSION_KEY)) < EDITOR_SETTINGS_VERSION) {
-      if (parsed.theme === 'vs' || parsed.theme === 'cph-light') parsed.theme = 'light'
-      if (parsed.renderLineHighlight === 'all') parsed.renderLineHighlight = 'line'
-    }
-    // 只采纳已知字段，并且逐键夹成合法值：历史遗留的过期配置（如已移除的 keybinding）
-    // 会被 normalizeEditorSetting 丢掉，越界 / 认不出来的值一律退回默认。
-    const merged = { ...EDITOR_SETTINGS_DEFAULTS }
-    for (const key of EDITOR_SETTING_KEYS) {
-      if (!(key in parsed)) continue
-      const value = normalizeEditorSetting(key, parsed[key])
-      if (value !== undefined) merged[key] = value
-    }
-    return merged
-  } catch {
-    return { ...EDITOR_SETTINGS_DEFAULTS }
-  }
-}
-
-const editorSettings = ref(readEditorSettings())
-
-// 主题决定的是整套界面的配色：挂在 <html data-theme> 上由 CSS 变量接管，
-// Monaco 那边通过同一个 id 对应的自定义主题保持内芯同色。
-// 安装成独立应用后，浏览器还会拿 theme-color 画窗口标题栏，所以从变量里读出来同步给它，
-// 免得标题栏和界面串色（顺便守住「色值只定义在 base.css」这条约束）。
-watch(
-  () => editorSettings.value.theme,
-  (theme) => {
-    document.documentElement.dataset.theme = theme
-    const chromeBar = document.querySelector('meta[name="theme-color"]')
-    if (chromeBar) {
-      const barColor = getComputedStyle(document.documentElement)
-        .getPropertyValue('--bg-chrome')
-        .trim()
-      if (barColor) chromeBar.setAttribute('content', barColor)
-    }
-  },
-  { immediate: true },
-)
-
-// 自动保存的开关跟着偏好走。另外两个离开时点（切页签 / 关页签）在 workspaceStore 里，
-// 窗口失焦与页面切后台这两个只能挂在 DOM 上，见下面的 onMounted。
-watch(() => editorSettings.value.autoSave, setAutoSaveEnabled, { immediate: true })
-
-// 需求：深度持久化到 localStorage；immediate 让首次访问也落盘。
-watch(
-  editorSettings,
-  (value) => {
-    try {
-      window.localStorage.setItem(EDITOR_SETTINGS_KEY, JSON.stringify(value))
-      window.localStorage.setItem(EDITOR_SETTINGS_VERSION_KEY, String(EDITOR_SETTINGS_VERSION))
-    } catch {
-      /* 隐私模式或配额已满：只在内存里工作 */
-    }
-  },
-  { deep: true, immediate: true },
-)
-
-function updateEditorSettings(value) {
-  // 面板送来的值也过一遍校验：数字输入框可以手打，越界值不该进存档
-  const merged = { ...EDITOR_SETTINGS_DEFAULTS }
-  for (const key of EDITOR_SETTING_KEYS) {
-    if (!(key in value)) continue
-    const normalized = normalizeEditorSetting(key, value[key])
-    if (normalized !== undefined) merged[key] = normalized
-  }
-  editorSettings.value = merged
-}
+// 编辑器偏好已抽到 services/editorSettings.js（模块级单例）。这里只 import 用它：
+// :settings 传 editorSettings、@update:settings 接 updateEditorSettings，行为与抽离前完全一致。
 
 const engine = computed(() => getEngine(engineId.value))
 const judgeBase = computed(() => judgeBases.value[engineId.value] ?? engine.value.defaultBase)
@@ -347,15 +248,21 @@ const running = ref(false)
 // 全屏编辑则是编辑器自己不给 basis（另一栏整个不参与排版）
 const editorPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 1 : 3,
-  // basis 常驻（含折叠态）：折叠时图标栏固定 48px、不参与增长，编辑器是唯一 grow 的那个，
-  // 剩下的宽度自然全归它 —— 结果与「不给 basis」一致，但折叠动画里编辑器的 basis 保持不动，
-  // 宽度只跟着侧栏收窄而平滑地涨，不会两条动画各自跑一遍。
-  ...(mdFullscreen.value ? {} : { flexBasis: `${editorShare.value}%` }),
+  // 像素直连拖拽期间：编辑器只负责填满剩余空间（面板宽由 tests 的像素 flex-basis 定死），
+  // 其余时刻仍走百分比 basis（含折叠态，图标栏固定 48px 那套逻辑不变）。
+  ...(mdFullscreen.value
+    ? {}
+    : dragPanelPx.value !== null
+      ? { flexGrow: 1, flexShrink: 1, flexBasis: '0px' }
+      : { flexBasis: `${editorShare.value}%` }),
 }))
 const testsPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 3 : 1,
-  // 折叠期间给 0%（动画的终点），折叠到底后元素被 display 摘掉，这个 0% 就不起作用了
-  flexBasis: panelVisible.value ? `${100 - editorShare.value}%` : '0%',
+  // 像素直连拖拽期间：面板宽直接定为像素值（1:1 跟手，绕开百分比/舍入），
+  // 之外走百分比：折叠期间给 0%（动画的终点），折叠到底后元素被 display 摘掉。
+  ...(dragPanelPx.value !== null
+    ? { flexGrow: 0, flexShrink: 0, flexBasis: `${dragPanelPx.value}px` }
+    : { flexBasis: panelVisible.value ? `${100 - editorShare.value}%` : '0%' }),
 }))
 // 折叠后顶替侧栏的那条图标栏：恒贴在侧栏那一侧的最外侧
 // （侧栏在右 → 排在最后；在左 → 排在最前），所以 order 是 4 / 0 这一对端点值
@@ -378,53 +285,40 @@ const elapsed = computed(() => {
   }
   return max
 })
-const swapping = ref(false)
 const dragging = ref(false)
+// 像素直连拖拽：非 null 表示「拖拽中直接按像素定位侧栏内容宽」，绕开 flex-basis 百分比
+// + 分隔条占位 + 逐次舍入这三层，让蓝线严格 1:1 跟手（多轮折叠展开后也不漂移）。
+// null 时走正常的百分比流（editorShare）。见 move / handoffDrag / finish。
+const dragPanelPx = ref(null)
+
 // 拖拽手势的状态位（都只在一次按下—松手之内有意义，见 beginDrag / handoffDrag）：
 // - dragLive：手势还活着（window 上的 move / up 监听还挂着）。
 //   注意它和 dragging 是两码事 —— dragging 只管视觉与「跟手」，越界移交动画时会被摘掉
 //   （那条 .is-dragging 规则会把 .pane 的过渡整段让掉，动画就起不来），而手势本身不能跟着结束。
 // - handoffPending：一次越界翻转还没落到 panelVisible 上（VT 的更新回调是异步的），
 //   这期间再来的重复触发要挡掉，否则同一帧翻两次等于没翻。
-// - dragReanchor / dragPointerX：越界那一刻要把「指针当前位置 ↔ 宽度」重新锚一次
-//   （reanchor 由 beginDrag 挂上，dragPointerX 由 move 记指针横坐标）。不重锚的话，
-//   翻转落地后 raw 仍按「按下点」算，而手早停在很远的地方了 —— 宽度会被立刻拽回去：
-//   展开落不到最窄宽度、展开后也接着不了加宽（用户报的正是这两条）。
 let dragLive = false
 let handoffPending = false
-let dragReanchor = null
-let dragPointerX = 0
 
 let abortController = null
 
 // -------------------------------------------------------------- 布局切换
-// 关键约束：这里只改 flex-direction，DOM 结构与 Monaco 实例都不动，
+// 「往另一侧翻」这套动作（含 View Transitions 与 settle 动画）在 services/shellSettings.js
+// 的 flipPanelPosition() —— 设置下拉菜单里的「侧边栏位置」也走那一个出口，
+// 所以这里不另写一份。关键约束不变：那里只改 order，DOM 结构与 Monaco 实例都不动，
 // 因此切换布局不会触发编辑器销毁重建（不会闪屏）。
-function toggleLayout() {
-  const next = panelPosition.value === 'right' ? 'left' : 'right'
-  if (typeof document.startViewTransition !== 'function') {
-    panelPosition.value = next
-    swapping.value = true
-    window.setTimeout(() => {
-      swapping.value = false
-    }, 280)
-    return
-  }
-  document.startViewTransition(() => {
-    panelPosition.value = next
-    return nextTick()
-  })
-}
 
 // ------------------------------------------------------------------ 折叠规则
-// 编辑器最窄 24%；面板最低宽度是一组随视口收缩的值（宽屏 320px、窄屏按内容宽 50%，
-// 参数写在 .workspace 的三个 CSS 变量上，与 .pane--tests 的 min-width 同源）；82% 只是兜底上限
+// 编辑器最窄 24%（= 面板最宽 76%）。面板最低宽度是 .pane--tests 的 min-width 那组值
+// （宽屏 240px、窄屏按内容宽 50%，读 .workspace 的三个 CSS 变量），不在这里再写一份。
+// 拖拽上线就是「编辑器最窄 24%」对应的面板最宽 76%；面板能拖多窄由 CSS min-width 决定。
 const MIN_SHARE = 24
-const MAX_SHARE = 82
-// 「贴边」判定距离：鼠标进到最后 32px 算贴边 → 折叠。展开阈值不再是固定距离，
-// 而是「拖到最窄宽度对应的位置」（raw ≤ maxShare，见 applyShare），保证展开时
-// 分隔条已经停在最窄位置上、不必从边缘跳过去（2026-10-11 用户反馈「展开位置不对」）。
-const EDGE_PX = 32
+// 「折叠之后侧栏真正占的宽度」= 那条图标栏（ActivityBar 的 .activity-bar，48px），
+// 也就是折叠态下分隔条停的位置。它**不再直接当折叠判定边界**（2026-10-11 改）：
+// 真正的边界取它与「展开到最窄时分隔条停的位置」的中点，见 measureLimits 的 hingePx。
+// 48 会被 postcss-pxtorem 转成 rem、跟着全局缩放走（见 ActivityBar.vue 里那条注释），
+// 所以这里只存设计值，实际像素在 measureLimits 里乘 uiScale。
+const ACTIVITY_BAR_PX = 48
 
 // 拖拽与方向键共用的虚拟比例：它可能超出面板能压缩的范围，用来表达「鼠标离边缘还有多远」。
 // 面板可见时它就等于 editorShare；折叠后 editorShare 冻结在折叠前的宽度（展开时原样回来），
@@ -434,7 +328,7 @@ let virtualShare = editorShare.value
 // 量一次工作区，推出拖拽界线
 function measureLimits() {
   const surface = workspace.value
-  if (!surface) return { width: 1, left: 0, maxShare: MAX_SHARE, edgeShare: 100 }
+  if (!surface) return { width: 1, left: 0, contentRight: 1, minPanelPx: 0, maxPanelPx: 1, collapsedPx: 48, hingePx: 24, maxShare: 24, edgeShare: 100 }
   // 百分比 flex-basis 是按「内容盒」算的，而 getBoundingClientRect 含外侧留白，
   // 用后者会把鼠标位移折算小了、分隔条跟不满 1:1，所以这里要扣掉 padding。
   const style = getComputedStyle(surface)
@@ -453,65 +347,82 @@ function measureLimits() {
     cssNumber('--tests-min-floor', 160) * scale,
     Math.min(cssNumber('--tests-min-cap', 240) * scale, width * cssNumber('--tests-min-ratio', 0.5)),
   )
-  // 再加上分隔条自身宽度：越过这条线后浏览器会强行撑开面板，分隔条就脱离鼠标了。
+  // 折叠之后侧栏占的宽度：那条图标栏，随全局缩放一起变大（见 ACTIVITY_BAR_PX）
+  const collapsedPx = ACTIVITY_BAR_PX * scale
+  // 折叠 / 展开的分界线：取「折叠后分隔条停的位置（collapsedPx）」与「展开到最窄时分隔条停的
+  // 位置（panelMin）」的中点（2026-10-11 用户定的口径）。于是这条线本身就是判据 ——
+  // 面板比它窄就折叠、比它宽就展开，两侧各留一段对称的死区（面板已经被 min-width / 折叠宽度
+  // 顶住、无法再变），越过中点才算改状态。两个端点都含 scale，中点自动跟着缩放走。
+  const hingePx = (collapsedPx + panelMin) / 2
+  // 再加分隔条自身宽度：百分比 flex-basis 下，面板内容盒能压到多窄还要看分隔条占掉的那几像素。
   const minTests = panelMin + (surface.querySelector('.splitter')?.getBoundingClientRect().width ?? 0)
   return {
     width,
-    // 内容盒左边界：折叠状态下要把鼠标位置换算成虚拟比例
+    // 内容盒左右边界：像素直连拖拽里，把鼠标位置直接换算成面板内容宽
     left: surface.getBoundingClientRect().x + Number.parseFloat(style.paddingLeft),
-    maxShare: Math.min(MAX_SHARE, ((width - minTests) / width) * 100),
-    edgeShare: ((width - EDGE_PX) / width) * 100,
+    contentRight: surface.getBoundingClientRect().x + Number.parseFloat(style.paddingLeft) + width,
+    // 面板内容宽（像素）的合法区间：下限是 CSS min-width 那组值，上限是「编辑器最窄 24%」留给面板的余量
+    minPanelPx: panelMin,
+    maxPanelPx: (width * (100 - MIN_SHARE)) / 100,
+    // 折叠态下侧栏真正占的宽度（面板宽的坐标系）；百分比路径的折叠线仍按它算
+    collapsedPx,
+    // 折叠 / 展开的分界（像素直连）：面板宽压到它以下折叠，撑到它以上展开
+    hingePx,
+    // 百分比路径（键盘方向键 / reclamp）的编辑器占比上限：面板顶到最窄时编辑器该占多少
+    maxShare: ((width - minTests) / width) * 100,
+    edgeShare: ((width - collapsedPx) / width) * 100,
   }
 }
 
-// 统一收口规则，拖拽与方向键共用：
-// 面板可见时比例先跟着鼠标走，但压到最低宽度（见 measureLimits）就不再变窄（被 maxShare 卡住）；
-// 只有一直顶到贴边（edgeShare）才折叠。
-// 折叠后往外拖到「最窄宽度对应的位置」才展开（raw ≤ maxShare）：展开这一刻分隔条已经停在
-// 最窄位置，不需要从边缘跳过去 —— 用户要的正是「展开位置与侧边栏最窄宽度一致」（2026-10-11）。
-//
-// 两条阈值各自的落点：
-// - 折叠：raw 顶到 edgeShare（贴边 32px）时交给动画（handoffDrag），不再一帧硬切到 1px。
-// - 展开：raw 降到 maxShare（最窄宽度）时交给动画，终点恒为最窄宽度，不取指针所在位置。
-//
-// 一旦越过阈值，本次手势仍继续跟手，只是先把「当前指针位置 ↔ 落点」重锚一次
-// （见 handoffDrag）：展开锚到最窄宽度，往回拖则回到折叠阈值。
+// 百分比收口规则，只服务方向键（nudgeShare）与窗口变化收敛（reclampShare）——
+// 鼠标拖拽已改走 move() 的像素直连，不再经过这里。
+// 面板可见时被 maxShare 卡在最窄、顶到 edgeShare（= 折叠之后的宽度）才折叠；
+// 折叠后往回走到 maxShare（最窄宽度）就展开，编辑器占比落在与最窄宽度一致的位置。
 function applyShare(raw, limits) {
   const share = Math.round(Math.min(limits.maxShare, Math.max(MIN_SHARE, raw)) * 10) / 10
   if (panelVisible.value) {
     editorShare.value = share
-    if (raw >= limits.edgeShare) {
-      if (dragLive) handoffDrag(false, limits)
-      else panelVisible.value = false
-    }
+    if (raw >= limits.edgeShare) panelVisible.value = false
     return
   }
   if (raw <= limits.maxShare) {
-    if (dragLive) handoffDrag(true, limits)
-    else {
-      editorShare.value = share
-      panelVisible.value = true
-    }
+    editorShare.value = share
+    panelVisible.value = true
   }
 }
 
-// 拖动越过阈值（折叠 / 展开）：交给与「单击分隔条」完全同一套折叠 / 展开。
+// 像素直连越过阈值（折叠 / 展开）：交给与「单击分隔条」完全同一套折叠 / 展开。
 // 手势不结束 —— 监听留着，好让光标反向再越过对面阈值时能接着触发（不然一次按住只能翻一下）。
 // 摘 is-dragging 只对「靠 CSS transition 播放」的非 VT 路径有意义：那条规则会把 .pane 的过渡
 // 整段让掉（见样式表 .workspace.is-dragging .pane），动画起不来。VT 走 ::view-transition 伪元素、
 // 本就不受它影响，而且摘了反而有害：动画收尾时 pinSidebarWidth 会把内层壳钉成 flex:0 0 auto，
 // 靠那条 .is-dragging .pane__inner.is-fixed 覆盖规则才能恢复流体，摘了拖拽就跟手迟一帧
 // （用户报的「几轮展开后不跟手」正是这一条）。所以 VT 下不摘；非 VT 摘掉后由 togglePanel 的
-// 动画结束回调恢复（见那里，若有的话）。
-// 展开方向的 editorShare 先钉到最窄宽度（落点与「未折叠时拖到最窄」同一格），再把手势重锚到
-// 它上面：于是「越界那一帧」之后 raw 从落点起算，接着往外拖是继续 1:1 加宽、往回拖则是再次折叠。
-// 取 maxShare 时要走上 applyShare 同一条舍入：否则两条路径停在 82 与 82.4 上，差出零点几像素。
+// 动画结束回调恢复（见那里）。
+//
+// 落点按占比定：展开落到最窄宽度（minPanelPx 反算出的 editorShare），折叠则从当前拖到的
+// 像素宽反算出的占比起算 —— 让 togglePanel 的动画起点/终点接得上，也与键盘 / reclamp 共用
+// 同一套舍入口径。
 function handoffDrag(expand, limits) {
   if (handoffPending) return
   handoffPending = true
+  if (expand) {
+    // 展开：**只**动占比，不提前把像素直连接管（dragPanelPx 保持 null）。
+    // 折叠态那一帧的 flex-basis 必须是 0% —— 那是展开动画的起点。这里一旦钉成 minPanelPx，
+    // 面板会在仍挂着 is-collapsed（图标栏还占着 48px、侧栏挤在它右边）时就整块撑到最窄，
+    // 分隔条先跳到「折叠位 + 最窄宽」处，动画收尾图标栏让位时又往回收 48px —— 看着就是
+    // 「展开那一下出现在别处，动画结束还再跳一次」（2026-10-11 用户报）。
+    // 钉子交给翻转后的下一帧：那时 panelVisible 已为真，move 的展开分支会按指针位置把
+    // dragPanelPx 夹进 [minPanelPx, maxPanelPx]，动画期间占比与像素都等于最窄宽，不会抖动。
+    editorShare.value = Math.round(((limits.width - limits.minPanelPx) / limits.width) * 100 * 10) / 10
+  } else {
+    // 折叠：把当前拖到的像素宽反算回占比，作为折叠动画的起点（早于最窄时就松手也不跳）
+    if (dragPanelPx.value !== null) {
+      editorShare.value = Math.round(((limits.width - dragPanelPx.value) / limits.width) * 100 * 10) / 10
+    }
+    dragPanelPx.value = null
+  }
   if (!canViewTransition()) dragging.value = false
-  if (expand) editorShare.value = Math.round(limits.maxShare * 10) / 10
-  dragReanchor?.(expand ? limits.maxShare : 100)
   nextTick(() => togglePanel())
 }
 
@@ -584,7 +495,7 @@ let panelAnimTimer = 0
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 // View Transitions 支持探测：侧栏折叠 / 展开与布局换边共用同一个判据
-// （toggleLayout 里那道检查保持原样，这一轮只动侧栏这一条路径）
+// （flipPanelPosition 里那道检查保持原样，这一轮只动侧栏这一条路径）
 const canViewTransition = () => typeof document.startViewTransition === 'function'
 
 // 过渡期间把两栏的 view-transition-name 临时摘掉（整屏交叉淡化，见 togglePanel 里的说明）。
@@ -722,31 +633,19 @@ function beginDrag(event) {
   // 而是在下面的 pointerup 上自己认（见 stop）。
   event.preventDefault()
   let moved = 0
-  let startX = event.clientX
+  const startX = event.clientX
   const startY = event.clientY
   const limits = measureLimits()
-  // 面板换到左侧后编辑器在右半边，拖拽方向要取反。
-  const direction = panelPosition.value === 'right' ? 1 : -1
-  // 可见时锚在分隔条当前宽度上（保证 1:1 跟手）；折叠后锚在虚拟比例 100% 上。
-  // 折叠态不能用鼠标位置来锚（早先的写法）：现在分隔条停在图标栏左侧、不再贴窗口边缘，
-  // 若把图标栏那 48px 算进「离边缘的距离」里，往外一拖就会立刻越过展开阈值展开。
-  // 锚在 100% 后，「拖到最窄宽度位置才展开」是实打实的、以分隔条当前为起点的位移，
-  // 与图标栏宽度无关（展开阈值见 applyShare 的 raw ≤ maxShare）。
-  let startRaw = panelVisible.value ? editorShare.value : 100
-  virtualShare = startRaw
+  // 面板在右时，面板内容宽 = 容器右边界到鼠标的距离；在左则 = 鼠标到容器左边界。
+  // 像素直连按下图换算，跟手不打折、不累计误差（多轮折叠展开后也不漂移）。
+  const panelOnRight = panelPosition.value === 'right'
   dragging.value = true
   // 新手势：可能上一次的越界翻转还卡在 pending 上（例如中途被别的入口翻了状态），一并清掉。
   dragLive = true
   handoffPending = false
-  dragPointerX = event.clientX
-  // 越界时由 handoffDrag 调用：把「指针当前位置」重锚到落点上（见那里）。
-  dragReanchor = (nextStartRaw) => {
-    startRaw = nextStartRaw
-    startX = dragPointerX
-  }
 
-  // 抓住指针。折叠阈值（EDGE_PX = 32）要求把鼠标一直拖到窗口边缘，松手时指针往往已经压在
-  // 窗口边框上、甚至跑到窗口外，这一发 pointerup 可能根本到不了页面。捕获之后事件始终投给
+  // 抓住指针。折叠边界（= 折叠宽度与最窄宽度的中点）落在图标栏那一带，
+  // 松手时指针可能已压在窗口边框上、甚至跑到窗口外，这一发 pointerup 就可能到不了页面。捕获之后事件始终投给
   // 分隔条，松手才算数 —— 这是「松开左键还在拖」的正解，下面 move 里那条是它失灵时的兜底。
   const captureTarget = event.currentTarget
   if (captureTarget instanceof Element && captureTarget.setPointerCapture) {
@@ -765,21 +664,38 @@ function beginDrag(event) {
       stop(moveEvent)
       return
     }
-    // 记下指针横坐标：越界那一刻 dragReanchor 就锚在它上面（见 beginDrag）。
-    dragPointerX = moveEvent.clientX
     moved = Math.max(moved, Math.abs(moveEvent.clientX - startX), Math.abs(moveEvent.clientY - startY))
-    // 虚拟比例始终从按下那一刻起算，来回拖动才连续
-    const raw = startRaw + ((moveEvent.clientX - startX) * direction * 100) / limits.width
-    virtualShare = Math.min(100, Math.max(MIN_SHARE, raw))
-    applyShare(virtualShare, limits)
+    // 面板目标内容宽（像素），由鼠标位置一次算到位
+    const panelW = panelOnRight ? limits.contentRight - moveEvent.clientX : moveEvent.clientX - limits.left
+    if (panelVisible.value) {
+      // 展开态：[minPanelPx, maxPanelPx] 内是「可变宽」区间，面板严格 1:1 跟手；
+      // 压到 minPanelPx 以下就是死区（钉在最窄不动），一直拖过 hingePx 才折叠 ——
+      // hingePx 是「折叠后的分隔条位置」与「最窄时的分隔条位置」的中点，所以它是这条线上
+      // 唯一的判据：比它窄就折叠（侧栏在左时 = 指针往左越过它，在右时对称）。
+      if (panelW <= limits.hingePx) {
+        handoffDrag(false, limits)
+        editorPane.value?.layout()
+        return
+      }
+      dragPanelPx.value = Math.max(limits.minPanelPx, Math.min(limits.maxPanelPx, panelW))
+    } else {
+      // 折叠态：蓝线钉在折叠位置（死区），直到鼠标越过 hingePx 才展开 ——
+      // 与上面同一条线、同一个方向判据，不会「折叠要拖到底、展开只要抬一点」。
+      if (panelW >= limits.hingePx) handoffDrag(true, limits)
+    }
     editorPane.value?.layout()
   }
   // 收尾：摘监听 + 手势态归位（越界移交动画时只摘 is-dragging，不走这里，见 handoffDrag）。
   const finish = () => {
+    // 松手：把最终像素宽反算回 editorShare%（一次舍入），再退出像素直连回到百分比流
+    if (panelVisible.value && dragPanelPx.value !== null) {
+      editorShare.value = Math.round(((limits.width - dragPanelPx.value) / limits.width) * 100 * 10) / 10
+      virtualShare = editorShare.value
+    }
+    dragPanelPx.value = null
     dragging.value = false
     dragLive = false
     handoffPending = false
-    dragReanchor = null
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
@@ -999,7 +915,7 @@ const SHORTCUT_HANDLERS = {
     exitFullscreen()
     switchSidebarPanel({ instant })
   },
-  'toggle-layout': () => toggleLayout(),
+  'toggle-layout': () => flipPanelPosition(),
   'new-case': () => addCase(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
 }
@@ -1207,7 +1123,7 @@ onBeforeUnmount(() => {
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
           @update:ui-scale="uiScalePref = $event"
-          @toggle-layout="toggleLayout"
+          @toggle-layout="flipPanelPosition"
           @select-engine="selectEngine"
           @update-base="updateBase"
           @test-connection="testConnection"
@@ -1496,15 +1412,15 @@ onBeforeUnmount(() => {
   flex-grow: 0;
 }
 
-/* 第二段：浮现。展开时侧栏页头那几颗控件与内容一起，等宽度那一段收得差不多了再淡入。
+/* 第二段：浮现。展开时侧栏页头（切换器 + 传送进来的上下文动作）与内容一起，
+   等宽度那一段收得差不多了再淡入。
    延迟期间靠 backwards 停在 opacity 0 —— 所以宽度段整段里它们都是不存在的，
    不会出现「边被裁切擦出来、边淡入」两下打架。
    折叠方向刻意不挂这一下：那边侧栏是「被门遮掉」的，再叠一层淡出就成了
    「一边变淡一边收窄」，与推拉门的观感冲突（内层那层定宽壳的意思正在于此）；
    折叠侧的浮现落在图标栏那一边，见 ActivityBar.vue。
    只动 opacity / transform，不碰宽度 —— 不触发重排。 */
-.pane--tests.is-animating.is-expanding :deep(.sidebar-switcher__pill svg),
-.pane--tests.is-animating.is-expanding :deep(.sidebar-switcher__tab svg),
+.pane--tests.is-animating.is-expanding :deep(.sidebar__head),
 .pane--tests.is-animating.is-expanding :deep(.sidebar__body) {
   animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
 }

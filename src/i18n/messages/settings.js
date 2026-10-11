@@ -11,7 +11,7 @@ export default {
       ariaLabel: '设置',
       navAriaLabel: '设置分类',
 
-      /** 左侧目录，同时也是右侧每一组的标题 */
+      /** 菜单（下拉）里的分类，同时也是右侧每一组的标题 */
       section: {
         common: '常用设置',
         workspace: '工作区',
@@ -25,6 +25,16 @@ export default {
         cloud: '云端同步',
         app: '应用',
         help: '帮助',
+      },
+
+      /** 齿轮下拉菜单（一级行 / 二级子菜单）自己要的那几条。
+       *  各项标签尽量复用上面各处现成的 label —— 主题、字号、自动保存这些与设置面板里
+       *  是同一句话，改一处两边都跟着变，不维护第二份。 */
+      menu: {
+        openSettings: '打开设置面板…',
+        sections: '设置分类',
+        decrease: '减小',
+        increase: '增大',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -373,6 +383,16 @@ export default {
         cloud: 'Cloud sync',
         app: 'App',
         help: 'Help',
+      },
+
+      /** Gear dropdown menu (top level + submenus). Labels reuse the existing rows
+       *  above wherever possible — theme, font size and auto save are the same sentence
+       *  as in the settings panel, so there is no second copy to keep in sync. */
+      menu: {
+        openSettings: 'Open settings…',
+        sections: 'Settings sections',
+        decrease: 'Decrease',
+        increase: 'Increase',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */

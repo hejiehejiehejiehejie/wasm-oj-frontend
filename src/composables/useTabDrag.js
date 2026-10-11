@@ -1,12 +1,14 @@
 /**
  * useTabDrag —— 编辑器页签的拖动排序（鼠标与触屏共用一套 Pointer Events）。
  *
- * 【只排文件页签】条带里有两类页签：真实文件页签（`workspace.openTabIds`）与合成视图页签
- * （设置 / 抽题，`editorViews.viewOrder`）。这里**只让文件页签参与排序**，视图页签恒定排在
- * 文件页签之后 —— 两类页签分属两份状态，硬做成一条可混排的序列等于把两处状态合并，
- * 违反「视图页签不进 openTabIds」那条纪律（见 services/editorViews.js 的文件头）。
- * 落点下标因此恒落在 `[0, openTabIds.length]`，把文件页签拖到视图页签上也只会停在末尾。
- * 参与排序的页签靠 `data-tab-id` 认（只有文件页签带这个属性）。
+ * 【一条混排的序列，两类页签都能拖】条带上有两类页签：真实文件页签（`workspace.openTabIds`）
+ * 与合成视图页签（设置 / 抽题，`editorViews.viewOrder`）。它们**混排在同一条序列里**，
+ * 拖动可以跨类换位 —— 文件能插到设置左边，设置也能排到某个 .cpp 前面。
+ * 这条统一顺序不在那两份状态里（它们各自装不了对方），而是第三份 UI 状态 `tabStrip.stripOrder`
+ * —— 它只管顺序、由自己维持，页签元素统一用 `data-strip-id` 认（两类都带这个属性）。
+ * 落点下标因此在整个条带里数：`[0, ...stripOrder]`。
+ * 为什么可以放心这么做：视图 id **永远不进 openTabIds**（见 services/tabStrip.js 与
+ * services/editorViews.js 的文件头），同步与写回都在 tabStrip 那一层收口。
  *
  * 【为什么不用 HTML5 拖放】同 useTreeDrag：`dragstart` / `drop` 在触屏上根本不触发，
  * 幽灵元素的外观与自动滚动也不可控。这里从 `pointerdown` 起手自己实现。
@@ -38,10 +40,12 @@
  * 第一帧滚动。代价：按压期间每次 touchmove 都要等一次 JS（滚动会晚一帧），换来的是「浏览器
  * 不可能已经先把手势判成滚动」。
  *
- * 【拖拽期间不动 openTabIds】只在松手那一刻提交排序，收尾补间交给 TransitionGroup 的
- * `.tab-move`。中途改数组会让「被拖的那个」也被 FLIP 补间一次，与拖拽视觉打架。
+ * 【拖拽期间不动顺序状态】只在松手那一刻提交排序（不动 stripOrder / openTabIds / viewOrder），
+ * 收尾补间交给 TransitionGroup 的 `.tab-move`。中途改数组会让「被拖的那个」也被 FLIP 补间
+ * 一次，与拖拽视觉打架。
  *
- * 【本模块不碰 VFS / store】落盘由调用方的 `onDrop(id, insertIndex)` 交给 store 的 moveTab。
+ * 【本模块不碰 store】落盘由调用方的 `onDrop(id, insertIndex)` 交给 tabStrip 的 moveStripItem
+ * —— 由它分部写回 openTabIds（含持久化）与 viewOrder。
  */
 import { onBeforeUnmount, ref, shallowRef } from 'vue'
 
@@ -96,10 +100,10 @@ export function useTabDrag({ rootEl, onDrop }) {
 
   const stripEl = () => rootEl.value?.querySelector('.editor-tabs__strip') ?? null
 
-  /** 参与排序的文件页签元素（按 DOM 顺序，即当前 openTabIds 顺序） */
-  function fileTabEls() {
+  /** 参与排序的页签元素（按 DOM 顺序，即 tabStrip.stripOrder 的当前顺序） */
+  function tabEls() {
     const strip = stripEl()
-    return strip ? [...strip.querySelectorAll('.editor-tabs__item[data-tab-id]')] : []
+    return strip ? [...strip.querySelectorAll('.editor-tabs__item[data-strip-id]')] : []
   }
 
   // ------------------------------------------------------------ 按压
@@ -114,8 +118,8 @@ export function useTabDrag({ rootEl, onDrop }) {
     if (press || draggingId.value) return
     // 关闭按钮（×）上起手不拖 —— 那是要关页签
     if (event.target instanceof Element && event.target.closest('.editor-tabs__close')) return
-    // 只有一个文件页签时无处可放，不起手（既省掉一次无意义的拖拽，也不会有「拖动一个不动的页签」的怪感）
-    if (fileTabEls().length < 2) return
+    // 整条条带只剩一张时无处可放，不起手（既省掉一次无意义的拖拽，也不会有「拖动一个不动的页签」的怪感）
+    if (tabEls().length < 2) return
 
     press = {
       id,
@@ -276,11 +280,12 @@ export function useTabDrag({ rootEl, onDrop }) {
   }
 
   /**
-   * 落点命中：拿指针的 clientX 与「其余文件页签」的中线比。
+   * 落点命中：拿指针的 clientX 与「其余页签」的中线比（文件与视图一视同仁 —— 这是一条混排
+   * 的序列，跨类换位本来就该成立）。
    *
    * 用 rect 而不是 offsetLeft 是因为条带可能正在横向滚动 —— rect 天然含滚动偏移，
    * 省得再补一个 scrollLeft（也就不会与自动滚动那次重算脱节）。
-   * 插到最右时取**全部**文件页签的右缘（含被拖那一个）：被拖项还占着自己那一格，
+   * 插到最右时取**全部**页签的右缘（含被拖那一个）：被拖项还占着自己那一格，
    * 若只看「其余」的右缘，把最后一个页签往右拖时指示条会画到它自己的左缘上去。
    */
   function resolveDrop(clientX) {
@@ -288,8 +293,8 @@ export function useTabDrag({ rootEl, onDrop }) {
     const strip = stripEl()
     if (!root || !strip) return
 
-    const all = fileTabEls()
-    const rest = all.filter((el) => el.dataset.tabId !== draggingId.value)
+    const all = tabEls()
+    const rest = all.filter((el) => el.dataset.stripId !== draggingId.value)
 
     let index = 0
     let edgeX = null

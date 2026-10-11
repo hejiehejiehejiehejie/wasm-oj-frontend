@@ -1,9 +1,13 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import AppIcon from './AppIcon.vue'
-import SidebarSwitcher from './SidebarSwitcher.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import { t } from '../i18n/index.js'
+
+// 页头右侧的 verdict + 耗时经 Teleport 投进 Sidebar 的共享页头（#sidebar-context），
+// 只在本面板激活时投 —— 切换器单实例上提后（2026-10-11），页头只剩这一小条上下文
+const { activeTab } = inject('sidebarTabs')
+const isActivePanel = computed(() => activeTab.value === 'tests')
 
 const props = defineProps({
   cases: { type: Array, required: true },
@@ -60,8 +64,11 @@ const elapsedText = computed(() => {
 
 <template>
   <section class="panel" :aria-label="t('tests.panel.ariaLabel')">
-    <header class="panel__head">
-      <SidebarSwitcher />
+    <!-- 页头动作区：verdict + 耗时投进 Sidebar 共享页头的 #sidebar-context。
+         不激活时 disabled、内容原地渲染（面板 v-show 藏着，不可见）；defer 的来历
+         见 FileExplorer 里那颗同款 Teleport 的注释。
+         具体是 WA 还是 TLE 由各张卡片的徽标说明，这里不堆长句 -->
+    <Teleport defer :disabled="!isActivePanel" to="#sidebar-context">
       <div class="panel__heading">
         <span class="verdict" :data-tone="verdict.tone">{{ verdict.text }}</span>
         <span
@@ -72,7 +79,7 @@ const elapsedText = computed(() => {
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
         </span>
       </div>
-    </header>
+    </Teleport>
 
     <ul class="cases">
       <li v-if="!cases.length" class="empty">
@@ -145,22 +152,8 @@ const elapsedText = computed(() => {
   background: var(--bg-panel);
 }
 
-.panel__head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  /* 左侧是「资源管理器 / 评测样例」切换入口，右侧只剩徽标与耗时；
-     与资源管理器页头同高（min-height 35px）；挤不下时整体换行而不是让徽标溢出自己的盒子 */
-  flex-wrap: wrap;
-  gap: 10px;
-  row-gap: 4px;
-  min-height: 35px;
-  padding: 4px 10px 4px 4px;
-  /* 同资源管理器页头：不铺底纹、不画分隔线（2026-10-04）——
-     展开的侧栏最上一条本来就该和正文同色，见 FileExplorer 的 .explorer__head */
-  background: transparent;
-}
+/* 页头本身已上提到 Sidebar 的共享页头（.sidebar__head，2026-10-11）：折行、
+   滚动描边、35px 同高都在那里；这里只剩 Teleport 上去的 verdict + 耗时样式 */
 
 .panel__heading {
   display: flex;

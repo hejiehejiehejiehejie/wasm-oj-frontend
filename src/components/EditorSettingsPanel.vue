@@ -10,6 +10,7 @@ import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { useInstallPrompt } from '../composables/useInstallPrompt.js'
 import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { IS_DESKTOP } from '../services/platform.js'
+import { settingsSectionEntry } from '../services/editorViews.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
   CAN_USE_LOCAL_FOLDER,
@@ -35,7 +36,6 @@ import {
 } from '../services/cfRuntime.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { TIME_LIMIT_OPTIONS } from '../services/runner.js'
-import { flush } from '../services/autoSave.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
@@ -46,13 +46,29 @@ import {
   writeCloudEntryPath,
 } from '../services/cloudEntry.js'
 import {
-  applyProfile,
-  collectProfile,
-  fetchCloudProfile,
-  requestCode,
-  saveWithToken,
-  verifyAndSave,
-} from '../services/cloudProfile.js'
+  adoptCloud,
+  cancelCloudCode,
+  clearCloudFeedback,
+  cloudAccount,
+  cloudFailure,
+  cloudToken,
+  code as cloudCode,
+  codeMode as cloudCodeMode,
+  busy as cloudBusy,
+  confirmCloudCode,
+  error as cloudError,
+  handleInput as cloudHandleInput,
+  loginCloud,
+  notice as cloudNotice,
+  pendingHandle as cloudPendingHandle,
+  remoteProfile as cloudRemoteProfile,
+  remoteUpdatedAt as cloudRemoteUpdatedAt,
+  requestCloudCode,
+  splitLinkText,
+  uploadWithToken,
+} from '../services/cloudSession.js'
+import { fetchCloudProfile } from '../services/cloudProfile.js'
+import { PANEL_POSITIONS } from '../services/shellSettings.js'
 import {
   CURSOR_BLINKINGS,
   CURSOR_STYLES,
@@ -319,11 +335,8 @@ const APPEARANCE_ROWS = [
   },
 ]
 
-// 统一侧边栏的位置偏好存在 App.vue 的 cp.panelPosition 里，这里只负责发起一次对调
-const PANEL_POSITIONS = [
-  { id: 'right', labelKey: 'settings.option.sideRight' },
-  { id: 'left', labelKey: 'settings.option.sideLeft' },
-]
+// 统一侧边栏的位置偏好存在 services/shellSettings.js 的 cp.panelPosition 里，这里只负责
+// 发起一次对调；档位表也从那里 import（设置菜单的二级子菜单用的是同一份，见 PANEL_POSITIONS）
 
 // 界面语言：与「判题语言」无关，后者由活跃文件的扩展名派生（见 HANDOFF 第 5 节坑 15）。
 // 状态在 src/i18n/index.js 里是模块级单例，自己读写 localStorage，所以不走 props / emits。
@@ -548,6 +561,16 @@ async function copyShortcutsUrl() {
 // 插件可能在页面打开之后才装上或才被重载，所以每次切到「应用」这一栏都重探一次
 watch(activeSection, (section) => {
   if (section === 'app') refreshExtension()
+})
+
+// 侧栏设置菜单选中某分类后，把设置视图定位到那一类。菜单在 SidebarSwitcher，落点经
+// editorViews.settingsSectionEntry 传进来，这里只是消费方；读完即复位，别让旧选择滞留。
+watch(settingsSectionEntry, (sectionId) => {
+  if (!sectionId) return
+  if (visibleSections.value.some((section) => section.id === sectionId)) {
+    activeSection.value = sectionId
+  }
+  settingsSectionEntry.value = null
 })
 
 onBeforeUnmount(() => window.clearTimeout(copyTimer))
@@ -996,37 +1019,14 @@ function setTimeLimit(event) {
 }
 
 // ------------------------------------------------------------ 云端同步
-// 账号记录（绑定的用户名 + 云端最近更新时间）只留在本机：它是「**这台设备**绑的是谁」的事实，
-// 跟着账号走没有意义（换台设备要重新验证），所以不进 cloudProfile 的同步白名单。
-// handle 为空串 = 未绑定。
-const cloudAccount = usePersistentRef('cp.cloudAccount', { handle: '', updatedAt: '' })
-
 /**
- * 设备令牌：/verify-save 验证成功时由服务端签发（响应里的 token），之后写入走 /api/save，
- * 不必再让用户去改一遍 Codeforces 的 Last name —— 这就是它存在的唯一理由。
- * 与 cloudAccount 一样只留在本机，且**绝不进 cloudProfile 的同步白名单**：
- * 令牌与 handle 一对一绑定，同步过去等于把别的设备的写入权也搬过来。
+ * 账号 / 令牌 / 验证码那一套**会话状态与动作都在 `services/cloudSession.js`**，这里只是把它们
+ * 接到模板用的名字上 —— 逻辑一处都别在本文件重写。
+ *
+ * 搬出去的原因（2026-10-11）：齿轮菜单要在自己的二级菜单里直接填用户名、取码、验证，
+ * 面板与菜单必须操作**同一份** ref —— 否则一边取了码另一边看不见、一边在忙另一边按钮还亮着。
+ * 因此那边是单一真相，这边只剩渲染。
  */
-const cloudToken = usePersistentRef('cp.cloudToken', '')
-
-// 取过码、还没验证通过的那一次「待办」：pendingHandle 是取码用的用户名（已绑定时就是绑定的那个），
-// code 非空就表示验证码面板正开着。
-const cloudPendingHandle = ref('')
-const cloudCode = ref('')
-const cloudHandleInput = ref('')
-const cloudBusy = ref(false)
-const cloudError = ref('')
-const cloudNotice = ref('')
-
-// 验证码面板有两种用途，面板上的按钮名与步骤文案跟着它变：
-// - 'login'：登录。云端已经有这个用户名的配置，只证明身份，**不碰云端内容**；
-// - 'upload'：上传。用本机设置覆盖云端，这是唯一会写云端的入口。
-const cloudCodeMode = ref('login')
-// 登录验证时回写的「云端原文」，以及它的更新时间。
-// 回写会把服务端的 updatedAt 顶成此刻，可那不是「用户改了配置」，显示它只会误导，
-// 所以绑定时记的是这份读到的旧时间。
-const cloudRemoteProfile = ref(null)
-const cloudRemoteUpdatedAt = ref('')
 
 /** 待确认的解绑；与下面卸载确认同款自绘弹窗 */
 const pendingUnbind = ref(false)
@@ -1058,55 +1058,7 @@ const cloudUpdatedHint = computed(() => {
  * 拆开就看不见语序了 —— 英文里这个短句落在句子中间，三段式很容易对不上位。
  * （`t()` 不带 params 时原样返回，`{link}` 不会被插值吃掉。）
  */
-const cloudCodeStep1 = computed(() => {
-  const [before, after = ''] = t('settings.cloud.codeStep1').split('{link}')
-  return { before, after }
-})
-
-function clearCloudFeedback() {
-  cloudError.value = ''
-  cloudNotice.value = ''
-}
-
-/**
- * 服务端返回的中文 msg（验证码错了 / 太频繁）原样显示。
- * 没有 msg 就说明请求压根没走到服务端，用本地文案兜底 —— 这里要区分两种情形，
- * 否则用户只能看到一句「网络有问题」，既不知道是断网还是请求被谁拦下了。
- */
-function cloudFailure(result) {
-  if (result.msg) return result.msg
-  if (result.transport === 'badBody') {
-    return t('settings.cloud.errorBadBody', { status: result.status })
-  }
-  return t('settings.cloud.errorNetwork')
-}
-
-/** 取码。同一个函数服务两处入口：未绑定时传输入框的值，已绑定时传已绑定的用户名 */
-async function requestCloudCode(handle) {
-  if (cloudBusy.value) return
-  const target = handle.trim()
-  clearCloudFeedback()
-  if (!target) {
-    cloudError.value = t('settings.cloud.errorHandle')
-    return
-  }
-  cloudBusy.value = true
-  // 注意别名：导入的函数叫 requestCode，本函数叫 requestCloudCode，别混
-  const result = await requestCode(target)
-  cloudBusy.value = false
-  if (!result.success) {
-    cloudError.value = cloudFailure(result)
-    return
-  }
-  cloudPendingHandle.value = target
-  cloudCode.value = result.code
-}
-
-function cancelCloudCode() {
-  cloudCode.value = ''
-  cloudPendingHandle.value = ''
-  clearCloudFeedback()
-}
+const cloudCodeStep1 = computed(() => splitLinkText('settings.cloud.codeStep1'))
 
 /**
  * 用户名输入框的回车。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
@@ -1117,91 +1069,6 @@ function onCloudHandleEnter(event) {
   if (event.isComposing || event.keyCode === 229) return
   event.preventDefault()
   loginCloud()
-}
-
-/**
- * 登录。先读一眼云端，再决定要不要验证：
- *
- * - 云端已经有这个用户名的配置 → 必须证明你是主人，但**不能改动它**，
- *   所以走取码 → 填 Codeforces → verify-save 回写「云端原文」那条路（见 verifyAndLogin）。
- * - 云端还没有配置 → 没有任何会被覆盖的东西，也就不必验证，直接在本机认领这个用户名。
- *   真正写入要等用户点「上传本机设置」。
- *
- * 这条设计是刻意的：登录永远不写云端。换台设备第一次登录时，本机往往还是一套默认设置，
- * 顺手推上去就把云端那份好的冲掉了。
- */
-async function loginCloud() {
-  if (cloudBusy.value) return
-  const target = cloudHandleInput.value.trim()
-  clearCloudFeedback()
-  if (!target) {
-    cloudError.value = t('settings.cloud.errorHandle')
-    return
-  }
-
-  cloudBusy.value = true
-  const probe = await fetchCloudProfile(target)
-  cloudBusy.value = false
-
-  if (probe.success) {
-    cloudRemoteProfile.value = probe.data
-    cloudRemoteUpdatedAt.value = probe.updatedAt ?? ''
-    cloudCodeMode.value = 'login'
-    await requestCloudCode(target)
-    return
-  }
-  if (!probe.notFound) {
-    cloudError.value = cloudFailure(probe)
-    return
-  }
-
-  cloudAccount.value = { handle: target, updatedAt: '' }
-  cloudHandleInput.value = ''
-  cloudNotice.value = t('settings.cloud.loginNoCloud')
-}
-
-/** 验证码面板上那颗按钮：按当前用途分发到登录 / 上传 */
-function confirmCloudCode() {
-  return cloudCodeMode.value === 'upload' ? verifyAndUpload() : verifyAndLogin()
-}
-
-/**
- * 登录的验证。服务端是去读这个 handle 在 Codeforces 个人资料里的 Last name 跟验证码比对，
- * 对得上才写 KV —— 没有「只验证不写」的接口，所以这里把**刚读到的云端原文**原样传回去：
- * 服务端由此确认「你是主人」，而云端那份内容一个字段都不会变。
- *
- * 验证通过后顺手把那份原文拉到本机（adoptCloudProfile）并刷新：登录的语义就是
- * 「这台设备改用云端这一套设置」。方向仍然是只下不传 —— 落地的只有 SOURCE 里刚读到的东西。
- */
-async function verifyAndLogin() {
-  if (cloudBusy.value) return
-  const handle = cloudPendingHandle.value
-  clearCloudFeedback()
-  cloudBusy.value = true
-  const result = await verifyAndSave(handle, cloudRemoteProfile.value ?? {})
-  cloudBusy.value = false
-  if (!result.success) {
-    cloudError.value = cloudFailure(result)
-    return
-  }
-  // 先把绑定关系与设备令牌落下（会写 localStorage；下面那步会刷新页面，晚了就写不进去了），
-  // 再做会刷新页面的那一步
-  const profile = cloudRemoteProfile.value
-  // 两处时间刻意不是同一个值：账号行显示的是「读到的旧时间」（回写会把服务端的 updatedAt 顶成
-  // 此刻，可那不是「用户改了配置」，显示它只会误导）；而「本机在跟哪一版」要记**回写后的那一版**
-  // —— 云端现在存着的就是它，记旧值会让下次打开站点白对齐一次（见 cloudEntry.js 的闸门）
-  const appliedVersion = result.updatedAt ?? cloudRemoteUpdatedAt.value
-  cloudAccount.value = { handle, updatedAt: cloudRemoteUpdatedAt.value }
-  cloudToken.value = result.token ?? ''
-  cloudHandleInput.value = ''
-  cloudCode.value = ''
-  cloudPendingHandle.value = ''
-  cloudRemoteProfile.value = null
-  cloudRemoteUpdatedAt.value = ''
-  // 刷新成功的话后面就不用走了；只有云端那份一个白名单键都没有时才会走到这里
-  if (!(await adoptCloudProfile(profile, handle, appliedVersion))) {
-    cloudNotice.value = t('settings.cloud.loggedIn')
-  }
 }
 
 /**
@@ -1218,71 +1085,6 @@ function startCloudUpload() {
   }
   cloudCodeMode.value = 'upload'
   requestCloudCode(handle)
-}
-
-/**
- * 用设备令牌写入：不取码，也不要求用户再去碰 Codeforces。
- *
- * 服务端回 401 表示这枚令牌不认了（过期 / 被服务端吊销 / 属于别的 handle）：
- * 清掉它、退回取码流程，并用一行提示说明「为什么突然又要验证码」——
- * 不讲清楚的话，用户只会觉得同一颗按钮忽然变麻烦了。
- */
-async function uploadWithToken(handle) {
-  if (cloudBusy.value) return
-  clearCloudFeedback()
-  cloudBusy.value = true
-  const result = await saveWithToken(handle, cloudToken.value, collectProfile())
-  cloudBusy.value = false
-
-  if (result.success) {
-    cloudAccount.value = { handle, updatedAt: result.updatedAt ?? '' }
-    cloudNotice.value = t('settings.cloud.saved')
-    // 云端现在存着的就是这一套，地址栏跟着认下这位（见 cloudEntry.js 的 writeCloudEntryPath），
-    // 「本机在跟哪一版」也一起记上 —— 刚传上去的这一版就是本机正在用的那一版，
-    // 不记的话下次打开站点会白对齐一次（见那边的 writeActiveProfile）
-    writeCloudEntryPath(handle)
-    writeActiveProfile(handle, result.updatedAt ?? '')
-    return
-  }
-  if (result.status !== 401) {
-    cloudError.value = cloudFailure(result)
-    return
-  }
-
-  cloudToken.value = ''
-  cloudCodeMode.value = 'upload'
-  // requestCloudCode 一进来就会清反馈，所以提示只能压在它之后；只有真的把码取回来、
-  // 验证码面板开出来了才提示，否则屏幕上已经有一句取码失败的报错了。
-  await requestCloudCode(handle)
-  if (cloudCode.value) cloudNotice.value = t('settings.cloud.tokenExpired')
-}
-
-/**
- * 验证并上传。服务端是去读这个 handle 在 Codeforces 个人资料里的 Last name 跟验证码比对，
- * 对得上才写 KV —— 所以「证明是我的」与「保存」本来就是同一个动作，没有单独的验证接口。
- * 验证码 10 分钟过期，过期后再保存会失败，那时重新取一次码即可（已绑定态下就是这个流程）。
- */
-async function verifyAndUpload() {
-  if (cloudBusy.value) return
-  const handle = cloudPendingHandle.value
-  clearCloudFeedback()
-  cloudBusy.value = true
-  const result = await verifyAndSave(handle, collectProfile())
-  cloudBusy.value = false
-  if (!result.success) {
-    cloudError.value = cloudFailure(result)
-    return
-  }
-  cloudAccount.value = { handle, updatedAt: result.updatedAt ?? '' }
-  // 记下这枚令牌：之后点「上传本机设置」就直接写，不用再取码、不用再去改 Codeforces
-  cloudToken.value = result.token ?? ''
-  cloudHandleInput.value = ''
-  cloudCode.value = ''
-  cloudPendingHandle.value = ''
-  cloudNotice.value = t('settings.cloud.saved')
-  // 同上：云端刚存下这一套，地址栏跟着认下这位，「本机在跟哪一版」一起记上
-  writeCloudEntryPath(handle)
-  writeActiveProfile(handle, result.updatedAt ?? '')
 }
 
 /**
@@ -1326,13 +1128,9 @@ async function downloadCloudProfile() {
  *   writeActiveProfile）：下次打开站点直接对齐这一套，不必再点一次。
  */
 async function adoptCloudProfile(data, handle, updatedAt = '') {
-  if (!applyProfile(data)) return false
-  cloudNotice.value = t('settings.cloud.downloaded')
-  writeCloudEntryPath(handle)
-  writeActiveProfile(handle, updatedAt)
-  await flush()
-  window.location.reload()
-  return true
+  const applied = await adoptCloud(data, handle, updatedAt)
+  if (applied) cloudNotice.value = t('settings.cloud.downloaded')
+  return applied
 }
 
 /**

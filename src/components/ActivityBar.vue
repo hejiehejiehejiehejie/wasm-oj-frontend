@@ -14,17 +14,12 @@
  * 面板数据由 App 从 Sidebar 的 defineExpose 透传进来（状态只有一份，仍是 cp.sidebarTab），
  * 本组件不自己存一份。
  */
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
 import { cfReady } from '../services/cfRuntime.js'
-import {
-  cfPickerTab,
-  closeCfPickerTab,
-  closeSettingsTab,
-  openCfPickerTab,
-  openSettingsTab,
-  settingsTab,
-} from '../services/editorViews.js'
+import { cfPickerTab, closeCfPickerTab, openCfPickerTab, settingsTab } from '../services/editorViews.js'
 
 defineProps({
   /** Sidebar 透传的面板表：{ id, icon, label, active } */
@@ -33,12 +28,39 @@ defineProps({
 defineEmits(['select'])
 
 // 与页头那两颗同一套肌肉记忆：开着再点一次＝收起
-function toggleSettings() {
-  settingsTab.active ? closeSettingsTab() : openSettingsTab()
-}
 function toggleCfPicker() {
   cfPickerTab.active ? closeCfPickerTab() : openCfPickerTab()
 }
+
+// ------------------------------------------------------------ 设置下拉菜单
+// 与侧栏页头那颗齿轮同一份菜单（SettingsMenu），只是展开方向不同：
+// 这一栏贴着屏幕边缘，往下会让菜单压到自己所在的那一栏或直接溢出，所以往屏幕内侧展开
+// （placement="beside"，朝向由 SettingsMenu 按锚点在视口的哪一半自己判）。
+const menuAnchor = ref(null)
+const menuButton = ref(null)
+
+// 同 SidebarSwitcher：菜单在捕获阶段用 pointerdown 收自己，所以点这颗齿轮想关菜单时
+// 会先被那一层收掉、这颗按钮的 click 又进来，得记一笔「刚刚那一发是不是点在它身上」
+let suppressOpen = false
+
+function onGlobalPointerDown(event) {
+  suppressOpen = Boolean(menuAnchor.value && menuButton.value?.contains(event.target))
+}
+
+function toggleMenu() {
+  if (suppressOpen) {
+    suppressOpen = false
+    return
+  }
+  menuAnchor.value = menuAnchor.value ? null : menuButton.value?.getBoundingClientRect() ?? null
+}
+
+function closeMenu() {
+  menuAnchor.value = null
+}
+
+onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
+onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
 </script>
 
 <template>
@@ -56,7 +78,7 @@ function toggleCfPicker() {
         :aria-pressed="panel.active"
         @click="$emit('select', panel.id)"
       >
-        <AppIcon :name="panel.icon" size="20" />
+        <AppIcon :name="panel.icon" size="24" />
       </button>
     </div>
 
@@ -72,20 +94,24 @@ function toggleCfPicker() {
         :aria-pressed="cfPickerTab.active"
         @click="toggleCfPicker"
       >
-        <AppIcon name="codeforces" size="20" />
+        <AppIcon name="codeforces" size="24" />
       </button>
 
       <button
+        ref="menuButton"
         type="button"
         class="activity-bar__item"
         :class="{ 'is-active': settingsTab.active }"
         :title="t('app.settings')"
         :aria-label="t('app.settings')"
-        :aria-pressed="settingsTab.active"
-        @click="toggleSettings"
+        aria-haspopup="menu"
+        :aria-expanded="Boolean(menuAnchor)"
+        @click="toggleMenu"
       >
-        <AppIcon name="gear" size="20" />
+        <AppIcon name="gear" size="24" />
       </button>
+
+      <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="beside" @close="closeMenu" />
     </div>
   </nav>
 </template>
@@ -157,24 +183,33 @@ function toggleCfPicker() {
 .activity-bar__group {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  /* 相邻两格的间隔：格里是 20px 图标、格高 40px，不留间隔时两枚图标是「紧挨着的两个格子」，
-     加 4px 后图标之间的呼吸感与 VS Code 接近（间距只加在这里，格子的可点面积不变） */
+  /* 方块定宽 40px + 固定左边距 3px，靠 flex-start 钉在同一列（别改成 center / stretch：
+     这一栏伸缩时容器在变窄，居中会让方块跟着横移） */
+  align-items: flex-start;
+  /* 相邻两格的间隔：格里是 24px 图标、方块 40×40，不留间隔时两枚图标是「紧挨着的两个方块」，
+     加 4px 后图标之间的呼吸感与 VS Code 接近（间距只加在这里，方块本身的可点面积不变） */
   gap: 4px;
 }
 
-/* 48×40 的整宽图标格：hover 时整格提亮（而不是只提亮图标），可点范围一眼可见。
-   宽度写死成 48px（原来给的是 100%）：伸缩时这一栏的宽度会变，格子若跟着变窄，
-   图标就会在格子里居中位移、看着像在飘；定宽之后格子钉在原地，由 .activity-bar 的
-   overflow: hidden 把它裁出去。 */
+/* 40×40 的圆角方块：hover 时整块提亮（而不是只提亮图标），可点范围一眼可见。
+   尺寸写死（原来给的是 100%）：伸缩时这一栏的宽度会变，方块若跟着变窄，
+   图标就会在方块里居中位移、看着像在飘；定宽 + 固定左边距之后方块钉在原地，
+   由 .activity-bar 的 overflow: hidden 把它裁出去。 */
 .activity-bar__item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
+  /* 2026-10-11：可点区从「整宽 48×40 长条」改成 40×40 的圆角正方形（用户要求），
+     格子四周的留白因此不再进可点范围。左边距 3px = (栏 48 − 左右 1px 边框 − 方块 40) / 2，
+     方块在栏内水平居中（用户反馈：4px 时右边只剩 2px，看得出来偏左）；
+     仍用固定边距而不是居中对齐：这一栏伸缩时宽度从右边变，固定的左边距让方块
+     一直钉在同一列上，不会随容器变窄而横移。半径 10px 与这条栏自己的圆角同值。 */
+  width: 40px;
   height: 40px;
+  margin-left: 3px;
   padding: 0;
   border: none;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;

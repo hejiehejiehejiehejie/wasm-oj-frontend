@@ -2,10 +2,12 @@
 /**
  * EditorTabs —— 编辑器标签栏（单编辑器组）。
  * - 点击切换活跃标签；中键关闭；× 按钮关闭；双击钉住预览页签。
- * - **拖动页签改顺序**（2026-10-10 加）：按住文件页签横向拖，落在别处即交换位置，顺序
- *   存回 openTabIds（含持久化）。手势与落点判据全在 composables/useTabDrag.js，本文件
- *   只提供根元素、转交 pointerdown、渲染拖拽态与插入指示条。**只排文件页签** ——
- *   设置 / 抽题那两个合成视图页签恒定排在后面，理由见 useTabDrag 的文件头。
+ * - **拖动页签改顺序**（2026-10-10 加）：按住页签横向拖，落在别处即交换位置。文件页签与
+ *   合成视图页签（设置 / 抽题）**混排在同一条序列里**、可以跨类换位（2026-10-11 起），
+ *   顺序归 services/tabStrip.js 的 stripOrder —— 它只管顺序，写回时分发成 openTabIds
+ *   （含持久化）与 viewOrder 两份，所以视图 id 仍然进不了 openTabIds（纪律见 tabStrip
+ *   与 editorViews 的文件头）。手势与落点判据在 composables/useTabDrag.js，本文件只提供
+ *   根元素、转交 pointerdown、渲染拖拽态与插入指示条。
  * - **触屏**（同日补）：长按 450ms 起手，中间有「按住进度 → 就绪弹一下」两段反馈
  *   （`--pressing` / `--armed`，与文件树的同款逐条对应）；页签上还声明了
  *   `touch-action: pan-x` + `user-select: none` + `-webkit-touch-callout: none`。
@@ -35,16 +37,9 @@ import {
   deactivateViews,
   settingsTab,
   viewActive,
-  viewOrder,
 } from '../services/editorViews.js'
-import {
-  closeTab,
-  getNodeById,
-  moveTab,
-  pinTab,
-  setActiveTab,
-  workspace,
-} from '../services/vfs/workspaceStore.js'
+import { isViewId, moveStripItem, stripOrder } from '../services/tabStrip.js'
+import { closeTab, getNodeById, pinTab, setActiveTab, workspace } from '../services/vfs/workspaceStore.js'
 
 function activate(id) {
   // 拖动收尾那一下会顺带来一个 click：吃掉它，否则拖完顺带把页签切过去
@@ -93,15 +88,23 @@ function onViewMouseDown(event, close) {
   }
 }
 
+/** 点视图页签本体：拖动收尾那一下会顺带来一个 click，先吃掉（与 activate 同一条路），
+ *  否则拖完换位会顺带把视图切过去。 */
+function onViewClick(view) {
+  if (consumeClickSuppression()) return
+  view.activate()
+}
+
 /**
- * 合成视图页签（设置 / 抽题）的渲染描述。顺序读 editorViews.viewOrder ——
- * 谁先开谁靠左、后开的追加到最右，与文件页签「新开的排最后」同一条规矩，
- * 不再固定「抽题在设置左边」。图标 / 文案 / 开关都在这里现取，render 期间执行，
+ * 合成视图页签（设置 / 抽题）的渲染描述。图标 / 文案 / 开关都在这里现取，render 期间执行，
  * 所以语言切换、视图开关变化都会让它重算。
+ * 「谁先开谁靠左」这条规矩已经不是这里的事了 —— 2026-10-11 起条带是一条**混排**序列，
+ * 顺序归 services/tabStrip.js 的 stripOrder（文件页签与视图页签可以互相穿插）。
  */
 function viewMeta(id) {
   return id === 'cfPicker'
     ? {
+        id,
         key: 'view:cfPicker',
         icon: 'codeforces',
         label: t('cf.button.label'),
@@ -111,6 +114,7 @@ function viewMeta(id) {
         close: closeCfPickerTab,
       }
     : {
+        id,
         key: 'view:settings',
         icon: 'gear',
         label: t('app.settings'),
@@ -121,7 +125,14 @@ function viewMeta(id) {
       }
 }
 
-const viewTabs = computed(() => viewOrder.map(viewMeta))
+/**
+ * 条带的渲染单元：**一条混排序列**（tabStrip.stripOrder），文件页签与合成视图页签穿插排列，
+ * 拖动因此能跨类换位。每一项打平成一个描述对象：文件那栏只带 `id`（其余细节模板自己现取），
+ * 视图那栏带上 viewMeta 的字段；`key` 两类各自用自己的（文件 = 节点 id，视图 = `view:<id>`）。
+ */
+const stripItems = computed(() =>
+  stripOrder.map((id) => (isViewId(id) ? { kind: 'view', ...viewMeta(id) } : { kind: 'file', key: id, id })),
+)
 
 function onMouseDown(event, id) {
   // 中键关闭（auxclick 在部分时机不一致，统一在 mousedown 处理）
@@ -157,12 +168,14 @@ function onTabBeforeLeave(el) {
 const rootEl = ref(null)
 const instantSwap = ref(false)
 
-// 拖动排序：只对文件页签起手（useTabDrag 认 data-tab-id），落盘走 store 的 moveTab。
+// 拖动排序：条带上的页签都从这里起手（useTabDrag 认 data-strip-id，两类页签都带它），
+// 条带是一条混排序列，所以文件页签与视图页签可以互相穿插换位。
 // 放在 rootEl 之后 —— useTabDrag 拿的是这个 ref 对象，声明顺序上不能提前。
 const { draggingId, indicatorX, pressingId, armedId, onTabPointerDown, consumeClickSuppression } =
   useTabDrag({
     rootEl,
-    onDrop: moveTab,
+    // 落盘走 tabStrip：由它改 stripOrder，再分部写回 openTabIds / viewOrder
+    onDrop: moveStripItem,
   })
 
 // 被顶替那一格在更新前的宽度，供新页签的宽度过渡当起点（见 onTabEnter）
@@ -179,10 +192,12 @@ watch(
       changedAt = i
     }
     if (changedAt === -1) return
-    // 此刻 DOM 还是更新前的：strip 的子元素是「文件页签 + 视图页签」，前段与 openTabIds
-    // 一一对应，所以能按索引量到即将被顶替的那个的宽度
-    const strip = rootEl.value?.querySelector('.editor-tabs__strip')
-    swapFromWidth = strip?.children[changedAt]?.offsetWidth ?? 0
+    // 此刻 DOM 还是更新前的：按 id 找到即将被顶替的那一张 —— 混排之后不能再用 openTabIds
+    // 的下标去 strip.children 上取（视图页签插在中间时两个下标不再对齐），改认 data-strip-id。
+    const outdated = rootEl.value?.querySelector(
+      `.editor-tabs__item[data-strip-id="${prev[changedAt]}"]`,
+    )
+    swapFromWidth = outdated?.offsetWidth ?? 0
     instantSwap.value = true
     nextTick(() => {
       instantSwap.value = false
@@ -224,7 +239,7 @@ function onTabEnter(el) {
   <div ref="rootEl" class="editor-tabs" :class="{ 'is-dragging': draggingId }">
     <!-- TransitionGroup 直接反映 openTabIds / 视图 open 状态的变化，所以打开、关闭、
          切换、预览页签被顶替四种操作共用这一套进出场，workspaceStore 不用改。
-         子项（文件页签的 v-for 与两个 v-if 视图页签）都已带 key。 -->
+         子项都带 key（文件 = 节点 id，视图 = `view:<id>`）。 -->
     <TransitionGroup
       tag="div"
       class="editor-tabs__strip"
@@ -234,85 +249,98 @@ function onTabEnter(el) {
       @before-leave="onTabBeforeLeave"
       @enter="onTabEnter"
     >
-      <button
-        v-for="id in workspace.openTabIds"
-        :key="id"
-        type="button"
-        class="editor-tabs__item"
-        :class="{
-          'editor-tabs__item--active': id === workspace.activeId && !viewActive,
-          'editor-tabs__item--preview': id === workspace.previewTabId,
-          'editor-tabs__item--dragging': id === draggingId,
-          'editor-tabs__item--pressing': id === pressingId,
-          'editor-tabs__item--armed': id === armedId,
-        }"
-        role="tab"
-        :data-tab-id="id"
-        :data-preview="id === workspace.previewTabId || undefined"
-        :aria-selected="id === workspace.activeId && !viewActive"
-        :title="getNodeById(id)?.path"
-        @click="activate(id)"
-        @dblclick="onTabDblClick(id)"
-        @mousedown="onMouseDown($event, id)"
-        @pointerdown="onTabPointerDown($event, id)"
-      >
-        <span
-          v-if="isStaleTab(id)"
-          class="editor-tabs__stale"
-          :title="t('app.tabs.diskChanged')"
-          :aria-label="t('app.tabs.diskChanged')"
-        ></span>
-        <span
-          v-else-if="isDirtyTab(id)"
-          class="editor-tabs__dot"
-          :title="t('app.tabs.dirty')"
-        ></span>
-        <!-- 文件 logo 与资源管理器同一份映射（services/fileIcons.js），dirty 时让位给圆点 -->
-        <AppIcon
-          v-else
-          :name="tabIcon(id)"
-          :size="12"
-          class="editor-tabs__icon"
-          :class="`is-${tabIcon(id)}`"
-        />
-        <span class="editor-tabs__label">{{ getNodeById(id)?.name ?? t('app.tabs.untitled') }}</span>
-        <span
-          class="editor-tabs__close"
-          role="button"
-          :aria-label="t('app.tabs.closeTab')"
-          @click.stop="closeTab(id)"
+      <!-- 一条混排序列（stripOrder）：每一格要么是文件页签、要么是合成视图页签，
+           两类混着排、拖动能跨类换位。key 打在 template 上。 -->
+      <template v-for="item in stripItems" :key="item.key">
+        <button
+          v-if="item.kind === 'file'"
+          type="button"
+          class="editor-tabs__item"
+          :class="{
+            'editor-tabs__item--active': item.id === workspace.activeId && !viewActive,
+            'editor-tabs__item--preview': item.id === workspace.previewTabId,
+            'editor-tabs__item--dragging': item.id === draggingId,
+            'editor-tabs__item--pressing': item.id === pressingId,
+            'editor-tabs__item--armed': item.id === armedId,
+          }"
+          role="tab"
+          :data-strip-id="item.id"
+          :data-tab-id="item.id"
+          :data-preview="item.id === workspace.previewTabId || undefined"
+          :aria-selected="item.id === workspace.activeId && !viewActive"
+          :title="getNodeById(item.id)?.path"
+          @click="activate(item.id)"
+          @dblclick="onTabDblClick(item.id)"
+          @mousedown="onMouseDown($event, item.id)"
+          @pointerdown="onTabPointerDown($event, item.id)"
         >
-          <AppIcon name="close" :size="12" />
-        </span>
-      </button>
+          <span
+            v-if="isStaleTab(item.id)"
+            class="editor-tabs__stale"
+            :title="t('app.tabs.diskChanged')"
+            :aria-label="t('app.tabs.diskChanged')"
+          ></span>
+          <span
+            v-else-if="isDirtyTab(item.id)"
+            class="editor-tabs__dot"
+            :title="t('app.tabs.dirty')"
+          ></span>
+          <!-- 文件 logo 与资源管理器同一份映射（services/fileIcons.js），dirty 时让位给圆点 -->
+          <AppIcon
+            v-else
+            :name="tabIcon(item.id)"
+            :size="12"
+            class="editor-tabs__icon"
+            :class="`is-${tabIcon(item.id)}`"
+          />
+          <span class="editor-tabs__label">{{
+            getNodeById(item.id)?.name ?? t('app.tabs.untitled')
+          }}</span>
+          <span
+            class="editor-tabs__close"
+            role="button"
+            :aria-label="t('app.tabs.closeTab')"
+            @click.stop="closeTab(item.id)"
+          >
+            <AppIcon name="close" :size="12" />
+          </span>
+        </button>
 
-      <!-- 合成视图页签（设置 / 抽题）：与代码文件同一个皮，排在文件页签之后。
-           顺序读 editorViews.viewOrder —— 谁先开谁靠左、后开的追加到最右，
-           与文件页签「新开的排最后」同一条规矩。图标 / 文案 / 开关由 viewMeta 现取，
-           设置没有 dirty 圆点（即时生效，没有保存概念），所以图标固定是齿轮。 -->
-      <button
-        v-for="view in viewTabs"
-        :key="view.key"
-        type="button"
-        class="editor-tabs__item"
-        :class="{ 'editor-tabs__item--active': view.active }"
-        role="tab"
-        :aria-selected="view.active"
-        :title="view.label"
-        @click="view.activate"
-        @mousedown="onViewMouseDown($event, view.close)"
-      >
-        <AppIcon :name="view.icon" :size="12" class="editor-tabs__icon" />
-        <span class="editor-tabs__label">{{ view.label }}</span>
-        <span
-          class="editor-tabs__close"
-          role="button"
-          :aria-label="view.closeLabel"
-          @click.stop="view.close"
+        <!-- 合成视图页签（设置 / 抽题）：与代码文件同一个皮，位置由 stripOrder 决定，
+             拖动可在整条序列里挪（含排到文件页签左边 / 中间）。
+             图标 / 文案 / 开关由 viewMeta 现取，设置没有 dirty 圆点（即时生效，
+             没有保存概念），所以图标固定是齿轮。 -->
+        <button
+          v-else
+          type="button"
+          class="editor-tabs__item"
+          :class="{
+            'editor-tabs__item--active': item.active,
+            'editor-tabs__item--dragging': item.id === draggingId,
+            'editor-tabs__item--pressing': item.id === pressingId,
+            'editor-tabs__item--armed': item.id === armedId,
+          }"
+          role="tab"
+          :data-strip-id="item.id"
+          :data-view-id="item.id"
+          :aria-selected="item.active"
+          :title="item.label"
+          @click="onViewClick(item)"
+          @mousedown="onViewMouseDown($event, item.close)"
+          @pointerdown="onTabPointerDown($event, item.id)"
         >
-          <AppIcon name="close" :size="12" />
-        </span>
-      </button>
+          <AppIcon :name="item.icon" :size="12" class="editor-tabs__icon" />
+          <span class="editor-tabs__label">{{ item.label }}</span>
+          <span
+            class="editor-tabs__close"
+            role="button"
+            :aria-label="item.closeLabel"
+            @click.stop="item.close"
+          >
+            <AppIcon name="close" :size="12" />
+          </span>
+        </button>
+      </template>
     </TransitionGroup>
 
     <!-- 拖动排序的插入指示条：位置由 useTabDrag 以**根容器左缘**为基准算好（inline left），

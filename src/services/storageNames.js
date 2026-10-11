@@ -112,6 +112,24 @@ export const WORKSPACE_ROOT_KEY = 'cp.workspaceRoot'
  */
 export const CLOUD_ACTIVE_KEY = 'cp.cloudActive'
 
+/**
+ * 绑定的云端账号：`{ handle, updatedAt }`。handle 为空串 = 未绑定。
+ *
+ * 与「本机在跟谁」是两件事：那条记的是**现在用的是谁的配置**（导入一份公开配置也会记），
+ * 这条记的是**这台设备认领了哪个用户名**（只有登录 / 验证成功才写），它决定有没有
+ * 「上传本机设置 / 解绑」这两个入口。读写都在 `services/cloudSession.js`
+ * （面板与齿轮菜单共用同一份会话状态，所以不再各自 `usePersistentRef` 一个）。
+ */
+export const CLOUD_ACCOUNT_KEY = 'cp.cloudAccount'
+
+/**
+ * 设备令牌：验证成功时由服务端签发，之后的写入不必再取码。
+ *
+ * 与账号一样只留在本机，且**绝不进云同步白名单**：令牌与 handle 一对一绑定，
+ * 同步过去等于把别的设备的写入权也搬过来。同样读写在 `services/cloudSession.js`。
+ */
+export const CLOUD_TOKEN_KEY = 'cp.cloudToken'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**

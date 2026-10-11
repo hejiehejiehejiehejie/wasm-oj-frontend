@@ -112,16 +112,17 @@ const probe = (page) =>
     // .minimap 节点是常驻 DOM 的：Monaco 靠把宽度压到 0 来隐藏它，而不是移除节点。
     // 所以「可见性」只能看渲染宽度，看节点存在与否恒为真。
     const minimapWidth = Math.round(document.querySelector('.minimap')?.getBoundingClientRect().width ?? 0)
-    // 「资源管理器 / 评测样例」的页头切换钮分别渲染在两个面板各自的页头里（v-show 藏着另一个面板），
-    // 所以只认当前可见那个面板里的那一份；用 getClientRects 判可见（computed display 会误报）。
+    // 「资源管理器 / 评测样例」的面板可见性用 getClientRects 判（computed display 会误报）。
     const visiblePanel = () =>
       [...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)
+    // 页头切换器全站只有一份（2026-10-11 上提到 Sidebar 的共享页头），直接在页头作用域里读
+    const sidebarHead = () => document.querySelector('.sidebar__head')
     // 页头上可点的控件：胶囊那颗 toggle（`.sidebar-switcher__pill`）+ 设置那颗
     const visibleSwitcherTabs = () => [
-      ...(visiblePanel()?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
+      ...(sidebarHead()?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
     ]
     // 胶囊里的两段：纯视觉指示，不可点，所以按它们自己的标记读「哪一段亮着」
-    const visibleSegs = () => [...(visiblePanel()?.querySelectorAll('.sidebar-switcher__seg') ?? [])]
+    const visibleSegs = () => [...(sidebarHead()?.querySelectorAll('.sidebar-switcher__seg') ?? [])]
     return {
       // 顶栏已在 2026-09 整体删除（设置入口搬进侧栏页头、运行按钮搬进编辑器页签栏），
       // 这里守的是「它真的不回来了」以及工作区仍然贴顶
@@ -167,7 +168,7 @@ const showPanel = (page, id) =>
       (el) => el.getClientRects().length > 0,
     )
     if (!panel || panel.dataset.panel === target) return
-    panel.querySelector('.sidebar-switcher__pill')?.click()
+    document.querySelector('.sidebar__head .sidebar-switcher__pill')?.click()
   }, id)
 
 // 主修饰键 + 一个键码。题解那 14 条格式键与几条全局键同键，所以按下之前
@@ -249,23 +250,19 @@ try {
     // 先确认页头那枚胶囊在，再点过去，面板才真的渲染出来——这也是切面板这条路本身的回归。
     // 首启的虚拟工作区**没有样例**：样例只来自当前文件的 config.tests（见 App.vue 的
     // normalizeTests），而 /main.cpp 是普通模板，所以这里守的是空态，不是在数卡片。
-    // 切换入口已并入两个面板各自的页头，所以要落在当前可见的那个面板里找；
-    // 它只画 logo 不写字，所以认 aria-label 而不是 textContent。
+    // 切换器全站只有一份（2026-10-11 上提到 Sidebar 的共享页头），直接在页头里找；
+    // 段位带短标签（窄屏退回纯图标），所以认 aria-label / data-panel 而不是 textContent。
     // 面板那枚胶囊整体是一颗 toggle，文案是「将要去的那一个」；两段在它里面，
     // 所以这里钉住的是「胶囊在（且说的是去向）+ 两段都渲染出来了」。
     const tabs = await page.evaluate(() => {
-      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
-        (el) => el.getClientRects().length > 0,
+      const head = document.querySelector('.sidebar__head')
+      return [...(head?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? [])].map(
+        (el) => el.getAttribute('aria-label'),
       )
-      return [
-        ...(panel?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
-      ].map((el) => el.getAttribute('aria-label'))
     })
     const segIds = await page.evaluate(() => {
-      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
-        (el) => el.getClientRects().length > 0,
-      )
-      return [...(panel?.querySelectorAll('.sidebar-switcher__seg') ?? [])].map(
+      const head = document.querySelector('.sidebar__head')
+      return [...(head?.querySelectorAll('.sidebar-switcher__seg') ?? [])].map(
         (el) => el.dataset.panel,
       )
     })
@@ -299,16 +296,21 @@ try {
       el.dataset.marker = 'keep-me'
       return el.dataset.marker
     })
-    // 新架构：换边入口在「设置」页签里。打开设置（侧栏页头的齿轮图标 → 编辑区里多一个页签）
-    // → 选「右侧」→ 关掉页签回到代码。
-    await page.evaluate(() => {
-      const panel = [...document.querySelectorAll('.sidebar__panel')].find(
-        (el) => el.getClientRects().length > 0,
-      )
-      const btn = [...(panel?.querySelectorAll('.sidebar-switcher__tab') ?? [])].find(
-        (el) => el.getAttribute('aria-label') === '设置',
-      )
+    // 新架构：换边入口在「设置」页签里。打开设置 → 选「右侧」→ 关掉页签回到代码。
+    // 打开设置现在要走两步（2026-10-11）：侧栏页头那颗齿轮先弹出 Quick Settings 菜单，
+    // 再由菜单里的「打开设置面板…」开出编辑区里那个页签 —— 齿轮本身不再直接开页签。
+    await page.evaluate(async () => {
+      const btn = [
+        ...(document
+          .querySelector('.sidebar__head')
+          ?.querySelectorAll('.sidebar-switcher__tab') ?? []),
+      ].find((el) => el.getAttribute('aria-label') === '设置')
       btn?.click()
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      const row = [...document.querySelectorAll('.settings-menu__row')].find((el) =>
+        el.textContent.includes('打开设置面板'),
+      )
+      row?.querySelector('.settings-menu__item')?.click()
     })
     await wait(500)
     const settingsShown = await page.evaluate(() => {
@@ -319,23 +321,67 @@ try {
       return {
         viewVisible: !!view && view.getBoundingClientRect().width > 0,
         tabActive: tab?.classList.contains('editor-tabs__item--active') ?? false,
-        navItems: document.querySelectorAll('.settings-nav__item').length,
+        menuTrigger: !!document.querySelector('.settings-menu'),
       }
     })
-    // 目录不做「数人头」断言，而是逐项点开、要求它真的渲染出内容：
-    // 原来这里写死 `navItems === 10`，于是「加一个设置分类」这种纯业务改动会先把回归搞红。
-    // 脚本不该替业务记账 —— 有几项是 SECTIONS 的事，项项可用才是脚本该守的契约。
-    // 十个分类是 v-else-if 互斥的，所以每一项点开后 `section.setting-group` 必须恰好是 1 个。
+    // 目录换成「齿轮 + Quick Settings 下拉菜单」后，分类藏在「设置分类」的二级子菜单里。
+    // 从菜单里逐项点开、要求它真的渲染出内容：分类是 v-else-if 互斥的，所以每一项点开后
+    // `section.setting-group` 必须恰好是 1 个，且设置视图的目录里当前那一项就是刚点的那个。
+    //
+    // 三个契约点跟着实现走（2026-10-11）：
+    // - 齿轮是侧栏页头里 aria-label 为「设置」的那颗 `.sidebar-switcher__tab`，
+    //   而 `.settings-menu` 是**弹出来的浮层本身**，不能再拿它当触发器点；
+    // - 菜单项统一是 `.settings-menu__item`（二级那批额外带 `--sub`）；
+    // - 「设置分类」选完会连菜单一起收掉（它把人送到设置面板去），所以每一项都要重开一次。
     const navCoverage = await page.evaluate(async () => {
-      const items = [...document.querySelectorAll('.settings-nav__item')]
+      const gear = () => {
+        return [
+          ...(document
+            .querySelector('.sidebar__head')
+            ?.querySelectorAll('.sidebar-switcher__tab') ?? []),
+        ].find((el) => el.getAttribute('aria-label') === '设置')
+      }
+      const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      const labelOf = (el) => el?.querySelector('.settings-menu__label')?.textContent?.trim() ?? ''
+      /**
+       * 重开菜单并展开「设置分类」的二级，返回那一批子项。
+       * 齿轮是 toggle：上一步可能把菜单留在开着的状态，先按一次把状态归零再开，
+       * 否则这一次点下去是「关」。
+       */
+      const openSections = async () => {
+        if (document.querySelector('.settings-menu')) gear()?.click()
+        await tick(90)
+        gear()?.click()
+        await tick(120)
+        if (!document.querySelector('.settings-menu')) {
+          gear()?.click()
+          await tick(120)
+        }
+        const row = [...document.querySelectorAll('.settings-menu__row')].find((el) =>
+          el.textContent.includes('设置分类'),
+        )
+        row?.querySelector('.settings-menu__item')?.click()
+        await tick(90)
+        return [...document.querySelectorAll('.settings-menu__sub .settings-menu__item--sub')]
+      }
+
+      const labels = (await openSections()).map(labelOf)
+      // 先随便选一项把菜单收掉，回到「设置已打开」这个稳定状态
+      const first = document.querySelector('.settings-menu__sub .settings-menu__item--sub')
+      first?.click()
+      await tick(80)
+
       const results = []
-      for (const item of items) {
-        item.click()
-        // 让出一次宏任务：Vue 的调度器在微任务里 flush，这一步之后就一定渲染完了
-        await new Promise((resolve) => setTimeout(resolve, 0))
+      for (const label of labels) {
+        const items = await openSections()
+        const target = items.find((el) => labelOf(el) === label)
+        target?.click()
+        await tick(80)
         results.push({
-          label: item.querySelector('.settings-nav__label')?.textContent?.trim() ?? '',
-          current: item.getAttribute('aria-current') === 'true',
+          label,
+          current:
+            document.querySelector('.settings-nav__item--active .settings-nav__label')?.textContent?.trim() ===
+            label,
           groups: document.querySelectorAll('.settings-view section.setting-group').length,
           textLength: (document.querySelector('.settings-view__inner')?.textContent ?? '').trim().length,
         })
@@ -346,11 +392,26 @@ try {
       navCoverage.length > 0 &&
       navCoverage.every((entry) => entry.current && entry.groups === 1 && entry.textLength > 0)
 
-    // 设置是「目录 + 内容」两栏：默认停在第一项「外观」，换边入口（侧边栏位置）就在这一组里。
-    // 仍然显式点一下目录里的「外观」，这样默认分类以后再变，这一步也不会跟着坏。
-    await page.evaluate(() => {
-      const item = [...document.querySelectorAll('.settings-nav__item')].find((el) =>
-        el.textContent.includes('外观'),
+    // 换边入口（侧边栏位置）在「外观」这一组里。目录改成菜单后，仍显式从菜单里点「外观」，
+    // 这样默认分类以后再变，这一步也不会跟着坏。
+    await page.evaluate(async () => {
+      const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      const gear = () => {
+        return [
+          ...(document
+            .querySelector('.sidebar__head')
+            ?.querySelectorAll('.sidebar-switcher__tab') ?? []),
+        ].find((el) => el.getAttribute('aria-label') === '设置')
+      }
+      gear()?.click()
+      await tick(90)
+      const row = [...document.querySelectorAll('.settings-menu__row')].find((el) =>
+        el.textContent.includes('设置分类'),
+      )
+      row?.querySelector('.settings-menu__item')?.click()
+      await tick(90)
+      const item = [...document.querySelectorAll('.settings-menu__sub .settings-menu__item--sub')].find(
+        (el) => (el.querySelector('.settings-menu__label')?.textContent ?? '').includes('外观'),
       )
       item?.click()
     })

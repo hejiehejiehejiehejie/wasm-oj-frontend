@@ -14,12 +14,11 @@
  * 另经 defineExpose 对外给出两个入口（`startRename` / `requestDelete`，都收节点 id），
  * 供全局快捷键 F2 / Delete 调用 —— 见文件末尾。
  */
-import { computed, nextTick, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
-import SidebarSwitcher from './SidebarSwitcher.vue'
 import { useTreeDrag } from '../composables/useTreeDrag.js'
 import { IS_MAC, formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
@@ -49,6 +48,12 @@ import {
 } from '../services/problemMeta.js'
 
 const rootEl = ref(null)
+
+// 页头右侧的动作区（新建文件 / 文件夹两颗钮）经 Teleport 投进 Sidebar 的共享页头
+// （#sidebar-context），只在本面板激活时投 —— 切换器单实例上提后（2026-10-11），
+// 各面板留给页头的只剩这一小条上下文动作
+const { activeTab } = inject('sidebarTabs')
+const isActivePanel = computed(() => activeTab.value === 'explorer')
 
 /** 快捷键绑定表：菜单右列的键位读它（设置里改绑，这里跟着变，见 shortcutOf） */
 const { bindings } = useShortcutManager()
@@ -562,8 +567,12 @@ defineExpose({
 
 <template>
   <section class="explorer">
-    <header class="explorer__head">
-      <SidebarSwitcher />
+    <!-- 页头动作区：投进 Sidebar 共享页头的 #sidebar-context。不激活时 disabled、
+         内容原地渲染（面板本身被 v-show 藏着，不可见）；defer 是因为目标元素与源同在
+         一棵挂载树里，首挂时目标尚未进 document，等整个应用挂完再解析（否则内容
+         永远挂不上、下一次 patch 直接崩 emitsOptions）。
+         按钮的目标目录照旧跟随选中的那一行（见 headerCreateTarget） -->
+    <Teleport defer :disabled="!isActivePanel" to="#sidebar-context">
       <span class="explorer__actions">
         <button
           type="button"
@@ -582,7 +591,7 @@ defineExpose({
           <AppIcon name="folder-plus" :size="14" />
         </button>
       </span>
-    </header>
+    </Teleport>
 
     <!-- 拖拽 / 粘贴失败只在这里提示一句（没有行内位置可放），约 4s 后自己消失 -->
     <p v-if="notice" class="explorer__notice" role="status" @click="notice = ''">{{ notice }}</p>
@@ -954,21 +963,8 @@ defineExpose({
   outline-offset: 1px;
 }
 
-.explorer__head {
-  display: flex;
-  align-items: center;
-  /* 左侧是「资源管理器 / 评测样例」切换入口（两个 logo），右侧是两颗操作按钮；
-     两边加起来也远比面板下限窄，所以不折行（折行只留给评测样例页头） */
-  justify-content: space-between;
-  gap: 8px;
-  /* 与评测样例页头同高 */
-  height: 35px;
-  padding: 0 8px 0 4px;
-  /* 页头不再铺底纹、也不画分隔线（2026-10-04）：侧栏展开后它是整栏的最上一条，
-     铺 --bg-panel-head 会在最上方留下一道比正文亮的色带，再加上底下那根发丝线，
-     看上去像两条叠在一起的东西。去掉后整块侧栏从头到尾一个色，胶囊自己浮在上面 */
-  background: transparent;
-}
+/* 页头本身已上提到 Sidebar 的共享页头（.sidebar__head，2026-10-11）：
+   透明底、滚动才描边的那套都在那里；这里只剩 Teleport 上去的动作区样式 */
 
 .explorer__actions {
   display: inline-flex;

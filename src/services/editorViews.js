@@ -16,15 +16,18 @@
  * 弹窗式的做法（Teleport 到 body）在 2026-10 被替换掉：与设置同形态更贴本项目的界面语言，
  * 也不会遮住工作区。
  */
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { workspace } from './vfs/workspaceStore.js'
 
-/** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 viewOrder） */
+/** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 tabStrip.stripOrder） */
 export const EDITOR_VIEW_IDS = ['settings', 'cfPicker']
 
 /**
  * 已打开视图页签的顺序（谁先开谁靠左）。与文件页签「新开的排最后」同一条规矩：
  * 没开着的视图在 show() 时追加到最右；关掉时摘掉，再开就重新排到最后。
+ * ⚠️ 2026-10-11 起这条序列**不再直接决定条带上的位置**：条带是一条文件 / 视图混排的序列
+ * （services/tabStrip.js 的 stripOrder），拖动后的新位置由那里写回到这里 —— 本数组于是
+ * 只表示**视图彼此之间的相对次序**，混排后的绝对位置不在这里。
  * 只记顺序，开关状态仍在 state 上。
  * @type {string[]}
  */
@@ -59,6 +62,20 @@ function close(id) {
   if (at !== -1) viewOrder.splice(at, 1)
 }
 
+/**
+ * 拖动排序的**分部写回**（tabStrip.moveStripItem 转交）：整体替换 viewOrder 的顺序。
+ * 条带现在是混排的一条序列，一次拖动可能同时改变多个视图的相对位置，所以不是「把某一个
+ * 挪过去」而是整段重排；进来的 id 先按 EDITOR_VIEW_IDS 过滤并去重，碎片值掉不进来。
+ *
+ * ⚠️ 这里只改**顺序**，不改成员（增删走 close() / show()），否则会与 tabStrip 的成员同步
+ * 互相推来推去。
+ * @param {string[]} ids
+ */
+export function setViewOrder(ids) {
+  const next = ids.filter((id, index, all) => EDITOR_VIEW_IDS.includes(id) && all.indexOf(id) === index)
+  viewOrder.splice(0, viewOrder.length, ...next)
+}
+
 /** 切回代码视图：只让开，不关页签 */
 export function deactivateViews() {
   for (const view of EDITOR_VIEW_IDS) state[view].active = false
@@ -76,8 +93,20 @@ export const anyViewOpen = computed(() => EDITOR_VIEW_IDS.some((id) => state[id]
 
 export const settingsTab = state.settings
 
-/** 点设置入口（顶栏齿轮 / 窄屏菜单项）：没开就开，被切走了就切回来。关只归页签上的 × 管 */
-export function openSettingsTab() {
+/**
+ * 侧栏设置菜单选中某分类后要落到的位置。菜单（SidebarSwitcher）在 openSettingsTab(sectionId)
+ * 时把 id 写进来，EditorSettingsPanel 用 watch 消费它并把 activeSection 定位到对应分类；
+ * 消费完复位为 null，保证「下次从别处打开设置页签」不被上一次的菜单选择牵着走。
+ * 只存 id、不落 localStorage：这是纯 UI 跳转状态，与页签本身一样不值得跨会话恢复。
+ */
+export const settingsSectionEntry = ref(null)
+
+/**
+ * 点设置入口（顶栏齿轮 / 窄屏菜单项 / 侧栏设置菜单）：没开就开，被切走了就切回来。关只归页签上的 × 管。
+ * 侧栏菜单点某项时带上 sectionId：先把落点记进 settingsSectionEntry，再打开设置页签让它落到那一类。
+ */
+export function openSettingsTab(sectionId) {
+  if (sectionId) settingsSectionEntry.value = sectionId
   show('settings')
 }
 
