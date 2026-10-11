@@ -55,8 +55,15 @@ import {
   code as cloudCode,
   codeMode as cloudCodeMode,
   busy as cloudBusy,
+  canFillCode,
+  cloudCfHint,
+  codeCopied,
   confirmCloudCode,
+  copyCloudCode,
+  downloadCloud,
   error as cloudError,
+  fillCloudCode,
+  filling as cloudFilling,
   handleInput as cloudHandleInput,
   loginCloud,
   notice as cloudNotice,
@@ -65,7 +72,8 @@ import {
   remoteUpdatedAt as cloudRemoteUpdatedAt,
   requestCloudCode,
   splitLinkText,
-  uploadWithToken,
+  unbindCloud,
+  uploadCloud,
 } from '../services/cloudSession.js'
 import { fetchCloudProfile } from '../services/cloudProfile.js'
 import { PANEL_POSITIONS } from '../services/shellSettings.js'
@@ -1071,46 +1079,8 @@ function onCloudHandleEnter(event) {
   loginCloud()
 }
 
-/**
- * 已绑定态点「上传本机设置」。这条才是真的会覆盖云端。
- *
- * 有设备令牌就直接写 —— 「一次验证换长期免取码」换来的就是这个；本机没有令牌
- * （从没验证成功过）才退回取码验证那条路。
- */
-function startCloudUpload() {
-  const handle = cloudAccount.value.handle
-  if (cloudToken.value) {
-    uploadWithToken(handle)
-    return
-  }
-  cloudCodeMode.value = 'upload'
-  requestCloudCode(handle)
-}
-
-/**
- * 下载到本机：把云端那份写进 localStorage，然后刷新页面。
- *
- * 必须刷新：App.vue 的偏好只在启动时读一次盘，内存里的 ref 不会跟着 localStorage 变。
- * 就地回灌要逐个改十几个偏好，还得顺带处理 i18n / 快捷键这些模块级单例，不划算。
- * 刷新前先 flush 一次，把编辑器里还没落盘的正文写回 VFS —— 否则下载这个动作会丢掉
- * 用户正在编辑的内容。
- */
-async function downloadCloudProfile() {
-  if (cloudBusy.value) return
-  clearCloudFeedback()
-  cloudBusy.value = true
-  const result = await fetchCloudProfile(cloudAccount.value.handle)
-  cloudBusy.value = false
-  if (!result.success) {
-    cloudError.value = result.notFound
-      ? t('settings.cloud.noCloudConfig')
-      : cloudFailure(result)
-    return
-  }
-  if (!(await adoptCloudProfile(result.data, cloudAccount.value.handle, result.updatedAt ?? ''))) {
-    cloudError.value = t('settings.cloud.emptyProfile')
-  }
-}
+// 「上传本机设置」「下载到本机」「解绑」三个动作都在 `services/cloudSession.js`
+// （菜单里的云端同步表单要用同一份，见那里），这里只消费、不重写一遍。
 
 /**
  * 把一份云端配置落到本机、然后刷新页面。返回是否真的应用了（写进去 0 条就是没有）。
@@ -1272,15 +1242,7 @@ function cancelUnbind() {
  */
 function confirmUnbind() {
   pendingUnbind.value = false
-  clearCloudFeedback()
-  cloudAccount.value = { handle: '', updatedAt: '' }
-  // 令牌是跟着 handle 走的：解绑就该一起丢掉，否则换登录别的 handle 时会带过去
-  // （服务端也会因为 owner !== handle 而回 401，但那是兜底，不该靠它）
-  cloudToken.value = ''
-  cloudHandleInput.value = ''
-  // 「本机在跟谁」一并忘掉：留着的话，下次打开站点会把这位的配置又自动套回来 ——
-  // 那正是「解绑」最不该有的后果（这一步只删本机存档，仍然不发任何请求，见上面那段）
-  forgetActiveProfile()
+  unbindCloud()
 }
 
 // 弹窗一出现就把焦点送到「解绑」上，Enter / Esc 都能纯键盘走完
@@ -2093,7 +2055,19 @@ watch(pendingUnbind, (open) => {
 
           <div class="cloud-code">
             <span class="cloud-code__label">{{ t('settings.cloud.codeLabel') }}</span>
-            <code class="cloud-code__value">{{ cloudCode }}</code>
+            <span class="cloud-code__row">
+              <code class="cloud-code__value">{{ cloudCode }}</code>
+              <button
+                type="button"
+                class="download-button cloud-code__copy"
+                :class="{ 'is-copied': codeCopied }"
+                :title="t('settings.cloud.copyCodeTitle')"
+                @click="copyCloudCode"
+              >
+                <AppIcon :name="codeCopied ? 'check' : 'copy'" :size="13" />
+                <span>{{ t(codeCopied ? 'settings.cloud.copied' : 'settings.cloud.copyCode') }}</span>
+              </button>
+            </span>
             <span class="cloud-code__hint">{{ t('settings.cloud.codeHint') }}</span>
           </div>
 
@@ -2101,6 +2075,29 @@ watch(pendingUnbind, (open) => {
           <p class="setting-group__note setting-group__note--warn">
             {{ t('settings.cloud.codeWarn') }}
           </p>
+
+          <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的与改动前完全一样，
+               下面那两步手动流程照旧。成功也只是替他填完 Codeforces 那一头，验证仍要他回本页点。 -->
+          <div v-if="canFillCode" class="cloud-fill">
+            <button
+              type="button"
+              class="download-button cloud-primary"
+              :disabled="cloudBusy || cloudFilling"
+              :title="t('settings.cloud.fillCodeTitle')"
+              @click="fillCloudCode"
+            >
+              <AppIcon name="codeforces" :size="13" />
+              <span>
+                {{ t(cloudFilling ? 'settings.cloud.fillCodeBusy' : 'settings.cloud.fillCode') }}
+              </span>
+            </button>
+            <span
+              class="cloud-fill__note"
+              :class="cloudCfHint.tone && `cloud-fill__note--${cloudCfHint.tone}`"
+            >
+              {{ t(cloudCfHint.key, cloudCfHint.params) }}
+            </span>
+          </div>
 
           <p class="setting-subtitle">{{ t('settings.cloud.codeSteps') }}</p>
           <ol class="cloud-steps">
@@ -2209,18 +2206,18 @@ watch(pendingUnbind, (open) => {
                 class="download-button"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.downloadTitle')"
-                @click="downloadCloudProfile"
+                @click="downloadCloud"
               >
                 <AppIcon name="download" :size="13" />
                 <span>{{ t('settings.cloud.download') }}</span>
               </button>
-              <!-- 「上传」本机有设备令牌就直接写；令牌失效或被服务端吊销才会退回取码验证（见 startCloudUpload） -->
+              <!-- 「上传」本机有设备令牌就直接写；令牌失效或被服务端吊销才会退回取码验证（见 uploadCloud） -->
               <button
                 type="button"
                 class="download-button"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.uploadTitle')"
-                @click="startCloudUpload"
+                @click="uploadCloud"
               >
                 <AppIcon name="cloud" :size="13" />
                 <span>{{ t('settings.cloud.upload') }}</span>
@@ -3103,6 +3100,56 @@ a.download-button {
 .cloud-code__hint {
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* 码与「复制」同一行：码自己会撑开，按钮固定不缩 */
+.cloud-code__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 按钮是 .download-button 的缩小版：卡片里空间有限，别让 28px 的常规高度把码压小 */
+.cloud-code__copy {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+/* 复制成功：转绿 + 对勾，两秒后 codeCopied 自己复位（与「应用」栏那颗同一套手感） */
+.cloud-code__copy.is-copied {
+  border-color: var(--ok);
+  background: transparent;
+  color: var(--ok);
+}
+
+/* 代填：只在装了扩展时出现，所以要一眼能和「取消 / 验证」那排主次按钮区分开，
+   下面半步流程照旧摆着 —— 它是抄近道，不是唯一走法 */
+.cloud-fill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 18px 0;
+}
+
+.cloud-fill__note {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* 取码预检那一行的结论色（见 cloudSession 的 cloudCfHint）：绿 = 已确认是这个账号；
+   琥珀 = 点之前就知道会失败，与上面那些云端报错同一支 --warn。刻意没有红色 —— 这是事前
+   提醒，不是已经发生的错误。两条 modifier 必须排在本体之后：同名权重，靠顺序覆盖 */
+.cloud-fill__note--ok {
+  color: var(--ok);
+}
+
+.cloud-fill__note--warn {
+  color: var(--warn);
 }
 
 /* 操作步骤：验证码那一步要用户离开本页去改 Cloudflare 资料，步骤得写清楚 */

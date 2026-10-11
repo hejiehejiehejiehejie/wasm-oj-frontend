@@ -313,7 +313,37 @@ export default {
           '写云端必须先证明是本人。这一枚码验证成功后，本机会记下服务端签发的设备令牌，之后的写入就不用再取码了。',
         codeLabel: '验证码',
         codeHint: '10 分钟内有效；同一个用户名 10 分钟最多申请 5 次',
+        copyCode: '复制',
+        copyCodeTitle: '把这枚验证码复制到剪贴板',
+        copied: '已复制',
         codeWarn: '只认屏幕上这一枚：重新取码会让上一枚立刻作废，取到新码后记得把 Codeforces 上的值也换成新的',
+        /**
+         * 「代填」只在装了扩展、且扩展能力清单里有 fill-code 时出现（见 useCompanionBridge
+         * 的 canFillCode）。文案里必须点明它**不碰凭据** —— 用户装的是一个抓题插件，
+         * 忽然被它代填个人资料，得有一句话说清它凭什么能做、又不拿走什么。
+         */
+        fillCode: '在 Codeforces 上自动填写',
+        fillCodeTitle:
+          '由已装的扩展打开 Codeforces 的 Social 一页，把上面这枚验证码填进 Last name 并保存。扩展不会读取、也不会把你的 Codeforces 登录凭据上传到任何地方',
+        fillCodeBusy: '正在填写…',
+        fillCodeNote: '没装扩展也不影响：照下面两步手动填一样可以',
+        fillCodeDone: '已在 Codeforces 上填好，回到这里点下面的按钮完成验证',
+        /**
+         * 取码相里那行提示的另外三种形态（第四种是默认的 fillCodeNote，即「不知道」）。
+         * 只在**装了带 cf-check 能力的扩展**、且它报回了明确结论时才出现。
+         * 措辞别写成断言：扩展报的是它在浏览器里看到的事实，不是服务端确认过的身份
+         * （见 cloudSession 的 cfStatus）——所以这里说的是「这个浏览器」，不是「你」。
+         */
+        cfHintMatch: '已确认这个浏览器登录的是 {handle}，点一下就能填好',
+        cfHintMismatch: '这个浏览器登录的不是「{handle}」，切到正确的账号再点',
+        cfHintNotLoggedIn: '这个浏览器里没有登录 Codeforces，先登录再点',
+        fillNotLoggedIn: '这个浏览器里没有登录 Codeforces，先登录再试',
+        fillMismatch: '浏览器里登录的不是「{handle}」，先切到正确的账号再试',
+        fillNoTab: '没能打开 Codeforces 的设置页，手动打开一次后重试',
+        fillPage: 'Codeforces 的页面没能认出来（可能改版了），请手动填写',
+        fillTimeout: '扩展没有回应，确认它已启用后再试',
+        fillUnsupported: '扩展版本过旧，不支持自动填写，请手动填写',
+        fillFailed: '没能自动填写，请手动填写',
         codeSteps: '接下来：',
         codeStep1: '把上面的验证码填进 {link}的 Last name 字段（设置里的 Social 一页）并保存',
         codeStep1Link: 'Codeforces 个人资料',
@@ -682,8 +712,31 @@ export default {
           'Writing to the cloud always requires proving it is you. Once this code checks out, this device stores the token the server issues — later writes reuse it and need no new code.',
         codeLabel: 'Verification code',
         codeHint: 'Valid for 10 minutes; at most 5 codes per handle every 10 minutes',
+        copyCode: 'Copy',
+        copyCodeTitle: 'Copy this verification code to the clipboard',
+        copied: 'Copied',
         codeWarn:
           'Only the code shown here counts — asking for a new one invalidates the previous immediately, so update the value on Codeforces too',
+        /** 见 zh-CN 那侧的说明：只在扩展具备 fill-code 能力时出现 */
+        fillCode: 'Fill it in on Codeforces',
+        fillCodeTitle:
+          'The installed extension opens your Codeforces Social page, puts this code into Last name and saves it. It never reads your Codeforces credentials, and never uploads them anywhere.',
+        fillCodeBusy: 'Filling…',
+        fillCodeNote: 'No extension? No problem — follow the two steps below and do it by hand',
+        fillCodeDone: 'Filled in on Codeforces — come back here and press the button below to finish',
+        /** 见 zh-CN 那侧的说明：措辞指着「这个浏览器」，不指人 */
+        cfHintMatch: 'Confirmed — this browser is signed in as {handle}; one click will fill it in',
+        cfHintMismatch:
+          'This browser is signed in as someone other than “{handle}” — switch accounts, then click',
+        cfHintNotLoggedIn: 'This browser is not signed in to Codeforces — sign in, then click',
+        fillNotLoggedIn: 'This browser is not signed in to Codeforces — sign in and try again',
+        fillMismatch:
+          'This browser is signed in as someone other than “{handle}” — switch to the right account and try again',
+        fillNoTab: 'Could not open the Codeforces settings page — open it once by hand and retry',
+        fillPage: 'Could not recognise the Codeforces page (it may have changed) — please fill it in by hand',
+        fillTimeout: 'The extension did not answer — make sure it is enabled and try again',
+        fillUnsupported: 'Your extension is too old for automatic filling — please fill it in by hand',
+        fillFailed: 'Could not fill it in automatically — please do it by hand',
         codeSteps: 'What to do next:',
         codeStep1:
           'Put the code above into the Last name field of your {link} (Settings → Social) and save it',

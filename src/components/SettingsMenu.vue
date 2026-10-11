@@ -4,8 +4,12 @@
  *
  * 形态照 VS Code 那颗齿轮：一级列里既有「点开二级再选」的多档项，也有当场就能改完的
  * 内联开关 / 步进器；末尾留两个进完整设置面板的入口（一个总入口，一个按分类直达）。
- * 「云端同步」是第三种二级（2026-10-11 加）：**二级里是个小表单** —— 用户名框 + 导入 / 登录
- * 两颗按钮，取到码之后原地变成「验证码 + 两步操作 + 验证并登录」，导入则是先问一句确认。
+ * 「云端同步」是第三种二级（2026-10-11 加）：**二级里是个小表单**，形态跟着「这台设备绑没绑
+ * 人」走（见 `cloudBound`）—— 未绑定只有一行：用户名框 + 导入 + 登录；已绑定则是
+ * 「用户名 + 已绑定标记」一行、这位自己的三件事（上传 / 下载 / 解绑）一行、分隔线，最后仍
+ * 是用户名框 + 导入那一行（导入是「取一份配置」，与绑不绑无关）。用户名框与其按钮同处一行，
+ * 不拆成两步。
+ * 取到码之后原地换成「验证码 + 两步操作 + 验证」，要覆盖本机或断开绑定的则先问一句确认。
  * 表单的状态与动作都在 `services/cloudSession.js`，与设置面板**同一份**（否则一边取了码
  * 另一边看不见）；这里只画它。
  *
@@ -34,16 +38,25 @@ import {
   adoptCloud,
   busy as cloudBusy,
   cancelCloudCode,
+  canFillCode,
+  cloudCfHint,
   cloudAccount,
   code as cloudCode,
+  codeCopied,
   codeMode as cloudCodeMode,
   confirmCloudCode,
+  copyCloudCode,
+  downloadCloud,
   error as cloudError,
+  fillCloudCode,
+  filling as cloudFilling,
   handleInput as cloudHandle,
   loginCloud,
   notice as cloudNotice,
   probeCloud,
   splitLinkText,
+  unbindCloud,
+  uploadCloud,
 } from '../services/cloudSession.js'
 
 const props = defineProps({
@@ -119,28 +132,39 @@ const subShift = ref(0)
  * 夹回视口里，代价是压住一级那一行 —— 出屏比遮挡严重得多。
  */
 const subShiftX = ref(0)
+/**
+ * 盯着二级自己的尺寸（见 `watchSubmenuSize`）：字体 / 文案 / 相一变，宽度就变，收敛量得跟着重算。
+ * 每次展开在 v-for / v-if 里重新挂一份。
+ */
+let subObserver = null
 
 const rows = SETTINGS_MENU_ROWS
 const FIRST_SELECTABLE = rows.findIndex((row) => row.kind !== 'divider')
 
 // ------------------------------------------------------------------ 云端同步表单
+/** 这台设备有没有绑着一位：`cp.cloudAccount` 里有用户名就是已绑定 */
+const cloudBound = computed(() => Boolean(cloudAccount.value.handle))
+
 /**
  * 二级表单的三个相，由「云会话状态」推出来，不另存一份状态：
  * - `code`：已经取到码、正等用户去 Codeforces 改完 Last name 回来点验证；
- * - `confirm`：云端那份拉到了，正等用户点头（这一下会覆盖本机设置并刷新）；
+ * - `confirm`：等用户点头的那一下（导入会覆盖本机设置并刷新、解绑会断开绑定）；
  * - `input`：其余时候，就是填用户名的那个框。
  *
- * `codeMode === 'upload'` 那一相**不属于菜单**（那是面板里「上传本机设置」取到的码），
- * 所以只在 'login' 时才显示验证码 —— 否则会在菜单里冒出一句「上传」的引导。
+ * 码这个相**两种用途都要显示**：菜单里已绑定态有「上传本机设置」，令牌失效时它也要取码，
+ * 那时遮住不显示的话，用户会看到按钮没反应（显示的文案按 `codeMode` 换，见下）。
  */
 const cloudPhase = computed(() => {
-  if (cloudCode.value && cloudCodeMode.value === 'login') return 'code'
-  if (cloudPendingImport.value) return 'confirm'
+  if (cloudCode.value) return 'code'
+  if (cloudPendingConfirm.value) return 'confirm'
   return 'input'
 })
 
-/** 导入待确认的那一份：云端已经拉到，还没让用户点头 */
-const cloudPendingImport = ref(null)
+/**
+ * 等用户点头的那一下：`kind` 是 'import'（把云端的配置套到本机）还是 'unbind'（断开绑定）。
+ * 两件事的可逆程度不同，但都属于「不该手滑就办了」，所以共用同一个相、同一句问法。
+ */
+const cloudPendingConfirm = ref(null)
 /**
  * 用户名框本身：表单一展开就把焦点送进去。
  *
@@ -157,6 +181,30 @@ function focusCloudField() {
 /** 「把上面的验证码填进 {link}的 Last name」—— 链接那半句在整句里，两边共用同一份劈法 */
 const cloudStep1 = computed(() => splitLinkText('settings.cloud.codeStep1'))
 
+// 码那一步的说明、第二步与按钮名都有两份（登录 / 上传），按当前用途挑 —— 用哪个词
+// 由 `codeMode` 决定，菜单不自己判断「这次是在干什么」。
+const cloudCodeIntro = computed(() =>
+  t(cloudCodeMode.value === 'upload' ? 'settings.cloud.codeIntroUpload' : 'settings.cloud.codeIntro'),
+)
+const cloudCodeStep2 = computed(() =>
+  t(cloudCodeMode.value === 'upload' ? 'settings.cloud.codeStep2Upload' : 'settings.cloud.codeStep2'),
+)
+const cloudVerifyLabel = computed(() =>
+  t(cloudCodeMode.value === 'upload' ? 'settings.cloud.verifyUpload' : 'settings.cloud.verifyLogin'),
+)
+
+/** 等点头那一下的说明与按钮名，同样按 `kind` 挑 */
+const cloudConfirmDesc = computed(() => {
+  const pending = cloudPendingConfirm.value
+  if (!pending) return ''
+  return pending.kind === 'unbind'
+    ? t('settings.cloud.unbindConfirmDesc', { handle: pending.handle })
+    : t('settings.cloud.applyConfirmDesc', { handle: pending.handle })
+})
+const cloudConfirmLabel = computed(() =>
+  t(cloudPendingConfirm.value?.kind === 'unbind' ? 'settings.cloud.unbind' : 'settings.cloud.import'),
+)
+
 async function runCloudImport() {
   const handle = cloudHandle.value.trim()
   if (!handle) {
@@ -170,12 +218,22 @@ async function runCloudImport() {
     cloudError.value = probe.error
     return
   }
-  cloudPendingImport.value = { handle, data: probe.data, updatedAt: probe.updatedAt }
+  cloudPendingConfirm.value = { kind: 'import', handle, data: probe.data, updatedAt: probe.updatedAt }
 }
 
-async function confirmCloudImport() {
-  const pending = cloudPendingImport.value
+/** 解绑先问一句：它会把绑定与设备令牌一起丢掉，误触一次就得重新验证才能再上传 */
+function requestCloudUnbind() {
+  cloudPendingConfirm.value = { kind: 'unbind', handle: cloudAccount.value.handle }
+}
+
+async function confirmPending() {
+  const pending = cloudPendingConfirm.value
   if (!pending) return
+  if (pending.kind === 'unbind') {
+    unbindCloud()
+    cloudPendingConfirm.value = null
+    return
+  }
   cloudBusy.value = true
   // 成功那一步会整页刷新，所以下面这句只在「云端那份一个白名单键都没有」时才走得到
   const applied = await adoptCloud(pending.data, pending.handle, pending.updatedAt)
@@ -337,6 +395,24 @@ watch(ready, (shown) => {
 })
 
 /**
+ * 收敛时用的视口尺寸。
+ *
+ * 横向刻意用 `documentElement.clientWidth` 而不是 `window.innerWidth`：后者**含滚动条**，
+ * 而浮层打开的那一瞬页面常会闪一下滚动条，收敛那一刻量到的是没滚动条的宽度（实测 414 的
+ * 窗口在收敛那一帧报 426），等收敛完、滚动条落定，二级右缘就正好悬在屏幕外那十几像素里 ——
+ * 这正是窄屏上「收敛明明跑了还是出屏 8px」的真因。clientWidth 是内容宽度，不受它影响。
+ *
+ * 纵向仍用 `window.innerHeight`：软键盘顶起来时缩的就是它，而这一条收敛要的正是
+ * 「现在能看见多高」。
+ */
+function viewportBox() {
+  return {
+    w: document.documentElement?.clientWidth || window.innerWidth,
+    h: window.innerHeight,
+  }
+}
+
+/**
  * 按实测位置把二级收进视口：右边放不下就翻到左侧，翻转也救不回来就左右夹，
  * 下边放不下就整块上抬。
  *
@@ -346,34 +422,96 @@ watch(ready, (shown) => {
  * 每一步都要重新量：翻转是靠 class 切 `right: 100%` 实现的，改完得等那一帧画完才有新位置。
  */
 async function clampSubmenu() {
+  // 分帧收敛：每一轮都**按「没挪过」的位置重算绝对值**（所以重跑是幂等的，不会越收越偏），
+  // 量到连续两帧不动就收工，最多 12 帧。
+  //
+  // 为什么要重跑而不是一次量准：菜单是**弹开**的 —— 打开后的头一百来毫秒里它自己还在
+  // 0.95 → 1 的缩放动画里，`getBoundingClientRect` 量到的都是被缩过的那一份。逐帧实测
+  // （414×896、英文、未绑定）：二级宽 227.23 → 239.19，比值正好 0.95，收敛按这一份算出的
+  // 右缘收完仍出屏 10.5px；动画走完再算才落回 410（= 视口 - GAP）。ResizeObserver 帮不上
+  // 这个忙 —— 祖先的 transform 不改元素的布局盒，它不会为此再响一次。
+  let prev = null
+  for (let pass = 0; pass < 12; pass += 1) {
+    await clampSubmenuPass()
+    const now = measureSubmenu()
+    if (now && prev && sameBox(prev, now)) return
+    prev = now
+    await nextTick()
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+  }
+}
+
+/** 二级当前的**实际**盒子（含已写上的收敛量） */
+function measureSubmenu() {
+  const r = root.value?.querySelector('.settings-menu__sub')?.getBoundingClientRect?.()
+  if (!r) return null
+  return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }
+}
+
+/** 两帧量到的盒子是不是同一个（半个像素内算同一个，浮点误差不算动） */
+function sameBox(a, b) {
+  return ['left', 'right', 'top', 'bottom'].every((k) => Math.abs(a[k] - b[k]) <= 0.5)
+}
+
+/**
+ * 收敛一轮：量位置 → 定翻转 → 定横向 / 纵向偏移。
+ */
+async function clampSubmenuPass() {
   // 按选择器取而不是用 ref：二级那批 div 都在 v-for / v-if 里，hover 从一行挪到另一行时
   // 卸载与挂载的先后不保证，ref 有可能停在上一个元素（或 null）上。同一时刻只渲染一个。
   const measure = () => root.value?.querySelector('.settings-menu__sub')?.getBoundingClientRect?.()
 
-  if (measure()?.right > window.innerWidth - GAP) subFlipped.value = true
-  await nextTick()
+  /**
+   * 「没挪过」的位置。
+   *
+   * 量到的 rect 是**含着当前收敛量**的（横向是 transform，纵向是 top），而下面的判断必须
+   * 以原位置为基准算绝对值 —— 拿含偏移的 rect 去算「还超出去多少」，等于把上一次的结果
+   * 当基准再挪一点：每重跑一次收敛量就被吃掉一截（resize 再跑一遍，实测右缘从 421.9
+   * 退回 436.7，越收越出屏）。
+   */
+  const raw = () => {
+    const r = measure()
+    if (!r) return null
+    return {
+      left: r.left - subShiftX.value,
+      right: r.right - subShiftX.value,
+      top: r.top + subShift.value,
+      bottom: r.bottom + subShift.value,
+    }
+  }
+
+  const { w: vw, h: vh } = viewportBox()
+
+  if (raw()?.right > vw - GAP) {
+    subFlipped.value = true
+    await nextTick()
+  }
 
   // 翻过去之后左边反而出屏（窄屏两侧都塞不下）→ 翻回来，交给下面的左右夹兜底
-  if (subFlipped.value && measure()?.left < GAP) {
+  if (subFlipped.value && raw()?.left < GAP) {
     subFlipped.value = false
     await nextTick()
   }
 
-  const rect = measure()
+  const rect = raw()
   if (!rect) return
-  const overshootRight = rect.right - (window.innerWidth - GAP)
-  if (overshootRight > 0) subShiftX.value = -overshootRight
-  else if (rect.left < GAP) subShiftX.value = GAP - rect.left
+
+  const overshootRight = rect.right - (vw - GAP)
+  const undershootLeft = GAP - rect.left
+  subShiftX.value = overshootRight > 0 ? -overshootRight : undershootLeft > 0 ? undershootLeft : 0
+
   // 上抬到「底部离视口下沿 GAP」为止；二级比视口还高时（小屏）只抬到顶部也留 GAP，
   // 宁可两头都溢出一点，也别把顶部推到屏幕外 —— 那样连第一行都看不见了
-  const overflow = rect.bottom - (window.innerHeight - GAP)
-  if (overflow > 0) subShift.value = Math.min(overflow, Math.max(0, rect.top - GAP))
+  const overflow = rect.bottom - (vh - GAP)
+  subShift.value = overflow > 0 ? Math.min(overflow, Math.max(0, rect.top - GAP)) : 0
 }
 
 watch(openSubmenu, async (index) => {
   subFlipped.value = false
   subShift.value = 0
   subShiftX.value = 0
+  subObserver?.disconnect()
+  subObserver = null
   if (index === null) return
   await nextTick()
   // 云端同步那一行：表单一展开就把焦点送进用户名框。框空着时把本机认得的那一位填进去
@@ -385,7 +523,25 @@ watch(openSubmenu, async (index) => {
     nextTick(focusCloudField)
   }
   await clampSubmenu()
+  watchSubmenuSize()
 })
+
+/**
+ * 二级的宽度不是写死的，是**内容算出来的**（用户名框的固有宽度、按钮文字、账号名长短），
+ * 而字体会在打开之后的一百来毫秒里陆续换上去 —— 逐帧实测：414×896 下它从 227.23 慢慢长到
+ * 239.19（约 120ms / 7 帧）。于是首次收敛量到的位置是「还没长开」的那一份，收完右缘仍出屏
+ * 10.6px；换语言、切到验证码 / 确认相、账号名变长变短也都属于同一类变化。
+ *
+ * 所以盯着它自己的尺寸：一长一缩就重算一次收敛量（收敛量走 transform / top，不改它的
+ * border-box，因此不会自己触发自己）。元素在 v-for / v-if 里会换身份，所以每次展开重新挂。
+ */
+function watchSubmenuSize() {
+  if (typeof ResizeObserver === 'undefined') return
+  const el = root.value?.querySelector('.settings-menu__sub')
+  if (!el) return
+  subObserver = new ResizeObserver(() => clampSubmenu())
+  subObserver.observe(el)
+}
 
 /**
  * 视口变了就重收一次：手机上点进用户名框会顶起软键盘，视口矮一截 ——
@@ -411,6 +567,7 @@ const subStyle = computed(() => {
 onBeforeUnmount(() => {
   window.clearTimeout(closeTimer)
   window.removeEventListener('resize', onViewportResize)
+  subObserver?.disconnect()
 })
 
 /** 键位显示：数据一律来自绑定表，不写死字符串（面板里改绑这里跟着变） */
@@ -543,28 +700,72 @@ function optionLabel(option) {
             @click.stop
           >
             <template v-if="cloudPhase === 'input'">
-              <input
-                :ref="(el) => (cloudField = el)"
-                v-model.trim="cloudHandle"
-                class="settings-menu__input"
-                type="text"
-                spellcheck="false"
-                autocomplete="off"
-                autocapitalize="off"
-                :aria-label="t('settings.cloud.handle.label')"
-                :placeholder="t('settings.cloud.handlePlaceholder')"
-                @keydown.enter.prevent="loginCloud"
-              />
-              <div class="settings-menu__actions">
+              <!-- 已绑定：先报一句「这台设备在跟谁」（用户名 + 已绑定标记），再是这位自己的事
+                   （上传 / 下载 / 解绑）；分隔线以下是 handle + 导入 —— 导入是「取一份配置」，
+                   与绑不绑无关，绑着的时候照样能取别人的。
+                   未绑定时上面这一块整个不出现，就只剩下面那一行、外加一颗「登录」。 -->
+              <template v-if="cloudBound">
+                <div class="settings-menu__account">
+                  <AppIcon name="cloud" :size="12" />
+                  <span class="settings-menu__account-name">{{ cloudAccount.handle }}</span>
+                  <span class="settings-menu__account-tag">{{ t('settings.cloud.boundTag') }}</span>
+                </div>
+                <div class="settings-menu__actions">
+                  <button
+                    type="button"
+                    class="settings-menu__action settings-menu__action--primary"
+                    :disabled="cloudBusy"
+                    @click="uploadCloud"
+                  >
+                    {{ t('settings.cloud.upload') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="settings-menu__action"
+                    :disabled="cloudBusy"
+                    @click="downloadCloud"
+                  >
+                    {{ t('settings.cloud.download') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="settings-menu__action settings-menu__action--danger"
+                    :disabled="cloudBusy"
+                    @click="requestCloudUnbind"
+                  >
+                    {{ t('settings.cloud.unbind') }}
+                  </button>
+                </div>
+                <div class="settings-menu__divider" role="separator"></div>
+              </template>
+
+              <!-- handle 框与导入 / 登录挤在同一行：它是同一件事的两半（填谁 → 取谁的），
+                   摆成两行会被读成两个步骤。窄的时候先挤框（框 flex:1 + min-width:0），
+                   按钮不缩、标签不折行。 -->
+              <div class="settings-menu__row">
+                <input
+                  :ref="(el) => (cloudField = el)"
+                  v-model.trim="cloudHandle"
+                  class="settings-menu__input"
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  :aria-label="t('settings.cloud.handle.label')"
+                  :placeholder="t('settings.cloud.handlePlaceholder')"
+                  @keydown.enter.prevent="cloudBound ? runCloudImport() : loginCloud()"
+                />
                 <button
                   type="button"
                   class="settings-menu__action"
+                  :class="{ 'settings-menu__action--primary': cloudBound }"
                   :disabled="cloudBusy"
                   @click="runCloudImport"
                 >
                   {{ t('settings.cloud.import') }}
                 </button>
                 <button
+                  v-if="!cloudBound"
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
@@ -578,11 +779,48 @@ function optionLabel(option) {
             <template v-else-if="cloudPhase === 'code'">
               <div class="settings-menu__code">
                 <span class="settings-menu__code-label">{{ t('settings.cloud.codeLabel') }}</span>
-                <!-- user-select: all：点一下就整段选中，省得手动拖 -->
-                <code class="settings-menu__code-value">{{ cloudCode }}</code>
+                <span class="settings-menu__code-row">
+                  <!-- user-select: all：点一下就整段选中，省得手动拖 -->
+                  <code class="settings-menu__code-value">{{ cloudCode }}</code>
+                  <button
+                    type="button"
+                    class="settings-menu__copy"
+                    :class="{ 'is-copied': codeCopied }"
+                    :title="t('settings.cloud.copyCodeTitle')"
+                    @click="copyCloudCode"
+                  >
+                    <AppIcon :name="codeCopied ? 'check' : 'copy'" :size="12" />
+                    <span>{{
+                      t(codeCopied ? 'settings.cloud.copied' : 'settings.cloud.copyCode')
+                    }}</span>
+                  </button>
+                </span>
                 <span class="settings-menu__code-hint">{{ t('settings.cloud.codeHint') }}</span>
               </div>
-              <p class="settings-menu__note">{{ t('settings.cloud.codeIntro') }}</p>
+              <p class="settings-menu__note">{{ cloudCodeIntro }}</p>
+              <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的与改动前
+                   一样。它替用户跑一趟 Codeforces，验证那一步仍然由用户回本页点（理由见
+                   cloudSession.js 的 fillCloudCode），所以下面两步照旧摆着。 -->
+              <div v-if="canFillCode" class="settings-menu__fill">
+                <button
+                  type="button"
+                  class="settings-menu__action settings-menu__action--primary settings-menu__fill-btn"
+                  :disabled="cloudBusy || cloudFilling"
+                  :title="t('settings.cloud.fillCodeTitle')"
+                  @click="fillCloudCode"
+                >
+                  <AppIcon name="codeforces" :size="12" />
+                  <span>{{
+                    t(cloudFilling ? 'settings.cloud.fillCodeBusy' : 'settings.cloud.fillCode')
+                  }}</span>
+                </button>
+                <span
+                  class="settings-menu__note"
+                  :class="cloudCfHint.tone && `settings-menu__note--${cloudCfHint.tone}`"
+                >
+                  {{ t(cloudCfHint.key, cloudCfHint.params) }}
+                </span>
+              </div>
               <ol class="settings-menu__steps">
                 <li>
                   {{ cloudStep1.before
@@ -594,7 +832,7 @@ function optionLabel(option) {
                     >{{ t('settings.cloud.codeStep1Link') }}</a
                   >{{ cloudStep1.after }}
                 </li>
-                <li>{{ t('settings.cloud.codeStep2') }}</li>
+                <li>{{ cloudCodeStep2 }}</li>
               </ol>
               <div class="settings-menu__actions">
                 <button
@@ -611,21 +849,19 @@ function optionLabel(option) {
                   :disabled="cloudBusy"
                   @click="confirmCloudCode"
                 >
-                  {{ t('settings.cloud.verifyLogin') }}
+                  {{ cloudVerifyLabel }}
                 </button>
               </div>
             </template>
 
             <template v-else>
-              <p class="settings-menu__note">
-                {{ t('settings.cloud.applyConfirmDesc', { handle: cloudPendingImport.handle }) }}
-              </p>
+              <p class="settings-menu__note">{{ cloudConfirmDesc }}</p>
               <div class="settings-menu__actions">
                 <button
                   type="button"
                   class="settings-menu__action"
                   :disabled="cloudBusy"
-                  @click="cloudPendingImport = null"
+                  @click="cloudPendingConfirm = null"
                 >
                   {{ t('settings.cloud.cancel') }}
                 </button>
@@ -633,9 +869,9 @@ function optionLabel(option) {
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
-                  @click="confirmCloudImport"
+                  @click="confirmPending"
                 >
-                  {{ t('settings.cloud.import') }}
+                  {{ cloudConfirmLabel }}
                 </button>
               </div>
             </template>
@@ -866,6 +1102,8 @@ function optionLabel(option) {
   flex-direction: column;
   gap: calc(8px * var(--menu-scale));
   min-width: calc(260px * var(--menu-scale));
+  /* 已绑定态第一行是三颗按钮，英文那三句长标签会把表单撑得很宽 —— 封个顶，让按钮换行 */
+  max-width: calc(320px * var(--menu-scale));
   padding: calc(10px * var(--menu-scale));
 }
 
@@ -885,8 +1123,54 @@ function optionLabel(option) {
   border-color: var(--accent);
 }
 
+/* handle 框与导入 / 登录同一行：框吃掉剩余宽度，按钮不缩、标签不折行。
+   `min-width: 0` 是必须的 —— flex 项的默认 `min-width: auto` 会撑住内容不让缩，
+   窄屏上整行就会溢出（而不是把框挤窄）。 */
+.settings-menu__row {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--menu-scale));
+}
+
+.settings-menu__row .settings-menu__input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.settings-menu__row .settings-menu__action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 已绑定态的头一行：这台设备在跟谁。用户名长了截断，标记与设置面板那一枚同款
+   （等宽、暗色小字），不另造一种徽标样式。 */
+.settings-menu__account {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--menu-scale));
+  color: var(--menu-muted);
+}
+
+.settings-menu__account-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--menu-text);
+  font-size: calc(12px * var(--menu-scale));
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-menu__account-tag {
+  flex: 0 0 auto;
+  color: var(--menu-muted);
+  font-family: var(--mono-font);
+  font-size: calc(10px * var(--menu-scale));
+}
+
 .settings-menu__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: calc(8px * var(--menu-scale));
 }
@@ -925,6 +1209,12 @@ function optionLabel(option) {
   background: var(--accent-hover);
 }
 
+/* 解绑：描边次要按钮，只是文字换警告色 —— 它是「会断开绑定」那颗，不该长得像主行动，
+   但也没到要整颗涂红的程度（面板里那颗同款是 `is-uninstall`） */
+.settings-menu__action--danger {
+  color: var(--danger-text);
+}
+
 /* 验证码：与面板那块同一种写法 —— 小标签 + 放大的等宽码 + 一句时效 */
 .settings-menu__code {
   display: flex;
@@ -936,6 +1226,59 @@ function optionLabel(option) {
 .settings-menu__code-hint {
   color: var(--menu-muted);
   font-size: calc(11px * var(--menu-scale));
+}
+
+/* 码与「复制」同一行：码自己撑开，按钮固定不缩 */
+.settings-menu__code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8px * var(--menu-scale));
+}
+
+/* 嵌在码卡片里的复制按钮：比常规动作按钮矮一号、字小一号，免得压过码本身 */
+.settings-menu__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--menu-scale));
+  flex: 0 0 auto;
+  height: calc(22px * var(--menu-scale));
+  padding: 0 calc(8px * var(--menu-scale));
+  border: 1px solid var(--menu-border);
+  border-radius: calc(4px * var(--menu-scale));
+  background: var(--bg-control);
+  color: var(--text);
+  font-family: inherit;
+  font-size: calc(11.5px * var(--menu-scale));
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.settings-menu__copy:hover {
+  background: var(--bg-control-hover);
+}
+
+/* 复制成功：转绿 + 对勾，两秒后 codeCopied 自己复位 */
+.settings-menu__copy.is-copied {
+  border-color: var(--ok);
+  background: transparent;
+  color: var(--ok);
+}
+
+/* 代填：标签较长，主按钮独占一行，说明另起一行 */
+.settings-menu__fill {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--menu-scale));
+}
+
+.settings-menu__fill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(5px * var(--menu-scale));
+  width: 100%;
 }
 
 .settings-menu__code-value {
@@ -951,6 +1294,17 @@ function optionLabel(option) {
   color: var(--menu-muted);
   font-size: calc(11.5px * var(--menu-scale));
   line-height: 1.5;
+}
+
+/* 取码预检那一行的结论色（见 cloudSession 的 cloudCfHint）：绿 = 已确认是这个账号；
+   琥珀 = 点之前就知道会失败。刻意没有红色 —— 这是事前提醒，不是已经发生的错误。
+   两条 modifier 必须排在本体之后：同名权重，靠顺序覆盖 */
+.settings-menu__note--ok {
+  color: var(--ok);
+}
+
+.settings-menu__note--warn {
+  color: var(--warn);
 }
 
 .settings-menu__steps {

@@ -15,8 +15,9 @@
  * 【文案】报错一律 `t()` —— 服务层里不许出现中文字面量，与别处同一条 i18n 纪律。
  * 只在函数体内调用（模块顶层调 `t()` 会把语言冻结在第一帧，见 i18n/index.js）。
  */
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { flush } from './autoSave.js'
+import { canCheckCf, canFillCode, checkCfIdentity, requestCodeFill } from '../composables/useCompanionBridge.js'
 import {
   applyProfile,
   collectProfile,
@@ -25,7 +26,7 @@ import {
   saveWithToken,
   verifyAndSave,
 } from './cloudProfile.js'
-import { writeActiveProfile, writeCloudEntryPath } from './cloudEntry.js'
+import { forgetActiveProfile, writeActiveProfile, writeCloudEntryPath } from './cloudEntry.js'
 import { CLOUD_ACCOUNT_KEY, CLOUD_TOKEN_KEY } from './storageNames.js'
 import { t } from '../i18n/index.js'
 
@@ -129,12 +130,169 @@ export async function requestCloudCode(handle) {
   }
   pendingHandle.value = target
   code.value = result.code
+  // 新码上台，「已复制」得跟着归零：那三个字现在指的已经不是屏幕上这一枚了
+  resetCodeCopied()
+  // 换了码就是新的一轮：先丢掉上一轮的结论，再问一次「这台浏览器登的是不是他」
+  cloudCfStatus.value = 'unknown'
+  refreshCfStatus()
 }
 
 export function cancelCloudCode() {
   code.value = ''
   pendingHandle.value = ''
+  resetCodeCopied()
+  // 这一轮结束了，别把它的结论留给下一轮
+  cloudCfStatus.value = 'unknown'
   clearCloudFeedback()
+}
+
+// ---------------------------------------- 取码那一步的两处便利：复制 / 让扩展代填
+//
+// 这几件事都只服务于「把码搬到 codeforces.com」这个体力活，用户必须在另一个网站上完成，
+// 所以它们是这套流程里**不点也罢、但点了明显省事**的地方：
+//   1. 复制 —— 原本得在码上拖一道再按 Ctrl+C（`user-select: all` 只是让它好选一点）。
+//   2. 代填 —— 装了扩展（且能力清单里有 `fill-code`）时，由扩展在 codeforces.com 上替用户
+//      填进 Last name 并保存。**代填不等于免验证**：服务端仍然只认 `user.info` 里读回来的
+//      那枚 Last name，信任模型与手工填写一字不差；扩展也绝不回传 cookie 或页面内容，
+//      理由与边界都写在 useCompanionBridge 的 requestCodeFill 上面。
+//   3. 预检 —— 装了扩展且能力清单里有 `cf-check` 时，取到码就先问一句「这个浏览器登的是不是
+//      你填的这个 handle」（`cloudCfStatus` / `cloudCfHint`），把代填的成败**提前**说清。它只换一行提示
+//      的措辞与颜色，不改变任何按钮的行为，更不参与鉴权。
+//
+// 状态与动作放这里而不是各组件：面板与菜单操作的是同一份取码会话（见文件头那段），
+// 复制与代填的忙碌 / 结果同样只能有一份 —— 否则一边点着代填、另一边按钮还亮着。
+//
+// `canFillCode` 从 useCompanionBridge 转出去，是为了让面板与菜单**只认 cloudSession 一个入口**
+// 就能读全这块 UI 的状态，不必各自再去 import 一次桥。
+
+export { canFillCode, canCheckCf }
+
+/** 刚复制过验证码（按钮换「已复制」，2s 后复位） */
+export const codeCopied = ref(false)
+let codeCopyTimer = 0
+
+/** 取到新码 / 取消时把复制态收干净：新码上还挂着「已复制」是错的 */
+function resetCodeCopied() {
+  window.clearTimeout(codeCopyTimer)
+  codeCopied.value = false
+}
+
+export async function copyCloudCode() {
+  if (!code.value) return
+  try {
+    await navigator.clipboard.writeText(code.value)
+    codeCopied.value = true
+    window.clearTimeout(codeCopyTimer)
+    codeCopyTimer = window.setTimeout(resetCodeCopied, 2000)
+  } catch {
+    /* 非安全上下文或用户未授权：保持原样 —— 码就在屏幕上，手动选中也能抄走 */
+  }
+}
+
+/** 代填进行中。按钮据此禁用，免得同一次填两遍 */
+export const filling = ref(false)
+
+/**
+ * 扩展回报的原因 → 一句人话。
+ *
+ * 扩展只回一个枚举，不描述细节（它不知道站点要什么措辞，也不该往这里塞文案）。
+ * 认不出来的枚举一律走兜底：宁可说「没填成，请手动」，也不要把用户卡在一次无解释的失败上。
+ * 这些枚举是**跨仓契约**，与 cph-companion 的 fillCode 侧一一对应（见 HANDOFF 第 13 节）。
+ */
+function fillFailureText(reason) {
+  switch (reason) {
+    case 'not-logged-in':
+      return t('settings.cloud.fillNotLoggedIn')
+    case 'handle-mismatch':
+      return t('settings.cloud.fillMismatch', { handle: pendingHandle.value })
+    case 'no-tab':
+      return t('settings.cloud.fillNoTab')
+    case 'page':
+      return t('settings.cloud.fillPage')
+    case 'timeout':
+      return t('settings.cloud.fillTimeout')
+    case 'unsupported':
+      return t('settings.cloud.fillUnsupported')
+    default:
+      return t('settings.cloud.fillFailed')
+  }
+}
+
+/**
+ * 这个浏览器在 Codeforces 上登的是不是当前这个 handle。
+ *
+ * `'match' | 'mismatch' | 'not-logged-in' | 'unknown'`，其中 unknown = 不知道，
+ * 包括「没装扩展」「扩展太旧」「这个浏览器从没开过 Codeforces」全部情形。
+ *
+ * ⚠️ **只用来决定显示什么**，绝不参与鉴权。扩展是用户可替换的组件，伪造一个就能对任意
+ * handle 回答 match —— 身份证明始终是服务端那条 user.info + Last name，一字不改。
+ * 判据与边界写在 useCompanionBridge 的 checkCfIdentity 上面。
+ */
+export const cloudCfStatus = ref('unknown')
+
+/**
+ * 取码那一步要显示的那行提示 —— 两类组件共用这一份，免得面板与菜单各写一套 switch。
+ *
+ * `tone` 只管**配色**（`''` = 与改动前那句同色），`key` / `params` 交给调用方去 `t()`。
+ * 只有两种颜色：`ok` = 已确认是这个账号；`warn` = 点之前就知道会失败（与面板里云端报错
+ * 同一支 `--warn` 令牌）。刻意不给红色 —— 这两句是**事前提醒**，不是已经发生的错误，
+ * 用报警色会把「还没点呢」说成「出事了」。
+ */
+export const cloudCfHint = computed(() => {
+  switch (cloudCfStatus.value) {
+    case 'match':
+      return { tone: 'ok', key: 'settings.cloud.cfHintMatch', params: { handle: pendingHandle.value } }
+    case 'mismatch':
+      return { tone: 'warn', key: 'settings.cloud.cfHintMismatch', params: { handle: pendingHandle.value } }
+    case 'not-logged-in':
+      return { tone: 'warn', key: 'settings.cloud.cfHintNotLoggedIn', params: {} }
+    default:
+      return { tone: '', key: 'settings.cloud.fillCodeNote', params: {} }
+  }
+})
+
+/**
+ * 问一次扩展「这个浏览器登的是不是这个 handle」，把结果记进 cloudCfStatus。
+ *
+ * 刻意不 await：这一问只是把提示**提前**，绝不能挡住取码或代填（见 useCompanionBridge 的
+ * CF_CHECK_TIMEOUT —— 3 秒到点就按 unknown 收场）。也刻意不做任何轮询：取一次码问一次、
+ * 代填跑完再问一次，就这两处。
+ */
+async function refreshCfStatus() {
+  if (!canCheckCf.value || !code.value) return
+
+  const handle = pendingHandle.value
+
+  try {
+    const status = await checkCfIdentity(handle)
+    // 用户可能在等待期间取消了取码：迟到一步的答案必须丢掉，否则会拿上一轮的结论说这一轮的话
+    if (code.value && pendingHandle.value === handle) cloudCfStatus.value = status
+  } catch {
+    /* 锦上添花的一问，出任何问题都维持现状（界面与改动前一样） */
+  }
+}
+
+/**
+ * 请扩展把当前这枚码填进 Codeforces。只在 `canFillCode` 为真时会被调用（按钮本身据此显示）。
+ *
+ * 成功只提示「已填好，回来点验证」—— **验证那一步仍然留给用户自己点**：服务端要的是
+ * 「确认这一次写入」，替他点等于把最后一道确认也拿走了；何况码还有 10 分钟有效期，
+ * 用户完全来得及先看一眼 Codeforces 上填对了没有。
+ */
+export async function fillCloudCode() {
+  if (filling.value || !code.value) return
+  clearCloudFeedback()
+  filling.value = true
+  const result = await requestCodeFill(pendingHandle.value, code.value)
+  filling.value = false
+  if (result.ok) {
+    notice.value = t('settings.cloud.fillCodeDone')
+  } else {
+    error.value = fillFailureText(result.reason)
+  }
+  // 扩展刚跑完一趟、会话缓存已经对齐（见 cph-companion 的 syncCfIdentityFromFill），
+  // 再问一次就能把「没登录 / 登的不是你」这类提示从「失败后才知道」提前到「点之前就知道」
+  refreshCfStatus()
 }
 
 /**
@@ -280,6 +438,70 @@ export async function uploadWithToken(handle) {
   // 验证码面板开出来了才提示，否则屏幕上已经有一句取码失败的报错了。
   await requestCloudCode(handle)
   if (code.value) notice.value = t('settings.cloud.tokenExpired')
+}
+
+/**
+ * 已绑定态点「上传本机设置」。这条才是真的会覆盖云端。
+ *
+ * 有设备令牌就直接写 —— 「一次验证换长期免取码」换来的就是这个；本机没有令牌
+ * （从没验证成功过）才退回取码验证那条路（`codeMode` 因此变成 'upload'，
+ * 菜单与面板都要照它显示「验证并上传」那一套文案）。
+ */
+export async function uploadCloud() {
+  const handle = cloudAccount.value.handle
+  if (!handle) return
+  if (cloudToken.value) {
+    await uploadWithToken(handle)
+    return
+  }
+  codeMode.value = 'upload'
+  await requestCloudCode(handle)
+}
+
+/**
+ * 下载到本机：把云端那份写进 localStorage，然后刷新页面（刷新的理由见 adoptCloud）。
+ *
+ * 「登录成功」「点下载」「导入」三条路共用 adoptCloud，语义都是「这台设备改用云端那一套」，
+ * 方向始终是**只下不传** —— 上传是上面那个函数的事。
+ */
+export async function downloadCloud() {
+  if (busy.value) return
+  const handle = cloudAccount.value.handle
+  if (!handle) return
+  clearCloudFeedback()
+  busy.value = true
+  const result = await fetchCloudProfile(handle)
+  busy.value = false
+  if (!result.success) {
+    error.value = result.notFound ? t('settings.cloud.noCloudConfig') : cloudFailure(result)
+    return
+  }
+  // 成功那一步会整页刷新，所以下面这句只在「云端那份一个白名单键都没有」时才走得到
+  if (!(await adoptCloud(result.data, handle, result.updatedAt ?? ''))) {
+    error.value = t('settings.cloud.emptyProfile')
+  }
+}
+
+/**
+ * 解绑：只断开**本机**与这个用户名的关联，不碰云端。
+ *
+ * 刻意不发 unbind 请求。服务端那个接口要求先取码验证（没有码就回「验证码已过期或未获取，
+ * 请重新取码」），可解绑在用户心里就是一次本机操作；硬要走「取码 → 改 Codeforces → 解绑」
+ * 三步，只会让人以为按钮坏了。云端那份配置本来就在拿 handle 就能读的位置，留着它并不会
+ * 多泄露什么 —— 想换账号，重新登录别的 handle 即可；想重新绑回来，登录一次就行。
+ *
+ * 「要不要先问一句」由调用方决定（面板弹自己的确认框、菜单在二级里内联问）。
+ */
+export function unbindCloud() {
+  clearCloudFeedback()
+  cloudAccount.value = { handle: '', updatedAt: '' }
+  // 令牌是跟着 handle 走的：解绑就该一起丢掉，否则换登录别的 handle 时会带过去
+  // （服务端也会因为 owner !== handle 而回 401，但那是兜底，不该靠它）
+  cloudToken.value = ''
+  handleInput.value = ''
+  // 「本机在跟谁」一并忘掉：留着的话，下次打开站点会把这位的配置又自动套回来 ——
+  // 那正是「解绑」最不该有的后果（这一步只删本机存档，仍然不发任何请求）
+  forgetActiveProfile()
 }
 
 /**

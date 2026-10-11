@@ -1,4 +1,4 @@
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 
 import { findProblemByUrl, problemUrlKey } from '../services/vfs/workspaceStore.js'
 import { IS_DESKTOP } from '../services/platform.js'
@@ -12,10 +12,30 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-ping / cp-info：网页主动握手，问扩展「装没装、版本号多少、快捷键绑了什么」
  *   - cp-set-config / cp-config：网页改投递目标开关
  *   - cp-query-need / cp-need-answer：扩展问「这道题要不要抓样例」，网页作答（见下）
+ *   - cp-fill-code / cp-fill-code-result：网页请扩展在 Codeforces 上替用户填验证码（见下）
+ *   - cp-cf-check / cp-cf-check-result：网页问「这个浏览器在 Codeforces 上登的是不是我填的
+ *     那个 handle」，扩展只回一个枚举（见下）
  *
  * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
  * 改了任何一条都必须同步改 cph-companion 并发新版插件，否则新旧两边互相认不出、
  * 抓题直接失联。下一行的 EXTENSION_SOURCE 是扩展侧的来源标识，不属于这批消息名。
+ *
+ * 【cp-fill-code 这一对是 2026-10-11 新加的】它是网页发起的第二条**动作请求**（头一条是
+ * cp-set-config），只服务云端同步里「取码 → 改 Codeforces Last name」那一步 —— 那一步必须
+ * 在带着用户 Codeforces 登录态的页面上做，而扩展本来就注入在 codeforces.com。
+ * 两条纪律：① 只回一个 reason 枚举，**绝不回传 CF 的 cookie 或页面内容**（信任模型与手工
+ * 填写一字不差，服务端仍然只认 user.info 里读回来的那枚 Last name）；② 只在用户显式点按时
+ * 触发一次，不做轮询、不在后台自动跑。
+ * 它是**加**出来的一对：老扩展不认识就不回，站点按超时收场；再叠一层 `capabilities`
+ * 能力协商（见 canFillCode），旧扩展下这颗按钮根本不出现，行为与改动前一致。
+ *
+ * 【cp-cf-check 这一对同样是 2026-10-11 新加的】取码之后问一句「这个浏览器登的是不是 he-jie」，
+ * 好让界面**提前**说清代填能不能成，而不是让用户白点一次再看失败文案。
+ * 三条纪律：① **只回枚举，不回用户名** —— 扩展在本地比对（它捎带读的是 Codeforces 页面上
+ * 公开可见的那个链接，不是 cookie），所以这个回答里**没有任何本站原本不知道的信息**；
+ * ② 一律当**提示**用，绝不参与鉴权 —— 扩展是用户可替换的组件，伪造一个就能回答任意 handle，
+ * 所以它只能决定「显示什么」，不能决定「放行什么」（服务端那条 Last name 验证一字不改）；
+ * ③ 拿不到就按 `unknown` 收场，界面退回改动前的样子。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
@@ -44,6 +64,29 @@ const CONFIG_TIMEOUT = 1000
  */
 const SCRAPE_TIMEOUT = 30000
 
+/**
+ * 等扩展把验证码填进 Codeforces 的上限。
+ *
+ * 比上面几条宽得多，因为这一步扩展可能要**新开一个 Codeforces 标签页**（用户还没登录过、
+ * 或那个标签页被关了）再等页面就绪 —— 那是几秒级的事。扩展开着、CF 标签页也在时通常一两秒。
+ */
+const FILL_TIMEOUT = 15000
+
+/**
+ * 等扩展回答「这个浏览器登的是不是这个 handle」的上限。
+ *
+ * 比代填短得多：这一问**不打开任何页面、不发任何请求**，扩展只是拿它自己存的会话缓存比一下
+ * （见 cph-companion 的 background.ts），正常是毫秒级。留 3s 是给「service worker 刚被回收
+ * 需要唤醒」那一档。超时一律当 unknown —— 这一问只是锦上添花，绝不能拖慢界面。
+ */
+const CF_CHECK_TIMEOUT = 3000
+
+/**
+ * 扩展对「这个浏览器登的是不是这个 handle」可能给的四种回答（也是**跨仓契约**）。
+ * 多一个没见过的值一律收敛成 `unknown`：界面只有四种形态，不该被一个新枚举撬开第五种。
+ */
+const CF_IDENTITY_STATUSES = ['match', 'mismatch', 'not-logged-in', 'unknown']
+
 const taskHandlers = new Set()
 const seenTaskIds = new Set()
 
@@ -55,6 +98,14 @@ let attached = false
 let configSeq = 0
 /** requestId -> { resolve, timer }：等待扩展对某次改配置的确认 */
 const pendingConfigs = new Map()
+
+let fillSeq = 0
+/** requestId -> { resolve, timer }：等待扩展报「验证码填好了 / 为什么没填成」 */
+const pendingFills = new Map()
+
+let cfCheckSeq = 0
+/** requestId -> { resolve, timer }：等待扩展报「这个浏览器登的是不是这个 handle」 */
+const pendingCfChecks = new Map()
 
 function clearPingTimers() {
   for (const timer of pingTimers) window.clearTimeout(timer)
@@ -120,6 +171,116 @@ export function setExtensionConfig(key, value) {
     pendingConfigs.set(requestId, { resolve, timer })
     window.postMessage(
       { source: PAGE_SOURCE, type: 'cp-set-config', requestId, key, value },
+      window.location.origin,
+    )
+  })
+}
+
+/**
+ * 扩展自报的能力清单（`cp-info` 的 `info.capabilities`）。
+ *
+ * 做成**能力协商**而不是按版本号比大小：站点不该记「2.67.0 起才有代填」这种账 ——
+ * 那笔账一旦记错方向就反了，而且每加一条能力都要回来改比较逻辑。
+ * 老扩展（2.66.3 及以前）根本不带这个字段，落到空数组，于是代填那颗按钮不出现，
+ * 行为与改动前一字不差 —— 这正是「加一对消息不必两边同版」的前提。
+ */
+export const canFillCode = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('fill-code'),
+)
+
+/**
+ * 扩展能不能回答「这个浏览器在 Codeforces 上登的是谁」。与 canFillCode 同一套能力协商。
+ *
+ * 与 `fill-code` **分开列**是刻意的：两条能力互不蕴含（一个管"能干活"、一个管"能答话"），
+ * 合成一条会让「支持代填但不支持预检」的版本无路可走。
+ */
+export const canCheckCf = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('cf-check'),
+)
+
+/**
+ * 请扩展在 Codeforces 上替用户把验证码填进 Last name 并保存。
+ *
+ * 【为什么走扩展】服务端证明身份的方式是「能改这个 handle 的公开资料」，而这件事必须在
+ * **带着用户 CF 登录态**的页面上做 —— 扩展本来就注入在 codeforces.com，这是它最合适的用处。
+ * 网页自己做不到（跨源），也不该让用户的 CF 凭据离开浏览器（见项目讨论：读 cookie 那条路
+ * 会让 CF 会话凭据进入后端，被否决）。
+ *
+ * 【刻意不做的事】扩展只回一个 reason 枚举，**不回传任何 CF cookie 或页面内容**；
+ * 站点这一侧拿不到、也存不下 CF 的任何凭据。信任模型与手工填写完全一致：服务端仍然只认
+ * `user.info` 里读回来的那枚 Last name。扩展侧另有三条约束：只认当前登录的 handle 与请求
+ * 一致（不一致就什么都不写）、只在这一次调用里用这枚码、用完即弃。
+ *
+ * 返回 `{ ok, reason }`。扩展没装 / 太旧 / 超时都在这里折成一个失败结果，不往外抛 ——
+ * 界面只需要「成功」或者「一句人话」。
+ */
+export function requestCodeFill(handle, code) {
+  return new Promise((resolve) => {
+    if (!canFillCode.value) {
+      resolve({ ok: false, reason: 'unsupported' })
+      return
+    }
+
+    const requestId = `cp-fill-${++fillSeq}`
+    const timer = window.setTimeout(() => {
+      pendingFills.delete(requestId)
+      resolve({ ok: false, reason: 'timeout' })
+    }, FILL_TIMEOUT)
+
+    pendingFills.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        resolve(result)
+      },
+    })
+
+    window.postMessage(
+      { source: PAGE_SOURCE, type: 'cp-fill-code', requestId, handle, code },
+      window.location.origin,
+    )
+  })
+}
+
+/**
+ * 问扩展「这个浏览器在 Codeforces 上登的是不是我填的这个 handle」。
+ *
+ * 【为什么要问】取码之后，代填能不能成完全取决于这一件事。不问的话，用户只能白点一次、
+ * 等失败文案才知道「哦这台浏览器没登 CF」。问了就能**提前**说清，把那句失败文案提前成提示。
+ *
+ * 【为什么只回枚举是安全的】本站问的是「是不是 he-jie」，而 he-jie 是用户自己填进来的 ——
+ * 所以扩展回 match / mismatch / not-logged-in / unknown 里**没有一个字**是本站原本不知道的。
+ * 扩展那边也不读 cookie：它读的是 Codeforces 页面上公开可见的那个 `/profile/<handle>` 链接
+ * （见 cph-companion 的 src/cfIdentity.ts），判据与用户抬头看一眼等价。
+ *
+ * 【绝不用来鉴权】这个值只能决定界面显示什么。扩展是用户可替换的组件，伪造一个就能对任意
+ * handle 回答 match —— 所以它不能参与「放行什么」。身份证明始终是服务端那条 user.info +
+ * Last name，一字不改。
+ *
+ * 返回 `'match' | 'mismatch' | 'not-logged-in' | 'unknown'`；扩展没装 / 太旧 / 超时都收敛成
+ * `unknown`，调用方据此退回改动前的界面。
+ */
+export function checkCfIdentity(handle) {
+  return new Promise((resolve) => {
+    if (!canCheckCf.value || !handle) {
+      resolve('unknown')
+      return
+    }
+
+    const requestId = `cp-cf-${++cfCheckSeq}`
+    const timer = window.setTimeout(() => {
+      pendingCfChecks.delete(requestId)
+      resolve('unknown')
+    }, CF_CHECK_TIMEOUT)
+
+    pendingCfChecks.set(requestId, {
+      resolve: (status) => {
+        window.clearTimeout(timer)
+        resolve(status)
+      },
+    })
+
+    window.postMessage(
+      { source: PAGE_SOURCE, type: 'cp-cf-check', requestId, handle },
       window.location.origin,
     )
   })
@@ -274,6 +435,31 @@ function onMessage(event) {
     return
   }
 
+  // 扩展报「验证码填进 Codeforces 了吗」（cp-fill-code 的回执）：按 requestId 认领
+  if (data.type === 'cp-fill-code-result') {
+    const pending = pendingFills.get(data.requestId)
+    if (!pending) return
+
+    pendingFills.delete(data.requestId)
+    pending.resolve({
+      ok: data.ok === true,
+      // 扩展没给 reason 时留空串，由调用方的兜底文案接手
+      reason: typeof data.reason === 'string' ? data.reason : '',
+    })
+    return
+  }
+
+  // 扩展报「这个浏览器登的是不是这个 handle」（cp-cf-check 的回执）：按 requestId 认领
+  if (data.type === 'cp-cf-check-result') {
+    const pending = pendingCfChecks.get(data.requestId)
+    if (!pending) return
+
+    pendingCfChecks.delete(data.requestId)
+    // 认不出的枚举一律收敛成 unknown —— 多一个没见过的值不该让界面切到别的分支去
+    pending.resolve(CF_IDENTITY_STATUSES.includes(data.status) ? data.status : 'unknown')
+    return
+  }
+
   if (data.type !== 'cp-info') return
   // 只认自己那一轮的握手回包（页面里可能有其它脚本也在 postMessage）
   if (data.requestId !== currentRequestId) return
@@ -308,5 +494,14 @@ export function useCompanionBridge(onTask) {
     onBeforeUnmount(() => taskHandlers.delete(onTask))
   }
 
-  return { extensionInfo, checking, refresh: refreshExtensionInfo, setExtensionConfig }
+  return {
+    extensionInfo,
+    checking,
+    refresh: refreshExtensionInfo,
+    setExtensionConfig,
+    canFillCode,
+    requestCodeFill,
+    canCheckCf,
+    checkCfIdentity,
+  }
 }
