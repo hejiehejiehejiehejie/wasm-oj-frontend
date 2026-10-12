@@ -128,6 +128,7 @@ const handlesActive = computed(() => !viewActive.value && mdViewMode.value !== '
 const {
   handles: selectionHandles,
   dragging: handlesDragging,
+  probe: handleProbe,
   onHandleDown: onSelectionHandleDown,
 } = useSelectionHandles({
   editor,
@@ -897,6 +898,28 @@ defineExpose({
         </div>
       </div>
     </Teleport>
+
+    <!-- 拖手柄时那颗「光标在哪」的胶囊：手指本身把落点附近的代码挡住了，读数挪到手指上方去
+         （iOS 的放大镜是同一个动机）。位置与行列都由 useSelectionHandles.js 算好送过来，
+         这里只管画。Teleport 到 body + fixed：**不能挂在 .selection-handles 里** ——
+         那层有 overflow: hidden（裁手柄盒子伸出去的部分），手指贴着编辑器上沿时胶囊会被整颗裁掉。
+         ⚠️ 整条链路必须 pointer-events: none：它是编辑器 DOM 之外的元素，一旦压在手指落点上，
+         Monaco 的 getTargetAtClientPoint 会命中它而返回 position: null，拖动当场卡死
+         （详见 useSelectionHandles.js 文件头那条 ⚠️）。 -->
+    <Teleport to="body">
+      <div
+        v-if="handleProbe"
+        class="handle-probe"
+        :class="{ 'is-below': handleProbe.below }"
+        :style="{ left: `${handleProbe.left}px`, top: `${handleProbe.top}px` }"
+        aria-hidden="true"
+      >
+        <span class="handle-probe__pill">
+          {{ t('app.status.cursor', { line: handleProbe.line, column: handleProbe.column }) }}
+        </span>
+        <span class="handle-probe__beam"></span>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1020,6 +1043,79 @@ defineExpose({
 .selection-handle--end::after {
   top: 0;
   height: 10px;
+}
+
+/* ------------------------------------------- 拖动时的「光标在哪」胶囊 */
+
+/* 外层只管定位：left / top 是手指的视口坐标（由 useSelectionHandles.js 算好），
+   translate 把「胶囊 + 光束」整条的底边抬到手指上方 —— 光束撑开的那 52px 就是 PROBE_GAP，
+   于是胶囊自己那条下沿离手指正好 52。**不加 transition**：位置每帧都在变，加了会拖出残影。
+   ⚠️ pointer-events: none 必须一路继承到胶囊：它是编辑器 DOM 之外的元素，压在落点上会让
+   Monaco 的 getTargetAtClientPoint 返回 position: null，拖动当场卡死（同上面那两颗手柄）。
+   z-index 118：压在手柄之上，但仍低于菜单（120）/ 确认框（130）/ 通知（150）——
+   它是拖动期间的附属指示，不该盖住任何一层可交互的东西。 */
+.handle-probe {
+  position: fixed;
+  z-index: 118;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+/* 上方放不下就翻到手指下方：整条上下镜像（光束旋 180°，梯形与渐变跟着一起翻） */
+.handle-probe.is-below {
+  flex-direction: column-reverse;
+  transform: translate(-50%, 0);
+}
+
+/* 胶囊本体。高度 34 = PROBE_H，**改这里要同步改 useSelectionHandles.js 的 PROBE_H**，
+   否则「上方放不放得下」的判据就偏了。数字用等宽 + tabular：拖动时行列跳得很快，
+   非等宽会让胶囊跟着一宽一窄地抖。 */
+.handle-probe__pill {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--probe-bg);
+  border: 1px solid var(--probe-border);
+  box-shadow: var(--probe-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--probe-text);
+  font-family: var(--mono-font);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* 按下即弹出来的一下；松手是直接撤（不做退场）—— 拖完立刻清干净比留个淡出更利索 */
+  animation: handle-probe-in 120ms ease-out;
+}
+
+/* 光束：把胶囊和手指连起来，长度就是 PROBE_GAP（改这里也要同步那边）。
+   上窄下宽的梯形 —— 指头那头宽、胶囊那头窄，看着像是从指尖「抽」出来的。 */
+.handle-probe__beam {
+  width: 18px;
+  height: 52px;
+  background: linear-gradient(180deg, var(--probe-beam), transparent);
+  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%);
+}
+
+.handle-probe.is-below .handle-probe__beam {
+  transform: rotate(180deg);
+}
+
+@keyframes handle-probe-in {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .editor-pane__preview {

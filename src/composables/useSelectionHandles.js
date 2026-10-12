@@ -36,6 +36,25 @@
  * 起点手柄的圆点在选区**上沿之上**、杆向下接到文字；终点手柄的圆点在**下沿之下**、杆向上。
  * 这是 iOS / Android 原生文本控件的样子。盒子位置夹在编辑器可视区内：端点滚出视口时
  * 手柄贴在边上，不会飘到页签栏或状态栏上（见 `place()`）。
+ *
+ * 【拖动时那颗胶囊（`probe`）】
+ * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把「此刻光标落在行 n 列 m」
+ * 显示在手指上方（iOS 的放大镜是同一个动机）。它只在**拖手柄期间**存在，松手即撤，
+ * 平时不是一层常驻浮层。
+ *
+ * ⚠️ 与手柄同一条命中测试的坑：**胶囊必须对命中测试隐身**（`pointer-events: none`）。
+ * 它 Teleport 到了 body 上，是编辑器 DOM 之外的元素；一旦它压在手指落点上，
+ * `getTargetAtClientPoint` 就会走 `fulfillUnknown()` 返回 `position: null`，拖动当场卡死
+ * （机制见文件头那条 ⚠️，`.selection-handles` 里那两颗是同一回事）。
+ *
+ * ⚠️ 位置算好再交给模板（viewport 坐标 + 是否已翻到下方），模板只管画，不做数学：
+ * 夹取要用 `--ui-scale` 与视口尺寸，这些东西待在 CSS 里拿不到。
+ * 胶囊的尺寸**必须与 EditorPane.vue 里 `.handle-probe*` 的 CSS 一致**（那边写 px，构建期
+ * 转 rem 后跟着 `--ui-scale` 缩放，所以这里也要乘 `uiScale()`，与 HANDLE_BOX 同款）：
+ *   PROBE_GAP  手指接触点到胶囊最近那条边的距离
+ *   PROBE_H    胶囊高（CSS 里由字号与上下 padding 决定，改样式要同步改这里）
+ * 宽度只用于水平夹取，用**估算上限** PROBE_W_EST：内容（行 n，列 m）宽度随数字位数变，
+ * 取一个偏大的值只会让胶囊更靠里一点，不会撞出视口，比每帧去量 DOM 划算。
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
@@ -56,6 +75,18 @@ const EDGE_ZONE = 32
 const EDGE_STEP = 8
 /** 拖动时把坐标再往内容区里推一点，免得落在行号槽上拿不到 position */
 const CONTENT_PAD = 2
+/**
+ * 胶囊的定位参数（逻辑 px），**必须与 EditorPane.vue 的 `.handle-probe*` CSS 一致**。
+ * 改样式记得同步这四个数，否则翻转与夹取的判据就偏了。
+ */
+/** 手指接触点到胶囊最近边的距离 —— 也就是那条光束的长度 */
+const PROBE_GAP = 52
+/** 胶囊高度 */
+const PROBE_H = 34
+/** 胶囊宽度的估算上限，只用于水平夹取（理由见文件头） */
+const PROBE_W_EST = 140
+/** 胶囊离视口左右边 / 上下边至少留出的余量 */
+const PROBE_SAFE = 10
 
 /**
  * @param {{
@@ -78,6 +109,13 @@ export function useSelectionHandles({ editor, host, stage, active }) {
    * （为什么必须这么做见文件头那条 ⚠️）。
    */
   const dragging = ref(false)
+
+  /**
+   * 拖动期间那颗「光标在哪」的胶囊；null = 不显示（没在拖）。
+   * `{ left, top, line, column, below }`：`left / top` 是**视口坐标**（胶囊 Teleport 到 body，
+   * 用 fixed 定位，因此不必换算 stage 偏移），`below` = 上方放不下、已翻到手指下方。
+   */
+  const probe = ref(null)
 
   /** 最近一次落在编辑区的指针是不是触摸 */
   const touchActive = ref(
@@ -187,12 +225,17 @@ export function useSelectionHandles({ editor, host, stage, active }) {
     event.stopPropagation()
     // 对面那一端全程钉住；自己这一端跟着手指走
     const fixed = which === 'start' ? selection.getEndPosition() : selection.getStartPosition()
+    const moving =
+      which === 'start' ? selection.getStartPosition() : selection.getEndPosition()
     drag = {
       pointerId: event.pointerId,
       fixed: new monaco.Position(fixed.lineNumber, fixed.column),
+      /** 手指下那一端此刻落在哪儿；胶囊报的就是它（见 `syncProbe`） */
+      at: new monaco.Position(moving.lineNumber, moving.column),
       x: event.clientX,
       y: event.clientY,
     }
+    syncProbe()
     // 先把两颗手柄对命中测试隐身，再收后续事件 —— 顺序反了第一帧就会撞上「落点在盒子里」
     dragging.value = true
     window.addEventListener('pointermove', onDragMove, { passive: false })
@@ -221,7 +264,47 @@ export function useSelectionHandles({ editor, host, stage, active }) {
     const y = clamp(drag.y, rect.top + 1, rect.bottom - 1)
     const position = instance.getTargetAtClientPoint(x, y)?.position
     if (!position) return
+    drag.at = position
     instance.setSelection(monaco.Range.fromPositions(drag.fixed, position))
+    syncProbe()
+  }
+
+  /**
+   * 把拖动现场换算成胶囊的位置与读数（`applyDrag()` 与 `stepEdgeScroll()` 都会走到，
+   * 后者是手指贴边不动、靠自动滚动在改光标那一档）。
+   *
+   * 位置跟的是**手指的真实坐标**（`drag.x / drag.y`），不是 `applyDrag()` 里夹进编辑器后的
+   * 那一份：手指移到行号槽或编辑器外面时，夹取坐标会钉在边上，胶囊跟着钉住看着像卡死了。
+   * 读数反过来取夹取后的 model position（`drag.at`）—— 手指在那个位置本来就落不到内容上，
+   * 显示钉住的那一行一列才是对的。
+   *
+   * ⚠️ 读数**不能**按「拖的是哪一端」去 `getSelection()` 上取：手拖过对面那一端之后
+   * Monaco 会把 start / end 交换（`Range.fromPositions` 内部有序），此刻按 which 取到的是
+   * **被钉住的那一端**，胶囊就会报一个手指根本不在那儿的行列。只有 `drag.at`
+   * —— 每次 `applyDrag()` 现算出来的落点 —— 才是手指底下那一处。
+   */
+  function syncProbe() {
+    if (!drag || !drag.at) {
+      probe.value = null
+      return
+    }
+    const tip = drag.at
+    const scale = uiScale()
+    const gap = PROBE_GAP * scale
+    const height = PROBE_H * scale
+    const half = (PROBE_W_EST * scale) / 2
+    const safe = PROBE_SAFE * scale
+    const fitsAbove = drag.y - gap - height >= safe
+    const below = !fitsAbove && drag.y + gap + height <= window.innerHeight - safe
+    const min = half + safe
+    const max = window.innerWidth - half - safe
+    probe.value = {
+      left: Math.round(clamp(drag.x, min, Math.max(min, max))),
+      top: Math.round(drag.y),
+      line: tip.lineNumber,
+      column: tip.column,
+      below,
+    }
   }
 
   function pumpEdgeScroll() {
@@ -252,6 +335,7 @@ export function useSelectionHandles({ editor, host, stage, active }) {
     if (!drag || (event && event.pointerId !== drag.pointerId)) return
     drag = null
     dragging.value = false
+    probe.value = null
     if (edgeFrame) {
       window.cancelAnimationFrame(edgeFrame)
       edgeFrame = 0
@@ -303,5 +387,5 @@ export function useSelectionHandles({ editor, host, stage, active }) {
     disposables = []
   })
 
-  return { handles, dragging, onHandleDown }
+  return { handles, dragging, probe, onHandleDown }
 }
