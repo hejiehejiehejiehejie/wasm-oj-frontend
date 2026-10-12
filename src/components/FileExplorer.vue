@@ -1516,7 +1516,9 @@ defineExpose({
   flex: 0 0 auto;
   /* 折到第二行时仍然贴右 */
   margin-left: auto;
-  gap: 2px;
+  /* 四颗钮紧挨着排（2026-10-12 由 2px 收到 0）：24px 的方钮本身带圆角，
+     贴在一起也分得开，图标之间的空当由按钮内边距给 */
+  gap: 0;
 }
 
 .explorer__btn {
