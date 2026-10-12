@@ -444,7 +444,11 @@ function resolveQuality(quality) {
 }
 
 /**
- * 把一段代码渲染成 PNG。
+ * 把一段代码渲染成一张 canvas（导出链路唯一的一次绘制）。
+ *
+ * 返回 canvas 而不是字符串：下面两条出口**要的不是同一种东西** ——
+ * 下载要 data URL，`<a download>` 只认它；写剪贴板却要 Blob，而且手机上绝不能绕 data URL
+ * （见 copyCanvasToClipboard）。先统一画成 canvas，两条出口各取所需。
  *
  * @param {object} options
  * @param {string} options.code 要画的代码（通常是编辑器里的选区）
@@ -457,9 +461,9 @@ function resolveQuality(quality) {
  * @param {boolean} [options.bracketColorize=true] 是否按嵌套深度给括号上色（编辑器设置项
  *   bracketPairColorization；题解 .md 下编辑器自己会关掉，调用方也传 false）
  * @param {string} [options.fontFamily] 等宽字体栈，缺省用编辑器当前字体
- * @returns {Promise<string>} PNG 的 data URL（`data:image/png;base64,…`）
+ * @returns {Promise<HTMLCanvasElement>}
  */
-export async function renderCodeToImage({
+export async function renderCodeCanvas({
   code,
   languageId = 'plaintext',
   showDots = true,
@@ -591,21 +595,56 @@ export async function renderCodeToImage({
     }
   }
 
-  return canvas.toDataURL('image/png')
+  return canvas
+}
+
+/** canvas → PNG Blob。`toBlob` 是回调式的，包一层 Promise 好在 async 里用 */
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('canvas.toBlob returned null'))),
+      'image/png',
+    )
+  })
 }
 
 /**
- * 把图片写进系统剪贴板。
- * **不抛异常**，只回成功与否 —— 调用方据此决定要不要退化成下载：
- * 图片剪贴板需要安全上下文 + 用户手势，Safari 与部分内嵌 webview 会直接不支持。
- * @param {string} dataUrl
+ * 把 canvas 里的图写进系统剪贴板。**不抛异常**，只回成功与否 ——
+ * 调用方据此决定要不要退化成下载。
+ *
+ * 【为什么在 Android 上会失败，以及这里怎么绕】
+ * 1. **Blob 直接取自 canvas，不再绕 data URL。** 旧写法是 `toDataURL()` 拿到几 MB 的 base64
+ *    串、再 `fetch(dataUrl)` 解回 Blob：手机上这一步既慢又吃内存，等它跑完，「用户手势」
+ *    那几秒的窗口早过期了 —— `write()` 于是以 NotAllowedError 收场，用户看到的便是
+ *    「点了复制却变成下载」。toBlob 由浏览器内部编码，没有这一次来回。
+ * 2. **ClipboardItem 的值传 Promise。** `write()` 因此能在手势所在的那个 task 里就发出去
+ *    （Blob 随后由浏览器自己去取），Safari 严格要求这个写法，Chrome 也接受。
+ * 3. **先问一句 `ClipboardItem.supports('image/png')`。** Android 上不少壳（老 WebView、
+ *    Samsung Internet 一类）只有文本剪贴板，明说了不支持就别去撞，直接交给下载那条路。
+ *
+ * 仍留一道兜底：不认「值是 Promise」的老浏览器会走第二次尝试（先取 Blob 再写）。
+ *
+ * @param {HTMLCanvasElement} canvas
  * @returns {Promise<boolean>}
  */
-export async function copyImageToClipboard(dataUrl) {
+export async function copyCanvasToClipboard(canvas) {
+  if (!canvas || typeof ClipboardItem !== 'function' || !navigator.clipboard?.write) return false
+  // 没有 supports 这个静态方法（老浏览器）时不拦 —— 那时只能真的试一次才知道
+  if (typeof ClipboardItem.supports === 'function' && !ClipboardItem.supports('image/png')) {
+    return false
+  }
+  const pending = canvasToBlob(canvas)
+  // 第一次尝试若失败，这个 Promise 的 rejection 就没人接了，先挂个空 catch 免得冒
+  // unhandledrejection；两次尝试共用同一个 Promise，编码只会做一次。
+  pending.catch(() => {})
   try {
-    if (typeof ClipboardItem !== 'function' || !navigator.clipboard?.write) return false
-    const response = await fetch(dataUrl)
-    const blob = await response.blob()
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': pending })])
+    return true
+  } catch {
+    /* 落到下面的兜底 */
+  }
+  try {
+    const blob = await pending
     await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })])
     return true
   } catch {

@@ -44,9 +44,9 @@ import { monaco } from '../monaco-setup.js'
 import { t } from '../i18n/index.js'
 import { editorSettings } from '../services/editorSettings.js'
 import {
-  copyImageToClipboard,
+  copyCanvasToClipboard,
   downloadImage,
-  renderCodeToImage,
+  renderCodeCanvas,
 } from '../services/codeImage.js'
 import { notify } from '../services/notifications.js'
 import { formatCombo, useShortcutManager } from './useShortcutManager.js'
@@ -223,7 +223,7 @@ export function useEditorMenu({ editor, host }) {
       // 字体取 Monaco 当前真实生效的那一份（getOption(fontInfo)），排版才和编辑器里一致；
       // 字号不取 —— 导出图固定字号，见 codeImage.js 的 EXPORT_FONT_SIZE
       const fontInfo = instance.getOption(monaco.editor.EditorOption.fontInfo)
-      const dataUrl = await renderCodeToImage({
+      const canvas = await renderCodeCanvas({
         code,
         languageId: model.getLanguageId(),
         showDots: editorSettings.value.codeImageDots,
@@ -244,7 +244,7 @@ export function useEditorMenu({ editor, host }) {
         : editorSettings.value.codeImageAction
       // 取消（Esc / 点遮罩 / 「取消」）：图丢掉，什么都不做
       if (!action) return
-      if (action !== 'save' && (await copyImageToClipboard(dataUrl))) {
+      if (action !== 'save' && (await copyCanvasToClipboard(canvas))) {
         notify({
           type: 'success',
           title: t('notifications.image.copiedTitle'),
@@ -253,7 +253,8 @@ export function useEditorMenu({ editor, host }) {
         })
         return
       }
-      downloadImage(dataUrl, imageFileName(model))
+      // 下载只认 data URL（<a download> 不收 Blob），所以这一路才现编一次
+      downloadImage(canvas.toDataURL('image/png'), imageFileName(model))
       notify({
         type: 'info',
         title: t('notifications.image.downloadedTitle'),
