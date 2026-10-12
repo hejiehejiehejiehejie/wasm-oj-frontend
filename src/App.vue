@@ -1872,7 +1872,7 @@ onBeforeUnmount(() => {
       这三个实心点本身就压在线身上，看着线被啃掉三小段。
    结果是「点」与「线」互斥出现：平时给点提示能拖，线亮起来时只剩一条完整的线。
    ⚠️ 热区 2026-10-13 起只向右外扩（见 .splitter 的 margin），三点靠 left:50% 居中在**热区**里，
-   所以折叠态它们也跟着偏右 4px（不在中缝正中）—— 撤掉折叠态对称覆盖时留下的已知代价 */
+   折叠态它常驻可见、偏 4px 一眼看得出来 —— 所以折叠态下另有一条把它钉回中缝（见下面）。 */
 .splitter__dots {
   position: absolute;
   top: 50%;
@@ -1902,6 +1902,23 @@ onBeforeUnmount(() => {
   height: 2px;
   border-radius: 50%;
   background: var(--splitter-dot);
+}
+
+/* 折叠态把三点钉回中缝（2026-10-13 加，用户报「三个小圆点错位」）：热区只向右外扩后，
+   它的 50% 偏右 4px，点是 left:50% 居中在热区里的，于是跟着偏 —— 折叠态只有它是常驻的
+   「往这边拖能拉出来」提示，偏一眼就看出来。**只挪点、不挪热区**：热区位置挪动会让左缘
+   压进折叠图标栏（试过一版当天撤掉，见 .splitter 的注释）；点不接指针事件、纯视觉，挪它
+   没有行为代价。偏移量与线同源（.splitter__line 里同样减 4px）。
+   ⚠️ 触屏那条必须写在这个基础规则之后：同特异性 (0,3,0) 下后者压前者（实测踩过）。 */
+.workspace.is-collapsed .splitter__dots {
+  left: calc(50% - 4px);
+}
+
+@media (pointer: coarse) {
+  .workspace.is-collapsed .splitter__dots {
+    /* 触屏 24px 热区的 50% 偏右 10px（与 .splitter__line 的 -10px 同源） */
+    left: calc(50% - 10px);
+  }
 }
 
 .splitter:focus-visible .splitter__line,
