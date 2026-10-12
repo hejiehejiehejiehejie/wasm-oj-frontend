@@ -2,6 +2,9 @@ mod android_toolchain;
 // 原生端要碰系统的部分（起编译器、起子进程）都在这里，前端只通过 invoke 递字符串过来。
 // 因此 capabilities 里不需要给前端开 shell / fs 权限，权限面收在最小处。
 mod native;
+// 壳的状态栏跟着站内主题走（底色 + 图标明暗）。实体只在 Android 上，其它目标是空实现
+// （与 android_toolchain 同一形状：命令两个 handler 都注册，非安卓的实现什么都不做）。
+mod system_bars;
 mod toolchain;
 // 「打开本机文件夹」的磁盘原语（选根、列目录、读文件）。只在桌面端编译：
 // Android 上这套原语不成立，且它的依赖也只在非 Android 目标上声明（见 Cargo.toml）。
@@ -27,6 +30,7 @@ pub fn run() {
       native::run_cpp,
       native::run_python,
       android_toolchain::prepare_toolchain,
+      system_bars::set_system_bars,
       workspace::workspace_choose,
       workspace::workspace_open,
       workspace::workspace_close,
@@ -42,11 +46,15 @@ pub fn run() {
       workspace::export_close
     ]);
 
+  // 这一份只比桌面端少 workspace 那几条（它的原语在 Android 上不成立）。
+  // set_system_bars 两边都在：桌面端它是个空实现 —— 那边没有要同步的系统栏，
+  // 前端也拿 IS_ANDROID 挡着（见 src/services/systemBars.js），走不到这里。
   #[cfg(not(desktop))]
   let builder = builder.invoke_handler(tauri::generate_handler![
     native::run_cpp,
     native::run_python,
-    android_toolchain::prepare_toolchain
+    android_toolchain::prepare_toolchain,
+    system_bars::set_system_bars
   ]);
 
   builder

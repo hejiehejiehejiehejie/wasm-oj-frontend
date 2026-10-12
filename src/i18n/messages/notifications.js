@@ -42,10 +42,12 @@ export default {
       },
 
       /**
-       * 安装引导（services/installGuides.js）：开机自动各弹一次 + 设置面板里那颗
+       * 安装引导（services/installGuides.js）：开机自动弹一次 + 设置面板里那颗
        * 「安装引导」按钮手动再发一次。标题复用 `settings.menu.*` 那三条（齿轮菜单里同名同义），
        * 正文大多**复用设置面板现成的句子**（插件的 `hint*` / 换新 `updateHint*`、应用的 `noApi*`、
        * 以及那条 `blocked` 的前后半拼起来）—— 这里只收通知特有、面板里没有的几句。
+       * ⚠️ 自动弹只覆盖三条（能装了 / 插件没装 / 插件旧了）；`blocked` 那条 2026-10-12 起
+       * 只有手动按钮与设置面板才发得出，见 installGuides.js 的 available。
        */
       guide: {
         appReady:

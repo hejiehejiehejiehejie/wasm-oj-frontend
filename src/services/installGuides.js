@@ -17,6 +17,11 @@
  * 四条各记各的：见过「可以装应用」不等于见过「插件有新版」，所以状态变了仍会再提示一次。
  * 手动触发（设置里那颗「安装引导」按钮）**不看这份记录** —— 那是用户点名要看。
  *
+ * 【`app-manual` 只有「装不了」那半自动弹】2026-10-12 用户反馈那条警告「出现的有些频繁了」，
+ * 于是「有 API 却拿不到入口」那一格退出自动弹（理由见 `available`），只有引擎**压根没有**
+ * 这套 API（Firefox / Safari）时才自动说一句。四条引导的构造（`appGuide`）本身没变 ——
+ * 手动与设置面板两条路照旧能把它发出来。
+ *
  * 【这个键刻意不进云同步白名单】它是「**这台设备**已经被告知过什么」，同步过去等于让另一台
  * 从没弹过的设备也永远不弹。
  *
@@ -123,6 +128,8 @@ export function extensionUpdateHintKey() {
  * 「引擎有这套 API、此刻也没装，却拿不到一键安装的入口」—— 也就是**按钮灰着、状态词却写着
  * 「当前浏览器支持」**的那一格（判据与设置面板同一份，面板那个 `v-if` 读的就是这儿）。
  * 灰按钮本身修不了（没有任何 API 能问「到底装没装」），能做的只有如实解释 + 给出路。
+ *
+ * ⚠️ **它只服务设置面板那一行说明，不再驱动任何自动弹**（2026-10-12 起，见 `available`）。
  */
 export const installUnavailable = computed(
   () => INSTALL_API_SUPPORTED && !canInstall.value && !appInstalled.value,
@@ -263,19 +270,25 @@ function show(tag, options) {
 }
 
 /**
- * 这一条此刻该不该自动弹（`app-manual` 那格涵盖「装不了」与「拿不到入口」两种）。
+ * 这一条此刻该不该自动弹。
  *
- * `phase` 只影响 `app-manual` 里**有 API 但拿不到入口**那一格 —— 见 `runAutoGuides` 的说明。
+ * 【「有 API 却拿不到入口」那一格刻意不在自动弹之列】（2026-10-12 用户反馈：那条警告
+ * 「感觉出现的有些频繁了」）四条引导里只有它会**误报** —— `beforeinstallprompt` 什么时候来
+ * 不由站点定，「拿不到事件」既可能是「装过又删掉」（值得解释）、也可能只是「这一刻还没轮到」
+ * （不该提醒），站点没有任何手段把两者分开。而它又是唯一的 `warning` 型、还带按钮因而
+ * **常驻上屏**（`show()` 里 `duration: 0`、排序时排最上），一条黄色警告一直杵在通知区 ——
+ * 更糟的是这个判据**每个来源（origin）都会重来一遍**（记录是 per-origin 的 localStorage，
+ * dev server 每换端口、Vercel 每个预览域名、清一次站点数据都是全新的一份）。
+ * 所以这一格只**被动躺在设置面板「应用」栏里**，要发成通知得用户点名：手动那颗「安装引导」
+ * 走 `fireSectionGuide`，它本来就不看 `shown` 记录。
+ *
+ * 剩下三条自动弹的都是**真能办成一件事**的：能一键装了 / 插件没装 / 插件版本旧了。
  */
-function available(id, phase) {
+function available(id) {
   if (IS_DESKTOP) return false
   if (id === 'app-install') return canInstall.value
-  if (id === 'app-manual') {
-    if (appInstalled.value) return false
-    // 引擎压根没有这套 API（Firefox / Safari）：没有事件可等，早说晚说一样，不拖
-    if (!INSTALL_API_SUPPORTED) return true
-    return phase === 'late' && installUnavailable.value
-  }
+  // 引擎压根没有这套 API（Firefox / Safari）：没有事件可等，早说晚说一样，不拖
+  if (id === 'app-manual') return !appInstalled.value && !INSTALL_API_SUPPORTED
   // 插件两条都要求「这台机器有路」：一条路都没有（Safari / 桌面壳）时不打扰
   if (!EXTENSION_ROUTES.value.length) return false
   if (id === 'ext-install') return !extensionInfo.value
@@ -287,17 +300,14 @@ function available(id, phase) {
  * 开机自动引导：把**还没弹过、且此刻成立**的那几条各弹一次，弹过就落进 `cp.installGuides`。
  * 幂等 —— 重复调用只会补上「上次不成立、这次成立了」的那些（例如安装事件晚到）。
  *
- * 【为什么分两趟】`app-manual` 里「有 API 却拿不到入口」这一格**不能早弹**：Chrome 的
- * `beforeinstallprompt` 什么时候来不由我们定（首次访问时 SW 还没接管，它可能压根不来、
- * 也可能几秒后才来），早弹会把「这台其实装得上，只是还没轮到它派发事件」写成一屏
- * 「入口不可用」的警告。所以趟一是 `early`（只出应用能装、插件两条），趟二 `late` 再补那一格。
- * 两趟共用一个 tag —— 万一真的事件晚到，`app-install` 那条会把误报顶掉。
- *
- * @param {'early'|'late'} [phase='early']
+ * 【为什么不再分趟】第一版为「有 API 却拿不到入口」那一格分过 `early` / `late` 两趟
+ * （怕早弹把「其实装得上、只是还没轮到派发事件」写成警告）。那一格退出自动弹之后
+ * （见 `available`），剩下三条的判据在 2.5s 那趟都已经定得下来：插件探活最迟 2s 落定，
+ * 安装事件由 `useInstallGuides` 的 `watch(canInstall)` 兜底补齐。`late` 那趟随之取消。
  */
-export function runAutoGuides(phase = 'early') {
+export function runAutoGuides() {
   for (const id of ['app-install', 'app-manual', 'ext-install', 'ext-update']) {
-    if (shown.has(id) || !available(id, phase)) continue
+    if (shown.has(id) || !available(id)) continue
     if (id.startsWith('app')) show(TAG_APP, appGuide())
     else show(TAG_EXTENSION, extensionGuide())
     rememberShown(id)

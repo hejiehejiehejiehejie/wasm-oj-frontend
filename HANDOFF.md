@@ -116,7 +116,7 @@ src/
     SettingsMenu.vue            # 设置下拉菜单（Quick Settings，2026-10-11 加）：侧栏页头那颗齿轮与折叠图标栏那颗齿轮点出来的浮层。一级 10 行 —— 2 个内联开关（启用模板 / 自动保存）、1 个步进器（字体大小）、4 个二级子菜单（**主题** / 界面缩放 / 界面语言 / **侧边栏位置**，选完**菜单不关**）、**「同步设置」那一行展开的是个小表单**（见下。这一行 2026-10-11 按用户要求由「云端同步」改名而来，**只改菜单里这一行** —— 设置面板左栏与右侧分组标题仍叫「云端同步」，两处刻意不同名，别顺手统一；同理菜单里那个用户名框的占位文字也单有一份 `settings.menu.cloudHandlePlaceholder`（中「如：he-jie（CFID）」/ 英 "he-jie (CF ID)"），**不复用** `cloud.handlePlaceholder`。⚠️ 这只框的内容宽只有 ~108px：flex-basis 是 0、宽度全靠按钮让出来的剩余，占位文字一长就会被截尾 —— 改这句文案前先量宽度）、「打开设置面板…」（开出编辑区里那个设置页签）与「设置分类」二级（8 个分类，**选完连菜单一起收**，它把人送到设置面板去）。**二值项用开关还是用二级**（2026-10-11 定的判据）：**两档各有名字的走二级**（主题 = 深 / 浅，侧边栏位置 = 左 / 右）—— 开关只能说「开 / 关」、说不出档位叫什么，二级里既看得到当前停在哪一档、也能直接认出另一档叫什么；**本身就是「开或不开」语义的才用开关**（剩下的启用模板 / 自动保存）。主题与侧边栏位置原先都是开关，按这条改成二级；「空格代替 Tab / 自动换行 / 代码缩略图」这三个开关 2026-10-11 **从菜单里去掉了**（面板里照旧）—— 菜单只留「当场就想改」的那几项。**「云端同步」的二级不是档位列表，是一个小表单**（2026-10-11 定），形态跟着「这台设备绑没绑人」走（`cloudBound` = `cp.cloudAccount` 里有没有 handle）：**未绑定** → 用户名框 + 「导入」/「登录」挤在**同一行**；**已绑定** → 最上面先是一行账号名（handle 加粗 + 「已绑定」小标记，与设置面板那一枚同款，2026-10-11 用户反馈补的）、下面一行「上传本机设置 / 下载到本机 / 解绑」（这位自己的事）、一条分隔线、最后一行仍是用户名框 + 「导入」。**用户名框与它的按钮必须同处一行**（2026-10-11 用户反馈定的）：填谁和取谁的是同一件事的两半，拆成两行会被读成两个步骤 —— 框 `flex: 1 1 0 + min-width: 0` 吃掉剩余宽度（`min-width: 0` 不能省，flex 项默认 `min-width: auto` 会撑住不缩、窄屏整行溢出），按钮 `flex: 0 0 auto + white-space: nowrap`。**已绑定时不再显示「登录」** —— 绑着再点一遍就又走一次取码验证（2026-10-11 用户当场反馈：登录之后点它还会再触发一次验证）；导入则两态都留着，它是「取一份配置」，与绑不绑无关，绑着的时候照样能取别人的（所以单独放第二行、不与账号那三颗混在一起）。取到码 → 码相（**登录与上传两套文案都显示**，按 `codeMode` 挑：菜单里点「上传」令牌失效时也要取码，那时遮住不显示就会变成「按钮没反应」）；要覆盖本机或断开绑定 → 确认相（`cloudPendingConfirm.kind` = 'import' / 'unbind'，共用同一句问法；解绑要先问是因为它会把绑定与令牌一起丢掉）。三个相由**云会话状态推出来**，不另存一份状态。**状态与动作全在 `services/cloudSession.js`，与设置面板共用同一份** —— 菜单里不许自己调云端接口、也不许自己 ref 一份账号：一边取了码另一边看不见。表单展开即聚焦用户名框；框空着时把本机认得的那一位填进去（先 `cp.cloudAccount`、再 `cp.cloudActive`）。表单里的输入框要拿回方向键 / Home 等键（`onRootKeydown` 对 `HTMLInputElement` 直接 return），只有 Esc / Tab 仍然收菜单。⚠️ 用户名框的 ref 必须写成**函数 ref**：整个二级都在一级的 `v-for` 里，同名字符串 ref 会被 Vue 收成数组，`.focus()` 报「不是函数」（与下面那条 `.settings-menu__sub` 是同一个坑）**它不用 `ContextMenu.vue`** —— 那份只有扁平 action 列表，撑不起二级 + 内联控件 + 键盘导航；但两件事仍共用：颜色走同一组 `--menu-*` 令牌、尺寸走同一个 `--menu-scale`，定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`。**结构表（每一项读什么、写哪份偏好）在 `services/settingsMenu.js`**，组件只按 `kind` 挑控件，加一项不必改组件。键盘：↑↓ 移动、→ / Enter 进二级或触发、← 收回二级、Esc / Tab 关；roving tabindex 收焦点，打开即钉在第一行。二级的展开：hover 即开、移出整块给 220ms 宽限再收；展开后还要**自己再收一次位置** —— 右边放不下翻到左侧（`subFlipped`）、下边放不下整块上抬（`subShift`，二级比视口还高时只抬到顶部也留边）。这一层**不能省**：`usePopoverLayer` 的视口收敛只夹一级那一块，管不到 absolute 挂出来的二级，而折叠态那颗齿轮在图标栏**贴底**那一组（一级被夹到 519–892），实测「设置分类」的二级能从 852 伸到 1089、**底部溢出 189px**（1400×900）。取二级元素按 `root.querySelector('.settings-menu__sub')` 而不是 ref：那批 div 都在 v-for / v-if 里，hover 从一行挪到下一行时卸载与挂载的先后不保证，ref 有可能停在上一个元素或 null 上。**触屏上没有 hover**（2026-10-11 修）：手指抬起时那个 pointer 直接不存在了，浏览器照规矩补一发 `pointerleave`（`pointerType === 'touch'`），照鼠标那套排 220ms 定时器，二级会在手指落下之前自己收掉（实测 430×800 下轻点后 160ms 还在、450ms 归零 —— 二级根本点不到）。所以 `onRootPointerLeave` 对非 mouse 的 pointerType 直接 return，二级在触屏上是「轻点展开、常驻」，换二级靠轻点别的行、收起靠点菜单外。鼠标行为不变。**二级的位置收敛有三步**（2026-10-11，当晚按用户「修改一下吧」重写）：右边放不下 → 翻到左侧；翻过去左边反而出屏（手机上一级就占掉大半宽度，两侧都塞不下二级，实测 414×896 折叠态不翻右缘 493 > 414、翻了左缘 -184 < 0）→ 翻回来改按实测位置**左右夹**（`--sub-shift-x` 走 transform，翻转时是 `right: 100%` 定位，改 margin-left 挪不动它）；下边放不下 → 整块上抬。宁可压住一级那一行，也别把二级推出屏幕。**三条硬规矩（2026-10-11 深夜定，动这里前先读）**：①收敛量必须**按「没挪过」的位置算绝对值**（量到的 rect 含着已写上的 transform / top，拿它当基准再算 overshoot 等于把上一轮结果当地基，越重跑越出屏 —— 实测右缘 421.9 → 436.7 反向漂）；②视口宽度用 `documentElement.clientWidth`（innerWidth 含滚动条）、高度仍用 `innerHeight`（软键盘缩的是它）；③收敛要**分帧跑到「连续两帧不动」**（最多 12 帧）—— 菜单是 0.95 → 1 弹开动画，打开后头一百来毫秒 `getBoundingClientRect` 量到的都是被缩小的那一份（实测二级宽 227.23 → 239.19），ResizeObserver 对祖先 transform 不响，帮不上这个忙；另外再挂一个 ResizeObserver 盯二级自己的 border-box（换语言 / 切到验证码、确认相 / 账号名变长变短都属这类），尺寸一变重算一次 —— 收敛量走 transform / top 不改布局盒，不会自己触发自己。视口变了（软键盘）也要重跑 —— 一级由 `usePopoverLayer` 重新匣进视口，挂出来的二级得自己跟上。验证判据：各视口下二级四缘都不得越过「视口 − GAP(4)」，且连发两次 resize 后位置漂移 ≤ 1px
     TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头动作区只剩 verdict（「全部 AC / n/m AC」）与耗时，经 `<Teleport defer>` 投进 Sidebar 共享页头的 `#sidebar-context`（同 FileExplorer 那颗，见坑 37）+ 用例列表 + 页脚运行按钮。原 `.panel__head` 已随页头上提删除（2026-10-11）。**不可运行态**（`runBlocked` 非空，由 App 的 `runBlockedReason` 算好传进来：题解这类非代码文件的 `activeLanguage` 是 null，以及「一个文件都没打开」）由同一份文案解释：页脚那行 `.run-blocked`（常驻，`v-if="runBlocked"` 不带附加条件）与两个 ▶ 的 title。**空态里不放这行** —— 「No test cases yet.」一行就是空态的全部（2026-10-06 定，别再加回去；空态里的 `notice` 是抓样那三条提示，说的是「样例为什么还没到手」，与能不能运行无关）。**「添加测试样例」也要跟着灰**（2026-10-06）：用例是写进活跃文件的 `config.tests` 的，跑不了的文件根本加不出用例，`App.addCase()` 里还有一道兜底挡住 `new-case` 快捷键。页脚两颗按钮的禁用态是同一档 opacity 0.45
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时没有任何标记**（字符一个没少、拖滚动条就能看全，底边仍是实线、框下也没有小字）；底边虚线与小字**只给真被截断的那种**；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「还有 N 个字符未显示 + 复制全部」说明**（那行只在真截断时出现；这个 `……` 时有时无的两条原因见第 5 节坑 26）
-    AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16（`.md` / `.markdown` → `markdown`，2026-09-30 加，配色 `--icon-markdown`）；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加）同表；**导入那两颗用的是 `file-down` / `folder-down`**（2026-10-12 加：同一份文件 / 文件夹轮廓 + 一枚向下的箭头角标，角标位置与 `file-plus` / `folder-plus` 的加号完全对齐，好让四颗按钮看着是一排）；**题解工具栏那 13 个线性图标与全屏用的 `expand` / `collapse`（2026-09-30 加）** 同样在 PATHS 里，键名与 `services/mdFormat.js` 的 `MD_TOOL_GROUPS` 一一对应
+    AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16（`.md` / `.markdown` → `markdown`，2026-09-30 加，配色 `--icon-markdown`）；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加）同表；**导入那两颗用的是 `file-down` / `folder-down`**（2026-10-12 加：同一份文件 / 文件夹轮廓 + **轮廓内部居中**的一枚向下箭头；⚠️ 第一版把箭头放在**右下角**、与 `file-plus` 的加号同处一角，14px 页头下两者只差角上那一撇，「新建」和「导入」根本分不出，当天即改 —— **这一排的判据是「轮廓保持一致、符号位置与形状错开」**）；**题解工具栏那 13 个线性图标与全屏用的 `expand` / `collapse`（2026-09-30 加）** 同样在 PATHS 里，键名与 `services/mdFormat.js` 的 `MD_TOOL_GROUPS` 一一对应
   services/                     # 判题逻辑，改样式基本不碰
     runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
     compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
@@ -143,6 +143,7 @@ src/
     vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，无外层 wrapper；题目信息与样例挂在**该文件节点**的 `meta` / `config` 上）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
     fileTransfer.js             # ★ 文件「导入 / 导出」的服务层（2026-10-12 加），**两端共用**，组件只消费。四块：① **下载** `downloadBlob`（`<a download>` + `URL.createObjectURL`，插进 DOM 点一下再撤，30s 后 revoke）；② **导出** `collectExport(nodes)` —— 递归读内容、算出每个条目在 zip 里的相对路径（以选区**公共父目录**为根，`commonParent()`；选中一个目录时保留它自己那一层），落点入口是 `exportAsZip` / `exportSingleFile` / `packZip`；③ **导入** `planImport(files)` 把 `File[]` 拍成 `{ rel, file }[]`（**保住 `webkitRelativePath`**，所以「选一个文件夹」进来时顶层文件夹名与子目录层级都在；没有这个属性就退化成单级文件名），`importInto(dir, items)` 落盘并回 `{ imported, skipped, failed, firstId }`；④ **平台能力** `CAN_EXPORT_TO_DISK = IS_DESKTOP`（**只有桌面端能写本机目录**）/ `canPickFolder()`（**只有桌面浏览器能整目录导入**，安卓与 iOS 的 `webkitdirectory` 认不出来）。两条纪律：**用户文件绝不覆盖**，重名一律走 `treeOps.uniqueNameIn` 排号（`a.cpp` → `a-2.cpp`，与 problemImport 同口径）；**整批落盘包在一个 `vfs.batch()` 里**，否则几百个文件就是几百次树重建。上限 `MAX_IMPORT_BYTES = 5MB`（与 Rust 侧 `MAX_TEXT_BYTES` 同号）、目录深度 `MAX_DEPTH = 32`；二进制与超大文件都只计入 `skipped`、**不报错**，提示里报个数就行
     zip.js                      # 极简 zip 打包（2026-10-12 加）。**刻意不引依赖**（第 0 节：加依赖先讨论），压缩走原生 `CompressionStream('deflate-raw')`（Chromium 103+ / Safari 16.4+ / Firefox 113+），拿不到就退回 store（method 0、不压缩）—— **「能解开」比「压得小」重要**。结构是本地文件头 + 中央目录 + EOCD，EFS 标志位 `0x0800` 声明文件名是 UTF-8（中文目录名全靠它），不写 data descriptor。上限照 zip 格式本身（`MAX_ENTRIES = 0xffff` / `MAX_UINT32`），**超了就抛错**、不静默产出半个包（文案 `error.zipTooManyEntries` / `error.zipTooLarge`，落点在 `engines.js` 的 `error` 组）
+    systemBars.js               # 壳里那条**系统状态栏**的同步入口（2026-10-12 加），前端这一侧的唯一出处：`syncSystemBars(dark, color)` —— `IS_ANDROID` 闸门 + `invoke('set_system_bars')`，失败只 `console.warn`。调用点只有一个：`editorSettings.js` 里主题那个 watch（与写 `<meta name="theme-color">` 同处）。为什么网页上做不到、底色为什么取 `--bg-chrome`、以及 Rust / JNI 那一整条链路，见第 14.P 节
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -645,7 +646,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   6. 设置视图「应用 › 本地运行环境」卸载渲染器 → 回预览应重新显示「去下载」入口，控制台不该有 `MD_RUNTIME_MISSING` 之外的报错。
   探针注意：VFS model 的 uri 是 `vfs://file/<uuid>`，**认不出文件名**，要读编辑器内容就用 `monaco.editor.getEditors()[0].getValue()`；动态 `import('/src/services/…')` 在 dev 下可能拿到另一个空实例（见插件那节的两个坑）。
 - 文件导入 / 导出专项（动过 `fileTransfer.js` / `zip.js` / `FileExplorer.vue` 的导入导出段 / `treeOps.js` 的 `uniqueNameIn`·`pruneNestedNodes` / `workspace.rs` 的导出段后必做），临时探针、用完即删。2026-10-12 实测 **38 项全绿**，覆盖这些判据（**都是探针自己造真文件走完整条链路**，不是只调函数）：
-  1. **页头四颗按钮**（新建文件 / 新建文件夹 / 导入文件 / 导入文件夹）+ 目录右键菜单的顺序（新建文件 / 新建文件夹 / 导入文件 / 导入文件夹 / **分隔线** / 导出）；**文件节点的菜单里没有「导入文件」**（那是目录才有的事）；
+  1. **页头四颗按钮**（导入文件 / 导入文件夹 / 新建文件 / 新建文件夹 —— **导入在左、新建在右**）+ 目录右键菜单的顺序（新建文件 / 新建文件夹 / 导入文件 / 导入文件夹 / **分隔线** / 导出）；**文件节点的菜单里没有「导入文件」**（那是目录才有的事）；
   2. **导入文件**：三个文本文件进树、**二进制被跳过且提示里报数**（样本要够脏：含 `0x00` 或截断的非法 UTF-8 —— 只塞高位字节如 `0xFF` 会被 `TextDecoder` 当合法字符收下）、导入正文逐字正确；
   3. **重名一律排号、绝不覆盖**：往同一目录再导一份 `a.cpp` → 树里出现 `a-2.cpp`、原来的 `a.cpp` 正文**一个字没动**。⚠️ **排号函数要单独在干净子目录里验** —— 直接拿根目录当靶子会被「上一步自己造出的 `a-2.cpp`」干扰，断言当场假红（本次踩过）。正确姿势：`createDirectory('/dup')` + `createFile('/dup/x.cpp')` 之后再问 `uniqueNameIn(vfs, '/dup', 'x.cpp')`，期望 `x-2.cpp`；顺带验不撞名时原样返回；
   4. **文件夹导入**：`webkitRelativePath` 要**手动 `Object.defineProperty` 造**（`accept()` 喂进去的 `File` 没有这个属性，正好顺带走通「退化成单级文件名」那条分支）；断言顶层文件夹名与子目录层级都在、模型里查得到 `/dirs/chapter1/a.cpp`、展开后 DOM 里出现 `chapter1` 那一层；
@@ -747,6 +748,11 @@ Firefox 安卓那条是上游现状，不是这里的配置错：它**至今不�
 运行期 meta / manifest 三处都是 `#1c1c1c`，浅色下前两处 `#e8e8e8`；`.app` 与视口等高、
 `elementFromPoint` 在视口四条边中点与两个下角命中的都是页面自己的元素（底部那 100px 里没有白）。
 `npm run verify` 基线不变（A/B/C/D/F 绿 + E/G/H 红）。
+
+**同一件事在安卓壳（APK）里是另一条通路**（2026-10-12 加）：那边没有浏览器读 meta，那条栏归
+Activity 的窗口管，得由 `services/systemBars.js` 经 Rust / JNI 送过去 —— 底色取的还是这里这一支
+`--bg-chrome`（两个「装好的形态」同色值），但**图标明暗在壳里跟的是站内主题、在浏览器里跟的是系统**。
+整条链路与三处契约见 **14.P**。
 
 ## 10. 部署（GitHub + Vercel）
 
@@ -1054,7 +1060,7 @@ window.dispatchEvent(ev)
 | id | 出现条件 | 通知长什么样 |
 | --- | --- | --- |
 | `app-install` | `canInstall`（引擎有 API **且**此刻真能一键装 **且**还没装） | 一句话正文；按钮 **安装 / 以后再说**（安装那颗直接调 `install()`） |
-| `app-manual` | 没装，且（引擎没 API **或** 有 API 却拿不到入口） | 只说明：无 API 走 `noApi*` 六条之一，拿不到入口走 `blocked` 前后半拼 `chrome://apps`，后者带 **复制地址** |
+| `app-manual` | 没装，且（引擎没 API **或** 有 API 却拿不到入口） | 只说明：无 API 走 `noApi*` 六条之一，拿不到入口走 `blocked` 前后半拼 `chrome://apps`，后者带 **复制地址**。⚠️ **只有「没 API」那半会自动弹**；「拿不到入口」那半 2026-10-12 起退出自动弹，只剩手动按钮与面板那一行 |
 | `ext-install` | 没探到扩展，且这台机器有路（`EXTENSION_ROUTES` 非空） | 正文 = 面板那六条 `hint*`；按钮按路给 **下载 / Firefox 版** |
 | `ext-update` | 探到扩展且版本旧（`isExtensionOutdated`） | 正文 = `updateHint*`；按钮 **重新下载 / Firefox 版** |
 
@@ -1068,11 +1074,16 @@ window.dispatchEvent(ev)
    那颗「重新检测」，所以改成位置中性的「点「Firefox 版」…装完回**设置里**点「重新检测」」——
    两处都读得通，别改回去。插件那六条里只有 Firefox 那条自带收尾动作，其余的在通知里由
    `guide.extRecheck` 补一句（通知上没有「重新检测」按钮）。
-2. **别早弹 `app-manual` 里「有 API 却拿不到入口」那一格**：Chrome 的 `beforeinstallprompt`
-   什么时候来不由站点定（首次访问时 SW 还没接管，它可能压根不来、也可能几秒后才来）。早弹会把
-   「其实装得上、只是还没轮到派发事件」写成一屏「入口不可用」的警告。所以 `runAutoGuides` 分两趟：
-   `early`（`useInstallGuides` 的 2.5s，只出应用能装 + 插件两条）与 `late`（10s，补那一格）；
-   两趟共用 `guide:app` 这个 tag —— 真的事件晚到时，`app-install` 那条会把误报顶掉。
+2. **「有 API 却拿不到入口」那一格只被动躺着，不自动弹**（2026-10-12 用户反馈「感觉出现的
+   有些频繁了」后定的）。它是四条里唯一会**误报**的一格：`beforeinstallprompt` 什么时候来不由
+   站点定，「拿不到事件」既可能是「装过又删掉」（值得解释）、也可能只是「这一刻还没轮到」
+   （不该提醒），站点没有任何手段把两者分开；而它又是唯一的 `warning` 型、还带按钮因而
+   **常驻上屏**（`show()` 里 `duration: 0`、排序排最上），一条黄色警告一直杵着。更要命的是
+   这个判据**每个来源都会重来一遍** —— 记录是 per-origin 的 localStorage，dev server 每换端口、
+   Vercel 每个预览域名、清一次站点数据都是全新的一份（第一版为此分过 `early` / `late` 两趟，
+   现在连 `late` 那趟一起取消了，`runAutoGuides` 不再收 `phase`）。想发它只有一条路：
+   设置面板那颗「安装引导」（`fireSectionGuide`，不看 `shown` 记录）。
+   剩下三条自动弹的都是**真能办成一件事**的：能一键装了 / 插件没装 / 插件旧了。
 3. **「自动弹一次」记在 `cp.installGuides`**（第 6 节），**手动触发不看这份记录**（用户点名要看）。
 4. **同一件事同时只留一条通知**：两条引导各一个 tag（`guide:app` / `guide:extension`），
    发新的先 `dismissByTag` 旧的。
@@ -1084,9 +1095,12 @@ window.dispatchEvent(ev)
 点它把这一栏的引导改成通知再发一次。与开机那一趟走的是同一个构造函数，所以**已经装好 / 已是最新版
 也照样有话说**（后者给 `guide.extUpToDate`），不会点了没反应。
 
-**实测**（2026-10-12 探针跑在 dev server 上、用完即删；中英各九场景、共 11 条断言全绿）：
+**实测**（2026-10-12 探针跑在 dev server 上、用完即删；中英各九场景、共 11 条断言全绿。
+⚠️ 下面「Chrome 不派发事件」那条是**旧口径**，同日稍后「拿不到入口」那格退出自动弹之后，
+自动弹不再出那条 —— 重测时按新口径断言：只剩下插件那条，应用引导一条都不自动出）：
 Chrome 合成安装事件 → 「安装为应用[安装/以后再说]」+「安装浏览器插件[下载]」；Chrome 不派发事件 →
-早期只有插件那条、10s 后补出「安装为应用[复制地址]」（正文含 `chrome://apps`）；扮桥回 `2.65.0` →
+~~10s 后补出「安装为应用[复制地址]」~~（现改为**不自动出**，点设置里那颗「安装引导」才发，
+正文含 `chrome://apps`）；扮桥回 `2.65.0` →
 「更新浏览器插件[重新下载]」；回 `2.66.4` → 一条都没有；Firefox（`delete window.onbeforeinstallprompt`）
 → 应用那条落 `noApiFirefoxOther`、插件那条给「Firefox 版」；Safari → 只有应用那条（`noApiSafariDesktop`，
 插件一条都不弹）；预置 `cp.installGuides` → 刷新后一条都不弹；预置后点设置里那颗「安装引导」→
@@ -1187,7 +1201,7 @@ zh 取到码 → 「等待验证」+ 码进正文 + 三颗按钮（没装扩展�
 那一刻计数已经是 0 而 DOM 节点还在，紧接着点「撤回」会点在**正在淡出的那颗**上
 （组件对退场中的通知整颗忽略，看着像「撤回没生效」）。要等 DOM 节点真的拆掉。
 
-## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；**桌面端「导出到本机文件夹」已落地（另立 `export_*` 四条命令，不复用 `fs_*`）**，见 14.O；Linux 未开工）
+## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；**桌面端「导出到本机文件夹」已落地（另立 `export_*` 四条命令，不复用 `fs_*`）**，见 14.O；**壳的系统状态栏已跟随站内主题（底色 + 图标明暗，前端 → Rust → JNI）**，见 14.P；Linux 未开工）
 
 **目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
 
@@ -1722,5 +1736,57 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 **平台边界**：这套命令**只在桌面端**（`services/fileTransfer.js` 的 `CAN_EXPORT_TO_DISK = IS_DESKTOP` 决定那一项显不显示），安卓端编不过 `workspace.rs`、也就没有这一项。网页端与安卓端的导出是「恰好一个文件直下 / 其余打成 zip」，全在前端完成（见第 2 节的 `zip.js`）。
 
 **验证**：`cargo check` 0 warning（2026-10-12 实跑）；`npx vite build` 通过；端到端探针 38/38 绿 —— 覆盖导入（含二进制跳过、重名排号、文件夹层级保留）、⌘/Ctrl+A 全选口径、单文件直下、目录打 zip（用 `unzip -t` 核 CRC）。**这三条 `export_*` 本身没有在探针里驱动**（网页端探针够不着 Tauri 壳），要在桌面壳里人工导一次才算补齐。
+
+### 14.P 壳的系统状态栏跟随站内主题（2026-10-12 加）
+
+**问题**：安卓壳里状态栏的图标明暗跟的是**系统深色模式**，而本应用的主题是**站内自己的偏好**（存在 WebView 的 localStorage 里，默认深色）。两者不一致时那条栏就没法看：深色主题配浅色系统 → 图标黑压在一整片黑上；浅色主题配深色系统 → 反过来。
+
+**根因在 `MainActivity` 那一句 `enableEdgeToEdge()`**（AndroidX Activity 1.10.1 的默认参数，源码实测）：
+
+- 它调 `WindowCompat.setDecorFitsSystemWindows(window, false)` → **页面铺到状态栏/导航条下面**，状态栏底色设成**透明**（默认那对 scrim 都是 `Color.TRANSPARENT`，且 `nightMode == MODE_NIGHT_AUTO` 时 `getScrimWithEnforcedContrast` 也回透明）。所以**底色本来就跟着主题走** —— 那条栏背后露出来的就是网页 `html` 的画布底色（`--bg-editor`；`App.vue` 的 `.app` 用 `env(safe-area-inset-top)` 把内容让开）。
+- 但它把图标明暗设成 `isAppearanceLightStatusBars = !statusBarIsDark`，那个 `statusBarIsDark` 来自 `SystemBarStyle.auto` 的默认 `detectDarkMode` = `Configuration.UI_MODE_NIGHT_YES`，**判的是系统，不是站内主题**。
+- 它还**只算一次**：`impl.setUp(...)` 调完就完了，1.10.1 里没有装 `OnApplyWindowInsetsListener` 跟着 insets 重算。这条是好消息 —— 我们覆盖它之后不会跟谁来回打架。反过来说上游那个「系统深色在运行中切换不生效」的毛病也还在（本工程不管，我们跟的是站内主题）。
+
+**解决**：主题真值在前端，所以走既有的那条通路把它送下去。
+
+| 环节 | 位置 | 做什么 |
+| --- | --- | --- |
+| 前端 | `src/services/systemBars.js` | `IS_ANDROID` 闸门 → `invoke('set_system_bars', { dark, color })`；失败只 `console.warn` |
+| 前端调用点 | `src/services/editorSettings.js` | **主题那个 watch 里**（与写 `<meta name="theme-color">` 同一处，同一个 `--bg-chrome`）：`syncSystemBars(theme === 'dark', chrome)` |
+| Rust | `src-tauri/src/system_bars.rs` | `#[tauri::command] set_system_bars(dark, color)`；把 `#rrggbb` 解析成 ARGB；Android 走 JNI 调 `SystemBars.apply`，其它目标是空实现 |
+| Kotlin | `gen/android/.../unnamed/SystemBars.kt` | `@JvmStatic apply(dark, color)`：主线程上 `window.statusBarColor = color` + `isAppearanceLightStatusBars = !dark` |
+
+**底色取 `--bg-chrome`**（不是 `--bg-editor`）：那是本工程的「窗口装饰色」，装成 PWA 后浏览器画系统栏用的也是它（第 9.1 节）。同一个应用的两个「装好的形态」用同一个色值，深色下两支恰好都等于地面色 `#1c1c1c`（连成一片），浅色下 `#e8e8e8` 比页面地面 `#f3f3f3` 深一档 —— 那是第 9.1 节刻意保留的「看得出这是窗口装饰」。**要改成与页面完全同色就把 watch 里那支换成 `--bg-editor`，一行。**
+
+**三处契约（改名必须一起改）**：
+
+1. `SystemBars.kt` 的包名 = `app/build.gradle.kts` 的 `namespace`（`best.prime998244353.unnamed`）；Rust 侧那一串写在 `system_bars.rs` 的 `BRIDGE_CLASS`。debug 包的 `applicationIdSuffix = ".debug"` **不改包名**，不用管。
+2. 方法名 `apply` + 描述符 `(ZI)V`，两边各写一份（`BRIDGE_METHOD` / `BRIDGE_SIG`）。加参数要三处同改。
+3. 前端命令名 `set_system_bars`（`invoke` 的一侧）↔ `#[tauri::command] fn set_system_bars`。
+
+**⚠️ 一处 JNI 上的坑（写这个文件时踩到的，值得记住）**：调 `SystemBars` 是「调**应用自己的类**」，**不能用 `JNIEnv::find_class`**。从 `ndk_context` 那条通路拿到的线程是 native 附到 JVM 上的（`AttachCurrentThread`），这种线程栈里没有 Java 帧，`FindClass` 会退回去用**系统 ClassLoader**（不认识应用类）→ `ClassNotFoundException`。改用 `ApplicationContext.getClassLoader().loadClass("…")`。**`android_toolchain.rs` 没撞上这条，是因为它调的全是 `ApplicationContext` 自己的方法、一个类名都没查** —— 以后再加「Rust 调 Kotlin」的地方要按这里的写法来。
+
+**另一条：窗口只能从 Activity 上取**。`ndk_context.android_context().context()` 给的是 **ApplicationContext**（tao 的 `ndk_glue.rs` 里明明白白先 `getApplicationContext()` 再 `initialize_android_context`），`getWindow()` 只有 Activity 有。所以 Kotlin 侧拿一个 `@Volatile` 的 `WeakReference<Activity>` 挂着：`MainActivity.onCreate` 末尾 `attach(this)`、`onDestroy` 里 `detach(this)`（只摘自己那一份 —— 新旧 Activity 交叠时别把新的顺手摘掉）。
+
+**`MainActivity.kt` 可以改**：Tauri 的 CLI 生成文件时是 `if !path.exists() { 写 }`（源码实测，`project.rs` 的 `generate_out_file`，只有 `BuildTask.kt` 例外地强制截断重写）。生成的几个文件都顶着 `DO NOT MODIFY!!`，`MainActivity.kt` 没有 —— 它就是留给用户的入口。新增的 `SystemBars.kt` 同目录、同样不会被动。
+
+**边界（如实记）**：
+
+- **只管状态栏**。顶部那条是这次要的。**底部导航条没管**：`enableEdgeToEdge()` 对它是「API 29+ 透明 + 平台自己按**系统**深色决定要不要加一层 contrast scrim」，所以三键导航时那条 scrim 仍可能跟站内主题不一致；手势导航下它是全透明的、露出的就是页面底色，本来就是对的。要一起管就是同一个 `apply` 里多两行（`navigationBarColor` + `isAppearanceLightNavigationBars`），没做。
+- **`statusBarColor` 在 Android 15 起被标 deprecated**（那边只强制 `targetSdk >= 35` 的纯 edge-to-edge）。本工程 `targetSdk = 28`（承重，见 14.I），调用仍然生效。**真要升 targetSdk 时这里会是一个静默失效点。**
+- **`env(safe-area-inset-top)` 在壳里是否真的非 0，没有在真机上量过**（本机没有连着的设备）。如果它返回 0，页面顶部就会压到那条栏下面 —— 那是另一个问题、与本节无关，但上面那条「底色取 `--bg-chrome`」的可见效果会跟着变。当前没有真机证据说明它有问题（14.J 的真机冒烟里界面是正常的）。
+
+**验证**（2026-10-12；**本机没有连着真机，所以这一节没有端到端实测**）：
+
+| 项 | 结果 |
+| --- | --- |
+| `cargo check`（宿主机） | **0 warning**（跟 `prepare_toolchain` 同一形状：命令两个 handler 都注册，非安卓实现回空，所以没有 dead_code 告警） |
+| `cargo check --target aarch64-linux-android` | 通过、0 warning —— **这条才真的编译了 JNI 那段**（`platform::apply` 只在这个目标上存在） |
+| `./gradlew :app:compileUniversalDebugKotlin` | `BUILD SUCCESSFUL`；`SystemBars.kt` / `MainActivity.kt` 零告警（输出里那几条 warning 全来自 tauri 自己的 `generated/*.kt` 与 `tauri-android` 库） |
+| `cargo test --lib` | 带上本文件的 2 条色值解析用例全绿（`#rrggbb` / `#rgb` / 大写 / 缺 `#` / 拒绝 `rgb()` 与奇数长度） |
+| `npx vite build` | 通过（只有既有的 chunk 体积提示） |
+| `npm run verify` | 基线不变（A/B/C/D/F 绿 + E/G/H 红） |
+
+**要在真机上确认的**（换一台连着 `adb` 的机器时补）：① 深色主题 + 浅色系统 → 状态栏图标应是**浅色**（修之前是深色）；② 进设置把主题切到浅色 → 图标当场变深、底色变 `#e8e8e8`；③ 那条栏与页面之间没有缝（说明 `safe-area-inset-top` 非 0）。
 
 

@@ -1006,22 +1006,6 @@ defineExpose({
         <button
           type="button"
           class="explorer__btn"
-          :title="t('explorer.menu.newFile')"
-          @click="startCreate('file', headerCreateTarget())"
-        >
-          <AppIcon name="file-plus" :size="14" />
-        </button>
-        <button
-          type="button"
-          class="explorer__btn"
-          :title="t('explorer.menu.newFolder')"
-          @click="startCreate('directory', headerCreateTarget())"
-        >
-          <AppIcon name="folder-plus" :size="14" />
-        </button>
-        <button
-          type="button"
-          class="explorer__btn"
           :disabled="transferBusy"
           :title="t('explorer.menu.importFile')"
           @click="runImport('file')"
@@ -1038,6 +1022,22 @@ defineExpose({
           @click="runImport('folder')"
         >
           <AppIcon name="folder-down" :size="14" />
+        </button>
+        <button
+          type="button"
+          class="explorer__btn"
+          :title="t('explorer.menu.newFile')"
+          @click="startCreate('file', headerCreateTarget())"
+        >
+          <AppIcon name="file-plus" :size="14" />
+        </button>
+        <button
+          type="button"
+          class="explorer__btn"
+          :title="t('explorer.menu.newFolder')"
+          @click="startCreate('directory', headerCreateTarget())"
+        >
+          <AppIcon name="folder-plus" :size="14" />
         </button>
       </span>
     </Teleport>

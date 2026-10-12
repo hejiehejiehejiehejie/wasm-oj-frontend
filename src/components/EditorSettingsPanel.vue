@@ -2038,8 +2038,10 @@ watch(pendingUnbind, (open) => {
             </span>
           </div>
           <!-- 引导不只是躺在这一栏里等人来看：这颗按钮把它**改成通知再发一次**
-               （`installGuides.js` 的 fireSectionGuide）。与状态无关 —— 已经装好了也照样有话说。
-               开机自动弹的那一趟走同一条通知，见 App.vue 的 useInstallGuides -->
+               （`installGuides.js` 的 fireSectionGuide）。与状态无关 —— 已经装好了也照样有话说，
+               而且**不看「自动弹过」的记录**。上面那行 `installUnavailable` 的说明正是靠它才能变成
+               通知：「有 API 却拿不到入口」那一格 2026-10-12 起已退出自动弹（见 installGuides.js 的
+               available），这里是它唯一的出口。自动弹那一趟见 App.vue 的 useInstallGuides。 -->
           <div v-if="!isDesktop" class="setting-row setting-row--action">
             <span class="setting-row__main">
               <span class="setting-row__hint">{{ t('settings.app.install.guideHint') }}</span>

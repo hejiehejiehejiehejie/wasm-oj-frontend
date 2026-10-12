@@ -13,6 +13,7 @@
 import { ref, watch } from 'vue'
 import { EDITOR_SETTINGS_DEFAULTS, normalizeEditorSetting } from './editorOptions.js'
 import { setAutoSaveEnabled } from './autoSave.js'
+import { syncSystemBars } from './systemBars.js'
 
 const EDITOR_SETTINGS_KEY = 'cp.editorSettings'
 // 存档版本号用于「一次性迁移」，见 readEditorSettings：v4 及以前只有主题 id 换算，
@@ -64,19 +65,23 @@ export const editorSettings = ref(readEditorSettings())
 
 // 主题决定的是整套界面的配色：挂在 <html data-theme> 上由 CSS 变量接管，
 // Monaco 那边通过同一个 id 对应的自定义主题保持内芯同色。
-// 安装成独立应用后，浏览器还会拿 theme-color 画窗口标题栏，所以从变量里读出来同步给它，
-// 免得标题栏和界面串色（顺便守住「色值只定义在 base.css」这条约束）。
+// `--bg-chrome` 这一支（窗口装饰色）另有两个去处 —— 都是「宿主画的那条栏」，
+// 网页自己画不到，只能各走各的通道：
+//   · 浏览器（装成应用后画窗口标题栏 / 系统栏）：写进 `<meta name="theme-color">`；
+//   · 安卓壳的**系统状态栏**：`<meta>` 在 WebView 里没人读，得经原生送过去
+//     （见 services/systemBars.js 与 src-tauri/src/system_bars.rs）。
+// 色值仍然只定义在 base.css —— 这里一律现读现取，不在这条链上再抄一份常量。
 watch(
   () => editorSettings.value.theme,
   (theme) => {
     document.documentElement.dataset.theme = theme
+    const chrome = getComputedStyle(document.documentElement)
+      .getPropertyValue('--bg-chrome')
+      .trim()
     const chromeBar = document.querySelector('meta[name="theme-color"]')
-    if (chromeBar) {
-      const barColor = getComputedStyle(document.documentElement)
-        .getPropertyValue('--bg-chrome')
-        .trim()
-      if (barColor) chromeBar.setAttribute('content', barColor)
-    }
+    if (chromeBar && chrome) chromeBar.setAttribute('content', chrome)
+    // 状态栏图标的明暗跟着**站内主题**走（不是系统深色模式），底色用同一支 --bg-chrome
+    syncSystemBars(theme === 'dark', chrome)
   },
   { immediate: true },
 )
