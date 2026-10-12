@@ -19,7 +19,20 @@ import {
   EXTENSION_ROUTES,
   EXTENSION_VERSION,
   FIREFOX_EXTENSION_URL,
+  isExtensionOutdated,
 } from '../services/extensionPackage.js'
+// 安装引导（应用 / 插件）的通知内容，以及**按浏览器分岔的唯一出处**：下面那几行说明的
+// 变体与 key 表都从这里 import —— 通知与面板说的是同一批句子，不再各写一份分岔
+import {
+  APPS_URL,
+  EXTENSION_HINT_KEYS,
+  NO_API_KEYS,
+  extensionUpdateHintKey,
+  extensionVariant,
+  fireSectionGuide,
+  installUnavailable,
+  noApiVariant,
+} from '../services/installGuides.js'
 import { settingsSectionEntry } from '../services/editorViews.js'
 // 通知系统（2026-10-12）：目前唯一的消费点是下面「应用」节里的演示入口
 import { dismissAllNotifications, notify } from '../services/notifications.js'
@@ -59,6 +72,7 @@ import {
 } from '../services/cloudEntry.js'
 import {
   adoptCloud,
+  CF_SOCIAL_URL,
   cancelCloudCode,
   clearCloudFeedback,
   cloudAccount,
@@ -612,28 +626,12 @@ const installButtonKey = computed(() =>
 
 /**
  * 「引擎有这套 API、此刻也没装，却拿不到一键安装的入口」—— 也就是**按钮灰着、状态词却写着
- * 「当前浏览器支持」**的那一格。它不是错误状态，是浏览器的正常状态，但用户从界面上看不出
- * 为什么，所以这一栏得把原因与出路讲出来（2026-10-12 用户报障：装过一次、把应用删掉之后，
- * 按钮一直灰着点不动）。
- *
- * 判据：`installSupported && !canInstall && !appIsInstalled`。两头排除掉的那两格各自都有说法
- * —— 不支持时状态词写着「不支持」，已装时写着「已安装」—— 只剩这一格需要额外解释。
- *
- * ⚠️ **灰按钮本身修不了**：安装事件只由浏览器派发，站点既不能问也不能催（没有任何 API 能问
- * 「到底装没装」），所以能做的只有如实解释 + 给出浏览器那一侧的出路。真正的根因是
- * **从 Finder / 访达里删掉图标并不算卸载**：记录还在浏览器里，于是它永远认为「已装」、
- * 永远不再派发安装事件。同款体例见插件快捷键那两条说明。
+ * 「当前浏览器支持」**的那一格。判据与通知共用同一份（`installGuides.js` 的
+ * `installUnavailable`），这里只是拿来当 `v-if`。它不是错误状态，是浏览器的正常状态：
+ * 安装事件只由浏览器在自己认为「没装」时派发一次，站点既不能问也不能催 —— 从访达里删掉
+ * 图标并不算卸载，记录还在浏览器里，于是它永远认为「已装」。所以这一格能做的只有如实解释
+ * + 给出浏览器那一侧的出路（`APPS_URL`，与通知里那颗「复制地址」读同一份）。
  */
-const installUnavailable = computed(
-  () => installSupported && !canInstall.value && !appIsInstalled.value,
-)
-
-/**
- * 浏览器管理「已安装的网页应用」的页面。**只能复制给用户自己去打开**：网页没有权限跳转
- * chrome://（与插件快捷键那个地址同一条规矩，见 `SHORTCUTS_URL`）。
- */
-const APPS_URL = 'chrome://apps'
-
 const appsCopied = ref(false)
 let appsCopyTimer = 0
 
@@ -649,6 +647,34 @@ async function copyAppsUrl() {
     /* 非安全上下文或用户未授权：保持原样，说明里已写明地址 */
   }
 }
+
+/**
+ * 「引擎没有安装 API，但这个浏览器其实装得上」—— 这一格的出路说明（2026-10-12 加，用户点名）。
+ *
+ * 【为什么必须有】状态词只说「这套 API 有没有」，而**有 API 与装得上不是一回事**：Firefox
+ * （含安卓版）与 iOS 上所有浏览器从来就没实现 `beforeinstallprompt`，判据于是落「当前浏览器
+ * 不支持」、按钮也点不动；可它们自己的菜单里确实有「安装 / 添加到主屏幕 / 添加到程序坞」。
+ * 只留一句「不支持」，用户就以为这台机器没有安装这条路（2026-10-12 用户报障原文：安卓版
+ * Firefox 里「没有在设置中显示安装选项」）。
+ *
+ * 【⚠️ 这是「应用」栏唯一一处按浏览器 / 系统分岔的地方】2026-10-11 定过「这一栏只看引擎能力、
+ * 不看 UA」，本轮（2026-10-12）用户明确改口：**三条真实的安装路都要给引导**（Firefox 安卓 /
+ * 桌面 Firefox 的 Windows 版 / iOS Safari + 桌面 Safari）。所以纪律收紧成一条：**UA 只许决定
+ * 「这行说明写哪句」，不许回头去改状态词与按钮**（那两处仍旧只看 `installSupported` /
+ * `canInstall`）—— 两者混起来就又变回从前那套「猜浏览器来解释按钮为什么灰」。
+ *
+ * 【为什么文案是整句、不再拆成前后两半】这里没有要强调的地址 / 键名，只有操作步骤，整句更短；
+ * 拆两半是插件栏那两条（`<code>` 夹在句子里）的写法，别照抄。
+ *
+ * 覆盖面：Firefox 安卓 → 它自己的 ⋮ 菜单；桌面 Firefox → **只有 Windows 143+** 有地址栏那个
+ * 「网络应用」图标（macOS / Linux 上真没有这条路）；Safari 系（含 iOS 上所有浏览器，UA 都落
+ * `safari`）→ iOS 走「分享 → 添加到主屏幕」、macOS 走「文件 → 添加到程序坞」；其余认不出的
+ * 引擎给一句通用的「用浏览器自己的菜单装」。
+ */
+const installNoApiHint = computed(() => !installSupported && !appIsInstalled.value)
+
+/** 变体 → 文案 key：分岔与通知共用 `installGuides.js` 那一份，别在这里再写一遍 if 链 */
+const installNoApiHintKey = computed(() => NO_API_KEYS[noApiVariant()] ?? NO_API_KEYS.generic)
 
 // 「工作区」这一栏只在能打开本机文件夹的平台上出现：网页版没有这回事，Android 走 SAF
 // 也没有（见 workspaceMode.js 的 CAN_USE_LOCAL_FOLDER）。
@@ -728,23 +754,12 @@ const extensionStatusLabel = computed(() => {
 })
 
 // ------------------------------------------------------------ 按浏览器推荐安装路径
-// 判据是 platform.js 的 BROWSER / BROWSER_PLATFORM，**只用来挑文案与摆哪颗按钮**。
-// 认不出（Safari 落 unknown；360 这类套壳落 chrome，它们的装法与 Chrome 同源）时
-// 一律 fail-open：桌面端把两条路都摆出来，别因为猜错让人看不到入口。
-const extensionHintKey = computed(() => {
-  // Safari（以及 iOS 上所有浏览器）一条路都没有，先把它摘出去，别落到下面任何一条
-  if (BROWSER === 'safari') return 'settings.extension.hintUnsupported'
-  if (isMobileBrowser) {
-    // 移动端只有安卓 Firefox 这条路是真的（安卓 Edge 支持扩展，但本插件没上架 Edge 加载项）
-    return BROWSER === 'firefox'
-      ? 'settings.extension.hintFirefox'
-      : 'settings.extension.hintMobileUnsupported'
-  }
-  if (BROWSER === 'firefox') return 'settings.extension.hintFirefox'
-  if (BROWSER === 'edge') return 'settings.extension.hintEdge'
-  if (BROWSER === 'chrome') return 'settings.extension.hintChrome'
-  return 'settings.extension.hintChromium'
-})
+// 判据是 platform.js 的 BROWSER / BROWSER_PLATFORM，**只用来挑文案与摆哪颗按钮**（Safari 那一档
+// 一条路都没有，iOS 上所有浏览器都归它；认不出时 fail-open，桌面端两条路都摆）。
+// 变体与 key 表在 `installGuides.js` —— 通知与这一行说明共用同一批句子，别在这里再写一遍。
+const extensionHintKey = computed(
+  () => EXTENSION_HINT_KEYS[extensionVariant()] ?? EXTENSION_HINT_KEYS.chromium,
+)
 
 /**
  * 两颗按钮的显隐 —— 判据是 `EXTENSION_ROUTES`（`services/extensionPackage.js`），
@@ -768,14 +783,7 @@ const showEdgeInstall = computed(
  */
 const extensionVersion = computed(() => extensionInfo.value?.version ?? '')
 
-const extensionOutdated = computed(
-  () => extensionVersion.value !== '' && compareVersions(extensionVersion.value, EXTENSION_VERSION) < 0,
-)
-
-/** 更新方式两侧不同：Firefox 自己会更新，Chromium 要手动换目录再刷新 */
-const extensionUpdateHintKey = computed(() =>
-  BROWSER === 'firefox' ? 'settings.extension.updateHintFirefox' : 'settings.extension.updateHintManual',
-)
+const extensionOutdated = computed(() => isExtensionOutdated(extensionVersion.value))
 
 /**
  * 「装包 / 换包」那一行的显隐与文案：**装旧版和没装共用同一行**，只是口径换成更新。
@@ -793,19 +801,8 @@ const extensionActionLabelKey = computed(() =>
 )
 
 const extensionActionHintKey = computed(() =>
-  extensionOutdated.value ? extensionUpdateHintKey.value : extensionHintKey.value,
+  extensionOutdated.value ? extensionUpdateHintKey() : extensionHintKey.value,
 )
-
-/** `x.y.z` 逐段比大小；版本串来自扩展自报，不信任格式，非数字段按 0 算 */
-function compareVersions(a, b) {
-  const pa = String(a).split('.')
-  const pb = String(b).split('.')
-  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
-    const diff = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0)
-    if (diff !== 0) return diff > 0 ? 1 : -1
-  }
-  return 0
-}
 
 const extensionShortcuts = computed(() =>
   (extensionInfo.value?.commands ?? []).map((command) => {
@@ -2040,7 +2037,31 @@ watch(pendingUnbind, (open) => {
               </button>
             </span>
           </div>
+          <!-- 引导不只是躺在这一栏里等人来看：这颗按钮把它**改成通知再发一次**
+               （`installGuides.js` 的 fireSectionGuide）。与状态无关 —— 已经装好了也照样有话说。
+               开机自动弹的那一趟走同一条通知，见 App.vue 的 useInstallGuides -->
+          <div v-if="!isDesktop" class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__hint">{{ t('settings.app.install.guideHint') }}</span>
+            </span>
+            <span class="setting-row__control">
+              <button
+                class="download-button"
+                :title="t('settings.app.install.guideHint')"
+                @click="fireSectionGuide('app')"
+              >
+                <AppIcon name="install" :size="13" />
+                <span>{{ t('settings.app.install.guide') }}</span>
+              </button>
+            </span>
+          </div>
         </div>
+
+        <!-- 引擎没有安装 API，但这个浏览器自己装得上（Firefox / Safari 系）：状态词只能说到
+             「不支持一键安装」，剩下那半句「去哪儿装」在这里（见 installNoApiHintKey）。 -->
+        <p v-if="!isDesktop && installNoApiHint" class="setting-group__note">
+          {{ t(installNoApiHintKey) }}
+        </p>
 
         <!-- 本地运行环境（C++ / Python / 题解渲染器）是网页版自托管的那套资产，全靠
              Cache Storage；桌面端的 webview 里没有 Cache Storage，改用系统 clang++ 直接跑，
@@ -2263,6 +2284,22 @@ watch(pendingUnbind, (open) => {
               </a>
             </span>
           </div>
+          <!-- 与「应用」栏那颗同一个用途：把这一栏的引导改成通知再发一次（不看已弹记录） -->
+          <div class="setting-row setting-row--action">
+            <span class="setting-row__main">
+              <span class="setting-row__hint">{{ t('settings.extension.guideHint') }}</span>
+            </span>
+            <span class="setting-row__control">
+              <button
+                class="download-button"
+                :title="t('settings.extension.guideHint')"
+                @click="fireSectionGuide('extension')"
+              >
+                <AppIcon name="plugin" :size="13" />
+                <span>{{ t('settings.extension.guide') }}</span>
+              </button>
+            </span>
+          </div>
         </div>
 
         <!-- 装的是旧版时提示一行（版本号来自扩展自报的 cp-info）：放在 rows 外面，
@@ -2446,7 +2483,7 @@ watch(pendingUnbind, (open) => {
               {{ cloudCodeStep1.before
               }}<a
                 class="cloud-steps__link"
-                href="https://codeforces.com/settings/social"
+                :href="CF_SOCIAL_URL"
                 target="_blank"
                 rel="noopener noreferrer"
                 >{{ t('settings.cloud.codeStep1Link') }}</a

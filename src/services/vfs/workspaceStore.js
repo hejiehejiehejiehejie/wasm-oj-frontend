@@ -80,13 +80,26 @@ export const workspace = reactive({
   /** @type {string|null} 活跃文件 id */
   activeId: null,
   /**
-   * 选中的树节点 id（文件或目录）。与 activeId 分工不同：activeId 是「编辑器里打开的那个文件」，
-   * 目录进不去；本字段才是「哪一行高亮 + 页头新建落在哪个目录」的唯一来源。
-   * **单选**：点目录后原文件不再高亮，反之亦然。
-   * null = 根目录 —— 根没有行可高亮，界面上就是「什么都没有选中」，新建落在根。
+   * **主选中**的树节点 id（文件或目录）。与 activeId 分工不同：activeId 是「编辑器里打开的那个
+   * 文件」，目录进不去；本字段才是「页头新建落在哪个目录」的唯一来源，多选时它同时充任
+   * **Shift 区间选择的锚点**（见 FileExplorer 的 selectRangeTo）：Shift + 单击只刷新高亮集合、
+   * 不动这里，于是连着 Shift 点几个地方都是从同一个起点重新划范围（VS Code 同款）。
+   * null = 根目录 —— 界面上就是「什么都没有选中」，新建落在根。
+   * ⚠️ **哪几行高亮**看的是下面的 `selectedIds`；本字段只回答「哪一个算主」。
    * @type {string|null}
    */
   selectedId: null,
+  /**
+   * 当前高亮的全部节点 id（**含**主选中那一个）。
+   *
+   * 空数组 = 一项都没选中（= 选中根），此时 `selectedId` 也必须是 null —— 这两者的一致性
+   * 只由 `applySelection()` 一处保证，别在别处分别写这两个字段（三处状态各自为政必然走歪）。
+   *
+   * 刻意**不落 localStorage**：跨会话只恢复主选中那一个（`cp.selectedNode`）—— 与 VS Code
+   * 一致（重开只剩「当前项」，不会拖着一整片上次的旧选区）。
+   * @type {string[]}
+   */
+  selectedIds: [],
   /**
    * 预览页签 id（VS Code 式斜体临时页签，全局至多一个）。
    *
@@ -169,10 +182,14 @@ async function rebuildTree() {
   if (workspace.previewTabId && !nodeIndex.has(workspace.previewTabId)) {
     workspace.previewTabId = null
   }
-  // 4) 选中的节点没了（删掉 / 被移走）：收回根状态，别把 id 悬在那儿
+  // 4) 选中的节点没了（删掉 / 被移走）：从高亮集合里摘掉那些消失的；主选中若也没了就往下顺
+  //    一位（一个不剩才真正收回根状态）。删除多选时这一条就是「删完选区自己清干净」的实现。
+  const aliveSelected = workspace.selectedIds.filter((id) => nodeIndex.has(id))
+  if (aliveSelected.length !== workspace.selectedIds.length) workspace.selectedIds = aliveSelected
   if (workspace.selectedId && !nodeIndex.has(workspace.selectedId)) {
-    workspace.selectedId = null
+    workspace.selectedId = aliveSelected[aliveSelected.length - 1] ?? null
   }
+  if (!workspace.selectedId && workspace.selectedIds.length) workspace.selectedIds = []
 }
 
 // ------------------------------------------------------------ 初始化与会话恢复
@@ -223,12 +240,13 @@ export async function initWorkspaceStore() {
 
   workspace.ready = true
 
-  // 恢复上次选中的那一行。**必须放在最后**：上面恢复 activeId 时那条 watch 会把选中带到
-  // 打开的文件上，这里再盖回来 —— 否则「上次选中的文件夹」每次启动都会被当前文件顶掉。
-  // 已删除的节点直接回落根（= 不选中），与 rebuildTree 的清理同一条判据。
+  // 恢复上次选中的那一行（只有主选中那一个，见 selectedIds 的注释）。**必须放在最后**：
+  // 上面恢复 activeId 时那条 watch 会把选中带到打开的文件上，这里再盖回来 —— 否则
+  // 「上次选中的文件夹」每次启动都会被当前文件顶掉。已删除的节点直接回落根（= 不选中），
+  // 与 rebuildTree 的清理同一条判据。
   const savedSelected = readJSON(SELECTED_KEY, null)
   if (typeof savedSelected === 'string' && nodeIndex.has(savedSelected)) {
-    workspace.selectedId = savedSelected
+    selectNode(savedSelected)
   }
 }
 
@@ -251,8 +269,10 @@ watch(
     if (workspace.ready) void flush()
     // 选中跟着活跃文件走：点页签、新建文件后自动打开、导入题目这些**不是从文件树发起**的
     // 打开动作，界面上的高亮必须跟着过去（树里点的那条路由 FileTreeItem 自己写选中）。
+    // 走 selectNode 而不是直接写 selectedId：多选状态下这一下会把整片选区收成单选，
+    // 正是「切到别的文件 = 别再拖着一堆高亮」想要的结果。
     // 启动恢复期间不参与 —— selectedId 的恢复放在 initWorkspaceStore 的最后一步。
-    if (workspace.ready && value) workspace.selectedId = value
+    if (workspace.ready && value) selectNode(value)
   },
 )
 watch(
@@ -408,16 +428,69 @@ export function moveTab(id, insertIndex) {
 }
 
 /**
+ * 一次性写定整个选区。**selectedId 与 selectedIds 只有这一处能同时写** ——
+ * 散着写必然出现「主选中不在高亮集合里」这类对不上的状态。三处约束：
+ * - 高亮集合去重；
+ * - 主选中必须落在集合里（不在就退到最后一个）；
+ * - 集合为空时主选中必须是 null（= 选中根）。
+ * @param {string[]} ids
+ * @param {string|null} [primaryId]
+ */
+function applySelection(ids, primaryId = null) {
+  const unique = [...new Set(ids)]
+  workspace.selectedIds = unique
+  workspace.selectedId = unique.includes(primaryId) ? primaryId : unique[unique.length - 1] ?? null
+}
+
+/**
  * 选中树里的一行（文件或目录）。作用有二：那一行高亮；页头「新建文件 / 文件夹」落进那个目录
  * （选中文件时取其父目录）。
  *
  * 传 `null`（或根节点 id `'root'`）表示选中根目录：根没有行可高亮，界面上就是「什么都没选中」，
  * 新建落在根 —— 「点树里空白处」走的就是这一条。
  *
+ * 这是**单选**入口：顺手把多选的那一片收掉（VS Code 里不带修饰键点一下也是这个效果）。
+ *
  * @param {string|null} id
  */
 export function selectNode(id) {
-  workspace.selectedId = !id || id === 'root' ? null : id
+  const single = !id || id === 'root' ? null : id
+  applySelection(single ? [single] : [], single)
+}
+
+/**
+ * 一次性选中若干项（Shift 区间选择、⌘/Ctrl + A 全选走这里）。
+ *
+ * `primaryId` 是**锚点**：区间选择刻意把锚点原样传进来（而不是改成最后点的那一项），
+ * 这样连着 Shift 点几个不同位置都是从同一个起点重划范围。锚点不在 `ids` 里时退到最后一个。
+ *
+ * @param {string[]} ids
+ * @param {string|null} [primaryId]
+ */
+export function selectMany(ids, primaryId = null) {
+  applySelection(
+    ids.filter((id) => id && id !== 'root'),
+    primaryId,
+  )
+}
+
+/**
+ * 切换一行的选中（⌥ / Alt + 单击）：已经在选区里就把它摘掉，否则加进去。
+ *
+ * 主选中永远跟着这一行走（VS Code 里 ctrl + 单击也会把焦点挪过去）—— 摘掉的是一个
+ * 已选中项时，让主选中落到剩下的最后一个上，而不是回落成「什么都没选中」：
+ * 页头新建的目标不该因为顺手取消一项就跳回根目录。
+ * @param {string} id
+ */
+export function toggleSelection(id) {
+  if (!id || id === 'root') return
+  const current = workspace.selectedIds
+  if (!current.includes(id)) {
+    applySelection([...current, id], id)
+    return
+  }
+  const next = current.filter((item) => item !== id)
+  applySelection(next, workspace.selectedId === id ? next[next.length - 1] : workspace.selectedId)
 }
 
 /**

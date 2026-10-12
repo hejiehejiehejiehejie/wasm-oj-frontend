@@ -2,15 +2,17 @@
 /**
  * FileTreeItem —— 递归树项（文件 / 目录）。
  *
- * - 单击：先把这一行选中（文件与目录同一套高亮，选中目录 = 页头新建落进它里面），
- *   然后目录折叠、文件以**预览页签**打开（斜体临时页签，再点别的文件就顶替掉它）。
+ * - 单击：先把这一行选中（**单选**，会把多选收掉），然后目录折叠、文件以**预览页签**打开
+ *   （斜体临时页签，再点别的文件就顶替掉它）。
+ * - **⌥ / Alt + 单击**：切换这一行的选中（多选加选 / 减选），不打开文件、不折叠目录。
+ * - **Shift + 单击**：从锚点（`workspace.selectedId`）到这一行整段选中，同样不打开不折叠。
  * - **⌘ / Ctrl + 单击**：直接在新标签页打开这一行的题目；这一行没有题目链接时退化成普通单击。
- *   这就是「打开题目」的快捷键本身（用户点名的就是它），**不是**另配的键盘组合键 ——
+ *   「打开题目」占着这个手势（用户点名的就是它），所以**加选让给了 Alt** —— 两者不能同键。
  *   它是鼠标事件的修饰键，`useShortcutManager` 那套 keydown 管线（comboFromEvent）接不住，
  *   所以也不进绑定表、不占任何键位。
  * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
  * - 右键菜单与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
- *   而 F2 重命名与 Delete 删除是全局快捷键，见 onKeyDown 末尾那条注释）。
+ *   而 F2 重命名、Delete 删除、⌘/Ctrl+A 全选是全局快捷键，见 onKeyDown 末尾那条注释）。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
 import { computed, inject, nextTick, ref, watch } from 'vue'
@@ -28,6 +30,7 @@ import {
   renameNode,
   selectNode,
   toggleExpand,
+  toggleSelection,
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import { dirname, join, stem } from '../services/vfs/paths.js'
@@ -44,6 +47,8 @@ const emit = defineEmits(['rename-done'])
 const openContextMenu = inject('openContextMenu')
 /** 「打开题目」的唯一出口（在 FileExplorer 里，判据与菜单那一项同源）；开成了返回 true */
 const openProblem = inject('openProblem')
+/** Shift + 单击的范围选择（可见行区间在 FileExplorer 那边算，它才拿得到 DOM 顺序） */
+const selectRangeTo = inject('selectRangeTo')
 const treeRootEl = inject('treeRootEl')
 const showNotice = inject('showNotice')
 const renameTarget = inject('renameTarget')
@@ -59,9 +64,9 @@ const pressingId = inject('pressingId')
 const armedId = inject('armedId')
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
-/** 这一行是不是选中项。文件与目录同一套判据（选中是**单选**的）—— 目录也能被选中，
- *  选中它就意味着「页头新建落在它里面」。根目录不画成行，所以没选中时整棵树都不亮。 */
-const selected = computed(() => workspace.selectedId === props.node.id)
+/** 这一行在不在高亮集合里。文件与目录同一套判据 —— 目录也能被选中，选中它就意味着
+ *  「页头新建落在它里面」。根目录不画成行，所以没选中时整棵树都不亮。 */
+const selected = computed(() => workspace.selectedIds.includes(props.node.id))
 /** 未保存标记。开了自动保存就不显示：dirty 只存在几百毫秒，圆点只会闪一下，
     反倒是「这文件没保存」的误导。 */
 const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(props.node.id))
@@ -81,13 +86,11 @@ const unopenable = computed(
   () => props.node.type === 'file' && (props.node.binary || props.node.tooLarge),
 )
 
-/** 选中项的父目录 id。选中目录时不算——只有节点才有「它属于哪个文件夹」这回事 */
-const selectedParentId = computed(() => {
-  const node = workspace.selectedId ? getNodeById(workspace.selectedId) : null
-  return node?.parentId ?? null
-})
-/** 本目录正是选中项的父目录 → 它这一列的缩进线跟着亮起（与拖拽落点同一种亮法） */
-const isActiveParent = computed(() => selectedParentId.value === props.node.id)
+/** 本目录里有没有（任一）被选中的节点 → 它这一列的缩进线跟着亮起（与拖拽落点同一种亮法）。
+ *  多选时只要选区里有它的孩子就亮，「这几个文件属于哪个文件夹」照样一眼可见。 */
+const isActiveParent = computed(() =>
+  workspace.selectedIds.some((id) => getNodeById(id)?.parentId === props.node.id),
+)
 
 /** 题目元数据的悬停摘要；没有元数据时为空串（行上就不设 title，别弹空提示） */
 const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
@@ -120,11 +123,35 @@ function activate({ preview = false } = {}) {
   openFile(props.node.id, null, { preview }).catch(() => {})
 }
 
+/**
+ * 三个手势在这里分岔（顺序即优先级）：
+ *
+ * - **⌥ / Alt + 单击** = 切换这一行的选中（多选）。只改选区：**不打开文件、不折叠目录** ——
+ *   加选是「攒一批待操作的文件」，顺手把文件开一堆、把文件夹收起来都不是此时想要的。
+ * - **Shift + 单击** = 从锚点到这一行整段选中。只改选区，同上。区间按**可见行**算
+ *   （折叠的子树不在 DOM 里，也就进不了区间），起点是谁由 FileExplorer 定。
+ * - **⌘ / Ctrl + 单击** = 打开题目（老行为）。开成了就到此为止 —— 不能再落到 activate() 上，
+ *   否则会顺手把这个文件也打开成页签。没链接时 openProblem 回 false，整条退化成普通单击。
+ *   平台主修饰键按 IS_MAC 分岔：macOS 上 Control + 单击是系统右键，不能拿来当「打开」。
+ * - 其余 = 普通单击：选区收成这一行（清掉多选），再打开 / 折叠。
+ *
+ * 两个修饰键的手势都**不自己写焦点**：pointerdown 的默认行为已经把这一行聚焦了
+ * （行上有 tabindex），focusin 那边只更新 roving tabindex 的记账，不再动选区
+ * （2026-10-12 改 —— 原来 focusin 里会 selectNode，那会把刚攒好的多选冲掉）。
+ */
 function onClick(event) {
-  // ⌘ / Ctrl + 单击 = 在新标签页打开题目（与右键菜单「打开题目」同一个出口）。
-  // 开成了就到此为止 —— 不能再落到 activate() 上，否则会顺手把这个文件也打开成页签。
-  // 没链接时 openProblem 回 false，整条退化成普通单击，不吞掉这次点击。
-  // 平台主修饰键按 IS_MAC 分岔：macOS 上 Control + 单击是系统右键，不能拿来当「打开」。
+  // 拖拽收尾的那一次 click 要吃掉，否则松手会顺带折叠/展开落点目录
+  if (consumeClickSuppression?.()) return
+
+  if (event.altKey) {
+    toggleSelection(props.node.id)
+    return
+  }
+  if (event.shiftKey) {
+    selectRangeTo?.(props.node.id)
+    return
+  }
+
   const withModifier = IS_MAC ? event.metaKey : event.ctrlKey
   if (withModifier && openProblem?.(props.node)) return
   activate({ preview: true })
@@ -301,38 +328,77 @@ function onKeyDown(event) {
   switch (event.key) {
     case 'ArrowDown':
       event.preventDefault()
-      items[index + 1]?.focus()
+      focusRowAt(items[index + 1], event.shiftKey)
       break
     case 'ArrowUp':
       event.preventDefault()
-      items[index - 1]?.focus()
+      focusRowAt(items[index - 1], event.shiftKey)
+      break
+    case 'Home':
+      event.preventDefault()
+      focusRowAt(items[0], event.shiftKey)
+      break
+    case 'End':
+      event.preventDefault()
+      focusRowAt(items[items.length - 1], event.shiftKey)
       break
     case 'ArrowRight':
       event.preventDefault()
       if (props.node.type === 'directory') {
         if (!expanded.value) toggleExpand(props.node.id)
-        else items[index + 1]?.focus()
+        else focusRowAt(items[index + 1], event.shiftKey)
       }
       break
     case 'ArrowLeft':
       event.preventDefault()
-      if (props.node.type === 'directory' && expanded.value) toggleExpand(props.node.id)
-      else if (props.node.parentId) {
-        treeRootEl.value
-          ?.querySelector(`[data-tree-id="${CSS.escape(props.node.parentId)}"]`)
-          ?.focus()
+      if (props.node.type === 'directory' && expanded.value) {
+        toggleExpand(props.node.id)
+      } else if (props.node.parentId) {
+        focusRowAt(
+          treeRootEl.value?.querySelector(`[data-tree-id="${CSS.escape(props.node.parentId)}"]`),
+          event.shiftKey,
+        )
       }
       break
     case 'Enter':
       event.preventDefault()
       onEnter()
       break
-    // F2（重命名）与 Delete（删除）**刻意不在这里**：2026-10-10 起它们是登记在
-    // useShortcutManager 里的全局动作，由 App.vue 那个窗口捕获监听统一处理（先过作用域闸门
-    // 「焦点在这一行、且不在输入框上」，再进 FileExplorer 的 startRename / requestDelete）。
-    // 留在这里就等于第二份真相：全局那条在捕获阶段就 stopPropagation 了，下面这两个分支
-    // 永远收不到按键；而且设置里改绑了键位，这里也不会跟着变。
+    case 'Escape':
+      // Esc 把多选收成单选（落在主选中那一行）。本来就是单选就整条放行 —— 别拦，
+      // Esc 在浏览器里还担着「停止加载 / 退出全屏」这些活，没我们的事就不该挡。
+      if (workspace.selectedIds.length > 1) {
+        event.preventDefault()
+        selectNode(workspace.selectedId ?? props.node.id)
+      }
+      break
+    // F2（重命名）、Delete（删除）、⌘/Ctrl + A（全选）**刻意不在这里**：2026-10-10 起
+    // 前两条、2026-10-12 起全选也是，都登记在 useShortcutManager 里的全局动作，由 App.vue
+    // 那个窗口捕获监听统一处理（先过作用域闸门「焦点在这一行、且不在输入框上」，
+    // 再进 FileExplorer 的 startRename / requestDelete / selectAllNodes）。留在这里就等于
+    // 第二份真相：全局那条在捕获阶段就 stopPropagation 了，这里的分支永远收不到按键；
+    // 而且设置里改绑了键位，这里也不会跟着变。
   }
+}
+
+/**
+ * 键盘把焦点挪到某一行，并按有没有按 Shift 决定选区怎么走。
+ *
+ * - 不带 Shift：选区收成那一行（**单选**）—— 与鼠标单击同一条语义（原来靠 focusin 里的
+ *   selectNode 兜着，2026-10-12 那条撤了，改成这里显式调用，免得焦点一动就把多选冲掉）。
+ * - 带 Shift：从锚点扩到那一行（**锚点不动**，所以连着按 Shift+↓ 是从同一个起点越划越长）。
+ * - 目标行不存在（已经在头 / 尾）就什么都不做。
+ *
+ * @param {HTMLElement|undefined} el
+ * @param {boolean} extend
+ */
+function focusRowAt(el, extend) {
+  if (!el) return
+  el.focus()
+  const id = el.dataset.treeId
+  if (!id) return
+  if (extend) selectRangeTo?.(id)
+  else selectNode(id)
 }
 </script>
 

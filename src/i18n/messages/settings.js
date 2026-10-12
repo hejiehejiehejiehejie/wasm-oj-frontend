@@ -40,12 +40,15 @@ export default {
         cloudHandlePlaceholder: '如：he-jie（CFID）',
         decrease: '减小',
         increase: '增大',
-        /* 下面三条是**条件行**（能装且还没装时才出现，见 services/settingsMenu.js 的 `when`）：
-           「安装为应用」的判据就是 canInstall；插件那条按这台机器的实际路径二选一 ——
-           Firefox 走 AMO（叫「安装」），Chromium 系桌面版下载 zip（叫「下载」） */
+        /* 下面四条是**条件行**（见 services/settingsMenu.js 的 `when`）：
+           「安装为应用」的判据就是 canInstall；插件那四条按**两种状态 × 这台机器的路**二选一 ——
+           没探到扩展叫「安装 / 下载」，探到旧版叫「更新 / 重新下载」（2026-10-12 用户要求把
+           安装与更新分开。Firefox 走 AMO、Chromium 走 zip，两组词的区别只在路怎么走）。 */
         installApp: '安装为应用',
         installExtension: '安装浏览器插件',
+        updateExtension: '更新浏览器插件',
         downloadExtension: '下载浏览器插件',
+        updateExtensionManual: '重新下载浏览器插件',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -244,6 +247,10 @@ export default {
           label: '删除（文件 / 文件夹）',
           hint: '焦点在资源管理器里才生效 · Delete 就是它自己的键位，清除这行请用 × 或 Backspace',
         },
+        selectAllNodes: {
+          label: '全选（资源管理器）',
+          hint: '焦点在资源管理器里才生效 · 选中的是当前可见的行，折叠着看不见的不算',
+        },
 
         restore: { label: '恢复默认', hint: '把上面所有快捷键还原成初始设置', title: '恢复默认快捷键' },
 
@@ -278,14 +285,17 @@ export default {
           label: '安装到设备',
           title: '安装到设备',
           /**
-           * 三个状态词就是这一栏的全部文案了 —— 判据只有一条：**引擎有没有
+           * 三个状态词就是这一栏的**引擎判据**那部分文案 —— 只看一条：**引擎有没有
            * 「把网站装成应用」这套 API**（`useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`，
-           * 属性检测 `'onbeforeinstallprompt' in window`）。**不按浏览器型号分岔**，
-           * 所以这里没有「Chrome 怎么说 / Firefox 怎么说」那套说法。
+           * 属性检测 `'onbeforeinstallprompt' in window`）。**状态词本身不按浏览器型号分岔**。
            *
            * 按钮亮不亮是另一回事（看 `canInstall`），状态词不替它解释 ——
            * 原来那样解释会同时错两处：既把「不支持」和「此刻还不能装」混成一句，
            * 又得靠猜浏览器来补救。
+           *
+           * ⚠️ 但**「没有 API」不等于「这台机器装不了」**，下面 `noApi*` 那几条就是给它补的
+           * 出路说明（2026-10-12 用户改口：三条真实的安装路都要给引导）。分岔只决定
+           * 「说明写哪句」，**不许回头去改状态词与按钮**。
            */
           statusAvailable: '当前浏览器支持',
           statusUnsupported: '当前浏览器不支持',
@@ -304,6 +314,31 @@ export default {
           copied: '已复制',
           copyAppsTitle:
             '复制 chrome://apps —— 网页没有权限跳转过去，只能复制后自己到地址栏粘贴打开',
+          /**
+           * 「引擎没有安装 API，但这个浏览器自己装得上」的出路说明（面板那边叫
+           * `installNoApiHint`）。**整句写**：这里没有要强调的地址或键名，拆两半只会更长。
+           *
+           * 事实来源是 MDN 的兼容表：`beforeinstallprompt` 在 **Firefox（桌面 + 安卓）与
+           * Safari（桌面 + iOS）全部不支持** —— 所以这几家都落「当前浏览器不支持」，可它们
+           * 自己的菜单里确实有安装入口。桌面 Firefox 那句只提 **Windows 143+**（地址栏那个
+           * 「网络应用」图标由 Firefox 自己提供，与 manifest 无关），macOS / Linux 上真没有
+           * 这条路，别写成「Firefox 都能装」。
+           */
+          noApiFirefoxAndroid:
+            'Firefox 没有一键安装的接口，但可以用它自己的菜单装：右上角 ⋮ →「安装」。若只看到「添加到主屏幕」，那是普通快捷方式，一样能用。',
+          noApiFirefoxWindows:
+            '桌面版 Firefox 不能用清单把网站装成应用；Windows 上只有 Firefox 143+ 另有一条路 —— 点地址栏那个「网络应用」图标。',
+          noApiFirefoxOther:
+            '桌面版 Firefox 不能用清单把网站装成应用，也没提供别的安装入口（macOS / Linux 上是这样）。',
+          noApiIos:
+            'iOS 上的浏览器都没有一键安装的接口：点「分享」→「添加到主屏幕」。',
+          noApiSafariDesktop:
+            '桌面版 Safari 不能用清单安装：走「文件」→「添加到程序坞」。',
+          noApiGeneric:
+            '这个浏览器没有一键安装的接口，用浏览器自己的菜单安装即可。',
+          /** 「应用」栏末尾那颗手动引导按钮（通知内容见 services/installGuides.js） */
+          guide: '安装引导',
+          guideHint: '用一条通知再讲一遍怎么装（各浏览器的装法不一样）',
         },
         installAction: '安装',
         installedAction: '已安装',
@@ -317,7 +352,7 @@ export default {
          * **fail-open 是刻意的**：猜错的代价是用户看不到入口，比多给一条路糟得多。
          * 移动端单独两句：那边能装的东西与桌面完全不是一回事。
          */
-        hintFirefox: '点右侧「Firefox 版」去附加组件商店一键安装；装完回这里点「重新检测」。',
+        hintFirefox: '点「Firefox 版」去附加组件商店一键安装；装完回设置里点「重新检测」。',
         hintEdge:
           'Edge 加载项商店版还没上架，先按 Chromium 通用步骤装：下载 zip 并解压 → 地址栏打开 edge://extensions → 开「开发人员模式」→「加载解压缩的扩展」选中解压出来的目录。',
         hintChrome:
@@ -359,6 +394,9 @@ export default {
         updateAvailable: '你装的是 v{current}，本站最新是 v{latest}。',
         updateHintManual: '重新下载安装包、替换掉旧目录后，在扩展管理页点一次刷新。',
         updateHintFirefox: 'Firefox 会自动更新；也可以在附加组件管理器里手动检查一次。',
+        /** 这一栏末尾那颗手动引导按钮（通知内容见 services/installGuides.js） */
+        guide: '安装引导',
+        guideHint: '用一条通知再讲一遍怎么装或换新版（按当前浏览器给步骤）',
         destinations: '投递目标',
         destinationsNote:
           '插件解析出的题目要送到哪里。两项可以同时打开；关掉后插件仍会正常解析，只是不再往那一侧发送。',
@@ -531,12 +569,16 @@ export default {
         cloudHandlePlaceholder: 'he-jie (CF ID)',
         decrease: 'Decrease',
         increase: 'Increase',
-        /* Conditional rows: they only exist when the thing can be installed and is not yet
-           installed (see `when` in services/settingsMenu.js). The extension row follows this
-           machine's actual route — AMO on Firefox ("Install"), the zip on Chromium ("Download"). */
+        /* Four conditional rows (see `when` in services/settingsMenu.js): the install-as-app one is
+           gated on canInstall, while the extension ones cover two states on this machine's route —
+           nothing detected reads "install / download", an outdated install reads
+           "update / download again" (asked for on 2026-10-12: keep the two states apart).
+           AMO on Firefox, the zip on Chromium; the wording differs only in how the route works. */
         installApp: 'Install as an app',
         installExtension: 'Install the extension',
+        updateExtension: 'Update the extension',
         downloadExtension: 'Download the extension',
+        updateExtensionManual: 'Download the extension again',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -750,6 +792,10 @@ export default {
           label: 'Delete (file / folder)',
           hint: 'Applies while the focus is in the explorer · Delete is its own binding, clear this row with × or Backspace',
         },
+        selectAllNodes: {
+          label: 'Select all (explorer)',
+          hint: 'Applies while the focus is in the explorer · selects the rows currently visible, not the collapsed ones',
+        },
 
         restore: {
           label: 'Restore defaults',
@@ -785,16 +831,21 @@ export default {
           label: 'Install on this device',
           title: 'Install on this device',
           /**
-           * These three status words are the whole copy for this row. One criterion:
-           * does the engine have the install-as-app API at all
+           * These three status words are the **engine criterion** half of this row. One
+           * criterion only: does the engine have the install-as-app API
            * (`INSTALL_API_SUPPORTED` in `useInstallPrompt.js`, probed as
-           * `'onbeforeinstallprompt' in window`). Not keyed off the browser model, so
-           * there is no “what Chrome says / what Firefox says” branch here.
+           * `'onbeforeinstallprompt' in window`). The status words themselves are not keyed
+           * off the browser model.
            *
            * Whether the button lights up is a separate question (`canInstall`); the
            * status word does not try to explain it — that used to be wrong twice over,
            * conflating “unsupported” with “not installable right now”, and needing a
            * browser guess to patch it up.
+           *
+           * ⚠️ But “no API” does not mean “cannot be installed on this machine”: the
+           * `noApi*` strings below carry that other half (user decision, 2026-10-12).
+           * The branch only picks which sentence to show — it must never feed back into
+           * the status word or the button.
            */
           statusAvailable: 'Supported by this browser',
           statusUnsupported: 'Not supported by this browser',
@@ -814,6 +865,31 @@ export default {
           copied: 'Copied',
           copyAppsTitle:
             'Copy chrome://apps — a web page cannot navigate there, so paste it into the address bar yourself',
+          /**
+           * Where to go when the engine has no install API but the browser can still install
+           * (`installNoApiHint` in the panel). Written as one sentence: no address or key name
+           * needs emphasis here, so splitting it would only make it longer.
+           *
+           * Per MDN's compatibility tables `beforeinstallprompt` is unsupported in **Firefox
+           * (desktop and Android) and Safari (desktop and iOS)** — all of them land on “not
+           * supported by this browser”, yet each has its own install entry in the browser menu.
+           * Desktop Firefox only gets the **Windows 143+** mention: that address-bar “web app”
+           * icon is Firefox's own feature and is unrelated to the manifest; macOS and Linux
+           * genuinely have no such route, so do not write “Firefox can install it”.
+           */
+          noApiFirefoxAndroid:
+            'Firefox exposes no one-click install API, but its own menu can install it: ⋮ → “Install”. If you only see “Add to Home screen”, that is a plain shortcut — it works just as well.',
+          noApiFirefoxWindows:
+            'Desktop Firefox cannot install a site as an app from its manifest; on Windows only Firefox 143+ has another route — the “web app” icon in the address bar.',
+          noApiFirefoxOther:
+            'Desktop Firefox cannot install a site as an app from its manifest, and offers no other install entry (that is the case on macOS and Linux).',
+          noApiIos: 'No browser on iOS has a one-click install API: use Share → “Add to Home Screen”.',
+          noApiSafariDesktop: 'Desktop Safari cannot install from a manifest: use File → “Add to Dock”.',
+          noApiGeneric:
+            'This browser has no one-click install API — install the site from the browser’s own menu.',
+          /** Manual guide button at the end of the App section (notification copy: services/installGuides.js) */
+          guide: 'Install guide',
+          guideHint: 'Explain the install steps again in a notification (each browser differs)',
         },
         installAction: 'Install',
         installedAction: 'Installed',
@@ -827,7 +903,7 @@ export default {
          * browser cannot be told apart. Mobile gets its own two lines, because what
          * can be installed there is a completely different story.
          */
-        hintFirefox: 'Click “Firefox version” on the right to install straight from the add-ons store, then hit “Check again” here.',
+        hintFirefox: 'Click “Firefox version” to install straight from the add-ons store, then hit “Check again” in Settings.',
         hintEdge:
           'The Edge Add-ons listing is not up yet, so use the generic Chromium steps: download and unzip the archive → open edge://extensions → turn on Developer mode → “Load unpacked” and pick the extracted folder.',
         hintChrome:
@@ -870,6 +946,9 @@ export default {
         updateAvailable: 'You have v{current}; this site ships v{latest}.',
         updateHintManual: 'Download the archive again, replace the old folder, then hit refresh on the extension manager page.',
         updateHintFirefox: 'Firefox updates it automatically; you can also check for updates in the add-ons manager.',
+        /** Manual guide button at the end of this section (notification copy: services/installGuides.js) */
+        guide: 'Install guide',
+        guideHint: 'Explain the install or update steps again in a notification (per browser)',
         destinations: 'Delivery targets',
         destinationsNote:
           'Where the extension sends the problems it parses. Both can be on at once; turning one off still parses normally, it just stops sending to that side.',

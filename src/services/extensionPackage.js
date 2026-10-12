@@ -2,7 +2,8 @@
  * extensionPackage —— 浏览器插件安装包的常量，以及「这台机器上该走哪条路」。
  *
  * 【为什么单独一个文件】2026-10-12 起这份数据有**两个消费者**：设置面板的「浏览器插件」那一栏，
- * 以及齿轮下拉菜单里那两颗一次性的行（安装 / 下载）连同它们的显隐判据。以前这几个常量住在
+ * 以及齿轮下拉菜单里那几颗一次性的行（安装 / 下载 / 更新）连同它们的显隐判据 —— 「装着的这版
+ * 是不是旧了」也在这里（`isExtensionOutdated`，两边共用一份比对）。以前这几个常量住在
  * `EditorSettingsPanel.vue` 里，菜单要用就得抄一份副本 —— 抄一份的下场是发新版时漏改一处，
  * 而**文件名里那个版本号是有用的**（见下），漏改会让老用户一直拿到旧包。
  * 所以唯一出处挪到这里，面板改成 import。
@@ -49,6 +50,29 @@ export const EXTENSION_ROUTES = computed(() => {
   if (BROWSER === 'unknown') return ['firefox', 'manual']
   return ['manual']
 })
+
+/**
+ * 「装着的这一版是不是比本站发的旧」 —— **唯一出处**（2026-10-12 从面板挪进来，齿轮菜单也要用）。
+ *
+ * 入参是扩展自报的版本串（`cp-info` 的 `info.version`）。空串 = 没探到扩展，一律 false ——
+ * 「没探到」由调用方按自己的语义处理（面板与菜单都是落「安装」口径，不该落「更新」）。
+ *
+ * 两条纪律：
+ * 1. **只拿它报「有新版本」，不用它判能力** —— 能力走 `capabilities` 协商（HANDOFF 13.1），
+ *    这笔账按版本号比大小一记错方向就反了。
+ * 2. `x.y.z` 逐段比大小；版本串来自扩展自报，不信任格式，非数字段按 0 算。
+ */
+export function isExtensionOutdated(version) {
+  if (!version) return false
+
+  const got = String(version).split('.')
+  const latest = EXTENSION_VERSION.split('.')
+  for (let i = 0; i < Math.max(got.length, latest.length); i += 1) {
+    const diff = (parseInt(got[i], 10) || 0) - (parseInt(latest[i], 10) || 0)
+    if (diff !== 0) return diff < 0
+  }
+  return false
+}
 
 /**
  * 走「下载 zip」那条：面板里是一颗 `<a download>`，菜单里没有锚点元素，所以自己造一颗点掉

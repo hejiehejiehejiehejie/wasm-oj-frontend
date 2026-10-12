@@ -21,22 +21,43 @@
  * - 退场走 200ms 淡出：dismiss 先给条目打 `leaving` 标记，动画播完才真正出数组；
  *   这期间同一条的重复 dismiss 直接忽略。
  * - `actions`（2026-10-12 加）：通知可以自带**操作按钮**，点击先执行调用方给的
- *   回调、再按普通流程退场（不传回调的按钮就只是「点掉这条」）。至多收前 2 个 ——
- *   卡片宽 320px，按钮再多就挤成一排小字，不如拆成两条通知。回调拿到的就是这条
+ *   回调、再按普通流程退场（不传回调的按钮就只是「点掉这条」）。回调拿到的就是这条
  *   通知对象，想在点击后发下一条直接在里面 notify()。Ⓐ 通知不持久化，回调函数
  *   自然也只活在本次会话里。
+ *   至多收前 `MAX_ACTIONS`（4）个（2026-10-12 由 2 提到 4：登录验证期那条通知要
+ *   「填写 / 复制 / 跳转 / 取消」四颗）。按钮行本身就 flex-wrap，四颗会在 320px
+ *   卡片里折成两行，不会缩成一排小字 —— 所以这里只是把上限抬到「够用」，
+ *   超过 4 颗才需要拆成两条通知。
+ *   单颗可以带 `keep: true`：**点了不退场**（默认点一下就跑回调 + 退场）。
+ *   给「还得再来一下」的按钮用 —— 复制验证码之后用户往往还要点「跳转到网页」，
+ *   点完就收掉等于逼他把通知重新弄出来一次。
  * - `tag`（2026-10-12 加，随评测结果通知）：给通知挂一个归属标识（如
  *   `run:<文件路径>`），配 `dismissByTag(tag)` 整组收掉 —— 在场与排队里同 tag 的
  *   一起算。常驻型业务通知（CE）靠它实现「重跑 / 切页签 / 关页签就收」，
  *   不用调用方自己记 id。
+ * - `updateNotification(id, patch)`（2026-10-12 加，随设置撤销那条通知）：**原地改**一条在场
+ *   通知的 title / message / actions / duration，位置与出场动画都不动。给「同一件事连着来」
+ *   的通知用 —— 设置连着改时不新发一条，而是复用同一条、把内容与「撤回」目标都换成最新的
+ *   （见 services/settingsUndo.js）。条目已退场 / 已不在数组里时返回 false，调用方据此新发一条。
+ * - 【唯一的持久化例外】`notifyAfterReload`（2026-10-12 加，随云端导入 / 登录成功）：
+ *   这两件事**办完就整页刷新**（见 cloudSession 的 adoptCloud），刷新前发出去的通知
+ *   跟着页面一起没了 —— 用户什么也看不到。所以那一条必须先寄存在 sessionStorage 里，
+ *   由下一次启动 `flushFlashNotification()` 补发并**立即删除**。
+ *   用 sessionStorage 而不是 localStorage 是刻意的：它只该跨过这一次刷新，随页签关掉
+ *   一起消失；存 localStorage 会让用户下次开站时忽然弹出一条三天前的「导入成功」。
+ *   除了这一次性寄存，全站通知仍然不落任何存档。
  */
 import { ref } from 'vue'
+import { FLASH_NOTICE_KEY } from './storageNames.js'
 
 /** 类型表（唯一出处）。组件的图标映射与颜色分支都按这四个 id 走。 */
 export const NOTIFICATION_TYPES = ['info', 'success', 'warning', 'error']
 
 /** 同屏上限。队列不设上限（排队中的通知只是迟一点露面）。 */
 export const MAX_VISIBLE = 4
+
+/** 单条通知的操作按钮上限（理由见文件头 actions 那条）。 */
+export const MAX_ACTIONS = 4
 
 /** 退场动画时长，须与 NotificationCenter.vue 里 `notif-out` 的 duration 一字不差。 */
 const EXIT_MS = 200
@@ -67,19 +88,20 @@ function clearTimer(notif) {
 let actionSeq = 0
 
 /**
- * 归一操作按钮：只认 `{ label, run? }`，label 转字符串、run 只收函数。
- * 超过 2 个的丢弃（见文件头的行为契约）。传坏值（非数组 / 元素不是对象）一律空表，
- * 不让调用方的脏数据把上屏流程打断。
+ * 归一操作按钮：只认 `{ label, run?, keep? }`，label 转字符串、run 只收函数、
+ * keep 只认严格 true。超过 MAX_ACTIONS 个的丢弃（见文件头）。传坏值（非数组 /
+ * 元素不是对象）一律空表，不让调用方的脏数据把上屏流程打断。
  */
 function normalizeActions(actions) {
   if (!Array.isArray(actions)) return []
   return actions
-    .slice(0, 2)
+    .slice(0, MAX_ACTIONS)
     .filter((action) => action !== null && typeof action === 'object')
     .map((action) => ({
       id: ++actionSeq,
       label: String(action.label ?? ''),
       run: typeof action.run === 'function' ? action.run : null,
+      keep: action.keep === true,
     }))
 }
 
@@ -108,9 +130,10 @@ function show(notif) {
  *   界面文案走 i18n；运行期产生的动态文本——比如编译器吐回来的报错——直接传原文）
  * @param {string} [options.message=''] 正文，可省
  * @param {number} [options.duration=0] 自动消失的毫秒数；0 = 常驻，需手动关闭
- * @param {Array<{label: string, run?: (notif: object) => void}>} [options.actions=[]]
- *   操作按钮，至多收前 2 个。点击：先跑 `run`（拿到本条通知对象），再退场；
- *   没有 `run` 的按钮只做「点掉这条」。见文件头的行为契约。
+ * @param {Array<{label: string, run?: (notif: object) => void, keep?: boolean}>} [options.actions=[]]
+ *   操作按钮，至多收前 MAX_ACTIONS 个。点击：先跑 `run`（拿到本条通知对象），
+ *   默认随后退场；`keep: true` 的那颗点了不退场。没有 `run` 的按钮只做「点掉这条」。
+ *   见文件头的行为契约。
  * @param {string} [options.tag=null] 归属标识，配 dismissByTag 用；无归属就不传
  */
 export function notify({ type = 'info', title = '', message = '', duration = 0, actions = [], tag = null } = {}) {
@@ -134,6 +157,37 @@ export function notify({ type = 'info', title = '', message = '', duration = 0, 
     show(notif)
   }
   return id
+}
+
+/**
+ * 原地改一条在场通知的若干字段（见文件头 updateNotification 那条契约）。
+ *
+ * 【为什么要它】「同一件事连着来」的通知若靠「先 dismissByTag 再 notify」，用户每改一次
+ * 设置就会看到一条淡出、一条滑入，连点字号步进器时整排通知都在抖。原地改就不动 DOM 节点：
+ * 既不重播进场动画，也不改变 CSS order 依赖的数组位置。
+ *
+ * 【只认这四个字段】title / message / actions / duration —— 其余字段（id / type / tag）
+ * 是这条通知的身份，换了就等于另一条通知了，不该走这里。`duration` 传了会**重新起算**时限
+ * （顺带给 expireAt 换新，排序跟着变），正是「一边改一边把撤回窗口往后推」要的效果。
+ *
+ * @param {number} id notify() / updateNotification 返回的那个 id
+ * @param {{title?: string, message?: string, actions?: Array, duration?: number}} [patch]
+ * @returns {boolean} 改到了 true；这条已经退场 / 不在数组里（调用方应新发一条）false
+ */
+export function updateNotification(id, patch = {}) {
+  const notif = notifications.value.find((item) => item.id === id)
+  if (!notif || notif.leaving) return false
+  if (patch.title !== undefined) notif.title = String(patch.title)
+  if (patch.message !== undefined) notif.message = patch.message ? String(patch.message) : ''
+  if (patch.actions !== undefined) notif.actions = normalizeActions(patch.actions)
+  if (patch.duration !== undefined) {
+    const next = Number.isFinite(patch.duration) && patch.duration > 0 ? patch.duration : 0
+    clearTimer(notif)
+    notif.duration = next
+    notif.expireAt = next > 0 ? Date.now() + next : Infinity
+    if (next > 0) notif.timerId = window.setTimeout(() => dismissNotification(notif.id), next)
+  }
+  return true
 }
 
 /**
@@ -184,5 +238,48 @@ export function dismissByTag(tag) {
   }
   for (const notif of notifications.value) {
     if (notif.tag === tag && !notif.leaving) dismissNotification(notif.id)
+  }
+}
+
+// -------------------------------------------------- 跨刷新的一次性通知（见文件头的例外）
+
+/**
+ * 把一条通知寄存在 sessionStorage 里，等下一次启动补发。
+ *
+ * 专给「办完就整页刷新」的动作（云端导入 / 登录成功）：刷新前 notify() 等于没发。
+ * 存的是**已经翻译好的字符串**，不是词条 key —— 补发时页面刚起来，i18n 还没进
+ * 任何组件，而这里本来也只存一次性的展示文本，没有第二个消费方。
+ *
+ * 只收 notify() 的那几个字段；`actions` / `tag` 一律不存：回调函数（引用）过不了
+ * JSON，存了也只会变成一堆空标签。
+ *
+ * @param {object} options 同 notify() 的 { type, title, message, duration }
+ */
+export function notifyAfterReload({ type = 'info', title = '', message = '', duration = 0 } = {}) {
+  try {
+    window.sessionStorage.setItem(
+      FLASH_NOTICE_KEY,
+      JSON.stringify({ type, title, message, duration }),
+    )
+  } catch {
+    /* 隐私模式 / 配额满：这次就不提示了，功能本身照走 */
+  }
+}
+
+/**
+ * 启动时补发寄存在 sessionStorage 里的那条通知（App.vue 的 onMounted 调一次）。
+ * 幂等且**先删后发**：读出来立刻删掉，免得同一条在后续刷新里再弹一次。
+ * 存档是用户能手改的地方，解析失败就当没有 —— 删掉脏数据，不往界面上塞垃圾。
+ */
+export function flushFlashNotification() {
+  try {
+    const raw = window.sessionStorage.getItem(FLASH_NOTICE_KEY)
+    if (raw === null) return
+    window.sessionStorage.removeItem(FLASH_NOTICE_KEY)
+    const stored = JSON.parse(raw)
+    if (stored === null || typeof stored !== 'object') return
+    notify(stored)
+  } catch {
+    /* 读不出来 / 不是 JSON：什么也不做 */
   }
 }

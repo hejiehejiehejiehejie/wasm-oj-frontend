@@ -178,6 +178,11 @@ export default {
 
       /** 题目导入 */
       importEmpty: '题目数据为空',
+
+      /** 打包导出。两条都是 zip 格式本身的硬上限（65535 个条目 / 4GB），
+       *  正常用不到 —— 兜底给一句人话，别把 `error.zipTooLarge` 这种 key 露给用户 */
+      zipTooManyEntries: '要打包的条目超过 {max} 个（zip 格式的上限），请分几次导出',
+      zipTooLarge: '打包后超过 4GB（zip 格式的上限），请分几次导出',
     },
   },
 
@@ -347,6 +352,11 @@ export default {
         'The workspace metadata is corrupted; it was opened empty — problem links, difficulty and samples may be lost',
 
       importEmpty: 'The problem data is empty',
+
+      /** Both are hard limits of the zip format (65 535 entries / 4 GB); unreachable in
+       *  practice — here only so the raw `error.zipTooLarge` key never reaches the user. */
+      zipTooManyEntries: 'More than {max} entries to pack (the zip format limit) — export in a few batches',
+      zipTooLarge: 'The archive would exceed 4 GB (the zip format limit) — export in a few batches',
     },
   },
 }

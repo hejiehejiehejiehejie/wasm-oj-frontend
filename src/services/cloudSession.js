@@ -27,6 +27,7 @@ import {
   verifyAndSave,
 } from './cloudProfile.js'
 import { forgetActiveProfile, writeActiveProfile, writeCloudEntryPath } from './cloudEntry.js'
+import { dismissByTag, notify, notifyAfterReload } from './notifications.js'
 import { CLOUD_ACCOUNT_KEY, CLOUD_TOKEN_KEY } from './storageNames.js'
 import { t } from '../i18n/index.js'
 
@@ -41,6 +42,34 @@ function readStored(key, fallback) {
   } catch {
     return fallback
   }
+}
+
+/**
+ * Codeforces「个人资料 › Social」一页的地址 —— 验证码要填进那页的 Last name。
+ * 面板与菜单的说明文字里各有一条指向它的链接，通知上「跳转到网页」那颗按钮也去同一处，
+ * 所以收成一份常量，别在三个地方各写一遍字面量。
+ */
+export const CF_SOCIAL_URL = 'https://codeforces.com/settings/social'
+
+/** 成功类通知的停留时长：与「图片已复制」同一档，看一眼就走 */
+const SUCCESS_NOTICE_MS = 5000
+
+/** 等待验证那条通知的 tag：取到码发一条、码没了整组收（见下面那个 watch） */
+const CODE_NOTICE_TAG = 'cloud:code'
+
+/**
+ * 验证码有效期：**必须与 i18n 里那句 codeHint（10 分钟）和后端一致**。
+ * 通知就用它当停留时长 —— 码什么时候作废，通知就什么时候走。
+ */
+const CODE_TTL_MS = 10 * 60 * 1000
+
+/**
+ * 「导入 / 登录成功」两条通知的词条（顺序：标题、正文）。标题与正文分开收，
+ * 是为了让这里只剩一张表、调用方只看 kind 一个参数（见 adoptCloud）。
+ */
+const CLOUD_NOTICES = {
+  import: ['notifications.cloud.importedTitle', 'notifications.cloud.importedBody'],
+  login: ['notifications.cloud.loggedInTitle', 'notifications.cloud.loggedInBody'],
 }
 
 function persist(key, value) {
@@ -145,6 +174,78 @@ export function cancelCloudCode() {
   cloudCfStatus.value = 'unknown'
   clearCloudFeedback()
 }
+
+// ------------------------------------------------- 取码那一步的通知（2026-10-12 加）
+//
+// 为什么要有这条通知：验证码这一步的**主战场在另一个网站**（把码填进 Codeforces 的
+// Last name）。用户离开本站、关掉设置页签、或者干脆是从齿轮菜单点的登录（菜单一收，
+// 内联 UI 就没了），回头就找不到那枚码和那几颗按钮了。通知跟着编辑区走，够得着。
+
+/**
+ * 「跳转到网页」：新页签打开 Codeforces 的个人资料页（Last name 就在那一页）。
+ * 与面板 / 菜单里那条说明中的链接同一个地址（CF_SOCIAL_URL），只是那两处是现成的
+ * `<a>`，通知这边只有按钮，所以自己开一次；`noopener,noreferrer` 与
+ * extensionPackage.js 的 openExtensionStore 同款。
+ */
+export function openCfProfileSettings() {
+  window.open(CF_SOCIAL_URL, '_blank', 'noopener,noreferrer')
+}
+
+/**
+ * 等待验证那条通知：取到码就发一条，四颗按钮 ——
+ *   一键填写（**只在装了带 fill-code 能力的扩展时出现**）/ 复制验证码 / 跳转到网页 / 取消。
+ * 前三颗都是「还得再来一下」的动作（复制完往往还要跳转、跳转完还要回来取消），
+ * 所以都带 `keep: true` 不退场；「取消」那颗点了就结束这一轮（它会清掉 code，
+ * 下面那个 watch 顺手把通知收掉）。
+ *
+ * 停留时长取 CODE_TTL_MS：码什么时候作废，通知就什么时候走。
+ */
+function notifyCodeWaiting() {
+  const actions = []
+  if (canFillCode.value) {
+    actions.push({
+      label: t('notifications.cloud.codeFill'),
+      run: () => void fillCloudCode(),
+      keep: true,
+    })
+  }
+  actions.push({
+    label: t('notifications.cloud.codeCopy'),
+    run: () => void copyCloudCode(),
+    keep: true,
+  })
+  actions.push({ label: t('notifications.cloud.codeOpen'), run: openCfProfileSettings, keep: true })
+  actions.push({
+    label: t(
+      codeMode.value === 'upload'
+        ? 'notifications.cloud.codeCancelUpload'
+        : 'notifications.cloud.codeCancelLogin',
+    ),
+    run: cancelCloudCode,
+  })
+  notify({
+    type: 'info',
+    title: t('notifications.cloud.codeTitle'),
+    message: t('notifications.cloud.codeBody', { code: code.value }),
+    duration: CODE_TTL_MS,
+    actions,
+    tag: CODE_NOTICE_TAG,
+  })
+}
+
+/**
+ * 「验证那一步正开着」⇔「通知在场」：`code` 非空就是它开着的唯一判据（面板与菜单都据此
+ * 换形态），所以这条通知也跟着它一个 ref 走 —— 取到码 / 换一枚新码就（重）发一条，
+ * 取消与验证成功（都会清空 code）就整组收掉。验证失败**不清** code（码可能还有效，
+ * 用户改完 Last name 能接着来），通知留着，那几颗按钮正好还用得上。
+ *
+ * 用 watch 而不是在每个清 `code` 的地方补一句 dismiss：清空点有五处（取消 / 两种验证
+ * 成功 / …），漏一处就是一条甩不掉的通知。这里只认那一个 ref。
+ */
+watch(code, (value) => {
+  dismissByTag(CODE_NOTICE_TAG)
+  if (value) notifyCodeWaiting()
+})
 
 // ---------------------------------------- 取码那一步的两处便利：复制 / 让扩展代填
 //
@@ -334,6 +435,15 @@ export async function loginCloud() {
   cloudAccount.value = { handle: target, updatedAt: '' }
   handleInput.value = ''
   notice.value = t('settings.cloud.loginNoCloud')
+  // 这条也是「登录成功」（只是云端还没有配置，没什么可套用的，所以不刷新）。
+  // 通知与行内那句说同一件事：行内那句留在云端同步那一栏里当下一步的指引，
+  // 通知负责让「从齿轮菜单点的登录」也能看见结果。
+  notify({
+    type: 'success',
+    title: t('notifications.cloud.loggedInTitle'),
+    message: t('notifications.cloud.loggedInNoCloud'),
+    duration: SUCCESS_NOTICE_MS,
+  })
 }
 
 /** 验证码面板上那颗按钮：按当前用途分发到登录 / 上传 */
@@ -374,7 +484,8 @@ export async function verifyAndLogin() {
   remoteProfile.value = null
   remoteUpdatedAt.value = ''
   // 刷新成功的话后面就不用走了；只有云端那份一个白名单键都没有时才会走到这里
-  if (!(await adoptCloud(profile, handle, appliedVersion))) {
+  // （kind 传 'login'：那条通知说「登录成功」而不是「已导入」）
+  if (!(await adoptCloud(profile, handle, appliedVersion, 'login'))) {
     notice.value = t('settings.cloud.loggedIn')
   }
 }
@@ -512,11 +623,26 @@ export function unbindCloud() {
  *
  * 「登录成功」「点下载」「导入」共用这里：三者的语义都是「这台设备改用云端那一套」。
  * 注意方向始终是**只下不传**：这个函数不碰云端一个字节。
+ *
+ * @param {'import'|'login'} [kind='import'] 这次是「导入一份云端配置」还是「登录」——
+ *   只影响刷新后补发的那条通知说哪句话（见 CLOUD_NOTICES）。默认按导入算：四条显式
+ *   导入入口（面板导入 / 菜单导入 / 两处的「下载到本机」/ 链接套用）都走默认，
+ *   只有 verifyAndLogin 传 'login'。
  */
-export async function adoptCloud(data, handle, updatedAt = '') {
+export async function adoptCloud(data, handle, updatedAt = '', kind = 'import') {
   if (!applyProfile(data)) return false
   writeCloudEntryPath(handle)
   writeActiveProfile(handle, updatedAt)
+  // 这条通知要跨过下面那次刷新：刷新前 notify() 等于没发（页面一走它就没了），
+  // 所以先寄存在 sessionStorage 里，由下次启动的 flushFlashNotification 补发。
+  // 必须排在 reload 之前 —— 与上面两个 write 同一条理由。
+  const [titleKey, bodyKey] = CLOUD_NOTICES[kind] ?? CLOUD_NOTICES.import
+  notifyAfterReload({
+    type: 'success',
+    title: t(titleKey),
+    message: t(bodyKey, { handle }),
+    duration: SUCCESS_NOTICE_MS,
+  })
   await flush()
   window.location.reload()
   return true

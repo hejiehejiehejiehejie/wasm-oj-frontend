@@ -86,14 +86,14 @@ src/
   styles/base.css               # ★ 所有 CSS 变量 + 全局元素样式，改配色只改这里
   styles/fonts.css              # 代码区三款内置字体的 @font-face（JetBrains Mono / Fira Code / Cascadia Code，各取 latin 子集 + Regular/Bold），由 base.css 首行 @import 引入；字体文件在 public/fonts/
   styles/guide.css              # 使用指南页（guide.html 与 guide.en.html 共用）的样式：**`@import './base.css'` 后再加长文排版**，两套主题的配色 / 字体 / 滚动条仍来自 base.css，这里一律 `var(--…)` 引用、不写十六进制（见第 12 节）。唯一要小心的：base.css 是为「满屏 IDE」写的（`html/body` 高度 100%、body 锁死滚动），内容页必须把那两条放开，否则长页滚不动
-  App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态；另外挂两件全局事：window 捕获阶段的 keydown（快捷键。两张表分开放：`SHORTCUT_HANDLERS` 是「在哪儿按都算」的 6 条，`SHORTCUT_TREE_HANDLERS` 是**作用域受限**的 F2 / Delete 那 2 条 —— 后者先过 `treeRowFrom()` 闸门，见第 13.4 节）与 `useCompanionImport()`（接扩展投来的题目）
+  App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态；另外挂两件全局事：window 捕获阶段的 keydown（快捷键。两张表分开放：`SHORTCUT_HANDLERS` 是「在哪儿按都算」的 7 条，`SHORTCUT_TREE_HANDLERS` 是**作用域受限**的 F2 / Delete / ⌘·Ctrl+A 那 3 条 —— 后者先过 `treeRowFrom()` 闸门，见第 13.4 节）与 `useCompanionImport()`（接扩展投来的题目）
   composables/usePersistentRef.js
   composables/useUiScale.js       # ★ 全局界面缩放的唯一权威：uiScale 单例 + 档位表 UI_SCALE_OPTIONS + px()（设计 px → 真实 px）+ applyUiScale()（落根字号）+ normalizeUiScale()（读盘校验）。三条边界见文件头与第 5 节坑 24
   composables/useInstallPrompt.js  # 设置视图「应用」分组里「安装到设备」按钮的数据源：拦 beforeinstallprompt，用完即弃
   composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
   composables/useCompanionBridge.js # ★ 扩展消息接收端：window.postMessage 握手（cp-ping → cp-info）与题目投递（cp-task）。状态是**模块级单例**（扩展装没装是全局事实，各组件不该各探一次）；同站多开标签页时扩展会广播，按 taskId 去重。2026-10-11 加了两对**网页发起的请求**：`cp-fill-code`（请扩展去 Codeforces 代填云同步验证码，`requestCodeFill`，超时 `FILL_TIMEOUT = 15000`）与 `cp-cf-check`（问「这个浏览器登的是不是这个 handle」，`checkCfIdentity`，超时 `CF_CHECK_TIMEOUT = 3000`，只回四值枚举），以及**能力协商** `canFillCode` / `canCheckCf`（读 `cp-info` 的 `capabilities`，见 13.1）
   composables/useCompanionImport.js # 订阅扩展题目 → 调 problemImport 落盘 → 把样例**整体替换**进评测面板 → nextTick 后抢焦点。它是 problemImport 返回值的唯一消费方
-  composables/useShortcutManager.js # ★ 全局快捷键的唯一权威：动作表 SHORTCUT_ACTIONS（**8 项**）+ 绑定表 + comboFromEvent 规范化 + 冲突检测 + localStorage。**刻意不挂组件生命周期**（App 的全局 keydown 与 EditorPane 的状态栏提示都要在任何组件挂载前就可用）。两条别踩：① 动作表里 **2 条是「作用域受限」的**（`rename-node` / `delete-node`），执行入口不在 App.vue 的 `SHORTCUT_HANDLERS` 而在 `SHORTCUT_TREE_HANDLERS`，别照抄别的动作往那张表里加；② 裸键默认只放行功能键与 `Esc`（`SAFE_BARE_CODES`），个别动作可用自己的 `bareCodes` 额外点名（目前只有 `delete-node` 的 `Delete`），导出 `bareAllowedFor()` 给录制框共用（见第 13.4 节）
+  composables/useShortcutManager.js # ★ 全局快捷键的唯一权威：动作表 SHORTCUT_ACTIONS（**9 项**）+ 绑定表 + comboFromEvent 规范化 + 冲突检测 + localStorage。**刻意不挂组件生命周期**（App 的全局 keydown 与 EditorPane 的状态栏提示都要在任何组件挂载前就可用）。两条别踩：① 动作表里 **3 条是「作用域受限」的**（`rename-node` / `delete-node` / `select-all-nodes`），执行入口不在 App.vue 的 `SHORTCUT_HANDLERS` 而在 `SHORTCUT_TREE_HANDLERS`，别照抄别的动作往那张表里加；② 裸键默认只放行功能键与 `Esc`（`SAFE_BARE_CODES`），个别动作可用自己的 `bareCodes` 额外点名（目前只有 `delete-node` 的 `Delete`），导出 `bareAllowedFor()` 给录制框共用（见第 13.4 节）
   composables/useTreeDrag.js     # ★ 资源管理器文件树的拖拽移动（Pointer Events；鼠标位移超 4px 即拖，触屏要先按住 450ms）。本模块不碰 VFS，落盘由 FileExplorer 的 onDrop 交给 vfs.rename；树以外的落点（编辑区 = 拖过去打开 / 跳转页签）由落点自己 registerDropZone 登记。2026-10-10 加触屏长按的两段反馈：`pressingId`（按住中 → 行上 `--pressing`）与 `armedId`（长按已成 → 行上 `--armed`），**两态互斥**、都在这里置位、统一在 cancelPress 收掉（行上怎么画见第 3 节 FileTreeItem 那格）。**2026-10-11 改长按的落点**：到 450ms 那一刻**菜单当场弹出来**（以前要等抬手才弹），此后原地抬手 = 菜单留在屏幕上接着点、指头一动（超 8px）= 先把这个菜单收掉再改判成拖拽；抬手那一下浏览器补的合成 click 在**捕获阶段整个吃掉**（菜单在屏幕下半部会被视口推到指头之上，点击目标正好是某根条目），收网的时机是「它自己吃掉那一发」或「下一根指头按下来」，**不能挂在 cancelPress 上**（那比抬手还早）
   composables/useTabDrag.js      # 编辑器页签的拖动排序（Pointer Events，鼠标 5px 阈值 / 触屏 450ms 长按先 armed 再拖）。**一条混排序列里排**：文件页签与合成视图页签都认同一个 `data-strip-id`，落点在**整条条带**上数（混排这条规矩的来由见 services/tabStrip.js 那格；2026-10-11 之前它是「只排文件页签、视图页签恒定在后」，现已改成混排）。本模块不碰 store，落盘由调用方的 onDrop 交给 `tabStrip.moveStripItem`。触屏另有三件事：`contextmenu` 与非被动 `touchmove` 都在 **pointerdown 那一刻**就挂上（拦截本身只在 armed/dragging 时生效），并输出 `pressingId` / `armedId` 两段长按反馈。详见第 3 节 EditorTabs 那格
   composables/useEditorMenu.js   # 编辑区的上下文菜单（2026-10-10 加）：**桌面鼠标右键与触屏长按共用同一份自绘菜单**（`ContextMenu.vue`），并负责把 Monaco 自带的英文菜单拦掉。触屏长按 450ms 会**先选中手指下的词**再弹菜单（轻点 = 光标、双击 = 选词、长按 = 选词 + 菜单，与 iOS / Android 原生一致；长按处已在选区内则保持原选区）。⚠️ Monaco 那套触摸手势的三个硬事实见第 5 节坑 31与坑 30
@@ -109,14 +109,14 @@ src/
     MarkdownPreview.vue         # 题解预览面板（2026-09-30 加）：渲染状态机（`pending` / `missing` / `downloading` / `failed` / 就绪）、160ms 防抖、缺渲染器时的「下载渲染器」入口、与编辑器的**双向滚动同步**（比例 + 回音吃掉 + 重渲染后按 lastRatio 复位）。只接受 source 字符串、不认识 Monaco
     Sidebar.vue                 # ★ 统一侧边栏外壳：页头（`header.sidebar__head`）+ 用 v-show 切换两个面板（资源管理器 / 评测样例），面板本体由 App.vue 经具名插槽（#explorer / #tests）填入。页头全站只有一份（2026-10-11 上提）：左 SidebarSwitcher、右 `#sidebar-context`（两个面板各自 Teleport 上来的上下文动作：新建文件/文件夹 ↔ verdict + 耗时，见坑 37 的 `defer`）。页签状态（cp.sidebarTab）与持久化留在这里，经 provide 下发给切换器与两个面板。另有两条自适应：ResizeObserver 按侧栏宽 < 360 逻辑 px 切紧凑模式（胶囊收文字标签）；列表滚动后页头下沿浮出 1px 发丝线（`.is-scrolled`，静止在顶时保持 2026-10-04 定稿的透明页头）。自己不管宽度与整栏显隐——那是外层 .pane--tests 的事。另 `defineExpose({ showPanel })` 供父组件从外部切面板（App.vue 跑测试时要把「评测样例」亮出来），状态仍只有这一份
     SidebarSwitcher.vue         # 侧栏页头里的两组入口（2026-09 加）：面板胶囊开关 + 设置。渲染在 Sidebar 的共享页头里、**全站单实例**（2026-10-11 上提；此前两个面板各渲染一份、靠 v-show 藏一个，滑动只能靠 keyframes 假装）。段位是「图标 + 短标签」（文件 / 评测，词条 `app.sidebar.explorerShort` / `testsShort`），侧栏不够宽时（Sidebar 下发的 `compact`）收起文字退回纯图标。状态从 Sidebar 的 provide 取（`panels` / `targetPanel` / `togglePanel` / `settings` / `cfPicker` / `activeTab` / `compact`），自己不存状态。面板那枚：`.sidebar-switcher__pill` **本身是一颗 `<button>`**（点任意位置 toggle，高度 26 / 13px 圆角 / 底色 `--bg-control`），里面 `v-for` 出两段 `<span class="sidebar-switcher__seg">` 作纯视觉指示（带标签 72×22、紧凑 30×22，11px 圆角，当前段 `.is-active` 文字换 `--text-on-accent`，并打 `data-panel` 与 `data-current`），蓝色高亮是独立的 `.sidebar-switcher__indicator`（绝对定位，active 变化只改 `transform`、transition 补间 —— 滑动是真的，不再有 data-switched / keyframes 那套）。设置那颗 `gear`（**弹 Quick Settings 下拉菜单** `SettingsMenu.vue`，由菜单里的「打开设置面板…」开编辑区里那个合成页签 `settingsTab`、不落盘）在轨道外，是独立的圆形按钮；抽题那颗（可选，`cfPicker.ready` 才渲染）排在齿轮左边
-    FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头动作区只剩新建文件 / 文件夹两颗按钮，经 `<Teleport defer>` 投进 Sidebar 共享页头的 `#sidebar-context`（本面板不激活时 disabled 原地渲染；defer 的来历见坑 37）+ FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。原 `.explorer__head` 已随页头上提删除（2026-10-11）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随**树里选中的那一行**（`workspace.selectedId`；选中文件时取其父目录，点树里空白处 = 选中根 → 回落根目录），右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）。另有一处对外接口：`defineExpose({ startRename, requestDelete })`，**都收节点 id**，供全局快捷键 F2 / Delete 调用（App.vue 过完闸门传 id 进来）—— 与右键菜单那两条**完全同源**，不另写一份。菜单右列的键位走 `shortcutOf()`，读的是快捷键绑定表（设置里改绑这里跟着变），**别写死 'F2' / 'Delete'**。「取消删除」会把焦点交还给原来那一行（`refocusRow`），否则 Esc 之后紧接着再按 Delete 是没反应的
+    FileExplorer.vue            # 资源管理器面板（Sidebar 的 #explorer 插槽）：页头动作区只剩新建文件 / 文件夹两颗按钮，经 `<Teleport defer>` 投进 Sidebar 共享页头的 `#sidebar-context`（本面板不激活时 disabled 原地渲染；defer 的来历见坑 37）+ FileTreeItem 树 + 右键菜单（`ContextMenu`，经 `provide('openContextMenu')` 下发给树节点）+ 删除确认弹窗（自绘，见第 5 节坑 11）+ 题目信息弹窗（自绘，同款，见第 5 节坑 17）。原 `.explorer__head` 已随页头上提删除（2026-10-11）。新建的**目标目录可以是任意目录**：页头两颗按钮跟随**树里主选中的那一行**（`workspace.selectedId`；选中文件时取其父目录，点树里空白处 = 选中根 → 回落根目录），右键目录则显式指定；新建的**状态与提交都收在这里**（`creating` / `createFlights` / `commitCreate`），输入行本体见 InlineCreateRow.vue（见第 5 节坑 12）。**多选**（2026-10-12 加）：高亮集合是 `workspace.selectedIds`、`workspace.selectedId` 是其中的**主选中兼 Shift 锚点**；**区间（Shift 扩选）以「可见行」为准**（DOM 顺序，`visibleRowIds()`），所以 `selectRangeTo`（provide 给树项）收在本组件；而 **⌘/Ctrl+A 是「全选所有节点」** —— 递归整棵树、连折叠目录里的也收（`allNodeIds()`；2026-10-12 按用户要求由原来的「全选可见行」改来，理由与闸门见第 13.4 节）。⚠️ **这两条口径刻意不同**，别顺手统一：Shift 划段是「手能指到的范围」，⌘A 是「整个工作区」；**删除作用于整个选区**（右键多选项时菜单标签报数「删除 N 项」，`pruneNested()` 转调 `treeOps.pruneNestedNodes()` 把「祖先也在名单里」的后代剔掉 —— `isWithin(dirPath, maybeChild)` 的参数是**目录在前**，别传反；导出那条路共用同一个函数）；确认弹窗标题报数、路径逐条列出（最多 `DELETE_LIST_MAX = 6` 条，多的折成「另有 N 项」）。对外接口：`defineExpose({ startRename, requestDelete, selectAllNodes })`，供全局快捷键 F2 / Delete / ⌘·Ctrl+A 调用（App.vue 过完闸门传 id 进来）—— 与右键菜单那两条**完全同源**，不另写一份。菜单右列的键位走 `shortcutOf()`，读的是快捷键绑定表（设置里改绑这里跟着变），**别写死 'F2' / 'Delete'**。「取消删除」会把焦点交还给主选中那一行（`refocusRow`），否则 Esc 之后紧接着再按 Delete 是没反应的。**导入 / 导出（2026-10-12 加，网页版与桌面端都支持）**：页头**四颗**按钮（新建文件 / 新建文件夹 / **导入文件** / **导入文件夹**，后两颗与目录右键菜单里的同名项同源 —— 一个 `input[multiple]`、一个 `input[webkitdirectory]`，**必须在用户手势的同一调用栈里开**）；**导出只有右键菜单一处**、作用于**整个选区**（多选时标签报数「导出 N 项」），落点按平台分岔 —— **恰好一个文件就直下那个文件**（`<a download>`），其余打成 zip（手写的 `services/zip.js`，零依赖）；**桌面端额外多一条「导出到本机文件夹」**，走 Rust 的 `export_choose` / `export_write` / `export_mkdir` / `export_close`（前端全程拿不到 fs / dialog 权限，导出这条链路的 Rust 侧契约见 14.O）。内容收集（递归读文件、算 zip 内的相对路径）与导入落盘都在 `services/fileTransfer.js`，本组件只负责选落点、报提示、把新导入的文件揭示出来（`revealImported` 等树重建，最多轮询 1s）。导入 / 导出期间 `transferBusy` 压住页头按钮；导出落点是**一张复用 `.confirm` 样式的三按钮卡片**（导出到本机文件夹 / 打包成 zip / 取消），别按 `window.confirm` 去写
     InlineCreateRow.vue         # 内联新建的输入行（2026-09-28 从 FileExplorer 里抽出来）：根目录那份由 FileExplorer 渲染、某个目录里那份由 FileTreeItem 渲染，两处共用。挂载时把 `{ focus }` 注册进 `provide('creatingRow')`，供「程序性失焦后把焦点抢回来」用（见第 5 节坑 12）
-    FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）；目录展开时还会在 `role="group"` 内、递归 `v-for` 之前渲染一份 InlineCreateRow（见第 5 节坑 12）；行的选中底色读 `workspace.selectedId` —— 2026-10-01 起**文件与目录同一套高亮**（单选）。**F2 重命名与 Delete 删除 2026-10-10 已搬出这个文件**（它们成了全局动作，见第 13.4 节）：行内的 `onKeyDown` 现在只管方向键 / Enter，**别再加回来** —— 全局那条挂在 window 捕获阶段并 `stopPropagation`，加回来永远收不到按键，还会多出一份改绑后不跟着变的真相。重命名结束（回车提交 / Esc 取消）会把焦点交还给这一行（`refocusRow()`），**只有「失焦提交」那条路不还**（那条正是用户点到别处去了）。**⌘ / Ctrl + 单击 = 在新标签页打开这一行的题目**（2026-10-11 加）：`onClick` 判平台主修饰键（macOS 上 Control + 单击是系统右键，所以只看 ⌘），出口 `provide('openProblem')` 与右键菜单那一项**同源**，该行没有题目链接时 `openProblem` 回 false、整条退化成普通单击
+    FileTreeItem.vue            # 文件树节点：展开态存在自己身上，靠 Sidebar 的 v-show 保住；右键 `@contextmenu.stop` 把事件交给 FileExplorer（**`.stop` 不能删**，见第 5 节坑 14）；目录展开时还会在 `role="group"` 内、递归 `v-for` 之前渲染一份 InlineCreateRow（见第 5 节坑 12）；行的选中底色读 `workspace.selectedIds`（**多选高亮集合**，2026-10-12 起）—— 2026-10-01 起**文件与目录同一套高亮**；目录的范围线亮起判据也跟着改成「选区里有任一节点的父是它」（`isActiveParent`）。**F2 重命名 / Delete 删除 / ⌘·Ctrl+A 全选 2026-10-10 起已搬出这个文件**（全局动作，见第 13.4 节；其中 ⌘/Ctrl+A 的语义 **2026-10-12 改成了「全选所有节点」**—— 连折叠目录里的也算，不再是「全选可见行」）：行内的 `onKeyDown` 只管方向键（**带 Shift = 扩选**）/ Home / End / Enter / **Esc（多选时收成单选）**，**别把全局那三条加回来** —— 全局那条挂在 window 捕获阶段并 `stopPropagation`，加回来永远收不到按键，还会多出一份改绑后不跟着变的真相。重命名结束（回车提交 / Esc 取消）会把焦点交还给这一行（`refocusRow()`），**只有「失焦提交」那条路不还**（那条正是用户点到别处去了）。**点击的三个手势分岔**（`onClick`，2026-10-12 定）：**⌥ / Alt + 单击 = 加选 / 减选**（只改选区，不打开文件、不折叠目录）；**Shift + 单击 = 从锚点整段选中**（同上，区间按可见行算，起点是谁由 FileExplorer 的 `selectRangeTo` 定）；**⌘ / Ctrl + 单击 = 在新标签页打开这一行的题目**（2026-10-11 加，用户点名保留 —— 所以加选让给了 Alt）：判平台主修饰键（macOS 上 Control + 单击是系统右键，所以只看 ⌘），出口 `provide('openProblem')` 与右键菜单那一项**同源**，该行没有题目链接时 `openProblem` 回 false、整条退化成普通单击。**键盘挪焦点必须显式同步选区**（`focusRowAt`：不带 Shift = 单选、带 Shift = 扩选）—— `FileExplorer.onTreeFocus` **只记账 roving tabindex、不写选区**（见第 5 节坑 38）
     ContextMenu.vue             # 通用右键菜单：Teleport 到 body、fixed 定位、挂载后按视口四边收敛、点外部 / Esc / 失焦关闭。目前两处在用：**文件树**（文件节点给「打开题目（仅当 `meta.url` 是 http(s) 链接）/ 题目信息 / 重命名 / 删除」，目录节点给「新建文件 / 新建文件夹 / 重命名 / 删除」、不给题目相关的两项）与**编辑区**（2026-10-10 加：鼠标右键 / 触屏长按都走它，四项「剪切 / 复制 / 粘贴 / 全选」，无选区时前两项置灰；见 `composables/useEditorMenu.js`）。**视觉**（2026-10-10 改）：整站右键菜单只有这一个实现，样式以用户给的一份 vanilla IDE 右键菜单模板为准 —— 颜色全部走 `base.css` 的 `--menu-*` 令牌（那组是 VS Code **Dark+ / Light+ 的官方配对**，不是随手配的：主文字 = `foreground`、悬停底 = `list.activeSelectionBackground`），形状照模板（6px 圆角 / 220px 最小宽 / 容器上下 6px / 条目 6px 20px / **通栏方形悬停**、条目因此不带圆角 / 分隔线 6px 10px / 0.1s 弹开；**2026-10-11 起这一整组数值统一乘 `--menu-scale`** —— 用户要「整体等比缩小一号」，现取 0.92 ≈ 字体 13px→12px、条目约 26px，模板原值仍留在 `calc()` 里当被乘数，**要再调大小只改 `--menu-scale` 这一个值，别单独动某一项 px**）。**字距也照模板**：字体 13px、条目 6px 20px、右列键位 11px 且与文字至少隔 20px、右缘缩进 20px；**行高刻意不写死**（模板也没写 = `normal`），交给字体的天然行盒 —— 实测英文界面 13px 拉丁天然行盒 16px → 条目 28px（与模板逐像素相同），中文界面 18px → 30px（CJK 天然行盒天生高一档，模板若写中文也是这个数）；天然行盒跟着 `font-size` 自己缩，所以整组缩放不用额外写行高。右列键位现在**两处都有数据**：编辑区那四项走 `useEditorMenu.js` 的 `SHORTCUT`（`formatCombo`，显示的是 Monaco 真正的默认键位 ⌘/Ctrl+X C V A），文件树的「重命名 / 删除」走 `FileExplorer` 的 `shortcutOf()`（读快捷键绑定表，默认 F2 / Delete，**设置里改绑这里跟着变**）；其余项（题目信息 / 新建文件 / 新建文件夹）是真没有键位，**不给右列、也不编假的**；「打开题目」那格是 2026-10-11 加的，填的是 ⌘ / Ctrl + 单击这个**手势**本身（不走 `formatCombo` —— 它是鼠标事件的修饰键，`useShortcutManager` 那套 keydown 管线接不住）。改菜单样子只改这里 + `base.css` 那两组令牌
     SettingsMenu.vue            # 设置下拉菜单（Quick Settings，2026-10-11 加）：侧栏页头那颗齿轮与折叠图标栏那颗齿轮点出来的浮层。一级 10 行 —— 2 个内联开关（启用模板 / 自动保存）、1 个步进器（字体大小）、4 个二级子菜单（**主题** / 界面缩放 / 界面语言 / **侧边栏位置**，选完**菜单不关**）、**「同步设置」那一行展开的是个小表单**（见下。这一行 2026-10-11 按用户要求由「云端同步」改名而来，**只改菜单里这一行** —— 设置面板左栏与右侧分组标题仍叫「云端同步」，两处刻意不同名，别顺手统一；同理菜单里那个用户名框的占位文字也单有一份 `settings.menu.cloudHandlePlaceholder`（中「如：he-jie（CFID）」/ 英 "he-jie (CF ID)"），**不复用** `cloud.handlePlaceholder`。⚠️ 这只框的内容宽只有 ~108px：flex-basis 是 0、宽度全靠按钮让出来的剩余，占位文字一长就会被截尾 —— 改这句文案前先量宽度）、「打开设置面板…」（开出编辑区里那个设置页签）与「设置分类」二级（8 个分类，**选完连菜单一起收**，它把人送到设置面板去）。**二值项用开关还是用二级**（2026-10-11 定的判据）：**两档各有名字的走二级**（主题 = 深 / 浅，侧边栏位置 = 左 / 右）—— 开关只能说「开 / 关」、说不出档位叫什么，二级里既看得到当前停在哪一档、也能直接认出另一档叫什么；**本身就是「开或不开」语义的才用开关**（剩下的启用模板 / 自动保存）。主题与侧边栏位置原先都是开关，按这条改成二级；「空格代替 Tab / 自动换行 / 代码缩略图」这三个开关 2026-10-11 **从菜单里去掉了**（面板里照旧）—— 菜单只留「当场就想改」的那几项。**「云端同步」的二级不是档位列表，是一个小表单**（2026-10-11 定），形态跟着「这台设备绑没绑人」走（`cloudBound` = `cp.cloudAccount` 里有没有 handle）：**未绑定** → 用户名框 + 「导入」/「登录」挤在**同一行**；**已绑定** → 最上面先是一行账号名（handle 加粗 + 「已绑定」小标记，与设置面板那一枚同款，2026-10-11 用户反馈补的）、下面一行「上传本机设置 / 下载到本机 / 解绑」（这位自己的事）、一条分隔线、最后一行仍是用户名框 + 「导入」。**用户名框与它的按钮必须同处一行**（2026-10-11 用户反馈定的）：填谁和取谁的是同一件事的两半，拆成两行会被读成两个步骤 —— 框 `flex: 1 1 0 + min-width: 0` 吃掉剩余宽度（`min-width: 0` 不能省，flex 项默认 `min-width: auto` 会撑住不缩、窄屏整行溢出），按钮 `flex: 0 0 auto + white-space: nowrap`。**已绑定时不再显示「登录」** —— 绑着再点一遍就又走一次取码验证（2026-10-11 用户当场反馈：登录之后点它还会再触发一次验证）；导入则两态都留着，它是「取一份配置」，与绑不绑无关，绑着的时候照样能取别人的（所以单独放第二行、不与账号那三颗混在一起）。取到码 → 码相（**登录与上传两套文案都显示**，按 `codeMode` 挑：菜单里点「上传」令牌失效时也要取码，那时遮住不显示就会变成「按钮没反应」）；要覆盖本机或断开绑定 → 确认相（`cloudPendingConfirm.kind` = 'import' / 'unbind'，共用同一句问法；解绑要先问是因为它会把绑定与令牌一起丢掉）。三个相由**云会话状态推出来**，不另存一份状态。**状态与动作全在 `services/cloudSession.js`，与设置面板共用同一份** —— 菜单里不许自己调云端接口、也不许自己 ref 一份账号：一边取了码另一边看不见。表单展开即聚焦用户名框；框空着时把本机认得的那一位填进去（先 `cp.cloudAccount`、再 `cp.cloudActive`）。表单里的输入框要拿回方向键 / Home 等键（`onRootKeydown` 对 `HTMLInputElement` 直接 return），只有 Esc / Tab 仍然收菜单。⚠️ 用户名框的 ref 必须写成**函数 ref**：整个二级都在一级的 `v-for` 里，同名字符串 ref 会被 Vue 收成数组，`.focus()` 报「不是函数」（与下面那条 `.settings-menu__sub` 是同一个坑）**它不用 `ContextMenu.vue`** —— 那份只有扁平 action 列表，撑不起二级 + 内联控件 + 键盘导航；但两件事仍共用：颜色走同一组 `--menu-*` 令牌、尺寸走同一个 `--menu-scale`，定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`。**结构表（每一项读什么、写哪份偏好）在 `services/settingsMenu.js`**，组件只按 `kind` 挑控件，加一项不必改组件。键盘：↑↓ 移动、→ / Enter 进二级或触发、← 收回二级、Esc / Tab 关；roving tabindex 收焦点，打开即钉在第一行。二级的展开：hover 即开、移出整块给 220ms 宽限再收；展开后还要**自己再收一次位置** —— 右边放不下翻到左侧（`subFlipped`）、下边放不下整块上抬（`subShift`，二级比视口还高时只抬到顶部也留边）。这一层**不能省**：`usePopoverLayer` 的视口收敛只夹一级那一块，管不到 absolute 挂出来的二级，而折叠态那颗齿轮在图标栏**贴底**那一组（一级被夹到 519–892），实测「设置分类」的二级能从 852 伸到 1089、**底部溢出 189px**（1400×900）。取二级元素按 `root.querySelector('.settings-menu__sub')` 而不是 ref：那批 div 都在 v-for / v-if 里，hover 从一行挪到下一行时卸载与挂载的先后不保证，ref 有可能停在上一个元素或 null 上。**触屏上没有 hover**（2026-10-11 修）：手指抬起时那个 pointer 直接不存在了，浏览器照规矩补一发 `pointerleave`（`pointerType === 'touch'`），照鼠标那套排 220ms 定时器，二级会在手指落下之前自己收掉（实测 430×800 下轻点后 160ms 还在、450ms 归零 —— 二级根本点不到）。所以 `onRootPointerLeave` 对非 mouse 的 pointerType 直接 return，二级在触屏上是「轻点展开、常驻」，换二级靠轻点别的行、收起靠点菜单外。鼠标行为不变。**二级的位置收敛有三步**（2026-10-11，当晚按用户「修改一下吧」重写）：右边放不下 → 翻到左侧；翻过去左边反而出屏（手机上一级就占掉大半宽度，两侧都塞不下二级，实测 414×896 折叠态不翻右缘 493 > 414、翻了左缘 -184 < 0）→ 翻回来改按实测位置**左右夹**（`--sub-shift-x` 走 transform，翻转时是 `right: 100%` 定位，改 margin-left 挪不动它）；下边放不下 → 整块上抬。宁可压住一级那一行，也别把二级推出屏幕。**三条硬规矩（2026-10-11 深夜定，动这里前先读）**：①收敛量必须**按「没挪过」的位置算绝对值**（量到的 rect 含着已写上的 transform / top，拿它当基准再算 overshoot 等于把上一轮结果当地基，越重跑越出屏 —— 实测右缘 421.9 → 436.7 反向漂）；②视口宽度用 `documentElement.clientWidth`（innerWidth 含滚动条）、高度仍用 `innerHeight`（软键盘缩的是它）；③收敛要**分帧跑到「连续两帧不动」**（最多 12 帧）—— 菜单是 0.95 → 1 弹开动画，打开后头一百来毫秒 `getBoundingClientRect` 量到的都是被缩小的那一份（实测二级宽 227.23 → 239.19），ResizeObserver 对祖先 transform 不响，帮不上这个忙；另外再挂一个 ResizeObserver 盯二级自己的 border-box（换语言 / 切到验证码、确认相 / 账号名变长变短都属这类），尺寸一变重算一次 —— 收敛量走 transform / top 不改布局盒，不会自己触发自己。视口变了（软键盘）也要重跑 —— 一级由 `usePopoverLayer` 重新匣进视口，挂出来的二级得自己跟上。验证判据：各视口下二级四缘都不得越过「视口 − GAP(4)」，且连发两次 resize 后位置漂移 ≤ 1px
     TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头动作区只剩 verdict（「全部 AC / n/m AC」）与耗时，经 `<Teleport defer>` 投进 Sidebar 共享页头的 `#sidebar-context`（同 FileExplorer 那颗，见坑 37）+ 用例列表 + 页脚运行按钮。原 `.panel__head` 已随页头上提删除（2026-10-11）。**不可运行态**（`runBlocked` 非空，由 App 的 `runBlockedReason` 算好传进来：题解这类非代码文件的 `activeLanguage` 是 null，以及「一个文件都没打开」）由同一份文案解释：页脚那行 `.run-blocked`（常驻，`v-if="runBlocked"` 不带附加条件）与两个 ▶ 的 title。**空态里不放这行** —— 「No test cases yet.」一行就是空态的全部（2026-10-06 定，别再加回去；空态里的 `notice` 是抓样那三条提示，说的是「样例为什么还没到手」，与能不能运行无关）。**「添加测试样例」也要跟着灰**（2026-10-06）：用例是写进活跃文件的 `config.tests` 的，跑不了的文件根本加不出用例，`App.addCase()` 里还有一道兜底挡住 `new-case` 快捷键。页脚两颗按钮的禁用态是同一档 opacity 0.45
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时没有任何标记**（字符一个没少、拖滚动条就能看全，底边仍是实线、框下也没有小字）；底边虚线与小字**只给真被截断的那种**；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「还有 N 个字符未显示 + 复制全部」说明**（那行只在真截断时出现；这个 `……` 时有时无的两条原因见第 5 节坑 26）
-    AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16（`.md` / `.markdown` → `markdown`，2026-09-30 加，配色 `--icon-markdown`）；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加）同表；**题解工具栏那 13 个线性图标与全屏用的 `expand` / `collapse`（2026-09-30 加）** 同样在 PATHS 里，键名与 `services/mdFormat.js` 的 `MD_TOOL_GROUPS` 一一对应
+    AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16（`.md` / `.markdown` → `markdown`，2026-09-30 加，配色 `--icon-markdown`）；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加）同表；**导入那两颗用的是 `file-down` / `folder-down`**（2026-10-12 加：同一份文件 / 文件夹轮廓 + 一枚向下的箭头角标，角标位置与 `file-plus` / `folder-plus` 的加号完全对齐，好让四颗按钮看着是一排）；**题解工具栏那 13 个线性图标与全屏用的 `expand` / `collapse`（2026-09-30 加）** 同样在 PATHS 里，键名与 `services/mdFormat.js` 的 `MD_TOOL_GROUPS` 一一对应
   services/                     # 判题逻辑，改样式基本不碰
     runner.js                   # 逐用例调度（并发 2）+ 进度回调；引擎 outcome 翻译成卡片 verdict（AC/WA/CE/TLE/RE/ERR）
     compare.js                  # 实际输出与期望输出比对，只返回布尔（不再产出「输出多 N 行」之类 hint）
@@ -141,6 +141,8 @@ src/
     cloudProfile.js             # ★ 云同步的前端唯一边界：`SYNC_KEYS` 白名单（15 个键）+ `collectProfile` / `applyProfile` + 四个接口封装（`requestCode` / `verifyAndSave` / `saveWithToken` / `fetchCloudProfile`）+ `postJson`（网络失败折成 `{success:false}`、失败带 `status` 以区分 401 与 400）。接口地址按平台分岔：网页版走同源相对路径 `/api/*`，Tauri 壳走 `https://www.998244353.best/api/*`（壳的资源协议不认 `/api`，理由与坑见 `docs/云端同步服务.md` 第 1 节，落地记录见 14.K）
     cloudEntry.js               # 云配置的**两条**入口：地址栏的 `/<handle>`，以及本机自己记住的那一位（2026-10-10 加）。`captureCloudHandleFromPath()`（启动时读 `location.pathname` 的 `/<handle>`）+ `confirmCloudEntry()`（启动那一次的总入口：地址里有 handle 就探一次云端到底有没有这份配置，据此决定要不要开设置页；**地址里没有就用存档里那位静默对齐**，见下面三条边界）+ `markCloudEntryHandled()` / `clearPendingCloudHandle()` + `writeCloudEntryPath(handle)`（2026-10-06 加，反方向）+ `readActiveProfile()` / `writeActiveProfile()` / `forgetActiveProfile()`（2026-10-10 加，`cp.cloudActive` 的读写）。三条边界：①地址里是**别人**（不是本机在跟的那位）时行为不变 —— 只登记、不自动套用、不自动登录、不写 `cp.cloudAccount` / `cp.cloudToken`；②存档那条路**只认「云端版本变过」**（`updatedAt` 与本机记着的一致就一个字节都不写；拆掉这道闸门会「套用 → 刷新 → 又套用」转不出去 —— 那次 reload 是无条件的，读 `applyCloudProfile` 的注释）；③对齐时地址栏**跟着走到 `/<handle>`（2026-10-10 加，与四条入口共用「地址 = 这套配置」这个语义）**，但只在**网页版的站点根路径**且**云端确实有这份配置**时才写：壳端的页面来自 `tauri://localhost` / `http://tauri.localhost`，改成 `/<handle>` 等于让壳的资源协议去找一个不存在的文件（一刷新就白屏），而壳里本来没有地址栏；`guide.html` / `privacy.html` 那类静态页同理（见 `isSiteRoot`）。这一行还必须排在 `applyCloudProfile` 之前 —— 那一步会 reload。「已答过」的记号写在 `history.state`（键 `cpCloudEntry`）、地址**保持原样不抹回根路径** —— 唯一例外是云端没有这份配置时（不打开设置页，地址 replaceState 回根路径 + `cloudEntryMissingHandle` 弹一句提示）。`writeCloudEntryPath` 是另一头：本机自己认下某个 handle（导入 / 上传 / 登录 / 下载到本机）之后把 `/<handle>` 写进地址栏并顺手打上同一个记号（读那两条注释：**一个只管自己写、一个只管不抹**，别把它们合成一条规则）。用 replaceState 不用 pushState；带点号的 handle 直接放弃（会和静态资源撞车）
     vfs/problemImport.js        # 扩展题目 → VFS 落盘（`/<年月>/<OJ 标签>/<难度>/<题名>.cpp`，无外层 wrapper；题目信息与样例挂在**该文件节点**的 `meta` / `config` 上）：OJ 辨认、题名清洗、按 url 全库认题、名字去重、batch 落库、打开文件。改这里等于动用户数据，见第 13 节
+    fileTransfer.js             # ★ 文件「导入 / 导出」的服务层（2026-10-12 加），**两端共用**，组件只消费。四块：① **下载** `downloadBlob`（`<a download>` + `URL.createObjectURL`，插进 DOM 点一下再撤，30s 后 revoke）；② **导出** `collectExport(nodes)` —— 递归读内容、算出每个条目在 zip 里的相对路径（以选区**公共父目录**为根，`commonParent()`；选中一个目录时保留它自己那一层），落点入口是 `exportAsZip` / `exportSingleFile` / `packZip`；③ **导入** `planImport(files)` 把 `File[]` 拍成 `{ rel, file }[]`（**保住 `webkitRelativePath`**，所以「选一个文件夹」进来时顶层文件夹名与子目录层级都在；没有这个属性就退化成单级文件名），`importInto(dir, items)` 落盘并回 `{ imported, skipped, failed, firstId }`；④ **平台能力** `CAN_EXPORT_TO_DISK = IS_DESKTOP`（**只有桌面端能写本机目录**）/ `canPickFolder()`（**只有桌面浏览器能整目录导入**，安卓与 iOS 的 `webkitdirectory` 认不出来）。两条纪律：**用户文件绝不覆盖**，重名一律走 `treeOps.uniqueNameIn` 排号（`a.cpp` → `a-2.cpp`，与 problemImport 同口径）；**整批落盘包在一个 `vfs.batch()` 里**，否则几百个文件就是几百次树重建。上限 `MAX_IMPORT_BYTES = 5MB`（与 Rust 侧 `MAX_TEXT_BYTES` 同号）、目录深度 `MAX_DEPTH = 32`；二进制与超大文件都只计入 `skipped`、**不报错**，提示里报个数就行
+    zip.js                      # 极简 zip 打包（2026-10-12 加）。**刻意不引依赖**（第 0 节：加依赖先讨论），压缩走原生 `CompressionStream('deflate-raw')`（Chromium 103+ / Safari 16.4+ / Firefox 113+），拿不到就退回 store（method 0、不压缩）—— **「能解开」比「压得小」重要**。结构是本地文件头 + 中央目录 + EOCD，EFS 标志位 `0x0800` 声明文件名是 UTF-8（中文目录名全靠它），不写 data descriptor。上限照 zip 格式本身（`MAX_ENTRIES = 0xffff` / `MAX_UINT32`），**超了就抛错**、不静默产出半个包（文案 `error.zipTooManyEntries` / `error.zipTooLarge`，落点在 `engines.js` 的 `error` 组）
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -376,7 +378,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/editorViews.js`，原 `settingsTab.js` 已并入）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态统一收口在 `editorViews.js` 里 `watch(() => workspace.activeId)`；「点已经在活跃的那个文件页签」不改 activeId、不触发该 watch，所以 `EditorTabs.activate()` 里显式再让一次。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身**默认单列**（目录折成顶部横向标签条、内容在下），编辑区够宽时才升级成**「目录 + 内容」两栏**（2026-09 建，2026-10 反转默认值）：`.settings-nav` 是分类目录（工作区（仅桌面端）/ 外观 / 编辑器 / 模板 / 快捷键 / 评测 / 云端同步 / 应用 / 浏览器插件（仅网页版）/ 帮助，`SECTIONS` 常量驱动），内容区同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「浏览器插件」那一栏会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」组是 2026-09 新加的（见第 13 节）；「浏览器插件」原先也是独立一组，2026-10-01 与「本地运行环境」一起并入「应用」；**2026-10-11 又按内容独立回一栏**（桌面端不出现）—— 搬走的同时把「应用」与插件两栏那套**卡片化版式**（描边卡片、卡片吞掉小标题、参考稿尺寸的开关）一并去掉，回归其余栏的「分组大标题 + 朴素行（无边框、悬浮出底色）」，只留三样自己的信息特征：状态胶囊、运行环境行的图标方块、下载/卸载按钮的实心与警示态。**别再往这两栏加卡片外框**：`.app-card` / `.setting-group--app` 两个类名已删。宽度判断不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `container-name: settings`，用 `@container settings (min-width: 35rem)` 把默认的单列升级成两栏（阈值与目录项字号都是 rem，全局缩放后目录与内容都会变大、要更早翻回竖排）。**方向必须保持「默认单列 + `min-width` 升级」，别改回「默认两栏 + `max-width` 降级」**：生产构建会把 `max-width` 压成区间语法 `width<=35rem`，不支持它的浏览器（荣耀自带浏览器实测，2026-10）整条查询匹配不上、直接回落到基线两栏，手机上就被挤成两列；反着写的话认不认容器查询都落在安全的一列（代价是不支持的浏览器上永远吃横条目录，可接受）。
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠、以及整个「评测样例」页签被切走时元素都是 `display: none`，此刻 `scrollHeight` 为 0，代码会跳过重算——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。重算的触发有两处：`watch`（输入变化 / 卡片展开）+ 一个挂在输入框上的 **`ResizeObserver`**（只认宽度从 0 变有值、或面板被拖宽，宽度变大才算，避免回调环）。页签是 `v-show` 切换的，没有重新挂载的时刻，**没有这个 observer 就会一直塌成一行**（旧版只在 `onMounted` 跑一次，切到「评测样例」时必然塌）。
 9. **`.run-zone` 是撑满中段的 `<button>`**：里面的 `padding: 0` 不是装饰，是在抵消浏览器给按钮的默认内边距（不抵消的话 ▶ 图标位置会跑偏）；`.run-zone__icon` 才是那个 22px 的 ▶ 本体，悬停点亮的是它。
-10. **`theme-color` 是 JS 写的，不是静态 meta**：`App.vue` 切主题时会把 `--bg-chrome` 读出来写进 `<meta name="theme-color">`（装成独立应用后浏览器拿它画窗口标题栏）。`index.html` 里那个 `content` 只是首帧兜底，别在那里维护第二份色值。
+10. **`theme-color` 是 JS 写的，不是静态 meta**：`editorSettings.js` 里那条 `watch(theme)` 把 `--bg-chrome` 读出来写进 `<meta name="theme-color">`（装成独立应用后浏览器拿它画系统栏 / 窗口标题栏）。`index.html` 里那个 `content` 只是首帧兜底，别在那里维护第二份色值。⚠️ **这个色值一共写三处，改一处就得三处一起改**：`base.css` 的 `--bg-chrome` + `index.html` 的静态 meta + `manifest.webmanifest` 的 `theme_color` —— **Firefox 安卓不认运行期写的那条，只读 manifest 里那个静态值**（2026-10-12 定，判据与实测见第 9 节 9.1）。
 11. **删除确认弹窗是自绘的，不要换回 `window.confirm`**：`FileExplorer.vue` 的 `requestDelete()` 只把待删节点记进 `pendingDelete`，真正调用 `deleteNode()` 的是弹窗上「删除」按钮的 `confirmDelete()`。原生 `confirm()` 的返回值在 webview / 装成独立应用窗口打开时不由页面掌控（被浏览器抑制时它自己直接返回一个值），出现过「点取消文件还是没了」。自绘弹窗的取消路径有三条且都只清 `pendingDelete`：取消按钮、点遮罩（`@pointerdown.self`）、Esc；`watch(pendingDelete)` 会在弹窗出现时把焦点送到「删除」上（Enter 即确认）。键盘 `Delete` 键走的是同一个 `requestDelete`（2026-10-10 起它登记成了全局快捷键、经 `App.vue` 的作用域闸门进来，见第 13.4 节与坑 34），不需要另写一份确认。
 12. **新建的目标目录可以是任意目录，输入行要挡住一种「程序性失焦」**（`FileExplorer.vue` + `InlineCreateRow.vue` + `FileTreeItem.vue`，2026-09-28 改）：两处入口——页头两颗按钮**跟随树内聚焦的节点**（目录取自己、文件取父目录、没聚焦回落根目录，见 `headerCreateTarget()`），右键**目录**则显式指定该目录（菜单项回来了，见坑 14）。状态里的 `targetId` / `targetPath` 决定落点（`join(targetPath, name)`），名字仍是单级（`assertName` 拒绝 `/`）。输入行抽成了 `InlineCreateRow.vue`，**两处渲染点**：根目录那份在 `FileExplorer` 的树容器里，建在某个目录里那份在 `FileTreeItem` 的 `role="group"` 内、递归 `v-for` 之前。三条纪律：
     - **输入行不能放进 `.tree-item__row` 里**：那一行挂着 `@keydown="onKeyDown"`（方向键导航）与由 `onTreeFocus` 的 `closest('[data-tree-id]')` 驱动的 roving tabindex，输入框进去会让编辑文字的光标键被树抢走、打字还会篡改 `focusedId`。放 `role="group"` 里则 `closest('[data-tree-id]')` 返回 `null`（`[data-tree-id]` 只在 `.tree-item__row` 上，而它是兄弟不是祖先），两个问题一起避开（已实测）。另：`role="group"` 挂着 `v-if="expanded"`，所以 `startCreate` 必须先 `toggleExpand` 目标目录，否则输入行根本不存在。
@@ -495,6 +497,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **修法**：展开只写 `editorShare`（反算到最窄宽度），`dragPanelPx` 保持 `null`，让 `togglePanel()` 自己从折叠态的 `0%` 补间到最窄宽；像素直连交给翻转后的下一帧（`move()` 的展开分支按指针位置夹进 `[minPanelPx, maxPanelPx]`，此刻两者都等于最窄宽，不会抖）。改完同一场景只剩一次 `1px → 240px` 的翻转、分隔条直接落在 248；非 VT 路径（删掉 `document.startViewTransition` 实测）则是一条 0 → 240 的 200ms 平滑曲线。折叠方向不受影响（240 → 1 的序列照旧）。
 36. **服务层（不在组件里）的单例偏好别用 `usePersistentRef`**（2026-10-11 加，把 `cp.panelPosition` / `cp.uiScale` 从 `App.vue` 下沉到 `services/shellSettings.js` 时踩到）。那份 composable 的「首次访问也落盘」是 `onMounted(write)` —— 而服务层模块是在组件之外被 import 的，那里**没有 active instance**，Vue 只给一句警告、回调根本不注册。于是新用户第一次打开站点时不留下存档：回归脚本 A 步读 `cp.panelPosition` 得到 `null`（断言 `storedPanel === 'left'` 当场红），而界面看着一切正常（内存里的 ref 是有值的），极难往「没落盘」上想。服务层一律照 `editorSettings.js` / `i18n/index.js` / `fileTemplates.js` 的体例：**模块自己读盘，再用 `immediate` 的 watch 写回**（首值也立刻落盘）。判据：`localStorage.getItem('cp.panelPosition')` 在全新 profile 的首帧就该有值
 37. **Teleport 的目标元素与源同在一棵挂载树里时，必须加 `defer`**（2026-10-11 加，侧栏页头重构时踩到）：两个面板把自己的页头动作区投进 Sidebar 页头的 `#sidebar-context`，目标与源同一次挂载 —— Vue 首挂是把整棵子树建完才插进 document 的，所以源挂载那一刻 `document.querySelector('#sidebar-context')` 还查不到（Vue 只 warn 一句「Invalid Teleport target」，注意 puppeteer 里这句是 `warn` 不是 `warning`/`error`），内容**创建而不挂载**。这些 vnode 的 `component` 因此是 null；下一次任何响应式更新 patch 到里面的组件（如 AppIcon）就在 `shouldUpdateComponent` 崩 `Cannot read properties of null (reading 'emitsOptions')`，那一帧之后的渲染整段中止（实测：文件树永远挂不上、用例加不出来，而首屏看着「基本正常」）。修法一行：`<Teleport defer ...>`（Vue 3.5+），等整个应用挂完再解析目标。判据：Teleport 的 `to` 指向的元素若**不是 body / 早就挂在 document 里的节点**，就要 `defer`。
+38. **树里的焦点（focusin）只准记账、不准写选区**（2026-10-12 加，做文件树多选时踩到）：`FileExplorer.onTreeFocus` 原来会顺手 `selectNode(焦点行)`，单选时代是无害的重复写入；多选一来就成了杀手 —— **⌥/Alt + 单击的时序是 pointerdown（聚焦）在前、click（切换选中）在后**，focusin 那一下先把选区收成单选，等 click 跑到 `toggleSelection` 时多选已经被冲掉了，实测「加选永远变成先清空再加一个」。选区的写入只走明确的入口：鼠标在 `FileTreeItem.onClick`（单击收成单选 / Alt 切换 / Shift 划范围），键盘在 `focusRowAt`（挪焦点后显式单选或扩选）。同理两条：① `paths.js` 的 **`isWithin(dirPath, maybeChild)` 目录在前**，「A 在 B 里面」写 `isWithin(B, A)` —— 多选删除的去重（`pruneNested`）第一版就传反了，结果把祖先剔掉、留下后代，删完目录再删子路径平白报错；② `workspaceStore` 里 `selectedId` 与 `selectedIds` 这对状态**只准在 `applySelection()` 一处同时写**（约束：集合去重、主选中落在集合里、集合空则主选中为 null），散着写必然对不上。
+39. **排号拆名要用 `stem`、不能用 `extname`：`paths.js` 这两个函数收的入参刻意不同**（2026-10-12 加，做文件导入时现形）。`treeOps.uniqueNameIn` 要拆「主干 + 扩展名」给重名排号用（`a.cpp` → `a-2.cpp`，后缀插在扩展名**之前**），第一版写的是 `extname(name)` —— 但这两个函数签名是刻意分开的：`stem()` 收**单级名称**直接切，`extname()` 收的是**路径**、内部走 `basename` → `normalize`，喂给它 `'a.cpp'` 会当场抛「VFS 只支持绝对路径」。这一行**只在真的撞名时才走到**，所以从「新建文件」（默认名自己排号、库里尚无同名）到「拖拽移动」一路都没碰上，直到导入功能开始频繁重名才现形（症状：重名导入报「没有可导入的文件」、`failed=1`，看着像整个导入都坏了）。判据：**凡收单级名称的场合一律用 `stem`**，`extname` 只用在手里已经有绝对路径的地方。同一条路上还有一处同源教训：**`collectExport` 自己也要调一次 `pruneNestedNodes()`** —— 不能把「选区里不会有祖先与后代同时在场」寄在调用方的自觉上：同时选中 `a/` 与 `a/b.cpp` 会打出两条同名的 zip 条目，解压时后者盖前者，**包是错的但看着一切正常**。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
@@ -506,10 +510,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `cp.editorShare`（`App.vue:35`） | 两栏比例（%） |
 | `cp.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`） |
 | `cp.uiScale`（2026-10-11 起在 `services/shellSettings.js`，模块自己读写 localStorage，理由见第 5 节坑 36） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1`（100%；2026-10-01 由 1.1 改来，同时去掉了默认档那枚「（默认）」后缀，档位显示只剩百分比），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见第 5 节坑 24 |
-| `cp.selectedNode` | 文件树里选中的那一行（文件 / 目录的节点 id）；`null` = **选中根**（整棵树都不高亮，页头「新建文件 / 文件夹」落在根）。恢复放在 `initWorkspaceStore()` 最后一步、节点消失时由 `rebuildTree()` 回落 `null`。**刻意不进云同步白名单**——存的是本机 VFS 节点 uuid，同步到别的设备只会指向不存在的节点。 | `services/vfs/workspaceStore.js`（`SELECTED_KEY` / `selectNode()`） |
+| `cp.selectedNode` | 文件树里**主选中**的那一行（文件 / 目录的节点 id）；`null` = **选中根**（整棵树都不高亮，页头「新建文件 / 文件夹」落在根）。多选（2026-10-12 加）之后它兼任 **Shift 区间选择的锚点**；高亮本身看的是内存态 `workspace.selectedIds`（**刻意不落盘** —— 与 VS Code 一致，跨会话只恢复主选中那一个）。恢复放在 `initWorkspaceStore()` 最后一步、节点消失时由 `rebuildTree()` 从选区里摘掉再顺位回落。**刻意不进云同步白名单**——存的是本机 VFS 节点 uuid，同步到别的设备只会指向不存在的节点。 | `services/vfs/workspaceStore.js`（`SELECTED_KEY` / `selectNode()` / `applySelection()`） |
 | `cp.uiLocale` | 界面语言，取值 `zh-CN` / `en`（`i18n/index.js` 的 `LOCALE_STORAGE_KEY`，**权威定义在那一处**）。**刻意不走 `usePersistentRef`**：界面语言必须在任何组件挂载之前定下来（首帧不能先闪中文再跳成英文），所以 `i18n/index.js` 自己同步读写 localStorage。**没有存档时跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）——注意「跟随探测」的结果**不写回存档**，「跟随浏览器的默认」与「用户显式选过」是两件事，别在首帧替用户落一个值。设置页「外观」组的「界面语言」下拉是唯一写入方，切了当场生效、不重载 | `src/i18n/index.js`（消费方散布在全仓，读的是 `locale` 这个 ref） |
 | `cph.drafts`（**只读的老键**：仅由 `vfs/migrate.js` 建工作区时搬进 `/main.cpp`、`/main.py`，应用其余部分一概不读写）/ `cp.testCases` / `cp.engine` / `cp.judgeBases`（`App.vue:36-37` 与用例段） | 各语言草稿、用例、引擎、服务地址 |
 | `cp.cloudAccount` / `cp.cloudToken`（键名常量 `CLOUD_ACCOUNT_KEY` / `CLOUD_TOKEN_KEY` 在 `services/storageNames.js` 是唯一出处；2026-10-11 起读写都在 `services/cloudSession.js`，**不用 `usePersistentRef`**，理由见第 5 节坑 36） | 绑定的云端账号 `{ handle, updatedAt }`（handle 空串 = 未绑定）与设备令牌（验证成功后服务端签发，之后写入不必再取码）。两个键**只留在本机**、且**绝不进云同步白名单**：账号是「这台设备认领了谁」（换台设备要重新验证），令牌与 handle 一对一，同步过去等于把写入权搬走 | `services/cloudSession.js`（**面板与齿轮菜单共用同一份**，别在组件里再 `usePersistentRef` 一份） |
+| `cp.installGuides`（2026-10-12 加） | 「安装引导」那一组通知**已经自动弹过**的 id 数组（`['app-install','app-manual','ext-install','ext-update']` 的子集）。四条各记各的：见过「可以装应用」不等于见过「插件有新版」，状态变了仍会再提示一次；**手动触发（设置里那颗「安装引导」）不看它** —— 那是用户点名要看。**刻意不进云同步白名单**：它是「**这台设备**已经被告知过什么」，同步过去等于让另一台从没弹过的设备也永远不弹。 | `services/installGuides.js`（`SHOWN_KEY`，模块自己读写 localStorage；引导本身见 13.8） |
+| `cp.flashNotice`（2026-10-12 加，**存 sessionStorage** —— 全站唯一的 sessionStorage 用途） | 「刷新前寄下的那条通知」：`{ type, title, message, duration }`。云端导入 / 登录成功都是**办完整页刷新**的（见 `cloudSession.adoptCloud`），可通知只活在内存里，刷新前发出去等于没发 —— 于是先寄存在这里，由下次启动的 `flushFlashNotification()`（`App.vue` 的 `onMounted` 第一行）补发并**立即删除**。用 sessionStorage 而不是 localStorage 是刻意的：它只该跨过这一次同页签刷新，随页签关掉一起消失；换 localStorage 会让用户下次开站时忽然弹出一条三天前的「导入成功」。**不进云同步白名单**（一次性的界面状态），也**不存 `actions` / `tag`**（回调函数过不了 JSON）。 | `services/notifications.js`（`notifyAfterReload` / `flushFlashNotification`；键名 `FLASH_NOTICE_KEY` 在 `services/storageNames.js`；用法与纪律见 13.9） |
 | ~~`cph.language`~~ | **已作废**（2026-09 顶栏语言下拉移除后成为死键，全仓不再读写）；残留在 localStorage 里无害。判题语言现在一律由活跃文件的扩展名派生，见第 5 节坑 15 | — |
 | `cph.mobileKeyboard` / `cph.mobileInputDock` | 都已作废（两个版本的键盘适配都不再持久化）；残留在 localStorage 里无害 | `composables/useMobileKeyboard.js` |
 | `cp.localRuntime.clangReady` / `cp.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
@@ -571,6 +577,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **模板（2026-10-06 加）**：新建文件时按扩展名归一到语言、填入该语言的初始正文（`.cpp` → C++、`.py` → Python、`.md` → 题解）。归链是 `languageForPath()`（`services/monaco/language.js`）→ Monaco languageId → `langMetaByMonaco()` → 语言 id；**认不出的扩展名（`.c` / `.txt` / 无扩展名）给空文件**，`.c` 不会落到 C++ 模板。插件抓题生成的代码文件走同一条路（`vfs/problemImport.js` 里 `vfs.createFile(codePath, templateForPath(codePath))`，仍守着 `if (!existingCode)` 那道闸门——已存在的题解一个字都不动）。三份模板可在 设置 › **模板** 里改、可逐份**恢复默认**；那一节顶部的**启用模板**总开关可以整体关掉（关掉后新建与抓题都给空文件，模板文本原样留着，闸门只在 `templateForPath()` 一处）。**不支持占位符变量**（纯静态文本、原样写入）。覆盖表与开关都随云同步走（见第 6 节）。`templateForPath('')` 有护栏——`languageForPath('')` 会抛 `error.pathNotAbsolute`。
 - **代码区的字体是自托管的（2026-10-02 加）**：界面（代码区以外）仍然只用系统字体；代码区另内置三款等宽字体（JetBrains Mono / Fira Code / Cascadia Code，latin 子集、合计 149KB），**只在下拉里选中时才下载**，不依赖任何第三方服务。写文案时别写成「界面全面自带字体」——「默认」档与其余 4 项仍是系统字体；另外「字体连写」只对**带连字的字体**有效：这三款有，系统内置的 SF Mono / Menlo / Consolas / Courier New 一款都没有。
 - **编辑器自动补全（2026-10-08 加）**：C / C++ / Python 有一张**静态补全表**——关键字 + 常用标准库（`vector` / `sort` / `printf` / `cin` / `print` / `sorted` …）+ 代码片段（`main` / `fastio` / `fori` / `ifmain` / `readints` …）。表在 `services/monaco/completion.js`，由 `monaco-setup.js` 顶层**副作用导入**注册（模块只求值一次，注册也就一次），**不加设置开关、恒开**。写文案时别写成「IntelliSense / 语言服务」：它**不是**语义分析——不认变量名与类型、没有跳转定义、没有实时报错，只是「表里的候选 + 同文档里出现过的词」，`markdown` 也不在这张表里（散文用不上）。Monaco 内置的高亮 / 括号配对 / 注释 / 自动闭合 / 缩进规则本来就都有，这次没动。补全的**弹法**（快捷建议 / 触发字符 / Tab 接受 / Enter 策略）显式写在 `editorOptions.js` 里，不再依赖 Monaco 各版本的默认值。一条实现纪律：**每条候选都必须给 `insertText`**（表里没写的由 provider 用 `label` 兜底）——漏给的话补全框照样弹，但 Monaco 的内联补全适配层会拿 `undefined` 去调 `.replaceAll`，控制台整片红。文案五处已同步（`guide.html` §11 / `guide.en.html` §11 / `help.js`「抓题与文件」组 / `docs/使用手册.md` §4 / `index.html` noscript 那条 Monaco 特性行）。另一条实现纪律：**`#` 不在 Monaco 的 `wordPattern` 里**，打 `#inc` 时它只认单词 `inc`，默认的替换范围漏掉那个 `#`，采用 `#include <bits/stdc++.h>` 会得到 `##include …`（症状像是「在已有内容后面又贴了一段」）。provider 里把紧贴单词左边的 `#` 一并算进 range（`swallowHash`，**只给 C / C++**——Python 的 `#` 是注释开头，吞了反而错）；顺带过滤也准了，因为 Monaco 是拿 range 里的文本去比 label 的。
+- **文件导入 / 导出（2026-10-12 加）：全平台都能导能出，但「写回本机目录」只有桌面端有**。导入文件 / 导入文件夹在**所有平台**都在（用浏览器自己的文件选择器，不碰任何权限）；导出是**恰好一个文件就直下那个文件、多文件或目录就打成一个 zip**。**两条桌面端独有的能力**别在文案里说成通用的：① **「导出到本机文件夹」**（走 Rust 的 `export_*` 命令，前端全无 fs / dialog 权限，见 14.O）；② **「导入整个文件夹」**（`input[webkitdirectory]`，安卓 / iOS 认不出来，移动端只能一个个挑文件）。四条口径：① 导入**只收文本** —— 二进制（含 NUL / 非法 UTF-8，判据同 Rust 的 `looks_binary`）与超过 5MB 的文件**跳过并在提示里报个数**，不报错、不中断；② **用户自己写的文件一个字都不会被覆盖** —— 重名一律排号成 `a-2.cpp`（与抓题导入同口径，见第 5 节坑 39）；③ 导入**保留文件夹结构**（选一个文件夹进来时顶层文件夹名与子目录层级都在）；④ zip 里的相对路径以**选区公共父目录**为根 —— 只选一个目录时，包里就是这个目录本身那一层。技术侧入口与上限见第 2 节的 `fileTransfer.js` / `zip.js`。
 
 ## 8. 验证方式
 
@@ -637,6 +644,18 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   5. `Mod+\` 四态轮换（仅编辑 → 双栏 → 仅预览 → 仅编辑；最后一步在「仅预览」下按得动，就是它当初搬去全局监听的原因）；全屏按钮收掉侧栏与页签栏、`Esc` 退出且**模式不变**；
   6. 设置视图「应用 › 本地运行环境」卸载渲染器 → 回预览应重新显示「去下载」入口，控制台不该有 `MD_RUNTIME_MISSING` 之外的报错。
   探针注意：VFS model 的 uri 是 `vfs://file/<uuid>`，**认不出文件名**，要读编辑器内容就用 `monaco.editor.getEditors()[0].getValue()`；动态 `import('/src/services/…')` 在 dev 下可能拿到另一个空实例（见插件那节的两个坑）。
+- 文件导入 / 导出专项（动过 `fileTransfer.js` / `zip.js` / `FileExplorer.vue` 的导入导出段 / `treeOps.js` 的 `uniqueNameIn`·`pruneNestedNodes` / `workspace.rs` 的导出段后必做），临时探针、用完即删。2026-10-12 实测 **38 项全绿**，覆盖这些判据（**都是探针自己造真文件走完整条链路**，不是只调函数）：
+  1. **页头四颗按钮**（新建文件 / 新建文件夹 / 导入文件 / 导入文件夹）+ 目录右键菜单的顺序（新建文件 / 新建文件夹 / 导入文件 / 导入文件夹 / **分隔线** / 导出）；**文件节点的菜单里没有「导入文件」**（那是目录才有的事）；
+  2. **导入文件**：三个文本文件进树、**二进制被跳过且提示里报数**（样本要够脏：含 `0x00` 或截断的非法 UTF-8 —— 只塞高位字节如 `0xFF` 会被 `TextDecoder` 当合法字符收下）、导入正文逐字正确；
+  3. **重名一律排号、绝不覆盖**：往同一目录再导一份 `a.cpp` → 树里出现 `a-2.cpp`、原来的 `a.cpp` 正文**一个字没动**。⚠️ **排号函数要单独在干净子目录里验** —— 直接拿根目录当靶子会被「上一步自己造出的 `a-2.cpp`」干扰，断言当场假红（本次踩过）。正确姿势：`createDirectory('/dup')` + `createFile('/dup/x.cpp')` 之后再问 `uniqueNameIn(vfs, '/dup', 'x.cpp')`，期望 `x-2.cpp`；顺带验不撞名时原样返回；
+  4. **文件夹导入**：`webkitRelativePath` 要**手动 `Object.defineProperty` 造**（`accept()` 喂进去的 `File` 没有这个属性，正好顺带走通「退化成单级文件名」那条分支）；断言顶层文件夹名与子目录层级都在、模型里查得到 `/dirs/chapter1/a.cpp`、展开后 DOM 里出现 `chapter1` 那一层；
+  5. **⌘/Ctrl+A = 全选所有节点**：先把一个装着子文件的目录折叠起来，断言可见行数 < 全部节点数（**这步是前置、别省**），再按 `⌘A`——选区数应等于**全部节点数**、严格大于可见行数、主选中不变；随后单击收成单选；
+  6. **单文件直下**：恰好选中一个文件时落下来的必须是 `text/plain` 的**那个文件本体**（不是 zip）、内容一致、提示里带文件名；
+  7. **目录打 zip**：截获 `window.__blobs` 里那份 `Blob` 存成文件，**用 `unzip -t` 核 CRC**（只解出一个文件不算过 —— 包里说「CRC 对得上」才是真过），再断言条目带目录名那一层与嵌套路径、解出的正文逐字正确；
+  8. **跨目录多选保留相对结构**：同时选中根下 `a.cpp` 与 `dirs/`，zip 里应是 `a.cpp` + `dirs/` + `dirs/chapter1/` + `dirs/chapter1/a.cpp`（公共父目录 = 根，两条各自成一条）；此时右键菜单那一项要报数「导出 2 项」；
+  9. **读不出内容时不产出空 zip**：只选一个空目录 → `files === 0`，但仍保留目录自身那一个条目；
+  10. **界面现场**：收尾断言页头的导入按钮没卡在 `busy`（`disabled`）。
+  探针写法照 `wasm-oj-browser-probe` 那套：脚本放 `/tmp`（**仓库不留脚本**）、`puppeteer-core` 用绝对路径 import、**端口随机**（崩溃残留的 dev server 会占住固定端口，`--strictPort` 下直接 exit 1）、输出**同步** `fs.appendFileSync` 进日志文件（前台被 SIGTERM 时也不丢），并**在 `server.kill()` 之后 await 它的 `exit` 事件**再 `process.exit`。菜单类的场景每次开始前先按 `Esc` + 点树空白（`clickBlank()`）把选中收回根，否则上一条留下的菜单 / 选中会让落点跑偏。
 - 无头回归：`scripts/verify-ui.mjs`（`npm run verify`）。**基线是 A/B/C/D/F 绿，E/G/H 红且是既有失败（2026-10-12 复核），别顺手去修**，跑之前先知道这几条：
   - **A 步（2026-10-12 复核）稳定绿**：脚本现在先 `waitForFunction` 等 `.view-line` 行数 > 3（即 `/main.cpp` 真的被打开、正文画进 Monaco）再往下探，早前「探针在 model 绘出行前抓到 `editorText: ""` / `codeLineCount: 1`」的竞态**已不复现**，旧描述作废。仍然成立的两条：断言**别把行数写死**（行数随模板改而变）；A 步真正在守的契约是 `tabs === ['切换到评测样例','设置']`（胶囊那颗写的是去向）、`segIds === ['explorer','tests']`（两段都渲染出来了）、`sidebarSegActive === ['tests']`（胶囊填亮的段，读 `data-current`）与 `sidebarPanel === 'tests'`。
   - **E/G/H 的失败签名（2026-10-12 实测）同指一处——「把侧栏折叠回来」这个动作在探针里不再生效**：E 与 G 都靠 `clickSplitter`（合成 `pointerdown` 打在 `.splitter` 上 + `pointerup` 冒泡到 window、中间不带位移）折叠侧栏，两处 `collapsed` 都量到 `false`（其余部分是好的：G 的 `tests → explorer → tests` 面板切换照常走通，E 的运行、亮结果、判题链路也照常跑）。H 的断言里工具栏 / 字数统计 / 状态栏收掉 / 运行闸门 / ⌘B 加粗**全过**，失败点只剩末段「回 `.cpp` 按 ⌘B 收侧栏」（`cppSidebarCollapsed`——详情打印被 `slice(0, 460)` 截断，量不到值）。E 详情里的 WA 徽标**不是失败断言**：空样例喂给含 `cin >>` 的模板是 UB，输出垃圾值（实测 `7904`）很正常，别被它带偏去查判题。
@@ -661,7 +680,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 | 文件 | 职责 |
 | --- | --- |
-| `public/manifest.webmanifest` | `display: standalone`、`start_url: /`、`scope: /`、`id: /`；`theme_color` 只有首帧兜底作用，真正生效的是 `App.vue` 写进去的值 |
+| `public/manifest.webmanifest` | `display: standalone`、`start_url: /`、`scope: /`、`id: /`；`theme_color` = `--bg-chrome`（深色那支 `#1c1c1c`）。**它不是「首帧兜底」——它才是 Firefox 安卓唯一认的那个值**，见 9.1 |
 | `public/icons/*.png` | `icon-192/512`（圆角、透明角）、`icon-maskable-192/512`（满幅方块 + 图形收在安全区内）、`apple-touch-icon`（180，满幅） |
 | `src/sw.js` → `dist/sw.js` | Service Worker，缓存策略见下。**源码是模板、产物由构建生成**（见下） |
 | `src/composables/useInstallPrompt.js` | 拦 `beforeinstallprompt` 交给设置视图「应用」分组里的安装按钮，跟踪 `appinstalled` 与 `display-mode: standalone` |
@@ -690,7 +709,44 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **注册时机**：`src/main.js` 里 `import.meta.env.PROD && 'serviceWorker' in navigator` 才注册，且挂在 `window.load` 上。**dev 下刻意不注册**——Vite 的模块是即时编译的，缓存它只会让改完代码看到旧页面；所以 `npm run dev` 里既没有安装入口也测不到离线，要验就走 `npm run build && npm run preview`。
 
-**安装入口**：设置视图「应用」分组里那个「安装」按钮只在 `beforeinstallprompt` 真的触发后才可点（说明浏览器已判定可安装；不可安装时它 `disabled`），点它调 `prompt()`，`userChoice` 返回后事件即失效、按钮跟着置灰；已经装在独立窗口里跑或已被 `appinstalled` 标记过，也不再提示（文案变「已安装」）。2026-10-12 起这把锁**能被随后到来的安装事件冲掉**（事件到达 = 其实没装），且「支持但拿不到入口」那一格有一行 `chrome://apps` 的引导（判据与纪律见 13.5 第 6 条）。iOS Safari 没有 `beforeinstallprompt`，只能手动「分享 → 添加到主屏幕」，未做提示引导（要加就在这里加）。
+**安装入口**：设置视图「应用」分组里那个「安装」按钮只在 `beforeinstallprompt` 真的触发后才可点（说明浏览器已判定可安装；不可安装时它 `disabled`），点它调 `prompt()`，`userChoice` 返回后事件即失效、按钮跟着置灰；已经装在独立窗口里跑或已被 `appinstalled` 标记过，也不再提示（文案变「已安装」）。2026-10-12 起这把锁**能被随后到来的安装事件冲掉**（事件到达 = 其实没装），且有两行配套说明：引擎有 API 却拿不到入口 → `chrome://apps` 那行（判据见 13.5 第 6 条）；引擎没有 API → 按浏览器给安装出路的 `noApi*` 那行（判据见 13.5 第 4 条）。iOS Safari 没有 `beforeinstallprompt`，走「分享 → 添加到主屏幕」（站点已有这句引导）。**2026-10-12 起这一整套还多一个主动入口**：开机用通知弹一次（能装时带「安装」按钮、装不了时按浏览器给一句出路），弹过就记进 `cp.installGuides`；设置面板「应用」栏末尾那颗「安装引导」可随时手动再发一次 —— 通知形态见 **13.8**。
+
+### 9.1 装成应用后的系统栏配色（2026-10-12 定）
+
+装到桌面 / 主屏之后，**那两条系统栏（状态栏、导航条）的颜色不是页面说了算**，两族引擎的规矩不一样。
+本节此前只写了「`theme_color` 只有首帧兜底作用，真正生效的是 JS 写进去的值」——**那句只对 Blink 成立**：
+
+| 引擎 | 它拿哪个值画系统栏 | 能不能跟着切主题 |
+| --- | --- | --- |
+| Chrome / Edge（桌面 + 安卓） | 运行期那个 `<meta name="theme-color">` | 能，切主题当场变 |
+| Firefox 桌面 | 同上（独立窗口的标题栏） | 能 |
+| **Firefox 安卓** | **manifest 里的静态 `theme_color`** | **不能** |
+
+Firefox 安卓那条是上游现状，不是这里的配置错：它**至今不认运行期改写的 meta**
+（Mozilla bug 1922023，状态仍是 NEW），只读 manifest 里那个静态值；底部那条**系统导航条**更彻底，
+完全不跟站点颜色（fenix#27221 原文 `Navigation Bar color isn't synced with website's color`；
+同族的状态栏那条 2023 年修过 = bug 1813875，导航条没有）。
+
+**所以「同一个色值必须写三处」是这类问题的唯一防线**（漏一处，两类引擎就显示成两个颜色）：
+
+1. `src/styles/base.css` 的 `--bg-chrome`（深色 / 浅色各一支）—— 运行期真值，Blink 与 Firefox 桌面用它；
+2. `public/manifest.webmanifest` 的 `theme_color` —— **Firefox 安卓唯一认的那个**；
+3. `index.html` 里 `<meta name="theme-color">` 的静态 `content` —— 只是首帧兜底（JS 到之前）。
+
+**2026-10-12 的三次改动**（用户报「安卓 Firefox 装成应用后下方有白边、状态栏也不为深色」）：
+`--bg-chrome` 深色那支由 `#2a2a2b` **压到地面色 `#1c1c1c`** —— 原来那支是深色主题里最亮的一档（42），
+装到手机上状态栏就是一道明显比界面亮一截的灰。浅色那支**刻意不动**（保持 `#e8e8e8`，比自己的地面
+`#f3f3f3` 深一档，白底上留一点「这是窗口装饰」），两套主题在这里是两种成立的做法，别去同构。
+
+**页面补不了那两条栏**，两条判据（2026-10-12 探针实测）：一是根元素 `html` 的背景按画布规则铺满
+**整个视口**，页面内部不可能出现白条；二是 Firefox 安卓既不吃 `viewport-fit=cover`、
+`env(safe-area-inset-*)` 也返回 `0px`，页面**到不了那两条栏下面**。结论：**状态栏那条是我们发错了色值
+（可改），底部导航条那条是浏览器自己画的（无解，别再查）**。
+
+实测（探针 21 条断言全绿 + 截图，Firefox 安卓 UA + 412×915，跑完即删）：深色下 `--bg-chrome` /
+运行期 meta / manifest 三处都是 `#1c1c1c`，浅色下前两处 `#e8e8e8`；`.app` 与视口等高、
+`elementFromPoint` 在视口四条边中点与两个下角命中的都是页面自己的元素（底部那 100px 里没有白）。
+`npm run verify` 基线不变（A/B/C/D/F 绿 + E/G/H 红）。
 
 ## 10. 部署（GitHub + Vercel）
 
@@ -875,9 +931,9 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 ### 13.4 全局快捷键
 
-- 动作表 `SHORTCUT_ACTIONS`（**8 项**；2026-09-28 多了 `switch-panel`，2026-10-10 多了 `rename-node` / `delete-node`）就是全部能力边界，**没登记的动作就是做不到的**（理由见第 7 节）。加动作 = 改这张表 + 在 `App.vue` 的 `SHORTCUT_HANDLERS` 里补一条同 id 的处理函数，两处 id 必须对上。设置视图那个「快捷键」分组是 `v-for` 出来的，加动作不用改 UI。
+- 动作表 `SHORTCUT_ACTIONS`（**9 项**；2026-09-28 多了 `switch-panel`，2026-10-10 多了 `rename-node` / `delete-node`，2026-10-12 多了 `select-all-nodes`）就是全部能力边界，**没登记的动作就是做不到的**（理由见第 7 节）。加动作 = 改这张表 + 在 `App.vue` 的 `SHORTCUT_HANDLERS` 里补一条同 id 的处理函数，两处 id 必须对上。设置视图那个「快捷键」分组是 `v-for` 出来的，加动作不用改 UI。
 - `switch-panel`（默认 `Mod+Shift+KeyE`，label「切换侧栏面板」，2026-09-28 加）等价于点页头那枚胶囊。处理函数是 `App.vue` 的 `switchSidebarPanel()`：先 `if (!panelVisible.value) togglePanel()` 把侧栏捞回来，再 `sidebarRef.value?.switchPanel()`。**翻面只有 `Sidebar.vue` 一处实现**——`switchPanel` 就是它内部 `togglePanel` 直接 expose 出来的，所以滑动动画（`hasSwitched`）、`localStorage` 持久化与点胶囊完全同源；别在 App 里另写一份改 `activeTab` 的逻辑，那样键盘切过去会没动画、还多一份状态。**先捞侧栏是刻意的**：侧栏收起着的时候只翻那个看不见的面板，用户会以为快捷键没生效。
-- `rename-node`（默认 `F2`）/ `delete-node`（默认 `Delete`）**与上面那 6 条不是一回事**（2026-10-10 加）：它们**作用域受限**，只认「资源树里当前有焦点的那一行」，所以**不要**往 `SHORTCUT_HANDLERS` 里加 —— 加到它下面那张 `SHORTCUT_TREE_HANDLERS`：先过 `treeRowFrom(event)` 闸门（焦点落在带 `data-tree-id` 的行上、且不在任何可编辑元素里），再调 `FileExplorer` 经 `defineExpose` 给出的 `startRename(id)` / `requestDelete(id)`（与右键菜单那两条**同源**，不另写一份）。闸门必须拦在 `preventDefault()` 之前（不在树里就整条放行，否则编辑器里按 Delete 会删不掉字符反倒弹删除框）；`Delete` 是**裸键**，靠动作自己的 `bareCodes` 放行、由 `bareAllowedFor()` 判定（录制框共用它，否则这条动作被清掉就再也录不回来）。四条坑与两条实测口径见第 5 节坑 34。
+- `rename-node`（默认 `F2`）/ `delete-node`（默认 `Delete`）/ `select-all-nodes`（默认 `Mod+KeyA`，2026-10-12 加）**与上面那 7 条不是一回事**（前两条 2026-10-10 加）：它们**作用域受限**，只认「资源树里当前有焦点的那一行」，所以**不要**往 `SHORTCUT_HANDLERS` 里加 —— 加到它下面那张 `SHORTCUT_TREE_HANDLERS`：先过 `treeRowFrom(event)` 闸门（焦点落在带 `data-tree-id` 的行上、且不在任何可编辑元素里），再调 `FileExplorer` 经 `defineExpose` 给出的 `startRename(id)` / `requestDelete(id)` / `selectAllNodes()`（前两条与右键菜单**同源**，不另写一份）。`delete-node` 的删除对象是**整个选区**（那一行不在选区里时才只删它自己）；全选收不了行 id —— 它要的是**整棵树的所有节点**（2026-10-12 口径：**连折叠目录里的也算**，由 `allNodeIds()` 递归算出来；**不是** Shift 扩选用的那套「可见行」，两条口径刻意不同、别顺手统一），只有 `FileExplorer` 算得出来。⌘/Ctrl+A 在编辑器里是「全选文本」，两边靠这道闸门分开：焦点不在树行上就整条放行。闸门必须拦在 `preventDefault()` 之前（不在树里就整条放行，否则编辑器里按 Delete 会删不掉字符反倒弹删除框）；`Delete` 是**裸键**，靠动作自己的 `bareCodes` 放行、由 `bareAllowedFor()` 判定（录制框共用它，否则这条动作被清掉就再也录不回来）。四条坑与两条实测口径见第 5 节坑 34。
 - 展示：编辑器底部状态栏那枚运行提示读的是 `formatCombo(bindings.run)`，键改了提示跟着变（`EditorPane.vue`）——**别把它写成写死的 `⌘↵`**。同一口径还有两处：文件树右键菜单右列的键位读 `bindings['rename-node']` / `bindings['delete-node']`（`FileExplorer.shortcutOf()`），编辑区右键菜单读 `useEditorMenu.js` 的 `SHORTCUT`。
 - 冲突检测分三类，都在 `shortcutConflict()` 一处：浏览器原生键（`BROWSER_RESERVED`）、没带修饰键又不是功能键 / `Esc` / 该动作 `bareCodes` 里点名的那个裸键、已经绑给别的动作。冲突时录制框**停在录制态显示红字、不写入**，用户可以接着按别的组合，不用重新点一次。
 - `resetAll()` 复位成默认表；单条可用 Delete / Backspace 清除（清成空串 = 未绑定，不是删键）。**例外**：那个键正是该动作自己的合法裸键时（`delete-node` 与 `Delete`）不当清除、当录制收下 —— 想清除它请用 × 或 Backspace。
@@ -896,14 +952,14 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - ⚠️ **代填与预检这一对站点侧已发、AMO 侧还没上传**（2026-10-11，版本 `2.66.4`）：`cph-companion` 里 `src/fillCode.ts` / `src/cfIdentity.ts` / `bridge.ts` / `background.ts` / `models/messaging.ts` / `scripts/build/extension.ts` 都已改好并提交；`dist/cc_for_web-2.66.4-firefox.zip` 与 `dist/cc_for_web-2.66.4-source.zip` 都已出好（源码包已按 `BUILD-INSTRUCTIONS.md` 空目录复现过，产物与上传包一致）。**站点侧已换包**：`public/extension/cc-for-web-2.66.4.zip`（chrome 产物）、`EXTENSION_VERSION` 已改 2.66.4、`NOTICE.md` / `NOTICE.en.md` 已同步（走的是 13.3 那三步）。**但 AMO 线上仍是 `2.66.3`**（到今天只有 `2.66.2` / `2.66.3` 两版），所以 Firefox 用户那颗「在 Codeforces 上自动填写」按钮与那行预检提示**还看不到**（从本站下 zip 手动装 Chrome 版的能看到）—— **只差最后一步：把两个 zip 传 AMO**。**API `permissions` 一条没新增**（预检读的是公开 DOM，不碰 `cookies`）；但 `host_permissions` 从 183 涨到 **184**、`content_scripts` 从 2 条涨到 **3 条**，这两个数字要在提交材料里说明（纪律写在 13.3）。
 - 取码那一步的三处便利（复制 / 代填 / **预检**）**状态与动作都在 `services/cloudSession.js`**（`codeCopied` / `copyCloudCode` / `filling` / `fillCloudCode`，以及预检的 `cloudCfStatus` / `cloudCfHint`，且把 `canFillCode` / `canCheckCf` 从桥那边转出来），面板与齿轮菜单只消费 —— 同 13.1 那条纪律，两边不许各存一份。代填成功只提示「已填好，回来点验证」，**验证那一步刻意不替用户点**：服务端要的是「确认这一次写入」。预检**只换那一行提示的文案与颜色**（`cloudCfHint` 产出 `tone: 'ok' | 'warn' | ''`），不改任何按钮行为 —— 刻意不做「没登录就把按钮换成『去 Codeforces 登录』」那类重排，那是行为改动，得先拍板。
 - 改插件那一栏的**按钮 / 提示** → 先看 **13.6**：那一栏按 `BROWSER` 只摆一条路，加按钮或改文案都要顺手对一遍「认不出时 fail-open」这条（`unknown` 必须两条路都给），以及 13.3 那张四处文案口径表。
-- 改**齿轮菜单那两颗安装行**（安装为应用 / 拿浏览器插件）、或动安装包的版本与商店地址 → 看 **13.7**：条件写在 `services/settingsMenu.js` 的 `when` 里，安装包数据只有 `services/extensionPackage.js` 一处，`useInstallPrompt.js` 是模块级单例（那条别退回每实例一份）。若在 dev 上看到「明明装了插件那一行还在」→ 直接看 **13.7.1**（生产包的桥不注入 localhost，dev 上要验就用 `pnpm watch:chrome` 的扩展）——那是预期行为，不是这一行的 bug。
+- 改**齿轮菜单那几颗安装 / 更新行**（安装为应用 / 拿浏览器插件 / 插件换新版）、或动安装包的版本与商店地址 → 看 **13.7**：条件写在 `services/settingsMenu.js` 的 `when` 里，安装包数据只有 `services/extensionPackage.js` 一处（「装着的这版旧不旧」也在那里，`isExtensionOutdated`），`useInstallPrompt.js` 是模块级单例（那条别退回每实例一份）。若在 dev 上看到「明明装了插件那一行还在」→ 直接看 **13.7.1**（生产包的桥不注入 localhost，dev 上要验就用 `pnpm watch:chrome` 的扩展）——那是预期行为，不是这一行的 bug。
 
 ### 13.6 按浏览器推荐安装路径（2026-10-11 加；同日「应用」栏改为能力探测）
 
 这一节管**两个互不相干的轴，判据别串用**：
 
 - **「浏览器插件」栏** —— 先认浏览器、只给当前这台真走得通的那条路。判据是 `services/platform.js` 的 `BROWSER` / `BROWSER_PLATFORM`（**UA 推断**，与 `HOST_OS` 同一体例）。
-- **「应用」栏的「安装到设备」** —— **只看引擎有没有安装 API，完全不看浏览器型号**（也就完全不看 UA）。判据是 `useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`（属性检测）。**这一处不许再加 UA 分支**，理由见下面第 4 条。
+- **「应用」栏的「安装到设备」** —— 状态词与按钮**只看引擎有没有安装 API，完全不看浏览器型号**（也就完全不看 UA）。判据是 `useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`（属性检测）。**UA 只许决定那行「出路说明」写哪句**（2026-10-12 起，见 13.5 第 4 条），不许回头去改状态词与按钮。
 
 | 导出 | 取值 | 判据（按顺序短路） |
 | --- | --- | --- |
@@ -917,7 +973,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 3. **`safari` 那一档刻意一颗按钮都不摆**：Safari 扩展走 App Store 分发，与我们这套完全不通用。它还**收下了 iOS 上的所有浏览器** —— iOS 的 Chrome / Firefox 用 `CriOS` / `FxiOS` 标识、UA 里同样带 `Safari/`，而 iOS 上谁都装不了本插件，归到这一档正好是正确答案（别去认 `CriOS` 再分流，结论一样）。
 4. **「装成应用」的判据是能力探测 —— 不是 UA，也不是等事件**（2026-10-11 定）。判据只有一条：`'onbeforeinstallprompt' in window`（`useInstallPrompt.js` 导出为 `INSTALL_API_SUPPORTED`，**属性检测**：同步、零等待、开机就能读）。它问的是「这个引擎有没有实现安装 API」，正好落在真实边界上 —— Blink（Chrome / Edge / 360 / QQ / Opera）为 `true`，Firefox / Safari 与全部 iOS 为 `false`。三条纪律：
    - **别拿 `canInstall` 当「支不支持」**：那是 `beforeinstallprompt` **事件**的判据，只说明「此刻能不能一键装」。事件不来既可能是「不支持」、也可能是「这一刻条件不满足」（Service Worker 未接管 / 已装过但没被检测到）。两者混成一句，就会写成从前那句「已安装或不支持」，还得靠猜浏览器去补救。现在状态词只回答「支不支持」（三态：**已安装 / 当前浏览器支持 / 当前浏览器不支持**），**按钮亮不亮另由 `canInstall` 决定**，两者不许互相替换。
-   - **刻意的取舍：Windows 版 Firefox 一律落「当前浏览器不支持」**。Firefox 的网页应用能力（Windows **143+**、Microsoft Store 装的 **150+**；地址栏那个「网络应用」图标；Mozilla 原文「你访问的任何网站都可以加」，不要求站点带 manifest）**在 JS 里没有任何 API**，再准的探测也照不到它。要保住那句例外，就得猜 UA + 系统 —— 用户明确选了「一套判据」，所以 2026-10-11 把这处例外**删掉**：原来那两句 `hintFirefoxWindows` / `hintFirefoxOther` 连同 `hintChromium` / `hintMobile` / `hintUnknown` 一并删除，`statusUnavailable`（「已安装或不支持」）拆成 `statusUnsupported` + `statusInstalled`。**别再往回加**；真想恢复，先问。
+   - **刻意的取舍，2026-10-12 改口**：Firefox 的网页应用能力**在 JS 里没有任何 API**（`beforeinstallprompt` 在 Firefox 桌面 + 安卓、Safari 桌面 + iOS 上**全都不支持**，MDN 兼容表），所以这一格一律落「当前浏览器不支持」。2026-10-11 曾据此把按浏览器分岔的引导**全删**（`hintFirefoxWindows` / `hintFirefoxOther` / `hintChromium` / `hintMobile` / `hintUnknown`）；**2026-10-12 用户点名恢复**——「没有 API」不等于「这台机器装不了」，Firefox 安卓 / iOS Safari 自己的菜单里就有安装入口，只留一句「不支持」会让人以为没有这条路（报障原文：安卓 Firefox 里「没有在设置中显示安装选项」）。恢复后的形态：**说明行**（`installNoApiHint` + `installNoApiHintKey`，六条 `noApi*` 文案）按浏览器 / 系统挑一句，**状态词与按钮仍只看引擎判据**——UA 分支只许决定「说明写哪句」，两者混起来就又变回从前那套「猜浏览器来解释按钮」。
    - 背景事实（留着备查）：`beforeinstallprompt` 只在 Blink 派发，`appinstalled` 在 Firefox / Safari 也不触发；Firefox / Safari 移动端只能从菜单装（安卓 Firefox 是菜单 › 安装），Safari 桌面 17+ 走「文件 › 添加到 Dock」；网上那套 `about:config` → `browser.ssb.enabled` 早已移除，别再照抄。
 5. **插件版本提示不比能力**：装的那一版来自 `cp-info` 的 `info.version`（`useCompanionBridge`），只拿来报「有新版」；**能力一律走 `capabilities` 协商**（13.1），别退回版本号比大小 —— 那笔账记错方向就反了。且「有新版」时**装包那一行不能收**（2026-10-11 定）：没探到与探到旧版**共用同一行**（`extensionActionVisible` = `!extensionInfo || extensionOutdated`）—— 没探到给安装口径（`hint*`），探到旧版换更新口径（`update.label` + `updateHint*`），只有「装了且是最新」才收。那一行是 Chromium 拿包的**唯一入口**（没有商店可点），旧版时把它收掉，用户就只剩一句「本站最新是 vX」可读、没有任何途径拿到新包。版本对照（`updateAvailable`）只说对不上，怎么换新只在行里说一次 —— 两处都写就是重复。
 6. **「装过又删掉」按钮一灰到底不是 bug，但必须给解释**（2026-10-12 定）。Chrome 只在**自己认为没装**时派发安装事件；**从 Finder 把 `~/Applications/Chrome Apps/` 里的图标删掉不算卸载** —— 记录还在浏览器 profile 里，于是事件永远不来、按钮永远灰，而状态词照写「当前浏览器支持」，用户看不出为什么。灰按钮本身修不了（没有任何 API 能问「到底装没装」，`getInstalledRelatedApps` 也指望不上），所以能做的只有如实解释 + 给出路：面板在「引擎支持 + 没装 + 拿不到入口」（`installUnavailable`）这一格补一行说明 + 「复制地址」（`chrome://apps`，网页没有权限跳转 chrome://，与插件快捷键那条同一套写法）；已装与不支持两格各有状态词罩着，**不加**。配套纪律：**`appinstalled` 设下的「已装」锁必须能被随后到来的安装事件冲掉**（事件到达 = 「其实没装」的权威证据，见 `useInstallPrompt.js` 的 `onBeforeInstallPrompt`）—— 这把锁别改成只进不出。
@@ -944,25 +1000,29 @@ window.dispatchEvent(ev)
 
 插件侧本轮实测过八个 UA（**那半边仍然是 UA 判据，照旧有效**）：Chrome / 360 套壳 → 手动那颗 + `hintChrome`；Edge → 手动那颗 + `hintEdge`（**没有** Edge 按钮，URL 空着）；Firefox → AMO 那颗 + `hintFirefox`；Safari 与 iOS Chrome → **无按钮** + `hintUnsupported`；安卓 Chrome → 无按钮 + `hintMobileUnsupported`；安卓 Firefox → AMO 那颗 + `hintFirefox`。
 
-### 13.7 齿轮菜单里那两颗「装到本机」的行（2026-10-12 加）
+### 13.7 齿轮菜单里那几颗「装到本机」的行（2026-10-12 加；同日插件行拆出「更新」一对）
 
-下拉菜单在「同步设置」下面多出两颗**一次性动作**（不是偏好）：**安装为应用**、**安装 / 下载浏览器插件**。它们**只在「能装、而且还没装」时出现** —— 出现了就是真能用的，用掉、装好、或这台机器本来没这条路，就自己消失。条件全写在 `services/settingsMenu.js` 的 `when` 上（表里那一行的显隐；组件只按它过滤，不认任何业务事实）。⚠️ 插件那两颗的准确判据是「**没探到**扩展」而非「没装」（两者不等价，见本节末那段）。
+下拉菜单在「同步设置」下面多出五颗**一次性动作**（不是偏好）：**安装为应用**，以及插件的**两对**行——「安装 / 下载浏览器插件」（没装）与「更新 / 重新下载浏览器插件」（装着旧版，2026-10-12 用户要求把两种情况区分开）。它们**只在各自条件成立时出现** —— 出现了就是真能用的，用掉、装好、或这台机器本来没这条路，就自己消失。条件全写在 `services/settingsMenu.js` 的 `when` 上（表里那一行的显隐；组件只按它过滤，不认任何业务事实）。⚠️ 插件那四颗的准确判据是「**探到什么**」而非「装没装」（两者不等价，见本节末那段）：没探到 → 安装口径；探到且版本旧 → 更新口径；探到且是最新 → 四颗全收。**同一批判据还驱动通知里的插件引导**（开机自动弹一次、设置面板里手动再发一次），见 **13.8**。
 
 | 行 | 出现条件 | 点它做什么 | 文案 key |
 | --- | --- | --- | --- |
 | **安装为应用** | `canInstall`（引擎有安装 API **且**此刻真能一键装 **且**还没装） | 调 `install()` → 触发浏览器的安装弹窗 | `settings.menu.installApp` |
 | **安装浏览器插件** | 没探到扩展 **且** `EXTENSION_ROUTES` 含 `'firefox'`（Firefox 桌面 / 安卓） | 外链 AMO，一键装 | `settings.menu.installExtension` |
+| **更新浏览器插件** | `isExtensionOutdated(info.version)` **且** 路含 `'firefox'` | 同一行 AMO（那页永远是最新版） | `settings.menu.updateExtension` |
 | **下载浏览器插件** | 没探到扩展 **且** `EXTENSION_ROUTES` 含 `'manual'`（Chromium 系桌面版） | 下载 zip（与面板那条手动路同一颗包） | `settings.menu.downloadExtension` |
+| **重新下载浏览器插件** | `isExtensionOutdated(info.version)` **且** 路含 `'manual'` | 重新下载 zip（换掉解压目录后刷新） | `settings.menu.updateExtensionManual` |
 
 五条不能破的：
 
 1. **`when` 是函数**（表里那一整套都是函数，理由同文件头）：读的是此刻的值，Vue 追得到依赖，所以装完 / 事件一到，那一行自己长出来或消失。**别把这类条件写进组件**。
-2. **两颗插件行按「这台机器实际走哪条路」二选一**，不是两颗都摆：判据是 `services/extensionPackage.js` 的 `EXTENSION_ROUTES`，**与设置面板那两颗外链按钮同一份**（`showFirefoxInstall` / `showManualInstall` 就是读它）。认不出浏览器时它给两条（fail-open），于是菜单里两颗都出现 —— 这是刻意的，别收敛成一颗。
+2. **插件四颗 = 两种状态 × 这台机器的路**：没探到 → 「安装 / 下载」那对（判据 `!extensionInfo`）；探到旧版 → 「更新 / 重新下载」那对（判据 `isExtensionOutdated`，唯一出处 `services/extensionPackage.js`，面板的 `extensionOutdated` 与菜单共用一份比对 —— 别在表里再抄一份版本比较）。每对内部按 `EXTENSION_ROUTES` 二选一，**与设置面板那两颗外链按钮同一份**；认不出浏览器时它给两条（fail-open），于是同对两颗都出现 —— 这是刻意的，别收敛成一颗。**「更新」那一对也不能收**（与面板「装包行不能收」是同一条判据）：Chromium 没有商店可点，菜单这颗就是拿新包的唯一入口，旧版用户看不见它就只剩「有新版」可读、拿不到包。Chromium 那颗措辞用「重新下载」而非「更新」—— 要与 AMO 那颗统一叫法先问（2026-10-12 定）。
 3. **`useInstallPrompt.js` 是模块级单例**（2026-10-12 改）：`beforeinstallprompt` 一个会话只派发一次，**拦下来的那个事件对象是唯一能 `prompt()` 的东西**，所以这份状态只能有一份；监听挂在模块顶层、没有 teardown。别再退回「每次 `useInstallPrompt()` 各持一份 ref」—— 那样菜单与面板各拿一半，谁都不对。
 4. **安装包那份数据只有一处**：版本 / 文件名 / 下载地址 / 两个商店地址都在 `services/extensionPackage.js`，面板与菜单都 import 它。**别在组件或表里再存一份版本号**（换包时必漏一处，见 13.3）。
 5. **位置是挑过的**：三颗条件行插在 `cloud` 之后、`openSettings` / `sections` 之前。因为组件里 `activeIndex` / `openSubmenu` 都按下标干活，而这个位置**在所有可展开的行（radio / cloud）下面** —— 条件行出现或消失时，那些存下来的下标不会被推着走。
 
 **实测**（2026-10-12，探针跑在 dev server 上、用完即删）：Chrome 与 360 类 → 只有「下载浏览器插件」；Firefox（UA）→ 只有「安装浏览器插件」；Safari（UA）→ 两颗都没有；把 `extensionInfo.value` 置成已装 → 两颗都收起来（设置面板那一栏的下载行同步消失）。「安装为应用」按 13.6 那条**合成事件**的写法驱动：事件一到 → 菜单里多出该行；点它 → `prompt()` 被调到 **1** 次、菜单自己收起、那一行随之消失。面板那两颗外链按钮的回归也一并过了（Chrome → `download` 那颗 zip；Firefox → AMO；Safari → 一颗都没有），即常量搬进 `extensionPackage.js` 之后行为没变。
+
+**「更新」那一对的实测**（2026-10-12 追记，六场景 × 中英 + 动作出口全绿）：探针扮桥回旧版号 `2.65.0` → Chrome 菜单只出「重新下载浏览器插件」、Firefox 只出「更新浏览器插件」（安装口径那颗不并排出现）；回最新版 `2.66.4` 或探不到 → 更新行不出现；点 Chromium 那颗 → 合成锚点指向 `/extension/cc-for-web-2.66.4.zip` 且带 `download`；点 Firefox 那颗 → `window.open` 去 AMO。面板回归同场验过：重构 `extensionOutdated` 到共用判据后，「更新插件」行与版本对照 warn 照旧。
 
 ⚠️ 探针里连 dev server 要写成 `--host 127.0.0.1` **并按 IP 访问**（`http://127.0.0.1:<port>/`）：本机 vite 默认只监听 `[::1]`，而 Chrome 走 `localhost` 时可能落到 IPv4 上，症状是 `goto` 报 `ERR_CONNECTION_REFUSED`（2026-10-12 踩到，`curl localhost` 通、`curl 127.0.0.1` 不通就是它）。
 
@@ -982,7 +1042,152 @@ window.dispatchEvent(ev)
 
 **「真实扩展能不能被探到」这条链路 2026-10-12 起探针也验得动了**（上面那句「做不到」已过时）：按 §15 的路子 —— 启动参数带 `--enable-unsafe-extension-debugging`、`ignoreDefaultArgs: ['--disable-extensions']`、CDP `Extensions.loadUnpacked` 装真扩展 —— 当天实测三断言全绿：装 dev 包 → `extensionInfo.version === '2.66.4'`、菜单无「下载浏览器插件」；同一探针不装扩展（反证）→ `extensionInfo === null`、那一行在。
 
-## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；Linux 未开工）
+### 13.8 安装引导的通知形态（2026-10-12 加）
+
+这一节管「怎么把本站装成应用 / 怎么装、更新插件」这两件事的**主动引导**。原来它们只被动躺在
+设置面板里（「应用」栏的说明行、「浏览器插件」栏的装包行），用户不点进去就永远看不到；2026-10-12
+起改由通知系统（`services/notifications.js` + `components/NotificationCenter.vue`）主动讲 ——
+这正是通知系统上线时留的那块「暂不接业务事件」的位置。
+
+**四条引导**，唯一出处 `services/installGuides.js`（面板那一栏、齿轮菜单、通知读的是同一批判据）：
+
+| id | 出现条件 | 通知长什么样 |
+| --- | --- | --- |
+| `app-install` | `canInstall`（引擎有 API **且**此刻真能一键装 **且**还没装） | 一句话正文；按钮 **安装 / 以后再说**（安装那颗直接调 `install()`） |
+| `app-manual` | 没装，且（引擎没 API **或** 有 API 却拿不到入口） | 只说明：无 API 走 `noApi*` 六条之一，拿不到入口走 `blocked` 前后半拼 `chrome://apps`，后者带 **复制地址** |
+| `ext-install` | 没探到扩展，且这台机器有路（`EXTENSION_ROUTES` 非空） | 正文 = 面板那六条 `hint*`；按钮按路给 **下载 / Firefox 版** |
+| `ext-update` | 探到扩展且版本旧（`isExtensionOutdated`） | 正文 = `updateHint*`；按钮 **重新下载 / Firefox 版** |
+
+六条不能破的：
+
+1. **分岔只有一处**：`noApiVariant()` / `extensionVariant()` 与两张 key 表（`NO_API_KEYS` /
+   `EXTENSION_HINT_KEYS`）都在 `installGuides.js`，面板那两行说明与通知正文**读同一批句子**
+   （`t(EXTENSION_HINT_KEYS[extensionVariant()])` 这种取法）。别在组件里再写一遍 if 链 ——
+   那正是 `extensionPackage.js` 那次把版本比对挪出去要防的事。顺带改了一处字：`hintFirefox`
+   原来是「点**右侧**「Firefox 版」…装完回**这里**点「重新检测」」，通知里没有「右侧」也没有
+   那颗「重新检测」，所以改成位置中性的「点「Firefox 版」…装完回**设置里**点「重新检测」」——
+   两处都读得通，别改回去。插件那六条里只有 Firefox 那条自带收尾动作，其余的在通知里由
+   `guide.extRecheck` 补一句（通知上没有「重新检测」按钮）。
+2. **别早弹 `app-manual` 里「有 API 却拿不到入口」那一格**：Chrome 的 `beforeinstallprompt`
+   什么时候来不由站点定（首次访问时 SW 还没接管，它可能压根不来、也可能几秒后才来）。早弹会把
+   「其实装得上、只是还没轮到派发事件」写成一屏「入口不可用」的警告。所以 `runAutoGuides` 分两趟：
+   `early`（`useInstallGuides` 的 2.5s，只出应用能装 + 插件两条）与 `late`（10s，补那一格）；
+   两趟共用 `guide:app` 这个 tag —— 真的事件晚到时，`app-install` 那条会把误报顶掉。
+3. **「自动弹一次」记在 `cp.installGuides`**（第 6 节），**手动触发不看这份记录**（用户点名要看）。
+4. **同一件事同时只留一条通知**：两条引导各一个 tag（`guide:app` / `guide:extension`），
+   发新的先 `dismissByTag` 旧的。
+5. **有按钮的常驻、纯说明的 12 秒**（`INFO_MS`）：带按钮的通知是要用户动手的，替他关掉没有道理。
+6. **插件引导只在「这台机器有路」时弹**（`EXTENSION_ROUTES` 非空）：Safari / iOS 上一颗按钮都给
+   不出，这时弹一条「快去装」是纯打扰 —— 面板那一栏仍照旧给 `hintUnsupported`，那是用户自己点进去看的。
+
+**手动入口**：设置面板「应用」栏与「浏览器插件」栏末尾各有一颗「安装引导」（`fireSectionGuide`），
+点它把这一栏的引导改成通知再发一次。与开机那一趟走的是同一个构造函数，所以**已经装好 / 已是最新版
+也照样有话说**（后者给 `guide.extUpToDate`），不会点了没反应。
+
+**实测**（2026-10-12 探针跑在 dev server 上、用完即删；中英各九场景、共 11 条断言全绿）：
+Chrome 合成安装事件 → 「安装为应用[安装/以后再说]」+「安装浏览器插件[下载]」；Chrome 不派发事件 →
+早期只有插件那条、10s 后补出「安装为应用[复制地址]」（正文含 `chrome://apps`）；扮桥回 `2.65.0` →
+「更新浏览器插件[重新下载]」；回 `2.66.4` → 一条都没有；Firefox（`delete window.onbeforeinstallprompt`）
+→ 应用那条落 `noApiFirefoxOther`、插件那条给「Firefox 版」；Safari → 只有应用那条（`noApiSafariDesktop`，
+插件一条都不弹）；预置 `cp.installGuides` → 刷新后一条都不弹；预置后点设置里那颗「安装引导」→
+通知照常出现。⚠️ **探针坑**：`evaluateOnNewDocument` 里直接 `setTimeout` 派发合成安装事件会丢 ——
+dev 下模块要加载好几秒，那时应用还没挂上监听（症状：插件那条正常、应用那条整条不出现）。正确做法是
+暴露一个钩子，等 `.sidebar-switcher__tab` 出现（＝应用已挂载）后再调。
+
+### 13.9 云端那几步的通知（2026-10-12 加）
+
+三件事，都在 `services/cloudSession.js`，都走通知系统：
+
+| 事件 | 形态 | 说明 |
+| --- | --- | --- |
+| 导入云端配置（四条显式入口）/ 登录验证通过 | `success` · 5s，**跨整页刷新** | 走 `notifyAfterReload` 寄存在 `cp.flashNotice`，下次启动 `flushFlashNotification()` 补发 |
+| 登录时云端还没有这个用户名（直接认领，不刷新） | `success` · 5s，当场发 | 与行内那句并存：行内当「下一步去上传」的指引，通知负责让齿轮菜单那条路也看得见 |
+| 取到验证码（登录 / 上传两条路共用） | `info` · **10 分钟**（= 码的有效期 `CODE_TTL_MS`），tag `cloud:code` | 四颗按钮：一键填写（**仅装了带 `fill-code` 能力的扩展时才有**）/ 复制验证码 / 跳转到网页 / 取消登录（上传流程叫「取消上传」） |
+
+六条不能破的：
+
+1. **`cp.flashNotice` 是全站唯一的持久化例外**，且**只存 sessionStorage**（第 6 节）。理由与边界：
+   - 为什么要存：导入 / 登录成功办完就 `window.location.reload()`（见 `adoptCloud`），通知只活在内存里，
+     刷新前 `notify()` 等于没发；
+   - 为什么不是 localStorage：它只该跨过**这一次同页签刷新**，随页签关掉消失。存 localStorage 会让用户
+     下周开站时忽然弹出一条「导入成功」；
+   - **只存 `{ type, title, message, duration }` 四个展示字段**，`actions` / `tag` 一律不存（回调函数
+     过不了 JSON，存了只会变成一堆空标签）；存的是**已翻译好的字符串**，因为补发时页面刚起来、
+     i18n 还没进任何组件；
+   - `flushFlashNotification()` **先删后发**、且幂等；存档是用户能手改的地方，解析失败就当没有
+     （删掉脏数据，不往界面上塞垃圾）；
+   - **不进云同步白名单**：它是「这台设备刚做完一件事」的一次性界面状态。
+2. **取码那条通知只认 `code` 这一个 ref**：`watch(code)` —— 非空就（重）发一条、清空就 `dismissByTag` 整组收掉。
+   清 `code` 的地方有五处（取消 / 两种验证成功 / …），逐个补 `dismiss` 漏一处就是一条甩不掉的通知。
+   ⚠️ **验证失败刻意不清 `code`**（码可能还有效，用户改完 Last name 能接着来），所以那条通知留着，
+   上面那几颗按钮正好还用得上。
+3. **`keep: true` 的按钮点了不退场**（`notifications.js` 的 action 新增标记）：取码通知的前三颗都是
+   「还得再来一下」的动作（复制完往往还要跳转、跳转完还要回来取消），点一下就把通知收掉等于逼用户
+   把码重新弄出来一次；只有最后一颗「取消」不带 `keep`。
+4. **`MAX_ACTIONS` 由 2 提到 4**：就是为了这条通知。按钮行本来就 `flex-wrap`，四颗在 320px 卡片里
+   折成两行、不会缩成一排小字（实测两行、卡片 320px）。超过 4 颗仍按老规矩拆成两条通知。
+5. **CF 个人资料地址提为常量 `CF_SOCIAL_URL`**（`cloudSession.js` 导出）：面板说明里的 `<a>`、齿轮菜单
+   说明里的 `<a>`、通知上「跳转到网页」那颗按钮**同源**。改地址只改这一处。
+6. **「导入」还是「登录」由 `adoptCloud(data, handle, updatedAt, kind)` 的 `kind` 参数决定**（默认
+   `'import'`）：四条显式导入入口（面板「导入」/ 菜单「导入」/ 两处「下载到本机」/ 地址栏 `/<handle>` 套用）
+   都走默认，只有 `verifyAndLogin` 传 `'login'`。词条表是 `CLOUD_NOTICES`。
+
+**实测**（2026-10-12 探针 36 条断言全绿，mock `/api/*` 驱动真实 UI；用完即删）：
+zh 取到码 → 「等待验证」+ 码进正文 + 三颗按钮（没装扩展时没有「一键填写」）+ tag `cloud:code`，
+点「取消登录」通知收掉且面板回到未取码态；en 同场景文案全对；四颗按钮折两行、卡片 320px、
+6 颗只留前 4；云端无配置那支当场发「登录成功」且不刷新（行内提示仍在）；**点「导入」→ 确认框 →
+地址栏变成 `/<handle>` 且整页刷新 → 补发「已导入云端配置」、`cp.flashNotice` 已删**；登录验证通过 →
+刷新 → 补发「登录成功」；`sessionStorage` 里塞 `not-json` 不弹通知、不崩、脏数据被清掉；
+手种合法寄存 → 中英各原样补发一条。
+⚠️ **探针坑**：`openSettingsTab('cloud')` 之后**别立刻点面板里的按钮** —— 会话恢复是异步的，VFS 落定后
+`workspace.activeId` 才赋值，那一跳会 `deactivateViews()` 把刚铺开的设置视图收掉（页签还在、
+内容 `display:none`，症状是 `page.click` 报 `Node is either not clickable`）。要重试到
+`.cloud-account` 的 `getBoundingClientRect().width > 0` 为止。
+
+### 13.10 设置改动的「撤回」通知（2026-10-12 加）
+
+改任一设置 → 右下角一条 `info` · **3 秒**的通知，标题是「「<设置名>」已更新」，带一颗**「撤回」**。
+**同一项只有一条**：连着改同一项不新发，而是原地改那一条，撤回目标是**最近这一手**（再点一次才更早一手）。
+全在 `services/settingsUndo.js`（App.vue 里 `initSettingsUndo()` 挂一次，不画东西）。
+
+| 收口在哪些 ref 上 | 写它们的通路（**都不需要改**） |
+| --- | --- |
+| `editorSettings`（浅 watch） | 面板整份回写 `updateEditorSettings` / 菜单 `setEditorSetting` |
+| `uiScalePref` / `panelPosition` | 菜单与面板两条（缩放那条本来就没有单一出口） |
+| `templatesEnabled` / `locale` | `setTemplatesEnabled` / `setLocale` |
+
+七条不能破的：
+
+1. **在模块级 ref 上收口，不在写入方插钩**：五条写入通路，逐个插钩要动五个文件、漏一条就漏一类设置；
+   它们最终都落回单例 ref（就是「抽单例」的收益），挂 watch 一次全覆盖。
+2. **代价是一条契约：写入方必须整份替换 `editorSettings`**（`editorSettings.value = {...}`）。
+   这里用的是**浅** watch —— deep 的回调里 newValue 与 oldValue 是同一个对象（Vue 不克隆），
+   拿不到「改之前是什么」，撤销就无从谈起。哪天有人写 `editorSettings.value.fontSize = 20`，这一项就静默失联。
+3. **watch 一律 `flush: 'sync'` + `applying` 守卫**：撤回是自己写回去的，那一下也会触发 watch，
+   必须当场跳过。默认的 `'pre'` 会把回调推到微任务里，那时守卫早已复位 —— 于是撤回自己又弹一条，无限套娃。
+4. **每项一份撤销栈**（旧值在栈底），点一次退一手、退干净才收通知。栈**只跟着那条通知的命**：
+   判据是「这一项记着的通知 id 还在 `notifications.value` 里且未退场」。通知 3 秒到期 / 被 × 关掉之后，
+   下一次修改就从头记 —— 否则用户看不见的那截栈会让他按一下「撤回」退到很早以前的值。
+5. **同一项只留一条走 `updateNotification`（`notifications.js` 新加）**：原地改 title / message / actions /
+   duration，**位置与进场动画都不动**。靠「先 `dismissByTag` 再 `notify`」会一次淡出、一次滑入，
+   连点字号步进器时整排通知都在抖。条目已退场时它返回 `false`，调用方据此新发一条。
+6. **tag 是 `setting:<键>`，设置名按约定取**：`settings.editor.<key>.label`，六条不在编辑器域的
+   （theme / fontSize / uiScale / locale / panelPosition / templatesEnabled）走 `EXTRA_LABEL_KEYS` 例外表。
+   约定类的东西**必须有断言**：探针逐键校验「译出来不等于键本身」（现在 31 + 6 条全过）。
+7. **两种情形刻意不弹**：值没变（整份回写也要逐键比对，选中的就是当前那一档）；**一次改一批**
+   —— 云端导入 / 登录走 `applyProfile`，它只写 localStorage 再整页刷新，运行期 ref 一个都不动，
+   所以天然不响（那时页面马上要重载，弹了也看不见，那两条另有跨刷新寄存，见 13.9）。
+
+**实测**（2026-10-12 探针 43 条断言全绿，走真实 UI：面板下拉 + 齿轮菜单步进器 / 开关；用完即删）：
+面板改主题 → 「「主题」已更新」+「撤回」，点它主题回退且通知收掉；菜单连点三步进器 → 字号 14→17
+**只有一条**通知，逐手撤回 16→15→14、退干净通知消失；通知 3 秒自动消失后，下一次改重新计一条、
+撤回**只退一手**（不会退到很早以前的值）；同时改两项 → 两条通知、tag 各自独立；写回同一值、
+`applyProfile` 批量套用都不弹；中英两版文案全对（`“Font size” updated` / `Undo`）。
+⚠️ **探针坑**：判「3 秒自动消失」不能只看「在场且未退场」的计数 —— 退场动画有 200ms，
+那一刻计数已经是 0 而 DOM 节点还在，紧接着点「撤回」会点在**正在淡出的那颗**上
+（组件对退场中的通知整颗忽略，看着像「撤回没生效」）。要等 DOM 节点真的拆掉。
+
+## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；**桌面端「导出到本机文件夹」已落地（另立 `export_*` 四条命令，不复用 `fs_*`）**，见 14.O；Linux 未开工）
 
 **目标**：把同一套前端搬到桌面，用 **Tauri** 打包成原生应用（首选 macOS，其次 Windows / Linux）。**Web 版（Vercel + PWA）继续保留、是并行的一条线，不是被替代**；桌面端与网页端共用同一份 `src/`，只在「跑代码」「存储」「离线」这几处按平台分流。
 
@@ -1492,5 +1697,30 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 1. 用户在原报场景（设置 / 弹窗里的 `input`）复现确认；本机设置面板里几个都是下拉框、文本输入在别的分类下，adb 没翻到，故只验到 `textarea.ta` 这条同机制的路径。
 2. 确认后**删掉临时读数条**：`useMobileKeyboard.js` 的 `probe` / `describeActive()` / `updateProbe()` 及其调用点，连同 App.vue 的 `focusProbe` 解构、模板里的 `.focus-probe` 与对应 CSS。
 3. 本次**没有新增界面文案**，五处文档同步不用动。
+
+### 14.O 桌面端「导出到本机文件夹」（2026-10-12 加）
+
+**为什么另立一套命令、不复用 `fs_*`**：`workspace.rs` 里那组 `fs_*`（`fs_scan` / `fs_read` / `fs_write` / `fs_mkdir` / `fs_rename` / `fs_delete`）**全部绑在 `WorkspaceState` 的那个根上** —— 那是「用户打开的本机工作区」；而导出是「把文件写到我**刚选的另一个**文件夹」，根不同、生命周期也不同（工作区跨会话记着，导出点是一次性的）。所以另立 `ExportState { dir: Mutex<Option<PathBuf>> }`：**一个一次性落点**，`export_choose` 选中、`export_close` 清掉，与工作区互不干扰。
+
+**四条命令**（`src-tauri/src/lib.rs` 里 `.manage(workspace::ExportState::default())` + 注册进 `generate_handler!`）：
+
+| 命令 | 参数 | 回参 | 说明 |
+| --- | --- | --- | --- |
+| `export_choose` | — | `Option<String>` | 弹**原生目录选择器**（Rust 侧调 dialog 插件，所以前端仍然不需要任何 dialog capability）；取消回 `null`（不是错误）。回给前端的字符串**只用来显示**（「已导出到 …」），真正的权威是 `ExportState` 里那份 —— 前端拿着这个字符串也写不进任何文件 |
+| `export_write` | `{ rel, content }` | `{ overwritten: bool }` | 写一个文件；父目录按需建 |
+| `export_mkdir` | `{ rel }` | — | 在导出目录里建一个目录（单独一条的来由见下） |
+| `export_close` | — | — | 清掉落点。**导完与取消都要调**，否则下一次导出会悄悄用上次的目录 |
+
+**三条与 `fs_*` 不同的口径，别顺手统一**：
+
+1. **这里敢覆盖，而且必须如实报数**。「保存到我刚选的那个文件夹」覆盖同名文件正是用户预期 —— 改完代码再导一次，期望更新那个文件，而不是冒出一个 `main-2.cpp`。所以 `export_write` 直接写目标（不像 `fs_write` 走临时文件 + `rename`），回参 `overwritten` 让界面能说清「覆盖了 N 个已有文件」。**导入那条路正好相反**：绝对不会覆盖用户的代码文件，一律排号（见第 7 节）。
+2. **`export_mkdir` 刻意不跟 `fs_mkdir` 同契约**。`fs_mkdir` 只建一级、父目录必须已存在；而导出一个文件夹时天然是一串层级，`export_write` 的 `create_dir_all` 又只在写文件时顺带建父目录 —— **空目录会被整个丢掉**（而用户建的目录结构里带一个空文件夹很正常），所以要单独一条、允许整串建。它也**不做 canonical 关**：目标目录可能压根不存在、`canonicalize` 走不通，而词法关已经挡掉绝对路径与 `..`。
+3. **校验顺序：先过词法关 → 建目录 → 再过完整的 canonical 关**。`create_dir_all` 是**真的落盘**，不能让它接触到未校验的路径，所以从 `resolve()` 里抽出 `lexical_rel()`（只做第一道闸）先用一遍；目录就位后再走完整的 `resolve()`（这时 symlink 指到导出目录外面的会在那里现形）。**改动这里别把两道闸合成一道。**
+
+**前端零权限这条没变**：前端仍然**没有** fs / shell / dialog 三项 capability，全套磁盘访问只走 `#[tauri::command]`，且命令**只收相对路径**、绝对根由 Rust 侧持有（同 `workspace.rs` 文件头那条：前端即使被注入脚本也拼不出一个能跑到落点之外的路径）。
+
+**平台边界**：这套命令**只在桌面端**（`services/fileTransfer.js` 的 `CAN_EXPORT_TO_DISK = IS_DESKTOP` 决定那一项显不显示），安卓端编不过 `workspace.rs`、也就没有这一项。网页端与安卓端的导出是「恰好一个文件直下 / 其余打成 zip」，全在前端完成（见第 2 节的 `zip.js`）。
+
+**验证**：`cargo check` 0 warning（2026-10-12 实跑）；`npx vite build` 通过；端到端探针 38/38 绿 —— 覆盖导入（含二进制跳过、重名排号、文件夹层级保留）、⌘/Ctrl+A 全选口径、单文件直下、目录打 zip（用 `unzip -t` 核 CRC）。**这三条 `export_*` 本身没有在探针里驱动**（网页端探针够不着 Tauri 壳），要在桌面壳里人工导一次才算补齐。
 
 

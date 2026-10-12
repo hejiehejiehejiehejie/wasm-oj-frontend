@@ -86,6 +86,29 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// 导出（工作区 → 本机某个目录）这次要写进的落点。
+///
+/// 【为什么与 [`WorkspaceState`] 分开】两者语义不同：工作区根是「长期授权、读写都走它」，
+/// 而导出目录是**一次性**的 —— 用户每次点「保存到本机文件夹」都重新选一次，写完就收回
+/// （`export_close`）。混在一起会让「导出过之后，随便哪条 fs_* 都能写到那个目录里」。
+///
+/// 【它同样不是前端给的】目录只由 Rust 侧弹的系统对话框产生，前端拿到的是**用来显示的
+/// 那个字符串副本**；`export_write` 只收相对路径，仍拼不出这个目录之外的位置。
+#[derive(Default)]
+pub struct ExportState {
+    dir: Mutex<Option<PathBuf>>,
+}
+
+impl ExportState {
+    fn get(&self) -> Option<PathBuf> {
+        lock(&self.dir).clone()
+    }
+
+    fn clear(&self) {
+        *lock(&self.dir) = None;
+    }
+}
+
 // ------------------------------------------------------------------ 出入参
 
 /// 一个已授权的根。`root` 是磁盘绝对路径，`name` 是最后一级目录名（界面拿来显示）。
@@ -128,6 +151,13 @@ pub struct ReadFile {
 pub struct WriteReport {
     pub mtime_ms: Option<u64>,
     pub size: u64,
+}
+
+/// 一次导出写入的结果。`overwritten` = 这个位置**原本就有文件**（界面据此说清覆盖面）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportReport {
+    pub overwritten: bool,
 }
 
 /// 前端给的过滤策略。**实现留在前端**（见 `src/services/vfs/ignoreRules.js`）：
@@ -365,6 +395,82 @@ pub async fn fs_rename(
     Ok(())
 }
 
+// ------------------------------------------------------------------ 导出
+
+/// 前端调用方式：`invoke('export_choose')` —— 弹原生目录选择器，选中即成为本次导出的落点。
+///
+/// 取消选择时回 `null`（不是错误）。回给前端的字符串**只用来显示**（「已导出到 …」），
+/// 真正的权威是 [`ExportState`] 里存的那一份 —— 前端拿着这个字符串也写不进任何文件。
+///
+/// 与 `workspace_choose` 一样由 Rust 侧调 dialog 插件，所以前端仍然不需要任何 dialog capability。
+#[tauri::command]
+pub async fn export_choose(
+    app: tauri::AppHandle,
+    state: State<'_, ExportState>,
+) -> Result<Option<String>, String> {
+    let Some(picked) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|err| format!("io:{err}"))?;
+    let dir = canonical_dir(&path)?;
+    let shown = dir.to_string_lossy().into_owned();
+    *lock(&state.dir) = Some(dir);
+    Ok(Some(shown))
+}
+
+/// 前端调用方式：`invoke('export_write', { rel, content })` —— 把一个文件写进导出目录。
+///
+/// 【为什么敢覆盖】这是「保存到我刚选的那个文件夹」，覆盖同名文件正是用户的预期
+/// （改完代码再导一次，期望更新那个文件而不是冒出 `main-2.cpp`）。**但要如实报数**：
+/// 回参里的 `overwritten` 让界面能说清「覆盖了 N 个已有文件」，不静默。
+///
+/// 父目录按需创建（导出一个文件夹时会有一串层级），所以顺序是「先过词法关 → 建目录 →
+/// 再过完整的 canonical 关」：`create_dir_all` 会真的落盘，不能让它接触到未校验的路径。
+#[tauri::command]
+pub async fn export_write(
+    rel: String,
+    content: String,
+    state: State<'_, ExportState>,
+) -> Result<ExportReport, String> {
+    let dir = state.get().ok_or_else(|| "no-export-target".to_string())?;
+    let target = dir.join(lexical_rel(&rel)?);
+    let parent = target.parent().ok_or_else(|| "outside-root".to_string())?;
+    std::fs::create_dir_all(parent).map_err(io_error)?;
+
+    // 目录已就位，这时 canonical 关才有意义（symlink 指到导出目录外面的会在这里现形）
+    let target = resolve(&dir, &rel)?;
+    let overwritten = target.exists();
+    std::fs::write(&target, content.as_bytes()).map_err(io_error)?;
+    Ok(ExportReport { overwritten })
+}
+
+/// 前端调用方式：`invoke('export_mkdir', { rel })` —— 在导出目录里建一个目录。
+///
+/// 【为什么单独一条】`export_write` 的 `create_dir_all` 只在**写文件**时顺手建父目录，
+/// 空目录因此会被整个丢掉（用户建的目录结构里带一个空文件夹是很正常的）。
+/// 与 `fs_mkdir`（只建一级、父目录必须已存在）刻意不同：导出的目录条目天然是一串层级。
+///
+/// 这里**不再做 canonical 关**（`resolve` 的第 2、3 关）：目标目录可能压根不存在，
+/// `canonicalize` 走不通；而词法关（`lexical_rel`）已经挡掉绝对路径与 `..`，
+/// 唯一剩下的是「导出目录内部有指到外面的 symlink」—— 那是用户自己目录里的结构，
+/// 他要真有这一层，直接选外层目录导出更省事。
+#[tauri::command]
+pub async fn export_mkdir(rel: String, state: State<'_, ExportState>) -> Result<(), String> {
+    let dir = state.get().ok_or_else(|| "no-export-target".to_string())?;
+    std::fs::create_dir_all(dir.join(lexical_rel(&rel)?)).map_err(io_error)?;
+    Ok(())
+}
+
+/// 前端调用方式：`invoke('export_close')` —— 收回导出落点。
+///
+/// 前端在整趟导出结束时调（成功失败都调），别让这个写盘通道长期开着：
+/// 它本身是「往用户刚选的目录写」，留着就等于多一条常驻的写入口。
+#[tauri::command]
+pub async fn export_close(state: State<'_, ExportState>) -> Result<(), String> {
+    state.clear();
+    Ok(())
+}
+
 // ------------------------------------------------------------------ 文件监听
 
 /// 记一笔自身写入（在抑制窗内的事件会被回调丢掉，避免「自己写 → 自己收 → 自己刷新」）。
@@ -504,18 +610,7 @@ fn activate(app: &tauri::AppHandle, state: &WorkspaceState, root: PathBuf) {
 ///    symlink 指到根外会在这里现形；
 /// 3. 不存在的目标（新建用）校验其**父目录**的 canonical 在根内。
 fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String> {
-    if rel.contains('\0') {
-        return Err("outside-root".to_string());
-    }
-    let candidate = Path::new(rel);
-    if candidate.is_absolute() {
-        return Err("outside-root".to_string());
-    }
-    for component in candidate.components() {
-        if !matches!(component, Component::Normal(_)) {
-            return Err("outside-root".to_string());
-        }
-    }
+    let candidate = lexical_rel(rel)?;
 
     let joined = root.join(candidate);
     if joined.exists() {
@@ -533,6 +628,29 @@ fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String> {
         return Err("outside-root".to_string());
     }
     Ok(real_parent.join(name))
+}
+
+/// `resolve` 的**第 1 关单独抽出来**：词法上只许普通分量（绝对路径、`..`、盘符前缀、空串
+/// 一律拒）。`resolve` 自己用它，`export_write` 也用它 —— 后者要**先建目录再校验**，
+/// 而 `create_dir_all` 会真的落盘，所以碰磁盘之前必须先过这一关（那时父目录还不存在，
+/// 完整的 `canonicalize` 走不通）。
+fn lexical_rel(rel: &str) -> Result<PathBuf, String> {
+    if rel.contains('\0') {
+        return Err("outside-root".to_string());
+    }
+    let candidate = Path::new(rel);
+    if candidate.is_absolute() {
+        return Err("outside-root".to_string());
+    }
+    for component in candidate.components() {
+        if !matches!(component, Component::Normal(_)) {
+            return Err("outside-root".to_string());
+        }
+    }
+    if candidate.as_os_str().is_empty() {
+        return Err("outside-root".to_string());
+    }
+    Ok(candidate.to_path_buf())
 }
 
 /// 校验并规范化一个目录：必须存在、必须是目录，返回 canonical 绝对路径。

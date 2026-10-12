@@ -13,6 +13,7 @@ import { uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
 import { autoScrapeState, useCompanionBridge } from './composables/useCompanionBridge.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
+import { useInstallGuides } from './composables/useInstallGuides.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
 import { flush, initAutoSave } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
@@ -44,6 +45,8 @@ import {
 import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
+import { flushFlashNotification } from './services/notifications.js'
+import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
 import { flipPanelPosition, panelPosition, swapping, uiScalePref } from './services/shellSettings.js'
 
@@ -988,20 +991,24 @@ const SHORTCUT_HANDLERS = {
 const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
 
 /**
- * 作用域受限的两条动作（F2 重命名 / Delete 删除 资源树里的节点）：只有焦点在资源树的**某一行**
- * 上时才生效。
+ * 作用域受限的三条动作（F2 重命名 / Delete 删除 / ⌘·Ctrl+A 全选 资源树里的节点）：只有焦点在
+ * 资源树的**某一行**上时才生效。
  *
- * 为什么不放进 SHORTCUT_HANDLERS：上面那 6 条都是「在哪儿按都算」，而这两条得先过一道闸门 ——
- * 尤其 Delete 不带修饰键，不设闸门的话在编辑器里按一下删字符，就会顺手把一个文件弹进删除确认框。
- * 闸门**必须拦在 preventDefault 之前**：不在树里时就整条放行，原生行为（删字符、退格……）照旧。
+ * 为什么不放进 SHORTCUT_HANDLERS：上面那些都是「在哪儿按都算」，而这三条得先过一道闸门 ——
+ * 尤其 Delete 不带修饰键、⌘/Ctrl+A 在编辑器里是「全选文本」，不设闸门的话在编辑器里按一下
+ * 删字符 / 全选文本，就会顺手弹出删除确认框、或把整棵树选起来。
+ * 闸门**必须拦在 preventDefault 之前**：不在树里时就整条放行，原生行为（删字符、退格、全选）照旧。
  *
- * 执行落在资源管理器里（`FileExplorer` 经 defineExpose 给出 startRename / requestDelete），
- * 与右键菜单那两条**同源**。作用对象取「有焦点的那一行」—— 树里的焦点与选中是同步的
- * （见 FileExplorer.onTreeFocus），所以这与原先写在 FileTreeItem 行内 keydown 里的行为完全一致。
+ * 执行落在资源管理器里（`FileExplorer` 经 defineExpose 给出 startRename / requestDelete /
+ * selectAllNodes），与右键菜单那两条**同源**。前两条的作用对象取「有焦点的那一行」—— 树里的焦点
+ * 与主选中的同步由 FileTreeItem 的点击 / 键盘各自完成（见 FileExplorer.onTreeFocus 的注释）。
  */
 const SHORTCUT_TREE_HANDLERS = {
   'rename-node': (row) => fileExplorer.value?.startRename(row.dataset.treeId),
   'delete-node': (row) => fileExplorer.value?.requestDelete(row.dataset.treeId),
+  // 全选不需要行 id：它要的是整棵树的所有节点（连折叠目录里的也算，与 Shift 扩选的
+  // 「可见行」是两条刻意不同的口径），只有 FileExplorer 算得出来
+  'select-all-nodes': () => fileExplorer.value?.selectAllNodes(),
 }
 
 /**
@@ -1083,6 +1090,14 @@ useCompanionImport({
 // 空态提示要按「插件装没装」分岔：attach 是幂等的，这里只为读全局状态
 const { extensionInfo, checking: extensionChecking } = useCompanionBridge()
 
+// 安装引导（装成应用 / 装插件）的开机自动弹一次：不画东西，只在这里挂上计时与监听。
+// 放在这一行下面是有意的 —— 它要读的就是上面那份插件状态，早于 attach 评估会读到「没装」。
+useInstallGuides()
+
+// 「改了某个设置 → 带撤回的通知」的监听（全站唯一，也不画东西）：挂在模块级设置单例上，
+// 面板、齿轮菜单、快捷键改的都在内。见 services/settingsUndo.js。
+initSettingsUndo()
+
 // ------------------------------------------------------------ 自动保存
 // 只剩两个离开时点要挂在这里：窗口失焦、页面切到后台。
 // 不用 beforeunload —— 卸载时异步写 IndexedDB 大概率来不及，visibilitychange 才可靠。
@@ -1098,6 +1113,10 @@ function onVisibilityChange() {
 }
 
 onMounted(async () => {
+  // 上一次动作寄下的那条通知（云端导入 / 登录成功会整页刷新，通知只能先寄存 —— 见
+  // services/notifications.js 文件头那条例外）。放在第一行：它说的是「你刚做完的那件事」，
+  // 越早露面越像是紧接着上一步发生的。
+  flushFlashNotification()
   // Android 端先把随包编译器解到应用目录（首次几秒，之后瞬间返回）。**刻意不 await**：
   // 它只是把文件铺好，不参与下面任何一步；界面由 ToolchainGate 按状态铺遮罩。
   // 非 Android 上是空调用（见 nativeToolchain.js），桌面端与网页版都不受影响。

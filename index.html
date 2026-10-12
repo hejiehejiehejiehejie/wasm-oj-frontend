@@ -18,8 +18,11 @@
       content="unnamed 是一个在浏览器里编译运行 C++ 与 Python 的在线 IDE：Monaco 编辑器 + 本地 WASM 沙箱，代码不出本机即可编译、运行与判题，支持多测试样例与时限（TLE）判定，断网也能用，还可以安装到桌面独立窗口。"
     />
     <title>unnamed</title>
-    <!-- 独立窗口的标题栏底色；跟着主题走，由 App.vue 在切换主题时改写 -->
-    <meta name="theme-color" content="#2a2a2b" />
+    <!-- 独立窗口的系统栏 / 标题栏底色，**只是首帧兜底**：运行期由 editorSettings.js 按
+         --bg-chrome 改写（跟着主题走）。⚠️ 这个值必须与 public/manifest.webmanifest 的
+         theme_color 同值 —— Firefox 安卓不认运行期改写，只读 manifest 里那个静态值
+         （bug 1922023，见 HANDOFF 第 9 节），两处不一致时两套引擎会显示成两个颜色。 -->
+    <meta name="theme-color" content="#1c1c1c" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="unnamed" />

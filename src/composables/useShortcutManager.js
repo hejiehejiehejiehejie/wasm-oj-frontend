@@ -66,9 +66,9 @@ export const SHORTCUT_ACTIONS = [
     hintKey: 'settings.shortcut.exportImage.hint',
     default: 'Mod+KeyP',
   },
-  // 下面两条（2026-10-10 加）与上面七条不是一回事：它们**不跟着焦点走遍全站**，
-  // 只作用于「资源管理器里当前有焦点的那一行」。执行入口不在 SHORTCUT_HANDLERS 里，
-  // 而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
+  // 下面三条（2026-10-10 加前两条、2026-10-12 加全选）与上面那些不是一回事：它们
+  // **不跟着焦点走遍全站**，只作用于「资源管理器里当前有焦点的那些行」。执行入口不在
+  // SHORTCUT_HANDLERS 里，而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
   {
     id: 'rename-node',
     labelKey: 'settings.shortcut.renameNode.label',
@@ -83,6 +83,17 @@ export const SHORTCUT_ACTIONS = [
     // Delete 不是功能键，SAFE_BARE_CODES 不放行；这里是它唯一的开口。范围越窄越好：
     // 只点名这一个键，别写成「所有非字母键」。
     bareCodes: ['Delete'],
+  },
+  {
+    /**
+     * 全选资源管理器里当前可见的行（折叠着看不见的不算）。默认 ⌘/Ctrl + A ——
+     * 这个键在编辑器里是「全选文本」，在这里靠作用域闸门分开：只有焦点在树行上时才拦，
+     * 焦点在 Monaco / 输入框里一律原样放行（见 App.vue 的 treeRowFrom）。
+     */
+    id: 'select-all-nodes',
+    labelKey: 'settings.shortcut.selectAllNodes.label',
+    hintKey: 'settings.shortcut.selectAllNodes.hint',
+    default: 'Mod+KeyA',
   },
 ]
 

@@ -48,11 +48,19 @@ import { extensionInfo } from '../composables/useCompanionBridge.js'
 import {
   EXTENSION_ROUTES,
   downloadExtensionPackage,
+  isExtensionOutdated,
   openExtensionStore,
 } from './extensionPackage.js'
 
 /** 百分比显示：放在一起是为了「菜单与设置面板两处口径一致」（面板那边叫 scaleLabel） */
 const scaleLabel = (scale) => `${Math.round(scale * 100)}%`
+
+/**
+ * 「装着的插件比本站发的旧」—— 版本号来自扩展自报（`cp-info` 的 `info.version`），比对逻辑
+ * 与设置面板共用 `extensionPackage.js` 的 `isExtensionOutdated`（唯一出处，别在这里再抄一份）。
+ * 没探到扩展时返回 false，那种情况归上面那两颗「安装 / 下载」的行管。
+ */
+const extensionOutdated = () => isExtensionOutdated(extensionInfo.value?.version ?? '')
 
 /** 字号夹在合法区间里：与设置面板那个数字框共用 editorOptions.js 的同一份区间 */
 function stepFontSize(delta) {
@@ -141,11 +149,19 @@ export const SETTINGS_MENU_ROWS = [
   },
 
   /**
-   * 下面三颗是**一次性的动作**，不是偏好：把本站装成应用、把浏览器插件拿到手。
-   * 出现条件全在 `when` 里，一句话概括：**能装、而且还没装** —— 装好了、或者这台机器本来
-   * 就没有这条路，整行就消失，菜单里不留一颗点了没用的按钮（两颗插件行按机器二选一，
-   * 所以同一时刻最多看到其中两颗）。这两件事都在「设置面板里能找到」的基础上再往前一步：
-   * 菜单是顺手的地方，不必为此专门切到设置页去。
+   * 下面五颗是**一次性的动作**，不是偏好：把本站装成应用、把浏览器插件拿到手 / 换成新版。
+   * 出现条件全在 `when` 里，一句话概括：**能装、而且还没装** —— 装好了就整行消失，菜单里不留
+   * 一颗点了没用的按钮（同一时刻最多看到其中两颗，因为插件的两颗按机器二选一）。
+   * 这两件事都在「设置面板里能找到」的基础上再往前一步：菜单是顺手的地方，不必为此专门切到设置页。
+   *
+   * 【插件的四颗为什么分成「安装 / 下载」与「更新」两对（2026-10-12 用户要求）】它们各是
+   * **两种状态**的同一件事：没探到扩展 → 装（AMO 一键装 / 下 zip 手动加载），探到旧版 → 换新版。
+   * 更新那一对**不能收起来** —— Chromium 没有商店可点，菜单这颗下载就是拿新包的唯一入口，
+   * 装了旧版的人若看不到它，只剩「有新版」这个事实可读、没有任何途径拿到新包（与设置面板
+   * 「装包行不能收」是同一条判据）。反过来「装好了且是最新版」四颗全不出现。
+   *
+   * 两组词的差别只在**这条机器的路怎么走**：Firefox 去 AMO 拿最新版（叫「更新」），
+   * Chromium 要重新下一份 zip 再加载（叫「重新下载」）—— 与上面「安装 / 下载」的分法一致。
    */
   {
     id: 'installApp',
@@ -169,11 +185,27 @@ export const SETTINGS_MENU_ROWS = [
     run: () => openExtensionStore(),
   },
   {
+    id: 'updateExtension',
+    kind: 'action',
+    /** 装着但比本站发的旧 → 去 AMO 拿最新版（那个页面永远是「最新版」，不必带版本号） */
+    when: () => extensionOutdated() && EXTENSION_ROUTES.value.includes('firefox'),
+    labelKey: 'settings.menu.updateExtension',
+    run: () => openExtensionStore(),
+  },
+  {
     id: 'downloadExtension',
     kind: 'action',
     /** 同上，但这台机器走的是「下载 zip → 手动加载」那条（Chromium 系桌面版） */
     when: () => !extensionInfo.value && EXTENSION_ROUTES.value.includes('manual'),
     labelKey: 'settings.menu.downloadExtension',
+    run: () => downloadExtensionPackage(),
+  },
+  {
+    id: 'updateExtensionManual',
+    kind: 'action',
+    /** 装着旧版 + 走手动加载那条：重新下一份新包，用户换掉解压目录后刷新即可（路还是这一条） */
+    when: () => extensionOutdated() && EXTENSION_ROUTES.value.includes('manual'),
+    labelKey: 'settings.menu.updateExtensionManual',
     run: () => downloadExtensionPackage(),
   },
 

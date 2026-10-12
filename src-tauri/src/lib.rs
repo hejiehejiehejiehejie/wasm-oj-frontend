@@ -16,10 +16,13 @@ pub fn run() {
   // 「当前授权的根」这份进程状态、以及 workspace 的那几条命令。
   // **都不给前端加任何 capability** —— 选择器只从 Rust 侧调用，前端连 dialog 的
   // JS API 都看不到（与「前端不给 fs / shell 权限」同一条纪律）。
+  // 导出那一组（export_*）另挂一份 ExportState：落点是「用户刚选的那个目录」，
+  // 与工作区根分开管，写完由前端 export_close 收回（见 workspace.rs 的 ExportState）。
   #[cfg(desktop)]
   let builder = builder
     .plugin(tauri_plugin_dialog::init())
     .manage(workspace::WorkspaceState::default())
+    .manage(workspace::ExportState::default())
     .invoke_handler(tauri::generate_handler![
       native::run_cpp,
       native::run_python,
@@ -32,7 +35,11 @@ pub fn run() {
       workspace::fs_write,
       workspace::fs_mkdir,
       workspace::fs_delete,
-      workspace::fs_rename
+      workspace::fs_rename,
+      workspace::export_choose,
+      workspace::export_write,
+      workspace::export_mkdir,
+      workspace::export_close
     ]);
 
   #[cfg(not(desktop))]

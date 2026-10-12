@@ -41,6 +41,62 @@ export default {
         failedBody: '没能导出这次选中的代码',
       },
 
+      /**
+       * 安装引导（services/installGuides.js）：开机自动各弹一次 + 设置面板里那颗
+       * 「安装引导」按钮手动再发一次。标题复用 `settings.menu.*` 那三条（齿轮菜单里同名同义），
+       * 正文大多**复用设置面板现成的句子**（插件的 `hint*` / 换新 `updateHint*`、应用的 `noApi*`、
+       * 以及那条 `blocked` 的前后半拼起来）—— 这里只收通知特有、面板里没有的几句。
+       */
+      guide: {
+        appReady:
+          '点下面的「安装」，把本站装成独立应用 —— 之后能像桌面软件一样从程序坞 / 开始菜单直接打开。',
+        appInstalled: '本站已经装成应用了，不用再装。',
+        /** 插件那几条安装步骤里只有 Firefox 那条自带「装完回来点重新检测」，其余的在通知里补这一句 */
+        extRecheck: '装完回设置 →「浏览器插件」栏点一次「重新检测」。',
+        extUpToDate: '插件已经是最新版（v{version}），不用更新。',
+        later: '以后再说',
+        /** Chromium 那条更新的按钮字：动作就是重下一份 zip，面板那边叫「重新下载浏览器插件」 */
+        redownload: '重新下载',
+        copyFailed: '复制失败，请手动复制这个地址',
+      },
+
+      /**
+       * 云端同步（services/cloudSession.js）的三类事件。
+       *
+       * - 导入 / 登录成功：两者办完都会整页刷新，通知跟着页面一起没，所以走
+       *   notifyAfterReload 寄存、下次启动补发（见 services/notifications.js
+       *   文件头那条例外）。`loggedInNoCloud` 那条是「云端还没有这份配置、直接认领
+       *   用户名」的分支 —— 它不刷新，所以是当场发的；不带「已登录」三个字，
+       *   标题已经说过了。
+       * - 等待验证：取到码就发一条 10 分钟的通知（与码的有效期同长，见 cloudSession
+       *   的 CODE_TTL_MS）。四颗按钮的用词收在这里；最后一颗在「上传」流程里叫
+       *   「取消上传」，与面板 verifyLogin / verifyUpload 同一套分岔。
+       */
+      cloud: {
+        importedTitle: '已导入云端配置',
+        importedBody: '本机设置已换成「{handle}」存在云端的那一份',
+        loggedInTitle: '登录成功',
+        loggedInBody: '已套用「{handle}」的云端配置',
+        loggedInNoCloud: '云端还没有这个用户名的配置，点「上传本机设置」把当前设置存上去',
+        codeTitle: '等待验证',
+        codeBody: '把验证码 {code} 填进 Codeforces 的 Last name，10 分钟内有效',
+        codeFill: '一键填写',
+        codeCopy: '复制验证码',
+        codeOpen: '跳转到网页',
+        codeCancelLogin: '取消登录',
+        codeCancelUpload: '取消上传',
+      },
+
+      /**
+       * 设置撤销（services/settingsUndo.js）：改任一设置发一条带「撤回」的通知。
+       * `{name}` 是设置项自己的名字 —— 由那个设置自己的 labelKey 取（见 settingsUndo 的
+       * labelKeyFor），所以这里只有句式，没有第二份设置名。
+       */
+      setting: {
+        changed: '「{name}」已更新',
+        undo: '撤回',
+      },
+
       demo: {
         label: '通知',
         note: '通知系统尚未接入业务事件：下面几颗按钮各触发一种类型，用来检查样式、自动消失与排队行为（最多同显 4 条，超出的排队等候）。「带按钮」演示通知上的操作按钮：点按钮跑回调、这条随之退场。',
@@ -90,6 +146,41 @@ export default {
         downloadedBody: 'This browser cannot write images to the clipboard, so the PNG was downloaded instead',
         failedTitle: 'Export failed',
         failedBody: 'The selected code could not be exported',
+      },
+
+      /** See the zh-CN side: titles come from `settings.menu.*`, body text mostly reuses panel strings */
+      guide: {
+        appReady:
+          'Hit “Install” below to install this site as a standalone app — you can then open it from the Dock / Start menu like any desktop program.',
+        appInstalled: 'This site is already installed as an app — nothing to do.',
+        extRecheck: 'Once installed, go to Settings → “Browser extension”, then hit “Check again”.',
+        extUpToDate: 'The extension is already up to date (v{version}).',
+        later: 'Not now',
+        redownload: 'Download again',
+        copyFailed: 'Copy failed — please copy this address manually',
+      },
+
+      /** See the zh-CN side: import / sign-in success survive a full page reload via notifyAfterReload */
+      cloud: {
+        importedTitle: 'Cloud settings imported',
+        importedBody: 'Local settings now come from the copy “{handle}” stores in the cloud',
+        loggedInTitle: 'Signed in',
+        loggedInBody: 'Applied the cloud settings stored by “{handle}”',
+        loggedInNoCloud:
+          'The cloud has no copy for this handle yet — use “Upload local settings” to store the current setup',
+        codeTitle: 'Waiting for verification',
+        codeBody: 'Put the code {code} into your Codeforces Last name — valid for 10 minutes',
+        codeFill: 'Auto-fill',
+        codeCopy: 'Copy code',
+        codeOpen: 'Open page',
+        codeCancelLogin: 'Cancel sign-in',
+        codeCancelUpload: 'Cancel upload',
+      },
+
+      /** See the zh-CN side: {name} comes from the changed setting's own labelKey */
+      setting: {
+        changed: '“{name}” updated',
+        undo: 'Undo',
       },
 
       demo: {

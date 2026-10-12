@@ -1,20 +1,40 @@
 <script setup>
 /**
- * FileExplorer —— 资源管理器面板：头部操作（新建文件 / 文件夹）+ 树容器 + 右键菜单（打开题目 / 题目信息 / 新建 / 重命名 / 删除）。
+ * FileExplorer —— 资源管理器面板：头部操作（新建 / 导入）+ 树容器 + 右键菜单
+ * （打开题目 / 题目信息 / 新建 / 导入 / 导出 / 重命名 / 删除）+ 两张自绘弹窗（删除确认、题目信息）
+ * 与导出落点选择。
  *
  * 「资源管理器」这个标题由统一侧边栏的页签承担（见 Sidebar.vue），这里头部只留操作按钮。
- * 新建的目标目录可以是任意已存在目录：页头按钮跟随**选中的那一行**（选中文件时取其父目录；
- * 点树里空白处 = 选中根，回落根目录），右键目录则显式指定该目录。
- * 选中态（`workspace.selectedId`）是唯一来源，读取与写入都在 workspaceStore 里。
+ * 新建的目标目录可以是任意已存在目录：页头按钮跟随**主选中那一行**（选中文件时取其父目录；
+ * 点树里空白处 = 选中根，回落根目录），右键目录则显式指定该目录。导入的目标目录同理。
+ * 选中态是唯一来源，读取与写入都在 workspaceStore 里。
  * 名字仍是单级（assertName 拒绝 /），嵌套路径留待后续。
  *
- * 通过 provide 向递归树项提供能力：右键菜单、**打开题目**、根 DOM、重命名目标、焦点管理，
- * 内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由 InlineCreateRow
- * 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
- * 另经 defineExpose 对外给出两个入口（`startRename` / `requestDelete`，都收节点 id），
- * 供全局快捷键 F2 / Delete 调用 —— 见文件末尾。
+ * 【多选】（2026-10-12 加）高亮集合是 `workspace.selectedIds`，`workspace.selectedId` 是其中的
+ * **主选中兼锚点**（页头新建的目标、Shift 区间选择的起点）。三种手势在 FileTreeItem 里分岔：
+ * 单击 = 收成单选、⌥/Alt + 单击 = 加选 / 减选、Shift + 单击 = 锚点到这一行整段。
+ * ⌘/Ctrl + A 选的是**工作区里全部节点**（含折叠目录里的）—— 2026-10-12 用户拍板改成这个口径，
+ * 原本是「只选可见行」的 VS Code 口径；界面高亮因此只画得出一部分（折叠的那些看不到，
+ * 但它们确实在选区里，导出 / 删除都作用于它们）。
+ * 区间与全选都以**可见行**为准，DOM 顺序只有这里拿得到，所以那两个入口（`selectRangeTo` /
+ * `selectAllNodes`）留在本组件并 provide 下去 / 由全局快捷键调用。
+ * 删除与导出（右键那两项、以及全局的 Delete）作用于**整个选区** —— 选区只有一项时退化成
+ * 那一行。
+ *
+ * 【导入 / 导出】（2026-10-12 加）与外部文件系统之间搬文件，通路全在 `services/fileTransfer.js`
+ * （选文件 / 打包 / 落盘都不在这个组件里）。本组件只负责**入口与落点**：
+ * - 导入：页头两颗（文件 / 文件夹）+ 右键目录那两项，都落在「被右键的目录」或主选中目录；
+ * - 导出：右键那一项。非桌面端直接下载（单文件不套 zip）；桌面壳先弹一张二选一的小卡片
+ *   （写进本机文件夹 / 下载为 zip），因为只有它做得到写盘。
+ *
+ * 通过 provide 向递归树项提供能力：右键菜单、**打开题目**、根 DOM、重命名目标、焦点管理、
+ * 范围选择入口，内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由
+ * InlineCreateRow 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
+ * 另经 defineExpose 对外给出三个入口（`startRename` / `requestDelete` / `selectAllNodes`，
+ * 前两个收节点 id），供全局快捷键 F2 / Delete / ⌘·Ctrl+A 调用 —— 见文件末尾。
  */
 import { computed, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
@@ -24,18 +44,31 @@ import { IS_MAC, formatCombo, useShortcutManager } from '../composables/useShort
 import { t } from '../i18n/index.js'
 import { templateForPath } from '../services/fileTemplates.js'
 import {
+  CAN_EXPORT_TO_DISK,
+  canPickFolder,
+  collectExport,
+  exportAsZip,
+  exportSingleFile,
+  importInto,
+  pickFromDisk,
+  planImport,
+} from '../services/fileTransfer.js'
+import {
   activeLanguage,
   createDirectory,
   createFile,
   deleteNode,
   getNodeById,
   moveNode,
+  revealId,
+  selectMany,
   selectNode,
   toggleExpand,
   updateFileMeta,
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import { assertName, basename, join } from '../services/vfs/paths.js'
+import { pruneNestedNodes } from '../services/vfs/treeOps.js'
 import { onStartupNotice } from '../services/vfs/workspaceNotices.js'
 import {
   OJ_LIST,
@@ -69,10 +102,21 @@ const menu = ref(null)
 const renameTarget = ref(null)
 /** 树内最近获得焦点的 id（roving tabindex） */
 const focusedId = ref(null)
-/** 待确认删除的节点；null = 没有待确认的删除 */
-const pendingDelete = ref(null)
+/** 待确认删除的节点**列表**（多选删除时不止一个）；空数组 = 没有待确认的删除 */
+const pendingDelete = ref([])
+/** 删除确认弹窗里最多列几条路径（再多就折成一句「另有 N 项」，免得卡片长得没法看） */
+const DELETE_LIST_MAX = 6
 /** 确认弹窗里的「删除」按钮：弹窗打开时把焦点送进去 */
 const confirmBtn = ref(null)
+/** 待删名单里有没有目录 —— 有就多提示一句「里面的东西会一起删掉」 */
+const hasDirectory = computed(() => pendingDelete.value.some((node) => node.type === 'directory'))
+
+/** 待导出的节点（**只有桌面壳**会先攒在这里弹二选一卡片）；空数组 = 卡片没开 */
+const pendingExport = ref([])
+/** 导出卡片里第一颗按钮：卡片打开时把焦点送进去（Esc 才落在卡片上、Enter 能直接确认） */
+const exportFirstBtn = ref(null)
+/** 导入 / 导出进行中：两颗页头按钮与菜单项据此禁用，别让用户连点 */
+const transferBusy = ref(false)
 
 /** 正在编辑题目信息的节点；null = 弹窗关闭 */
 const metaTarget = ref(null)
@@ -114,8 +158,9 @@ function uniqueName(taken, base, ext = '') {
 }
 
 /**
- * 页头按钮的目标目录：跟随**选中的那一行**（目录就是它自己，文件取其父目录），
+ * 页头按钮的目标目录：跟随**主选中那一行**（目录就是它自己，文件取其父目录），
  * 什么都没选中（= 选中根）或索引未就绪时回落根目录 —— 界面上此时整棵树都不高亮。
+ * 多选时主选中是锚点那一个（见 workspace.selectedIds 的注释）。
  * @returns {object|null}
  */
 function headerCreateTarget() {
@@ -261,11 +306,16 @@ function openProblem(node) {
 }
 
 /**
- * 题目信息只对文件有意义；新建只对目录有意义——目标就是被右键的那个目录。
+ * 题目信息只对文件有意义；新建 / 导入只对目录有意义——目标就是被右键的那个目录。
  * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
  *
  * 「重命名 / 删除」两项挂上右列键位：它们是真的能按的（F2 / Delete，见下 shortcutOf），
  * 不是装饰。目录与文件共用同一组键位。
+ *
+ * 一条分隔线把「往这个目录里加东西」（新建 / 导入）与「对已有项的动作」（导出 / 重命名 / 删除）
+ * 分开 —— 后三项作用于**节点本身**，与上面那组不是一类。
+ * 「导入文件夹」只在真选得动文件夹的平台上给（Android / iOS 的 file input 拿不到目录结构，
+ * 见 fileTransfer.canPickFolder）。
  */
 function buildMenuItems(node) {
   const items = []
@@ -283,9 +333,27 @@ function buildMenuItems(node) {
   } else if (node?.type === 'directory') {
     items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
     items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
+    items.push({ id: 'import-file', label: t('explorer.menu.importFile') })
+    if (canPickFolder()) items.push({ id: 'import-folder', label: t('explorer.menu.importFolder') })
   }
+  items.push({ divider: true })
+  // 右键落在**多选中的某一行**上时，导出 / 删除作用于整个选区（VS Code 口径），标签也就跟着
+  // 报数，免得用户以为只动手底下这一个。右键一行不在选区里时照旧只对它自己。
+  const multi = node && workspace.selectedIds.includes(node.id) && workspace.selectedIds.length > 1
+  items.push({
+    id: 'export',
+    label: multi
+      ? t('explorer.menu.exportMany', { n: workspace.selectedIds.length })
+      : t('explorer.menu.export'),
+  })
   items.push({ id: 'rename', label: t('explorer.menu.rename'), shortcut: shortcutOf('rename-node') })
-  items.push({ id: 'delete', label: t('explorer.menu.delete'), shortcut: shortcutOf('delete-node') })
+  items.push({
+    id: 'delete',
+    label: multi
+      ? t('explorer.menu.deleteMany', { n: workspace.selectedIds.length })
+      : t('explorer.menu.delete'),
+    shortcut: shortcutOf('delete-node'),
+  })
   return items
 }
 
@@ -308,8 +376,14 @@ async function onMenuSelect(id) {
   else if (id === 'open-url') openProblem(node)
   else if (id === 'new-file') startCreate('file', node)
   else if (id === 'new-folder') startCreate('directory', node)
+  // 导入的两条必须在**这次点击的调用栈里**走到 pickFromDisk 的 input.click() ——
+  // 浏览器的规矩是「文件选择器只能由用户手势打开」，绕到 await 后面就会被静默忽略。
+  // runImport 的第一句就是它，中间没有别的 await，所以这条链是安全的（别在前面插入 await）。
+  else if (id === 'import-file') void runImport('file', node)
+  else if (id === 'import-folder') void runImport('folder', node)
+  else if (id === 'export') requestExport(node.id)
   else if (id === 'rename') beginRename(node.id)
-  else if (id === 'delete') requestDelete(node)
+  else if (id === 'delete') requestDelete(node.id)
 }
 
 function beginRename(id) {
@@ -325,22 +399,57 @@ function onRenameDone() {
 }
 
 /**
- * 删除入口：先把待删节点记下来、弹确认框，**点「删除」之后**才动 VFS。
+ * 删除入口：先把待删的那**一批**节点记下来、弹确认框，**点「删除」之后**才动 VFS。
+ *
+ * 删哪几个交给 `selectionFor`（与导出同一份口径）。
  *
  * 这里不用 window.confirm：原生弹窗的返回值在 webview / 装成应用窗口打开时不由我们
  * 掌控（被浏览器抑制时它自己直接返回一个值），出现过「弹窗上点了取消，文件还是没了」。
  * 自己画的弹窗没有这层不确定性，取消就是取消。
+ * @param {string} id
  */
-function requestDelete(node) {
-  if (node) pendingDelete.value = node
+function requestDelete(id) {
+  const nodes = selectionFor(id)
+  if (nodes.length) pendingDelete.value = nodes
+}
+
+/**
+ * 这次动作（删除 / 导出）该作用于哪几个节点。
+ *
+ * 被点的那一行若在选区里、且选区不止一项，就是整个选区（右键多选项、或焦点在多选里按
+ * Delete）；否则只有这一行。选了目录又选了它里面的文件时先做一次去重（见 pruneNested）——
+ * 删掉目录之后那条子路径已经不存在了；导出同理，留下子项只会把同一份内容打两遍。
+ * @param {string} id
+ * @returns {object[]}
+ */
+function selectionFor(id) {
+  if (!getNodeById(id)) return []
+  const ids =
+    workspace.selectedIds.includes(id) && workspace.selectedIds.length > 1
+      ? workspace.selectedIds
+      : [id]
+  return pruneNested(ids)
+}
+
+/**
+ * 去掉「祖先也在名单里」的项：选了 `a/` 又选了 `a/b.cpp` 时只留 `a/`。
+ * 判据本体在 `treeOps.pruneNestedNodes`（导出那边也要用，见那里的注释）；
+ * 这里只是把 id 换成节点 —— 调用方手里只有 id。
+ * @param {string[]} ids
+ * @returns {object[]}
+ */
+function pruneNested(ids) {
+  return pruneNestedNodes(ids.map((id) => getNodeById(id)).filter(Boolean))
 }
 
 function cancelDelete() {
-  const node = pendingDelete.value
-  pendingDelete.value = null
+  const list = pendingDelete.value
+  pendingDelete.value = []
   // 弹窗一出现就把焦点送进了「删除」那颗按钮（见下面那条 watch），弹窗一撤焦点就落到 <body> 上。
-  // 交还给原来那一行 —— 否则「Esc 取消删除」之后紧接着再按 Delete 是没反应的，得先点回那一行。
-  if (node) refocusRow(node.id)
+  // 交还给主选中那一行（没有就还给名单里的头一个）—— 否则「Esc 取消删除」之后紧接着再按 Delete
+  // 是没反应的，得先点回那一行。
+  const id = workspace.selectedId ?? list[0]?.id
+  if (id) refocusRow(id)
 }
 
 /**
@@ -353,17 +462,327 @@ function refocusRow(id) {
   nextTick(() => rootEl.value?.querySelector(`[data-tree-id="${CSS.escape(id)}"]`)?.focus())
 }
 
+/**
+ * 真正落盘删除：逐条串行。
+ *
+ * 串行而不是 Promise.all，是因为每次 delete 都会让 provider 投一次 reset、`rebuildTree` 排队重建
+ * 整棵树（见 workspaceStore 的 scheduleRebuild）—— 并发发出去只是把重建排得更挤。
+ *
+ * 一条失败（磁盘上被别的程序占住、权限不足）**不停下后面的**：这些都是彼此独立的路径，
+ * 为一条失败把剩下的都撂下更糟。失败的条数攒起来最后报一句。
+ */
 async function confirmDelete() {
-  const node = pendingDelete.value
+  const list = pendingDelete.value
   // 先关弹窗再动 VFS：删除过程中（可能要等 VFS 的异步事件）不该再留一个可点的按钮
-  pendingDelete.value = null
-  if (node) await deleteNode(node.path)
+  pendingDelete.value = []
+  let failed = 0
+  for (const node of list) {
+    try {
+      await deleteNode(node.path)
+    } catch {
+      failed += 1
+    }
+  }
+  if (failed) showNotice(t('explorer.deleteFailed', { n: failed }))
 }
 
 // 弹窗一出现就把焦点放到「删除」上：Enter 确认、Esc 取消都能纯键盘走完
-watch(pendingDelete, (node) => {
-  if (node) nextTick(() => confirmBtn.value?.focus())
-})
+watch(
+  () => pendingDelete.value.length,
+  (count) => {
+    if (count) nextTick(() => confirmBtn.value?.focus())
+  },
+)
+
+// 导出卡片同理：焦点进第一颗按钮，Esc 才落得到卡片上（keydown 是绑在卡片元素上的）
+watch(
+  () => pendingExport.value.length,
+  (count) => {
+    if (count) nextTick(() => exportFirstBtn.value?.focus())
+  },
+)
+
+// ------------------------------------------------------------ 导入 / 导出
+
+/**
+ * 导入的目标目录：被右键的那个目录，或**主选中那一行**推出来的目录（与页头新建同一份口径，
+ * 见 `headerCreateTarget`）。都取不到就是根。
+ * @param {object|null} node
+ * @returns {string}
+ */
+function importTargetPath(node) {
+  if (node?.type === 'directory') return node.path
+  return headerCreateTarget()?.path ?? '/'
+}
+
+/**
+ * 导入入口（页头两颗按钮与右键那两项都走它）。
+ *
+ * 第一句就是 `pickFromDisk`：文件选择器只能在用户手势的调用栈里弹（见 `onMenuSelect`
+ * 的注释），所以**不能**在它前面插入任何 await。
+ *
+ * @param {'file'|'folder'} mode
+ * @param {object|null} node 右键的那个节点；null = 页头按钮（跟随主选中）
+ */
+async function runImport(mode, node = null) {
+  if (transferBusy.value) return
+  const targetPath = importTargetPath(node)
+  const files = await pickFromDisk({ directory: mode === 'folder' })
+  if (!files.length) return
+  const items = planImport(files)
+  if (!items.length) {
+    showNotice(t('explorer.transfer.importEmpty'))
+    return
+  }
+  transferBusy.value = true
+  try {
+    const stats = await importInto(targetPath, items)
+    if (stats.imported) {
+      showNotice(
+        stats.skipped
+          ? t('explorer.transfer.importSkipped', { n: stats.imported, k: stats.skipped })
+          : t('explorer.transfer.importDone', { n: stats.imported }),
+      )
+    } else {
+      showNotice(t('explorer.transfer.importEmpty'))
+    }
+    await revealImported(targetPath, stats.firstId)
+  } catch (error) {
+    showNotice(error.message || t('explorer.transfer.importFailed'))
+  } finally {
+    transferBusy.value = false
+  }
+}
+
+/**
+ * 导入完成后把结果摆到用户眼前：展开目标目录、把选中与焦点落到第一个新文件上、滚进视野。
+ *
+ * 树的整树重建是**异步**的（provider 发 reset → workspaceStore 那条 rebuild 串行链里跑
+ * `getTree()`），所以索引里要过一会儿才有新节点 —— 这里轮询等它出现，最长约 1 秒。
+ * 不等的话 `revealId` / `selectNode` 会作用在一个还不存在的 id 上，静默什么也不做。
+ * @param {string} targetPath
+ * @param {string|null} firstId
+ */
+async function revealImported(targetPath, firstId) {
+  if (targetPath && targetPath !== '/') {
+    const dir = findNodeByPath(targetPath)
+    if (dir && !workspace.expandedIds.includes(dir.id)) toggleExpand(dir.id)
+  }
+  if (!firstId) return
+  for (let attempt = 0; attempt < 40 && !getNodeById(firstId); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  if (!getNodeById(firstId)) return
+  revealId(firstId)
+  selectNode(firstId)
+  setFocusedId(firstId)
+  await nextTick()
+  rootEl.value
+    ?.querySelector(`[data-tree-id="${CSS.escape(firstId)}"]`)
+    ?.scrollIntoView({ block: 'nearest' })
+}
+
+/**
+ * 在当前这棵树里按路径找一个节点（导入的目标目录要用它拿 id）。
+ * @param {string} path
+ * @returns {object|null}
+ */
+function findNodeByPath(path) {
+  const walk = (nodes) => {
+    for (const node of nodes) {
+      if (node.path === path) return node
+      const found = node.children ? walk(node.children) : null
+      if (found) return found
+    }
+    return null
+  }
+  return walk(workspace.tree)
+}
+
+/**
+ * 导出入口。落点按平台分岔：**只有桌面壳**做得到「写进我选的那个目录」，
+ * 所以那边先弹一张二选一的小卡片；其余平台直接下载。
+ * @param {string} id
+ */
+function requestExport(id) {
+  const nodes = selectionFor(id)
+  if (!nodes.length) return
+  if (CAN_EXPORT_TO_DISK) {
+    pendingExport.value = nodes
+    return
+  }
+  void runExportDownload(nodes)
+}
+
+function cancelExport() {
+  pendingExport.value = []
+}
+
+/**
+ * 下载那条路：恰好一个文件就**直接下那个文件**（不套 zip），否则打成一个 zip。
+ *
+ * 空内容（选中项里一个文件都没读出来）直接报「没有可导出的文件」，不产出空包 ——
+ * 一个 22 字节的空 zip 在用户眼里是「导出成功了但什么也没有」，比报错更难懂。
+ * @param {object[]} nodes
+ */
+async function runExportDownload(nodes) {
+  pendingExport.value = []
+  transferBusy.value = true
+  try {
+    if (nodes.length === 1 && nodes[0].type === 'file') {
+      await exportSingleFile(nodes[0])
+      showNotice(t('explorer.transfer.exportAs', { name: nodes[0].name }))
+      return
+    }
+    const { name, files, skipped } = await exportAsZip(nodes)
+    if (!files) {
+      showNotice(t('explorer.transfer.exportEmpty'))
+      return
+    }
+    let text = t('explorer.transfer.exportAs', { name })
+    if (skipped) text += t('explorer.transfer.exportSkipped', { k: skipped })
+    showNotice(text)
+  } catch (error) {
+    showNotice(error.message || t('explorer.transfer.exportFailed'))
+  } finally {
+    transferBusy.value = false
+  }
+}
+
+/**
+ * 落盘那条路（只有桌面壳）：先弹原生目录选择器，再把每个条目逐个 `export_write` 过去。
+ *
+ * 四个细节：
+ * - **目录条目也要建**：provider 那边的 `create_dir_all` 只在写文件时顺手建父目录，
+ *   空目录因此会整个丢掉，所以目录条目单独走一条 `export_mkdir`。
+ * - **逐条串行、一条失败不停下后面的**：本机文件夹模式里每写一笔都可能触发文件监听回流，
+ *   并发发出去只会把后端的事件挤成一团；而路径太长 / 权限不足这类失败只影响那一条，
+ *   为它把剩下的都撂下更糟（与 confirmDelete 同一条口径）。
+ * - **写完必收**：`export_close` 放在 finally 里，成功失败都收回这条写盘通道。
+ * - **取消选择器 = 整趟没发生**（`dir` 为空直接返回），不报错。
+ * @param {object[]} nodes
+ */
+async function runExportToDisk(nodes) {
+  pendingExport.value = []
+  transferBusy.value = true
+  try {
+    const { entries, files, skipped } = await collectExport(nodes)
+    if (!files) {
+      showNotice(t('explorer.transfer.exportEmpty'))
+      return
+    }
+    const dir = await invoke('export_choose')
+    if (!dir) return
+    let written = 0
+    let overwritten = 0
+    let failed = 0
+    try {
+      for (const entry of entries) {
+        try {
+          if (entry.path.endsWith('/')) {
+            await invoke('export_mkdir', { rel: entry.path.slice(0, -1) })
+            continue
+          }
+          const report = await invoke('export_write', {
+            rel: entry.path,
+            content: new TextDecoder().decode(entry.data),
+          })
+          written += 1
+          if (report?.overwritten) overwritten += 1
+        } catch {
+          failed += 1
+        }
+      }
+    } finally {
+      await invoke('export_close')
+    }
+    if (!written && failed) {
+      showNotice(t('explorer.transfer.exportFailed'))
+      return
+    }
+    let text = overwritten
+      ? t('explorer.transfer.exportToDiskOverwrite', { n: written, dir, k: overwritten })
+      : t('explorer.transfer.exportToDiskDone', { n: written, dir })
+    if (skipped || failed) {
+      text += t('explorer.transfer.exportSkipped', { k: skipped + failed })
+    }
+    showNotice(text)
+  } catch (error) {
+    showNotice(error.message || t('explorer.transfer.exportFailed'))
+  } finally {
+    transferBusy.value = false
+  }
+}
+
+// ------------------------------------------------------------ 多选（可见行区间 / 全选）
+
+/**
+ * 树里当前**可见**的行 id，按 DOM 顺序（= 屏幕上从上到下）。
+ *
+ * 折叠的子树整个不在 DOM 里，所以这个列表天然就是「看得见的那些行」—— **只有 Shift 区间
+ * 选择以它为准**（区间本来就是在屏幕上量出来的；⌘/Ctrl+A 那个全选走的是 `allNodeIds`，
+ * 2026-10-12 用户拍板改成「全部节点」，见下）。少一个 offsetParent 过滤也不碍事：
+ * 这里没有用 v-show 藏起来的行。
+ * @returns {string[]}
+ */
+function visibleRowIds() {
+  const root = rootEl.value
+  if (!root) return []
+  return [...root.querySelectorAll('[data-tree-id]')].map((row) => row.dataset.treeId)
+}
+
+/**
+ * 工作区里**全部**节点的 id，深度优先（与树里从上到下的顺序一致）。
+ * 根节点不在其中 —— 根没有行、也没有它自己的「文件」这回事（与 `selectMany` 的过滤一致）。
+ * @returns {string[]}
+ */
+function allNodeIds() {
+  const ids = []
+  const walk = (nodes) => {
+    for (const node of nodes) {
+      ids.push(node.id)
+      if (node.children) walk(node.children)
+    }
+  }
+  walk(workspace.tree)
+  return ids
+}
+
+/**
+ * Shift + 单击 / Shift + 方向键：从**锚点**（`workspace.selectedId`）到 `id` 整段选中。
+ *
+ * 锚点刻意不跟着终点走（`selectMany` 的第二个实参原样传锚点）：连着 Shift 点几处不同位置，
+ * 每次都是从同一个起点重划范围 —— 这正是 VS Code 的行为（它那边 anchor 也是不动的）。
+ * 锚点已经不在可见列表里（刚被折叠进去、或已被删）就退化成单选这一行。
+ * @param {string} id
+ */
+function selectRangeTo(id) {
+  const order = visibleRowIds()
+  const anchor = workspace.selectedId
+  const from = anchor ? order.indexOf(anchor) : -1
+  const to = order.indexOf(id)
+  if (from === -1 || to === -1) {
+    selectNode(id)
+    return
+  }
+  selectMany(order.slice(Math.min(from, to), Math.max(from, to) + 1), anchor)
+}
+
+/**
+ * ⌘ / Ctrl + A：全选**工作区里的全部节点**（含折叠目录里的那些，2026-10-12 用户拍板）。
+ *
+ * 与 Shift 区间不同，这里不看 DOM —— 折叠起来的文件也算数（导出 / 删除都作用于它们）。
+ * 代价是屏幕上看不到全部高亮：折叠目录里的行根本没渲染，但确实在选区里。
+ *
+ * 主选中保住原来那个（还在的话），否则取第一个 —— 页头新建仍落在用户原来的位置附近。
+ */
+function selectAllNodes() {
+  const ids = allNodeIds()
+  if (!ids.length) return
+  const anchor =
+    workspace.selectedId && ids.includes(workspace.selectedId) ? workspace.selectedId : ids[0]
+  selectMany(ids, anchor)
+}
 
 // ------------------------------------------------------------ 题目信息弹窗
 
@@ -497,14 +916,18 @@ function setFocusedId(id) {
   focusedId.value = id
 }
 
+/**
+ * 焦点进树：只更新 roving tabindex 的记账，**不动选区**。
+ *
+ * 2026-10-12 撤掉了这里原来那句 `selectNode(...)`：多选之后「焦点一动就把选区收成单选」
+ * 会把刚攒好的那一片冲掉 —— ⌥/Alt + 单击 的 pointerdown 先聚焦、click 才切换选中，
+ * 于是加选永远变成「先清空再加一个」。选区的写入改由明确的入口负责：鼠标点击在
+ * FileTreeItem.onClick 里（单击收成单选、Alt 加选、Shift 划范围），键盘在 focusRowAt 里。
+ */
 function onTreeFocus(event) {
   const row = event.target.closest('[data-tree-id]')
   if (!row) return
   setFocusedId(row.dataset.treeId)
-  // 树里的选中跟随焦点：键盘把焦点挪到哪一行就选中哪一行（于是页头新建也落在它那儿）。
-  // 鼠标 / 触屏点行时这条也会先跑一遍，与 FileTreeItem 里那次写入同值，无副作用；
-  // 触屏上万一没补焦点，还有行点击那条兜着。
-  selectNode(row.dataset.treeId)
 }
 
 /**
@@ -523,6 +946,9 @@ function onTreeClick(event) {
 provide('openContextMenu', openContextMenu)
 // 「打开题目」的出口：菜单里那一项与树项上的 ⌘ / Ctrl + 单击都归它，判据只有 problemUrl 一份
 provide('openProblem', openProblem)
+// Shift + 单击 / Shift + 方向键的范围选择。可见行的 DOM 顺序只有本组件拿得到，
+// 所以算法在这里、树项只负责把手势转过来（见 selectRangeTo）。
+provide('selectRangeTo', selectRangeTo)
 // 删除确认不再经 provide 下发：唯一的调用方是全局快捷键 Delete（原来在 FileTreeItem 的
 // 行内 keydown 里），2026-10-10 改走 defineExpose 那条路，见文件末尾。
 provide('treeRootEl', rootEl)
@@ -547,21 +973,24 @@ provide('pressingId', pressingId)
 provide('armedId', armedId)
 
 /**
- * 全局快捷键（F2 重命名 / Delete 删除）的入口。
+ * 全局快捷键（F2 重命名 / Delete 删除 / ⌘·Ctrl+A 全选）的入口。
  *
- * 这两条动作的键位登记在 `useShortcutManager` 的 SHORTCUT_ACTIONS 里，但**执行不了在那里**：
- * 它要做的事全在本组件手上（起内联重命名、弹删除确认框），而它作用于「资源管理器里当前有焦点的
- * 那一行」。所以 App.vue 的全局监听先过一道作用域闸门，再从这里进来 —— 动作与右键菜单那两条
- * **完全同源**（`beginRename` / `requestDelete`），不另写一份。
+ * 这三条动作的键位登记在 `useShortcutManager` 的 SHORTCUT_ACTIONS 里，但**执行不了在那里**：
+ * 它们要做的事全在本组件手上（起内联重命名、弹删除确认框、按可见行划全选），而且都作用于
+ * 「资源管理器里当前有焦点的那些行」。所以 App.vue 的全局监听先过一道作用域闸门，再从这里进来
+ * —— 动作与右键菜单那两条**完全同源**（`beginRename` / `requestDelete`），不另写一份。
  *
- * 只收**节点 id**（调用方手里只有事件落点那一行的 `dataset.treeId`），节点在这里查一次；
- * 节点已经不在了就静默什么也不做（`requestDelete(null)` 自带 `if (node)` 保护）。
+ * 前两个只收**节点 id**（调用方手里只有事件落点那一行的 `dataset.treeId`）；节点在这边查一次，
+ * 已经不在了就静默什么也不做（`requestDelete` 自带 `getNodeById` 的空值保护）。
+ * 全选收不了 id —— 它要的是整列可见行，只有本组件算得出来，所以那个入口收不到参数。
  */
 defineExpose({
   /** @param {string} id 要重命名的节点 id */
   startRename: (id) => beginRename(id),
-  /** @param {string} id 要删除的节点 id */
-  requestDelete: (id) => requestDelete(getNodeById(id)),
+  /** @param {string} id 要删除的节点 id（它在选区里就删整个选区） */
+  requestDelete: (id) => requestDelete(id),
+  /** ⌘ / Ctrl + A：全选当前可见的行 */
+  selectAllNodes: () => selectAllNodes(),
 })
 </script>
 
@@ -589,6 +1018,26 @@ defineExpose({
           @click="startCreate('directory', headerCreateTarget())"
         >
           <AppIcon name="folder-plus" :size="14" />
+        </button>
+        <button
+          type="button"
+          class="explorer__btn"
+          :disabled="transferBusy"
+          :title="t('explorer.menu.importFile')"
+          @click="runImport('file')"
+        >
+          <AppIcon name="file-down" :size="14" />
+        </button>
+        <!-- 「导入文件夹」只在真选得动文件夹的平台上给：手机上的 file input 拿不到目录结构 -->
+        <button
+          v-if="canPickFolder()"
+          type="button"
+          class="explorer__btn"
+          :disabled="transferBusy"
+          :title="t('explorer.menu.importFolder')"
+          @click="runImport('folder')"
+        >
+          <AppIcon name="folder-down" :size="14" />
         </button>
       </span>
     </Teleport>
@@ -631,9 +1080,10 @@ defineExpose({
     />
 
     <!-- 删除确认：自己实现的弹窗（不用 window.confirm，见 requestDelete 的注释）。
-         点遮罩 / Esc = 取消，只有点「删除」才会真的动文件。 -->
+         点遮罩 / Esc = 取消，只有点「删除」才会真的动文件。
+         多选删除时标题报个数、正文把路径列出来（超过 DELETE_LIST_MAX 条折成一句「另有 N 项」）。 -->
     <Teleport to="body">
-      <div v-if="pendingDelete" class="confirm" @pointerdown.self="cancelDelete">
+      <div v-if="pendingDelete.length" class="confirm" @pointerdown.self="cancelDelete">
         <div
           class="confirm__card"
           role="alertdialog"
@@ -642,13 +1092,26 @@ defineExpose({
           aria-describedby="confirm-desc"
           @keydown.esc.stop.prevent="cancelDelete"
         >
-          <p id="confirm-title" class="confirm__title">{{ t('explorer.deleteConfirm.title') }}</p>
-          <p id="confirm-desc" class="confirm__desc">
-            <span class="confirm__path">{{ pendingDelete.path }}</span>
-            <template v-if="pendingDelete.type === 'directory'">
-              {{ t('explorer.deleteConfirm.directoryNote') }}
-            </template>
+          <p id="confirm-title" class="confirm__title">
+            {{
+              pendingDelete.length > 1
+                ? t('explorer.deleteConfirm.titleMany', { n: pendingDelete.length })
+                : t('explorer.deleteConfirm.title')
+            }}
           </p>
+          <div id="confirm-desc" class="confirm__desc">
+            <ul class="confirm__list">
+              <li v-for="node in pendingDelete.slice(0, DELETE_LIST_MAX)" :key="node.id">
+                {{ node.path }}
+              </li>
+            </ul>
+            <p v-if="pendingDelete.length > DELETE_LIST_MAX" class="confirm__more">
+              {{ t('explorer.deleteConfirm.more', { n: pendingDelete.length - DELETE_LIST_MAX }) }}
+            </p>
+            <p v-if="hasDirectory" class="confirm__more">
+              {{ t('explorer.deleteConfirm.directoryNote') }}
+            </p>
+          </div>
           <div class="confirm__actions">
             <button type="button" class="confirm__btn" @click="cancelDelete">
               {{ t('app.cancel') }}
@@ -660,6 +1123,55 @@ defineExpose({
               @click="confirmDelete"
             >
               {{ t('explorer.menu.delete') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 导出落点：**只有桌面壳**弹这张卡片 —— 别的平台只有一个落点（下载），点菜单就直接走了。
+         两个按钮各自带一句 title 说明代价（写盘会覆盖同名文件 / zip 是个压缩包）。
+         与删除确认同款自绘卡片（理由见 requestDelete 的注释），复用 .confirm 那套样式。 -->
+    <Teleport to="body">
+      <div v-if="pendingExport.length" class="confirm" @pointerdown.self="cancelExport">
+        <div
+          class="confirm__card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="export-title"
+          @keydown.esc.stop.prevent="cancelExport"
+        >
+          <p id="export-title" class="confirm__title">{{ t('explorer.transfer.exportTitle') }}</p>
+          <div class="confirm__desc">
+            <ul class="confirm__list">
+              <li v-for="node in pendingExport.slice(0, DELETE_LIST_MAX)" :key="node.id">
+                {{ node.path }}
+              </li>
+            </ul>
+            <p v-if="pendingExport.length > DELETE_LIST_MAX" class="confirm__more">
+              {{ t('explorer.deleteConfirm.more', { n: pendingExport.length - DELETE_LIST_MAX }) }}
+            </p>
+          </div>
+          <div class="confirm__actions confirm__actions--stack">
+            <button
+              ref="exportFirstBtn"
+              type="button"
+              class="confirm__btn confirm__btn--primary"
+              :title="t('explorer.transfer.exportToDiskHint')"
+              @click="runExportToDisk(pendingExport)"
+            >
+              {{ t('explorer.transfer.exportToDisk') }}
+            </button>
+            <button
+              type="button"
+              class="confirm__btn"
+              :title="t('explorer.transfer.exportZipHint')"
+              @click="runExportDownload(pendingExport)"
+            >
+              {{ t('explorer.transfer.exportZip') }}
+            </button>
+            <button type="button" class="confirm__btn" @click="cancelExport">
+              {{ t('app.cancel') }}
             </button>
           </div>
         </div>
@@ -811,8 +1323,17 @@ defineExpose({
   overflow-wrap: anywhere;
 }
 
-.confirm__path {
+/* 待删路径列表：一行一条（单条删除时也就这一行，看着与原先那句纯文本一样） */
+.confirm__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   color: var(--text);
+}
+
+/* 折行提示与「目录里的东西一起删」那句：与路径拉开一点，别糊成一坨 */
+.confirm__more {
+  margin: 4px 0 0;
 }
 
 .confirm__actions {
@@ -845,6 +1366,30 @@ defineExpose({
 
 .confirm__btn--danger:hover {
   background: var(--danger-bg-hover);
+}
+
+/* 导出卡片那颗主操作：沿用 accent（与题目信息弹窗的「保存」、站内其它主要按钮同色） */
+.confirm__btn--primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.confirm__btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+/* 导出卡片的三颗是竖排的：它们不是「取消 / 确认」那种对照关系，而是三个并列的落点
+   （写进磁盘 / 打成 zip / 算了），横排会挤成一坨，也分不清哪个是主操作 */
+.confirm__actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.confirm__actions--stack .confirm__btn {
+  width: 100%;
+  padding: 6px 14px;
 }
 
 .confirm__btn:focus-visible {
@@ -991,6 +1536,15 @@ defineExpose({
 .explorer__btn:hover {
   background: var(--bg-control-hover);
   color: var(--text);
+}
+
+/* 导入 / 导出进行中禁用的那两颗（选择器比上面那条 :hover 更具体，压得住） */
+.explorer__btn:disabled,
+.explorer__btn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0.4;
+  cursor: default;
 }
 
 .explorer__tree {

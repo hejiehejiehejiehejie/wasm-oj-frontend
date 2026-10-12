@@ -14,6 +14,8 @@ export default {
       renameFailed: '重命名失败',
       moveFailed: '移动失败',
       saveFailed: '保存失败',
+      /** 多选删除时有几条没删成（磁盘上被占住、权限不足之类） */
+      deleteFailed: '{n} 项删除失败',
 
       /** 文件树全空时的占位语 */
       emptyTree: '还没有文件，点上方按钮新建',
@@ -25,15 +27,48 @@ export default {
         openUrlClick: '{mod} + 单击',
         newFile: '新建文件',
         newFolder: '新建文件夹',
+        importFile: '导入文件',
+        importFolder: '导入文件夹',
+        export: '导出',
+        /** 右键落在多选中的某一行上：这一项会导出整个选区，标签跟着报个数 */
+        exportMany: '导出 {n} 项',
         rename: '重命名',
         delete: '删除',
+        /** 右键落在多选中的某一行上：这一项会删掉整个选区，标签跟着报个数 */
+        deleteMany: '删除 {n} 项',
+      },
+
+      /** 与外部文件系统之间搬文件（导入 / 导出） */
+      transfer: {
+        /** 桌面端点「导出」时的二选一卡片（只有桌面壳做得到写盘） */
+        exportTitle: '导出到哪里？',
+        exportToDisk: '保存到本机文件夹',
+        exportToDiskHint: '按原目录结构写进你选的文件夹，同名文件会被覆盖',
+        exportZip: '下载为 zip',
+        exportZipHint: '打包成一个文件下载',
+        /** 结果提示。skipped 那句接在上面几句后面，所以自带前导标点 */
+        exportAs: '已导出 {name}',
+        exportToDiskDone: '已导出 {n} 个文件到 {dir}',
+        exportToDiskOverwrite: '已导出 {n} 个文件到 {dir}（覆盖 {k} 个已有文件）',
+        exportSkipped: '，跳过 {k} 个（二进制或过大）',
+        exportFailed: '导出失败',
+        exportEmpty: '没有可导出的文件',
+        /** 导入结果提示 */
+        importEmpty: '没有可导入的文件',
+        importDone: '已导入 {n} 个文件',
+        importSkipped: '已导入 {n} 个文件，跳过 {k} 个（二进制或过大）',
+        importFailed: '导入失败',
       },
 
       /** 删除确认弹窗 */
       deleteConfirm: {
         title: '确定删除？',
-        /** 接在路径后面，构成一句话；只在目标是目录时显示 */
-        directoryNote: '，目录内的全部内容将一并删除。',
+        /** 一次删多项时的标题；下面会把路径逐条列出来 */
+        titleMany: '确定删除这 {n} 项？',
+        /** 路径列不完时折成这一句（接在列出的那几条之后） */
+        more: '…另有 {n} 项',
+        /** 名单里有目录时补的一句，单独一段 */
+        directoryNote: '目录内的全部内容将一并删除。',
       },
 
       meta: {
@@ -88,6 +123,7 @@ export default {
       renameFailed: 'Could not rename',
       moveFailed: 'Could not move',
       saveFailed: 'Could not save',
+      deleteFailed: 'Could not delete {n} item(s)',
 
       emptyTree: 'No files yet — use the buttons above to create one',
 
@@ -97,13 +133,38 @@ export default {
         openUrlClick: '{mod} + Click',
         newFile: 'New file',
         newFolder: 'New folder',
+        importFile: 'Import files',
+        importFolder: 'Import folder',
+        export: 'Export',
+        exportMany: 'Export {n} items',
         rename: 'Rename',
         delete: 'Delete',
+        deleteMany: 'Delete {n} items',
+      },
+
+      transfer: {
+        exportTitle: 'Export where?',
+        exportToDisk: 'Save into a folder',
+        exportToDiskHint: 'Writes into the folder you pick, keeping the tree; same-name files are overwritten',
+        exportZip: 'Download as zip',
+        exportZipHint: 'Packs everything into a single file',
+        exportAs: 'Exported {name}',
+        exportToDiskDone: 'Exported {n} file(s) to {dir}',
+        exportToDiskOverwrite: 'Exported {n} file(s) to {dir} ({k} overwritten)',
+        exportSkipped: ', skipped {k} (binary or too large)',
+        exportFailed: 'Could not export',
+        exportEmpty: 'Nothing to export',
+        importEmpty: 'Nothing to import',
+        importDone: 'Imported {n} file(s)',
+        importSkipped: 'Imported {n} file(s), skipped {k} (binary or too large)',
+        importFailed: 'Could not import',
       },
 
       deleteConfirm: {
         title: 'Delete this?',
-        directoryNote: ' Everything inside the folder will be deleted as well.',
+        titleMany: 'Delete these {n} items?',
+        more: '…and {n} more',
+        directoryNote: 'Everything inside the folder will be deleted as well.',
       },
 
       meta: {

@@ -130,6 +130,21 @@ export const CLOUD_ACCOUNT_KEY = 'cp.cloudAccount'
  */
 export const CLOUD_TOKEN_KEY = 'cp.cloudToken'
 
+// ---------------------------------------------------------------- 跨刷新的一次性通知
+
+/**
+ * 「刷新前寄下的那条通知」，存在 **sessionStorage**（不是 localStorage，全站唯一的
+ * sessionStorage 用途）。
+ *
+ * 云端导入与登录成功都是**办完整页刷新**的（设置散在各单例里，逐个通知不如整页重来，
+ * 见 cloudSession 的 adoptCloud），可通知只活在内存里 —— 刷新前发出去等于没发。
+ * 于是那一条先寄存在这里，由下次启动的 `flushFlashNotification()` 补发并立即删除。
+ *
+ * 为什么是 sessionStorage：它只该跨过这一次同页签刷新，随页签关掉一起消失。
+ * 换成 localStorage，用户下周打开站点会忽然弹出一条「导入成功」。
+ */
+export const FLASH_NOTICE_KEY = 'cp.flashNotice'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**

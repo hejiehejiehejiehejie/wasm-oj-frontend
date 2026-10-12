@@ -37,6 +37,7 @@ import { readActiveProfile } from '../services/cloudEntry.js'
 import {
   adoptCloud,
   busy as cloudBusy,
+  CF_SOCIAL_URL,
   cancelCloudCode,
   canFillCode,
   cloudCfHint,
@@ -836,7 +837,7 @@ function optionLabel(option) {
                   {{ cloudStep1.before
                   }}<a
                     class="settings-menu__link"
-                    href="https://codeforces.com/settings/social"
+                    :href="CF_SOCIAL_URL"
                     target="_blank"
                     rel="noopener noreferrer"
                     >{{ t('settings.cloud.codeStep1Link') }}</a

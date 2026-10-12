@@ -24,11 +24,12 @@ const orders = computed(() => {
 /**
  * 点操作按钮：先跑调用方的回调（拿到本条通知对象），再按普通流程退场 ——
  * 包括给队列腾位置。退场中的条目整颗忽略，避免回调打在正在淡出的通知上。
+ * `keep: true` 的那颗**不退场**：见服务层文件头，复制完验证码往往还要点下一颗。
  */
 function runAction(notif, action) {
   if (notif.leaving) return
   if (action.run) action.run(notif)
-  dismissNotification(notif.id)
+  if (!action.keep) dismissNotification(notif.id)
 }
 </script>
 
@@ -50,7 +51,7 @@ function runAction(notif, action) {
             <p class="notif__title">{{ notif.title }}</p>
             <p v-if="notif.message" class="notif__message">{{ notif.message }}</p>
           </div>
-          <!-- 操作按钮（可选，至多 2 颗，见服务层契约）：点击跑回调再退场 -->
+          <!-- 操作按钮（可选，至多 MAX_ACTIONS 颗，见服务层契约）：点击跑回调，默认随之退场 -->
           <div v-if="notif.actions.length" class="notif__actions">
             <button
               v-for="action in notif.actions"
