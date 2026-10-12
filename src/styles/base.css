@@ -109,13 +109,14 @@
   --toast-bg-hover: rgba(41, 41, 44, 0.72);
   --toast-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 
-  /* 拖选区手柄时那颗「光标在哪」的胶囊（EditorPane.vue 的 .handle-probe*，唯一消费者）。
-     与通知同款的玻璃拟态，但它要压住代码还得读得清行列数字，所以比 toast 实一档
-     （0.62 → 0.82）。光束取 --focus 那支蓝：与手柄圆点同色系，读起来是「同一个手势的两件东西」。
+  /* 拖选区手柄时那颗放大镜（EditorPane.vue 的 .magnifier*，唯一消费者）。
+     --probe-bg 是**镜片底**：底下的代码要靠 backdrop-filter 糊掉再透一点上来，所以不能全不透明，
+     但也不能像通知那样淡到底（0.62）—— 里面压着的是代码，透明度一高两侧的正文就透进来打架，
+     取 0.94 是「看得出是块玻璃、又读得清代码」的那一档。
+     光束取 --focus 那支蓝：与手柄圆点同色系，读起来是「同一个手势的两件东西」。
      投影两套主题都给 —— 与 toast 同理，深色里 --card-shadow 是 none，靠它分不了层。 */
-  --probe-bg: rgba(38, 38, 40, 0.82);
+  --probe-bg: rgba(24, 24, 24, 0.94);
   --probe-border: rgba(255, 255, 255, 0.14);
-  --probe-text: #f0f0f0;
   --probe-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   --probe-beam: rgba(0, 122, 204, 0.5);
 
@@ -276,11 +277,10 @@
   --toast-bg-hover: rgba(255, 255, 255, 0.82);
   --toast-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 
-  /* 胶囊，见深色那支的说明。白底上那圈黑影单独调淡（理由同 --menu-shadow），
+  /* 放大镜，见深色那支的说明。白底上那圈黑影单独调淡（理由同 --menu-shadow）；
      光束换成浅色那支 --accent（#005fb8），透明度也降一档：白底上蓝更跳 */
-  --probe-bg: rgba(255, 255, 255, 0.88);
+  --probe-bg: rgba(255, 255, 255, 0.94);
   --probe-border: rgba(0, 0, 0, 0.1);
-  --probe-text: #1f1f1f;
   --probe-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
   --probe-beam: rgba(0, 95, 184, 0.38);
 

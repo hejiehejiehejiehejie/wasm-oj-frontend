@@ -125,6 +125,14 @@ function answerImage(action) {
 // 只在触摸下出现，且编辑区真的露着时才出手柄 —— 被设置 / 抽题面板盖住时那一行是 v-show，
 // 浮层若不收掉会浮在那些面板上面。
 const handlesActive = computed(() => !viewActive.value && mdViewMode.value !== 'preview')
+/** 放大镜那层的外壳：拖动时 v-if 出来，useSelectionHandles 往它里面搬编辑器的 DOM */
+const magnifierEl = ref(null)
+/**
+ * 放大镜要**冒充一个 Monaco 编辑器**，搬过来的 DOM 才认得出那些样式：token 颜色是全局 `.mtk*` 规则，
+ * 但选中 / 当前行 / 缩进参考线全是 `.monaco-editor .xxx` 前缀。所以跟着主编辑器的主题
+ * 挂 `vs-dark` / `vs`（这是 Monaco `getThemeTypeSelector()` 的口径，不是站内的 dark / light）。
+ */
+const lensTheme = computed(() => (props.settings.theme === 'light' ? 'vs' : 'vs-dark'))
 const {
   handles: selectionHandles,
   dragging: handlesDragging,
@@ -135,6 +143,7 @@ const {
   host,
   stage,
   active: handlesActive,
+  magnifier: magnifierEl,
 })
 
 // ------------------------------------------------------------ 拖文件到编辑区
@@ -772,6 +781,10 @@ defineExpose({
         <span
           v-if="selectionHandles.start"
           class="selection-handle selection-handle--start"
+          :class="{
+            'is-knob-down': selectionHandles.start.down,
+            'is-knob-up': !selectionHandles.start.down,
+          }"
           :style="{ left: `${selectionHandles.start.left}px`, top: `${selectionHandles.start.top}px` }"
           @pointerdown="onSelectionHandleDown('start', $event)"
           @contextmenu.prevent
@@ -779,6 +792,10 @@ defineExpose({
         <span
           v-if="selectionHandles.end"
           class="selection-handle selection-handle--end"
+          :class="{
+            'is-knob-down': selectionHandles.end.down,
+            'is-knob-up': !selectionHandles.end.down,
+          }"
           :style="{ left: `${selectionHandles.end.left}px`, top: `${selectionHandles.end.top}px` }"
           @pointerdown="onSelectionHandleDown('end', $event)"
           @contextmenu.prevent
@@ -899,25 +916,44 @@ defineExpose({
       </div>
     </Teleport>
 
-    <!-- 拖手柄时那颗「光标在哪」的胶囊：手指本身把落点附近的代码挡住了，读数挪到手指上方去
-         （iOS 的放大镜是同一个动机）。位置与行列都由 useSelectionHandles.js 算好送过来，
-         这里只管画。Teleport 到 body + fixed：**不能挂在 .selection-handles 里** ——
-         那层有 overflow: hidden（裁手柄盒子伸出去的部分），手指贴着编辑器上沿时胶囊会被整颗裁掉。
+    <!-- 拖手柄时的放大镜：手指本身把落点附近的代码挡住了，就把那一片**原尺寸**搬到手指上方
+         （iOS 的放大镜是同一个动机，只是那边会放大；这边要的是「看得见手指底下是什么」，
+         1:1 反而更好读，所以 LENS_ZOOM 是 1，见 useSelectionHandles.js）。
+         位置与镜片尺寸由 useSelectionHandles.js 算好送过来，
+         内容（三层 DOM 的克隆）也由那边搬，这里只管画壳子。
+         Teleport 到 body + fixed：**不能挂在 .selection-handles 里** —— 那层有 overflow: hidden
+         （裁手柄盒子伸出去的部分），手指贴着编辑器上沿时镜片会被整颗裁掉。
+         `monaco-editor` + 主题类名是关键：搬进来的 `.view-lines` / `.view-overlays` /
+         `.cursors-layer` 靠它继承 token 与选中样式（不能开第二个 Monaco 实例，主题是全局单例）。
          ⚠️ 整条链路必须 pointer-events: none：它是编辑器 DOM 之外的元素，一旦压在手指落点上，
          Monaco 的 getTargetAtClientPoint 会命中它而返回 position: null，拖动当场卡死
          （详见 useSelectionHandles.js 文件头那条 ⚠️）。 -->
     <Teleport to="body">
       <div
         v-if="handleProbe"
-        class="handle-probe"
-        :class="{ 'is-below': handleProbe.below }"
-        :style="{ left: `${handleProbe.left}px`, top: `${handleProbe.top}px` }"
+        ref="magnifierEl"
+        class="magnifier monaco-editor"
+        :class="[lensTheme, { 'is-below': handleProbe.below }]"
+        :style="{
+          left: `${handleProbe.left}px`,
+          top: `${handleProbe.top}px`,
+          '--probe-lens-w': `${handleProbe.lensW}px`,
+          '--probe-lens-h': `${handleProbe.lensH}px`,
+          '--probe-gap': `${handleProbe.gap}px`,
+        }"
         aria-hidden="true"
       >
-        <span class="handle-probe__pill">
-          {{ t('app.status.cursor', { line: handleProbe.line, column: handleProbe.column }) }}
-        </span>
-        <span class="handle-probe__beam"></span>
+        <div class="magnifier__lens">
+          <div class="magnifier__snapshot lines-content">
+            <div class="magnifier__overlays view-overlays"></div>
+            <div class="magnifier__lines view-lines"></div>
+            <div class="magnifier__cursors cursors-layer"></div>
+            <!-- 正在拖的那两颗手柄也搬进来（否则镜片里看不出手指抓着哪一端）。
+                 放在最后 = 画在最上层，与真实里 .selection-handles 压在正文之上一致。 -->
+            <div class="magnifier__handles"></div>
+          </div>
+        </div>
+        <span class="magnifier__beam"></span>
       </div>
     </Teleport>
   </div>
@@ -1019,42 +1055,47 @@ defineExpose({
   position: absolute;
   left: 50%;
   width: 2px;
+  height: 10px;
   margin-left: -1px;
   background: var(--accent);
 }
 
-/* 起点：盒子的**下边**落在选区上沿，圆点在上、杆向下接文字 —— 同 iOS 左侧那颗。
-   盒子本身不带位移：JS 直接给盒子左上角（已夹在编辑器可视区内），
-   所以圆点水平居中就是靠盒子宽度撑出来的，盒宽必须与 HANDLE_BOX 一致。 */
-.selection-handle--start::before {
-  bottom: 6px;
-}
-
-.selection-handle--start::after {
-  bottom: 0;
-  height: 10px;
-}
-
-/* 终点：盒子的**上边**落在选区下沿，圆点在下、杆向上接文字 —— 同 iOS 右侧那颗 */
-.selection-handle--end::before {
+/* 圆点与杆摆在哪一端，**只由每颗手柄自己的朝向类**决定（`place()` 每次都给出 `down`，见
+   useSelectionHandles.js 的 `knobDirection()`）。**不能**再挂在 `.selection-handles` 上：
+   拖动期间两颗可能朝不同方向 —— 手指抓着的那颗保持在「抓它时」的那一侧（按下去不跳开手指），
+   另一颗背离镜片（免得被 z-index 118 的镜片整颗盖住）。
+   is-knob-down：圆点贴盒子**顶边**（＝盒子挂在端点下方）；is-knob-up：贴**底边**（＝挂在上方）。
+   ⚠️ 镜片里那颗是 `innerHTML` 克隆的，`data-v-*` 跟着过来，同一组选择器对克隆副本照样命中。 */
+.selection-handle.is-knob-down::before {
   top: 6px;
+  bottom: auto;
 }
 
-.selection-handle--end::after {
+.selection-handle.is-knob-down::after {
   top: 0;
-  height: 10px;
+  bottom: auto;
 }
 
-/* ------------------------------------------- 拖动时的「光标在哪」胶囊 */
+.selection-handle.is-knob-up::before {
+  bottom: 6px;
+  top: auto;
+}
+
+.selection-handle.is-knob-up::after {
+  bottom: 0;
+  top: auto;
+}
+
+/* ------------------------------------------- 拖动时的放大镜胶囊 */
 
 /* 外层只管定位：left / top 是手指的视口坐标（由 useSelectionHandles.js 算好），
-   translate 把「胶囊 + 光束」整条的底边抬到手指上方 —— 光束撑开的那 52px 就是 PROBE_GAP，
-   于是胶囊自己那条下沿离手指正好 52。**不加 transition**：位置每帧都在变，加了会拖出残影。
-   ⚠️ pointer-events: none 必须一路继承到胶囊：它是编辑器 DOM 之外的元素，压在落点上会让
+   translate 把「镜片 + 光束」整条的底边抬到手指上方 —— 光束撑开的那段就是 LENS_GAP。
+   **不加 transition**：位置每帧都在变，加了会拖出残影。
+   ⚠️ pointer-events: none 必须一路继承到镜片：它是编辑器 DOM 之外的元素，压在落点上会让
    Monaco 的 getTargetAtClientPoint 返回 position: null，拖动当场卡死（同上面那两颗手柄）。
    z-index 118：压在手柄之上，但仍低于菜单（120）/ 确认框（130）/ 通知（150）——
    它是拖动期间的附属指示，不该盖住任何一层可交互的东西。 */
-.handle-probe {
+.magnifier {
   position: fixed;
   z-index: 118;
   display: flex;
@@ -1062,54 +1103,104 @@ defineExpose({
   align-items: center;
   transform: translate(-50%, -100%);
   pointer-events: none;
+  /* ⚠️ 必须显式抹掉底色。挂 `monaco-editor` 这个类是给搬进来的 DOM 认样式用的，
+     但 Monaco 自己也有一条 `.monaco-editor { background-color: var(--vscode-editor-background) }`
+     —— 那会给这层「定位壳」糊上一整块「镜片 + 光束」那么大的不透明底，把光束两侧的真实代码盖掉
+     （实测：不加这句，手指那一行会被这块底压暗）。底色只属于镜片。 */
+  background: none;
 }
 
-/* 上方放不下就翻到手指下方：整条上下镜像（光束旋 180°，梯形与渐变跟着一起翻） */
-.handle-probe.is-below {
+/* 上方放不下就翻到手指下方：整条上下镜像（光束旋 180°，梯形与渐变跟着一起翻）。
+   两种朝向都是「整条的远端贴着手指定点，光束（= LENS_GAP 那么长）从那里连到镜片」 */
+.magnifier.is-below {
   flex-direction: column-reverse;
   transform: translate(-50%, 0);
 }
 
-/* 胶囊本体。高度 34 = PROBE_H，**改这里要同步改 useSelectionHandles.js 的 PROBE_H**，
-   否则「上方放不放得下」的判据就偏了。数字用等宽 + tabular：拖动时行列跳得很快，
-   非等宽会让胶囊跟着一宽一窄地抖。 */
-.handle-probe__pill {
-  display: flex;
-  align-items: center;
-  height: 34px;
-  padding: 0 14px;
+/* 镜片。尺寸由 JS 送来的三个变量撑开（常量只留 useSelectionHandles.js 那一份，
+   这边不重复写死，见那边的 LENS_* 注释）。
+   **胶囊形**：`border-radius: 999px` 在大值上恒被夹成「高的一半」，于是两端各是半个圆、
+   上下两条边笔直 —— 半径不跟着宽高走，改尺寸不用同步改这个数。
+   注意胶囊两端是圆的：正中间那一条（也就是手指所在那一行）才是满宽，
+   越往上下，两侧收得越多，所以纵向别指望看到整行的开头和结尾。
+   overflow: hidden 是必须的：搬进来的是**整屏宽**的内容，全靠这一层裁成一块。 */
+.magnifier__lens {
+  position: relative;
+  width: var(--probe-lens-w);
+  height: var(--probe-lens-h);
+  overflow: hidden;
   border-radius: 999px;
   background: var(--probe-bg);
   border: 1px solid var(--probe-border);
   box-shadow: var(--probe-shadow);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  color: var(--probe-text);
-  font-family: var(--mono-font);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   /* 按下即弹出来的一下；松手是直接撤（不做退场）—— 拖完立刻清干净比留个淡出更利索 */
-  animation: handle-probe-in 120ms ease-out;
+  animation: magnifier-in 120ms ease-out;
 }
 
-/* 光束：把胶囊和手指连起来，长度就是 PROBE_GAP（改这里也要同步那边）。
-   上窄下宽的梯形 —— 指头那头宽、胶囊那头窄，看着像是从指尖「抽」出来的。 */
-.handle-probe__beam {
+/* 搬进来的内容层。三块克隆都是「整屏宽」的绝对定位层（`.view-line` 的内联 top / left
+   就是内容坐标，见 useSelectionHandles.js 文件头），位移每帧由 JS 写在 transform 上。
+   transform-origin **必须是 0 0**：反向位移的算式就是 `translate + 倍数 × 内容坐标`。
+   lines-content / view-overlays / view-lines / cursors-layer 那几个类名是给 Monaco 的
+   样式选择器用的，别删 —— `.view-line` 的绝对定位、`.cslr`、缩进参考线全靠它们命中。 */
+.magnifier__snapshot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.magnifier__overlays,
+.magnifier__lines,
+.magnifier__cursors,
+.magnifier__handles {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 0;
+}
+
+/* ⚠️ 搬进来的手柄必须把 pointer-events 重新钉死。
+   `.selection-handle` 自己写了 `pointer-events: auto`（不写就抓不住拖动），而
+   `pointer-events: none` 是**允许后代改回来**的：镜片整条链要求对命中测试隐身
+   （见 useSelectionHandles.js 文件头那条 ⚠️），漏一颗手柄出来，手指落点就变成被镜片命中，
+   Monaco 的 getTargetAtClientPoint 返回 position: null，拖动当场卡死。
+   拖动期间真实那两颗本来就是 none（`.selection-handles.is-dragging`），这里只是照着钉一遍。 */
+.magnifier__handles .selection-handle {
+  pointer-events: none;
+}
+
+/* 搬过来的选中层在胶囊里没有焦点，Monaco 会按「窗口失焦」用 inactiveSelectionBackground
+   （灰的）画 —— 覆盖成常亮那支，看着才和编辑器里拖选时一致。
+   只能这样覆盖：Monaco 的主题是全局单例，`defineTheme` + `setTheme` 会把主编辑器一起改掉。 */
+.magnifier.monaco-editor {
+  --vscode-editor-inactiveSelectionBackground: var(--vscode-editor-selectionBackground);
+}
+
+/* 光束：把镜片和手指连起来，长度就是 LENS_GAP（改这里也要同步那边）。
+   **上宽下窄**的梯形 —— 镜片那头宽、指头那头窄（多边形下边收成 38%–62%）；
+   渐变同向：`0deg` = 零度指向上，第一档落在**下边**，也就是指头那头最实、往镜片那头化开。
+   两条都朝镜片「张」、朝指头「收」，看着像是从指尖射向镜片的一道光。 */
+.magnifier__beam {
   width: 18px;
-  height: 52px;
-  background: linear-gradient(180deg, var(--probe-beam), transparent);
-  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%);
+  height: var(--probe-gap);
+  background: linear-gradient(0deg, var(--probe-beam), transparent);
+  clip-path: polygon(0 0, 100% 0, 62% 100%, 38% 100%);
 }
 
-.handle-probe.is-below .handle-probe__beam {
+.magnifier.is-below .magnifier__beam {
   transform: rotate(180deg);
 }
 
-@keyframes handle-probe-in {
+@keyframes magnifier-in {
   from {
     opacity: 0;
-    transform: scale(0.86);
+    transform: scale(0.94);
   }
 
   to {

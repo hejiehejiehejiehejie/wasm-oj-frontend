@@ -36,27 +36,58 @@
  * 起点手柄的圆点在选区**上沿之上**、杆向下接到文字；终点手柄的圆点在**下沿之下**、杆向上。
  * 这是 iOS / Android 原生文本控件的样子。盒子位置夹在编辑器可视区内：端点滚出视口时
  * 手柄贴在边上，不会飘到页签栏或状态栏上（见 `place()`）。
+ * 拖动期间**两颗可以朝不同方向** —— 手指抓着的那颗要一直待在抓它时的那一侧（否则按下去就
+ * 跳开手指），另一颗则背离镜片（否则会被镜片盖住）。所以朝向是**每颗手柄各自的**，见 `knobDirection()`。
  *
- * 【拖动时那颗胶囊（`probe`）】
- * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把「此刻光标落在行 n 列 m」
- * 显示在手指上方（iOS 的放大镜是同一个动机）。它只在**拖手柄期间**存在，松手即撤，
- * 平时不是一层常驻浮层。
+ * 【拖动时那颗「放大镜」胶囊（`probe`）】
+ * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把**手指底下那一片代码**
+ * 原样搬到手指上方。iOS 的放大镜是同一个动机，只是那边会放大（它要看清插入点在哪两字之间）；
+ * 这边要的是「手指底下压着什么」外加一点上下文，**原尺寸**反而更好读，所以 `LENS_ZOOM` 是 1；
+ * 镜片本身也只有 `LENS_ROWS` 行高 × `LENS_COLS` 字符宽（默认 14px 等宽下约 42×67），
+ * 尺寸按编辑器当下的字体度量**现算** —— 用户改了字号 / 行高，它跟着变，见 `lensSize()`。
+ * 它只在**拖手柄期间**存在，松手即撤，平时不是一层常驻浮层。
+ *
+ * 【为什么是「搬 DOM」而不是截图 / 第二个编辑器】
+ * 主编辑器的 `.view-lines` / `.view-overlays` / `.cursors-layer` 三层，外加 `.selection-handles`
+ * 里那两颗手柄（手指正抓着哪一端，镜片里得看得见），一共四层的 `innerHTML` 直接搬进胶囊。
+ * Monaco 的 token 颜色是**全局**规则（`.mtk1 { color: … }`，见
+ * `common/languages/supports/tokenization.js` 的 `generateTokensCSSForColorMap`），
+ * 选中背景 / 当前行 / 缩进参考线则是 `.monaco-editor .xxx` 前缀的规则 —— 所以只要给胶囊挂上
+ * `monaco-editor` + 主题类名（`vs-dark` / `vs`），搬过来的 DOM 当场就是原来的样子：
+ * 不截图、不 `cloneNode`、不开第二个编辑器实例，一帧只是四次 `innerHTML` 赋值。
+ * 手柄那一层多一步坐标换算：它的 `left / top` 相对 stage，得先减掉 `.view-lines` 在 stage 里的偏移
+ * 才落到内容坐标上（见 `paintProbe()`）。
+ *
+ * ⚠️ 搬得走 `innerHTML`，搬不走**宿主元素自己的内联样式** —— Monaco 把字体写在 `.view-lines`
+ * 的内联 style 上（`vs/editor/browser/config/domFontInfo.js` 的 `applyFontInfo()`：font-family /
+ * font-weight / font-size / font-feature-settings / font-variation-settings / line-height /
+ * letter-spacing），只搬 DOM 的话 `.magnifier__lines` 会退化成从页面继承来的无衬线字体。
+ * 实测（monaco 0.56 + 站内主题）：镜片里的字是 13px 系统字体而非 14px 等宽，同一个 `#include`
+ * span 真实宽 67.44px、镜片里只有 51.94px —— 差 23% 且**不是等宽**，整行字距全是错的，
+ * 「镜片里的代码和编辑器里一样大」就成了空话。所以 `copyFontInfo()` 每帧照抄那几个属性
+ * （旁边另有一条同样的坑：字体**不能**靠 `var(--vscode-editor-font-*)` 取，这版 monaco
+ * 根本不输出这几个变量，实测六个全空）。
+ *
+ * ⚠️ 搬进来的是**内容坐标**：`.view-line` 与 overlay 子层的内联 `top` 就是该行相对内容原点的 y
+ * （实测第 1 行是 14px 而不是 0，所以别拿「行号 × 行高」去推），横向的内联 `left` 同理。
+ * 于是「把手指所在那一行推到镜片正中心」只需要给这些内容套一个 `translate + scale`
+ * （`transform-origin: 0 0`，见 `paintProbe()`）：
+ *   tx = 镜片宽/2 − 倍数 × (手指 x − `.view-lines` 左缘)
+ *   ty = 镜片高/2 − 倍数 × (那一行中心的 y − `.view-lines` 顶缘)
+ * 两处都用 `getBoundingClientRect()` **量出来的真实位置**，不复刻滚动偏移 —— 编辑器的横竖滚动
+ * 全写在 `.lines-content` 的内联 transform 上（`translate3d(-scrollLeft, -scrollTop, 0)`），
+ * 量一次就都带上了。倍数为 1 时这两条就退化成 `t = c − p0`（纯平移，镜片里与编辑器逐像素同级）。
  *
  * ⚠️ 与手柄同一条命中测试的坑：**胶囊必须对命中测试隐身**（`pointer-events: none`）。
  * 它 Teleport 到了 body 上，是编辑器 DOM 之外的元素；一旦它压在手指落点上，
  * `getTargetAtClientPoint` 就会走 `fulfillUnknown()` 返回 `position: null`，拖动当场卡死
  * （机制见文件头那条 ⚠️，`.selection-handles` 里那两颗是同一回事）。
  *
- * ⚠️ 位置算好再交给模板（viewport 坐标 + 是否已翻到下方），模板只管画，不做数学：
- * 夹取要用 `--ui-scale` 与视口尺寸，这些东西待在 CSS 里拿不到。
- * 胶囊的尺寸**必须与 EditorPane.vue 里 `.handle-probe*` 的 CSS 一致**（那边写 px，构建期
- * 转 rem 后跟着 `--ui-scale` 缩放，所以这里也要乘 `uiScale()`，与 HANDLE_BOX 同款）：
- *   PROBE_GAP  手指接触点到胶囊最近那条边的距离
- *   PROBE_H    胶囊高（CSS 里由字号与上下 padding 决定，改样式要同步改这里）
- * 宽度只用于水平夹取，用**估算上限** PROBE_W_EST：内容（行 n，列 m）宽度随数字位数变，
- * 取一个偏大的值只会让胶囊更靠里一点，不会撞出视口，比每帧去量 DOM 划算。
+ * ⚠️ 位置算好再交给模板（viewport 坐标 + 是否已翻到下方 + 镜片尺寸），模板只管画：
+ * 夹取要用 `--ui-scale` 与视口尺寸，这些东西待在 CSS 里拿不到。镜片尺寸也由这里发出去
+ * （`--probe-lens-w / -h / -gap`），**只此一份常量** —— 与 `.magnifier*` 的 CSS 不重复定义。
  */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
 import { isTouchPointer } from './useMobileKeyboard.js'
 
@@ -76,17 +107,77 @@ const EDGE_STEP = 8
 /** 拖动时把坐标再往内容区里推一点，免得落在行号槽上拿不到 position */
 const CONTENT_PAD = 2
 /**
- * 胶囊的定位参数（逻辑 px），**必须与 EditorPane.vue 的 `.handle-probe*` CSS 一致**。
- * 改样式记得同步这四个数，否则翻转与夹取的判据就偏了。
+ * 放大镜镜片的参数（逻辑 px）。这几个数是**唯一出处** —— 镜片尺寸由 `syncProbe()` 连同位置
+ * 一起写进 `--probe-lens-w / -h / -gap`，CSS 只消费变量，不再重复写一遍。
+ * 逻辑 px 同样要乘 `uiScale()`（CSS 那边写 px 会被 postcss-pxtorem 转 rem、跟着 --ui-scale 缩，
+ * 这边走内联 px 就得自己乘，否则缩放一改镜片就和内容对不上）。
  */
-/** 手指接触点到胶囊最近边的距离 —— 也就是那条光束的长度 */
-const PROBE_GAP = 52
-/** 胶囊高度 */
-const PROBE_H = 34
-/** 胶囊宽度的估算上限，只用于水平夹取（理由见文件头） */
-const PROBE_W_EST = 140
-/** 胶囊离视口左右边 / 上下边至少留出的余量 */
+/** 镜片装几行高 / 几个字符宽。**镜片是胶囊形**（CSS 那边 `border-radius: 999px`），
+ *  所以高就是两端半圆的直径 —— 高改小，两个端头跟着一起收。
+ *  两个数都取**整数行 / 整数格**：里面是整行整行的代码、逐格的等宽字，卡在半行或半格上
+ *  只会看到两截。 */
+const LENS_ROWS = 2
+const LENS_COLS = 8
+/** 镜片里内容的放大倍数。**1 = 里面的代码与编辑器里一模一样大**（镜片就是个「搬过来的窗口」，
+ *  不是放大镜）。要放大就把它调上去，但镜片尺寸得同步放大同一个倍数才是同一片内容。 */
+const LENS_ZOOM = 1
+/** 镜片最近那条边离手指的距离 —— 也就是那条光束的长度 */
+const LENS_GAP = 22
+/** 镜片离视口左右边 / 上下边至少留出的余量 */
 const PROBE_SAFE = 10
+
+/**
+ * Monaco 写在 `.view-lines` **内联样式**上的那几个字体属性 —— 与
+ * `vs/editor/browser/config/domFontInfo.js` 的 `applyFontInfo()` 一一对应。
+ * 写死一份名单而不是遍历 `style` 按前缀挑：Safari 上 `CSSStyleDeclaration` 不可迭代
+ * （`for…of` 直接 TypeError），而这套东西主要就跑在手机上。
+ */
+const FONT_PROPS = [
+  'font-family',
+  'font-weight',
+  'font-size',
+  'font-feature-settings',
+  'font-variation-settings',
+  'line-height',
+  'letter-spacing',
+]
+
+/**
+ * 把 `.view-lines` 的内联字体照抄到镜片里的那一层上（为什么必须抄见文件头那条 ⚠️）。
+ * 逐条 `setProperty` / `removeProperty`：属性名是白的，值原样搬，不解析、不做单位换算。
+ */
+function copyFontInfo(from, to) {
+  for (const prop of FONT_PROPS) {
+    const value = from.style.getPropertyValue(prop)
+    if (value) to.style.setProperty(prop, value)
+    else to.style.removeProperty(prop)
+  }
+}
+
+/**
+ * 镜片该多大 —— 按**编辑器当下真实的字体度量**算，而不是写死像素。
+ *
+ * 字号（`fontSize`，8–32）与行高倍数（`lineHeightRatio`）都是设置项，用户一改，行高与字符宽
+ * 全变；写死的 `LENS_H` 在 32px 字号下连一行都装不满，「两行高」这个语义当场就没了。
+ * 所以取 `EditorOption.fontInfo` 的 `typicalHalfwidthCharacterWidth`（等宽字体下就是每个字符的
+ * 宽度）与 Monaco 报的行高，各乘行数 / 格数。
+ *
+ * ⚠️ 这两个值**已经是屏幕 px，不要再乘 `uiScale()`**：`editorOptions()` 下发 fontSize / lineHeight
+ * 时就乘过 scale 了（见 services/editorOptions.js 的「全局缩放的补偿点」），而行高直接取自
+ * `getScrolledVisiblePosition()` 的返回值 —— 它们本来就是缩放后的真实像素。
+ * 这一点与旁边的 `LENS_GAP` / `PROBE_SAFE` 不同：那两个是「逻辑 px × uiScale()」。
+ */
+function lensSize(instance, tip) {
+  const info = instance.getOption(monaco.editor.EditorOption.fontInfo)
+  // 兜底链：等宽字体三条都有值；万一某条缺失（比如字体还没量完），按 0.6 em 估一个
+  const charWidth =
+    info.typicalHalfwidthCharacterWidth || info.spaceWidth || info.fontSize * 0.6
+  return {
+    lensW: Math.round(charWidth * LENS_COLS),
+    // 行高取 Monaco 报的那一份（与 `paintProbe()` 里对齐行中心用的是同一个数）
+    lensH: Math.round(tip.height * LENS_ROWS),
+  }
+}
 
 /**
  * @param {{
@@ -94,14 +185,16 @@ const PROBE_SAFE = 10
  *   host: import('vue').Ref,
  *   stage: import('vue').Ref,
  *   active: import('vue').Ref<boolean>,
+ *   magnifier: import('vue').Ref<HTMLElement|null>,
  * }} options
  *   `editor` = Monaco 实例（setup 里还是 null，由 watch 在它出现时补订阅）
  *   `host` = 编辑器容器（指针类型探测挂它）
  *   `stage` = 浮层的定位父层（手柄坐标相对它）
  *   `active` = 编辑区此刻真的露着（被设置 / 抽题 / 预览盖住时为 false，手柄整层收掉）
+ *   `magnifier` = 放大镜那层的外壳（EditorPane 里 v-if 出来的，`paintProbe()` 往它里面搬 DOM）
  */
-export function useSelectionHandles({ editor, host, stage, active }) {
-  /** 两颗手柄相对 stage 的**盒子左上角**；null = 当下不该显示 */
+export function useSelectionHandles({ editor, host, stage, active, magnifier }) {
+  /** 两颗手柄：相对 stage 的**盒子左上角** + 圆点朝向（`down`）；null = 当下不该显示 */
   const handles = ref(null)
 
   /**
@@ -111,11 +204,25 @@ export function useSelectionHandles({ editor, host, stage, active }) {
   const dragging = ref(false)
 
   /**
-   * 拖动期间那颗「光标在哪」的胶囊；null = 不显示（没在拖）。
-   * `{ left, top, line, column, below }`：`left / top` 是**视口坐标**（胶囊 Teleport 到 body，
-   * 用 fixed 定位，因此不必换算 stage 偏移），`below` = 上方放不下、已翻到手指下方。
+   * 拖动期间的放大镜胶囊；null = 不显示（没在拖）。
+   * `{ left, top, below, lensW, lensH, gap, anchorX, lineTop, lineHeight }`：
+   * `left / top` 是**视口坐标**（胶囊 Teleport 到 body、fixed 定位，不必换算 stage 偏移），
+   * `below` = 上方放不下、已翻到手指下方；后面几个是给 `paintProbe()` 算反向位移用的现场。
    */
   const probe = ref(null)
+
+  /**
+   * 拖动期间两颗手柄的**圆点朝哪** —— `true` = 朝下、`false` = 朝上、`null` = 没在拖。见 `knobDirection()`。
+   *
+   * 规则是「**背离镜片**」：镜片挂在手指上方时圆点朝下、翻到下方时朝上。理由是圆点别被镜片压住 ——
+   * 镜片压在手柄之上（z-index 118 vs 4），手指抓的那颗若正好朝镜片那一侧，圆点就整颗看不见了。
+   * 拖着拖着镜片翻面（手指贴近视口顶 / 底）时朝向也该跟着翻，所以这里挂在 `probe.below` 上派生态。
+   *
+   * ⚠️ 这条**只管没被手指压着的那一颗**。手指正抓着的那颗听它抓下去时的那一侧，理由见 `knobDirection()`。
+   */
+  const knobDown = computed(() =>
+    dragging.value && probe.value ? !probe.value.below : null,
+  )
 
   /** 最近一次落在编辑区的指针是不是触摸 */
   const touchActive = ref(
@@ -167,11 +274,13 @@ export function useSelectionHandles({ editor, host, stage, active }) {
       !touchActive.value
     ) {
       handles.value = null
+      syncHandlesLayer()
       return
     }
     const selection = instance.getSelection()
     if (!selection || selection.isEmpty()) {
       handles.value = null
+      syncHandlesLayer()
       return
     }
 
@@ -187,8 +296,25 @@ export function useSelectionHandles({ editor, host, stage, active }) {
     const inset = (KNOB_GAP + KNOB_SIZE) * scale
 
     /**
-     * `pos` → 盒子的左上角（相对 stage）。
-     * 「起点」的盒子往上挂（下边中点落在选区上沿），「终点」的盒子往下挂（上边中点落在下沿）。
+     * 圆点朝哪（`true` = 朝下 = 贴盒子顶边、挂在端点**下方**）：
+     * - 没在拖 → 默认：起点朝上、终点朝下（同 iOS 那两颗）；
+     * - **正被手指抓着的那一颗** → 一直保持在它「抓下去时」的那一侧，也就是上面那份默认。
+     *   不能跟着 `knobDown` 一起翻：按下的那一瞬间圆点会被甩到端点另一侧，离手指差出 28px
+     *   （= 两个 14px），之后整段拖动都差着这一段，看着就是「手柄不跟手」；
+     * - 另一颗没有手指压着 → 交给 `knobDown`（背离镜片），否则会被 z-index 118 的镜片整颗盖住。
+     */
+    function knobDirection(which) {
+      if (knobDown.value === null || which === drag?.which) return which === 'end'
+      return knobDown.value
+    }
+
+    /**
+     * `pos` → 盒子的左上角（相对 stage）+ 圆点朝向。
+     *
+     * `anchorY` 是**端点那一条边**（起点取选区上沿、终点取下沿），盒子就挂在它的一侧：
+     * 「圆点朝下」= 盒顶贴端点、圆点落在盒内靠上的 `top: 6px` 处；「圆点朝上」= 盒底贴端点、
+     * 圆点落在 `bottom: 6px` 处。也就是 `top` 那两种算法。圆点中心离端点**始终** 14px
+     * （= `KNOB_GAP + KNOB_SIZE / 2`），只是换了一侧 —— 与伪元素的朝向由同一个 `knobDirection()` 驱动。
      *
      * 夹取**只保证圆点不出可视区** —— 盒子为了凑满 44px 触摸目标，允许伸到编辑器外面，
      * 那部分由 `.selection-handles` 的 `overflow: hidden` 裁掉。这样两头都占着：
@@ -201,11 +327,11 @@ export function useSelectionHandles({ editor, host, stage, active }) {
       const anchorX = pos.left + dx
       const anchorY = which === 'start' ? pos.top + dy : pos.top + pos.height + dy
       const left = clamp(anchorX - box / 2, (KNOB_SIZE / 2) * scale - box / 2, viewW + (KNOB_SIZE / 2) * scale - box / 2)
-      const top =
-        which === 'start'
-          ? clamp(anchorY - box, inset - box, viewH - box)
-          : clamp(anchorY, 0, viewH - inset)
-      return { left: Math.round(left), top: Math.round(top) }
+      const down = knobDirection(which)
+      const top = down
+        ? clamp(anchorY, 0, viewH - inset)
+        : clamp(anchorY - box, inset - box, viewH - box)
+      return { left: Math.round(left), top: Math.round(top), down }
     }
 
     const next = {
@@ -213,6 +339,15 @@ export function useSelectionHandles({ editor, host, stage, active }) {
       end: place(instance.getScrolledVisiblePosition(selection.getEndPosition()), 'end'),
     }
     handles.value = next.start || next.end ? next : null
+    syncHandlesLayer()
+  }
+
+  /**
+   * 镜片里那层手柄要跟着 `handles.value` 的 DOM 渲染走，不能在 `paintProbe()` 里顺手搬
+   * —— 两者的时序差一帧，理由见 `paintHandles()` 的注释。
+   */
+  function syncHandlesLayer() {
+    if (probe.value) nextTick(paintHandles)
   }
 
   // --------------------------------------------------------------- 拖动
@@ -229,15 +364,19 @@ export function useSelectionHandles({ editor, host, stage, active }) {
       which === 'start' ? selection.getStartPosition() : selection.getEndPosition()
     drag = {
       pointerId: event.pointerId,
+      /** 手指抓着的是哪一颗 —— `knobDirection()` 靠它认出「移动端」保持朝向 */
+      which,
       fixed: new monaco.Position(fixed.lineNumber, fixed.column),
       /** 手指下那一端此刻落在哪儿；胶囊报的就是它（见 `syncProbe`） */
       at: new monaco.Position(moving.lineNumber, moving.column),
       x: event.clientX,
       y: event.clientY,
     }
-    syncProbe()
-    // 先把两颗手柄对命中测试隐身，再收后续事件 —— 顺序反了第一帧就会撞上「落点在盒子里」
+    // 先把两颗手柄对命中测试隐身，再收后续事件 —— 顺序反了第一帧就会撞上「落点在盒子里」。
+    // 放在 syncProbe() 之前：那样一进来「另一颗」的朝向就是对的（`knobDown` 要 `dragging` 为真才算数）。
+    // ⚠️ 手指抓着的那颗不受影响 —— `knobDirection()` 让它保持在按下前的默认朝向，不会跳开手指。
     dragging.value = true
+    syncProbe()
     window.addEventListener('pointermove', onDragMove, { passive: false })
     window.addEventListener('pointerup', onDragEnd)
     window.addEventListener('pointercancel', onDragEnd)
@@ -270,41 +409,135 @@ export function useSelectionHandles({ editor, host, stage, active }) {
   }
 
   /**
-   * 把拖动现场换算成胶囊的位置与读数（`applyDrag()` 与 `stepEdgeScroll()` 都会走到，
-   * 后者是手指贴边不动、靠自动滚动在改光标那一档）。
+   * 把拖动现场换算成胶囊的几何，然后（等胶囊真的渲染出来）把主编辑器那三层 DOM 搬进去。
+   * `applyDrag()` 与 `stepEdgeScroll()` 都会走到，后者是手指贴边不动、靠自动滚动在改光标那一档。
    *
    * 位置跟的是**手指的真实坐标**（`drag.x / drag.y`），不是 `applyDrag()` 里夹进编辑器后的
    * 那一份：手指移到行号槽或编辑器外面时，夹取坐标会钉在边上，胶囊跟着钉住看着像卡死了。
-   * 读数反过来取夹取后的 model position（`drag.at`）—— 手指在那个位置本来就落不到内容上，
-   * 显示钉住的那一行一列才是对的。
+   * 要显示哪一行反过来取夹取后的 model position（`drag.at`）—— 手指在那个位置本来就落不到
+   * 内容上，显示钉住的那一行才是对的。
    *
-   * ⚠️ 读数**不能**按「拖的是哪一端」去 `getSelection()` 上取：手拖过对面那一端之后
+   * ⚠️ 那个位置**不能**按「拖的是哪一端」去 `getSelection()` 上取：手拖过对面那一端之后
    * Monaco 会把 start / end 交换（`Range.fromPositions` 内部有序），此刻按 which 取到的是
-   * **被钉住的那一端**，胶囊就会报一个手指根本不在那儿的行列。只有 `drag.at`
+   * **被钉住的那一端**，胶囊就会显示手指根本不在的那一行。只有 `drag.at`
    * —— 每次 `applyDrag()` 现算出来的落点 —— 才是手指底下那一处。
    */
   function syncProbe() {
-    if (!drag || !drag.at) {
+    const instance = editor.value
+    const at = drag?.at
+    const tip = instance && at ? instance.getScrolledVisiblePosition(at) : null
+    if (!tip) {
       probe.value = null
       return
     }
-    const tip = drag.at
     const scale = uiScale()
-    const gap = PROBE_GAP * scale
-    const height = PROBE_H * scale
-    const half = (PROBE_W_EST * scale) / 2
+    const { lensW, lensH } = lensSize(instance, tip)
+    const gap = LENS_GAP * scale
     const safe = PROBE_SAFE * scale
-    const fitsAbove = drag.y - gap - height >= safe
-    const below = !fitsAbove && drag.y + gap + height <= window.innerHeight - safe
+    // 上方放得下就挂在手指上头，否则整条翻到手指下方（iOS 放大镜就是这个口径）
+    const fitsAbove = drag.y - gap - lensH >= safe
+    const below = !fitsAbove && drag.y + gap + lensH <= window.innerHeight - safe
+    const half = lensW / 2
     const min = half + safe
     const max = window.innerWidth - half - safe
-    probe.value = {
+    const geom = {
       left: Math.round(clamp(drag.x, min, Math.max(min, max))),
       top: Math.round(drag.y),
-      line: tip.lineNumber,
-      column: tip.column,
       below,
+      lensW,
+      lensH,
+      gap,
+      /** 手指的横坐标：内容要把它顶到镜片正中（纵向则是那一行的中心，理由见 paintProbe） */
+      anchorX: drag.x,
+      /** 那一行相对编辑器 DOM 顶边的 y 与行高（Monaco 自己给的，含滚动偏移） */
+      lineTop: tip.top,
+      lineHeight: tip.height,
     }
+    probe.value = geom
+    // 胶囊是 v-if 出来的 —— 第一帧它还不在 DOM 里，等 Vue 挂完再往里搬内容
+    nextTick(() => paintProbe(geom))
+    // 胶囊换边（`below` 变了）会连带 `knobDown` 变化，手柄盒子的 `top` 得跟着重算一次 ——
+    // `update()` 只挂在选区 / 滚动 / 布局三种变化上，管不到这条。
+    schedule()
+  }
+
+  /**
+   * 把主编辑器 `.view-lines` / `.view-overlays` / `.cursors-layer` 三层与 `.selection-handles`
+   * 里那两颗手柄的 `innerHTML` 搬进胶囊，并给内容套上反向位移，让手指那一点落在镜片正中。
+   *
+   * 横向跟手指、纵向按**行中心**对齐：手指在一行之内的上下位置本来就没有意义，
+   * 按行居中才不会随手指的细微抖动一上一下地窜。
+   *
+   * 位移算式（`transform-origin: 0 0`）：内容坐标 p → `translate + zoom × p`，
+   * 于是把内容点 p0 顶到镜片中心 c 就是 `t = c − zoom × p0`。
+   */
+  function paintProbe(geom) {
+    const instance = editor.value
+    const editorEl = host.value?.querySelector('.monaco-editor')
+    const shell = magnifier.value
+    const snapshot = shell?.querySelector('.magnifier__snapshot')
+    const srcLines = editorEl?.querySelector('.view-lines')
+    if (!instance || !editorEl || !snapshot || !srcLines) return
+
+    const editorRect = editorEl.getBoundingClientRect()
+    const linesRect = srcLines.getBoundingClientRect()
+    const contentX = geom.anchorX - linesRect.left
+    const contentY = editorRect.top + geom.lineTop + geom.lineHeight / 2 - linesRect.top
+    const zoom = LENS_ZOOM
+    const tx = geom.lensW / 2 - zoom * contentX
+    const ty = geom.lensH / 2 - zoom * contentY
+    snapshot.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`
+
+    const overlayEl = snapshot.querySelector('.magnifier__overlays')
+    const linesEl = snapshot.querySelector('.magnifier__lines')
+    const cursorsEl = snapshot.querySelector('.magnifier__cursors')
+    if (linesEl) {
+      linesEl.innerHTML = srcLines.innerHTML
+      // 字体是写在 `.view-lines` 自己的内联样式上的，跟着 innerHTML 走不了（见 copyFontInfo）
+      copyFontInfo(srcLines, linesEl)
+    }
+    if (overlayEl) {
+      const source = editorEl.querySelector('.view-overlays')
+      overlayEl.innerHTML = source ? source.innerHTML : ''
+    }
+    if (cursorsEl) {
+      const source = editorEl.querySelector('.cursors-layer')
+      cursorsEl.innerHTML = source ? source.innerHTML : ''
+    }
+    paintHandles()
+  }
+
+  /**
+   * 把两颗手柄搬进镜片 —— 单列一个函数，是因为它的**时序**和上面三层不一样。
+   *
+   * 三层内容来自 Monaco，`setSelection()` 当场就重渲染，`syncProbe()` 里 `nextTick` 搬一次就同步了。
+   * 手柄的位置却先要过一道 `onDidChangeCursorSelection` → `schedule()`（rAF）→ `update()` —— 
+   * 它在**下一帧**才写到源手柄的内联 `left / top` 上。所以在 `paintProbe()` 里顺手搬，镜片里
+   * 那颗圆点永远停在上一次的位置（拖动中每帧都有 `pointermove` 掩盖了这点，手指一停就露馅）。
+   * 于是改由 `update()` 在算完 `handles.value` 之后补叫一次。
+   *
+   * 坐标换算：手柄的 `left / top` 相对 stage（`place()` 算的就是这个），而这一层得跟着 snapshot 走
+   * **内容坐标**（相对 `.view-lines` 的左 / 上缘），所以整层减掉 `.view-lines` 在 stage 里的偏移。
+   * 两个 rect 都是视口坐标，编辑器的横竖滚动已经含在里面（同文件头那条 ⚠️ 说的道理）。
+   * 搬过来的是盒子本身（透明），圆点与杆是伪元素 —— scoped 样式靠 `innerHTML` 一起带过来的
+   * `data-v-*` 属性照样命中（`EditorPane.vue` 那边另外把它们的 `pointer-events` 钉回 none）。
+   *
+   * 朝向类（`is-knob-down / is-knob-up`）**挂在每颗手柄自己身上**（两颗可能朝不同方向），
+   * 所以它跟着 `innerHTML` 一起过来，这里不用另外补 —— CSS 那边也只认手柄自己那个类。
+   */
+  function paintHandles() {
+    const layer = magnifier.value?.querySelector('.magnifier__handles')
+    if (!layer) return
+    const stageEl = stage.value
+    const source = stageEl?.querySelector('.selection-handles')
+    layer.innerHTML = source ? source.innerHTML : ''
+    const lines = host.value?.querySelector('.monaco-editor .view-lines')
+    if (!source || !lines || !stageEl) return
+    const linesRect = lines.getBoundingClientRect()
+    const stageRect = stageEl.getBoundingClientRect()
+    layer.style.transform = `translate(${-(linesRect.left - stageRect.left)}px, ${
+      -(linesRect.top - stageRect.top)
+    }px)`
   }
 
   function pumpEdgeScroll() {
@@ -387,5 +620,5 @@ export function useSelectionHandles({ editor, host, stage, active }) {
     disposables = []
   })
 
-  return { handles, dragging, probe, onHandleDown }
+  return { handles, dragging, knobDown, probe, onHandleDown }
 }
