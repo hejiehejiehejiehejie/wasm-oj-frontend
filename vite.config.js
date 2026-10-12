@@ -132,6 +132,15 @@ export default defineConfig({
     headers: crossOriginIsolation,
     proxy: apiProxy,
   },
+  // Monaco 按需引入专用（见 src/services/monaco/editorBundle.js）。它照 editor.main.js 逐条
+  // 引 esm 源码，而 monaco-editor 的 exports map 只有 `./*` → `./esm/vs/*.js` 一条 —— 走它
+  // 既引不到 .css（会被拼成 .css.js），也到不了 esm 下的深层路径。所以单给一个前缀直取源码。
+  // 尾斜杠是有意的：alias 按前缀匹配，防止将来冒出同名前缀时误伤。
+  resolve: {
+    alias: {
+      'monaco-esm/': fileURLToPath(new URL('./node_modules/monaco-editor/esm/vs/', import.meta.url)),
+    },
+  },
   build: {
     // Monaco ships a few large chunks; raise the warning threshold instead of
     // splitting the editor across many lazy chunks.

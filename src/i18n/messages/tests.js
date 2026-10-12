@@ -55,14 +55,22 @@ export default {
         fetchFailed: '自动抓取样例没成功，重新打开题目页可以再试一次',
       },
 
-      /** 页头判定语。AC 是「通过」的通用说法，两套语言都不译。 */
+      /**
+       * 页头判定语。AC 是「通过」的通用说法，两套语言都不译。
+       * *Short 三条是窄侧栏用的（侧栏 <360 逻辑 px 时 Sidebar 给出 compact，
+       * TestPanel 换用这组，2026-10-12）：计数那两条去掉「 AC」后缀（数字本身已表意），
+       * 「全部 AC」那条只留 `AC` —— 不能写成「全部」，那样读不出判定结论。
+       */
       verdict: {
         noCases: '无测试用例',
         running: '运行中',
         allPassed: '全部 AC',
+        allPassedShort: 'AC',
         /** 有结论过期时给不出确切通过数，用 ? 占位 */
         stale: '?/{total} AC',
+        staleShort: '?/{total}',
         partial: '{passed}/{total} AC',
+        partialShort: '{passed}/{total}',
       },
 
       /** 页头耗时的 title，{time} 形如 120ms */
@@ -148,12 +156,16 @@ export default {
         fetchFailed: 'Could not fetch the samples automatically. Open the problem page again to retry',
       },
 
+      /** 同 zh-CN：*Short 三条是窄侧栏用的（见 zh-CN 那侧说明） */
       verdict: {
         noCases: 'No test cases',
         running: 'Running',
         allPassed: 'All AC',
+        allPassedShort: 'AC',
         stale: '?/{total} AC',
+        staleShort: '?/{total}',
         partial: '{passed}/{total} AC',
+        partialShort: '{passed}/{total}',
       },
 
       elapsedTitle: 'Slowest case took {time} (run phase only, excludes compilation)',

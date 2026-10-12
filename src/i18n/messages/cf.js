@@ -95,6 +95,10 @@ export default {
           imported: '已导入',
           importAll: '全部导入',
         },
+        /** 抽到题时那条全局通知的标题（正文复用上面 `result.count`，不另写一句） */
+        notif: {
+          title: '抽取成功',
+        },
         errors: {
           ratingOrder: '难度下限不能大于上限',
           handleRequired: '要排除已通过的题，得先填 Codeforces 账号',
@@ -185,6 +189,10 @@ export default {
           importing: 'Importing…',
           imported: 'Imported',
           importAll: 'Import all',
+        },
+        /** 同 zh-CN：正文复用上面 `result.count` */
+        notif: {
+          title: 'Pick finished',
         },
         errors: {
           ratingOrder: 'The minimum difficulty cannot exceed the maximum',

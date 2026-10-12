@@ -374,7 +374,7 @@ function onKeyDown(event) {
       break
     // F2（重命名）、Delete（删除）、⌘/Ctrl + A（全选）**刻意不在这里**：2026-10-10 起
     // 前两条、2026-10-12 起全选也是，都登记在 useShortcutManager 里的全局动作，由 App.vue
-    // 那个窗口捕获监听统一处理（先过作用域闸门「焦点在这一行、且不在输入框上」，
+    // 那个窗口捕获监听统一处理（先过作用域闸门「焦点在资源管理器里、且不在输入框上」，
     // 再进 FileExplorer 的 startRename / requestDelete / selectAllNodes）。留在这里就等于
     // 第二份真相：全局那条在捕获阶段就 stopPropagation 了，这里的分支永远收不到按键；
     // 而且设置里改绑了键位，这里也不会跟着变。

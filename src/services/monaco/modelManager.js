@@ -10,7 +10,7 @@
  * - 每个 model 只挂一次内容监听，维护响应式 dirty 集合；
  * - save/saveAll 把 model 正文写回 VFS 后清 dirty。
  */
-import * as monaco from 'monaco-editor'
+import * as monaco from './editorBundle.js'
 import { reactive } from 'vue'
 import { t } from '../../i18n/index.js'
 import { getVFS } from '../vfs/vfsFactory.js'

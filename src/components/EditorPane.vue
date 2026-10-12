@@ -153,20 +153,27 @@ const dropZone = shallowRef(null)
 const isDropTarget = computed(() => dropZone.value !== null && activeDropZone.value === dropZone.value)
 
 /**
- * 拖进来的文件：已经开着就切到那个页签，没开就常开一个（固定，不是预览页签）。
+ * 打开一个文件并把它固定成常开页签（已经开着就切过去，没开就新开一个）。
  *
  * 合成视图要主动让位 —— editorViews 只在 workspace.activeId **变化**时自动收回，
  * 而拖进来的文件如果本来就是当前活跃文件，activeId 压根不变（EditorTabs 的 activate 同理）。
+ *
+ * @param {string} id 节点 id
  */
-async function openDroppedFile(node) {
+async function openNodeById(id) {
   deactivateViews()
   try {
-    await openFile(node.id, null)
+    await openFile(id, null)
   } catch {
     return // 拖到一半文件被删了之类：静默收场，没有行内位置可提示
   }
-  // 它原本可能是预览页签：落进来的意思就是「固定住」
-  pinTab(node.id)
+  // 它原本可能是预览页签：拖进来 / 刚导入的意思就是「固定住」
+  pinTab(id)
+}
+
+/** 落点回调（站内拖拽，见 useTreeDrag 的 registerDropZone）：收的是节点 */
+function openDroppedFile(node) {
+  return openNodeById(node.id)
 }
 
 /** 注销函数，onBeforeUnmount 里调 */
@@ -646,6 +653,9 @@ defineExpose({
     if (isTouchPointer()) return
     editor.value?.focus()
   },
+  // 从外面把一个文件打开成常开页签（目前只有「从系统拖进来的单个文件」用，
+  // 见 App.vue 的 importDroppedItems）：与拖到编辑区那条同源，都走 openNodeById
+  openNode: (id) => openNodeById(id),
 })
 </script>
 

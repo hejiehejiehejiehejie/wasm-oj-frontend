@@ -14,7 +14,7 @@
  * 【注册时机】本模块被 monaco-setup.js 顶层 import，模块只求值一次，注册也就只有一次。
  * 补全项的 range 在每次 provideCompletionItems 时按光标处的单词现算，与具体文档无关。
  */
-import * as monaco from 'monaco-editor'
+import * as monaco from './editorBundle.js'
 
 const { CompletionItemKind, CompletionItemInsertTextRule } = monaco.languages
 

@@ -13,8 +13,10 @@ import { uiScale } from './composables/useUiScale.js'
 import { useCompanionImport } from './composables/useCompanionImport.js'
 import { autoScrapeState, useCompanionBridge } from './composables/useCompanionBridge.js'
 import { useMobileKeyboard } from './composables/useMobileKeyboard.js'
+import { usePageDrop } from './composables/usePageDrop.js'
 import { useInstallGuides } from './composables/useInstallGuides.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
+import { contentElementAt } from './composables/contentHit.js'
 import { flush, initAutoSave } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { MEMORY_LIMIT_DEFAULT_BYTES, TIME_LIMIT_DEFAULT_MS, runCases } from './services/runner.js'
@@ -45,7 +47,7 @@ import {
 import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
-import { flushFlashNotification } from './services/notifications.js'
+import { flushFlashNotification, notify } from './services/notifications.js'
 import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
 import { flipPanelPosition, panelPosition, swapping, uiScalePref } from './services/shellSettings.js'
@@ -992,38 +994,121 @@ const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
 
 /**
  * 作用域受限的三条动作（F2 重命名 / Delete 删除 / ⌘·Ctrl+A 全选 资源树里的节点）：只有焦点在
- * 资源树的**某一行**上时才生效。
+ * **资源管理器那块面板**里时才生效（行上、或树的空白处都算 —— 见下面的 treeScopeFrom）。
  *
  * 为什么不放进 SHORTCUT_HANDLERS：上面那些都是「在哪儿按都算」，而这三条得先过一道闸门 ——
  * 尤其 Delete 不带修饰键、⌘/Ctrl+A 在编辑器里是「全选文本」，不设闸门的话在编辑器里按一下
  * 删字符 / 全选文本，就会顺手弹出删除确认框、或把整棵树选起来。
- * 闸门**必须拦在 preventDefault 之前**：不在树里时就整条放行，原生行为（删字符、退格、全选）照旧。
+ * 闸门**必须拦在 preventDefault 之前**：不在资源管理器里时就整条放行，原生行为（删字符、退格、全选）照旧。
  *
  * 执行落在资源管理器里（`FileExplorer` 经 defineExpose 给出 startRename / requestDelete /
- * selectAllNodes），与右键菜单那两条**同源**。前两条的作用对象取「有焦点的那一行」—— 树里的焦点
- * 与主选中的同步由 FileTreeItem 的点击 / 键盘各自完成（见 FileExplorer.onTreeFocus 的注释）。
+ * selectAllNodes），与右键菜单那两条**同源**。三条的作用对象都是**行 id**：落在某一行上就是那一行，
+ * 落在树的空白处是 null —— 前两条那时由 FileExplorer 自己拿主选中那一行顶上（见 keyboardRowId），
+ * 全选把「空白处」读成「焦点在根上」（见 folderContentIds）。
+ * 树里的焦点与主选中的同步由 FileTreeItem 的点击 / 键盘各自完成（见 FileExplorer.onTreeFocus 的注释）。
+ *
+ * ⌘ / Ctrl + A 另有一条**指针优先**的判据（F2 / Delete 不看指针）：桌面端点开文件时焦点会被
+ * EditorPane 抢进 Monaco，只看 DOM 焦点的话「点文件 → 马上 ⌘A」全选的是代码 —— 所以指针还在
+ * 资源管理器里时按「焦点在文件上」算。细节见 treeScopeFrom / regionUnderPointer。
  */
 const SHORTCUT_TREE_HANDLERS = {
-  'rename-node': (row) => fileExplorer.value?.startRename(row.dataset.treeId),
-  'delete-node': (row) => fileExplorer.value?.requestDelete(row.dataset.treeId),
-  // 全选不需要行 id：它要的是整棵树的所有节点（连折叠目录里的也算，与 Shift 扩选的
-  // 「可见行」是两条刻意不同的口径），只有 FileExplorer 算得出来
-  'select-all-nodes': () => fileExplorer.value?.selectAllNodes(),
+  /** @param {string|null} rowId 见上：null = 焦点在树的空白处，交给 FileExplorer 定夺 */
+  'rename-node': (rowId) => fileExplorer.value?.startRename(rowId),
+  'delete-node': (rowId) => fileExplorer.value?.requestDelete(rowId),
+  // 全选要的是「哪一行算焦点」：给到行 id，FileExplorer 拿它算**父文件夹里的内容**
+  // （给 null = 焦点在树的空白处，那边读成「焦点在根上」，选根的内容）
+  'select-all-nodes': (rowId) => fileExplorer.value?.selectAllNodes(rowId),
+}
+
+// ------------------------------------------------- 指针在哪一块（⌘/Ctrl+A 的区域判据）
+
+/**
+ * 指针当下停在哪一块，是 ⌘ / Ctrl + A 的**区域判据**（下面 regionUnderPointer）。
+ *
+ * 为什么 ⌘A 不能只看 DOM 焦点：桌面端点开一个还没打开过的文件时，EditorPane 会把焦点主动
+ * 送进 Monaco（`if (!isTouchPointer()) instance.focus()` —— 为的是「点开就能直接打字」），
+ * 于是「点文件 → 马上按 ⌘A」按 DOM 焦点判就成了「在编辑器里按的」，全选的是代码。
+ * 用户 2026-10-12 报的正是这个；触屏不受影响（那边本来就不抢焦点，走 DOM 焦点那条老路）。
+ *
+ * 记账方式：只在鼠标移动时存两个数（`pointerType` 不是 mouse 的一律不记，触摸 / 笔不参与），
+ * 按键那一刻用 `elementFromPoint` 现算 —— 不存「上一次点了哪」，因为用户要的就是
+ * 「看鼠标现在在哪里」。
+ */
+let pointerX = Number.NaN
+let pointerY = Number.NaN
+
+/** @param {PointerEvent} event */
+function onPointerMove(event) {
+  if (event.pointerType !== 'mouse') return
+  pointerX = event.clientX
+  pointerY = event.clientY
+}
+
+/** 指针底下那个元素；没记过位置（纯键盘操作、触摸）或已经移出窗口时给 null。
+ *  穿透浮层（覆盖式滚动条滑块 / 分隔条热区）取真正的内容元素 —— 不穿透的话，
+ *  鼠标停在树右缘那一条上会被判成「不在任何一区」，⌘A 就退回 DOM 焦点判据了
+ *  （判据与另两处同款，见 composables/contentHit.js）。 */
+function pointerTarget() {
+  if (!Number.isFinite(pointerX)) return null
+  return contentElementAt(pointerX, pointerY)
 }
 
 /**
- * 这一发按键落在资源树的哪一行上？不在树上就返回 null。
+ * 指针停在哪个区：'explorer'（资源管理器面板）/ 'editor'（编辑区）/ null（别处、或没有指针）。
+ *
+ * 编辑区取 `.pane--editor` 而不是 `.monaco-editor`：设置 / 抽题也铺在这一栏里，指针停在
+ * 它们上面同样算「不在文件树里」，⌘A 该原样放行（那边自己的输入框有自己的全选）。
+ * 指针在两者之外（活动栏、页签栏、logo、浮层…）时返回 null —— 那是「不插嘴」，退回 DOM 焦点判据。
+ */
+function regionUnderPointer() {
+  const el = pointerTarget()
+  if (!el) return null
+  if (el.closest('[data-panel="explorer"]')) return 'explorer'
+  if (el.closest('.pane--editor')) return 'editor'
+  return null
+}
+
+/**
+ * 这一发按键算不算「在资源管理器里按的」？在就返回该动作作用于哪一行
+ * （`{ rowId }`，落在空白处时为 null），不在就返回 undefined。
  *
  * 两类都要排掉：**可编辑元素**（内联新建那个输入框、以及内联重命名的输入框 —— 后者就在行
- * **内部**，不排掉的话改名时按 Delete 会删不掉字符、反倒弹出删除确认框），以及树之外的一切。
+ * **内部**，不排掉的话改名时按 Delete 会删不掉字符、反倒弹出删除确认框），以及资源管理器之外
+ * 的一切（编辑器、设置页…）。
+ *
+ * 作用域取 `[data-panel="explorer"]`（Sidebar 给两个面板标的那个属性），**不是**「落点必须在某一行上」：
+ * 树的空白处也是资源管理器的一部分（点空白时容器自己拿到焦点，见 FileExplorer 的 onTreePointerDown），
+ * 只认行的话「在空白处停一下再按 ⌘A」就整条失灵 —— 用户 2026-10-12 报的正是这个。
+ * 隐藏的那个面板（v-show）里收不到事件，所以不必再判面板可不可见。
+ *
+ * **⌘ / Ctrl + A 例外**：它先看指针停在哪一块，指针说了算（桌面端）。
+ * - 指针还在资源管理器里 → 按「焦点在文件上」算，且作用于**指针底下那一行**（点过哪一行
+ *   指针就压在哪一行上；压在树的空白处 / 面板其他部位时给 null，由 FileExplorer 退回主选中，
+ *   都没有就是「焦点在根上」）。这一条压过 DOM 焦点，因为 DOM 焦点可能已经被 EditorPane
+ *   抢进了 Monaco。
+ * - 指针在编辑区里 → 一律 `undefined`（放行）：这时 ⌘A 就是编辑器自己的「全选代码」。
+ * - 指针在别处（或根本没有指针：纯键盘、触摸）→ 落回下面的 DOM 焦点判据。
+ *
+ * 为什么只给 ⌘A 开这个口子，F2 / Delete 不看指针：Delete 不带修饰键，光标在代码里、
+ * 指针恰巧搭在侧栏上时按一下 Delete 就成了「弹删除文件确认框」—— 那个方向的风险比收益大得多。
  * @param {KeyboardEvent} event
- * @returns {Element|null} 带 data-tree-id 的那一行
+ * @param {string} actionId
+ * @returns {{ rowId: string|null }|undefined}
  */
-function treeRowFrom(event) {
+function treeScopeFrom(event, actionId) {
+  if (actionId === 'select-all-nodes') {
+    const region = regionUnderPointer()
+    if (region === 'editor') return undefined
+    if (region === 'explorer') {
+      return { rowId: pointerTarget()?.closest('[data-tree-id]')?.dataset.treeId ?? null }
+    }
+  }
+
   const target = event.target
-  if (!(target instanceof Element)) return null
-  if (target.closest('input, textarea, select, [contenteditable]')) return null
-  return target.closest('[data-tree-id]')
+  if (!(target instanceof Element)) return undefined
+  if (target.closest('input, textarea, select, [contenteditable]')) return undefined
+  if (!target.closest('[data-panel="explorer"]')) return undefined
+  return { rowId: target.closest('[data-tree-id]')?.dataset.treeId ?? null }
 }
 
 /** 这一发按键是不是发生在 Monaco 编辑器内部 */
@@ -1059,13 +1144,13 @@ function onKeydown(event) {
     return
   }
 
-  // 作用域受限的两条（F2 / Delete）：不在资源树的行上就整条放行，不拦原生行为
+  // 作用域受限的三条（F2 / Delete / ⌘·Ctrl+A）：不在资源管理器里就整条放行，不拦原生行为
   if (actionId && SHORTCUT_TREE_HANDLERS[actionId]) {
-    const row = treeRowFrom(event)
-    if (!row) return
+    const scope = treeScopeFrom(event, actionId)
+    if (!scope) return
     event.preventDefault()
     event.stopPropagation()
-    SHORTCUT_TREE_HANDLERS[actionId](row)
+    SHORTCUT_TREE_HANDLERS[actionId](scope.rowId)
     return
   }
 
@@ -1086,6 +1171,110 @@ function onKeydown(event) {
 useCompanionImport({
   onImported: () => editorPane.value?.focus(),
 })
+
+// ------------------------------------------------------- 从系统里拖文件进来
+/**
+ * 外部文件拖在页面上的那段时间，把侧栏临时撑开（2026-10-13 用户定）。
+ *
+ * 【为什么要它】「拖进来」这件事本身没有落点可言 —— 落点是**指针此刻压在哪个目录上**，
+ * 而那只在资源管理器里看得见（树上的落点高亮就是它）。所以拖入期间把侧栏整个亮出来、撑到
+ * 最宽，让「要落到哪儿」有个明白的语境；一松手（或是拖出窗口）就原样还回去 ——
+ * 不接管用户原本的折叠状态、面板、宽度。
+ *
+ * 【只做三件事】亮出侧栏、切到资源管理器、把占比压到 `MIN_SHARE`（= 面板最宽 76%）。
+ * 三件都复用现成的出口（`togglePanel` 的直切路径 / Sidebar 的 `showPanel`），
+ * 不另开一套「临时布局」——临时态就只活在下面这个闭包变量里，不进持久化。
+ *
+ * `dropRestore` 非空即「已经记过原样」：拖出去再拖回来不该把临时态当成原样记下来
+ * （那样一松手就再也回不到用户自己那一版了）。
+ */
+let dropRestore = null
+
+function previewDropTargetLayout(on) {
+  const sidebar = sidebarRef.value
+  if (on) {
+    if (dropRestore) return
+    dropRestore = {
+      visible: panelVisible.value,
+      share: editorShare.value,
+      // 当前停在哪一块：Sidebar 经 defineExpose 透上来的那张表，取不到就给默认值
+      panel: sidebar?.panels?.find((item) => item.active)?.id ?? 'explorer',
+    }
+    if (!panelVisible.value) togglePanel({ instant: true })
+    sidebar?.showPanel('explorer')
+    editorShare.value = MIN_SHARE
+    // virtualShare 是方向键 / reclamp 的「虚拟比例」，不跟 editorShare 自动走；
+    // 不在这里同步的话，还原前按一下方向键会从旧值起算、猛跳一段
+    virtualShare = MIN_SHARE
+    return
+  }
+  if (!dropRestore) return
+  const saved = dropRestore
+  dropRestore = null
+  editorShare.value = saved.share
+  virtualShare = saved.share
+  if (saved.visible !== panelVisible.value) togglePanel({ instant: true })
+  sidebar?.showPanel(saved.panel)
+}
+
+/**
+ * 拖入导入的结果播报：走**全局通知**，不走资源管理器里那条行内横幅。
+ *
+ * 换掉横幅有两个理由：① 这一趟的收尾就是把侧栏还回原样（可能整块收起、也可能切回评测面板），
+ * 横幅挂在资源管理器里，那时压根看不见；② 「放在什么位置」是这条通知的重点 ——
+ * 侧栏还原之后屏幕上不再有落点的痕迹，只剩这句话交代文件去了哪儿。
+ *
+ * @param {{ kind: 'done'|'empty'|'failed', path: string, imported?: number, skipped?: number, message?: string }} result
+ */
+function reportDropImport({ kind, path, imported = 0, skipped = 0, message = '' }) {
+  if (kind === 'empty') {
+    notify({ type: 'warning', title: t('explorer.transfer.importEmpty'), duration: 5000 })
+    return
+  }
+  if (kind === 'failed') {
+    notify({ type: 'error', title: t('explorer.transfer.importFailed'), message, duration: 5000 })
+    return
+  }
+  notify({
+    type: 'success',
+    title: t('explorer.transfer.dropDoneTitle'),
+    message: t(skipped ? 'explorer.transfer.dropDoneSkipped' : 'explorer.transfer.dropDone', {
+      n: imported,
+      where: path === '/' ? t('explorer.transfer.whereRoot') : path,
+      k: skipped,
+    }),
+    duration: 5000,
+  })
+}
+
+/**
+ * 外部文件拖进页面后的落地：写进工作区，再按规矩决定要不要顺手打开它。
+ *
+ * 落点由 usePageDrop 算好（第一个参数就是**目标目录的绝对路径**）：压在资源管理器里的某一行上
+ * 就是那个目录，别处一律根目录 —— 整页都是落点。导入本身落在资源管理器里
+ * （`importDroppedItems`，与页头那两颗「导入」按钮**同源**），这条只管
+ * 「拖进来的是谁、要不要接着开、结果怎么报」。
+ *
+ * 「恰好一个文件就打开它」（2026-10-12 用户拍板）：拖文件夹、或一次拖多个文件，只导入不开页签，
+ * 免得一下冒出几十个。拖进来的若是文件夹，`items` 里每一项都至少带一层路径
+ * （`chapter1/a.cpp`），所以用「不带斜杠」认出「这就是单独一个文件」。
+ *
+ * @param {string} targetPath 目标目录的绝对路径（'/' = 根目录）
+ * @param {import('./services/fileTransfer.js').ImportItem[]} items
+ */
+async function importDroppedFiles(targetPath, items) {
+  const stats = await fileExplorer.value?.importDroppedItems(targetPath, items, {
+    announce: reportDropImport,
+  })
+  if (!stats?.firstId) return
+  if (items.length === 1 && !items[0].rel.includes('/')) editorPane.value?.openNode(stats.firstId)
+}
+
+/** 全应用只挂一次：窗口级的 dragenter / dragover / drop（判定与落点见 composables/usePageDrop.js） */
+const { active: dropActive } = usePageDrop({ onFiles: importDroppedFiles })
+
+// 拖入期间撑开侧栏看落点、离开（或落定）还原：见 previewDropTargetLayout
+watch(dropActive, previewDropTargetLayout)
 
 // 空态提示要按「插件装没装」分岔：attach 是幂等的，这里只为读全局状态
 const { extensionInfo, checking: extensionChecking } = useCompanionBridge()
@@ -1123,6 +1312,8 @@ onMounted(async () => {
   void prepareNativeToolchain()
   // 捕获阶段：见上面 onKeydown 的说明（要抢在 Monaco 之前）
   window.addEventListener('keydown', onKeydown, true)
+  // 只为了记下指针位置（⌘/Ctrl+A 的区域判据），被动监听、每次只写两个数
+  window.addEventListener('pointermove', onPointerMove, { passive: true })
   // 订阅编辑事件（回调是运行时读集合，所以早于 / 晚于 model 创建都不影响）
   disposeAutoSave = initAutoSave()
   window.addEventListener('blur', onWindowBlur)
@@ -1170,6 +1361,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown, true)
+  window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   disposeAutoSave?.()
@@ -1596,12 +1788,17 @@ onBeforeUnmount(() => {
 /* 简洁版分隔条：12px 透明热区（视觉上只有中缝里一条线，且只在悬停/聚焦/拖拽时出现 ——
    平时连这条线也不画，见 .splitter__line 的 opacity: 0）。
    热区做宽是为了好抓：线的视觉不变，但左右各多出几像素可以被按住。
-   负外边距把热区左右各压进两侧卡片 4px，于是两块卡片实际只离 4px——
-   热区宽度没缩水，中间的细线也仍在空隙正中。
-   净空隙 = 12 − 4 − 4，改这里要连带改触屏那条负外边距 */
+   负外边距（只往右扩 −8）把热区整体推进空隙右侧，占宽 = 12 − 8 = 4px，于是两块卡片
+   实际只离 4px —— 热区宽度没缩水，编辑器卡片的位置也一点没动。
+   ⚠️ 热区**只向一侧外扩**，不左右对称（2026-10-13 改）：原先是 margin: 0 -4px，热区
+   左缘要伸进树里 4px，正好压住资源树那条覆盖式滚动条（滑块右缘只在侧栏右缘里 1px），
+   于是瞄准线左侧想抓分隔条时会抓到滚动条、光标还不一样。现在左缘正好落在侧栏右缘上，
+   两者只隔 1px，谁也不压谁。
+   代价：热区的 50% 不再等于空隙中心（偏右整 4px），线得在 .splitter__line 里单独减掉。
+   净空隙 = 12 − 8，改这里要连带改触屏那条负外边距和线的偏移 */
 .splitter {
   flex: 0 0 12px;
-  margin: 0 -4px;
+  margin: 0 -8px 0 0;
   /* 不加这行，热区会被 flex 的自动最小尺寸（内容宽度）影响 */
   min-width: 0;
   position: relative;
@@ -1613,20 +1810,24 @@ onBeforeUnmount(() => {
   touch-action: none;
 }
 
-/* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区翻倍到 24px，负外边距按同样幅度加大，
-   于是两块卡片的位置和间距与鼠标下逐像素一致（净空隙同为 4px）—— 只有可抓区域变宽，视觉一点没动。
-   折叠态也走这一条（不再另写一条），所以触屏下折叠前后仍是同一个 24px 热区。 */
+/* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区翻倍到 24px，负外边距按同样幅度加大
+   （仍是只往右扩：24 − 20 = 4），于是两块卡片的位置和间距与鼠标下逐像素一致
+   （净空隙同为 4px）—— 只有可抓区域变宽，视觉一点没动。
+   热区加宽后它的 50% 又往外挪了，线要跟着挪回来 —— 那条偏移写在 .splitter__line 后面的
+   同名媒体查询里（⚠️ 不能写在这个块里：同特异性下会被后面那条基础规则压掉，实测踩过，
+   线停在默认的 4px 偏移上，跑到空隙外 6px）。
+   折叠态也用这一条宽度（不再另写一条），所以触屏下折叠前后仍是同一个 24px 热区。 */
 @media (pointer: coarse) {
   .splitter {
     flex: 0 0 24px;
-    margin: 0 -10px;
+    margin: 0 -20px 0 0;
   }
 }
 
 /* 折叠态的分隔条不再单独加宽。它以前贴窗口边缘（加宽到 24px 才抓得住），现在两侧是
    编辑器卡片和折叠图标栏、不是边缘；若在这里只加宽 flex-basis 而不同步负外边距，
    净空隙会从 4px 变成 16px —— 折叠前后两块卡片的间距就不一样了。
-   折叠态因此直接用上面那条 12px 热区（触屏按媒体查询走 24px / −10px，净空隙同为 4px）。 */
+   折叠态因此直接用上面那条 12px 热区（触屏按媒体查询走 24px / −20px，净空隙同为 4px）。 */
 
 /* 两栏各有自己的边，空隙里默认不再画线；指针移上来时才显出一条蓝线
    （2026-10-11 当天在「--focus 亮蓝 → 中性灰 → 比 --focus 暗一档的干净蓝」之间落定，
@@ -1639,7 +1840,10 @@ onBeforeUnmount(() => {
      要的是一小截固定退让，与窗口/面板高度无关（4px ≥ 3 会跟着界面缩放走，与线上同口径） */
   top: 4px;
   bottom: 4px;
-  left: 50%;
+  /* 不从热区中心起算：热区只向右侧外扩，它的 50% 落在空隙里偏右 4px（见 .splitter 的
+     margin）。减掉这 4px 把线钉回空隙正中（12px 热区：50% = 6 − 4 = 2，即热区左缘起第 2px）。
+     两个数都经 postcss-pxtorem 转 rem，界面缩放时比例不变；触屏那条 24px 热区另有偏移。 */
+  left: calc(50% - 4px);
   /* 用 translate 居中，不写 margin-left: -1px：这样居中与线的宽度无关，将来宽度
      若涨到 3px 以上（会被 postcss-pxtorem 转成 rem 跟着界面缩放走），也不会偏 */
   transform: translateX(-50%);
@@ -1650,6 +1854,15 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* 触屏那条 24px 热区的线偏移（热区加宽后 50% = 12，空隙中心在左缘起第 2px，故减 10）。
+   ⚠️ 必须写在这里，不能并进上面那个 `@media (pointer: coarse)`：同特异性下，位置更靠后的
+   基础规则 `left: calc(50% - 4px)` 会把它压掉（实测：线停在 4px 偏移上、跑到空隙外 6px）。 */
+@media (pointer: coarse) {
+  .splitter__line {
+    left: calc(50% - 10px);
+  }
+}
+
 /* 正中间的三点抓手：只在**折叠态**、且那条线没亮的时候显示（收起规则见下面两条）。
 
    两条纪律（都是 2026-10-11 定的）：
@@ -1658,7 +1871,8 @@ onBeforeUnmount(() => {
    2. 线亮的三种情形（悬停 / 键盘聚焦 / 拖拽）下把点隐去 —— 光去掉底色还不够，
       这三个实心点本身就压在线身上，看着线被啃掉三小段。
    结果是「点」与「线」互斥出现：平时给点提示能拖，线亮起来时只剩一条完整的线。
-   三点靠 align-items 落在中缝正中，与容器尺寸无关 */
+   ⚠️ 热区 2026-10-13 起只向右外扩（见 .splitter 的 margin），三点靠 left:50% 居中在**热区**里，
+   所以折叠态它们也跟着偏右 4px（不在中缝正中）—— 撤掉折叠态对称覆盖时留下的已知代价 */
 .splitter__dots {
   position: absolute;
   top: 50%;

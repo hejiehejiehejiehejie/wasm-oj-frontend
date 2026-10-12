@@ -11,7 +11,8 @@
  *
  * 【抽取为什么全交给 Worker】题库一万多道题，筛选 + 排序放主线程会卡 Monaco。
  * 这里只负责：把表单翻译成 filters、把进度/错误翻成界面状态、把结果捧着（不落盘 ——
- * 落盘是第 6 步「导入工作区」的事，用户不看中就不该动工作区）。
+ * 落盘是第 6 步「导入工作区」的事，用户不看中就不该动工作区），抽到了再发一条全局通知
+ * （**抽题期间页签可能已经被切走**，见 run() 里那段注释）。
  *
  * 【样例从哪来】Codeforces 的题库接口不返回样例（题目页也没有 CORS 头，网页自己抓不到），
  * 所以抽来的题一律是「先落盘、样例后补」：用户之后打开这道题的页面时，由浏览器扩展自动抓
@@ -29,6 +30,7 @@ import { COUNT_MAX, COUNT_MIN, normalizeHandles, problemKey } from '../cf/pick.j
 import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
 import { closeCfPickerTab } from '../services/editorViews.js'
+import { notify } from '../services/notifications.js'
 import { importProblem } from '../services/vfs/problemImport.js'
 import { usePersistentRef } from './usePersistentRef.js'
 
@@ -231,6 +233,18 @@ export function useCfPicker() {
         excludeKeys: previousKeys,
       })
       results.value = response.problems || []
+      // 抽到就发一条全局通知。抽题是**非阻塞**的：题库首次拉取要下 2MB、勾了「排除已通过的题」
+      // 还要多走一趟 user.status，用户多半会切回文件页签等 —— 那时抽题页签被 v-show 藏起来，
+      // 结果只落在看不见的地方。通知就是「抽好了」的那句话（正文复用结果区抬头那句
+      // `result.count` ——「抽中 N 道题」是同一件事，写两遍必然漂移）。
+      if (results.value.length) {
+        notify({
+          type: 'success',
+          title: t('cf.picker.notif.title'),
+          message: t('cf.picker.result.count', { n: results.value.length }),
+          duration: 5000,
+        })
+      }
     } catch (failure) {
       if (failure?.code === 'NO_MATCH') {
         error.value = { key: 'cf.picker.errors.noMatch' }

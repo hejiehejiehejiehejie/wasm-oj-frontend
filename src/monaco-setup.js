@@ -1,12 +1,15 @@
-import * as monaco from 'monaco-editor'
+// ⚠️ Monaco 只有这一个入口，它本身不引 monaco-editor 的全量包 —— 按需引入的清单在
+// editorBundle.js 里（那里写了为什么、以及升级 Monaco 后怎么复核）。
+import { monaco } from './services/monaco/editorBundle.js'
 
-// Monaco runs its language services in a web worker. Vite's `?worker` suffix
-// bundles it as a separate module; the `monaco-editor/<subpath>` form is the
-// public export map of monaco-editor 0.55+.
+// Monaco runs its editor-core work (tokenization / diff) in a web worker. Vite's
+// `?worker` suffix bundles it as a separate module; the `monaco-editor/<subpath>`
+// form is the public export map of monaco-editor 0.55+.
 //
-// C++ and Python only ship a synchronous tokenizer, so the plain editor worker
-// covers everything this tool needs. Add the json/css/html/ts workers here if a
-// new language ever requires them.
+// C / C++ / Python / Markdown only ship a synchronous tokenizer, so the plain editor
+// worker covers everything this tool needs. The json/css/html/ts workers Monaco
+// normally ships are not even built any more (see editorBundle.js) — add the worker
+// here only if a language that needs a real language service is ever introduced.
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 // 副作用导入：在这里给 C / C++ / Python 注册静态补全 provider（见该文件头）。
 // 放在 MonacoEnvironment 之前无妨 —— 注册 provider 不起 worker，worker 只在建 model 时才要。

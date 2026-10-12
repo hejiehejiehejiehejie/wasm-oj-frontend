@@ -13,25 +13,34 @@
  * 【多选】（2026-10-12 加）高亮集合是 `workspace.selectedIds`，`workspace.selectedId` 是其中的
  * **主选中兼锚点**（页头新建的目标、Shift 区间选择的起点）。三种手势在 FileTreeItem 里分岔：
  * 单击 = 收成单选、⌥/Alt + 单击 = 加选 / 减选、Shift + 单击 = 锚点到这一行整段。
- * ⌘/Ctrl + A 选的是**工作区里全部节点**（含折叠目录里的）—— 2026-10-12 用户拍板改成这个口径，
- * 原本是「只选可见行」的 VS Code 口径；界面高亮因此只画得出一部分（折叠的那些看不到，
- * 但它们确实在选区里，导出 / 删除都作用于它们）。
- * 区间与全选都以**可见行**为准，DOM 顺序只有这里拿得到，所以那两个入口（`selectRangeTo` /
- * `selectAllNodes`）留在本组件并 provide 下去 / 由全局快捷键调用。
+ * ⌘/Ctrl + A 全选的是**焦点节点所在父文件夹里的内容**（2026-10-12 用户拍板，见 `selectAllNodes`）；
+ * 焦点在树的空白处时那个「文件夹」就是根，于是选中的是顶层那些节点。
+ * 区间与全选都以本组件手上的状态为准（DOM 顺序 / 父子关系只有这里拿得到），所以那两个入口
+ * （`selectRangeTo` / `selectAllNodes`）留在本组件并 provide 下去 / 由全局快捷键调用。
  * 删除与导出（右键那两项、以及全局的 Delete）作用于**整个选区** —— 选区只有一项时退化成
  * 那一行。
  *
  * 【导入 / 导出】（2026-10-12 加）与外部文件系统之间搬文件，通路全在 `services/fileTransfer.js`
  * （选文件 / 打包 / 落盘都不在这个组件里）。本组件只负责**入口与落点**：
  * - 导入：页头两颗（文件 / 文件夹）+ 右键目录那两项，都落在「被右键的目录」或主选中目录；
+ * - 从系统里**拖进来**（2026-10-12 加）：手势与落点判定全在 `composables/usePageDrop.js`
+ *   （整页都是落点；压在行上就落进那一行所在的目录，别处落进根目录）。本组件只接落地那一脚
+ *   —— `importItems`，与选文件那条**同源** —— 并把落点灯亮起来（`mergedDropRowId` /
+ *   `mergedRootDrop`，与站内拖拽的高亮合流）。结果播报走 `announce` 这一个出口：
+ *   页头 / 右键导入落行内横幅，页面级拖入由 App.vue 换成全局通知（2026-10-13 加，
+ *   那条要把「放到了哪儿」也说出来，见 `announceImportInline`）；
  * - 导出：右键那一项。非桌面端直接下载（单文件不套 zip）；桌面壳先弹一张二选一的小卡片
  *   （写进本机文件夹 / 下载为 zip），因为只有它做得到写盘。
  *
  * 通过 provide 向递归树项提供能力：右键菜单、**打开题目**、根 DOM、重命名目标、焦点管理、
  * 范围选择入口，内联新建的状态与提交入口，以及拖拽（起手 / 落点高亮 / 点击抑制）。输入行由
  * InlineCreateRow 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
- * 另经 defineExpose 对外给出三个入口（`startRename` / `requestDelete` / `selectAllNodes`，
- * 前两个收节点 id），供全局快捷键 F2 / Delete / ⌘·Ctrl+A 调用 —— 见文件末尾。
+ * 另经 defineExpose 对外给出四个入口：三个给全局快捷键（`startRename` / `requestDelete` /
+ * `selectAllNodes`，都收**可空**的节点 id：焦点在树的空白处时 App.vue 给 null，前两个拿主选中
+ * 那一行顶上、全选把「空白处」当成根，见 `keyboardRowId` / `folderContentIds`，供 F2 / Delete /
+ * ⌘·Ctrl+A 调用），一个给页面级拖入（`importDroppedItems`）—— 见文件末尾。
+ * 那三条的作用域闸门是「焦点在资源管理器这块面板里」（行上或树的空白处都算，见 App.vue 的
+ * treeScopeFrom），所以空白处也必须是个焦点落点：容器上有 `tabindex="-1"`，由 onTreePointerDown 接住。
  */
 import { computed, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
@@ -40,6 +49,8 @@ import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
 import { useTreeDrag } from '../composables/useTreeDrag.js'
+import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
+import { pageDropTarget } from '../composables/usePageDrop.js'
 import { IS_MAC, formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
 import { templateForPath } from '../services/fileTemplates.js'
@@ -371,16 +382,19 @@ function shortcutOf(actionId) {
 async function onMenuSelect(id) {
   const node = menu.value?.node
   menu.value = null
-  if (!node) return
-  if (id === 'meta') beginEditMeta(node)
-  else if (id === 'open-url') openProblem(node)
-  else if (id === 'new-file') startCreate('file', node)
+  // 「往这个目录里加东西」这四项节点行与空白处两份菜单共用：`node` 就是目标目录（行上那份是那一行，
+  // 空白处那份由 onTreeContextMenu 用 headerCreateTarget() 算出来；null = 根目录，见两个签名的默认值）。
+  if (id === 'new-file') startCreate('file', node)
   else if (id === 'new-folder') startCreate('directory', node)
   // 导入的两条必须在**这次点击的调用栈里**走到 pickFromDisk 的 input.click() ——
   // 浏览器的规矩是「文件选择器只能由用户手势打开」，绕到 await 后面就会被静默忽略。
   // runImport 的第一句就是它，中间没有别的 await，所以这条链是安全的（别在前面插入 await）。
   else if (id === 'import-file') void runImport('file', node)
   else if (id === 'import-folder') void runImport('folder', node)
+  // 下面这几项都作用于**节点本身**，没有节点就没什么可做的（空白处那份菜单压根不给它们）
+  else if (!node) return
+  else if (id === 'meta') beginEditMeta(node)
+  else if (id === 'open-url') openProblem(node)
   else if (id === 'export') requestExport(node.id)
   else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node.id)
@@ -529,26 +543,61 @@ async function runImport(mode, node = null) {
   const targetPath = importTargetPath(node)
   const files = await pickFromDisk({ directory: mode === 'folder' })
   if (!files.length) return
-  const items = planImport(files)
+  await importItems(targetPath, planImport(files))
+}
+
+/**
+ * 导入结果的**默认播报出口**：资源管理器底部那条行内横幅（页头 / 右键导入走的就是它）。
+ *
+ * 另一个出口是页面级拖入用的**全局通知**（App.vue 的 `reportDropImport`）—— 两处收到的是
+ * **同一种结构化结果**，各自决定怎么说、在哪儿说。横幅这个出口不报「放到了哪儿」：
+ * 页头 / 右键导入的目标是用户刚点过的那个目录，屏幕上就看得到，说了是废话。
+ *
+ * @param {{ kind: 'done'|'empty'|'failed', imported?: number, skipped?: number, message?: string }} result
+ */
+function announceImportInline({ kind, imported = 0, skipped = 0, message = '' }) {
+  if (kind === 'empty') return showNotice(t('explorer.transfer.importEmpty'))
+  if (kind === 'failed') return showNotice(message || t('explorer.transfer.importFailed'))
+  showNotice(
+    skipped
+      ? t('explorer.transfer.importSkipped', { n: imported, k: skipped })
+      : t('explorer.transfer.importDone', { n: imported }),
+  )
+}
+
+/**
+ * 一批条目落进某个目录 —— **选文件与「从系统拖进来」共用这一条**：导入、报结果、把新文件
+ * 摆到眼前（展开目标目录 + 选中第一个 + 滚进视野）。
+ *
+ * 结果只报给 `announce` 一个出口，本函数不管它怎么呈现 —— 默认是行内横幅，页面级拖入
+ * 换成全局通知（见 `announceImportInline` 的说明）。
+ *
+ * @param {string} targetPath 目标目录的绝对路径
+ * @param {import('../services/fileTransfer.js').ImportItem[]} items
+ * @param {object} [options]
+ * @param {(result: object) => void} [options.announce] 结果播报出口；默认落资源管理器里的横幅
+ * @returns {Promise<{ imported: number, skipped: number, failed: number, firstId: string|null }|null>}
+ *          导入统计；条目为空或正在搬运时给 null（调用方据此不做后续动作）
+ */
+async function importItems(targetPath, items, { announce = announceImportInline } = {}) {
   if (!items.length) {
-    showNotice(t('explorer.transfer.importEmpty'))
-    return
+    announce({ kind: 'empty', path: targetPath })
+    return null
   }
+  if (transferBusy.value) return null
   transferBusy.value = true
   try {
     const stats = await importInto(targetPath, items)
     if (stats.imported) {
-      showNotice(
-        stats.skipped
-          ? t('explorer.transfer.importSkipped', { n: stats.imported, k: stats.skipped })
-          : t('explorer.transfer.importDone', { n: stats.imported }),
-      )
+      announce({ kind: 'done', path: targetPath, imported: stats.imported, skipped: stats.skipped })
     } else {
-      showNotice(t('explorer.transfer.importEmpty'))
+      announce({ kind: 'empty', path: targetPath })
     }
     await revealImported(targetPath, stats.firstId)
+    return stats
   } catch (error) {
-    showNotice(error.message || t('explorer.transfer.importFailed'))
+    announce({ kind: 'failed', path: targetPath, message: error.message || '' })
+    return null
   } finally {
     transferBusy.value = false
   }
@@ -720,8 +769,8 @@ async function runExportToDisk(nodes) {
  * 树里当前**可见**的行 id，按 DOM 顺序（= 屏幕上从上到下）。
  *
  * 折叠的子树整个不在 DOM 里，所以这个列表天然就是「看得见的那些行」—— **只有 Shift 区间
- * 选择以它为准**（区间本来就是在屏幕上量出来的；⌘/Ctrl+A 那个全选走的是 `allNodeIds`，
- * 2026-10-12 用户拍板改成「全部节点」，见下）。少一个 offsetParent 过滤也不碍事：
+ * 选择以它为准**（区间本来就是在屏幕上量出来的；⌘/Ctrl+A 那个全选走的是 `folderContentIds`，
+ * 按树上的父子关系取、连折叠目录里的也算，不看 DOM，见下）。少一个 offsetParent 过滤也不碍事：
  * 这里没有用 v-show 藏起来的行。
  * @returns {string[]}
  */
@@ -732,19 +781,37 @@ function visibleRowIds() {
 }
 
 /**
- * 工作区里**全部**节点的 id，深度优先（与树里从上到下的顺序一致）。
- * 根节点不在其中 —— 根没有行、也没有它自己的「文件」这回事（与 `selectMany` 的过滤一致）。
+ * ⌘ / Ctrl + A 要选的那一批 id：**焦点节点所在父文件夹里的全部内容**。
+ *
+ * 2026-10-12 用户定：**选中一个目录就等于把它里面的东西一起选中**（上一版只取同辈那一层，
+ * 结果是目录被选上了、目录里的文件没被选上）。所以同辈里的每个目录都要往下递归展开，
+ * 深度优先、DOM 顺序 —— 折叠起来的目录照样算数（删除 / 导出确实会作用到它们）。
+ *
+ * 节点取不到（`rowId` 为 null，= 焦点在树的空白处 = 焦点在根上）、或它本来就挂在顶层时一律给
+ * **根的内容**（`workspace.tree`）：顶层节点的 `parentId` 是字面量 `'root'`，而索引里那份根
+ * （`stat('/')` 的浅拷贝）**不带 children** —— 2026-10-12 探针踩过，顺着 `parentId` 取会拿到
+ * 空数组、⌘A 静默什么都不选。
+ *
+ * 与 Shift 区间（`visibleRowIds`）刻意不同：那条按**可见行**量，这条按**树上的父子关系**取。
+ * @param {string|null} rowId
  * @returns {string[]}
  */
-function allNodeIds() {
+function folderContentIds(rowId) {
+  const node = rowId ? getNodeById(rowId) : null
+  // 顶层节点的 `parentId` 是字面量 `'root'`，而根在索引里的那一份是 `stat('/')` 的浅拷贝、
+  // **不带 children**。所以父目录只在「指向一个真目录节点」时才用索引，其余（顶层节点、根、
+  // 取不到节点）一律读 `workspace.tree`（它就是根的孩子）。
+  const parentId = node?.parentId
+  const parent = parentId && parentId !== 'root' ? getNodeById(parentId) : null
   const ids = []
-  const walk = (nodes) => {
-    for (const node of nodes) {
-      ids.push(node.id)
-      if (node.children) walk(node.children)
+  const collect = (nodes) => {
+    for (const item of nodes) {
+      ids.push(item.id)
+      // 目录连带它里面的东西 —— 这一条就是「选中文件夹 = 里面都选中」的落点
+      if (item.children?.length) collect(item.children)
     }
   }
-  walk(workspace.tree)
+  collect(parent?.children ?? workspace.tree)
   return ids
 }
 
@@ -769,15 +836,21 @@ function selectRangeTo(id) {
 }
 
 /**
- * ⌘ / Ctrl + A：全选**工作区里的全部节点**（含折叠目录里的那些，2026-10-12 用户拍板）。
+ * ⌘ / Ctrl + A：全选**焦点节点所在父文件夹里的全部内容**（`folderContentIds`）。
+ * 2026-10-12 用户拍板两次：口径先由「工作区里全部节点（含折叠目录里的）」收窄成「当前这一层」，
+ * 随后补上「**选中目录 = 连它里面的文件一起选中**」（`folderContentIds` 递归展开同辈目录）。
  *
- * 与 Shift 区间不同，这里不看 DOM —— 折叠起来的文件也算数（导出 / 删除都作用于它们）。
- * 代价是屏幕上看不到全部高亮：折叠目录里的行根本没渲染，但确实在选区里。
+ * 为什么不留「全选整棵工作区」：按一下 ⌘A 就把别的题目目录里的文件也一并选中，紧接着一个
+ * Delete 会连着它们一起删 —— 收窄到「我所在的这个文件夹」既对得上直觉，也保住了这条防线。
  *
- * 主选中保住原来那个（还在的话），否则取第一个 —— 页头新建仍落在用户原来的位置附近。
+ * 焦点落在树的空白处 = 焦点在根目录上（点空白本来就是这个含义，见 `onTreeClick`），
+ * 于是全选根的内容（含各层子目录里的），也就是整棵树。整棵树空着时什么也不做。
+ *
+ * 主选中保住原来那个（还在这一层里的话），否则取第一个 —— 页头新建仍落在用户原来的位置附近。
+ * @param {string|null} rowId 焦点所在的行 id；null = 焦点在树的空白处（或没有焦点）
  */
-function selectAllNodes() {
-  const ids = allNodeIds()
+function selectAllNodes(rowId) {
+  const ids = folderContentIds(rowId ?? keyboardRowId())
   if (!ids.length) return
   const anchor =
     workspace.selectedId && ids.includes(workspace.selectedId) ? workspace.selectedId : ids[0]
@@ -837,9 +910,29 @@ watch(metaTarget, (node) => {
   if (node) nextTick(() => metaFirstField.value?.focus())
 })
 
-// 在树空白处右键：只屏蔽浏览器原生菜单（没有针对「整个工作区」的操作）
+/**
+ * 树空白处右键：弹一份「往当前目录里加东西」的菜单（新建文件 / 新建文件夹 / 导入文件 /
+ * 导入文件夹），与落在目录行上的那份是同一组条目、同一批 i18n key。
+ *
+ * 空白处没有节点，所以目标目录与页头那四颗按钮同源 —— `headerCreateTarget()`：主选中那一行
+ * 推出来的目录（选中的是目录就是它自己，选中的是文件就取其父目录），什么都没选中
+ * （= 点过空白处）或索引未就绪时回落根目录。整棵树此时不高亮，也就是根。
+ * 这里**不动选区**：右键不会触发 click，用户攒下的选区原样留着。
+ *
+ * 行上的右键由 FileTreeItem 自己 preventDefault + stop，走不到这里；剩下的判定是给内联
+ * 新建输入框留的原生菜单（汉字输入法的候选框就挂在它上面），那份不能抢。
+ */
 function onTreeContextMenu(event) {
+  if (event.target.closest('.tree-item, .create-row')) return
   event.preventDefault()
+  const items = [
+    { id: 'new-file', label: t('explorer.menu.newFile') },
+    { id: 'new-folder', label: t('explorer.menu.newFolder') },
+    { id: 'import-file', label: t('explorer.menu.importFile') },
+  ]
+  // 判据与目录行上那一项共用：Android / iOS 的 file input 拿不到目录结构，见 fileTransfer.canPickFolder
+  if (canPickFolder()) items.push({ id: 'import-folder', label: t('explorer.menu.importFolder') })
+  menu.value = { x: event.clientX, y: event.clientY, node: headerCreateTarget(), items }
 }
 
 // ------------------------------------------------------------ 拖拽移动
@@ -884,8 +977,27 @@ const {
   consumeClickSuppression,
 } = useTreeDrag({ treeEl: rootEl, onDrop: onDropNode, openContextMenu, closeContextMenu })
 
+// 覆盖式滚动条：原生那条会占掉 11px 内容宽度、出现/消失时行跟着跳，换成浮在行之上的滑块
+// （2026-10-13；原生那条由下面 .explorer__tree 的 scrollbar-width / ::-webkit-scrollbar 藏掉）
+useOverlayScrollbar(rootEl)
+
 /** 幽灵元素上的图标：只分文件 / 目录，够用来认出手里拖的是谁 */
 const ghostIcon = computed(() => (draggingNode.value?.type === 'directory' ? 'folder' : 'file'))
+
+// 落点高亮只有一个信号源，两套拖拽在这里合流。
+//
+// 站内拖拽（useTreeDrag）与「从系统里拖文件进来」（composables/usePageDrop.js）是两套手势，
+// 但落点语义完全一样：压在目录行上就是那个目录、压在文件行上就是它所在的目录、别处是根。
+// 树项只认 `dropTargetRowId` 一个信号（见 FileTreeItem 的 isDropTarget），所以合并在这一处，
+// 树里那些行一个字都不用改（provide 见下）。
+//
+// 指针不在资源管理器里时不亮：那时文件照样落到根目录（整页都是落点，见 usePageDrop），
+// 但让整棵树亮成一片会让人以为文件要进树里 —— 判据因此多要一个 `inExplorer`。
+const mergedDropRowId = computed(() => dropTargetRowId.value ?? pageDropTarget.value?.rowId ?? null)
+const mergedRootDrop = computed(
+  () =>
+    isRootDrop.value || (pageDropTarget.value?.inExplorer === true && !pageDropTarget.value.rowId),
+)
 
 /** 拖拽 / 粘贴失败的临时提示（这两件事都没有行内位置可放，见方案 D5）；空串 = 不显示 */
 const notice = ref('')
@@ -917,6 +1029,23 @@ function setFocusedId(id) {
 }
 
 /**
+ * 「焦点在树的空白处」时，F2 / Delete 该作用于哪一行：**主选中**（`workspace.selectedId`）。
+ * 没有主选中就给 null —— 动作那边自己静默（`beginRename` 没人接、`requestDelete` 自带空值保护）。
+ *
+ * 两条都是刻意的：
+ * - 口径取主选中，而不是 roving tabindex 的焦点记账（`focusedId`）：那是「键盘最后走到哪一行」，
+ *   点过空白处之后它仍是**没有高亮**的那一行 —— 拿它当兜底会删掉 / 改名一个「看不见被选中」
+ *   的东西（2026-10-12 探针实测：空白处按 F2 去改名了早已取消选中的 src）。主选中与页头新建 /
+ *   导出 / 删除是同一份「当前对象」口径（见 `cancelDelete`、`headerCreateTarget`），跟着它走才一致。
+ * - 点空白处是「我什么都不选」（`onTreeClick` 清空选区），连着按 F2 / Delete 就该没反应。
+ *
+ * 空值分支只有 App.vue 那条全局快捷键走得到：鼠标路径永远带着一行的 id（右键菜单、点击都在行上）。
+ */
+function keyboardRowId() {
+  return workspace.selectedId ?? null
+}
+
+/**
  * 焦点进树：只更新 roving tabindex 的记账，**不动选区**。
  *
  * 2026-10-12 撤掉了这里原来那句 `selectNode(...)`：多选之后「焦点一动就把选区收成单选」
@@ -943,6 +1072,24 @@ function onTreeClick(event) {
   selectNode(null)
 }
 
+/**
+ * 点树的空白处：把焦点收进**这棵树自己**（容器上有 `tabindex="-1"`）。
+ *
+ * 为什么非接住不可：作用域受限的三条快捷键（⌘/Ctrl+A 全选、F2 重命名、Delete 删除）按
+ * 「焦点在不在资源管理器里」分流（见 App.vue 的 treeScopeFrom）。不接的话焦点掉到 `<body>`，
+ * 那三条就整条失灵 —— 用户 2026-10-12 报的「资源管理器区域不支持 ⌘A 之类的快捷键」正是这个。
+ *
+ * 两处要排掉：
+ * - **行**（`.tree-item` 子树）：行自己有 tabindex，浏览器本来就会把焦点给它，这里再插一手
+ *   只会把「行获得焦点」这件事搅乱（拖拽起手也在 pointerdown 上，别去动它）。
+ * - **内联新建行**（`.create-row`）：它虽然是容器的直接子节点（不在 `.tree-item` 里），
+ *   但抢走它的焦点等于让那个刚冒出来的输入框立刻失焦提交。
+ */
+function onTreePointerDown(event) {
+  if (event.target.closest('.tree-item, .create-row')) return
+  rootEl.value?.focus({ preventScroll: true })
+}
+
 provide('openContextMenu', openContextMenu)
 // 「打开题目」的出口：菜单里那一项与树项上的 ⌘ / Ctrl + 单击都归它，判据只有 problemUrl 一份
 provide('openProblem', openProblem)
@@ -966,7 +1113,8 @@ provide('onCreateBlur', onCreateBlur)
 provide('onRowPointerDown', onRowPointerDown)
 provide('consumeClickSuppression', consumeClickSuppression)
 provide('suppressContextMenu', suppressContextMenu)
-provide('dropTargetRowId', dropTargetRowId)
+// 落点高亮（站内拖拽与系统拖入合流后的那一份，见上面的 mergedDropRowId）
+provide('dropTargetRowId', mergedDropRowId)
 provide('draggingId', draggingId)
 // 触屏长按的两段提示：按压进度（还在等）与就绪态（已经到点 —— 菜单已弹出，此后移动即拖动）
 provide('pressingId', pressingId)
@@ -976,21 +1124,31 @@ provide('armedId', armedId)
  * 全局快捷键（F2 重命名 / Delete 删除 / ⌘·Ctrl+A 全选）的入口。
  *
  * 这三条动作的键位登记在 `useShortcutManager` 的 SHORTCUT_ACTIONS 里，但**执行不了在那里**：
- * 它们要做的事全在本组件手上（起内联重命名、弹删除确认框、按可见行划全选），而且都作用于
+ * 它们要做的事全在本组件手上（起内联重命名、弹删除确认框、按父文件夹收全选），而且都作用于
  * 「资源管理器里当前有焦点的那些行」。所以 App.vue 的全局监听先过一道作用域闸门，再从这里进来
  * —— 动作与右键菜单那两条**完全同源**（`beginRename` / `requestDelete`），不另写一份。
  *
- * 前两个只收**节点 id**（调用方手里只有事件落点那一行的 `dataset.treeId`）；节点在这边查一次，
- * 已经不在了就静默什么也不做（`requestDelete` 自带 `getNodeById` 的空值保护）。
- * 全选收不了 id —— 它要的是整列可见行，只有本组件算得出来，所以那个入口收不到参数。
+ * 三条都收**行 id**，可空：焦点落在树的空白处时 App.vue 给 null（那一刻没有「哪一行」）。
+ * 前两条退回 `keyboardRowId()` 现算一个（见那里的注释）；全选把「空白处」读成「焦点在根上」，
+ * 于是选根的内容（见 `folderContentIds`）。传进来的 id 已经不在了就静默什么也不做
+ * （`requestDelete` 自带 `getNodeById` 的空值保护）。
  */
 defineExpose({
-  /** @param {string} id 要重命名的节点 id */
-  startRename: (id) => beginRename(id),
-  /** @param {string} id 要删除的节点 id（它在选区里就删整个选区） */
-  requestDelete: (id) => requestDelete(id),
-  /** ⌘ / Ctrl + A：全选当前可见的行 */
-  selectAllNodes: () => selectAllNodes(),
+  /** @param {string|null} id 要重命名的节点 id */
+  startRename: (id) => beginRename(id ?? keyboardRowId()),
+  /** @param {string|null} id 要删除的节点 id（它在选区里就删整个选区） */
+  requestDelete: (id) => requestDelete(id ?? keyboardRowId()),
+  /** @param {string|null} id ⌘ / Ctrl + A：全选这个节点所在父文件夹里的内容 */
+  selectAllNodes: (id) => selectAllNodes(id ?? null),
+  /**
+   * 从系统里拖进来的文件落进某个目录（App.vue 的 usePageDrop 调它）。
+   * 与选文件那条同源（`importItems`），返回导入统计 —— 调用方据此决定要不要顺手打开它。
+   * `options.announce` 由 App.vue 换成全局通知（见 `announceImportInline` 的说明）。
+   * @param {string} targetPath
+   * @param {import('../services/fileTransfer.js').ImportItem[]} items
+   * @param {object} [options]
+   */
+  importDroppedItems: (targetPath, items, options) => importItems(targetPath, items, options),
 })
 </script>
 
@@ -1006,30 +1164,10 @@ defineExpose({
         <button
           type="button"
           class="explorer__btn"
-          :disabled="transferBusy"
-          :title="t('explorer.menu.importFile')"
-          @click="runImport('file')"
-        >
-          <AppIcon name="file-down" :size="14" />
-        </button>
-        <!-- 「导入文件夹」只在真选得动文件夹的平台上给：手机上的 file input 拿不到目录结构 -->
-        <button
-          v-if="canPickFolder()"
-          type="button"
-          class="explorer__btn"
-          :disabled="transferBusy"
-          :title="t('explorer.menu.importFolder')"
-          @click="runImport('folder')"
-        >
-          <AppIcon name="folder-down" :size="14" />
-        </button>
-        <button
-          type="button"
-          class="explorer__btn"
           :title="t('explorer.menu.newFile')"
           @click="startCreate('file', headerCreateTarget())"
         >
-          <AppIcon name="file-plus" :size="14" />
+          <AppIcon name="file-plus" :size="16" />
         </button>
         <button
           type="button"
@@ -1037,7 +1175,7 @@ defineExpose({
           :title="t('explorer.menu.newFolder')"
           @click="startCreate('directory', headerCreateTarget())"
         >
-          <AppIcon name="folder-plus" :size="14" />
+          <AppIcon name="folder-plus" :size="16" />
         </button>
       </span>
     </Teleport>
@@ -1048,9 +1186,11 @@ defineExpose({
     <div
       ref="rootEl"
       class="explorer__tree"
-      :class="{ 'is-drop-root': isRootDrop }"
+      :class="{ 'is-drop-root': mergedRootDrop }"
       role="tree"
+      tabindex="-1"
       @contextmenu="onTreeContextMenu"
+      @pointerdown="onTreePointerDown"
       @click="onTreeClick"
       @focusin="onTreeFocus"
     >
@@ -1516,17 +1656,19 @@ defineExpose({
   flex: 0 0 auto;
   /* 折到第二行时仍然贴右 */
   margin-left: auto;
-  /* 四颗钮紧挨着排（2026-10-12 由 2px 收到 0）：24px 的方钮本身带圆角，
-     贴在一起也分得开，图标之间的空当由按钮内边距给 */
-  gap: 0;
+  /* 新建那两颗之间的间距（2026-10-12：2px → 0 → 4px → 2px，随用户三次要求来回调） */
+  gap: 2px;
 }
 
+/* 26px 是共享页头里图标按钮的统一尺寸（左侧胶囊 / 齿轮同为 26×26），
+   也正好卡在页头内容区上限：.sidebar__head 是 min-height 35px + 上下各 4px 内边距 = 27px，
+   再高就会把页头顶到 36px、与编辑区页签栏那 35px 错开 */
 .explorer__btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   background: transparent;
   border: none;
@@ -1540,7 +1682,7 @@ defineExpose({
   color: var(--text);
 }
 
-/* 导入 / 导出进行中禁用的那两颗（选择器比上面那条 :hover 更具体，压得住） */
+/* 禁用态（比上面那条 :hover 更具体，压得住） */
 .explorer__btn:disabled,
 .explorer__btn:disabled:hover {
   background: transparent;
@@ -1554,9 +1696,29 @@ defineExpose({
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* 原生滚动条藏掉，改由 useOverlayScrollbar 那条浮在行之上的滑块接手（2026-10-13）：
+     原生那条占 11px 内容宽度，行会随它出现 / 消失整体挪一下（窄侧栏里尤其明显）。
+     scrollbar-width 走标准路径（Chromium 121+ 起只认它），::-webkit-scrollbar 兜住旧内核。 */
+  scrollbar-width: none;
   /* 底部这 24px 是「选中根目录」的点击区（点空白处 = 什么都不选中、新建落在根）。
      树内容撑满整个面板时行与行之间没有空白，滚到底还有这一条可用，入口不会消失。 */
   padding: 4px 0 24px;
+}
+
+.explorer__tree::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* 焦点收进树容器（= 焦点落在「根」上，见 onTreePointerDown）时**不画焦点圈**。
+   那一刻屏幕上没有任何一行是高亮的，沿整块树套一圈蓝框既是噪声、又会被读成「根这个节点
+   被选中了」。容器上的焦点只是键盘作用域的记账，真正的焦点指示由行自己的选中态承担
+   —— 键盘 Tab 进来命中的是行（行有 tabindex），走的不是这条（2026-10-12 用户要求）。
+   要压掉的是 base.css 里那条全局 :focus-visible，故必须同时写 :focus（程序化 focus 在
+   部分浏览器上不匹配 :focus-visible）。 */
+.explorer__tree:focus,
+.explorer__tree:focus-visible {
+  outline: none;
 }
 
 /* 落点是根目录（拖到树的空白处）时：与行落点同一支颜色，只是铺满整个树容器、透明度更淡

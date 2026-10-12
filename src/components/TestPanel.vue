@@ -1,13 +1,20 @@
 <script setup>
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import TestCaseCard from './TestCaseCard.vue'
+import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { t } from '../i18n/index.js'
 
 // 页头右侧的 verdict + 耗时经 Teleport 投进 Sidebar 的共享页头（#sidebar-context），
 // 只在本面板激活时投 —— 切换器单实例上提后（2026-10-11），页头只剩这一小条上下文
-const { activeTab } = inject('sidebarTabs')
+const { activeTab, compact } = inject('sidebarTabs')
 const isActivePanel = computed(() => activeTab.value === 'tests')
+
+// 用例列表是面板里唯一的长滚动区：原生滚动条会占掉 11px 宽度（卡片跟着变窄、出现 / 消失时
+// 折行位置还会跳），改用覆盖式滑块（2026-10-13）。原生那条由下面 .cases 的
+// scrollbar-width / ::-webkit-scrollbar 藏掉
+const listEl = ref(null)
+useOverlayScrollbar(listEl)
 
 const props = defineProps({
   cases: { type: Array, required: true },
@@ -44,15 +51,31 @@ const counts = computed(() => {
 // 具体是 WA 还是 TLE 由各张卡片的徽标说明，页头不再堆第二个长句。
 // 只要有一张卡片的结论已过期（stale），就不能再宣称「全部 AC」——
 // 上一轮通过不代表改完代码后仍通过。
+// 窄侧栏（compact 由 Sidebar 按 <360 逻辑 px 算好）去掉「 AC」后缀：
+// 「0/4 AC」加耗时在侧栏最窄时会挤到折行，数字本身已经表意（2026-10-12）。
 const verdict = computed(() => {
   const total = props.cases.length
   if (!total) return { text: t('tests.verdict.noCases'), tone: 'muted' }
   if (counts.value.running) return { text: t('tests.verdict.running'), tone: 'info' }
   // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待刷新）
-  if (counts.value.stale) return { text: t('tests.verdict.stale', { total }), tone: 'warn' }
-  if (counts.value.passed === total) return { text: t('tests.verdict.allPassed'), tone: 'passed' }
+  if (counts.value.stale)
+    return {
+      text: t(compact.value ? 'tests.verdict.staleShort' : 'tests.verdict.stale', { total }),
+      tone: 'warn',
+    }
+  if (counts.value.passed === total)
+    return {
+      text: t(compact.value ? 'tests.verdict.allPassedShort' : 'tests.verdict.allPassed'),
+      tone: 'passed',
+    }
   const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
-  return { text: t('tests.verdict.partial', { passed: counts.value.passed, total }), tone }
+  return {
+    text: t(compact.value ? 'tests.verdict.partialShort' : 'tests.verdict.partial', {
+      passed: counts.value.passed,
+      total,
+    }),
+    tone,
+  }
 })
 
 // 有过期结论时，页头耗时同样来自上一轮，跟着藏掉，免得和「结果待刷新」自相矛盾
@@ -81,7 +104,7 @@ const elapsedText = computed(() => {
       </div>
     </Teleport>
 
-    <ul class="cases">
+    <ul ref="listEl" class="cases">
       <li v-if="!cases.length" class="empty">
         <!-- 空态只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个用例…」和一颗
              「添加第一个用例」大按钮，前者是废话、后者与页脚那颗「添加测试样例」重复。
@@ -223,9 +246,17 @@ const elapsedText = computed(() => {
   gap: 12px;
   overflow-y: auto;
   overflow-x: hidden;
+  /* 原生滚动条藏掉，由 useOverlayScrollbar 那条滑块接手（2026-10-13）：原生那条占掉 11px，
+     卡片宽度会随它出现 / 消失变一下、折行位置跟着跳。标准属性 + 旧内核伪元素各写一条 */
+  scrollbar-width: none;
   container-type: inline-size;
   /* 空态那行字是绝对定位的（见 .empty），这里给它一个基准盒 */
   position: relative;
+}
+
+.cases::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 /* 空态（2026-10-06 照参照稿改；2026-10-11 改定位）：一行居中的淡灰字。

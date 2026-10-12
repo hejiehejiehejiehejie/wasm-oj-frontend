@@ -117,8 +117,9 @@ const rootEl = ref(null)
 
 // ① 紧凑模式：侧栏够宽时胶囊段位带文字标签（图标 + 短名），窄了退回纯图标
 //   （与重构前的胶囊同形）。阈值 360 逻辑 px 的来历：带标签的胶囊 ~148px + 抽题 30 +
-//   齿轮 26 + 间距 + 右侧动作区（评测面板的 verdict + 耗时最坏 ~170px），再窄文字
-//   就会把页头挤折行。用 ResizeObserver 而不用 @container：页头里有 fixed 定位的
+//   齿轮 26 + 间距 + 右侧动作区（评测面板的 verdict + 耗时最坏 ~170px；compact 态
+//   verdict 去掉「 AC」后缀会更短，见 TestPanel），再窄文字就会把页头挤折行。用
+//   ResizeObserver 而不用 @container：页头里有 fixed 定位的
 //   浮层（SettingsMenu），container-type 附带的 layout containment 会把它的
 //   定位基准从视口改到页头。
 const compact = ref(false)

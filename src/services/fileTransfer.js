@@ -5,9 +5,13 @@
  *
  * | 方向 | 通路 | 平台 |
  * |---|---|---|
- * | 导入 | 隐藏 `<input type="file">`（`multiple` / `webkitdirectory`） | 全部 |
+ * | 导入 · 选文件 | 隐藏 `<input type="file">`（`multiple` / `webkitdirectory`） | 全部 |
+ * | 导入 · 拖入 | `readDroppedItems()` 读系统拖放的 `DataTransfer`（目录靠 `FileSystemEntry` 递归） | 全部※ |
  * | 导出 · 落盘 | Rust 的 `export_*`（原生目录选择器 + 写盘） | 仅桌面壳 |
  * | 导出 · 下载 | `Blob` + `<a download>` | 全部 |
+ *
+ * ※ 桌面壳要在窗口配置里关掉 `dragDropEnabled`（见 `src-tauri/tauri.conf.json`），WebView
+ * 才收得到 HTML5 拖放 —— 我们没用 Tauri 的原生 drop 事件，关掉不损失功能。
  *
  * 【为什么导出的「打包」与「落盘」分开】打包（zip）是纯前端的事、去哪都一样；落盘只有
  * 桌面壳做得到（Android 上 workspace.rs 根本不编译，网页版更不用说）。所以 `exportNodes()`
@@ -269,6 +273,128 @@ export function planImport(files) {
       return { rel: parts.join('/'), file }
     })
     .filter(Boolean)
+}
+
+// ------------------------------------------------------------ 导入：从系统拖进来
+
+/**
+ * `entry.file()` 的回调版包一层 Promise。读不出来（权限没了 / 文件已被移走）给 null，
+ * 由调用方跳过 —— 与上面「二进制 / 超大一律跳过并计数」是同一条纪律。
+ * @param {FileSystemFileEntry} entry
+ * @returns {Promise<File|null>}
+ */
+function entryFile(entry) {
+  return new Promise((resolve) => {
+    entry.file(
+      (file) => resolve(file),
+      () => resolve(null),
+    )
+  })
+}
+
+/**
+ * 一次 `readEntries()` 只回**一批**（Chrome 上限 100 条），要反复读到空数组为止。
+ * 只读一遍的表现是「目录里超过 100 个条目时，后面的凭空不见了」—— 静默少东西最难查。
+ * @param {FileSystemDirectoryEntry} directory
+ * @returns {Promise<FileSystemEntry[]>}
+ */
+function readAllEntries(directory) {
+  return new Promise((resolve) => {
+    const reader = directory.createReader()
+    const all = []
+    const step = () => {
+      reader.readEntries(
+        (batch) => {
+          if (!batch.length) {
+            resolve(all)
+            return
+          }
+          all.push(...batch)
+          step()
+        },
+        () => resolve(all),
+      )
+    }
+    step()
+  })
+}
+
+/**
+ * 深度优先把一个 entry 摊成 `{ rel, file }`，顶层那一级的名字**保留**
+ * （拖 `chapter1/` 就得到工作区里的 `chapter1/`，与 `planImport` 对 `webkitRelativePath`
+ * 的做法一致）。超过 [`MAX_DEPTH`] 层就停 —— 与 `planImport` 同一道闸，防畸形结构把树撑爆。
+ * @param {FileSystemEntry} entry
+ * @param {string} prefix 父级相对路径（顶层给空串）
+ * @param {ImportItem[]} out
+ * @param {number} depth
+ */
+async function walkEntry(entry, prefix, out, depth) {
+  const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+  if (entry.isFile) {
+    const file = await entryFile(entry)
+    if (file) out.push({ rel, file })
+    return
+  }
+  if (!entry.isDirectory || depth >= MAX_DEPTH) return
+  for (const child of await readAllEntries(entry)) await walkEntry(child, rel, out, depth + 1)
+}
+
+/**
+ * 从一次拖放的 `DataTransfer` 里读出待导入的条目（目录递归展开）。
+ *
+ * 【同步段不能挪】`DataTransfer` 只在**这一次事件派发期间**有效：派发一结束 `items` 就空了。
+ * 所以下面第一段（把 entry / File 引用抓到手）必须在事件里同步跑完 —— 本函数是 async，但
+ * `await` 之前的代码就是同步执行的，调用方只要**在 drop 回调里直接调它**（前面别先 await
+ * 别的东西）这一段就落在那次派发里。之后的递归读目录可以慢慢来：`FileSystemEntry` 与
+ * `File` 对象在事件结束后照样能用（这一条是拖放最容易踩空的地方，见 HANDOFF 第 13 节）。
+ *
+ * 【为什么非要 webkitGetAsEntry】`dataTransfer.files` 是**平的**：拖一个文件夹进来只会得到
+ * 那个目录本身（Chrome 给一个 size 为 0 的伪 File），里面的东西一个都没有。目录结构只有
+ * `FileSystemEntry` 拿得到。浏览器不给 entry（老 Firefox / 非标准环境）时退回 files，
+ * 至少把顶层那几个文件导进来。
+ *
+ * @param {DataTransfer|null} dataTransfer
+ * @returns {Promise<ImportItem[]>}
+ */
+export async function readDroppedItems(dataTransfer) {
+  // —— 同步段：趁事件还在派发，把引用抓到手 ——
+  /** @type {FileSystemEntry[]} */
+  const entries = []
+  /** @type {File[]} */
+  const files = []
+  try {
+    for (const item of Array.from(dataTransfer?.items ?? [])) {
+      if (item.kind !== 'file') continue
+      let entry = null
+      try {
+        entry = item.webkitGetAsEntry?.() ?? null
+      } catch {
+        entry = null
+      }
+      if (entry) entries.push(entry)
+    }
+  } catch {
+    /* items 读不出来：退回下面的 files */
+  }
+  if (!entries.length) {
+    try {
+      files.push(...Array.from(dataTransfer?.files ?? []))
+    } catch {
+      /* 一样取不到：当作空，调用方会走「没有可导入的文件」那条提示 */
+    }
+  }
+
+  // —— 异步段：入口引用已经安全，慢慢递归 ——
+  /** @type {ImportItem[]} */
+  const out = []
+  if (entries.length) {
+    for (const entry of entries) await walkEntry(entry, '', out, 0)
+  } else {
+    for (const file of files) {
+      if (file?.name) out.push({ rel: file.name, file })
+    }
+  }
+  return out
 }
 
 /**

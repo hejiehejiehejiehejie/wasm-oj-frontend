@@ -23,6 +23,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
 import { getNodeById, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
 import { dirname, isWithin } from '../services/vfs/paths.js'
+import { contentElementAt } from './contentHit.js'
 
 /** 触屏长按多久算「到点了」—— 这一刻菜单当场弹出，也从此可以拖。与系统长按菜单的阈值无关
  *  （按下即接管，见下）——450ms 只是手感。
@@ -359,12 +360,17 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
    * 命中测试：指针底下那一行是不是合法落点。
    *
    * 幽灵元素必须 `pointer-events: none` —— 否则 elementFromPoint 永远只命中它自己。
+   * 另外还得**穿透两件浮在内容上的界面件**（覆盖式滚动条的滑块、两栏之间的分隔条热区）：
+   * 它们盖住树右缘那一条，会让这里的命中测试拿不到行、落点退化成「树空白处 = 根目录」。
+   * 这一层封装在 `contentHit.js` 的 `contentElementAt` 里（另两处同款：usePageDrop、
+   * App.vue 的 ⌘A 区域判据）。
+   *
    * 落点语义只有「拖进目录」一种：目录行 = 该目录；文件行 = 它的父目录（跟 VS Code 一样，
    * 让可投递的面积大一些）；树容器空白处 = 根目录。拖回原目录、拖到自己身上、把目录拖进
    * 自己的后代，都算无效，不高亮也不起手。
    */
   function resolveTarget(clientX, clientY, source) {
-    const hit = document.elementFromPoint(clientX, clientY)
+    const hit = contentElementAt(clientX, clientY)
     // 长按弹出的那张菜单在「收掉」与「真的从 DOM 里消失」之间隔着一帧（Vue 的更新是异步的）。
     // 这一帧里指针底下压着的就是菜单本身，按「树空白处」算会闪出一整棵树都高亮的落点 —— 当作
     // 没命中，下一帧落点就正常回来了。

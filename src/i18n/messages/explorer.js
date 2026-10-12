@@ -58,6 +58,16 @@ export default {
         importDone: '已导入 {n} 个文件',
         importSkipped: '已导入 {n} 个文件，跳过 {k} 个（二进制或过大）',
         importFailed: '导入失败',
+        /**
+         * 从系统里把文件拖进页面后的**结果通知**（2026-10-13 起走全局通知，见 App.vue 的
+         * reportDropImport）。重点是把「放到哪儿」说出来 —— 那条通知露面时侧栏已经还原，
+         * 屏幕上不再有落点的痕迹。
+         */
+        dropDoneTitle: '导入完成',
+        dropDone: '已导入 {n} 个文件到 {where}',
+        dropDoneSkipped: '已导入 {n} 个文件到 {where}，跳过 {k} 个（二进制或过大）',
+        /** `{where}` 取根目录时的写法 */
+        whereRoot: '根目录',
       },
 
       /** 删除确认弹窗 */
@@ -158,6 +168,11 @@ export default {
         importDone: 'Imported {n} file(s)',
         importSkipped: 'Imported {n} file(s), skipped {k} (binary or too large)',
         importFailed: 'Could not import',
+        /** See the zh-CN side: the drop-result toast, which must name the destination folder */
+        dropDoneTitle: 'Import finished',
+        dropDone: 'Imported {n} file(s) into {where}',
+        dropDoneSkipped: 'Imported {n} file(s) into {where}, skipped {k} (binary or too large)',
+        whereRoot: 'the workspace root',
       },
 
       deleteConfirm: {

@@ -249,7 +249,7 @@ export default {
         },
         selectAllNodes: {
           label: '全选（资源管理器）',
-          hint: '焦点在资源管理器里才生效 · 选中的是当前可见的行，折叠着看不见的不算',
+          hint: '焦点在资源管理器里才生效 · 选中的是焦点所在文件夹里的全部内容（含子目录；焦点在空白处时 = 根目录）',
         },
 
         restore: { label: '恢复默认', hint: '把上面所有快捷键还原成初始设置', title: '恢复默认快捷键' },
@@ -794,7 +794,7 @@ export default {
         },
         selectAllNodes: {
           label: 'Select all (explorer)',
-          hint: 'Applies while the focus is in the explorer · selects the rows currently visible, not the collapsed ones',
+          hint: 'Applies while the focus is in the explorer · selects the whole focused folder, subfolders included (the root when the focus is on empty space)',
         },
 
         restore: {

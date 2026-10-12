@@ -182,8 +182,11 @@
      只有设置页「组件」那一行用它——页头那颗按钮与编辑区页签与相邻图标一样走 currentColor */
   --icon-codeforces: #5aa9dd;
 
-  --scrollbar-thumb: #424247;
-  --scrollbar-thumb-hover: #525258;
+  /* 滚动条滑块：2026-10-13 往面板底色（--bg-panel #1d1d1e）靠了一档（原 #424247 / #525258）
+     —— 按要求「与背景色差更小」。两支都压在「看得见但不跳出来」的量级：滑块对面板的对比度
+     约 1.3（改前 1.7）。浅色那支同一天往反方向调了同样的量，两套主题保持同构 */
+  --scrollbar-thumb: #333338;
+  --scrollbar-thumb-hover: #43434a;
 
   --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
@@ -333,8 +336,10 @@
   /* Codeforces：官方的 #1f8acb，浅底上本来就够读，不用再压深 */
   --icon-codeforces: #1f8acb;
 
-  --scrollbar-thumb: #c4c4c4;
-  --scrollbar-thumb-hover: #adadad;
+  /* 滚动条滑块：2026-10-13 往面板底色（--bg-panel #f4f4f4）靠了一档（原 #c4c4c4 / #adadad）；
+     浅色里滑块的「更淡」= 更亮，与深色那支方向相反、改动量对齐（见 :root 里那两条） */
+  --scrollbar-thumb: #d5d5d5;
+  --scrollbar-thumb-hover: #c0c0c0;
 
   color-scheme: light;
 }
@@ -404,6 +409,37 @@ textarea {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 覆盖式滚动条（composables/useOverlayScrollbar.js）：不走原生滚动条，所以样式也只能
+   落在全局 —— 那片滑块是 JS 建出来、挂在 body 上的，组件的 scoped 够不到它。
+   它 fixed 在滚动容器右缘之内（left / top / height 由 JS 逐帧写），默认透明且不吃指针事件，
+   滚动时由 JS 挂上 .is-visible 才淡入 —— 所以「不滚动时消失」是这套样式 + 那个类一起给的。
+   宽度写 px 会经 postcss-pxtorem 转 rem，跟着界面缩放一起变（与原生那条 11px 同口径）。
+   2026-10-13：宽度由 8px 收到 6px、颜色两套主题都往背景靠了一档（见 :root / light 里
+   --scrollbar-thumb 那两行的注释），按要求「与背景色差更小、更细」。 */
+.oscroll-thumb {
+  position: fixed;
+  /* 高于面板内容，低于右键菜单（120）/ 确认框（130） */
+  z-index: 60;
+  width: 6px;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  opacity: 0;
+  /* 藏起来时不能挡住底下的行 —— 否则点「滑块原来待着的那条」会点不动 */
+  pointer-events: none;
+  cursor: default;
+  transition: opacity 0.2s ease, background-color 0.15s ease;
+}
+
+.oscroll-thumb.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.oscroll-thumb.is-visible:hover,
+.oscroll-thumb.is-dragging {
+  background: var(--scrollbar-thumb-hover);
 }
 
 :focus-visible {

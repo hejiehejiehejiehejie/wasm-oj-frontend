@@ -11,10 +11,12 @@ import './styles/base.css'
 // （model 泄漏、语言状态等）。生产构建会被整段裁掉。
 if (import.meta.env.DEV) {
   Promise.all([
-    import('monaco-editor'),
+    import('./services/monaco/editorBundle.js'),
     import('./services/monaco/modelManager.js'),
     import('./services/vfs/workspaceStore.js'),
-  ]).then(([monaco, { modelManager }, store]) => {
+  ]).then(([{ monaco }, { modelManager }, store]) => {
+    // ⚠️ 取 `.monaco`：editorBundle 的模块命名空间是 `{ monaco, default }`，
+    // 不像 monaco-editor 的入口那样本身就是 API（`monaco.editor` 之类的挂载点）。
     window.__cp = { monaco, modelManager, store }
   })
 }
