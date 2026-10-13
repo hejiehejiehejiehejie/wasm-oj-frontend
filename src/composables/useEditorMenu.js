@@ -21,12 +21,22 @@
  * 而且它**只弹菜单、不选词**。这里自己按 450ms 判定（与文件树的 `LONG_PRESS_MS` 同口径，
  * 改一处记得对另一处），再把 Monaco 那一发拦掉。
  *
- * 【拦 Monaco 内置菜单的两条路】
- * 1. 触屏：捕获阶段监听 `-monaco-gesturecontextmenu`。Monaco 把它派发在 `.view-lines` 上
- *    且 `bubbles: false` —— **只有捕获阶段抄得到**（`useMobileKeyboard` 拦 Tap 用的是同一招）。
+ * 【拦 Monaco 内置菜单：一层开关 + 两条拦截】
+ * 0. **底牌（2026-10-14 加）**：`services/editorOptions.js` 里给编辑器下了 `contextmenu: false`
+ *    —— Monaco 自己那个开关，一开就把那份菜单关死（`ContextMenuController` 的三个入口全早退）。
+ *    下面两条只是让 Monaco **连算都不必算**；真正保证「任何入口都弹不出来」的是这一条。
+ * 1. 触屏：捕获阶段监听 `-monaco-gesturecontextmenu`，**一律拦掉**（见 `onMonacoMenu`）。
+ *    Monaco 把它派发在触摸落点上且 `bubbles: false` —— **只有捕获阶段抄得到**
+ *    （`useMobileKeyboard` 拦 Tap 用的是同一招）。
  * 2. 桌面：捕获阶段监听 `contextmenu`。Monaco 的监听挂在自己的根元素上，在祖先的捕获阶段
  *    `stopPropagation` 之后它就收不到了。
  * 两条都要 `preventDefault`，否则浏览器还会再弹一次原生菜单。
+ *
+ * 第 1 条**为什么必须无条件拦**：我们的长按撤销阈值是 10px（`MOVE_SLOP`），Monaco 判「按住」
+ * 的位移窗是 30px（`touch.js`）。手指动过 10px 又不到 30px 时我们撤了长按、Monaco 到点照发，
+ * 以前那句 `if (!handledTouch) return` 就把这一发放过去了 —— 于是它那份英文菜单冒出来
+ * （用户 2026-10-14 报的就是这个）。放行还附带一次 Monaco 自己的 `editor.focus()`，
+ * 在触屏上等于把键盘弹起来，更不该留。
  *
  * 【右列的键位】剪切 / 复制 / 粘贴 / 全选 / 更改所有匹配项 / 命令面板取自下面的 `SHORTCUT`
  * （`formatCombo`）——显示的就是 Monaco 自己的默认键位，按了真的会跑，不是占位提示。
@@ -506,9 +516,14 @@ export function useEditorMenu({ editor, host }) {
     openAt(event.clientX, event.clientY)
   }
 
-  /** Monaco 自己的长按菜单：只在本次触摸已被我们接管时拦，别顺手挡掉别的入口 */
+  /**
+   * Monaco 自己的长按菜单：**一律拦掉**（2026-10-14 从「有条件」改成无条件）。
+   * 以前只拦「本次触摸已被我们接管」的那一发，是为了「别顺手挡掉别的入口」；可那个入口
+   * 恰恰是漏的：手指动过 10px（我们的撤销阈值）又不到 30px（Monaco 的位移窗）时，
+   * 我们撤了长按、Monaco 到点照发，菜单就冒出来了。触屏上不该再有第二个菜单。
+   * 桌面右键不经过这里（`-monaco-gesturecontextmenu` 只在触摸下派发），走 `onContextMenu`。
+   */
   function onMonacoMenu(event) {
-    if (!handledTouch) return
     event.preventDefault()
     event.stopPropagation()
   }

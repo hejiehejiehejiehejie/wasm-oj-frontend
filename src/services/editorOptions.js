@@ -297,6 +297,23 @@ export function editorOptions(settings, scale = 1, { markdown = false } = {}) {
     minimap: { enabled: settings.minimap },
     // 三态存档 → Monaco 的 'on' / 'off'（「仅 Markdown 隐藏」按当前文件折算）
     lineNumbers: resolveLineNumbers(settings.lineNumbers, markdown),
+    // **Monaco 自带的右键菜单整套关掉**（2026-10-14 加）。站内那份是自绘的
+    // （`composables/useEditorMenu.js`：桌面右键 / 触屏长按 450ms），Monaco 那份是英文的，
+    // 只要有一处漏拦，屏幕上就会冒出一份与双语界面不一致的菜单来。
+    //
+    // 漏拦就出在触屏那条路上（实测的窗口）：我们撤销长按的位移阈值是 **10px**
+    // （`useEditorMenu.js` 的 `MOVE_SLOP`），Monaco 判定「按住」的位移窗是 **30px**
+    // （`touch.js` 的 `HOLD_DELAY = 700ms` 那一支，见第 5 节坑 31）。手指按住后先在原地
+    // 动过 10px 又不到 30px 时：我们撤了长按，Monaco 到点照发 ⇒ 它那份菜单冒出来。
+    // 以往只靠 useEditorMenu 在捕获阶段拦，而那条拦是**有条件的**（只拦「本次触摸已被我们
+    // 接管」的那一发），所以这个窗口一直是敞的。
+    //
+    // 这个选项是 Monaco 自己的开关：`ContextMenuController` 在 `_onContextMenu` 与
+    // `showContextMenu` 开头都读它，见到 false 就只落焦点与光标、不弹菜单
+    // （`contrib/contextmenu/browser/contextmenu.js` 三处早退）⇒ **任何入口**都弹不出来。
+    // 顺带把 Shift+F10 / Menu 键那条键盘路也关掉（同一个开关，那条路捕获监听够不到）。
+    // 它**不影响**我们那份菜单：菜单内容与两条拦截都在 `useEditorMenu.js`，与这个选项无关。
+    contextmenu: false,
     // 编辑
     wordWrap: settings.wordWrap,
     wordWrapColumn: settings.wordWrapColumn,
