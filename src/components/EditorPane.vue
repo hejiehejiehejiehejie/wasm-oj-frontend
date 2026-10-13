@@ -1489,8 +1489,11 @@ defineExpose({
   opacity: 0.5;
 }
 
+/* 状态栏的底色自 2026-10-14 起是地面色（`--statusbar-bg` = `--bg-editor`），
+   `--text-on-accent` 那支白在浅色主题下会直接看不见 —— 重点项改成比正文更实的 `--text`
+   （深色下由 #f1f7f4 略压暗、浅色下由 #ffffff 压到 #1f1f1f），靠字重 + 亮度双重强调 */
 .editor-pane__status .picked {
-  color: var(--text-on-accent);
+  color: var(--text);
   font-weight: 550;
 }
 
