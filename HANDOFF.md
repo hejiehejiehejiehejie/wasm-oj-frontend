@@ -798,8 +798,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | --- | --- |
 | `public/manifest.webmanifest` | `display: standalone`、`start_url: /`、`scope: /`、`id: /`；`theme_color` = `--bg-chrome`（深色那支 `#1c1c1c`）。**它不是「首帧兜底」——它才是 Firefox 安卓唯一认的那个值**，见 9.1 |
 | `public/icons/*.png` | `icon-192/512`（圆角、透明角）、`icon-maskable-192/512`（满幅方块 + 图形收在安全区内）、`apple-touch-icon`（180，满幅） |
+| `public/favicon.svg` + `public/favicon.ico` | 标签页 / 快捷方式图标。**`.ico` 是安卓 Firefox 「添加到主屏幕」那条路唯一认的**：造快捷方式时它按老规矩直接抓根目录 `/favicon.ico`，不看 `<link rel="icon">`、也不看 manifest（2026-10-14 加，见下面那段） |
 | `src/sw.js` → `dist/sw.js` | Service Worker，缓存策略见下。**源码是模板、产物由构建生成**（见下） |
 | `src/composables/useInstallPrompt.js` | 拦 `beforeinstallprompt` 交给设置视图「应用」分组里的安装按钮，跟踪 `appinstalled` 与 `display-mode: standalone` |
+
+**「添加到主屏幕」造出来的快捷方式没有图标（2026-10-14 修）**：安卓 Firefox 那条路有两个入口，取的图不是同一处 —— 菜单项是 **Install**（站点可安装）时走 manifest 的 `icons`；是 **Add to Home Screen**（普通快捷方式）时，它按 1999 年那条老规矩**直接抓 `/favicon.ico`**，`<link rel="icon">` 与 manifest 都不看。站点以前**只有 `favicon.svg`、根目录没有 `.ico`**（线上是 404），SVG 在它那条路上栅格化不出来 ⇒ 主屏上就是一张空图标。
+修法：新出 `public/favicon.ico`（16/32/48 三尺寸，PNG-in-ICO，源图是 `icons/icon-192.png`，本机用 `sips` 缩放 + 手拼 ICONDIR），并在 `index.html` 里**显式**声明一条（声明了别的 `rel="icon"` 之后浏览器未必再兜底抓根目录那份，写出来才保证它在候选集里）；`/favicon.ico` 同步进 `STATIC_ASSETS`（它跟 `favicon.svg` 一样是内容不动的 `public/` 资产）。
 
 **Service Worker 的三段策略**：
 

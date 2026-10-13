@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <!-- viewport-fit=cover：装到桌面后要铺满整块屏幕，圆角与安全区那一圈才轮到页面自己画 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- 三条 icon 各有各的取法，缺一条就有一处拿不到图：
+         · svg —— 现代浏览器标签页，矢量最清；
+         · **根目录的 .ico**（2026-10-14 加）—— 安卓 Firefox 点「添加到主屏幕」造快捷方式时，
+           按老规矩直接去取 `/favicon.ico`，**不看 `<link rel="icon">` 也不看 manifest**；
+           以前只有那一个 SVG，它栅格化不出来，主屏上就是一张空图标（用户实测）。
+           显式声明这一条还有第二个用处：声明了别的 `rel="icon"` 之后，浏览器未必再去兜底抓
+           根目录那份，写出来才保证它在候选集里；
+         · apple-touch-icon —— iOS 加到主屏。 -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- 站点主地址是带 www 的域名，apex 会 308 跳过来；canonical 用来收掉 Vercel 预览域等重复地址 -->
