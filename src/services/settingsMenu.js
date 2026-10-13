@@ -16,7 +16,7 @@
  *
  * 【写就一定经过原有单一出口】这里没有一个字面量 localStorage 键：
  * - 编辑器偏好 → `services/editorSettings.js` 的 setEditorSetting
- * - 侧边栏位置 / 缩放 → `services/shellSettings.js`
+ * - 侧边栏位置 / 窄屏折叠方向 / 缩放 → `services/shellSettings.js`
  * - 模板开关 → `services/fileTemplates.js`
  * - 界面语言 → `i18n/index.js`
  * 所以菜单改完，**设置面板里同一行立刻跟着变**（读的是同一份 ref），不需要同步代码。
@@ -25,8 +25,8 @@
  * - `switch`：二值，一级行末尾就是那只开关，点整行翻面。适合的正是「启用模板」这类
  *   本身就是「开或不开」语义的项。
  * - `radio`：点开二级子菜单再选，**两档也照样用它** —— 主题（深 / 浅）与侧边栏位置
- *   （左 / 右）这两项的两档各有名字，开关只能说「开 / 关」、说不出档位叫什么，
- *   而二级里既看得到当前停在哪一档、也能直接认出另一档叫什麼。选完默认**菜单不关** ——
+ *   （左 / 右）、窄屏折叠方向（上 / 下）这几项的两档各有名字，开关只能说「开 / 关」、
+ *   说不出档位叫什么，而二级里既看得到当前停在哪一档、也能直接认出另一档叫什麼。选完默认**菜单不关** ——
  *   调缩放 / 切语言这类动作常常要连着试几次，关掉反而碍事。要连菜单一起收的行
  *   （「设置分类」—— 它把人送到设置面板去）在表里标 `closes: true`。
  * - `stepper`：数值 ±1，缩放那样有档位的用 radio，只有字号这个连续量用它。
@@ -42,7 +42,16 @@ import { openSettingsTab } from './editorViews.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
 import { LOCALES, locale, setLocale } from '../i18n/index.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
-import { PANEL_POSITIONS, panelPosition, setPanelPosition, uiScalePref } from './shellSettings.js'
+import {
+  isNarrowLayout,
+  NARROW_COLLAPSE_SIDES,
+  PANEL_POSITIONS,
+  narrowCollapseSide,
+  panelPosition,
+  setNarrowCollapseSide,
+  setPanelPosition,
+  uiScalePref,
+} from './shellSettings.js'
 import { canInstall, install } from '../composables/useInstallPrompt.js'
 import { extensionInfo } from '../composables/useCompanionBridge.js'
 import {
@@ -120,6 +129,19 @@ export const SETTINGS_MENU_ROWS = [
     options: () => PANEL_POSITIONS,
     current: () => panelPosition.value,
     select: (id) => setPanelPosition(id),
+  },
+  {
+    // 只在窄屏（手机 / 平板竖屏）出现：折叠后的图标栏贴工作区下沿还是上沿。
+    // 宽屏上这一项是**空转**的（折叠后是竖条，没有上下之分），所以整行跟着窄屏判据显隐
+    // （2026-10-13 用户要求；判据见 shellSettings.js 的 isNarrowLayout，设置面板那一栏同一口径）。
+    // 注意别把它当成「hide 掉一个动作」：值本身照旧持久化 / 走云端同步，只是宽屏不给入口。
+    id: 'narrowCollapseSide',
+    kind: 'radio',
+    when: () => isNarrowLayout(),
+    labelKey: 'settings.appearance.narrowCollapseSide.label',
+    options: () => NARROW_COLLAPSE_SIDES,
+    current: () => narrowCollapseSide.value,
+    select: (id) => setNarrowCollapseSide(id),
   },
 
   { kind: 'divider' },

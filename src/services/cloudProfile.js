@@ -42,6 +42,7 @@ export const SYNC_KEYS = [
   'cp.uiScale', // 界面缩放
   'cp.uiLocale', // 界面语言
   'cp.panelPosition', // 侧边栏在左还是在右
+  'cp.narrowCollapseSide', // 窄屏（手机 / 平板竖屏）折叠后图标栏贴上边还是下边
   'cp.editorShare', // 编辑器与评测面板的宽度比例
   'cp.sidebarTab', // 侧边栏停在「资源管理器」还是「评测样例」
   'cp.mdView', // 题解视图模式（仅编辑 / 双栏 / 仅预览）

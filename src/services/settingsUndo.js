@@ -8,7 +8,8 @@
  * 【为什么在 ref 上收口，而不是往写入方插钩】设置写入有五条通路：
  * - 设置面板整份回写 → App.vue → `editorSettings.updateEditorSettings`
  * - 齿轮菜单单项     → `editorSettings.setEditorSetting`
- * - 侧边栏位置       → `shellSettings.setPanelPosition`；界面缩放 → `uiScalePref`（面板与菜单**两处**直接写这个 ref）
+ * - 侧边栏位置 → `shellSettings.setPanelPosition`；窄屏折叠方向 → `shellSettings.setNarrowCollapseSide`；
+ *   界面缩放 → `uiScalePref`（面板与菜单**两处**直接写这个 ref）
  * - 界面语言         → `i18n.setLocale`；模板开关 → `fileTemplates.setTemplatesEnabled`
  * 逐条插钩要动五个文件（缩放那条还没有单一出口，得先给它造一个 setter），漏一条就漏一类设置。
  * 而它们最终都落回**模块级单例 ref**（就是「抽单例」这件事本身的收益），在这里挂 watch 一次全覆盖。
@@ -29,7 +30,7 @@
  *
  * 【文案里的设置名】标题是「{设置名} 已更新」，名字按 `settings.editor.<id>.label` 约定取
  * （与 settingsMenu.js 里 `settings.section.${id}` 同一体例）。不在编辑器域的那几个
- * （主题 / 字号 / 缩放 / 语言 / 侧边栏位置 / 模板开关 —— 它们在设置面板里就算「外观」「模板」栏）
+ * （主题 / 字号 / 缩放 / 语言 / 侧边栏位置 / 窄屏折叠方向 / 模板开关 —— 它们在设置面板里就算「外观」「模板」栏）
  * 走下面的例外表。改词条位置时两边一起改，探针会逐键校验每一条都译得出来。
  *
  * 【刻意不发通知的情形】
@@ -43,7 +44,7 @@ import { watch } from 'vue'
 
 import { EDITOR_SETTINGS_DEFAULTS } from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
-import { panelPosition, setPanelPosition, uiScalePref } from './shellSettings.js'
+import { narrowCollapseSide, panelPosition, setNarrowCollapseSide, setPanelPosition, uiScalePref } from './shellSettings.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
 import { locale, setLocale, t } from '../i18n/index.js'
 import { dismissNotification, notifications, notify, updateNotification } from './notifications.js'
@@ -67,6 +68,7 @@ const EXTRA_LABEL_KEYS = {
   uiScale: 'settings.appearance.uiScale.label',
   locale: 'settings.appearance.locale.label',
   panelPosition: 'settings.appearance.panelPosition.label',
+  narrowCollapseSide: 'settings.appearance.narrowCollapseSide.label',
   templatesEnabled: 'settings.templates.enable.label',
 }
 
@@ -81,6 +83,7 @@ const RESTORE = {
     uiScalePref.value = value
   },
   panelPosition: (value) => setPanelPosition(value),
+  narrowCollapseSide: (value) => setNarrowCollapseSide(value),
   templatesEnabled: (value) => setTemplatesEnabled(value),
   locale: (value) => setLocale(value),
 }
@@ -181,6 +184,9 @@ export function initSettingsUndo() {
 
   watch(uiScalePref, (next, prev) => handleChange('uiScale', prev, next), { flush: 'sync' })
   watch(panelPosition, (next, prev) => handleChange('panelPosition', prev, next), { flush: 'sync' })
+  watch(narrowCollapseSide, (next, prev) => handleChange('narrowCollapseSide', prev, next), {
+    flush: 'sync',
+  })
   watch(templatesEnabled, (next, prev) => handleChange('templatesEnabled', prev, next), { flush: 'sync' })
   watch(locale, (next, prev) => handleChange('locale', prev, next), { flush: 'sync' })
 }

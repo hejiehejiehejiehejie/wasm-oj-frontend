@@ -50,11 +50,18 @@ import { confirmCloudEntry } from './services/cloudEntry.js'
 import { flushFlashNotification, notify } from './services/notifications.js'
 import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
-import { flipPanelPosition, panelPosition, swapping, uiScalePref } from './services/shellSettings.js'
+import {
+  flipPanelPosition,
+  isNarrowLayout,
+  narrowCollapseSide,
+  panelPosition,
+  swapping,
+  uiScalePref,
+} from './services/shellSettings.js'
 
 // ---------------------------------------------------------------- 持久化状态
-// 侧边栏位置（panelPosition）与全局缩放（uiScalePref）已下沉到 services/shellSettings.js：
-// 设置下拉菜单要直接改它们，不必再经一条通向 App 的 emit 链。
+// 侧边栏位置（panelPosition）、窄屏折叠方向（narrowCollapseSide）与全局缩放（uiScalePref）
+// 已下沉到 services/shellSettings.js：设置下拉菜单要直接改它们，不必再经一条通向 App 的 emit 链。
 // 是否显示统一侧边栏（只影响显隐，文件树展开态与用例数据都不丢）
 const panelVisible = usePersistentRef('cp.panelVisible', true)
 // 语言不独立持久化：由活跃文件扩展名派生（activeLanguage），顶栏已无语言下拉
@@ -293,7 +300,14 @@ const sidebarPanels = computed(() => sidebarRef.value?.panels ?? [])
 
 // 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
 // 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
-const { active: keyboardMode, shortViewport, probe: focusProbe } = useMobileKeyboard()
+// keyboardUp 是「键盘**真的**弹着」（visualViewport 实测收缩），窄屏贴底那条图标栏靠它
+// 收起来（见 .app.is-typing 那条规则）——active 在整台触摸设备上恒真，分不出弹没弹。
+const {
+  active: keyboardMode,
+  shortViewport,
+  keyboardUp,
+  probe: focusProbe,
+} = useMobileKeyboard()
 // 页头耗时 = 本轮最慢的那张卡片，口径与卡片完全一致（只计运行段）：
 // 编译 / 链接 / 排队 / WASI 启动都不算，跑完一批后不会比最快的样例大出一个量级。
 const elapsed = computed(() => {
@@ -332,11 +346,21 @@ let abortController = null
 // 拖拽上线就是「编辑器最窄 24%」对应的面板最宽 76%；面板能拖多窄由 CSS min-width 决定。
 const MIN_SHARE = 24
 // 「折叠之后侧栏真正占的宽度」= 那条图标栏（ActivityBar 的 .activity-bar，48px），
-// 也就是折叠态下分隔条停的位置。它**不再直接当折叠判定边界**（2026-10-11 改）：
+// 也就是**宽屏**折叠态下分隔条停的位置。它**不再直接当折叠判定边界**（2026-10-11 改）：
 // 真正的边界取它与「展开到最窄时分隔条停的位置」的中点，见 measureLimits 的 hingePx。
+// ⚠️ 窄屏例外：那里既不用这条 48px，也不用中点，改用固定的指针容差 NARROW_HINGE_PX（见下）。
 // 48 会被 postcss-pxtorem 转成 rem、跟着全局缩放走（见 ActivityBar.vue 里那条注释），
 // 所以这里只存设计值，实际像素在 measureLimits 里乘 uiScale。
 const ACTIVITY_BAR_PX = 48
+
+// 窄屏折叠折点：指针离侧栏那一侧的边缘 **30px** 以内就折叠（2026-10-13 用户第二次改口径）。
+// 上一版窄屏取的是 `minPanelPx / 2`（「最窄宽度的一半」，因为窄屏折叠后图标栏是通栏横条、
+// 折叠停位等价于 0）—— 390 档实测落在离边缘 94.5px 处，手指拖到一半稍一用力就越线，用户报
+// 「感觉容易误触」。30 是**指针容差**，与 TAP_SLOP 同一性质：UI 缩放改的是界面元素的逻辑尺寸，
+// 不改手指的物理活动范围，所以**不乘 uiScale**（不同于 ACTIVITY_BAR_PX —— 那是某个元素的实际宽度）。
+// 坐标系与 hingePx 相同：`panelW` 就是指针到面板边缘的像素距离（见 move()），所以「离边缘 30px」
+// 直接写成 `hingePx = 30`，不用换坐标。
+const NARROW_HINGE_PX = 30
 
 // 拖拽与方向键共用的虚拟比例：它可能超出面板能压缩的范围，用来表达「鼠标离边缘还有多远」。
 // 面板可见时它就等于 editorShare；折叠后 editorShare 冻结在折叠前的宽度（展开时原样回来），
@@ -367,11 +391,14 @@ function measureLimits() {
   )
   // 折叠之后侧栏占的宽度：那条图标栏，随全局缩放一起变大（见 ACTIVITY_BAR_PX）
   const collapsedPx = ACTIVITY_BAR_PX * scale
-  // 折叠 / 展开的分界线：取「折叠后分隔条停的位置（collapsedPx）」与「展开到最窄时分隔条停的
-  // 位置（panelMin）」的中点（2026-10-11 用户定的口径）。于是这条线本身就是判据 ——
+  // 折叠 / 展开的分界线：取「折叠后分隔条停的位置」与「展开到最窄时分隔条停的位置
+  // （panelMin）」的中点（2026-10-11 用户定的口径）。于是这条线本身就是判据 ——
   // 面板比它窄就折叠、比它宽就展开，两侧各留一段对称的死区（面板已经被 min-width / 折叠宽度
   // 顶住、无法再变），越过中点才算改状态。两个端点都含 scale，中点自动跟着缩放走。
-  const hingePx = (collapsedPx + panelMin) / 2
+  // ⚠️ 窄屏（isNarrowLayout）不走这个中点，改用固定的指针容差 NARROW_HINGE_PX（2026-10-13
+  // 用户第二次改口径，理由见那个常量）：窄屏折叠后图标栏是一条通栏横条、横向上什么都没拿走，
+  // 中点会落在「最窄宽度的一半」——390 档离边缘 94.5px，太远、容易误触。宽屏照旧。
+  const hingePx = isNarrowLayout() ? NARROW_HINGE_PX : (collapsedPx + panelMin) / 2
   // 再加分隔条自身宽度：百分比 flex-basis 下，面板内容盒能压到多窄还要看分隔条占掉的那几像素。
   const minTests = panelMin + (surface.querySelector('.splitter')?.getBoundingClientRect().width ?? 0)
   return {
@@ -647,12 +674,14 @@ function beginDrag(event) {
   if (!surface) return
   // 取消 pointerdown 会按规范抑制兼容的 mousedown/mouseup，用来阻断从分隔条起手的
   // 原生文字选中拖拽；配合 .workspace.is-dragging 的 user-select: none 双保险。
-  // 注意别指望别的浏览器也像 Chrome 那样把 click 补回来——单击折叠 / 展开因此不依赖 click，
-  // 而是在下面的 pointerup 上自己认（见 stop）。
+  // 注意别指望别的浏览器也像 Chrome 那样把 click 补回来——宽屏的单击折叠 / 展开因此不依赖 click，
+  // 而是在下面的 pointerup 上自己认（见 stop；**窄屏没有这个入口**，2026-10-13 起去掉）。
   event.preventDefault()
   let moved = 0
   const startX = event.clientX
   const startY = event.clientY
+  // 按下那一刻的占比：窄屏的「轻点」要原样退回去（见 finish），否则按在热区里会把面板顶宽十几像素
+  const startShare = editorShare.value
   const limits = measureLimits()
   // 面板在右时，面板内容宽 = 容器右边界到鼠标的距离；在左则 = 鼠标到容器左边界。
   // 像素直连按下图换算，跟手不打折、不累计误差（多轮折叠展开后也不漂移）。
@@ -688,8 +717,9 @@ function beginDrag(event) {
     if (panelVisible.value) {
       // 展开态：[minPanelPx, maxPanelPx] 内是「可变宽」区间，面板严格 1:1 跟手；
       // 压到 minPanelPx 以下就是死区（钉在最窄不动），一直拖过 hingePx 才折叠 ——
-      // hingePx 是「折叠后的分隔条位置」与「最窄时的分隔条位置」的中点，所以它是这条线上
-      // 唯一的判据：比它窄就折叠（侧栏在左时 = 指针往左越过它，在右时对称）。
+      // hingePx 宽屏是「折叠后的分隔条位置」与「最窄时的分隔条位置」的中点，窄屏则是固定的
+      // 30px 指针容差（见 NARROW_HINGE_PX），所以它是这条线上唯一的判据：比它窄就折叠
+      //（侧栏在左时 = 指针往左越过它，在右时对称）。
       if (panelW <= limits.hingePx) {
         handoffDrag(false, limits)
         editorPane.value?.layout()
@@ -707,7 +737,15 @@ function beginDrag(event) {
   const finish = () => {
     // 松手：把最终像素宽反算回 editorShare%（一次舍入），再退出像素直连回到百分比流
     if (panelVisible.value && dragPanelPx.value !== null) {
-      editorShare.value = Math.round(((limits.width - dragPanelPx.value) / limits.width) * 100 * 10) / 10
+      // 窄屏的「轻点」什么都该不做，所以这里原样退回按下时的占比：像素直连的落点是「指针到边缘
+      // 的距离」（绝对量），而热区是一只 24px 的盒子、整个铺在细线**一侧**（侧栏在左时铺在右侧
+      // `margin: 0 -20px 0 0`，在右时镜像到左侧，见样式表 .splitter），按在热区中间就等于把面板
+      // 边缘当成指针 → 面板凭空宽十几像素并落盘。宽屏不必这么兜 ——
+      // 那边轻点会整块翻面，这点宽度变化看不出来（且翻回来时落点由 togglePanel 决定）。
+      editorShare.value =
+        isNarrowLayout() && moved <= TAP_SLOP
+          ? startShare
+          : Math.round(((limits.width - dragPanelPx.value) / limits.width) * 100 * 10) / 10
       virtualShare = editorShare.value
     }
     dragPanelPx.value = null
@@ -721,6 +759,11 @@ function beginDrag(event) {
   const stop = (upEvent) => {
     finish()
     editorPane.value?.layout()
+    // 窄屏不给「单击分隔条 = 折叠 / 展开」这个入口（2026-10-13 用户要求「去掉窄屏模式里的
+    // 点击拖拽线来折叠」）：窄屏的折点已经贴到离边缘 30px（见 NARROW_HINGE_PX），而分隔条停在
+    // 最窄落点上，手指按住它稍一抖动就会被当成轻点、面板整块翻面。窄屏要收起请拖到底，
+    // 或用底栏那枚箭头 / 图标栏那颗按钮 —— 那两条入口一直都有，与这里无关。
+    if (isNarrowLayout()) return
     // 没怎么动的松手才算「单击」，拖过就不算 —— 拖到贴边那次折叠不能被松手这一下再翻回去。
     // 特意不看原生 click：pointerdown 里的 preventDefault 会抑制兼容鼠标事件，
     // 各浏览器补不补回 click 并不一致，所以在自己的 pointerup 上收口。
@@ -1378,13 +1421,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app" :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport }">
+  <div
+    class="app"
+    :class="{ 'is-keyboard': keyboardMode, 'is-short': shortViewport, 'is-typing': keyboardUp }"
+  >
     <!-- 临时调试读数条：定位 Android 上「收键盘后点哪都回到输入框」，验完与本行一起删 -->
     <div v-if="IS_ANDROID" class="focus-probe">{{ focusProbe }}</div>
     <main
       ref="workspace"
       class="workspace"
-      :class="[`is-${panelPosition}`, { 'is-dragging': dragging, 'is-swapping': swapping, 'is-collapsed': !panelVisible }]"
+      :class="[
+        `is-${panelPosition}`,
+        `is-fold-${narrowCollapseSide}`,
+        { 'is-dragging': dragging, 'is-swapping': swapping, 'is-collapsed': !panelVisible },
+      ]"
     >
       <section class="pane pane--editor" :style="editorPaneStyle">
         <EditorPane
@@ -1446,7 +1496,10 @@ onBeforeUnmount(() => {
         <!-- 定宽壳：宽度由 pinSidebarWidth 钉住，折叠动画期间内部的排版一动不动
              （is-fixed 只在量到过一次真实宽度后才上，见那里） -->
         <div ref="sidebarInner" class="pane__inner" :class="{ 'is-fixed': sidebarPinned }">
-          <Sidebar ref="sidebarRef">
+          <!-- panel-position 只给窄屏底部那颗「收起侧栏」用：它据此决定箭头朝哪边、贴哪一端。
+               collapse 走 togglePanel() 而不是 togglePanel —— 后者会吃到事件对象、
+               把它当成 { instant }（truthy）而不播动画。 -->
+          <Sidebar ref="sidebarRef" :panel-position="panelPosition" @collapse="togglePanel()">
             <template #explorer>
               <FileExplorer ref="fileExplorer" />
             </template>
@@ -1721,13 +1774,118 @@ onBeforeUnmount(() => {
 }
 
 /* 窄屏下 Sidebar 把页头整条解散（display: contents）、两个子元素升成 .sidebar 的直接
-   flex 项：上面那条打的是 .sidebar__head 这个盒子，盒子没了就淡不出来。同参数补一份
-   （断点与 Sidebar.vue 里那条必须一致，2026-10-13）。
+   flex 项：上面那条打的是 .sidebar__head 这个盒子，盒子没了就淡不出来。同参数补一份。
+   ⚠️ 判据是「竖屏的触摸设备 或 视口 < 600px」两条并集，**与 Sidebar.vue 里那条必须逐字一致**
+   —— 改一处必改另一处，否则会出现「沉底了但没有淡入」（2026-10-13）。
    只动 opacity / transform，不碰宽度。 */
-@media (max-width: 600px) {
+@media (pointer: coarse) and (orientation: portrait), (max-width: 600px) {
   .pane--tests.is-animating.is-expanding :deep(.sidebar__switcher),
   .pane--tests.is-animating.is-expanding :deep(.sidebar__context) {
     animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
+  }
+}
+
+/* ------------------------------------------------- 窄屏折叠态：图标栏横过来贴边（2026-10-13）
+
+   窄屏展开态的左簇已经沉到侧栏底部（同一个断点，见 Sidebar.vue），折叠态却还留着一竖条
+   48px 的图标栏贴在屏幕左边 —— 两个形态对不上；而且折叠之后唯一剩下的入口是那条「边界线」，
+   它的可见部分只是热区里一列 2px 的点（线平时 opacity: 0，触屏还没有 hover），
+   热区左半又正好压在图标栏中部那片没有按钮的空白上（点下去什么都不会发生）——
+   手指基本指不准，用户反馈的「触屏点边界线展不开」就是这个。
+   所以折叠态也统一成横排：**图标栏横过来、通栏贴在工作区的一条边上**，展开 / 选面板由它的
+   两枚面板按钮承担（指尖大小、看得见）。
+
+   贴哪条边由设置 `cp.narrowCollapseSide` 决定（上 / 下，默认下）：模板上落成 `.is-fold-top` /
+   `.is-fold-bottom`，下面那**四条 flex-direction** 就是它的全部实现。默认「下」＝ 2026-10-13
+   定这条形态时的样子，所以不设这一项时的观感与本条上线时完全一致。
+
+   竖排怎么排出来的：**不碰 JS 写在内联 style 上的 order**（那边是布局换边的唯一出处），
+   改用 flex-direction 把主轴翻过来 —— 图标栏在两个停靠侧上 order 的位置不同，正好各用一条：
+     · 侧栏在左 → order 是「图标栏 0 / 侧栏 1 / 分隔条 2 / 编辑器 3」；
+       贴底要 column-reverse（**最小**的 order 落到最下），贴顶要正排 column；
+     · 侧栏在右 → order 是「编辑器 1 / 分隔条 2 / 侧栏 3 / 图标栏 4」；
+       正好相反：正排 column 落在最下、column-reverse 落到最上。
+   于是四条规则都不需要 !important 去压内联 order（两档各两条，互不重叠）。
+
+   ⚠️ 分隔条在这一形态下整条不参与排版：竖排里它 12/24px 的 flex-basis 会变成一条 12px 高的
+   横带，而它想表达的那条竖缝已经不存在了。折叠态本来也无从拖宽（侧栏已经收没），要改宽先展开。
+   ⚠️ 侧栏那一栏（.pane--tests）仍留在排版里、高度收成 0 —— View Transitions 要靠它的旧快照
+   补间，摘掉 display 会让展开退化成「凭空出现」（同上面折叠态那段的理由）。 */
+@media (pointer: coarse) and (orientation: portrait), (max-width: 600px) {
+  /* 贴底（默认）：左停靠要反排、右停靠正排 */
+  .workspace.is-collapsed.is-fold-bottom.is-left {
+    flex-direction: column-reverse;
+  }
+
+  .workspace.is-collapsed.is-fold-bottom.is-right {
+    flex-direction: column;
+  }
+
+  /* 贴顶：两条与上面正好互换（只翻主轴，order 还是 JS 写的那一份） */
+  .workspace.is-collapsed.is-fold-top.is-left {
+    flex-direction: column;
+  }
+
+  .workspace.is-collapsed.is-fold-top.is-right {
+    flex-direction: column-reverse;
+  }
+
+  .workspace.is-collapsed .splitter {
+    display: none;
+  }
+
+  /* 横过来：两组并排落在同一条通栏卡片里 —— 左簇是面板入口（资源管理器 / 评测样例）、
+     右簇是抽题与设置，语义仍是两组；但整排**居中**而不是顶到两端（2026-10-13 用户要求）：
+     这条通栏和屏幕一样宽，两端各摆一簇、中间留一大片空档，看着像散了。
+     基础规则那条 space-between 是给竖排用的（两组一上一下），横排里要显式压掉 ——
+     压得住是因为这条带了 .workspace.is-collapsed 祖先，特异性 (0,3,0) 高过 ActivityBar.vue 里
+     那条 (0,2,0) 的基础规则（与顺序无关，同一层写法见上面 flex-direction 那几条）。
+     两簇之间的空档要自己补：那 4px 是 .activity-bar__group 内部的 gap，**两条栏之间没有**
+     （竖排里靠 space-between 拉开，横排改成居中后就贴着，中间那两枚方块会紧挨着、比别处少 4px）。
+     所以这里给整条补一个 gap: 4px，与组内格间距同值 ⇒ 一排等距按钮。
+     ⚠️ 这个 4px 与 ActivityBar.vue 里 `.activity-bar__group { gap: 4px }` 是同一个数，改一处要一起改。
+     两簇的语义分界因此只剩图标与选中态差异；要拉开簇间距，把这里的 gap 调大即可。
+     外观与它竖着时同一套（同圆角 / 同底色 / 同边框）。 */
+  .workspace.is-collapsed :deep(.activity-bar) {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度 ——
+       48 装不下「40px 方块 + 上下各 4px 内边距 + 上下各 1px 边框」，方块会被裁掉一像素 */
+    flex: 0 0 auto;
+    /* 竖着时的上下留白，横过来变成左右留白 */
+    padding: 4px 8px;
+  }
+
+  /* 与编辑器卡片之间那条 4px 空隙：分隔条已经不排版了，改由这里补。
+     写在两档里而不是合并成一条 —— 栏在下补上边距、栏在上补下边距；
+     用物理的 margin-top / margin-bottom，column-reverse 也不会把它翻到另一边去。 */
+  .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
+    margin-top: 4px;
+  }
+
+  .workspace.is-collapsed.is-fold-top :deep(.activity-bar) {
+    margin-bottom: 4px;
+  }
+
+  /* 软键盘弹起 + 图标栏贴底：这时候整块应用挂到 visualViewport 实测出来的范围上
+     （见 .app.is-keyboard），底栏就正好停在键盘正上方 —— 那几十像素是打字时最缺的地方，
+     直接收掉。贴顶那档不用管（键盘在下边，够不到它），所以判据里带着 is-fold-bottom。
+     ⚠️ is-typing 是 useMobileKeyboard 实测的「键盘真的弹着」，与 .app.is-keyboard
+     （那个只表示「这是台触摸设备」）不是一回事，别拿后者当判据。 */
+  .app.is-typing .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
+    display: none;
+  }
+
+  .workspace.is-collapsed :deep(.activity-bar__group) {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  /* 竖排里每格靠这条 3px 左边距钉在同一列；横排里它只会把每组的第一格推出去 */
+  .workspace.is-collapsed :deep(.activity-bar__item) {
+    margin-left: 0;
   }
 }
 
@@ -1806,7 +1964,9 @@ onBeforeUnmount(() => {
    于是瞄准线左侧想抓分隔条时会抓到滚动条、光标还不一样。现在左缘正好落在侧栏右缘上，
    两者只隔 1px，谁也不压谁。
    代价：热区的 50% 不再等于空隙中心（偏右整 4px），线得在 .splitter__line 里单独减掉。
-   净空隙 = 12 − 8，改这里要连带改触屏那条负外边距和线的偏移 */
+   净空隙 = 12 − 8，改这里要连带改触屏那条负外边距和线的偏移。
+   ⚠️ 上面那套只描述「侧栏在左」。侧栏停到右边时同一个方向就变成**往侧栏里长**，
+   必须整体镜像 —— 见下面 .workspace.is-right 那两条。 */
 .splitter {
   flex: 0 0 12px;
   margin: 0 -8px 0 0;
@@ -1832,6 +1992,25 @@ onBeforeUnmount(() => {
   .splitter {
     flex: 0 0 24px;
     margin: 0 -20px 0 0;
+  }
+}
+
+/* 侧栏停在**右边**时，热区整体镜像：多出来的宽度改从**编辑器**那一侧借，热区永远
+   「一侧贴住侧栏、其余铺在编辑器上」（2026-10-13 加，用户报「侧栏在右、窄屏下热区有问题」）。
+   不镜像的后果：那条「只往右扩」的负外边距本是冲着侧栏在左时那只覆盖式滚动条去的
+   （左缘必须正好落在侧栏右缘上才不压它），侧栏一到右边，同一个方向就整段长进侧栏里 ——
+   触屏 24px 里有 20px 压在侧栏左缘上，树行最左边那一段（含文件夹的展开箭头）点不动，
+   而且在上面拖**滑不动树**（热区带 touch-action: none）；宽屏那 12px 里同样压进 8px，
+   还会被当成「单击分隔条」直接把侧栏折了（宽屏的轻点入口）。镜像后与在左时逐像素对称：
+   净空隙同为 4px，热区盒只是翻转了朝哪边长的方向 —— 线 / 三点那两条偏移跟着取反号
+   （见 .splitter__line 与 .splitter__dots 各自的 is-right 规则）。 */
+.workspace.is-right .splitter {
+  margin: 0 0 0 -8px;
+}
+
+@media (pointer: coarse) {
+  .workspace.is-right .splitter {
+    margin: 0 0 0 -20px;
   }
 }
 
@@ -1871,6 +2050,19 @@ onBeforeUnmount(() => {
 @media (pointer: coarse) {
   .splitter__line {
     left: calc(50% - 10px);
+  }
+}
+
+/* 侧栏在右时热区镜像（见 .splitter 的 is-right 那两条），线要改成从热区**右缘**往左数：
+   偏移量与上面两条同源、号取反（12px 热区：50% = 6，要落到热区左缘起第 10px ⇒ 6 + 4）。
+   ⚠️ 粗指针那条必须写在这个基础规则之后（同特异性 (0,3,0)，靠顺序分胜负）。 */
+.workspace.is-right .splitter__line {
+  left: calc(50% + 4px);
+}
+
+@media (pointer: coarse) {
+  .workspace.is-right .splitter__line {
+    left: calc(50% + 10px);
   }
 }
 
@@ -1929,6 +2121,18 @@ onBeforeUnmount(() => {
   .workspace.is-collapsed .splitter__dots {
     /* 触屏 24px 热区的 50% 偏右 10px（与 .splitter__line 的 -10px 同源） */
     left: calc(50% - 10px);
+  }
+}
+
+/* 侧栏在右：三点跟着线一起镜像（同一条中缝提示，偏移取反号）。
+   特异性 (0,4,0) 高于上面两条 (0,3,0)，谁先谁后都不吃亏；粗指针那条仍写在基础规则之后。 */
+.workspace.is-right.is-collapsed .splitter__dots {
+  left: calc(50% + 4px);
+}
+
+@media (pointer: coarse) {
+  .workspace.is-right.is-collapsed .splitter__dots {
+    left: calc(50% + 10px);
   }
 }
 

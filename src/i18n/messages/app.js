@@ -70,6 +70,8 @@ export default {
         switcherLabel: '侧边栏面板与设置',
         /** 胶囊开关的 title / aria-label，{panel} 是目标面板名 */
         switchTo: '切换到{panel}',
+        /** 窄屏底部那颗箭头按钮（2026-10-13 加）：把侧栏收成一条图标栏 */
+        collapse: '收起侧边栏',
       },
 
       /** 题解（.md）编辑区：视图模式与预览面板 */
@@ -202,6 +204,7 @@ export default {
         testsShort: 'Tests',
         switcherLabel: 'Sidebar panels and settings',
         switchTo: 'Switch to {panel}',
+        collapse: 'Collapse sidebar',
       },
 
       md: {

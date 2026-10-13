@@ -34,7 +34,7 @@ import AppIcon from './AppIcon.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
 
-const { panels, targetPanel, togglePanel, settings, cfPicker, compact } =
+const { panels, targetPanel, togglePanel, settings, cfPicker, collapse, compact } =
   inject('sidebarTabs')
 
 // 指示块的位置信号：当前面板的 id 直接写在 pill 的 data-active 上，
@@ -87,8 +87,23 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   <nav
     class="sidebar-switcher"
     :class="{ 'is-compact': compact }"
+    :data-side="collapse.side"
     :aria-label="t('app.sidebar.switcherLabel')"
   >
+    <!-- 收起侧栏：**只在窄屏出现**（基础 display: none，由 Sidebar 的窄屏块打开），
+         箭头指向侧栏收走的方向，位置也贴那一侧的外端（order 见样式表）——
+         箭头指哪、按钮就在哪、点下去就往哪收。折叠是 App 的 togglePanel，
+         这里只派发，与拖分隔条到边界是同一条路。 -->
+    <button
+      type="button"
+      class="sidebar-switcher__tab sidebar-switcher__collapse"
+      :title="collapse.label"
+      :aria-label="collapse.label"
+      @click="collapse.toggle"
+    >
+      <AppIcon :name="collapse.icon" size="16" />
+    </button>
+
     <!-- 整枚胶囊＝一颗按钮。两段是 span（纯指示），不接点击，
          也不带 tabindex —— 键盘用户按一次空格/回车就翻过去，不需要在胶囊里再 Tab 一轮 -->
     <button
@@ -278,5 +293,19 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
 .sidebar-switcher__tab.is-active:hover {
   color: var(--text-on-accent);
   background: var(--accent);
+}
+
+/* 「收起侧栏」那颗（2026-10-13 加）：**只在窄屏出现** —— 这里写死 display: none，
+   由 Sidebar.vue 的窄屏块带着 .sidebar__switcher 祖先把它打开（那边特异性 (0,3,0)）。
+   宽屏不给它位置：那边有分隔条可拖、也有快捷键，多一颗入口是重复。
+   外观整套复用 __tab（同一颗圆形图标钮、同尺寸同 hover），不另抄一份。
+   它在 DOM 里排在最前，靠 order 挪到末尾 —— 侧栏停在**右**时箭头朝右，位置也贴右端；
+   停在左时它本来就在最前、箭头朝左，于是「箭头指哪、按钮在哪、点下去往哪收」三者一致。 */
+.sidebar-switcher__collapse {
+  display: none;
+}
+
+.sidebar-switcher[data-side='right'] .sidebar-switcher__collapse {
+  order: 1;
 }
 </style>

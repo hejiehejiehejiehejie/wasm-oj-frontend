@@ -68,7 +68,9 @@ function waitForServer() {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// 单击分隔条 = 折叠 / 展开。App.vue 在 pointerup 上认这件事，不看原生 click
+// 单击分隔条 = 折叠 / 展开（**宽屏专属**：窄屏 2026-10-13 起把这个入口去掉了，
+// `stop()` 里先 `if (isNarrowLayout()) return`；本脚本跑在 1680 桌面档，不受影响）。
+// App.vue 在 pointerup 上认这件事，不看原生 click
 // （pointerdown 里的 preventDefault 会抑制兼容鼠标事件，各浏览器补不补回 click 并不一致），
 // 所以要合成 pointerdown + 冒泡到 window 的 pointerup，且中间不带位移（位移超 10px 算拖拽）。
 const clickSplitter = (page) =>
@@ -117,10 +119,15 @@ const probe = (page) =>
       [...document.querySelectorAll('.sidebar__panel')].find((el) => el.getClientRects().length > 0)
     // 页头切换器全站只有一份（2026-10-11 上提到 Sidebar 的共享页头），直接在页头作用域里读
     const sidebarHead = () => document.querySelector('.sidebar__head')
-    // 页头上可点的控件：胶囊那颗 toggle（`.sidebar-switcher__pill`）+ 设置那颗
+    // 页头上可点的控件：胶囊那颗 toggle（`.sidebar-switcher__pill`）+ 设置那颗。
+    // ⚠️ 必须按**可见性**过滤（`getClientRects`，与上面 visiblePanel 同一口径）：
+    // 2026-10-13 起页头里还挂着窄屏底部那条那颗「收起侧栏」箭头（同一个 `__tab` 外观类），
+    // 它在本脚本的桌面宽度下是 `display: none`，但 `querySelectorAll` 照样拿得到它 ——
+    // 不过滤的话 A 组那条精确清单（`切换到评测样例/设置`）会凭空多一项、整组变红。
+    // 这个清单的语义本来就是「眼前看得见的控件」，函数名里的 visible 也该落实在这里。
     const visibleSwitcherTabs = () => [
       ...(sidebarHead()?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
-    ]
+    ].filter((el) => el.getClientRects().length > 0)
     // 胶囊里的两段：纯视觉指示，不可点，所以按它们自己的标记读「哪一段亮着」
     const visibleSegs = () => [...(sidebarHead()?.querySelectorAll('.sidebar-switcher__seg') ?? [])]
     return {
@@ -254,11 +261,12 @@ try {
     // 段位带短标签（窄屏退回纯图标），所以认 aria-label / data-panel 而不是 textContent。
     // 面板那枚胶囊整体是一颗 toggle，文案是「将要去的那一个」；两段在它里面，
     // 所以这里钉住的是「胶囊在（且说的是去向）+ 两段都渲染出来了」。
+    // 同上：按可见性过滤（页头里还挂着窄屏才显示的「收起侧栏」那颗，桌面下是 display: none）
     const tabs = await page.evaluate(() => {
       const head = document.querySelector('.sidebar__head')
-      return [...(head?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? [])].map(
-        (el) => el.getAttribute('aria-label'),
-      )
+      return [...(head?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? [])]
+        .filter((el) => el.getClientRects().length > 0)
+        .map((el) => el.getAttribute('aria-label'))
     })
     const segIds = await page.evaluate(() => {
       const head = document.querySelector('.sidebar__head')

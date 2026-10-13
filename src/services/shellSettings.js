@@ -1,7 +1,7 @@
 /**
- * shellSettings —— 「外壳」那一层偏好的模块级单例：侧边栏位置与全局界面缩放。
+ * shellSettings —— 「外壳」那一层偏好的模块级单例：侧边栏位置、窄屏折叠方向、全局界面缩放。
  *
- * 【为什么单独抽出来】这两项原本写在 App.vue 里（`cp.panelPosition` / `cp.uiScale`），
+ * 【为什么单独抽出来】前两项原本写在 App.vue 里（`cp.panelPosition` / `cp.uiScale`），
  * App 是唯一持有方，别的入口要改它们就只能往上 emit、再经 prop 传回来。设置下拉菜单
  * （`SettingsMenu.vue`）挂在侧栏页头与折叠后的图标栏里，离 App 隔着两层，为了改一次
  * 侧边栏位置去拉一条 emit 链不值得 —— 编辑器偏好抽到 `services/editorSettings.js`
@@ -11,7 +11,8 @@
  * 「菜单改完 App 立刻跟着变」不需要任何同步代码。
  *
  * 【「外壳」指什么】属于整个界面、而不是某个文件或某种语言的偏好：侧边栏在左还是右、
- * 整套界面放多大。判据是「它会在很多意料之外的入口里被想起来要去改」。
+ * 窄屏折叠后图标栏贴上边还是下边、整套界面放多大。判据是「它会在很多意料之外的入口里
+ * 被想起来要去改」。
  * 分工是：
  * - `editorSettings.js`：编辑器那一组偏好（Monaco 那 24 项）
  * - 本文件：外壳偏好
@@ -27,7 +28,7 @@ import {
 } from '../composables/useUiScale.js'
 
 /**
- * 两个键自己读写 localStorage，**刻意不用 usePersistentRef**。
+ * 这几个键自己读写 localStorage，**刻意不用 usePersistentRef**。
  *
  * 那份 composable 的「首次访问也落盘」靠 `onMounted` —— 而服务层模块是在组件之外
  * 被 import 的，那里没有组件实例，那条钩子根本不会执行（Vue 只会给一句警告）。
@@ -37,6 +38,7 @@ import {
  */
 const PANEL_POSITION_KEY = 'cp.panelPosition'
 const UI_SCALE_KEY = 'cp.uiScale'
+const NARROW_COLLAPSE_SIDE_KEY = 'cp.narrowCollapseSide'
 
 function read(key, fallback, revive) {
   try {
@@ -74,6 +76,80 @@ export const PANEL_POSITIONS = [
   { id: 'left', labelKey: 'settings.option.sideLeft' },
   { id: 'right', labelKey: 'settings.option.sideRight' },
 ]
+
+/**
+ * 窄屏（手机 / 平板竖屏）下，折叠后的图标栏贴工作区的哪条边：'bottom'（默认）| 'top'。
+ *
+ * 【只管窄屏】宽屏折叠后图标栏是贴侧栏那一侧的**竖条**（48px 宽、满高），没有上下之分 ——
+ * 所以这一项在宽屏上是空转的，改了也看不出（判据在 App.vue 那条窄屏 @media 里）。
+ * 于是**两处设置入口都只在窄屏摆出这一行**（2026-10-13 用户要求：设置菜单里它是噪音）——
+ * 靠行上的 `when: () => isNarrowLayout()` 过滤（本文件下面那个出口），
+ * 见 `settingsMenu.js` / `EditorSettingsPanel.vue` 的 `appearanceRows`。
+ *
+ * 【与 panelPosition 正交】那个管「侧栏在左还是在右」（宽屏的主轴方向），
+ * 这个管「窄屏折叠后图标栏贴哪条边」（窄屏的主轴方向）。四个组合都成立、互不推导。
+ */
+export const narrowCollapseSide = ref(
+  read(NARROW_COLLAPSE_SIDE_KEY, 'bottom', (value) => (value === 'top' ? 'top' : 'bottom')),
+)
+watch(narrowCollapseSide, (value) => persist(NARROW_COLLAPSE_SIDE_KEY, value), { immediate: true })
+
+/**
+ * 两档的取值名（与 PANEL_POSITIONS 同一体例：**档位表的唯一出处在这里**，i18n 只管文案）。
+ * 顺序按中文里的「上下」来 —— 只是列表顺序，默认值仍是 'bottom'（第二档），
+ * 与 2026-10-13 定这条形态时一样。
+ */
+export const NARROW_COLLAPSE_SIDES = [
+  { id: 'top', labelKey: 'settings.option.sideTop' },
+  { id: 'bottom', labelKey: 'settings.option.sideBottom' },
+]
+
+/**
+ * 指定窄屏折叠后的图标栏贴哪条边（设置菜单与设置面板两处走这里）。
+ *
+ * 与 setPanelPosition 不同，这里**不走 View Transitions**：它只在窄屏生效，改的是那一条
+ * 通栏横条落在主轴的头还是尾，没有「两栏互换」那种大范围重排（编辑器宽度也不变），
+ * 直切即可 —— 真为它播一次整屏快照补间，反而会把设置菜单一起拍进去。
+ */
+export function setNarrowCollapseSide(next) {
+  if (next !== 'top' && next !== 'bottom') return
+  narrowCollapseSide.value = next
+}
+
+/**
+ * 当前是不是「窄屏」——**JS 侧的唯一副本**，判据与 CSS 那条 @media 逐字一致：
+ * `(pointer: coarse) and (orientation: portrait), (max-width: 600px)`。
+ * 两份取并集：① 竖屏的触摸设备（手机 / 平板竖屏）；② 视口窄到 600px 以下（硬底线）。
+ *
+ * CSS 里这条查询写在三处（App.vue 两份、Sidebar.vue 一份），JS 里只有这一个出口。
+ * 有三个消费方，三类用法：
+ * - `App.vue` 的 `measureLimits`：窄屏的折叠折点不走「中点」那条算式，改用固定的指针容差
+ *   `NARROW_HINGE_PX = 30`（指针离边缘 30px 内就折叠；2026-10-13 用户第二次改口径 —— 上一版
+ *   取「最窄宽度的一半」，390 档落在离边缘 94.5px 处，太远、容易误触）。宽屏保持 2026-10-11 的
+ *   「折叠后图标栏 48px 与最窄宽度的中点」。判据仍是这条查询，只是折算出来的线不同 —— 命令式现取现用。
+ * - `settingsMenu.js` 的 `SETTINGS_MENU_ROWS` 与 `EditorSettingsPanel.vue` 的 `SHELL_ROWS`：
+ *   「窄屏折叠方向」那一行**只在窄屏出现**（2026-10-13 用户要求；宽屏上它是空转的，
+ *   摆在那里只是噪音）—— 两处都靠行上的 `when: () => isNarrowLayout()` 过滤。
+ *
+ * 底层刻意是**一个 ref**（`matchMedia` 的 `change` 一路写回来，旋屏 / 拖窗口当场变），
+ * 而不是每次现查 `matchMedia().matches`：上面那两处设置入口是按响应式依赖缓存的计算值 /
+ * 渲染结果，现查会让它们把第一帧的答案一直缓存着（横屏切回竖屏后那一行不回来）。
+ * 不出这个 ref、只出函数：读的都是「此刻是不是窄屏」，没人需要它的历史值。
+ *
+ * 改这条查询时，CSS 那三处 @media 必须一起改（否则会出现「线在这儿、形态在那儿」）。
+ */
+const NARROW_LAYOUT_QUERY = '(pointer: coarse) and (orientation: portrait), (max-width: 600px)'
+// 页面生命周期的单例，与同文件那几个偏好一样不回收：`change` 监听挂在模块上，全局只有一份
+const narrowMedia = typeof window === 'undefined' ? null : window.matchMedia(NARROW_LAYOUT_QUERY)
+
+const narrowLayout = ref(narrowMedia ? narrowMedia.matches : false)
+narrowMedia?.addEventListener('change', (event) => {
+  narrowLayout.value = event.matches
+})
+
+export function isNarrowLayout() {
+  return narrowLayout.value
+}
 
 /**
  * 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）。

@@ -102,7 +102,13 @@ import {
   uploadCloud,
 } from '../services/cloudSession.js'
 import { fetchCloudProfile } from '../services/cloudProfile.js'
-import { PANEL_POSITIONS } from '../services/shellSettings.js'
+import {
+  isNarrowLayout,
+  NARROW_COLLAPSE_SIDES,
+  PANEL_POSITIONS,
+  narrowCollapseSide,
+  setNarrowCollapseSide,
+} from '../services/shellSettings.js'
 import {
   CURSOR_BLINKINGS,
   CODE_IMAGE_ACTIONS,
@@ -416,6 +422,7 @@ const CODE_IMAGE_ROWS = [
  * 这一栏**末尾**（外观栏原本就有的那几行在前），拆成两段循环就得把行模板抄两遍。
  * 差异（取值 / 落值 / 选项显示名）由 rowValue / rowSelect / rowOptionLabel 分流；
  * `external` 用来关掉「已改动」指示线与行尾键名——那两样只对 editorSettings 的键有意义。
+ * 现有四条：界面缩放 / 界面语言 / 侧边栏位置 / 窄屏折叠方向。
  */
 const SHELL_ROWS = [
   {
@@ -457,9 +464,26 @@ const SHELL_ROWS = [
       if (raw !== props.panelPosition) emit('toggle-layout')
     },
   },
+  {
+    // 窄屏（手机 / 平板竖屏）下折叠后图标栏贴上边还是下边。与「侧边栏位置」正交：
+    // 那个管左右、这个管上下；宽屏改它看不出效果（折叠后是竖条，没有上下之分），
+    // 所以整行只在窄屏出现（2026-10-13 用户要求，`when` 见下面的 appearanceRows；
+    // 设置菜单那一行同一判据）。值本身照旧持久化 / 走云端同步，只是宽屏不给入口。
+    // 这里不接 props / emits：状态是那个模块的单例，读写都走它自己。
+    key: 'narrowCollapseSide',
+    external: true,
+    when: () => isNarrowLayout(),
+    labelKey: 'settings.appearance.narrowCollapseSide.label',
+    hintKey: 'settings.appearance.narrowCollapseSide.hint',
+    control: 'select',
+    options: NARROW_COLLAPSE_SIDES,
+    readValue: () => narrowCollapseSide.value,
+    onSelect: (raw) => setNarrowCollapseSide(raw),
+  },
 ]
 
-// 「外观」是独立的一级分类：顺序为 主题 → 界面缩放 · 界面语言 · 侧边栏位置 → 「代码图片」三条。
+// 「外观」是独立的一级分类：顺序为 主题 → 界面缩放 · 界面语言 · 侧边栏位置 · 窄屏折叠方向
+// → 「代码图片」三条。
 // 字体大小本来就只对代码区有意义，已挪去「编辑器 › 字体」（见 EDITOR_GROUPS）。
 // 除了三条外壳偏好，其余行仍是 editorSettings 的键，所以照搬编辑器那套行渲染
 // （键 / 校验 / Monaco 都同源）。
@@ -474,6 +498,15 @@ const APPEARANCE_ROWS = [
   ...SHELL_ROWS,
   ...CODE_IMAGE_ROWS,
 ]
+
+/**
+ * 此刻要画的那几行 = 表里通过 `when` 的那些（与设置菜单 `SETTINGS_MENU_ROWS` 同一套口径，
+ * 只是那边由 SettingsMenu.vue 过滤、这里由本组件过滤）。
+ * 目前只有「窄屏折叠方向」一行有条件：宽屏上它是空转的、整行不摆（见 SHELL_ROWS）。
+ * ⚠️ 判据必须是**响应式**的读法：`isNarrowLayout()` 底层是一个 ref（旋屏当场变），
+ * 写成模块级常量或每次现查 `matchMedia` 会让这一栏把首帧的答案缓存住。
+ */
+const appearanceRows = computed(() => APPEARANCE_ROWS.filter((row) => row.when?.() ?? true))
 
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
@@ -1712,8 +1745,8 @@ watch(pendingUnbind, (open) => {
 
         <!-- 行渲染与「编辑器」那一栏同源（都在 editorSettings 上），只是这里多了三条「外壳」
              偏好与末尾的「代码图片」组 —— 后者靠首行的 groupTitleKey 在前面插一道小标题，
-             所有行共用一个循环（顺序见 APPEARANCE_ROWS） -->
-        <template v-for="row in APPEARANCE_ROWS" :key="row.key">
+             所有行共用一个循环（顺序见 APPEARANCE_ROWS；有条件隐藏的行见 appearanceRows） -->
+        <template v-for="row in appearanceRows" :key="row.key">
           <p v-if="row.groupTitleKey" class="setting-subtitle">{{ t(row.groupTitleKey) }}</p>
 
           <label

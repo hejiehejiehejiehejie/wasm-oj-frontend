@@ -8,6 +8,10 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 //   3. 视口矮了要知会外面：可视高度小于 SHORT_VIEWPORT 时把 shortViewport 置真
 //      （App.vue 挂 .app.is-short，用来收掉编辑器状态栏，见 EditorPane.vue）。
 //
+// 另有一个 keyboardUp（键盘**真的**弹着没有，按 visualViewport 是否收缩实测）也一并导出：
+// 它与 active（= 触摸设备，挂 .app.is-keyboard）不是一回事 —— 那个在整台设备上恒真，这个
+// 只在键盘弹起时为真。App.vue 拿它做「打字时把贴底的图标栏收掉」（见 .app.is-typing）。
+//
 // 唤出键盘的时机仍是浏览器默认的（焦点落进可输入文字的框里就弹），这里只是不让
 // 「滑动」也算唤出——用户口径：**滑动只滚动，轻点才聚焦**。
 // 反过来，**键盘一旦弹着，就只有键盘自己的返回键能把它收掉**，滑动不许收。所以「滑动
@@ -70,6 +74,8 @@ export function useMobileKeyboard() {
   const active = ref(isTouchPointer())
   // 可视高度矮于 SHORT_VIEWPORT（含键盘弹起的压缩）时为 true，App.vue 拿它挂 .app.is-short
   const shortViewport = ref(false)
+  // 键盘此刻弹着没有（见 isKeyboardUp）。App.vue 拿它挂 .app.is-typing。
+  const keyboardUp = ref(false)
 
   let listening = false
   // 本次触摸的状态：起点、是否已判为滑动、滑动前焦点在哪、开始那刻键盘弹没弹
@@ -81,7 +87,6 @@ export function useMobileKeyboard() {
 
   let baselineHeight = window.innerHeight
   let lastWidth = window.innerWidth
-  let keyboardUp = false
 
   function isKeyboardUp() {
     const viewport = window.visualViewport
@@ -107,7 +112,7 @@ export function useMobileKeyboard() {
     probe.value =
       `ih=${window.innerHeight} vv=${Math.round(viewport ? viewport.height : 0)} ` +
       `base=${Math.round(baselineHeight)} ` +
-      `kbd=${keyboardUp ? 1 : 0} el=${focusLabel || describeActive()}`
+      `kbd=${keyboardUp.value ? 1 : 0} el=${focusLabel || describeActive()}`
   }
 
   // 滑动不该改变焦点：编辑器里的焦点直接清掉（理由见下），其余情况把焦点还回滑动前那个；
@@ -147,7 +152,7 @@ export function useMobileKeyboard() {
     startX = touch ? touch.clientX : 0
     startY = touch ? touch.clientY : 0
     panning = false
-    keyboardUpAtTouchStart = keyboardUp
+    keyboardUpAtTouchStart = keyboardUp.value
     // 读数条要的是「落手那一刻」的现场：再过几行 focus 就可能被清掉了
     const focusLabel = describeActive()
     const current = document.activeElement
@@ -228,7 +233,7 @@ export function useMobileKeyboard() {
       baselineHeight = window.innerHeight
     }
     baselineHeight = Math.max(baselineHeight, window.innerHeight)
-    keyboardUp = isKeyboardUp()
+    keyboardUp.value = isKeyboardUp()
 
     const viewport = window.visualViewport
     const height = Math.round(viewport ? viewport.height : window.innerHeight)
@@ -275,5 +280,5 @@ export function useMobileKeyboard() {
   })
   onBeforeUnmount(stop)
 
-  return { active, shortViewport, probe }
+  return { active, shortViewport, keyboardUp, probe }
 }

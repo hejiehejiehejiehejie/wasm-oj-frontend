@@ -146,10 +146,17 @@ const elapsedText = computed(() => {
       <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
       <div class="panel__foot-row">
         <!-- 跑不了的活跃文件也加不出用例：用例是挂在活跃文件上的（写进它的 config.tests），
-             题解这类文件根本没有能跑它们的地方 —— 与两个 ▶ 一起置灰，别让这一颗还亮着 -->
-        <button class="add" @click="emit('add')" :disabled="running || Boolean(runBlocked)">
+             题解这类文件根本没有能跑它们的地方 —— 与两个 ▶ 一起置灰，别让这一颗还亮着。
+             ⚠️ `title` 不能省：窄屏下那个 `span` 被隐藏（见 Sidebar.vue 的窄屏块），
+             AppIcon 是 aria-hidden，没有它这颗按钮就成了一个没有名字的图标按钮。 -->
+        <button
+          class="add"
+          :title="t('tests.panel.addCase')"
+          @click="emit('add')"
+          :disabled="running || Boolean(runBlocked)"
+        >
           <AppIcon name="plus" :size="14" />
-          <span>{{ t('tests.panel.addCase') }}</span>
+          <span class="add__label">{{ t('tests.panel.addCase') }}</span>
         </button>
         <button
           class="run-inline"
@@ -237,9 +244,15 @@ const elapsedText = computed(() => {
   flex: 1 1 auto;
   min-height: 0;
   margin: 0;
-  /* 12px → 8px：卡片改成无边框之后，两边这 12px 纯粹是把用例往里挤，
-     收到 8px 就换回来 8px 实际宽度（再多贴边就顶到面板与分隔条上了） */
-  padding: 8px;
+  /* 横向 12px → 8px：卡片改成无边框之后，两边这 12px 纯粹是把用例往里挤，
+     收到 8px 就换回来 8px 实际宽度（再多贴边就顶到面板与分隔条上了）。
+     顶部单独给 0（2026-10-13，用户要求「首个样例与首个文件离页头一样远」）：
+     卡片头行自带 7px 上内边距 + 头行内容（22px 的折叠箭头盒）居中，所以卡片盒顶留 8px
+     时首行墨迹比文件树低 10px。去掉这 8px 后——卡片头行盒顶 7px、内容中心 18px——
+     与文件树（.explorer__tree 顶 6px、行文字中心 18px）两个口径同时对上（各差 1px）。
+     ⚠️ 别把顶部补回 8px 去「和左右对齐」：左右那 8px 是给卡片的横向余量，
+     纵向没有对应的东西，补回来首行就又低 8px。 */
+  padding: 0 8px 8px;
   list-style: none;
   display: flex;
   flex-direction: column;

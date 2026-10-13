@@ -99,6 +99,10 @@ export default {
           label: '侧边栏位置',
           hint: '资源管理器与评测样例放在编辑区的左侧还是右侧',
         },
+        narrowCollapseSide: {
+          label: '窄屏折叠方向',
+          hint: '手机与平板竖屏下，收起侧栏后那条图标栏贴屏幕的上边还是下边；宽屏是竖条，没有上下之分',
+        },
         locale: {
           label: '界面语言',
           hint: '界面与帮助文档的显示语言；与代码的判题语言（由文件扩展名决定）无关',
@@ -226,6 +230,8 @@ export default {
         sbThick: '粗',
         sideLeft: '左侧',
         sideRight: '右侧',
+        sideTop: '上方',
+        sideBottom: '下方',
         qualityMedium: '中',
         qualityHigh: '高',
         qualityUltra: '极致',
@@ -629,6 +635,10 @@ export default {
           label: 'Sidebar position',
           hint: 'Whether the Explorer and test cases sit left or right of the editor',
         },
+        narrowCollapseSide: {
+          label: 'Narrow-screen collapse edge',
+          hint: 'On phones and portrait tablets, whether the collapsed icon bar sits at the top or the bottom edge. On wide screens it is a vertical bar, so this has no effect.',
+        },
         locale: {
           label: 'Interface language',
           hint: 'Language of the interface and help pages. Unrelated to the judge language, which follows the file extension.',
@@ -769,6 +779,8 @@ export default {
         sbThick: 'Thick',
         sideLeft: 'Left',
         sideRight: 'Right',
+        sideTop: 'Top',
+        sideBottom: 'Bottom',
         qualityMedium: 'Medium',
         qualityHigh: 'High',
         qualityUltra: 'Ultra',

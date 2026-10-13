@@ -1701,8 +1701,11 @@ defineExpose({
      scrollbar-width 走标准路径（Chromium 121+ 起只认它），::-webkit-scrollbar 兜住旧内核。 */
   scrollbar-width: none;
   /* 底部这 24px 是「选中根目录」的点击区（点空白处 = 什么都不选中、新建落在根）。
-     树内容撑满整个面板时行与行之间没有空白，滚到底还有这一条可用，入口不会消失。 */
-  padding: 4px 0 24px;
+     树内容撑满整个面板时行与行之间没有空白，滚到底还有这一条可用，入口不会消失。
+     顶部 4px → 6px（2026-10-13）：与评测样例首个卡片的首行对齐（那边把 .cases 的顶内边距
+     收到 0 之后，头行内容中心在页头下沿 18px 处；本处行高 24px、文字 20px 居中，
+     6 + 12 = 18）。两处是一对，改一处要看另一处。 */
+  padding: 6px 0 24px;
 }
 
 .explorer__tree::-webkit-scrollbar {
