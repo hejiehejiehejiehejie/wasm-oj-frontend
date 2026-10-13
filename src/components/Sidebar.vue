@@ -338,97 +338,105 @@ defineExpose({
    祖先的 transform / opacity 都够不到它，所以那份淡入得按元素单独补
    （见 App.vue 里断点相同的那个 media query）。
 
-   判据（2026-10-13 定）：**两条取并集**，任一成立即走窄屏布局 ——
-     ① (pointer: coarse) and (orientation: portrait)：竖屏的触摸设备，即手机竖屏与平板竖屏。
-        用 pointer 而不用宽度，是为了把「桌面窄窗口」排除在外（它有鼠标键盘，给移动形态反而碍事）；
-        用 orientation 而不用比例数值，是因为它编码的正是「宽 < 高」这个事实 = 横向稀缺。
+   判据（2026-10-13 定，同日从 CSS 挪进 JS）：**两条取并集**，任一成立即走窄屏布局 ——
+     ① 触摸设备 + **设备**竖屏：竖屏的触摸设备，即手机竖屏与平板竖屏（横屏不算，横向不稀缺）。
+        用 pointer 而不用宽度，是为了把「桌面窄窗口」排除在外（它有鼠标键盘，给移动形态反而碍事）。
         ⚠️ pointer 只认**主**指针：带触摸屏的笔记本主指针是触摸板 → 报 fine、不命中
         （要「只要存在触摸就命中」那种语义得写 any-pointer: coarse）。
-     ② (max-width: 600px)：与设备无关的硬底线。视口窄到这个程度，页头那排**客观上**放不下
+     ② 视口宽 ≤ 600px：与设备无关的硬底线。视口窄到这个程度，页头那排**客观上**放不下
         （最坏要 ~221px，见上），不论输入方式都得走窄屏布局 —— 用户明确要求保留这条。
    600px 的来历：侧栏宽 ≈ 0.53 × 视口，按最坏 ~221px（uiScale 110% 时 ~243px）反推，
    会折行的范围到 ~450px 视口为止；取 600 是留余量的整数，桌面正常窗口（≥ 900px）不受影响。
    ⚠️ ① 的代价：**平板竖屏也会沉底**（768×1024 时侧栏 301px 本来够放那排、不折行）——
    这是有意的形态选择（竖屏横向稀缺），不是修 bug。
-   ⚠️ ② 是**物理 px**、不随 cp.uiScale 走（媒体查询读不了 CSS 变量），而布局尺寸是 rem：
-   uiScale 130% 时物理 600px 只等于 ~461 逻辑 px，这条会偏宽松（该切时没切）。要口径一致得挪进 JS。
-   ⚠️ 这条判据在 App.vue 的 panel-fade-in 上还有一份，**两处必须逐字一致**。 */
-@media (pointer: coarse) and (orientation: portrait), (max-width: 600px) {
-  .sidebar__head {
-    display: contents;
-  }
+   ⚠️ ② 是**物理 px**、不随 cp.uiScale 走（布局尺寸是 rem）：uiScale 130% 时物理 600px
+   只等于 ~461 逻辑 px，这条会偏宽松（该切时没切）。要口径一致得让判据读根字号。
 
-  /* 顶层那一条：只剩当前面板的动作（资源管理器 = 新建文件/文件夹，
-     评测样例 = verdict + 耗时）。页头没了盒子，它得自己兜住原来那 35px 高度，
-     以及滚动显影的发丝线（is-scrolled 仍然挂在页头上，只是它不再画东西）。
-     内容居中（2026-10-13 用户要求）：宽屏那一排动作是贴在右侧的，窄屏下左簇已经
-     沉到底部、这一条成了唯一的顶栏，再贴右就和底栏那条居中的图标对不上。
-     padding 同时改成左右对称（原样是 `4px 8px 4px 4px`，左 4 右 8）——
-     内边距偏 2px，`justify-content: center` 居中的是**内容盒**，居出来也是偏的。
-     margin-left: 0 是必须的：交叉轴上的 auto 外边距优先于 stretch，
-     留着那一条它会缩成内容宽并被推到右边，发丝线就只剩按钮那一小段。 */
-  .sidebar__context {
-    order: 0;
-    flex: 0 0 auto;
-    box-sizing: border-box;
-    min-height: 35px;
-    padding: 4px 8px;
-    margin-left: 0;
-    justify-content: center;
-    border-bottom: 1px solid transparent;
-    transition: border-color 0.15s ease;
-  }
+   ⚠️ **判据只有一份**：`services/shellSettings.js` 的 `isNarrowLayout()`，命中时给 `<html>`
+   挂 `is-narrow`；本块与 App.vue 那两块只认这个类。**别再往这儿加 @media 副本** ——
+   `@media` 只能看**布局视口**，而软键盘一弹安卓就把布局视口削矮（Tauri 的 WebView 随窗口
+   收缩，网页层的 `interactive-widget` 拦不住）：竖屏当场翻成 landscape，整个窄屏形态在打字
+   那一瞬间全弹回宽屏（用户 2026-10-13 报「唤出键盘之后竟然退出了窄屏模式」，探针实测
+   768×1024 被削成 768×700 时旧查询由 true 变 false）。判据里那句「设备竖屏」现在读的是
+   `screen` 的朝向，键盘改不动它 —— 完整说法见 shellSettings.js 那条注释。
 
-  /* 投进来的那一份自己带着 `margin-left: auto`（宽屏靠它贴右、折行到第二行也贴右，
-     见 FileExplorer 的 .explorer__actions 与 TestPanel 的 .panel__heading）——
-     auto 外边距会先把剩余空间全吃掉，`justify-content: center` 就完全失效了，
-     所以必须从它这一侧归零。两个面板都不是本组件的子节点（跨组件），用 :deep 打进去。
+   ⚠️ 判据用 `:where()` 包住，是为了**不引入任何自适应特异性**：本块里的规则一律与宽屏那批
+   同分（照旧靠源码顺序取胜），下面注释里那些 (0,x,0) 算式因此照旧成立。别图省事改成
+   `html.is-narrow .x` 那种直写形式 —— 那会给整块凭空套上一层特异性，把这些算式全推翻。 */
+:where(html.is-narrow) .sidebar__head {
+  display: contents;
+}
 
-     ⚠️ 前面那个 `.sidebar` 不是装饰，是**特异性**：`.sidebar__context :deep(> *)` 编出来是
-     `.sidebar__context[data-v-x] > *` = (0,2,0)，与两个面板各自那条
-     `.explorer__actions[data-v-y]{margin-left:auto}` / `.panel__heading[data-v-z]{...}` **同分**，
-     谁赢只看构建产物里的先后 —— 实测 `.explorer__actions` 排在本组件之后，于是资源管理器那一半
-     margin 照旧是 auto、`justify-content: center` 被架空（2026-10-13 当场踩到：评测样例居中了、
-     资源管理器没居中）。多挂一层 `.sidebar` 变成 (0,3,0) 就压得住，与源码顺序无关 ——
-     和坑 45 里「跨组件覆盖要自己挣特异性、别拼顺序」是同一条。 */
-  .sidebar .sidebar__context :deep(> *) {
-    margin-left: 0;
-  }
+/* 顶层那一条：只剩当前面板的动作（资源管理器 = 新建文件/文件夹，
+   评测样例 = verdict + 耗时）。页头没了盒子，它得自己兜住原来那 35px 高度，
+   以及滚动显影的发丝线（is-scrolled 仍然挂在页头上，只是它不再画东西）。
+   内容居中（2026-10-13 用户要求）：宽屏那一排动作是贴在右侧的，窄屏下左簇已经
+   沉到底部、这一条成了唯一的顶栏，再贴右就和底栏那条居中的图标对不上。
+   padding 同时改成左右对称（原样是 `4px 8px 4px 4px`，左 4 右 8）——
+   内边距偏 2px，`justify-content: center` 居中的是**内容盒**，居出来也是偏的。
+   margin-left: 0 是必须的：交叉轴上的 auto 外边距优先于 stretch，
+   留着那一条它会缩成内容宽并被推到右边，发丝线就只剩按钮那一小段。 */
+:where(html.is-narrow) .sidebar__context {
+  order: 0;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  min-height: 35px;
+  padding: 4px 8px;
+  margin-left: 0;
+  justify-content: center;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
 
-  .sidebar__head.is-scrolled .sidebar__context {
-    border-bottom-color: var(--border-soft);
-  }
+/* 投进来的那一份自己带着 `margin-left: auto`（宽屏靠它贴右、折行到第二行也贴右，
+   见 FileExplorer 的 .explorer__actions 与 TestPanel 的 .panel__heading）——
+   auto 外边距会先把剩余空间全吃掉，`justify-content: center` 就完全失效了，
+   所以必须从它这一侧归零。两个面板都不是本组件的子节点（跨组件），用 :deep 打进去。
 
-  .sidebar__body {
-    order: 1;
-  }
+   ⚠️ 前面那个 `.sidebar` 不是装饰，是**特异性**：`.sidebar__context :deep(> *)` 编出来是
+   `.sidebar__context[data-v-x] > *` = (0,2,0)，与两个面板各自那条
+   `.explorer__actions[data-v-y]{margin-left:auto}` / `.panel__heading[data-v-z]{...}` **同分**，
+   谁赢只看构建产物里的先后 —— 实测 `.explorer__actions` 排在本组件之后，于是资源管理器那一半
+   margin 照旧是 auto、`justify-content: center` 被架空（2026-10-13 当场踩到：评测样例居中了、
+   资源管理器没居中）。多挂一层 `.sidebar` 变成 (0,3,0) 就压得住，与源码顺序无关 ——
+   和坑 45 里「跨组件覆盖要自己挣特异性、别拼顺序」是同一条。
+   （这里也说明了外层为什么用 `:where()`：包着判据的那层不贡献特异性，这个 (0,3,0) 才是干净的。） */
+:where(html.is-narrow) .sidebar .sidebar__context :deep(> *) {
+  margin-left: 0;
+}
 
-  /* 评测面板页脚那颗「添加测试样例」：窄屏只留那个加号（2026-10-13 用户要求）。
-     判据就借这一条现成的断点，所以规则写在这里而不是 TestPanel.vue 里 ——
-     那条复合查询在 CSS 里已经有三份副本（本文件、App.vue 两处），
-     为一个 `display: none` 再造第四份不划算（同 shellSettings.js 那条注释里的口径）。
-     ⚠️ 文字藏了之后这颗按钮的可访问名只剩 `title`（AppIcon 是 aria-hidden），
-     所以 TestPanel 那边给它补了 `:title` —— 别把那条删掉。 */
-  .sidebar__body :deep(.add__label) {
-    display: none;
-  }
+:where(html.is-narrow) .sidebar__head.is-scrolled .sidebar__context {
+  border-bottom-color: var(--border-soft);
+}
 
-  /* 底部那一条：整行铺满、内容居中，上沿一条发丝线与树分开
-     （语汇沿用页头那条滚动显影线，不另造颜色） */
-  .sidebar__switcher {
-    order: 2;
-    justify-content: center;
-    padding: 6px 8px;
-    border-top: 1px solid var(--border-soft);
-  }
+:where(html.is-narrow) .sidebar__body {
+  order: 1;
+}
 
-  /* 底部这条上多出的「收起侧栏」（箭头指哪就往哪收）：**只在窄屏出现**。
-     宽屏不给它位置 —— 那边有分隔条可拖、也有快捷键，多一颗入口是重复。
-     显示开关写在子组件里（基础 display: none），这里带着 .sidebar__switcher 这个祖先打开它：
-     特异性 (0,3,0) 高过子组件里那条同选择器的基础规则 (0,2,0)，
-     不是同特异性拼源码顺序（跨组件谁靠后不可控，坑 45 记过这条）。 */
-  .sidebar__switcher :deep(.sidebar-switcher__collapse) {
-    display: inline-flex;
-  }
+/* 评测面板页脚那颗「添加测试样例」：窄屏只留那个加号（2026-10-13 用户要求）。
+   判据就借这一条现成的类，所以规则写在这里而不是 TestPanel.vue 里 ——
+   判据只有一份（shellSettings 的 isNarrowLayout），为一个 `display: none` 不必再问一次。
+   ⚠️ 文字藏了之后这颗按钮的可访问名只剩 `title`（AppIcon 是 aria-hidden），
+   所以 TestPanel 那边给它补了 `:title` —— 别把那条删掉。 */
+:where(html.is-narrow) .sidebar__body :deep(.add__label) {
+  display: none;
+}
+
+/* 底部那一条：整行铺满、内容居中，上沿一条发丝线与树分开
+   （语汇沿用页头那条滚动显影线，不另造颜色） */
+:where(html.is-narrow) .sidebar__switcher {
+  order: 2;
+  justify-content: center;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* 底部这条上多出的「收起侧栏」（箭头指哪就往哪收）：**只在窄屏出现**。
+   宽屏不给它位置 —— 那边有分隔条可拖、也有快捷键，多一颗入口是重复。
+   显示开关写在子组件里（基础 display: none），这里带着 .sidebar__switcher 这个祖先打开它：
+   特异性 (0,3,0) 高过子组件里那条同选择器的基础规则 (0,2,0)，
+   不是同特异性拼源码顺序（跨组件谁靠后不可控，坑 45 记过这条）。 */
+:where(html.is-narrow) .sidebar__switcher :deep(.sidebar-switcher__collapse) {
+  display: inline-flex;
 }
 </style>

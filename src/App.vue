@@ -1775,19 +1775,18 @@ onBeforeUnmount(() => {
 
 /* 窄屏下 Sidebar 把页头整条解散（display: contents）、两个子元素升成 .sidebar 的直接
    flex 项：上面那条打的是 .sidebar__head 这个盒子，盒子没了就淡不出来。同参数补一份。
-   ⚠️ 判据是「竖屏的触摸设备 或 视口 < 600px」两条并集，**与 Sidebar.vue 里那条必须逐字一致**
-   —— 改一处必改另一处，否则会出现「沉底了但没有淡入」（2026-10-13）。
+   ⚠️ 判据现在只有一份：`shellSettings.js` 的 `isNarrowLayout()` 给 <html> 挂的 `is-narrow`
+   （与 Sidebar.vue 那块认的是同一个类）；但**动画参数**要各自同步 —— 时长 120ms / 延时 180ms /
+   曲线三样两处必须一致，改一处必改另一处，否则会出现「沉底了但没有淡入」（2026-10-13）。
    只动 opacity / transform，不碰宽度。 */
-@media (pointer: coarse) and (orientation: portrait), (max-width: 600px) {
-  .pane--tests.is-animating.is-expanding :deep(.sidebar__switcher),
-  .pane--tests.is-animating.is-expanding :deep(.sidebar__context) {
-    animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
-  }
+:where(html.is-narrow) .pane--tests.is-animating.is-expanding :deep(.sidebar__switcher),
+:where(html.is-narrow) .pane--tests.is-animating.is-expanding :deep(.sidebar__context) {
+  animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
 }
 
 /* ------------------------------------------------- 窄屏折叠态：图标栏横过来贴边（2026-10-13）
 
-   窄屏展开态的左簇已经沉到侧栏底部（同一个断点，见 Sidebar.vue），折叠态却还留着一竖条
+   窄屏展开态的左簇已经沉到侧栏底部（同一个 `is-narrow` 判据，见 Sidebar.vue），折叠态却还留着一竖条
    48px 的图标栏贴在屏幕左边 —— 两个形态对不上；而且折叠之后唯一剩下的入口是那条「边界线」，
    它的可见部分只是热区里一列 2px 的点（线平时 opacity: 0，触屏还没有 hover），
    热区左半又正好压在图标栏中部那片没有按钮的空白上（点下去什么都不会发生）——
@@ -1810,83 +1809,85 @@ onBeforeUnmount(() => {
    ⚠️ 分隔条在这一形态下整条不参与排版：竖排里它 12/24px 的 flex-basis 会变成一条 12px 高的
    横带，而它想表达的那条竖缝已经不存在了。折叠态本来也无从拖宽（侧栏已经收没），要改宽先展开。
    ⚠️ 侧栏那一栏（.pane--tests）仍留在排版里、高度收成 0 —— View Transitions 要靠它的旧快照
-   补间，摘掉 display 会让展开退化成「凭空出现」（同上面折叠态那段的理由）。 */
-@media (pointer: coarse) and (orientation: portrait), (max-width: 600px) {
-  /* 贴底（默认）：左停靠要反排、右停靠正排 */
-  .workspace.is-collapsed.is-fold-bottom.is-left {
-    flex-direction: column-reverse;
-  }
+   补间，摘掉 display 会让展开退化成「凭空出现」（同上面折叠态那段的理由）。
+   ⚠️ 判据是一个**类**（`shellSettings.js` 的 `isNarrowLayout()` 给 <html> 挂 `is-narrow`，
+   2026-10-13 从 @media 挪进 JS：键盘会把布局视口削矮、`orientation: portrait` 随之翻面）。
+   上面那块与下面这一整块都用 `:where(html.is-narrow)` 包着它 —— `:where()` 不贡献特异性，
+   所以下面注释里那些 (0,x,0) 算式、「压得住 ActivityBar.vue 里那条 (0,2,0)」逐条照旧。 */
+/* 贴底（默认）：左停靠要反排、右停靠正排 */
+:where(html.is-narrow) .workspace.is-collapsed.is-fold-bottom.is-left {
+  flex-direction: column-reverse;
+}
 
-  .workspace.is-collapsed.is-fold-bottom.is-right {
-    flex-direction: column;
-  }
+:where(html.is-narrow) .workspace.is-collapsed.is-fold-bottom.is-right {
+  flex-direction: column;
+}
 
-  /* 贴顶：两条与上面正好互换（只翻主轴，order 还是 JS 写的那一份） */
-  .workspace.is-collapsed.is-fold-top.is-left {
-    flex-direction: column;
-  }
+/* 贴顶：两条与上面正好互换（只翻主轴，order 还是 JS 写的那一份） */
+:where(html.is-narrow) .workspace.is-collapsed.is-fold-top.is-left {
+  flex-direction: column;
+}
 
-  .workspace.is-collapsed.is-fold-top.is-right {
-    flex-direction: column-reverse;
-  }
+:where(html.is-narrow) .workspace.is-collapsed.is-fold-top.is-right {
+  flex-direction: column-reverse;
+}
 
-  .workspace.is-collapsed .splitter {
-    display: none;
-  }
+:where(html.is-narrow) .workspace.is-collapsed .splitter {
+  display: none;
+}
 
-  /* 横过来：两组并排落在同一条通栏卡片里 —— 左簇是面板入口（资源管理器 / 评测样例）、
-     右簇是抽题与设置，语义仍是两组；但整排**居中**而不是顶到两端（2026-10-13 用户要求）：
-     这条通栏和屏幕一样宽，两端各摆一簇、中间留一大片空档，看着像散了。
-     基础规则那条 space-between 是给竖排用的（两组一上一下），横排里要显式压掉 ——
-     压得住是因为这条带了 .workspace.is-collapsed 祖先，特异性 (0,3,0) 高过 ActivityBar.vue 里
-     那条 (0,2,0) 的基础规则（与顺序无关，同一层写法见上面 flex-direction 那几条）。
-     两簇之间的空档要自己补：那 4px 是 .activity-bar__group 内部的 gap，**两条栏之间没有**
-     （竖排里靠 space-between 拉开，横排改成居中后就贴着，中间那两枚方块会紧挨着、比别处少 4px）。
-     所以这里给整条补一个 gap: 4px，与组内格间距同值 ⇒ 一排等距按钮。
-     ⚠️ 这个 4px 与 ActivityBar.vue 里 `.activity-bar__group { gap: 4px }` 是同一个数，改一处要一起改。
-     两簇的语义分界因此只剩图标与选中态差异；要拉开簇间距，把这里的 gap 调大即可。
-     外观与它竖着时同一套（同圆角 / 同底色 / 同边框）。 */
-  .workspace.is-collapsed :deep(.activity-bar) {
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度 ——
-       48 装不下「40px 方块 + 上下各 4px 内边距 + 上下各 1px 边框」，方块会被裁掉一像素 */
-    flex: 0 0 auto;
-    /* 竖着时的上下留白，横过来变成左右留白 */
-    padding: 4px 8px;
-  }
+/* 横过来：两组并排落在同一条通栏卡片里 —— 左簇是面板入口（资源管理器 / 评测样例）、
+   右簇是抽题与设置，语义仍是两组；但整排**居中**而不是顶到两端（2026-10-13 用户要求）：
+   这条通栏和屏幕一样宽，两端各摆一簇、中间留一大片空档，看着像散了。
+   基础规则那条 space-between 是给竖排用的（两组一上一下），横排里要显式压掉 ——
+   压得住是因为这条带了 .workspace.is-collapsed 祖先，特异性 (0,3,0) 高过 ActivityBar.vue 里
+   那条 (0,2,0) 的基础规则（与顺序无关，同一层写法见上面 flex-direction 那几条）。
+   两簇之间的空档要自己补：那 4px 是 .activity-bar__group 内部的 gap，**两条栏之间没有**
+   （竖排里靠 space-between 拉开，横排改成居中后就贴着，中间那两枚方块会紧挨着、比别处少 4px）。
+   所以这里给整条补一个 gap: 4px，与组内格间距同值 ⇒ 一排等距按钮。
+   ⚠️ 这个 4px 与 ActivityBar.vue 里 `.activity-bar__group { gap: 4px }` 是同一个数，改一处要一起改。
+   两簇的语义分界因此只剩图标与选中态差异；要拉开簇间距，把这里的 gap 调大即可。
+   外观与它竖着时同一套（同圆角 / 同底色 / 同边框）。 */
+:where(html.is-narrow) .workspace.is-collapsed :deep(.activity-bar) {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度 ——
+     48 装不下「40px 方块 + 上下各 4px 内边距 + 上下各 1px 边框」，方块会被裁掉一像素 */
+  flex: 0 0 auto;
+  /* 竖着时的上下留白，横过来变成左右留白 */
+  padding: 4px 8px;
+}
 
-  /* 与编辑器卡片之间那条 4px 空隙：分隔条已经不排版了，改由这里补。
-     写在两档里而不是合并成一条 —— 栏在下补上边距、栏在上补下边距；
-     用物理的 margin-top / margin-bottom，column-reverse 也不会把它翻到另一边去。 */
-  .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
-    margin-top: 4px;
-  }
+/* 与编辑器卡片之间那条 4px 空隙：分隔条已经不排版了，改由这里补。
+   写在两档里而不是合并成一条 —— 栏在下补上边距、栏在上补下边距；
+   用物理的 margin-top / margin-bottom，column-reverse 也不会把它翻到另一边去。 */
+:where(html.is-narrow) .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
+  margin-top: 4px;
+}
 
-  .workspace.is-collapsed.is-fold-top :deep(.activity-bar) {
-    margin-bottom: 4px;
-  }
+:where(html.is-narrow) .workspace.is-collapsed.is-fold-top :deep(.activity-bar) {
+  margin-bottom: 4px;
+}
 
-  /* 软键盘弹起 + 图标栏贴底：这时候整块应用挂到 visualViewport 实测出来的范围上
-     （见 .app.is-keyboard），底栏就正好停在键盘正上方 —— 那几十像素是打字时最缺的地方，
-     直接收掉。贴顶那档不用管（键盘在下边，够不到它），所以判据里带着 is-fold-bottom。
-     ⚠️ is-typing 是 useMobileKeyboard 实测的「键盘真的弹着」，与 .app.is-keyboard
-     （那个只表示「这是台触摸设备」）不是一回事，别拿后者当判据。 */
-  .app.is-typing .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
-    display: none;
-  }
+/* 软键盘弹起 + 图标栏贴底：这时候整块应用挂到 visualViewport 实测出来的范围上
+   （见 .app.is-keyboard），底栏就正好停在键盘正上方 —— 那几十像素是打字时最缺的地方，
+   直接收掉。贴顶那档不用管（键盘在下边，够不到它），所以判据里带着 is-fold-bottom。
+   ⚠️ is-typing 是 useMobileKeyboard 实测的「键盘真的弹着」，与 .app.is-keyboard
+   （那个只表示「这是台触摸设备」）不是一回事，别拿后者当判据。 */
+:where(html.is-narrow) .app.is-typing .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
+  display: none;
+}
 
-  .workspace.is-collapsed :deep(.activity-bar__group) {
-    flex-direction: row;
-    align-items: center;
-  }
+:where(html.is-narrow) .workspace.is-collapsed :deep(.activity-bar__group) {
+  flex-direction: row;
+  align-items: center;
+}
 
-  /* 竖排里每格靠这条 3px 左边距钉在同一列；横排里它只会把每组的第一格推出去 */
-  .workspace.is-collapsed :deep(.activity-bar__item) {
-    margin-left: 0;
-  }
+/* 竖排里每格靠这条 3px 左边距钉在同一列；横排里它只会把每组的第一格推出去 */
+:where(html.is-narrow) .workspace.is-collapsed :deep(.activity-bar__item) {
+  margin-left: 0;
 }
 
 /* 接缝。图标栏与侧栏在动画里是直接贴着的（两栏之间没有外边距），各自带一条 1px 边框，

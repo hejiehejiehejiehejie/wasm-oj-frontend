@@ -26,6 +26,9 @@ import {
   normalizeUiScale,
   uiScale as uiScaleSingleton,
 } from '../composables/useUiScale.js'
+// 触屏判定的唯一口径住在 composable 里（它还另外导出一份给「不许程序化抢焦点」那类调用点复用），
+// 窄屏判据的**判值**走它；下面那处同款 matchMedia 只用来听 change 事件，不自己判一遍
+import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 
 /**
  * 这几个键自己读写 localStorage，**刻意不用 usePersistentRef**。
@@ -81,7 +84,7 @@ export const PANEL_POSITIONS = [
  * 窄屏（手机 / 平板竖屏）下，折叠后的图标栏贴工作区的哪条边：'bottom'（默认）| 'top'。
  *
  * 【只管窄屏】宽屏折叠后图标栏是贴侧栏那一侧的**竖条**（48px 宽、满高），没有上下之分 ——
- * 所以这一项在宽屏上是空转的，改了也看不出（判据在 App.vue 那条窄屏 @media 里）。
+ * 所以这一项在宽屏上是空转的，改了也看不出（判据见本文件下面的 `isNarrowLayout()`）。
  * 于是**两处设置入口都只在窄屏摆出这一行**（2026-10-13 用户要求：设置菜单里它是噪音）——
  * 靠行上的 `when: () => isNarrowLayout()` 过滤（本文件下面那个出口），
  * 见 `settingsMenu.js` / `EditorSettingsPanel.vue` 的 `appearanceRows`。
@@ -117,35 +120,75 @@ export function setNarrowCollapseSide(next) {
 }
 
 /**
- * 当前是不是「窄屏」——**JS 侧的唯一副本**，判据与 CSS 那条 @media 逐字一致：
- * `(pointer: coarse) and (orientation: portrait), (max-width: 600px)`。
- * 两份取并集：① 竖屏的触摸设备（手机 / 平板竖屏）；② 视口窄到 600px 以下（硬底线）。
+ * 当前是不是「窄屏」（手机 / 平板竖屏那一套形态）—— **判据的唯一副本**。
+ * 两条取并集，任一成立即窄屏：
+ *   ① 触摸设备 **且 设备竖屏**（读 `screen` 的朝向，不是视口的高宽比）；
+ *   ② 视口宽 ≤ 600px（与设备无关的硬底线）。
+ * 命中时给 `<html>` 挂 `is-narrow`，CSS 那三处就认这个类（写 `:where(html.is-narrow) …`，
+ * 见 Sidebar.vue / App.vue）；同时也写进下面这个 ref 给 JS 侧读。
  *
- * CSS 里这条查询写在三处（App.vue 两份、Sidebar.vue 一份），JS 里只有这一个出口。
- * 有三个消费方，三类用法：
+ * 【为什么不再写在 CSS 的 `@media` 里】（2026-10-13）`@media` 只能看**布局视口**，
+ * 而软键盘弹起时安卓会把布局视口削矮（Tauri 那个 WebView 随窗口收缩，网页层的
+ * `interactive-widget` 拦不住）—— 竖屏当场翻成 landscape、`(orientation: portrait)`
+ * 不成立，整个窄屏形态在打字那一瞬间全弹回宽屏。用户报的「唤出键盘之后竟然退出了窄屏模式」
+ * 就是这个。实测（无头 Chrome、平板竖屏 768×1024、键盘把布局视口削到 768×700）：
+ * 旧查询由 true 变 false、`.sidebar__head` 的 `display` 从 `contents` 掉回 `flex`；
+ * 同一刻 `screen` 仍是 768×1024、`screen.orientation.type` 仍是 `portrait-primary`。
+ * 键盘改不动的是**设备朝向**，所以 ① 改读 screen；② 读的是宽度，键盘也改不动。
+ *
+ * 【副作用（有意）】视口朝向与设备朝向不一致时以**设备**为准：手机上开「桌面版网站」
+ * （视口 980 宽、设备仍竖屏）现在也算窄屏 —— 这本来就是 ① 想表达的那句「竖屏的触摸设备」。
+ * 正常形态下两者一致，探针 8 条既有判据逐条与改前相同。
+ *
+ * ⚠️ 判据只剩这一份：CSS 那三处不再各写一条 `@media`，只认这个类，改判据只改这里。
+ * 有三个消费方：
  * - `App.vue` 的 `measureLimits`：窄屏的折叠折点不走「中点」那条算式，改用固定的指针容差
  *   `NARROW_HINGE_PX = 30`（指针离边缘 30px 内就折叠；2026-10-13 用户第二次改口径 —— 上一版
  *   取「最窄宽度的一半」，390 档落在离边缘 94.5px 处，太远、容易误触）。宽屏保持 2026-10-11 的
- *   「折叠后图标栏 48px 与最窄宽度的中点」。判据仍是这条查询，只是折算出来的线不同 —— 命令式现取现用。
+ *   「折叠后图标栏 48px 与最窄宽度的中点」。判据仍是这一条，只是折算出来的线不同 —— 现取现用。
  * - `settingsMenu.js` 的 `SETTINGS_MENU_ROWS` 与 `EditorSettingsPanel.vue` 的 `SHELL_ROWS`：
  *   「窄屏折叠方向」那一行**只在窄屏出现**（2026-10-13 用户要求；宽屏上它是空转的，
  *   摆在那里只是噪音）—— 两处都靠行上的 `when: () => isNarrowLayout()` 过滤。
  *
- * 底层刻意是**一个 ref**（`matchMedia` 的 `change` 一路写回来，旋屏 / 拖窗口当场变），
- * 而不是每次现查 `matchMedia().matches`：上面那两处设置入口是按响应式依赖缓存的计算值 /
- * 渲染结果，现查会让它们把第一帧的答案一直缓存着（横屏切回竖屏后那一行不回来）。
+ * 底层刻意是**一个 ref**（不是每次现查）：上面那两处设置入口是按响应式依赖缓存的计算值 /
+ * 渲染结果，现查会让它们把第一帧的答案一直缓存着（旋屏后那一行不回来）。
  * 不出这个 ref、只出函数：读的都是「此刻是不是窄屏」，没人需要它的历史值。
- *
- * 改这条查询时，CSS 那三处 @media 必须一起改（否则会出现「线在这儿、形态在那儿」）。
  */
-const NARROW_LAYOUT_QUERY = '(pointer: coarse) and (orientation: portrait), (max-width: 600px)'
-// 页面生命周期的单例，与同文件那几个偏好一样不回收：`change` 监听挂在模块上，全局只有一份
-const narrowMedia = typeof window === 'undefined' ? null : window.matchMedia(NARROW_LAYOUT_QUERY)
+const NARROW_MAX_WIDTH = 600
+const NARROW_CLASS = 'is-narrow'
 
-const narrowLayout = ref(narrowMedia ? narrowMedia.matches : false)
-narrowMedia?.addEventListener('change', (event) => {
-  narrowLayout.value = event.matches
-})
+// 设备是不是竖屏。优先读 ScreenOrientation（语义最直白），不认它的浏览器退回比屏幕宽高。
+// 两者描述的都是**屏幕**：键盘弹起、地址栏收放都改不动它们 —— 这一条的全部意义就在这里。
+function isPortraitScreen() {
+  const orientation = window.screen?.orientation
+  if (typeof orientation?.type === 'string' && orientation.type) {
+    return orientation.type.startsWith('portrait')
+  }
+  const screen = window.screen
+  return Boolean(screen) && screen.height >= screen.width
+}
+
+const computeNarrowLayout = () =>
+  (isTouchPointer() && isPortraitScreen()) || window.innerWidth <= NARROW_MAX_WIDTH
+
+const narrowLayout = ref(false)
+// 旋屏 / 拖窗口 / 分屏当场变。键盘那一次 resize 也会进来，但上面两条判据都读不到键盘
+// （宽度不变、screen 不变），答案不会跟着抖 —— 这正是要的效果。
+function applyNarrowLayout() {
+  narrowLayout.value = computeNarrowLayout()
+  document.documentElement.classList.toggle(NARROW_CLASS, narrowLayout.value)
+}
+// 与上面那几个偏好一样是页面生命周期的单例，不回收：监听挂在模块上，全局只有一份
+window.addEventListener('resize', applyNarrowLayout)
+window.addEventListener('orientationchange', applyNarrowLayout)
+window.screen?.orientation?.addEventListener?.('change', applyNarrowLayout)
+// 判据的三个输入要各有一条变更来源：视口宽 → resize；设备朝向 → orientationchange /
+// screen.orientation 的 change；**主指针是不是触摸 → 这条**（平板插拔键盘、接上鼠标这类
+// 场景下它真会变，只在 resize 上等会漏掉，答案就停在旧值上）。
+// 这里只用它拿 change 事件，**判值仍旧走 isTouchPointer()** —— 口径只有一份，别在这儿再判一次。
+window.matchMedia('(pointer: coarse)').addEventListener('change', applyNarrowLayout)
+// 与 applyUiScale 一样在模块加载时就落一次：早于首帧渲染，不会先按宽屏画一帧再跳到窄屏
+applyNarrowLayout()
 
 export function isNarrowLayout() {
   return narrowLayout.value
