@@ -198,7 +198,7 @@ defineExpose({
          右边 #sidebar-context 是当前面板 Teleport 上来的上下文动作
          （资源管理器 = 新建文件/文件夹；评测样例 = verdict + 耗时）。 -->
     <header class="sidebar__head" :class="{ 'is-scrolled': headScrolled }">
-      <SidebarSwitcher />
+      <div class="sidebar__switcher"><SidebarSwitcher /></div>
       <span id="sidebar-context" class="sidebar__context"></span>
     </header>
 
@@ -249,6 +249,16 @@ defineExpose({
   border-bottom-color: var(--border-soft);
 }
 
+/* 页头左侧那一块（面板胶囊 + 抽题 + 齿轮）的壳。宽屏下它只是页头里一个普通 flex 项；
+   窄屏下这一整块要沉到侧栏底部（见下面的窄屏段），所以单独包一层 —— 直接把规则盖在
+   SidebarSwitcher 的根上会和它自己的 scoped 规则撞特异性（两边都是 (0,2,0)，
+   谁在样式表里靠后谁赢，跨组件不可控），包一层就没有这个不确定性。 */
+.sidebar__switcher {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 /* 页头右侧的上下文动作位：当前面板经 Teleport 把动作投进来。
    折到第二行时仍然贴右（margin-left: auto） */
 .sidebar__context {
@@ -287,5 +297,65 @@ defineExpose({
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* ---------------------------------------------------------------- 窄屏：左簇沉底（2026-10-13）
+   侧栏宽度跟着视口收（.pane--tests 的 min-width = clamp(160px, 50%, 240px)，
+   实测 320px 视口下只剩 181px），而页头那一排「胶囊 + 抽题 + 齿轮 + 当前面板动作」
+   最窄要 ~200px（装了抽题模块 ~221px，uiScale 110% 再涨一成）—— 挤不下就 flex-wrap
+   折到第二行，看着就是「一排图标挤在一起又错位」。用户定的路子不是加宽侧栏，
+   而是**窄屏把左簇整块搬到侧栏底部**：那里空间宽裕，又落在拇指区。
+
+   做法是 display: contents 把页头**整条解散**，让它的两个子元素升成 .sidebar 的
+   直接 flex 项，再用 order 把左簇排到最后一行 —— 底部那条因此是**真的一条**
+   （占位、不压内容），不是浮在树上的抽屉。
+
+   ⚠️ 不用 position: absolute 钉底：展开动画会给 .sidebar__head 加 transform
+   （App.vue 的 panel-fade-in），而带 transform 的元素会成为绝对定位后代的包含块 ——
+   那 300ms 里底部条会先画在页头位置、动画结束再往下跳。display: contents 没有盒子，
+   祖先的 transform / opacity 都够不到它，所以那份淡入得按元素单独补
+   （见 App.vue 里断点相同的那个 media query）。
+
+   断点 600px 的来历：侧栏宽 ≈ 0.53 × 视口，按最坏 ~221px（uiScale 110% 时 ~243px）
+   反推，会折行的范围到 ~450px 视口为止；取 600 是留余量的整数，桌面正常窗口
+   （≥ 900px）一概不受影响。 */
+@media (max-width: 600px) {
+  .sidebar__head {
+    display: contents;
+  }
+
+  /* 顶层那一条：只剩当前面板的动作（资源管理器 = 新建文件/文件夹，
+     评测样例 = verdict + 耗时）。页头没了盒子，它得自己兜住原来那 35px 高度，
+     以及滚动显影的发丝线（is-scrolled 仍然挂在页头上，只是它不再画东西）。
+     margin-left: 0 是必须的：交叉轴上的 auto 外边距优先于 stretch，
+     留着那一条它会缩成内容宽并被推到右边，发丝线就只剩按钮那一小段。 */
+  .sidebar__context {
+    order: 0;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    min-height: 35px;
+    padding: 4px 8px 4px 4px;
+    margin-left: 0;
+    justify-content: flex-end;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s ease;
+  }
+
+  .sidebar__head.is-scrolled .sidebar__context {
+    border-bottom-color: var(--border-soft);
+  }
+
+  .sidebar__body {
+    order: 1;
+  }
+
+  /* 底部那一条：整行铺满、内容居中，上沿一条发丝线与树分开
+     （语汇沿用页头那条滚动显影线，不另造颜色） */
+  .sidebar__switcher {
+    order: 2;
+    justify-content: center;
+    padding: 6px 8px;
+    border-top: 1px solid var(--border-soft);
+  }
 }
 </style>

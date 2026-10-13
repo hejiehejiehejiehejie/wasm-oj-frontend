@@ -1720,6 +1720,17 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 窄屏下 Sidebar 把页头整条解散（display: contents）、两个子元素升成 .sidebar 的直接
+   flex 项：上面那条打的是 .sidebar__head 这个盒子，盒子没了就淡不出来。同参数补一份
+   （断点与 Sidebar.vue 里那条必须一致，2026-10-13）。
+   只动 opacity / transform，不碰宽度。 */
+@media (max-width: 600px) {
+  .pane--tests.is-animating.is-expanding :deep(.sidebar__switcher),
+  .pane--tests.is-animating.is-expanding :deep(.sidebar__context) {
+    animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
+  }
+}
+
 /* 接缝。图标栏与侧栏在动画里是直接贴着的（两栏之间没有外边距），各自带一条 1px 边框，
    挨在一起就成了一条 2px 的「双线」，两端的 8px 圆角还背靠背 —— 运动中的接缝因此看着
    比静止时粗一倍。所以让**即将消失的那一侧**把朝着对方的那条边让出来：
