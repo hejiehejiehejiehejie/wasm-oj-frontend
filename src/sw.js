@@ -7,23 +7,31 @@
    **题解渲染器（/md/，katex + marked）同理**：它不算构建产物，进不了
    precache-manifest，用户在设置里点「下载」时才由页面写进 MD_CACHE。
 
-   三条边界：
+   四条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
       /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）；
    3) 不能拦截 /api/* —— 那是**随时会变**的数据（同一 handle 的云端配置每次上传都换一份），
       没有内容哈希可依赖，落进 cacheFirst 就等于把第一次读到的那份永久钉死。
       见下面 fetch 处理器里的放行判断。
+   4) 同理不能拦 /manifest.webmanifest（2026-10-14 加）—— 它也是**会变、且没有内容哈希**的
+      文件。原本它进 STATIC_ASSETS 预缓存、之后又被 fetch 的 cacheFirst 兜底写进外壳桶，
+      而外壳桶在 activate 的白名单里**永不过期**：线上 theme_color 改了，装了应用的设备
+      却一直读旧的那份。实感就是安卓上「添加到主屏后那条状态栏永远是旧配色」
+      （2026-10-14 实测：设备停在 10-04 那版的 `#2a2a2b`，线上早已是 `#1c1c1c`）。
+      它不必离线可用，直接放行给网络。
 
    ⚠ 下面用到的桶名常量（SHELL_CACHE / TOOLCHAIN_CACHE / MD_CACHE / LEGACY_BUCKETS）
    **不在本文件里定义**。SW 是 classic worker，没有 import，读不到 services/storageNames.js，
    所以它们由 vite.config.js 的 cp-service-worker 插件在构建期（dev 下是每次请求）
    生成一段 `const …` 声明前置到这份源码上 —— 要看定义和改名注意事项，去那个文件。 */
 
+// ⚠ 这份列表里的东西会被 fetch 处理器当**不变**的资产缓存优先生效，所以只放
+// 「构建产物 + 永不改内容的静态资源」。`/manifest.webmanifest` **不在**这里 ——
+// 它会随发版改（`theme_color` 就改过三次），见文件头边界 4。
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.webmanifest',
   '/favicon.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -160,6 +168,13 @@ self.addEventListener('fetch', (event) => {
   // 表现就是「上传了新配置，云端同步却没起作用」。写入走 POST，本来就被上面的
   // method 判断挡掉了；这里要挡的是读配置的 GET /api/config/<handle>。
   if (url.pathname.startsWith('/api/')) return
+
+  // /manifest.webmanifest 与 /api/* 同类（边界 4）：会变、无内容哈希。放行进网络，
+  // **既不读缓存也不写缓存** —— 下面 cacheFirst 在未命中时也会把响应写进兜底桶，
+  // 只把它从 STATIC_ASSETS 里摘掉是不够的。
+  // 影响面：安卓（Firefox 添加到主屏）那条状态栏的配色就取自这份 manifest 的 theme_color，
+  // 被钉住 = 用户永远停在装机那一刻的配色，重装图标才解得开。
+  if (url.pathname === '/manifest.webmanifest') return
 
   event.respondWith(request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(request))
 })

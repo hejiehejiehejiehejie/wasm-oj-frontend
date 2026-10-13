@@ -803,11 +803,16 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 **Service Worker 的三段策略**：
 
-- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建的静态资源：favicon、manifest、图标）合并后一起预缓存进 `cp-shell-v4`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
+- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建、**且内容永不改**的静态资源：favicon、图标）合并后一起预缓存进 `cp-shell-v4`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
 - `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。**2026-10-01 起多一步 `migrateLegacyBuckets()`**：按 `storageNames.js` 的 `LEGACY_BUCKETS` 表，把改名前的旧桶**原样搬进新桶**再删旧桶——工具链是随 URL 固定的二进制，不搬的话老用户升一次外壳就得白下 76MB。表里现在是四对（两轮改名的层积）：`cph-toolchain-v3` / `cph-md-runtime-v1`（去 `cph-` 前缀那一轮）与 `cp-toolchain-v3` / `cp-md-runtime-v1`（去版本尾缀那一轮），都指向 `cp-toolchain` / `cp-md-runtime`；**外壳桶 `cph-shell-*` / `cp-shell-v3` 刻意不搬**，它装的是带哈希的构建产物，重新预缓存本来就是升外壳该发生的事。
-- `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错。
+- `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错；`/api/*` **与 `/manifest.webmanifest`（2026-10-14 加）** 也放行，判据见下一条。
 
 **为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cp-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件必须手动补进 `STATIC_ASSETS`（第 1 节表里那两条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。
+
+**`/manifest.webmanifest` 只能放行，不进任何缓存（2026-10-14 加，第 4 条判据）**：
+判据一句话 —— **「会变、且没有内容哈希可依赖」的同源 GET，一律别让 SW 碰**（现在就是 `/api/*` 与 `/manifest.webmanifest` 两个）。manifest 原先既在 `STATIC_ASSETS` 里预缓存、又会被 fetch 的 `cacheFirst` 在未命中时写进 `cp-shell-v4`，而外壳桶在 `activate` 的白名单里**永不过期** ⇒ 只有 `sw.js` 自身字节变了（install 重跑预缓存）才会顺带刷新它；**发版只改 manifest 的话，它就是被钉死的那份**。
+实感：安卓上「添加到主屏后那条状态栏永远是旧配色」。2026-10-14 实测（用户截图逐像素读）：设备停在 10-04 那版的 `#2a2a2b`（读到 `#2a2a2a`），而线上 / 产物 / 三处契约早已是 `#1c1c1c`；`theme_color` 的历史正好是 `#323233`(9-18) → `#2a2a2b`(10-04) → `#1c1c1c`(10-12)，对上设备上那一版就是「装机那天读到的」。现在它在 `fetch` 处理器里直接 `return` 放行给网络 —— 注意**光把它从 `STATIC_ASSETS` 里摘掉不够**，`cacheFirst` 在未命中时同样会写进外壳桶，必须整条 `return` 掉。
+设备侧还有半格手要动：**已装好的那个图标得删掉重新「添加到主屏幕」一次**，装机那一刻的 manifest 元数据不会自己刷新。
 
 **两个版本号，别混**：
 
@@ -885,6 +890,10 @@ Chromium 侧的开发者信号仓库（`web-platform-dx/developer-signals#145`�
 ⇒ **浏览器标签页里那条栏，页面发什么色值都到不了**（不是「值发错了」，是通道不存在）；
 装成应用后 Firefox 安卓只认 manifest 里那个**静态** `theme_color`，所以「随主题切换」在它那里
 做不到 —— **Chrome / Edge 安卓（读运行期 meta）与安卓壳（走 14.P 那条原生通道）都能切**。
+
+**2026-10-14 追记：改了 manifest 却不生效，是我们自己的 SW 把它钉住了** —— 设备上读到的是
+10-04 那版 `#2a2a2b`，不是线上那份 `#1c1c1c`。成因与解法见第 9 节那条「`/manifest.webmanifest`
+只能放行」；**换完还要在设备侧把主屏图标删掉重新添加一次**（装机那一刻读走的元数据不会自己更新）。
 
 **同一件事在安卓壳（APK）里是另一条通路**（2026-10-12 加）：那边没有浏览器读 meta，那条栏归
 Activity 的窗口管，得由 `services/systemBars.js` 经 Rust / JNI 送过去 —— 底色取的还是这里这一支
