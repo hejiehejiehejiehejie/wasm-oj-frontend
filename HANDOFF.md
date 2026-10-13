@@ -254,6 +254,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - **不要把 `focus()` 整个删掉**：鼠标设备上点页签后能直接敲键盘，是 VS Code 的既有手感（桌面实测点页签后 `activeElement` 仍是 `.native-edit-context`），删了就回归了。
 
 - **可视高度**：`.app.is-keyboard` 是 `position: fixed; top: var(--vv-top); height: var(--vvh)`。这两个变量由 composable 从 `window.visualViewport` 的 `height` / `offsetTop` 写进 `documentElement.style`（`resize` / `scroll` / `orientationchange` 都跟）。用 `top` 一起对齐是因为 iOS 上可视区会被顶上去（`offsetTop > 0`），只改高度的话底部仍会被键盘盖住。**没有用 `interactive-widget=resizes-content`**（Chrome 专用）。工作区是 flex、Monaco 是 `automaticLayout`，都不需要额外写高度。
+  - **浮层（菜单 / 设置下拉）的定位收敛同样以可视视口为准**（2026-10-14 加）：`composables/usePopoverLayer.js` 的 `clampIntoViewport()` 夹的是 `visualViewport` 而不是 `window.innerWidth / innerHeight` —— 理由与上面这条完全一样（键盘弹起时布局视口不动，拿它当匣菜单就会伸到键盘底下），见第 5 节坑 54。
 - **保焦 = 只拦默认行为，不抢焦点**：键盘收起是因为焦点被移走了，所以监听 `document` 的 **`mousedown`（capture）**，目标不是可编辑元素时 `preventDefault()`：焦点不再移给 body，键盘不落。
   - 可编辑元素**一律放行**（`input, textarea, select, [contenteditable]`）。Monaco 的输入面是它自己那个 `textarea.inputarea`（Chrome 里实际聚焦到 `.native-edit-context`），卡片输入框是 `.ta`——挡掉它们就等于「焦点进不去编辑器」。
   - **唯一不进保焦的地方是 CF 抽题面板**（根节点标了 `data-native-focus`，见本节末）：它要的是原生行为——点按钮就收键盘。
@@ -612,6 +613,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **判据的三个输入要各有一条变更来源**：视口宽 → `resize`；设备朝向 → `orientationchange` / `screen.orientation` 的 `change`；**主指针是不是触摸 → 另挂一条 `matchMedia('(pointer: coarse)')` 的 `change`**。少了最后这条，答案会停在旧值上（探针当场量到过：先改视口、后开触摸模拟，挂到 `<html>` 的类没跟上）。
     - **实测**（无头 Chrome + 探针，`cp.uiScale=1`，改前 / 改后各跑同一份 11 条矩阵）：8 条既有判据**逐条未变**（390×844 触摸 ✓、768×1024 触摸 ✓、500×900 无触摸 ✓、844×390 触摸 ✗、1024×768 触摸 ✗、1400×900 ✗、768×1024 无触摸 ✗、720×900 竖高 ✗）；键盘三档（布局视口 768×700 / 768×420 / 390×420，`screen` 仍是 768×1024 / 390×844）改前**全部掉出窄屏**（旧查询 true→false、`.sidebar__head` 的 `display` 从 `contents` 掉回 `flex`），改后全部保持窄屏。另抽查两条走 `:deep()` 的规则（藏「添加测试样例」的字、打开底部那颗「收起侧栏」）在窄 / 宽两侧各自照旧。
     - **有意改掉的一点**：视口朝向与设备朝向不一致时以**设备**为准 —— 手机上开「桌面版网站」（视口 980 宽、设备仍竖屏）现在也算窄屏。这本来就是 ① 想表达的那句「竖屏的触摸设备」。
+
+54. **浮层收敛的「匣」必须是可视视口，不是布局视口：软键盘弹起时两者会分家**（2026-10-14 加，用户报「软键盘弹出的时候，再长按换出菜单，这个菜单有可能被软键盘挡住」）。四条：
+    - **毛病在哪**：`composables/usePopoverLayer.js` 的 `clampIntoViewport()` 原来夹的是 `window.innerWidth / window.innerHeight` —— 那是**布局**视口。而软键盘弹起时，安卓 / iOS 都常只缩**可视**视口（`visualViewport`）、布局视口一动不动（第 3 节「可视高度」那条已按同一事实处理应用本身：`.app.is-keyboard` 挂到 `--vvh` / `--vv-top` 上）。于是菜单按「触点 y + 自身高度」落下去之后，下半截整段停在键盘底下 —— 实测（可视高 596、`innerHeight` 仍是 915）在 y=543 长按，245px 高的菜单落在 543→788，**200px 被键盘盖住**。
+    - **修法**：匣换成可视视口。新增模块级 `viewportBox()`，返回**布局视口坐标系**里的可见矩形（`[offsetLeft, offsetLeft + width] × [offsetTop, offsetTop + height]`）—— `fixed` 定位用的就是这个坐标系，所以不必做任何换算；`clampIntoViewport()` 里只把 `gap` 与四条边换成它，其余（右对齐那条先左移一个自身宽度、掉头由调用方决定）一字未动。`visualViewport` 不存在时退回布局视口，行为与以往逐像素一致。**菜单 / 设置下拉 / 文件树菜单共用这一处**（`ContextMenu.vue` 与 `SettingsMenu.vue` 都走它），所以改这一个函数三处一起好。
+    - **实测**（探针按坑 47 那套造假键盘：`evaluateOnNewDocument` 里 `Object.defineProperty(window, 'visualViewport', { value: 假对象 })`，height=596 / offsetTop=0；412×915 触摸 + 安卓 UA，长按走真实 450ms 那条路；**改前 / 改后各跑一遍同一份脚本**）：S1「键盘弹着 · 长按靠下」改前 543→788（底边超出门槛 588 达 200px，**红**）→ 改后 **342.66→588**（底边正好压在键盘上沿、留 8px）；S2「键盘弹着 · 长按靠上（下方有空间）」的 `top` 改前改后都是 **200 = 触点 y**，没有被多此一举地挪动；S3「无键盘 · 长按靠下」两遍都是 661.66→907（= `innerHeight − 8`，**逐像素未变**）。`npm run verify` = A/B/C/D/F 绿 + E/G/H 红。
+    - **悬着的一格（本次刻意没动）**：菜单**已经开着**、键盘高度随后变化时（换输入法、建议条收放）不会再匣一次 —— `onResize` 只挂在 `window.resize` 上，本文档没有验过「只缩可视视口时 `window.resize` 到底派发不派发」。要补这条路得再挂 `visualViewport` 的 `resize` / `scroll`，那是另一件事。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 

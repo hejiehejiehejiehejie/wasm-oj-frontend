@@ -13,6 +13,8 @@ import { nextTick, onBeforeUnmount, onMounted, ref, toValue } from 'vue'
  * 把左上角夹到 `[gap, 视口 - 尺寸 - gap]` 里。
  * 掉头（右边放不下就改挂左边）由调用方决定 —— 只有它知道锚点在哪一侧，
  * 而这里只认左上角。
+ * ⚠️ **那个「视口」是可视视口，不是布局视口**（2026-10-14 修，见 `viewportBox()`）：
+ * 软键盘弹起时两者会分家，拿 `window.innerHeight` 当匣，菜单就会伸到键盘底下那一段去。
  *
  * 【关闭】四路：点浮层外（捕获阶段）/ Esc（捕获阶段）/ 窗口失焦 / 视口尺寸变化
  * （最后一路有例外：焦点在浮层里时只重匣位置、不收 —— 那是软键盘，见 onResize）。
@@ -25,9 +27,33 @@ import { nextTick, onBeforeUnmount, onMounted, ref, toValue } from 'vue'
  * @param {number|import('vue').Ref<number>|(() => number)} options.x 期望的左缘（可传 ref / getter）
  * @param {number|import('vue').Ref<number>|(() => number)} options.y 期望的上缘（同上）
  * @param {() => void} options.onDismiss 请求关闭时的回调（调用方通常翻一个 v-if 用的标记）
- * @param {number} [options.gap] 与视口四边的最小间隙
+ * @param {number} [options.gap] 与**可视视口**四边的最小间隙
  * @param {string|(() => string)} [options.align] `x` 是浮层的左缘（'left'，默认）还是右缘（'right'）
  */
+/**
+ * 「浮层能待在哪儿」的那个匣 —— **可视视口**（`visualViewport`），不是布局视口。
+ *
+ * 软键盘弹起时两者会分家：只缩可视视口、不动布局视口的那一族（iOS 全程如此，安卓也常是
+ * 这个行为）里 `window.innerHeight` 一动不动，而本站的应用层已经按 `--vvh` / `--vv-top`
+ * 把自己收进了可视视口（见 `useMobileKeyboard.js` 与 `.app.is-keyboard`）。拿布局视口当匣，
+ * 菜单就会停在键盘底下那一段 —— 用户 2026-10-14 报的「键盘弹着时长按，换出来的菜单被
+ * 键盘挡住」正是这个（实测：可视高 596 时在 y=543 长按，245px 高的菜单有 200px 在键盘下）。
+ *
+ * 返回的是**布局视口坐标系**里的矩形 —— `fixed` 定位用的就是这个坐标系，而可视视口在
+ * 该坐标系里的可见区间正是 `[offsetLeft, offsetLeft + width] × [offsetTop, offsetTop + height]`。
+ * 没有 `visualViewport` 时退回布局视口（老浏览器，行为与以往一致）。
+ */
+function viewportBox() {
+  const vv = window.visualViewport
+  if (!vv) return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
+  return {
+    left: vv.offsetLeft,
+    top: vv.offsetTop,
+    right: vv.offsetLeft + vv.width,
+    bottom: vv.offsetTop + vv.height,
+  }
+}
+
 export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   const root = ref(null)
   // 初值直接用期望位置：收敛要等下一帧量到尺寸才生效，first paint 先落在期望处
@@ -49,7 +75,7 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   }
 
   /**
-   * 量到真实尺寸后把左上角夹进视口。
+   * 量到真实尺寸后把左上角夹进**可视视口**（匣的定义见 `viewportBox()`）。
    *
    * 挂载时走一次（夹完才显形，否则会看见「先在期望位置闪一下再被拉回来」），
    * 软键盘顶起视口时再走一次 —— 浮层是 fixed 的，视口变了它就得跟着挪。
@@ -59,10 +85,11 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     const el = root.value
     if (!el) return
     const rect = el.getBoundingClientRect()
+    const box = viewportBox()
     // 右缘对齐时先左移一个自身宽度，把「右缘」换算成「左缘」，之后才夹进视口
     const rawX = toValue(align) === 'right' ? toValue(x) - rect.width : toValue(x)
-    const left = Math.max(gap, Math.min(rawX, window.innerWidth - rect.width - gap))
-    const top = Math.max(gap, Math.min(toValue(y), window.innerHeight - rect.height - gap))
+    const left = Math.max(box.left + gap, Math.min(rawX, box.right - rect.width - gap))
+    const top = Math.max(box.top + gap, Math.min(toValue(y), box.bottom - rect.height - gap))
     position.value = { left: `${left}px`, top: `${top}px` }
   }
 
