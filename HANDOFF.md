@@ -340,10 +340,10 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 
 | 分组 | 变量 |
 | --- | --- |
-| 底色层次 | `--bg-editor` 页面留白 / `--bg-panel` 卡片面板 / `--bg-panel-head` 面板头脚 / `--bg-card`、`--bg-card-head` 用例卡片 / `--bg-chrome` 应用外壳（2026-09-28 顶栏删除后只服务于 `theme-color`） / `--statusbar-bg` 编辑器底部状态栏（**2026-10-14 起直接引用 `--bg-editor`** —— 与地面同色；此前是一支自立的沉蓝，两套主题各一支） / `--bg-tab-active` / `--bg-tab-hover`（页签悬停底色，2026-10-10 加；**两套主题方向相反** —— 浅色比栏底压深 6 阶，深色比栏底提亮 6 阶，深色压暗会与选中色混为一类，见 base.css 注释。深色那支因此不能复用 `--bg-hover-soft`（只亮 2 阶、看不见）与 `--bg-hover`（亮过头）） |
+| 底色层次 | `--bg-editor` 页面留白 / `--bg-panel` 卡片面板 / `--bg-panel-head` 面板头脚 / `--bg-card`、`--bg-card-head` 用例卡片 / `--bg-chrome` 应用外壳（2026-09-28 顶栏删除后只服务于 `theme-color`） / `--bg-tab-active` / `--bg-tab-hover`（页签悬停底色，2026-10-10 加；**两套主题方向相反** —— 浅色比栏底压深 6 阶，深色比栏底提亮 6 阶，深色压暗会与选中色混为一类，见 base.css 注释。深色那支因此不能复用 `--bg-hover-soft`（只亮 2 阶、看不见）与 `--bg-hover`（亮过头）） |
 | 浮层与控件 | `--bg-raised` 浮层底色（删除确认卡 `.confirm__card`、题目信息卡，**已无抽屉**；右键菜单自 2026-10-10 起**不再用它**，见下面「右键菜单」那行） / `--bg-control`、`--bg-control-hover` 按钮下拉 / `--bg-input` 输入框 / `--bg-hover` / `--bg-selection` |
 | 描边 | `--border`、`--border-soft` / `--border-faint`（比 soft 再淡一档，只给折叠态图标栏 `ActivityBar` 那条常显的卡片边界用，2026-10-10 加） |
-| 文字 | `--text`、`--text-dim`、`--text-faint`、`--text-on-accent`、`--statusbar-text`（2026-10-14 起 = `--text-dim`；「选中 N 个字符」那项 `EditorPane.vue` 的 `.picked` 同时改用 `--text` 提一档） |
+| 文字 | `--text`、`--text-dim`、`--text-faint`、`--text-on-accent`、`--statusbar-text` |
 | 强调 | `--accent`、`--accent-hover`、`--accent-strong`、`--accent-deep`、`--focus`（焦点框与分隔条高亮） |
 | 运行（评测样例面板页脚那颗 ▶） | `--run-green`、`--run-green-hover` |
 | 状态色 | `--ok`、`--fail`、`--err`、`--info`、`--warn` + 浅底变体 `--ok-soft`、`--fail-soft`、`--danger-bg`、`--danger-bg-hover`、`--danger-text` |
@@ -870,8 +870,7 @@ Firefox 安卓那条是上游现状，不是这里的配置错：它**至今不�
 （那条栏跟系统 / Firefox 自己的主题走，不跟站点）。2026-10-14 复核（真实应用 + 安卓 UA + 768×1024 竖屏 /
 1024×768 横屏 × 暗色 / 亮色 / 侧栏折叠，共四态）：`.app` 与视口等高（gap 恒 0，`is-keyboard` 那条
 `--vvh` 在可视高度 ±90px 收放时每次都跟上），逐像素扫**最底 5.5 CSS px** 只有 `#1c1c1c`（暗）/
-`#f3f3f3`（亮）、**最亮像素 28**，第一个亮像素在**离底 11px** 处 —— 那是编辑器状态栏里那行白字（该栏当天稍后也改成地面色了，
-见第 4 节的 `--statusbar-bg`；这一句读数取自改色之前），
+`#f3f3f3`（亮）、**最亮像素 28**，第一个亮像素在**离底 11px** 处 —— 那是编辑器状态栏里那行白字（该栏当天曾试改成地面色、同日已按要求改回蓝底），
 不是线 ⇒ **页面这一侧没有任何白条可改**。
 
 实测（探针 21 条断言全绿 + 截图，Firefox 安卓 UA + 412×915，跑完即删）：深色下 `--bg-chrome` /

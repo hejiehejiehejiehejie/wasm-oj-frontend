@@ -76,14 +76,12 @@
   --text-dim: #9b9b9b;
   --text-faint: #6d6d72;
   --text-on-accent: #f1f7f4;
-  /* 编辑器底部状态栏（**2026-10-14 改成与地面同色**，用户口径「各跟各自底色」）。
-     原来这两个是一对自立的色值：底色是一支**沉蓝**（深色 #0b4a75 / 浅色 #005fb8），
-     它是全界面唯一一整条铺满的彩色面。现在底色直接引用 `--bg-editor` —— 那条栏与编辑区
-     连成一片，只剩文字与分隔点还读得出边界。文字随之降到 `--text-dim`（次级信息），
-     「选中 N 个字符」那一项（`.picked`，见 EditorPane.vue）反而**提**到 `--text`。
-     **写引用而不是抄一份色值**：以后地面动了这条栏自动跟上，不会再有「一处改了另一处忘」。 */
-  --statusbar-text: var(--text-dim);
-  --statusbar-bg: var(--bg-editor);
+  --statusbar-text: #cfe3f2;
+  /* 编辑器底部状态栏的底色。它是全界面唯一一整条铺满的彩色面，用 --accent 那种饱和蓝
+     在压深后的底色上会亮得跳出来；单独取一支更沉、更暗的蓝，只服务于这条栏，
+     不跟按钮/高亮共用的 --accent 联动。
+     （2026-10-14 当天曾试改成 `var(--bg-editor)`「与地面同色」，同日按用户要求改回这一支蓝。） */
+  --statusbar-bg: #0b4a75;
 
   --accent: #0e639c;
   --accent-hover: #1177bb;
@@ -264,9 +262,10 @@
   --text-dim: #616161;
   --text-faint: #8b8b8b;
   --text-on-accent: #ffffff;
-  /* 同深色那一支（理由见深色主题里的注释）：底色 = 地面，文字 = --text-dim */
-  --statusbar-text: var(--text-dim);
-  --statusbar-bg: var(--bg-editor);
+  --statusbar-text: #ffffff;
+  /* 浅色下仍是原来的 --accent（#005fb8）—— 白底上这条蓝并不刺眼，保持原样
+     （同深色那一支：2026-10-14 当日改回蓝底，理由见上） */
+  --statusbar-bg: #005fb8;
 
   --accent: #005fb8;
   --accent-hover: #0069c2;
