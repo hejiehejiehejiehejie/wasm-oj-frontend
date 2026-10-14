@@ -186,7 +186,11 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   --seg-w: 30px;
 }
 
-/* 胶囊轨道，同时也是那颗 toggle 按钮本体：13px 圆角 = 高度的一半。
+/* 胶囊轨道，同时也是那颗 toggle 按钮本体：圆角 10px，与编辑区那张卡（App.vue 的 .pane，
+   同样 10px）同值 —— 2026-10-14 由 13px（= 高度的一半，两端收成半圆）改过来，
+   用户口径是「和编辑区的圆角一样」。高度仍是 26px，所以现在是圆角矩形、不是胶囊形；
+   内部两处（指示块 / 段位）的圆角按「外圆角 − 内边距 2px」跟着写成 8px，保持同心，
+   别只改这一处 —— 内层留 11px 会比外圈更圆，两端圆弧对不上。
    带标签时内边距 2px + 两段各 72px = 148px（紧凑时 64px）。
    整块都要可点，所以别把点击处理下放到某一段 */
 .sidebar-switcher__pill {
@@ -200,7 +204,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   height: 26px;
   padding: 2px;
   border: none;
-  border-radius: 13px;
+  border-radius: 10px;
   background: var(--bg-control);
   cursor: pointer;
   transition: background-color 0.16s ease;
@@ -222,7 +226,8 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   top: 2px;
   width: var(--seg-w);
   height: var(--seg-h);
-  border-radius: 11px;
+  /* 与轨道同心：外圆角 10 − 内边距 2（改轨道圆角时这里要跟着算） */
+  border-radius: 8px;
   background: var(--accent);
   pointer-events: none;
   transition:
@@ -246,7 +251,8 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   gap: 5px;
   width: var(--seg-w);
   height: var(--seg-h);
-  border-radius: 11px;
+  /* 段位没有自己的背景，这圈圆角与指示块（8px）同值只为语义一致 */
+  border-radius: 8px;
   color: var(--text-dim);
   transition: color 0.12s ease;
 }
