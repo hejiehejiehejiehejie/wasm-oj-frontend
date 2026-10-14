@@ -212,14 +212,14 @@ watch(uiScalePref, applyUiScale)
 export { uiScaleSingleton as uiScale }
 
 /**
- * 布局对调那 280ms 的 settling 动画是不是还在播（动画见 App.vue 样式表的 `pane-settle`）。
- *
- * 它必须是个导出的 ref：写它的是本文件的 `setPanelPosition`，读它的是 App.vue 模板上
- * 那个 `is-swapping` 类 —— 两边之间没有组件边界，.props / emit 都无从下手。
+ * 系统「减弱动效」。全局那条兜底（`base.css` 的 `* { animation-duration: 0.01ms }`）压的是
+ * CSS 动画，而**通配选择器不匹配伪元素** —— View Transitions 的时长恰恰挂在
+ * `::view-transition-old / new` 上（同文件那 260ms），光靠 CSS 拦不住，所以凡是要播 VT
+ * 的地方都得在 JS 里先问这一句。与 App.vue 的 `togglePanel` 同一口径（那边折叠也守它）。
+ * 读的是 `.matches` 而不是包一层响应式：两个调用点都是「点一下才走一次」的动作，
+ * 现取现判即可。
  */
-export const swapping = ref(false)
-
-const SETTLE_MS = 280
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 /**
  * 把侧边栏换到另一侧（快捷键 `toggle-layout` 与设置面板那个下拉走这里）。
@@ -245,13 +245,19 @@ export function setPanelPosition(next) {
   const apply = () => {
     panelPosition.value = next
   }
-  // 不支持 View Transitions 的浏览器：靠自己的 settle 动画补这一段
+  // 减弱动效：整段直切。闸门放在最前面 —— 这一句同时管住下面两条路，
+  // 免得开着减弱动效还让 settle 状态白翻一趟（它有 base.css 压着，看是看不出来，
+  // 但没必要留个「在播」的状态）。口径与 App.vue 折叠那边一致。
+  if (reduceMotion.matches) {
+    apply()
+    return
+  }
+  // 不支持 View Transitions 的浏览器：一步到位，不播任何动画 —— 与侧栏折叠同一口径
+  // （2026-10-14 晚用户拍板统一）。这里原先会挂一个 `is-swapping` 类、让两栏自绘一段
+  // 280ms 的 settle（`App.vue` 的 `pane-settle`），那是「同一类动作的第二种降级形态」；
+  // 既然是降级，两边就都降成「直接翻」，那一套已连同 `swapping` 一起删掉。
   if (typeof document.startViewTransition !== 'function') {
     apply()
-    swapping.value = true
-    window.setTimeout(() => {
-      swapping.value = false
-    }, SETTLE_MS)
     return
   }
   // View Transitions 路径：只翻一次状态，位置与宽度由浏览器按快照补间

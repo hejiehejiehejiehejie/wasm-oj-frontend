@@ -253,12 +253,62 @@ const timing = computed(() => {
   return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`
 })
 
+/**
+ * 复制一段文本。两层，缺一不可（2026-10-14 补第 ② 层）：
+ *
+ *   ① `navigator.clipboard.writeText` —— 只在**安全上下文**存在（https / localhost）。
+ *      走这条时不碰 DOM、不动焦点。
+ *   ② 临时 textarea + `document.execCommand('copy')` —— 它走的是浏览器原生的 copy 事件，
+ *      与页面是不是安全上下文无关。
+ *
+ * 【为什么必须补 ②】`http`（非 localhost，比如内网直接开 IP）下 `navigator.clipboard`
+ * 整个是 `undefined`，① 那行抛的是 `TypeError: Cannot read properties of undefined`；
+ * 安全上下文里没授权 / 文档失焦则抛 `NotAllowedError`。原先只有一个空 `catch {}`，
+ * 两种都被吞掉，而这几颗按钮**本来就没有成功反馈**（@click 直调，没有「已复制」态、
+ * 也没有 toast）—— 于是点下去成功与失败在界面上长得一模一样，用户只觉得「点了没反应」。
+ *
+ * 两条容易漏的细节，别省：
+ *   - `readOnly`：不写的话 `focus()` 会在真机上把软键盘弹起来再收回去（`useMobileKeyboard`
+ *     的 `.app.is-typing` 会跟着闪，贴底的图标栏也收一下）；只读框照样能选中、能复制。
+ *   - `setSelectionRange` 而不是 `select()`：iOS Safari 上 `select()` 对文本长的框选不全。
+ *
+ * 摘掉临时框之后要把焦点还回去（`previous`）。临时框是聚焦着的，直接摘会让焦点掉到 `body`：
+ * 触摸设备上「点按钮、点输出区都不收键盘」这条口径（`useMobileKeyboard` 的保焦）靠的正是
+ * 焦点别跑，丢给 `body` 会连带把键盘收掉 —— 与「别加顶栏开关，点按钮自己会抢焦点、反而把
+ * 已经弹着的键盘弄收」（那处已撤过一版）是同一个坑。
+ * 而「用户已按返回键收掉键盘、焦点还残留在框里」那一种不必在这里兜：同一次手势的
+ * `touchstart` 已经把那个残留焦点清掉了（见 `onTouchStart` 里那道 `!keyboardUpAtTouchStart` 闸），
+ * 所以这里读到的 `previous` 要么是那颗按钮、要么本来就是 `body`，还回去不会把键盘重新捞起来。
+ */
 async function copyText(text) {
   if (!text) return
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch {
+      /* 没授权 / 文档失焦：落到下面那条老路再试一次 */
+    }
+  }
+  const previous = document.activeElement
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.readOnly = true
+  // fixed + 透明 + 不吃指针：不在屏幕上闪一下，也不把页面挤动
+  textarea.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;'
+  document.body.appendChild(textarea)
   try {
-    await navigator.clipboard.writeText(text)
+    textarea.focus()
+    textarea.setSelectionRange(0, text.length)
+    document.execCommand('copy')
   } catch {
-    /* clipboard blocked: nothing else to try */
+    /* 到这一步已经没有别的路可走了 */
+  } finally {
+    textarea.remove()
+    // preventScroll：别为了还焦点把页面挪一下（站内其它还焦点处同款）
+    if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) {
+      previous.focus({ preventScroll: true })
+    }
   }
 }
 

@@ -332,11 +332,12 @@ defineExpose({
    直接 flex 项，再用 order 把左簇排到最后一行 —— 底部那条因此是**真的一条**
    （占位、不压内容），不是浮在树上的抽屉。
 
-   ⚠️ 不用 position: absolute 钉底：展开动画会给 .sidebar__head 加 transform
-   （App.vue 的 panel-fade-in），而带 transform 的元素会成为绝对定位后代的包含块 ——
-   那 300ms 里底部条会先画在页头位置、动画结束再往下跳。display: contents 没有盒子，
-   祖先的 transform / opacity 都够不到它，所以那份淡入得按元素单独补
-   （见 App.vue 里断点相同的那个 media query）。
+   ⚠️ 不用 position: absolute 钉底：那得自己找包含块，而祖先链上一旦出现 transform，
+   位置当场就跳 —— 原先的出处是展开动画给 .sidebar__head 加的那一下（App.vue 的
+   panel-fade-in），它 2026-10-14 已随 CSS 补间删掉，同晚换边兜底的 is-swapping 也没了，
+   所以这条现在属于「谁再加一条带 transform 的动画它就复活」的预防性说明。
+   眼下站得住的是结构那条：display: contents 不生成盒子、不进定位体系，底部那条才能是
+   flex 里真的一条（占位、不压内容），而不是浮在树上。
 
    判据（2026-10-13 定，同日从 CSS 挪进 JS）：**两条取并集**，任一成立即走窄屏布局 ——
      ① 触摸设备 + **设备**竖屏：竖屏的触摸设备，即手机竖屏与平板竖屏（横屏不算，横向不稀缺）。

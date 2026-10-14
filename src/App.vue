@@ -55,7 +55,6 @@ import {
   isNarrowLayout,
   narrowCollapseSide,
   panelPosition,
-  swapping,
   uiScalePref,
 } from './services/shellSettings.js'
 
@@ -325,8 +324,8 @@ const dragPanelPx = ref(null)
 
 // 拖拽手势的状态位（都只在一次按下—松手之内有意义，见 beginDrag / handoffDrag）：
 // - dragLive：手势还活着（window 上的 move / up 监听还挂着）。
-//   注意它和 dragging 是两码事 —— dragging 只管视觉与「跟手」，越界移交动画时会被摘掉
-//   （那条 .is-dragging 规则会把 .pane 的过渡整段让掉，动画就起不来），而手势本身不能跟着结束。
+//   注意它和 dragging 是两码事：越界翻转期间手势不结束，而 dragging 照旧为真 ——
+//   两条路径都不再摘它（摘它是为了给已删的 CSS 补间让路，见 handoffDrag）。
 // - handoffPending：一次越界翻转还没落到 panelVisible 上（VT 的更新回调是异步的），
 //   这期间再来的重复触发要挡掉，否则同一帧翻两次等于没翻。
 let dragLive = false
@@ -335,7 +334,7 @@ let handoffPending = false
 let abortController = null
 
 // -------------------------------------------------------------- 布局切换
-// 「往另一侧翻」这套动作（含 View Transitions 与 settle 动画）在 services/shellSettings.js
+// 「往另一侧翻」这套动作（View Transitions 一条路，无 VT 直切）在 services/shellSettings.js
 // 的 flipPanelPosition() —— 设置下拉菜单里的「侧边栏位置」也走那一个出口，
 // 所以这里不另写一份。关键约束不变：那里只改 order，DOM 结构与 Monaco 实例都不动，
 // 因此切换布局不会触发编辑器销毁重建（不会闪屏）。
@@ -438,12 +437,12 @@ function applyShare(raw, limits) {
 
 // 像素直连越过阈值（折叠 / 展开）：交给与「单击分隔条」完全同一套折叠 / 展开。
 // 手势不结束 —— 监听留着，好让光标反向再越过对面阈值时能接着触发（不然一次按住只能翻一下）。
-// 摘 is-dragging 只对「靠 CSS transition 播放」的非 VT 路径有意义：那条规则会把 .pane 的过渡
-// 整段让掉（见样式表 .workspace.is-dragging .pane），动画起不来。VT 走 ::view-transition 伪元素、
-// 本就不受它影响，而且摘了反而有害：动画收尾时 pinSidebarWidth 会把内层壳钉成 flex:0 0 auto，
-// 靠那条 .is-dragging .pane__inner.is-fixed 覆盖规则才能恢复流体，摘了拖拽就跟手迟一帧
-// （用户报的「几轮展开后不跟手」正是这一条）。所以 VT 下不摘；非 VT 摘掉后由 togglePanel 的
-// 动画结束回调恢复（见那里）。
+// 摘 is-dragging 这件事已经不需要了：它本来是给 CSS 补间让路用的（那条
+// `.workspace.is-dragging .pane { transition: none }` 会让过渡整段失效），而折叠现在
+// 只有 View Transitions 一条路（走 ::view-transition 伪元素、跟这个类无关）、无 VT 直切，
+// 没有什么要让它。反过来摘掉有害：pinSidebarWidth 会把内层壳钉成 flex: 0 0 auto，靠那条
+// .is-dragging .pane__inner.is-fixed 覆盖规则才能恢复流体，摘了拖拽就跟手迟一帧
+// （用户报的「几轮展开后不跟手」正是这一条）。所以两条路径一律不摘（2026-10-14 统一）。
 //
 // 落点按占比定：展开落到最窄宽度（minPanelPx 反算出的 editorShare），折叠则从当前拖到的
 // 像素宽反算出的占比起算 —— 让 togglePanel 的动画起点/终点接得上，也与键盘 / reclamp 共用
@@ -467,7 +466,6 @@ function handoffDrag(expand, limits) {
     }
     dragPanelPx.value = null
   }
-  if (!canViewTransition()) dragging.value = false
   nextTick(() => togglePanel())
 }
 
@@ -511,32 +509,18 @@ watch(uiScale, () => nextTick(reclampShare))
 // 三条入口共用它：键盘（toggle-panel）、程序内调用（revealTestsPanel / switchSidebarPanel）、
 // 以及鼠标 / 触摸端单击分隔条（在 beginDrag 的 pointerup 里认，见下）。
 //
-// 整套动作分两段（2026-10-04 定稿，取代原先的「图标从一头飞到另一头」）：
-//   ① 宽度伸缩  0 → 200ms   两条 flex-basis transition，见 .pane--tests.is-animating 与
-//                          ActivityBar 的 .activity-bar
-//   ② 浮现      180 → 300ms 图标 / 内容淡入，靠样式表里 animation 的 delay + backwards 挂上去
-// 这两段全是 CSS：JS 只翻一次状态、守一个闸门。
+// 动画只有一条路径：**一次状态翻转 + View Transitions 补间**；闸门过不去就直切，
+// 直切只翻状态，不做任何补偿动作（不挂 class、不守闸门、不等时长）。
 //
-// 为什么把飞行换成分两段：图标栏上那几格与侧栏页头那几颗控件的 x 本来就几乎重合
-// （两端都挤在左上角，实测相差 0~1px），所以所谓「从这儿飞到那儿」其实只是原地放大 2px
-// 再下沉几像素 —— 看不出「飞」，只剩一下抖，还额外欠下两笔债：飞行体得克隆到 body 浮层
-// 才不被裁切，飞行期间两端真图标都得先隐身。分两段则把「入口换了个地方」直接讲清楚：
-// 先看栏位收/放，再看该出现在哪一侧的图标浮现。
+// 这里原先还有一套纯 CSS 的两段式：宽度 200ms 伸缩（`.pane--tests.is-animating` 与
+// ActivityBar 的 `flex-basis` transition）+ 180ms 后浮现（`panel-fade-in`），配一个
+// `PANEL_LOCK_MS = 300` 的闸门与「接缝 / 残留」两处收尾；更早还试过「图标从一头飞到另一头」。
+// 2026-10-14 连同无 VT 时的 CSS 兜底一起删干净了（见坑 46）：同一类动作留着两套降级形态，
+// 只会让一部分设备上多出一种「半套」动画，而它在窄屏遮不住主轴翻转的跳变。
 //
-// `PANEL_LOCK_MS` 是闸门总长，取到第二段结束（180 + 120 = 300）。少一点都不行：
-// 闸门一摘，挂着第二段的那些选择器就失效，图标会从半透明直接跳到全显。
-// 它也顺带管着另外两件事：两条栏位留在排版里（display: none 不可动画，折叠时得先让它收到 0
-// 再摘），以及内层定宽壳冻结（宽度不动 → 内容不重排，见 syncSidebarPin）。
-//
-// 两段之外还有两处收尾，都在样式表里、按「哪一侧在收」区分：运动中的接缝只留一条边
-// （两张卡片贴在一起时是 2px 双线），以及宽度段走完后那 100ms 里把收成 2px 的残留隐掉
-// （border-box 的边框盒收不到 0）。见 App.vue 样式表里的「接缝」「残留」两段。
-const PANEL_LOCK_MS = 300
-const panelAnimating = ref(false)
-let panelAnimTimer = 0
-
-// 系统开了「减弱动效」：CSS 里的过渡已被压到 0.01ms（见 base.css），再分行分段的编排
-// 只会变成闪一下，所以这种情况下整段走直切（不挂 is-animating）。
+// 系统开了「减弱动效」：这时候整段走直切，不播 View Transitions。这道闸门必须在 JS 里守 ——
+// base.css 那条 `* { animation-duration: 0.01ms }` 压不着 `::view-transition-*` 伪元素
+// （通配选择器不匹配伪元素），光靠 CSS 拦不住。
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 // View Transitions 支持探测：侧栏折叠 / 展开与布局换边共用同一个判据
@@ -554,11 +538,11 @@ function setPaneTransitionNames(name) {
 }
 
 // 内层定宽 + 外层裁切：把 .pane__inner 的宽度钉在外层 .pane--tests 的实测宽度上。
-// 折叠 / 展开那 200ms 里外层的宽度一直在变，内层若跟着变，里面的文件树与用例卡片就会
-// 逐帧重排（文字反复换行、@container 规则反复重算），看着是「内容被挤扁」而不是「被推出画面」。
-// 钉住之后内层的排版一动不动，由外层自己的 overflow: hidden 负责裁掉多出来的部分。
-// 冻结只发生在动画期间：平时这个观察器跟着外层的宽度走（与流式布局等价），
-// 拖分隔条时更是整条规则让路（见样式表里 .is-dragging 那条），所以日常使用与以前没有区别。
+// 宽度一变，内层若跟着变，里面的文件树与用例卡片就会重排（文字反复换行、@container
+// 规则反复重算），看着是「内容被挤扁」而不是「被推开」。钉住之后内层的排版一动不动，
+// 由外层自己的 overflow: hidden 负责裁掉多出来的部分。
+// 平时这个观察器跟着外层的实测宽度走（与流式布局等价），拖分隔条时整条规则让路
+// （见样式表里 .is-dragging 那条），所以日常使用与流式没有区别。
 const sidebarPinned = ref(false)
 let sidebarPinObserver = null
 
@@ -574,18 +558,16 @@ function pinSidebarWidth() {
       Number.parseFloat(border.borderLeftWidth) -
       Number.parseFloat(border.borderRightWidth),
   )
-  // width 为 0 的两处：折叠到底（display: none）与展开动画刚开始的那一帧。
-  // 都不能把 0 写进去 —— 前者会抹掉下次展开要用的那个宽度，后者会让内容在动画里塌成一条缝。
+  // width 为 0 只会在整块被 v-show 收起时出现（题解全屏）。不能把 0 写进去：
+  // 那会抹掉下次展开要用的那个宽度。
   if (!width) return
   sidebarInner.value.style.width = `${width}px`
   sidebarPinned.value = true
 }
 
 function syncSidebarPin() {
-  // 动画期间冻结：宽度不动 → 内容不重排，多出来的部分由外层裁掉
-  if (panelAnimating.value) return
   // 折叠态不量：外层这时只有 1px（见样式表里 .pane--tests.is-collapsed），
-  // 量了会把「展开要用的那个宽度」覆盖成 1px，下次展开的快照就是一条缝。
+  // 量了会把「展开要用的那个宽度」覆盖成 1px，下次展开就是一条缝。
   if (!panelVisible.value) return
   pinSidebarWidth()
 }
@@ -600,17 +582,17 @@ function togglePanel({ instant = false } = {}) {
   const animate = !instant && !mdFullscreen.value && !reduceMotion.matches && canViewTransition()
 
   // View Transitions 路径：只翻一次状态，宽度 / 位置全交给浏览器按快照补间。
-  // 好处是动画期间 DOM 一动不动（不再逐帧改 flex-basis），Monaco 也就不会逐帧重排，
-  // 下面那套定宽冻结 / 接缝 / 残留的补丁本就是为了伺候「逐帧改宽度」才存在的。
+  // 好处是动画期间 DOM 一动不动（不逐帧改 flex-basis），Monaco 也就不会逐帧重排 ——
+  // 原先那套「宽度伸缩 + 浮现」的 CSS 两段式、以及伺候「逐帧改宽度」的接缝 / 残留补丁，
+  // 都随两段式一起删了。
   //
   // 两栏的 view-transition-name 在这里被摘掉，故意不让它们各自成组：
   // 命名元素会成为独立过渡组，而组盒子在改尺寸时会把快照位图拉过去（文字横向变形）。
   // 摘掉之后两栏并进 root 快照，root 的盒子恒等于整个应用、尺寸不变，只剩透明度补间，
   // 拉伸在结构上不可能发生。代价是整屏交叉淡化——旧布局（带侧栏）与新布局会同时叠印。
   if (animate) {
-    panelAnimating.value = false
-    // 翻状态前先把定宽壳退回流体：VT 只翻一次 DOM，「防逐帧重排」那件事不存在，
-    // 而旧钉子（折叠时可能已被写成 1px）会被原样带进快照，反而把内容压扁。
+    // 翻状态前先把定宽壳退回流体：VT 只翻一次 DOM，而旧钉子（折叠时可能已被写成 1px）
+    // 会被原样带进快照，反而把内容压扁。
     sidebarPinned.value = false
     if (sidebarInner.value) sidebarInner.value.style.width = ''
     // 摘名字必须发生在 startViewTransition 之前：旧快照就得不带名字，
@@ -631,14 +613,12 @@ function togglePanel({ instant = false } = {}) {
     return
   }
 
-  // 直切：一步到位（闸门过不去的都是这一路）。不挂 is-animating，宽度第二段也就不存在，
-  // 钉子交给 RO 那条路补。CSS 补间那条路已废弃（2026-10-14，见坑 46），is-animating
-  // 那套两段式样式与 PANEL_LOCK_MS 闸门随之全部空转，留着没拆。
+  // 直切：一步到位（闸门过不去的都是这一路）。只翻状态，不挂任何动画 class；
+  // 钉子交给 RO 那条路补。
   panelVisible.value = !panelVisible.value
   virtualShare = panelVisible.value ? editorShare.value : 100
   nextTick(() => {
-    // 直切没动画可让，handoffDrag 非 VT 下摘掉的拖拽态要补回来，否则内层壳一直钉死不跟手
-    if (dragLive) dragging.value = true
+    // 拖拽态不用补：越界翻转期间 dragging 一直是真（见 handoffDrag）
     if (panelVisible.value) pinSidebarWidth()
   })
 }
@@ -711,7 +691,8 @@ function beginDrag(event) {
     }
     editorPane.value?.layout()
   }
-  // 收尾：摘监听 + 手势态归位（越界移交动画时只摘 is-dragging，不走这里，见 handoffDrag）。
+  // 收尾：摘监听 + 手势态归位。越界翻转中途（handoffDrag）**不走这里** —— 那时监听还留着，
+  // 好让光标反向再越回来时能接着翻（不然一次按住只能翻一下）。
   const finish = () => {
     // 松手：把最终像素宽反算回 editorShare%（一次舍入），再退出像素直连回到百分比流
     if (panelVisible.value && dragPanelPx.value !== null) {
@@ -1389,7 +1370,6 @@ onBeforeUnmount(() => {
   disposeAutoSave = null
   window.clearTimeout(staleTimer)
   window.clearTimeout(reclampTimer)
-  window.clearTimeout(panelAnimTimer)
   abortController?.abort()
   layoutObserver?.disconnect()
   layoutObserver = null
@@ -1411,7 +1391,7 @@ onBeforeUnmount(() => {
       :class="[
         `is-${panelPosition}`,
         `is-fold-${narrowCollapseSide}`,
-        { 'is-dragging': dragging, 'is-swapping': swapping, 'is-collapsed': !panelVisible },
+        { 'is-dragging': dragging, 'is-collapsed': !panelVisible },
       ]"
     >
       <section class="pane pane--editor" :style="editorPaneStyle">
@@ -1464,14 +1444,10 @@ onBeforeUnmount(() => {
         ref="sidebarPane"
         v-show="!mdFullscreen"
         class="pane pane--tests"
-        :class="{
-          'is-collapsed': !panelVisible,
-          'is-animating': panelAnimating,
-          'is-expanding': panelAnimating && panelVisible,
-        }"
+        :class="{ 'is-collapsed': !panelVisible }"
         :style="testsPaneStyle"
       >
-        <!-- 定宽壳：宽度由 pinSidebarWidth 钉住，折叠动画期间内部的排版一动不动
+        <!-- 定宽壳：宽度由 pinSidebarWidth 钉住，宽度变化时内部的排版一动不动
              （is-fixed 只在量到过一次真实宽度后才上，见那里） -->
         <div ref="sidebarInner" class="pane__inner" :class="{ 'is-fixed': sidebarPinned }">
           <!-- panel-position 只给窄屏底部那颗「收起侧栏」用：它据此决定箭头朝哪边、贴哪一端。
@@ -1502,11 +1478,10 @@ onBeforeUnmount(() => {
            装在侧栏那一侧的最外侧（order 见 activityBarStyle）。展开时页头里仍是胶囊 + 齿轮那套，
            两者不会同时出现，所以入口没有重复。它与 .pane--tests 都参与分屏：固定 48px、
            不参与增长（编辑器是唯一 grow 的，剩下的宽度全归它）。
-           折叠 / 展开那 200ms 里它也得留在排版里（宽度从 48px 收到 0，见 ActivityBar 的样式），
-           所以 v-show 多带一个 panelAnimating。 -->
+           显隐只认状态：动画交给 View Transitions，它出现在不在都由快照自己比。 -->
       <ActivityBar
-        v-show="(!panelVisible || panelAnimating) && !mdFullscreen"
-        :class="{ 'is-collapsed': !panelVisible, 'is-animating': panelAnimating }"
+        v-show="!panelVisible && !mdFullscreen"
+        :class="{ 'is-collapsed': !panelVisible }"
         :style="activityBarStyle"
         :panels="sidebarPanels"
         @select="selectSidebarPanel"
@@ -1694,13 +1669,13 @@ onBeforeUnmount(() => {
    1px 里透出一条竖线：最典型的是文件树里选中那一行的 `--bg-hover` 底色，以及它被键盘
    聚焦时 `:focus-visible` 那道 1px `--focus` 蓝圈（2026-10-10 用户报的「选中底色从侧边
    漏出来一点」）。整块子树的绘制都归这一层管，关掉它就一次关干净。
-   收窄途中（is-animating）**刻意不隐藏**：那 200ms 里侧栏是被「推拉门」推出去的，内容
-   得一路可见才推得动；动画收尾那一下另有 panel-ghost 兜着（见下）。
+   收窄 / 展开的交叉淡化由 View Transitions 按快照做，不经过这一层：旧快照拍的是折叠前的
+   样子，新快照拍的是折叠后的样子，中途没人看得见这层内容。
 
    两条属性是有分工的，别删掉任何一条：
    - visibility 让整块退出 Tab 序与无障碍树（折叠着还能 Tab 进那些看不见的行与输入框，
      本来就是个说不通的状态）；**但它是继承的、后代写 `visible` 就能顶掉** ——
-     `TestCaseCard` 的 `.card__fold > .card__body` 正是这么写的（给折叠动画拆两端值用），
+     `TestCaseCard` 的 `.card__fold > .card__body` 正是这么写的（它自己那套卡片折叠动画要用），
      所以只留它并不保险。
    - opacity 负责「一定不画」：它不继承、后代也顶不掉（整棵子树并进同一个合成组再按 0
      输出），将来谁往这层里加一个「自带满铺底色」的容器，也不会再从这 1px 里漏出来。
@@ -1708,58 +1683,9 @@ onBeforeUnmount(() => {
      （回归脚本与 syncSidebarPin 都读这些）。
    两条都不是 display：折叠态那张卡必须留在排版里（见上一条），摘掉内层也一样会
    打歪 syncSidebarPin 与 View Transitions 的快照。 */
-.pane--tests.is-collapsed:not(.is-animating) .pane__inner {
+.pane--tests.is-collapsed .pane__inner {
   visibility: hidden;
   opacity: 0;
-}
-
-/* 收起 / 展开的这 200ms（曲线与布局切换同一支）。过渡只写在这个状态里，
-   不常驻 —— 它在别处没有用武之地，挂着反而会拖慢两件本该瞬时的事：拖分隔条，
-   以及窗口缩放时 reclampShare 重算宽度（那种场合编辑器是瞬时的，这里的滞后会让两栏
-   的宽度之和短暂不等于 100%，看着像抖一下）。
-   同时还有两件东西要让路，否则收缩会卡在半路：
-   - min-width：上面那个 clamp() 的下限（宽屏 240px）会把宽度钉在那儿，收不下去；
-   - flex-grow：basis 归零后它仍会从剩余空间里再分走一半（.pane--tests 是 flex: 1 1 auto），
-     编辑器就涨不满。 */
-.pane--tests.is-animating {
-  transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  min-width: 0;
-  flex-grow: 0;
-}
-
-/* 第二段：浮现。展开时侧栏页头（切换器 + 传送进来的上下文动作）与内容一起，
-   等宽度那一段收得差不多了再淡入。
-   延迟期间靠 backwards 停在 opacity 0 —— 所以宽度段整段里它们都是不存在的，
-   不会出现「边被裁切擦出来、边淡入」两下打架。
-   折叠方向刻意不挂这一下：那边侧栏是「被门遮掉」的，再叠一层淡出就成了
-   「一边变淡一边收窄」，与推拉门的观感冲突（内层那层定宽壳的意思正在于此）；
-   折叠侧的浮现落在图标栏那一边，见 ActivityBar.vue。
-   只动 opacity / transform，不碰宽度 —— 不触发重排。 */
-.pane--tests.is-animating.is-expanding :deep(.sidebar__head),
-.pane--tests.is-animating.is-expanding :deep(.sidebar__body) {
-  animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
-}
-
-@keyframes panel-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* 窄屏下 Sidebar 把页头整条解散（display: contents）、两个子元素升成 .sidebar 的直接
-   flex 项：上面那条打的是 .sidebar__head 这个盒子，盒子没了就淡不出来。同参数补一份。
-   ⚠️ 判据现在只有一份：`shellSettings.js` 的 `isNarrowLayout()` 给 <html> 挂的 `is-narrow`
-   （与 Sidebar.vue 那块认的是同一个类）；但**动画参数**要各自同步 —— 时长 120ms / 延时 180ms /
-   曲线三样两处必须一致，改一处必改另一处，否则会出现「沉底了但没有淡入」（2026-10-13）。
-   只动 opacity / transform，不碰宽度。 */
-:where(html.is-narrow) .pane--tests.is-animating.is-expanding :deep(.sidebar__switcher),
-:where(html.is-narrow) .pane--tests.is-animating.is-expanding :deep(.sidebar__context) {
-  animation: panel-fade-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
 }
 
 /* ------------------------------------------------- 窄屏折叠态：图标栏横过来贴边（2026-10-13）
@@ -1868,69 +1794,9 @@ onBeforeUnmount(() => {
   margin-left: 0;
 }
 
-/* 接缝。图标栏与侧栏在动画里是直接贴着的（两栏之间没有外边距），各自带一条 1px 边框，
-   挨在一起就成了一条 2px 的「双线」，两端的 8px 圆角还背靠背 —— 运动中的接缝因此看着
-   比静止时粗一倍。所以让**即将消失的那一侧**把朝着对方的那条边让出来：
-   折叠时侧栏在收，让出朝着图标栏的那条；展开时图标栏在收，让出朝着侧栏的那条。
-   只改颜色，不动 border-width —— 边框照旧占位，布局零影响。
-   朝哪边由 .workspace 的 is-left / is-right 决定（模板上的 `is-${panelPosition}`）。 */
-.workspace.is-left .pane--tests.is-animating:not(.is-expanding),
-.workspace.is-right :deep(.activity-bar.is-animating:not(.is-collapsed)) {
-  border-left-color: transparent;
-}
-
-.workspace.is-right .pane--tests.is-animating:not(.is-expanding),
-.workspace.is-left :deep(.activity-bar.is-animating:not(.is-collapsed)) {
-  border-right-color: transparent;
-}
-
-/* 残留。宽度段（200ms）走完后「要消失的那一侧」已经收到 0，但全局 border-box 加上
-   左右各 1px 边框，边框盒最小就是 2px，收不到真正的 0；而闸门还要再压 100ms 才把元素
-   摘掉（见 PANEL_LOCK_MS），那 100ms 里一条 2px 竖线是静止显形的（运动已经停了，
-   所以反而比运动中的接缝更扎眼）。到点直接把它隐掉即可：visibility 不进布局、
-   不触发重排，写法与上面那段浮现同源 —— 那边是 backwards 等入场，这边是 forwards 等收尾。
-   「减弱动效」下 App 不给 is-animating，这些规则整段不存在（也没有 delay 空等的问题）。 */
-.pane--tests.is-animating:not(.is-expanding),
-.workspace :deep(.activity-bar.is-animating:not(.is-collapsed)) {
-  animation: panel-ghost 1ms linear 200ms forwards;
-}
-
-@keyframes panel-ghost {
-  to {
-    visibility: hidden;
-  }
-}
-
 .workspace.is-dragging {
   cursor: col-resize;
   user-select: none;
-}
-
-.workspace.is-dragging .pane {
-  transition: none;
-}
-
-.workspace.is-swapping .pane {
-  animation: pane-settle 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-@keyframes pane-settle {
-  from {
-    opacity: 0.55;
-    transform: translateX(var(--settle, -10px));
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.workspace.is-swapping .pane--editor {
-  --settle: 10px;
-}
-
-.workspace.is-swapping .pane--tests {
-  --settle: -10px;
 }
 
 /* 简洁版分隔条：12px 透明热区（视觉上只有中缝里一条线，且只在悬停/聚焦/拖拽时出现 ——

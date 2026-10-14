@@ -133,52 +133,12 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   border-radius: 10px;
   border: 1px solid var(--border-faint);
   background: var(--bg-panel);
-  /* 侧栏收起 / 展开时这一栏跟着伸缩（宽度过渡 200ms，与布局切换同一支曲线）；
-     展开方向还要整条淡出（见下面那条），与宽度同一支曲线、同一段时长。
-     透明度走 transition 而不是 animation：动画中途掉头（展开没播完就点折叠）时
-     透明度会从当前值平滑掉头，而 animation 会在规则撤掉的那一帧直接跳回 1，白闪一下。 */
-  transition: flex-basis 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    opacity 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-/* 展开方向：这一栏把位置让给长出来的侧栏，整条（连同图标）一起淡出 ——
-   与宽度段同长同曲线，抽屉从它背后滑出的同时它原地溶解，而不是被侧栏边缘一刀切掉。
-   挂在 is-animating 上（而不是只挂 :not(.is-collapsed)）：减弱动效下 App 不给 is-animating，
-   这条规则不存在，栏跟着布局直切，与其它几处的口径一致。
-   闸门（PANEL_LOCK_MS）摘掉 is-animating 的那一帧，整条栏正好被 display 收起，
-   透明度回到 1 也看不见，不会回闪。 */
-.activity-bar.is-animating:not(.is-collapsed) {
-  opacity: 0;
-}
-
-/* 侧栏是展开的（含展开动画进行中）：这一栏宽度收到 0，把位置让给长出来的侧栏。
-   折叠态什么都不用写 —— 上面那条 flex 就是它的 48px。
-   宽度不能像别处那样走内联 style：48px 会被 postcss-pxtorem 转成 rem 跟着全局缩放走，
-   JS 里内联的 px 不会，界面缩放到 150% 时两边就对不上了。 */
-.activity-bar:not(.is-collapsed) {
-  flex-basis: 0;
-}
-
-/* 第二段：浮现。折叠时这一栏从 0 长到 48px，图标要等宽度那一段收好了才出现 ——
-   延迟期间靠 backwards 停在 opacity 0，也就是宽度整段里这一栏是空白的。
-   挂在 is-animating 上而不是只挂 is-collapsed：一来「减弱动效」下 App 不给 is-animating，
-   这条规则干脆不存在，图标从第一帧就该是可见的（否则会先按 backwards 空一帧）；
-   二来闸门摘掉的时刻正好是这段动画结束的时刻，撤销时不会有回跳。
-   展开方向不挂这一下：那边是侧栏的页头控件与内容在浮现（见 App.vue），
-   而这一栏在那边是整条淡出（见上面那条），不需要图标再单独淡一次。
-   延迟 / 时长与 App.vue 的 PANEL_LOCK_MS 同源，改一处要一起改。 */
-.activity-bar.is-animating.is-collapsed .activity-bar__item svg {
-  animation: activity-bar-icon-in 120ms cubic-bezier(0.22, 0.61, 0.36, 1) 180ms backwards;
-}
-
-@keyframes activity-bar-icon-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
+/* 展开态不写规则：这一栏的在场与否由 App 的 v-show 决定（判据与 is-collapsed 同源），
+   展开那一刻整条就是 display: none，不进布局、也不需要先把宽度让出去。
+   2026-10-14 之前这里有一条 `.activity-bar:not(.is-collapsed) { flex-basis: 0 }`，
+   那是给 CSS 补间路径当「宽度让位」用的 —— 补间路径已删，这条再也没有可能命中。 */
 
 .activity-bar__group {
   display: flex;
