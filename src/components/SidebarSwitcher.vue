@@ -268,7 +268,9 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   white-space: nowrap;
 }
 
-/* 设置那颗：胶囊外的独立圆形图标钮，与轨道同高 */
+/* 胶囊外的独立图标钮（抽题 / 设置，窄屏另有「收起侧栏」复用同一套）：
+   与轨道同高，圆角 10px —— 2026-10-14 由 50%（正圆）改成圆角方形，
+   与胶囊轨道同值，一排控件形状统一。两处要一起改，别只动一个。 */
 .sidebar-switcher__tab {
   display: inline-flex;
   align-items: center;
@@ -277,7 +279,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   height: 26px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
@@ -293,8 +295,10 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
 
 /* 设置页签开着时填亮，与胶囊里选中段同一套「填亮＝开着」的语言。
    别退回 --bg-hover：那色（#3a3d41）和隔壁胶囊轨道（--bg-control #343434）几乎同色，
-   实测两个控件会糊成一块，看不出齿轮是开着的。它在轨道之外、且是个圆形，
-   不会被误读成「第三个面板被选中」 */
+   实测两个控件会糊成一块，看不出齿轮是开着的。
+   2026-10-14 起它与胶囊段位同为圆角方形（原先靠「圆形」区分），所以「不被误读成第三个
+   分段」的判据换成另外两条：它在轨道**之外**（没有轨道底色，只有自己填的那块），
+   且与胶囊之间有 4px 间隙 —— 这两条别顺手去掉（比如给整排套一个共同底色）。 */
 .sidebar-switcher__tab.is-active,
 .sidebar-switcher__tab.is-active:hover {
   color: var(--text-on-accent);
@@ -304,7 +308,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
 /* 「收起侧栏」那颗（2026-10-13 加）：**只在窄屏出现** —— 这里写死 display: none，
    由 Sidebar.vue 的窄屏块带着 .sidebar__switcher 祖先把它打开（那边特异性 (0,3,0)）。
    宽屏不给它位置：那边有分隔条可拖、也有快捷键，多一颗入口是重复。
-   外观整套复用 __tab（同一颗圆形图标钮、同尺寸同 hover），不另抄一份。
+   外观整套复用 __tab（同一颗圆角方形图标钮、同尺寸同 hover），不另抄一份。
    它在 DOM 里排在最前，靠 order 挪到末尾 —— 侧栏停在**右**时箭头朝右，位置也贴右端；
    停在左时它本来就在最前、箭头朝左，于是「箭头指哪、按钮在哪、点下去往哪收」三者一致。 */
 .sidebar-switcher__collapse {
