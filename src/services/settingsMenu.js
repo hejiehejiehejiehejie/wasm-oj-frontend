@@ -18,8 +18,12 @@
  * - 编辑器偏好 → `services/editorSettings.js` 的 setEditorSetting
  * - 侧边栏位置 / 窄屏折叠方向 / 缩放 → `services/shellSettings.js`
  * - 模板开关 → `services/fileTemplates.js`
- * - 界面语言 → `i18n/index.js`
  * 所以菜单改完，**设置面板里同一行立刻跟着变**（读的是同一份 ref），不需要同步代码。
+ *
+ * 【菜单里刻意没有「界面语言」】2026-10-14 按用户要求把这行删了：菜单只留「当场就想改」的
+ * 那几项，而界面语言是个改一次基本不再动的选择。唯一入口留在设置面板的「外观」组
+ * （`EditorSettingsPanel` 的 locale 下拉，与菜单原先读的是同一份 `i18n` 状态）。
+ * 别以「菜单少了一行」为由加回来。
  *
  * 【三种控件】
  * - `switch`：二值，一级行末尾就是那只开关，点整行翻面。适合的正是「启用模板」这类
@@ -27,7 +31,7 @@
  * - `radio`：点开二级子菜单再选，**两档也照样用它** —— 主题（深 / 浅）与侧边栏位置
  *   （左 / 右）、窄屏折叠方向（上 / 下）这几项的两档各有名字，开关只能说「开 / 关」、
  *   说不出档位叫什么，而二级里既看得到当前停在哪一档、也能直接认出另一档叫什麼。选完默认**菜单不关** ——
- *   调缩放 / 切语言这类动作常常要连着试几次，关掉反而碍事。要连菜单一起收的行
+ *   调缩放 / 换主题这类动作常常要连着试几次，关掉反而碍事。要连菜单一起收的行
  *   （「设置分类」—— 它把人送到设置面板去）在表里标 `closes: true`。
  * - `stepper`：数值 ±1，缩放那样有档位的用 radio，只有字号这个连续量用它。
  * - `cloud`：二级不是档位列表而是**一个小表单**（填用户名 → 导入 / 登录 → 取码后原地变
@@ -40,7 +44,6 @@ import { EDITOR_SETTING_RANGES, THEMES } from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
 import { openSettingsTab } from './editorViews.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
-import { LOCALES, locale, setLocale } from '../i18n/index.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import {
   isNarrowLayout,
@@ -113,15 +116,6 @@ export const SETTINGS_MENU_ROWS = [
     labelKey: 'settings.appearance.fontSize.label',
     value: () => editorSettings.value.fontSize,
     step: stepFontSize,
-  },
-  {
-    id: 'locale',
-    kind: 'radio',
-    labelKey: 'settings.appearance.locale.label',
-    // endonym（各语言自己的写法）不翻译：见 i18n/index.js 的 LOCALES
-    options: () => LOCALES.map(({ id, label }) => ({ id, label })),
-    current: () => locale.value,
-    select: (id) => setLocale(id),
   },
   {
     id: 'panelPosition',
