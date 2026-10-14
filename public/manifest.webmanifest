@@ -9,7 +9,6 @@
   "scope": "/",
   "display_override": ["fullscreen"],
   "display": "standalone",
-  "orientation": "any",
   "background_color": "#1c1c1c",
   "theme_color": "#1c1c1c",
   "categories": ["developer", "education", "productivity"],
