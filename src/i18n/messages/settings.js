@@ -291,9 +291,11 @@ export default {
           label: '安装到设备',
           title: '安装到设备',
           /**
-           * 三个状态词就是这一栏的**引擎判据**那部分文案 —— 只看一条：**引擎有没有
-           * 「把网站装成应用」这套 API**（`useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`，
-           * 属性检测 `'onbeforeinstallprompt' in window`）。**状态词本身不按浏览器型号分岔**。
+           * 三个状态词就是这一栏的**引擎判据**那部分文案 —— 只看一条：**网页侧能不能靠这个引擎
+           * 一键装**（`useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED` —— 属性检测
+           * `'onbeforeinstallprompt' in window`，**再扣掉三星 Internet 那一档假阳性**，
+           * 2026-10-14 加，见 HANDOFF 坑 55）。**状态词本身不按浏览器型号分岔**（三星那条例外
+           * 收在 `useInstallPrompt.js` 里，不在这一层）。
            *
            * 按钮亮不亮是另一回事（看 `canInstall`），状态词不替它解释 ——
            * 原来那样解释会同时错两处：既把「不支持」和「此刻还不能装」混成一句，
@@ -340,6 +342,14 @@ export default {
             'iOS 上的浏览器都没有一键安装的接口：点「分享」→「添加到主屏幕」。',
           noApiSafariDesktop:
             '桌面版 Safari 不能用清单安装：走「文件」→「添加到程序坞」。',
+          /**
+           * 三星 Internet（2026-10-14 加）。它**不是**「引擎没实现这个事件」那一类 —— 属性检测
+           * 在它是假阳性（`onbeforeinstallprompt` 在、事件却不派发，见 `useInstallPrompt.js` 的
+           * `MANUAL_INSTALL_BROWSER`）。两条路都写上：地址栏那个「＋」徽标是安装口径（manifest
+           * 请求独立窗口时才有），菜单那条永远在、是退路。
+           */
+          noApiSamsung:
+            '三星浏览器没有一键安装的接口：点地址栏左边的「＋」→「主屏幕」（清单请求独立窗口时才有这个徽标），或走它自己的菜单 ›「添加页面到」›「主屏幕」。',
           noApiGeneric:
             '这个浏览器没有一键安装的接口，用浏览器自己的菜单安装即可。',
           /** 「应用」栏末尾那颗手动引导按钮（通知内容见 services/installGuides.js） */
@@ -844,10 +854,12 @@ export default {
           title: 'Install on this device',
           /**
            * These three status words are the **engine criterion** half of this row. One
-           * criterion only: does the engine have the install-as-app API
-           * (`INSTALL_API_SUPPORTED` in `useInstallPrompt.js`, probed as
-           * `'onbeforeinstallprompt' in window`). The status words themselves are not keyed
-           * off the browser model.
+           * criterion only: can the web side use this engine to install in one click
+           * (`INSTALL_API_SUPPORTED` in `useInstallPrompt.js` — the
+           * `'onbeforeinstallprompt' in window` property probe, **minus the Samsung Internet
+           * false positive**, added 2026-10-14; see HANDOFF pitfall 55). The status words
+           * themselves are not keyed off the browser model — that one exception lives inside
+           * `useInstallPrompt.js`, not at this layer.
            *
            * Whether the button lights up is a separate question (`canInstall`); the
            * status word does not try to explain it — that used to be wrong twice over,
@@ -897,6 +909,15 @@ export default {
             'Desktop Firefox cannot install a site as an app from its manifest, and offers no other install entry (that is the case on macOS and Linux).',
           noApiIos: 'No browser on iOS has a one-click install API: use Share → “Add to Home Screen”.',
           noApiSafariDesktop: 'Desktop Safari cannot install from a manifest: use File → “Add to Dock”.',
+          /**
+           * Samsung Internet (added 2026-10-14). It is *not* the “engine never implemented the
+           * event” case — the property probe is a false positive there (the event handler exists,
+           * the event is not dispatched; see `MANUAL_INSTALL_BROWSER` in `useInstallPrompt.js`).
+           * Both routes are named: the “+” badge is the install-flavoured one (shown while the
+           * manifest asks for a standalone window), the menu entry always exists and is the fallback.
+           */
+          noApiSamsung:
+            'Samsung Internet has no one-click install API: tap the “+” by the address bar → “Home screen” (the badge appears while the manifest asks for a standalone window), or use its menu › “Add page to” › “Home screen”.',
           noApiGeneric:
             'This browser has no one-click install API — install the site from the browser’s own menu.',
           /** Manual guide button at the end of the App section (notification copy: services/installGuides.js) */

@@ -8,8 +8,9 @@
  * 那次把版本比对挪出去是同一套做法）。
  *
  * 【两件事，四条引导】
- * - `app-install`  引擎有安装 API 且此刻真能一键装 → 通知带「安装」按钮，点了调浏览器弹窗
- * - `app-manual`   装不了 / 拿不到一键入口 → 只说明（按浏览器 / 系统挑一句，含 chrome://apps 那条出路）
+ * - `app-install`  引擎有可用的一键安装且此刻真能装 → 通知带「安装」按钮，点了调浏览器弹窗
+ * - `app-manual`   引擎没有可用的一键入口 → 只说明（按浏览器 / 系统挑一句：三星的「＋」徽标与
+ *                  菜单、Firefox 安卓的 ⋮、iOS 的分享、桌面 Safari 的程序坞…）
  * - `ext-install`  没探到插件、且这台机器有路 → 通知带「下载 / Firefox 版」按钮
  * - `ext-update`   探到插件但版本旧 → 通知带「重新下载 / Firefox 版」按钮
  *
@@ -17,9 +18,10 @@
  * 四条各记各的：见过「可以装应用」不等于见过「插件有新版」，所以状态变了仍会再提示一次。
  * 手动触发（设置里那颗「安装引导」按钮）**不看这份记录** —— 那是用户点名要看。
  *
- * 【`app-manual` 只有「装不了」那半自动弹】2026-10-12 用户反馈那条警告「出现的有些频繁了」，
- * 于是「有 API 却拿不到入口」那一格退出自动弹（理由见 `available`），只有引擎**压根没有**
- * 这套 API（Firefox / Safari）时才自动说一句。四条引导的构造（`appGuide`）本身没变 ——
+ * 【`app-manual` 只有「引擎没有可用的一键入口」那半自动弹】2026-10-12 用户反馈那条警告
+ * 「出现的有些频繁了」，于是「有 API 却拿不到入口」那一格退出自动弹（理由见 `available`），
+ * 只有引擎**压根没有**这套 API（Firefox / Safari）**或那套 API 在它身上不算数**（三星 Internet，
+ * 2026-10-14 加）时才自动说一句。四条引导的构造（`appGuide`）本身没变 ——
  * 手动与设置面板两条路照旧能把它发出来。
  *
  * 【这个键刻意不进云同步白名单】它是「**这台设备**已经被告知过什么」，同步过去等于让另一台
@@ -27,7 +29,7 @@
  *
  * 【文案】不在本文件里写字面量：标题 / 正文 / 按钮字一律取 i18n key，并在**点击那一刻**才
  * `t()`（locale 中途切换后发出来的那条才对）。能复用设置面板现成句子的就复用 ——
- * 插件那六条 `hint*` 与应用的六条 `noApi*` 本来就是自足整句（没有「右侧」这类位置指代），
+ * 插件那六条 `hint*` 与应用的七条 `noApi*` 本来就是自足整句（没有「右侧」这类位置指代），
  * 通知直接拿来当正文。
  */
 import { computed } from 'vue'
@@ -68,9 +70,10 @@ const INFO_MS = 12000
 // ---------------------------------------------------------------- 分岔（唯一出处）
 
 /**
- * 应用侧「引擎没有安装 API」时的出路变体。判据与设置面板**完全同源**，别再写第二份：
- * Firefox 按安卓 / Windows / 其它三分（桌面 Firefox 只有 Windows 143+ 有地址栏那个图标），
- * Safari 系按 iOS / 桌面两分，认不出的引擎给 `generic`。
+ * 应用侧「引擎没有可用的一键安装」时的出路变体。判据与设置面板**完全同源**，别再写第二份：
+ * 三星 Internet 单列（属性检测在它是假阳性，见 `useInstallPrompt.js`），Firefox 按安卓 /
+ * Windows / 其它三分（桌面 Firefox 只有 Windows 143+ 有地址栏那个图标），Safari 系按 iOS /
+ * 桌面两分，认不出的引擎给 `generic`。
  */
 export function noApiVariant() {
   if (BROWSER === 'firefox') {
@@ -78,11 +81,13 @@ export function noApiVariant() {
     return HOST_OS === 'windows' ? 'firefox-windows' : 'firefox-other'
   }
   if (BROWSER === 'safari') return BROWSER_PLATFORM === 'ios' ? 'ios' : 'safari-desktop'
+  if (BROWSER === 'samsung') return 'samsung'
   return 'generic'
 }
 
 /** 变体 → 文案 key（「应用」栏那行说明与通知正文共用同一批句子） */
 export const NO_API_KEYS = {
+  samsung: 'settings.app.install.noApiSamsung',
   'firefox-android': 'settings.app.install.noApiFirefoxAndroid',
   'firefox-windows': 'settings.app.install.noApiFirefoxWindows',
   'firefox-other': 'settings.app.install.noApiFirefoxOther',
@@ -287,7 +292,8 @@ function show(tag, options) {
 function available(id) {
   if (IS_DESKTOP) return false
   if (id === 'app-install') return canInstall.value
-  // 引擎压根没有这套 API（Firefox / Safari）：没有事件可等，早说晚说一样，不拖
+  // 引擎压根没有这套 API（Firefox / Safari）、或这套 API 在它身上不算数（三星 Internet）：
+  // 没有可等的事件，早说晚说一样，不拖
   if (id === 'app-manual') return !appInstalled.value && !INSTALL_API_SUPPORTED
   // 插件两条都要求「这台机器有路」：一条路都没有（Safari / 桌面壳）时不打扰
   if (!EXTENSION_ROUTES.value.length) return false

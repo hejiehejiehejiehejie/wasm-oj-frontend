@@ -49,7 +49,7 @@ function detectHostOs() {
 }
 
 /**
- * 浏览器族：`'firefox'` / `'edge'` / `'chrome'` / `'safari'` / `'unknown'`。
+ * 浏览器族：`'firefox'` / `'samsung'` / `'edge'` / `'chrome'` / `'safari'` / `'unknown'`。
  *
  * **只用来挑「去哪个商店装、用哪套手动步骤、该不该说移动端那套」这几句文案**，
  * 不是精确判定 —— 它从 userAgent 猜的，而且有几处天生分不开：
@@ -58,6 +58,11 @@ function detectHostOs() {
  *   里只有 `Chrome/`，没有自家 token，与 Chrome 本尊逐字一样。好在它们的扩展安装路径
  *   本来就与 Chrome 同源（扩展管理页 + 加载已解压），所以不细分也不影响推荐结果。
  *   **别为了「认出 360」去加 UA 特例** —— 认出来的那部分才是少数，反而多一份会走偏的分支。
+ * - **`'samsung'` 单独一档（2026-10-14 加）**：三星 Internet 的 UA 既有自己的
+ *   `SamsungBrowser/<版本>`、也带着 `Chrome/<版本>`，所以这一条必须排在 `Chrome/` 之前。
+ *   它与上面那条纪律**不冲突**：认出 360 没用（扩展路径与 Chrome 同源），而认出三星有用 ——
+ *   它的安装入口不在网页侧（详见 `useInstallPrompt.js` 的 `MANUAL_INSTALL_BROWSER`），
+ *   挑错文案等于让用户照着 Chrome 那套去点一个不存在的入口。
  * - **`'safari'` 是唯一「一条路都没有」的一档**：Safari 扩展走 App Store 分发，
  *   与我们这套完全不通用。它同时也**收下了 iOS 上的所有浏览器** —— iOS 的 Chrome /
  *   Firefox 用 `CriOS` / `FxiOS` 标识、UA 里同样带 `Safari/`，而 iOS 上谁都装不了本插件，
@@ -71,6 +76,8 @@ function detectBrowser() {
   if (typeof navigator === 'undefined') return 'unknown'
   const ua = navigator.userAgent || ''
   if (/Firefox\//i.test(ua)) return 'firefox'
+  // 三星 Internet 必须排在 `Chrome/` 之前：它是 Chromium 基座，UA 里两个 token 都在
+  if (/SamsungBrowser\//i.test(ua)) return 'samsung'
   // `Edg/` 是 Chromium 版 Edge，`EdgA/` 是安卓版；`Edge/` 那套 EdgeHTML 早已退役，
   // 这里不认它（正则的 `[A-Z]?` 配不上 `Edge/` 里的小写 e）
   if (/Edg[A-Z]?\//.test(ua)) return 'edge'

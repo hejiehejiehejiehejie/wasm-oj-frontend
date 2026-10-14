@@ -90,7 +90,7 @@ src/
   App.vue                       # 布局骨架（workspace / pane / splitter）+ 全局状态；另外挂两件全局事：window 捕获阶段的 keydown（快捷键。两张表分开放：`SHORTCUT_HANDLERS` 是「在哪儿按都算」的 7 条，`SHORTCUT_TREE_HANDLERS` 是**作用域受限**的 F2 / Delete / ⌘·Ctrl+A 那 3 条 —— 后者先过 `treeScopeFrom()` 闸门，其中 ⌘·Ctrl+A 另有一条「指针在哪一块」的判据，见第 13.4 节）与 `useCompanionImport()`（接扩展投来的题目）
   composables/usePersistentRef.js
   composables/useUiScale.js       # ★ 全局界面缩放的唯一权威：uiScale 单例 + 档位表 UI_SCALE_OPTIONS + px()（设计 px → 真实 px）+ applyUiScale()（落根字号）+ normalizeUiScale()（读盘校验）。三条边界见文件头与第 5 节坑 24
-  composables/useInstallPrompt.js  # 设置视图「应用」分组里「安装到设备」按钮的数据源：拦 beforeinstallprompt，用完即弃
+  composables/useInstallPrompt.js  # 设置视图「应用」分组里「安装到设备」按钮的数据源：拦 beforeinstallprompt，用完即弃；另含 MANUAL_INSTALL_BROWSER（三星例外，见 13.4）
   composables/useMobileKeyboard.js # 触摸屏「键盘模式」：视口收缩 + 不抢焦的保焦拦截（见第 3 节末）
   composables/useCompanionBridge.js # ★ 扩展消息接收端：window.postMessage 握手（cp-ping → cp-info）与题目投递（cp-task）。状态是**模块级单例**（扩展装没装是全局事实，各组件不该各探一次）；同站多开标签页时扩展会广播，按 taskId 去重。2026-10-11 加了两对**网页发起的请求**：`cp-fill-code`（请扩展去 Codeforces 代填云同步验证码，`requestCodeFill`，超时 `FILL_TIMEOUT = 15000`）与 `cp-cf-check`（问「这个浏览器登的是不是这个 handle」，`checkCfIdentity`，超时 `CF_CHECK_TIMEOUT = 3000`，只回四值枚举），以及**能力协商** `canFillCode` / `canCheckCf`（读 `cp-info` 的 `capabilities`，见 13.1）
   composables/useCompanionImport.js # 订阅扩展题目 → 调 problemImport 落盘 → 把样例**整体替换**进评测面板 → nextTick 后抢焦点。它是 problemImport 返回值的唯一消费方
@@ -620,6 +620,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **实测**（探针按坑 47 那套造假键盘：`evaluateOnNewDocument` 里 `Object.defineProperty(window, 'visualViewport', { value: 假对象 })`，height=596 / offsetTop=0；412×915 触摸 + 安卓 UA，长按走真实 450ms 那条路；**改前 / 改后各跑一遍同一份脚本**）：S1「键盘弹着 · 长按靠下」改前 543→788（底边超出门槛 588 达 200px，**红**）→ 改后 **342.66→588**（底边正好压在键盘上沿、留 8px）；S2「键盘弹着 · 长按靠上（下方有空间）」的 `top` 改前改后都是 **200 = 触点 y**，没有被多此一举地挪动；S3「无键盘 · 长按靠下」两遍都是 661.66→907（= `innerHeight − 8`，**逐像素未变**）。`npm run verify` = A/B/C/D/F 绿 + E/G/H 红。
     - **悬着的一格（本次刻意没动）**：菜单**已经开着**、键盘高度随后变化时（换输入法、建议条收放）不会再匣一次 —— `onResize` 只挂在 `window.resize` 上，本文档没有验过「只缩可视视口时 `window.resize` 到底派发不派发」。要补这条路得再挂 `visualViewport` 的 `resize` / `scroll`，那是另一件事。
 
+55. **三星 Internet 的属性检测是假阳性：`onbeforeinstallprompt` 在、安装事件不来**（2026-10-14 加，用户报「三星手机的三星浏览器打开网址，没有正确的安装引导，并且设置菜单中没有安装为应用的按钮」）。四条：
+    - **毛病在哪**：三星浏览器是 Chromium 基座，`'onbeforeinstallprompt' in window` 为真，可它的安装事件实践中不派发 —— 三星自家开发文档从未提到这个事件，它的安装入口是地址栏那个「＋」徽标（ambient badging，要求 manifest 的 `display` 为 `standalone` / `fullscreen`，本站满足）与菜单 ›「添加页面到」›「主屏幕」。于是**三条判据同时走错**：① 面板状态词写「当前浏览器支持」、按钮却永远灰着；② 那一格补的说明是桌面口径（`blockedPrefix` + `chrome://apps` + `blockedSuffix`，安卓上那个地址打不开）；③ `app-manual` 的自动弹判据是 `!INSTALL_API_SUPPORTED` ⇒ 一条引导都不弹，齿轮菜单那颗「安装为应用」要 `canInstall` ⇒ 也不出现。用户看到的正是「没有正确的安装引导、也没有按钮」。
+    - **修法**：把「引擎实现了这个事件」（**原始事实**）与「网页侧能不能靠它一键装」（**判据**）拆开 —— `INSTALL_EVENT_IMPLEMENTED` 留作模块内部事实，`INSTALL_API_SUPPORTED = 属性检测 && !MANUAL_INSTALL_BROWSER`，`canInstall` 也挂上它（否则三星上万一偶发派发了事件，就会亮出按钮、而状态词仍写「不支持」，又变成「状态词与按钮打架」）。`MANUAL_INSTALL_BROWSER = BROWSER === 'samsung'`，判据本体是 `platform.js` 新增的 `'samsung'` 一档（UA 的 `SamsungBrowser/`，**必须排在 `Chrome/` 之前**：两个 token 它都有）。文案走 `NO_API_KEYS.samsung` → `noApiSamsung`（中英并排，两条路都写：地址栏「＋」是安装口径、菜单那条永远在）；齿轮菜单按 13.3 那张表新增一颗「安装引导」（`when: MANUAL_INSTALL_BROWSER && !appInstalled`，动作就是面板那颗的 `fireSectionGuide('app')`）。`available('app-manual')` 一个字没改 —— 它的判据本来就是「没有可用的一键入口」，三星现在正好落进去（自动弹一次）。
+    - ⚠️ **这是全项目唯一一处「用 UA 决定功能（而非文案）」**：「判据是能力探测、不是 UA」那条主纪律不变（13.4 第 4 条），它只是「属性检测在**已知**引擎上不可靠」的例外清单 —— 想再加引擎进这份清单，先问有没有别的路。
+    - **实测**（dev server + 探针，五档 24 条全绿，界面由 `cp.uiLocale` 锁成中文）：三星 UA（真实引擎仍是 Chrome ⇒ **属性天然在**）→ 开机自动弹一条「安装为应用」+ 三星步骤、面板状态词「当前浏览器不支持」、说明行给三星那两句、全档无 `chrome://apps` 字样、齿轮菜单出现「安装引导」且不出现「安装为应用」、关掉通知再点它当场重发一条；三星 UA + `delete window.onbeforeinstallprompt` → 逐条同上（分支不依赖那个属性）。三条回归：桌面 Chrome（属性在）→「当前浏览器支持」+ 无应用类通知 + 菜单无引导行；桌面 Chrome 删属性 →「不支持」+ `noApiGeneric` 那句；安卓 Firefox 删属性 → `noApiFirefoxAndroid` 那句，两档菜单都无引导行。
+
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
 | key | 内容 | 位置 |
@@ -808,7 +814,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | `public/icons/*.png` | `icon-192/512`（圆角、透明角）、`icon-maskable-192/512`（满幅方块 + 图形收在安全区内）、`apple-touch-icon`（180，满幅） |
 | `public/favicon.svg` + `public/favicon.ico` | 标签页 / 快捷方式图标。**`.ico` 是安卓 Firefox 「添加到主屏幕」那条路唯一认的**：造快捷方式时它按老规矩直接抓根目录 `/favicon.ico`，不看 `<link rel="icon">`、也不看 manifest（2026-10-14 加，见下面那段） |
 | `src/sw.js` → `dist/sw.js` | Service Worker，缓存策略见下。**源码是模板、产物由构建生成**（见下） |
-| `src/composables/useInstallPrompt.js` | 拦 `beforeinstallprompt` 交给设置视图「应用」分组里的安装按钮，跟踪 `appinstalled` 与 `display-mode: standalone` |
+| `src/composables/useInstallPrompt.js` | 拦 `beforeinstallprompt` 交给设置视图「应用」分组里的安装按钮，跟踪 `appinstalled` 与 `display-mode: standalone`。**三层判据**：`INSTALL_EVENT_IMPLEMENTED`（属性检测，原始事实）→ `INSTALL_API_SUPPORTED`（可用性，扣掉 `MANUAL_INSTALL_BROWSER`）→ `canInstall`（事件判据）。`MANUAL_INSTALL_BROWSER` 目前只认三星 Internet（2026-10-14，见 13.4） |
 
 **「添加到主屏幕」造出来的快捷方式没有图标（2026-10-14 修）**：安卓 Firefox 那条路有两个入口，取的图不是同一处 —— 菜单项是 **Install**（站点可安装）时走 manifest 的 `icons`；是 **Add to Home Screen**（普通快捷方式）时，它按 1999 年那条老规矩**直接抓 `/favicon.ico`**，`<link rel="icon">` 与 manifest 都不看。站点以前**只有 `favicon.svg`、根目录没有 `.ico`**（线上是 404），SVG 在它那条路上栅格化不出来 ⇒ 主屏上就是一张空图标。
 修法：新出 `public/favicon.ico`（16/32/48 三尺寸，PNG-in-ICO，源图是 `icons/icon-192.png`，本机用 `sips` 缩放 + 手拼 ICONDIR），并在 `index.html` 里**显式**声明一条（声明了别的 `rel="icon"` 之后浏览器未必再兜底抓根目录那份，写出来才保证它在候选集里）；`/favicon.ico` 同步进 `STATIC_ASSETS`（它跟 `favicon.svg` 一样是内容不动的 `public/` 资产）。
@@ -1136,9 +1142,10 @@ Activity 的窗口管，得由 `services/systemBars.js` 经 Rust / JNI 送过去
 1. **上面这两个只挑文案，不当功能开关**（同 `HOST_OS` 那条纪律）。唯一一处「决定显示什么」的是插件栏摆哪颗按钮，所以**那一处必须 fail-open**：`unknown` 时两条路都摆出来。猜错的代价是用户看不到入口，比多给一条路糟得多。
 2. **360 / QQ / 搜狗 / 2345 一律落 `chrome`** —— 它们的 UA 里只有 `Chrome/`，与 Chrome 本尊逐字一样。它们的扩展安装路径本来就与 Chrome 同源（扩展管理页 + 加载已解压），所以不细分不影响结果；**别为了「认出 360」加 UA 特例**，认出来的那部分是少数，多一份分支反而会走偏。
 3. **`safari` 那一档刻意一颗按钮都不摆**：Safari 扩展走 App Store 分发，与我们这套完全不通用。它还**收下了 iOS 上的所有浏览器** —— iOS 的 Chrome / Firefox 用 `CriOS` / `FxiOS` 标识、UA 里同样带 `Safari/`，而 iOS 上谁都装不了本插件，归到这一档正好是正确答案（别去认 `CriOS` 再分流，结论一样）。
-4. **「装成应用」的判据是能力探测 —— 不是 UA，也不是等事件**（2026-10-11 定）。判据只有一条：`'onbeforeinstallprompt' in window`（`useInstallPrompt.js` 导出为 `INSTALL_API_SUPPORTED`，**属性检测**：同步、零等待、开机就能读）。它问的是「这个引擎有没有实现安装 API」，正好落在真实边界上 —— Blink（Chrome / Edge / 360 / QQ / Opera）为 `true`，Firefox / Safari 与全部 iOS 为 `false`。三条纪律：
+4. **「装成应用」的判据是能力探测 —— 不是 UA，也不是等事件**（2026-10-11 定）。判据只有一条：`'onbeforeinstallprompt' in window`（`useInstallPrompt.js` 导出为 `INSTALL_API_SUPPORTED`，**属性检测**：同步、零等待、开机就能读）。它问的是「这个引擎有没有实现安装 API」，正好落在真实边界上 —— Blink（Chrome / Edge / 360 / QQ / Opera）为 `true`，Firefox / Safari 与全部 iOS 为 `false`。**2026-10-14 起它多了一层**：属性检测之上还要扣掉三星那一档（见下面第四条纪律，`INSTALL_EVENT_IMPLEMENTED` 是原始事实、`INSTALL_API_SUPPORTED` 才是判据）。四条纪律：
    - **别拿 `canInstall` 当「支不支持」**：那是 `beforeinstallprompt` **事件**的判据，只说明「此刻能不能一键装」。事件不来既可能是「不支持」、也可能是「这一刻条件不满足」（Service Worker 未接管 / 已装过但没被检测到）。两者混成一句，就会写成从前那句「已安装或不支持」，还得靠猜浏览器去补救。现在状态词只回答「支不支持」（三态：**已安装 / 当前浏览器支持 / 当前浏览器不支持**），**按钮亮不亮另由 `canInstall` 决定**，两者不许互相替换。
-   - **刻意的取舍，2026-10-12 改口**：Firefox 的网页应用能力**在 JS 里没有任何 API**（`beforeinstallprompt` 在 Firefox 桌面 + 安卓、Safari 桌面 + iOS 上**全都不支持**，MDN 兼容表），所以这一格一律落「当前浏览器不支持」。2026-10-11 曾据此把按浏览器分岔的引导**全删**（`hintFirefoxWindows` / `hintFirefoxOther` / `hintChromium` / `hintMobile` / `hintUnknown`）；**2026-10-12 用户点名恢复**——「没有 API」不等于「这台机器装不了」，Firefox 安卓 / iOS Safari 自己的菜单里就有安装入口，只留一句「不支持」会让人以为没有这条路（报障原文：安卓 Firefox 里「没有在设置中显示安装选项」）。恢复后的形态：**说明行**（`installNoApiHint` + `installNoApiHintKey`，六条 `noApi*` 文案）按浏览器 / 系统挑一句，**状态词与按钮仍只看引擎判据**——UA 分支只许决定「说明写哪句」，两者混起来就又变回从前那套「猜浏览器来解释按钮」。
+   - **刻意的取舍，2026-10-12 改口**：Firefox 的网页应用能力**在 JS 里没有任何 API**（`beforeinstallprompt` 在 Firefox 桌面 + 安卓、Safari 桌面 + iOS 上**全都不支持**，MDN 兼容表），所以这一格一律落「当前浏览器不支持」。2026-10-11 曾据此把按浏览器分岔的引导**全删**（`hintFirefoxWindows` / `hintFirefoxOther` / `hintChromium` / `hintMobile` / `hintUnknown`）；**2026-10-12 用户点名恢复**——「没有 API」不等于「这台机器装不了」，Firefox 安卓 / iOS Safari 自己的菜单里就有安装入口，只留一句「不支持」会让人以为没有这条路（报障原文：安卓 Firefox 里「没有在设置中显示安装选项」）。恢复后的形态：**说明行**（`installNoApiHint` + `installNoApiHintKey`，七条 `noApi*` 文案）按浏览器 / 系统挑一句，**状态词与按钮仍只看引擎判据**——UA 分支只许决定「说明写哪句」，两者混起来就又变回从前那套「猜浏览器来解释按钮」。
+   - **★ 三星 Internet 是「例外按 UA 认」的唯一一档**（2026-10-14 加，用户报「三星手机的三星浏览器打开网址，没有正确的安装引导，并且设置菜单中没有安装为应用的按钮」）。它是 Chromium 基座 ⇒ 属性检测**假阳性**（`onbeforeinstallprompt` 在、事件却不派发，三星自家文档从未提到这个事件，入口是地址栏那个「＋」徽标与菜单 ›「添加页面到」›「主屏幕」）。于是 `useInstallPrompt.js` 里 `MANUAL_INSTALL_BROWSER = BROWSER === 'samsung'`，`INSTALL_API_SUPPORTED = 属性检测 && !MANUAL_INSTALL_BROWSER`，`canInstall` 也跟着挂上它（免得出现「状态词说不支持、按钮却亮着」）。**这是全项目唯一一处用 UA 决定功能（不是文案）的地方** —— 主纪律不变，它只是「属性检测在已知引擎上不可靠」的例外清单，新加引擎前先问有没有别的路。判据本体是 `platform.js` 的 `BROWSER`（UA 里的 `SamsungBrowser/`，必须排在 `Chrome/` 之前）。配套：说明行走新的 `noApiSamsung`（两项都在 `NO_API_KEYS` / `noApiVariant()`），`app-manual` 自动弹的判据是 `!INSTALL_API_SUPPORTED` ⇒ 三星也会自动弹一次，齿轮菜单另给一颗「安装引导」（13.3 表）。
    - 背景事实（留着备查）：`beforeinstallprompt` 只在 Blink 派发，`appinstalled` 在 Firefox / Safari 也不触发；Firefox / Safari 移动端只能从菜单装（安卓 Firefox 是菜单 › 安装），Safari 桌面 17+ 走「文件 › 添加到 Dock」；网上那套 `about:config` → `browser.ssb.enabled` 早已移除，别再照抄。
 5. **插件版本提示不比能力**：装的那一版来自 `cp-info` 的 `info.version`（`useCompanionBridge`），只拿来报「有新版」；**能力一律走 `capabilities` 协商**（13.1），别退回版本号比大小 —— 那笔账记错方向就反了。且「有新版」时**装包那一行不能收**（2026-10-11 定）：没探到与探到旧版**共用同一行**（`extensionActionVisible` = `!extensionInfo || extensionOutdated`）—— 没探到给安装口径（`hint*`），探到旧版换更新口径（`update.label` + `updateHint*`），只有「装了且是最新」才收。那一行是 Chromium 拿包的**唯一入口**（没有商店可点），旧版时把它收掉，用户就只剩一句「本站最新是 vX」可读、没有任何途径拿到新包。版本对照（`updateAvailable`）只说对不上，怎么换新只在行里说一次 —— 两处都写就是重复。
 6. **「装过又删掉」按钮一灰到底不是 bug，但必须给解释**（2026-10-12 定）。Chrome 只在**自己认为没装**时派发安装事件；**从 Finder 把 `~/Applications/Chrome Apps/` 里的图标删掉不算卸载** —— 记录还在浏览器 profile 里，于是事件永远不来、按钮永远灰，而状态词照写「当前浏览器支持」，用户看不出为什么。灰按钮本身修不了（没有任何 API 能问「到底装没装」，`getInstalledRelatedApps` 也指望不上），所以能做的只有如实解释 + 给出路：面板在「引擎支持 + 没装 + 拿不到入口」（`installUnavailable`）这一格补一行说明 + 「复制地址」（`chrome://apps`，网页没有权限跳转 chrome://，与插件快捷键那条同一套写法）；已装与不支持两格各有状态词罩着，**不加**。配套纪律：**`appinstalled` 设下的「已装」锁必须能被随后到来的安装事件冲掉**（事件到达 = 「其实没装」的权威证据，见 `useInstallPrompt.js` 的 `onBeforeInstallPrompt`）—— 这把锁别改成只进不出。
@@ -1167,11 +1174,12 @@ window.dispatchEvent(ev)
 
 ### 13.7 齿轮菜单里那几颗「装到本机」的行（2026-10-12 加；同日插件行拆出「更新」一对）
 
-下拉菜单在「同步设置」下面多出五颗**一次性动作**（不是偏好）：**安装为应用**，以及插件的**两对**行——「安装 / 下载浏览器插件」（没装）与「更新 / 重新下载浏览器插件」（装着旧版，2026-10-12 用户要求把两种情况区分开）。它们**只在各自条件成立时出现** —— 出现了就是真能用的，用掉、装好、或这台机器本来没这条路，就自己消失。条件全写在 `services/settingsMenu.js` 的 `when` 上（表里那一行的显隐；组件只按它过滤，不认任何业务事实）。⚠️ 插件那四颗的准确判据是「**探到什么**」而非「装没装」（两者不等价，见本节末那段）：没探到 → 安装口径；探到且版本旧 → 更新口径；探到且是最新 → 四颗全收。**同一批判据还驱动通知里的插件引导**（开机自动弹一次、设置面板里手动再发一次），见 **13.8**。
+下拉菜单在「同步设置」下面多出六颗**一次性动作**（不是偏好）：应用那两颗 —— **安装为应用**（能一键装时）与 **安装引导**（三星 Internet 专用，2026-10-14 加），以及插件的**两对**行——「安装 / 下载浏览器插件」（没装）与「更新 / 重新下载浏览器插件」（装着旧版，2026-10-12 用户要求把两种情况区分开）。它们**只在各自条件成立时出现** —— 出现了就是真能用的，用掉、装好、或这台机器本来没这条路，就自己消失。条件全写在 `services/settingsMenu.js` 的 `when` 上（表里那一行的显隐；组件只按它过滤，不认任何业务事实）。⚠️ 应用那两颗**互斥**（三星上 `canInstall` 恒假，其余引擎不认三星）：所以菜单里一次最多看到其中一颗。⚠️ 插件那四颗的准确判据是「**探到什么**」而非「装没装」（两者不等价，见本节末那段）：没探到 → 安装口径；探到且版本旧 → 更新口径；探到且是最新 → 四颗全收。**同一批判据还驱动通知里的插件引导**（开机自动弹一次、设置面板里手动再发一次），见 **13.8**。
 
 | 行 | 出现条件 | 点它做什么 | 文案 key |
 | --- | --- | --- | --- |
-| **安装为应用** | `canInstall`（引擎有安装 API **且**此刻真能一键装 **且**还没装） | 调 `install()` → 触发浏览器的安装弹窗 | `settings.menu.installApp` |
+| **安装为应用** | `canInstall`（引擎有**可用**的一键安装 **且**此刻真能一键装 **且**还没装） | 调 `install()` → 触发浏览器的安装弹窗 | `settings.menu.installApp` |
+| **安装引导** | `MANUAL_INSTALL_BROWSER && !appInstalled`（目前只有三星 Internet，2026-10-14 加） | `fireSectionGuide('app')` → 发一条通知讲清三星自己的装法（地址栏「＋」/ 菜单 ›「添加页面到」›「主屏幕」） | `settings.app.install.guide`（与设置面板那颗按钮同一句） |
 | **安装浏览器插件** | 没探到扩展 **且** `EXTENSION_ROUTES` 含 `'firefox'`（Firefox 桌面 / 安卓） | 外链 AMO，一键装 | `settings.menu.installExtension` |
 | **更新浏览器插件** | `isExtensionOutdated(info.version)` **且** 路含 `'firefox'` | 同一行 AMO（那页永远是最新版） | `settings.menu.updateExtension` |
 | **下载浏览器插件** | 没探到扩展 **且** `EXTENSION_ROUTES` 含 `'manual'`（Chromium 系桌面版） | 下载 zip（与面板那条手动路同一颗包） | `settings.menu.downloadExtension` |
@@ -1243,6 +1251,10 @@ window.dispatchEvent(ev)
    现在连 `late` 那趟一起取消了，`runAutoGuides` 不再收 `phase`）。想发它只有一条路：
    设置面板那颗「安装引导」（`fireSectionGuide`，不看 `shown` 记录）。
    剩下三条自动弹的都是**真能办成一件事**的：能一键装了 / 插件没装 / 插件旧了。
+   ⚠️ `app-manual` 那一格的判据是 `!INSTALL_API_SUPPORTED` —— 2026-10-14 起**它把三星
+   Internet 一起收进来了**（三星的属性检测是假阳性，见 13.4 第三条纪律）：所以三星上开机
+   会**自动**弹一条「安装为应用」+ 三星步骤，那条不是 `warning`、也没有「复制地址」，
+   与上面这段说的「有 API 却拿不到入口」不是同一格。
 3. **「自动弹一次」记在 `cp.installGuides`**（第 6 节），**手动触发不看这份记录**（用户点名要看）。
 4. **同一件事同时只留一条通知**：两条引导各一个 tag（`guide:app` / `guide:extension`），
    发新的先 `dismissByTag` 旧的。

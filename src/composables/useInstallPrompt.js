@@ -1,25 +1,56 @@
 import { computed, ref } from 'vue'
 
+import { BROWSER } from '../services/platform.js'
+
 /**
- * 「这个引擎到底有没有『把网站装成应用』这套 API」—— 一条同步判据，开机就能读。
+ * 引擎自己实现了 `beforeinstallprompt` 吗 —— **纯属性检测**，也是这个模块唯一「不可伪装」的
+ * 一条原始事实。`beforeinstallprompt` 只在**满足可安装条件之后**才派发，所以「等不到事件」
+ * 既可能是「这个浏览器不支持」、也可能是「这一刻还不满足条件」—— 拿它当「支不支持」的判据，
+ * 等于把两件完全不同的事混成一种表现（这正是设置面板原来那句「已安装或不支持」的毛病）。
+ * `'onbeforeinstallprompt' in window` 没有这个问题：它问的是**引擎有没有实现这个事件**，
+ * 同步、零等待，开机就能读。
  *
- * **是属性检测，不是等事件**。`beforeinstallprompt` 只在**满足可安装条件之后**才派发，
- * 所以「等不到事件」既可能是「这个浏览器不支持」、也可能是「这一刻还不满足条件」
- * —— 拿它当「支不支持」的判据，等于把两件完全不同的事混成一种表现（这正是设置面板
- * 原来那句「已安装或不支持」的毛病）。`'onbeforeinstallprompt' in window` 没有这个问题：
- * 它问的是**引擎有没有实现这个事件**，同步、零等待，而且正好落在真实边界上 ——
- * Blink（Chrome / Edge / 360 / QQ / Opera）为 `true`，Firefox / Safari 与全部 iOS 为 `false`。
+ * ⚠️ 但它是**原始事实，不是判据** —— 判据是下面的 `INSTALL_API_SUPPORTED`（还要扣掉
+ * `MANUAL_INSTALL_BROWSER` 那一档）。别再拿这个常量去驱动界面。
+ */
+const INSTALL_EVENT_IMPLEMENTED =
+  typeof window !== 'undefined' && 'onbeforeinstallprompt' in window
+
+/**
+ * 「这个引擎的安装入口只在它自己的 UI 里」那一档 —— 目前只有**三星 Internet**
+ * （2026-10-14 加，用户报「三星手机的三星浏览器打开网址，没有正确的安装引导，并且设置菜单中
+ * 没有安装为应用的按钮」）。
  *
- * 两个纪律：
+ * 【为什么非要单独一档】三星浏览器是 Chromium 基座，属性检测在它身上**是假阳性**：
+ * `'onbeforeinstallprompt' in window` 为真，可它的安装事件实践中不派发（三星自家开发文档
+ * 从未提到这个事件，它的安装入口是地址栏那个「＋」徽标与菜单 ›「添加页面到」›「主屏幕」）。
+ * 用户在这台机器上看到的正是这个组合：设置面板写「当前浏览器支持」、按钮却永远灰着，
+ * 齿轮菜单那颗「安装为应用」永远不出现（它要 `canInstall`），也没有任何引导告诉他在三星
+ * 浏览器上该怎么装 —— 一处都不对。
+ *
+ * 【它为什么按 UA 认】这是本模块**唯一一处** UA 判据，与「判据是能力探测、不是 UA」那条
+ * 主纪律不冲突：属性检测在绝大多数引擎上仍是对的，三星是**已知的假阳性例外**，而例外只能
+ * 按型号认（没有任何 API 能问出「你这个事件到底派不派发」）。判据收在 `platform.js` 的
+ * `BROWSER`（UA 里的 `SamsungBrowser/`），这一档就是那份例外清单。
+ */
+export const MANUAL_INSTALL_BROWSER = BROWSER === 'samsung'
+
+/**
+ * 「**网页侧**能不能靠这个引擎一键装」—— 状态词 / 按钮 / 齿轮菜单那一行全看它这一条。
+ *
+ * 2026-10-14 起它不再等于纯属性检测：要在它之上扣掉 `MANUAL_INSTALL_BROWSER`（三星的假阳性）。
+ * 于是这个文件里三样东西的层次是：`INSTALL_EVENT_IMPLEMENTED`（原始事实，内部）→
+ * `INSTALL_API_SUPPORTED`（可用性，对外）→ `canInstall`（此刻真能一键装的**事件**判据）。
+ *
+ * 两个纪律（原来的两条照旧）：
  * 1. **`installSupported`（引擎有没有）与 `canInstall`（此刻能不能一键装）是两个问题**，
  *    别互相替换：前者决定那句状态词，后者只决定按钮亮不亮。
- * 2. **它完全不看浏览器型号 / UA**，所以「应用」这一栏不需要 `BROWSER` —— 那是插件栏的判据。
- *    代价要认：Firefox 的网页应用能力（Windows 143+ 地址栏那个图标）**在 JS 里没有任何 API**，
- *    再准的探测也照不到它，所以 Windows 上的 Firefox 一律落「不支持」。这是刻意的取舍
- *    （2026-10-11 定），别为了那句例外回头去猜 UA。
+ * 2. **它完全不看浏览器型号 / UA** —— 除了上面那条三星例外。代价要认：Firefox 的网页应用
+ *    能力（Windows 143+ 地址栏那个图标）**在 JS 里没有任何 API**，再准的探测也照不到它，
+ *    所以 Windows 上的 Firefox 一律落「不支持」。这是刻意的取舍（2026-10-11 定），别为了
+ *    那句例外回头去猜一堆 UA。
  */
-export const INSTALL_API_SUPPORTED =
-  typeof window !== 'undefined' && 'onbeforeinstallprompt' in window
+export const INSTALL_API_SUPPORTED = INSTALL_EVENT_IMPLEMENTED && !MANUAL_INSTALL_BROWSER
 
 /**
  * 安装入口的状态与动作 —— **模块级单例**（2026-10-12 改）。
@@ -45,8 +76,22 @@ const isStandalone = () => Boolean(standalone?.matches) || window.navigator?.sta
 
 const runningStandalone = ref(typeof window !== 'undefined' && isStandalone())
 
+/**
+ * 「此刻真能一键装」—— 四个条件：引擎可用（`INSTALL_API_SUPPORTED`）、没装过、不在独立窗口里、
+ * 而且**安装事件真的到过**（`deferred` 非空，那是唯一能调 `prompt()` 的东西）。
+ *
+ * 【为什么要挂 `INSTALL_API_SUPPORTED` 而不是直接看事件】2026-10-14 跟着三星那一档加。
+ * 三星上若某个版本偶发派发了事件，只看事件就会亮出按钮，可状态词按 `INSTALL_API_SUPPORTED`
+ * 写着「当前浏览器不支持」—— 又变成「状态词与按钮互相打架」的老毛病。一致性优先：既然
+ * 已认定这台引擎的一键入口不可依赖，就不亮按钮，入口一律走它自己的 UI（“＋”徽标 / 菜单），
+ * 那条路 100% 能用。
+ *
+ * 注意这与「事件到达可以推翻已装锁」不冲突 —— 那是另一件事（见 `onBeforeInstallPrompt`）：
+ * 锁该被冲掉，只是冲掉之后能不能亮按钮仍要看引擎这一条。
+ */
 export const canInstall = computed(
-  () => !installed.value && !runningStandalone.value && deferred.value !== null,
+  () =>
+    INSTALL_API_SUPPORTED && !installed.value && !runningStandalone.value && deferred.value !== null,
 )
 
 /** 「已知已装」：`appinstalled` 报过（刚装完那一下），或此刻正跑在独立窗口里 */

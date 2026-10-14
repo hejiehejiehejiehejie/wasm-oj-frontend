@@ -52,8 +52,9 @@ import {
   setPanelPosition,
   uiScalePref,
 } from './shellSettings.js'
-import { canInstall, install } from '../composables/useInstallPrompt.js'
+import { appInstalled, canInstall, install, MANUAL_INSTALL_BROWSER } from '../composables/useInstallPrompt.js'
 import { extensionInfo } from '../composables/useCompanionBridge.js'
+import { fireSectionGuide } from './installGuides.js'
 import {
   EXTENSION_ROUTES,
   downloadExtensionPackage,
@@ -189,14 +190,28 @@ export const SETTINGS_MENU_ROWS = [
     id: 'installApp',
     kind: 'action',
     /**
-     * 「装成应用」：判据直接用 `canInstall` —— 它同时要求「引擎有这套 API」「此刻真的可一键装」
-     * 「还没装」，正好就是这一行要的语义，而且与设置面板那颗按钮**同一份状态**（模块级单例，
-     * 见 useInstallPrompt.js）。Firefox / Safari 上这个事件永远不会来，所以那两台不会出现这一行；
-     * 装过之后它自己消失。
+     * 「装成应用」：判据直接用 `canInstall` —— 它同时要求「引擎有可用的一键安装」「此刻真的
+     * 可一键装」「还没装」，正好就是这一行要的语义，而且与设置面板那颗按钮**同一份状态**
+     * （模块级单例，见 useInstallPrompt.js）。Firefox / Safari 上这个事件永远不会来，
+     * 所以那两台不会出现这一行；装过之后它自己消失。
      */
     when: () => canInstall.value,
     labelKey: 'settings.menu.installApp',
     run: () => install(),
+  },
+  {
+    id: 'installGuide',
+    kind: 'action',
+    /**
+     * 三星 Internet 专用的一行（2026-10-14 加，用户报「三星浏览器里设置菜单中没有安装为应用
+     * 的按钮」）：那台引擎的一键入口拿不到（属性在、事件不来，见 `MANUAL_INSTALL_BROWSER`），
+     * 上面那颗按设计不会出现 —— 给不了按钮就至少给一条**走在正确的路上**的引导。文案与设置
+     * 面板「应用」栏那颗「安装引导」读同一份（`installGuides.js` 的 `fireSectionGuide`），
+     * 只是把入口挪到顺手的地方。装好之后整行消失（与上面那颗同一条规矩：不留点了没用的东西）。
+     */
+    when: () => MANUAL_INSTALL_BROWSER && !appInstalled.value,
+    labelKey: 'settings.app.install.guide',
+    run: () => fireSectionGuide('app'),
   },
   {
     id: 'installExtension',

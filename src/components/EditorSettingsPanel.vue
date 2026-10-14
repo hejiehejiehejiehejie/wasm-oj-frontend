@@ -633,12 +633,14 @@ const { canInstall, installed: appInstalled, runningStandalone, installSupported
 const appIsInstalled = computed(() => appInstalled.value || runningStandalone.value)
 
 /**
- * 那一行状态词。三态，判据只有 `installSupported` 一条 —— **引擎有没有安装 API**，
- * 不看浏览器型号、也不看 UA（见 `useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`）：
+ * 那一行状态词。三态，判据只有 `installSupported` 一条 —— **这个引擎能不能由网页一键装**
+ * （见 `useInstallPrompt.js` 的 `INSTALL_API_SUPPORTED`）。这一处不判浏览器型号、不碰 UA：
+ * 唯一条例外（三星 Internet 的属性假阳性）收在 `useInstallPrompt.js` 里，在那一层就已经扣掉，
+ * 所以这里仍只看这一个开关。
  *
  * - 已装 → 「已安装」
- * - 引擎有这套 API → 「当前浏览器支持」
- * - 引擎没有 → 「当前浏览器不支持」
+ * - 引擎有可用的一键安装 → 「当前浏览器支持」
+ * - 没有 → 「当前浏览器不支持」
  *
  * 原来这里是「看 `canInstall` 猜按钮为什么灰」，再按浏览器挂五句长解释。问题在于
  * `canInstall` 是**事件**判据：事件不来既可能是「不支持」、也可能是「这一刻条件不满足」，
@@ -699,7 +701,9 @@ async function copyAppsUrl() {
  * 【为什么文案是整句、不再拆成前后两半】这里没有要强调的地址 / 键名，只有操作步骤，整句更短；
  * 拆两半是插件栏那两条（`<code>` 夹在句子里）的写法，别照抄。
  *
- * 覆盖面：Firefox 安卓 → 它自己的 ⋮ 菜单；桌面 Firefox → **只有 Windows 143+** 有地址栏那个
+ * 覆盖面：三星 Internet → 地址栏那个「＋」徽标（安装口径）或它自己的菜单 ›「添加页面到」
+ * ›「主屏幕」（2026-10-14 加，见 `useInstallPrompt.js` 的 `MANUAL_INSTALL_BROWSER`）；
+ * Firefox 安卓 → 它自己的 ⋮ 菜单；桌面 Firefox → **只有 Windows 143+** 有地址栏那个
  * 「网络应用」图标（macOS / Linux 上真没有这条路）；Safari 系（含 iOS 上所有浏览器，UA 都落
  * `safari`）→ iOS 走「分享 → 添加到主屏幕」、macOS 走「文件 → 添加到程序坞」；其余认不出的
  * 引擎给一句通用的「用浏览器自己的菜单装」。
@@ -2092,8 +2096,8 @@ watch(pendingUnbind, (open) => {
           </div>
         </div>
 
-        <!-- 引擎没有安装 API，但这个浏览器自己装得上（Firefox / Safari 系）：状态词只能说到
-             「不支持一键安装」，剩下那半句「去哪儿装」在这里（见 installNoApiHintKey）。 -->
+        <!-- 引擎没有可用的一键安装，但这个浏览器自己装得上（三星 / Firefox / Safari 系）：
+             状态词只能说到「不支持一键安装」，剩下那半句「去哪儿装」在这里（见 installNoApiHintKey）。 -->
         <p v-if="!isDesktop && installNoApiHint" class="setting-group__note">
           {{ t(installNoApiHintKey) }}
         </p>
