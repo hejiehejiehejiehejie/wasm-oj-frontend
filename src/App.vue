@@ -591,11 +591,13 @@ function syncSidebarPin() {
 }
 
 function togglePanel({ instant = false } = {}) {
-  // 三处不播动画，直接切：
+  // 四处不播动画，直接切：
   // - 调用方点名（题解全屏退出那一下整块布局是跳变的，没有可补间的起点，见 SHORTCUT_HANDLERS）；
   // - 系统开了「减弱动效」；
-  // - 题解全屏还盖在上面（例如全屏里点运行，自动亮出评测面板但侧栏整块是藏着的）。
-  const animate = !instant && !mdFullscreen.value && !reduceMotion.matches
+  // - 题解全屏还盖在上面（例如全屏里点运行，自动亮出评测面板但侧栏整块是藏着的）；
+  // - 浏览器不支持 View Transitions（2026-10-14 拍板，见坑 46）：CSS 补间那条路在窄屏
+  //   遮不住主轴翻转的跳变，与其留着一条「只在部分设备上好看」的动画，不如无 VT 就直切。
+  const animate = !instant && !mdFullscreen.value && !reduceMotion.matches && canViewTransition()
 
   // View Transitions 路径：只翻一次状态，宽度 / 位置全交给浏览器按快照补间。
   // 好处是动画期间 DOM 一动不动（不再逐帧改 flex-basis），Monaco 也就不会逐帧重排，
@@ -605,7 +607,7 @@ function togglePanel({ instant = false } = {}) {
   // 命名元素会成为独立过渡组，而组盒子在改尺寸时会把快照位图拉过去（文字横向变形）。
   // 摘掉之后两栏并进 root 快照，root 的盒子恒等于整个应用、尺寸不变，只剩透明度补间，
   // 拉伸在结构上不可能发生。代价是整屏交叉淡化——旧布局（带侧栏）与新布局会同时叠印。
-  if (animate && canViewTransition()) {
+  if (animate) {
     panelAnimating.value = false
     // 翻状态前先把定宽壳退回流体：VT 只翻一次 DOM，「防逐帧重排」那件事不存在，
     // 而旧钉子（折叠时可能已被写成 1px）会被原样带进快照，反而把内容压扁。
@@ -629,39 +631,15 @@ function togglePanel({ instant = false } = {}) {
     return
   }
 
-  // 直切：一步到位。不挂 is-animating，宽度第二段也就不存在，钉子交给 RO 那条路补。
-  panelAnimating.value = animate
-  if (!animate) {
-    panelVisible.value = !panelVisible.value
-    virtualShare = panelVisible.value ? editorShare.value : 100
-    nextTick(() => {
-      // 直切没动画可让，handoffDrag 非 VT 下摘掉的拖拽态要补回来，否则内层壳一直钉死不跟手
-      if (dragLive) dragging.value = true
-      if (panelVisible.value) pinSidebarWidth()
-    })
-    return
-  }
-
+  // 直切：一步到位（闸门过不去的都是这一路）。不挂 is-animating，宽度第二段也就不存在，
+  // 钉子交给 RO 那条路补。CSS 补间那条路已废弃（2026-10-14，见坑 46），is-animating
+  // 那套两段式样式与 PANEL_LOCK_MS 闸门随之全部空转，留着没拆。
+  panelVisible.value = !panelVisible.value
+  virtualShare = panelVisible.value ? editorShare.value : 100
   nextTick(() => {
-    // 展开的起点是「侧栏宽度 0、图标栏 48px」，这一帧才刚刚落到 DOM 上；不逼一次样式计算，
-    // 浏览器会把起点与终点并成同一次样式变更，transition 没有起始值可比，直接就跳过去了
-    void workspace.value?.offsetWidth
-    panelVisible.value = !panelVisible.value
-    // 折叠后分隔条停在边缘，虚拟比例从 100% 起步；展开则接着恢复出来的宽度继续走
-    virtualShare = panelVisible.value ? editorShare.value : 100
-    // 动画还没播完就又点了一下：这里不做拦截，让状态翻回去 —— 宽度过渡会从「当前那一格」
-    // 自然掉头（CSS 过渡本来就按当前计算值重新起算），比无视这一下点击跟手。
-    // 闸门重排，把 display 的摘除时刻与第二段的浮现在新这一趟里重新对齐。
-    clearTimeout(panelAnimTimer)
-    panelAnimTimer = window.setTimeout(() => {
-      panelAnimating.value = false
-      // 动画播完、手势还活着就把拖拽态补回来（handoffDrag 非 VT 下为让动画摘下它，
-      // 拖拽还在继续时得恢复，否则内层定宽壳被钉死、不跟手）。
-      if (dragLive) dragging.value = true
-      // 展开到底后把钉子校准到这一帧的实测宽度。折叠到底时外层已经收到 0，
-      // 不能拿这个 0 去覆盖钉子 —— 下次展开还得用它。
-      if (panelVisible.value) pinSidebarWidth()
-    }, PANEL_LOCK_MS)
+    // 直切没动画可让，handoffDrag 非 VT 下摘掉的拖拽态要补回来，否则内层壳一直钉死不跟手
+    if (dragLive) dragging.value = true
+    if (panelVisible.value) pinSidebarWidth()
   })
 }
 
