@@ -11,9 +11,14 @@
            以前只有那一个 SVG，它栅格化不出来，主屏上就是一张空图标（用户实测）。
            显式声明这一条还有第二个用处：声明了别的 `rel="icon"` 之后，浏览器未必再去兜底抓
            根目录那份，写出来才保证它在候选集里；
-         · apple-touch-icon —— iOS 加到主屏。 -->
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+         · apple-touch-icon —— iOS 加到主屏。
+         ⚠️ 前两条的 URL 带 `?v=`（2026-10-15 加）：这两个文件**内容会变**（白底改透明圆角那
+         次就变过），而路径里没有内容哈希。不加这个参数时，改完图重新发版，浏览器与 CDN
+         那层（`cache-control: max-age=14400`）都还会继续吃旧的那份 —— 实感是「换了图，
+         标签页却还是旧的」。**换图标时把这个数字加一**，否则就是同一个坑。
+         apple-touch-icon 不加：它由 iOS 在装机那一刻抓取，运行期不重取，参数对它没用。 -->
+    <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico?v=2" sizes="16x16 32x32 48x48" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- 站点主地址是带 www 的域名，apex 会 308 跳过来；canonical 用来收掉 Vercel 预览域等重复地址 -->

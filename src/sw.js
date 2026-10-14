@@ -7,7 +7,7 @@
    **题解渲染器（/md/，katex + marked）同理**：它不算构建产物，进不了
    precache-manifest，用户在设置里点「下载」时才由页面写进 MD_CACHE。
 
-   四条边界：
+   五条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
       /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）；
@@ -20,6 +20,15 @@
       却一直读旧的那份。实感就是安卓上「添加到主屏后那条状态栏永远是旧配色」
       （2026-10-14 实测：设备停在 10-04 那版的 `#2a2a2b`，线上早已是 `#1c1c1c`）。
       它不必离线可用，直接放行给网络。
+   5) 站点图标一组（`/favicon.svg`、`/favicon.ico`、`/icons/*.png`）同样不能拦
+      （2026-10-15 加）—— 与 4 是同一条判据：**会变、路径里又没有内容哈希**。它们原先
+      躺在 STATIC_ASSETS 里，被 cacheFirst 钉进那个永不过期的外壳桶，于是「图换了、
+      老设备永远看不到新的」。实感：把图标的白底改成透明圆角重新发版后，用户反复看到
+      白底、普通刷新一直是旧的、偶尔一次硬刷新（绕过 SW）才对，过一会又变回去 ——
+      因为只有那一次是网络给的，其余都吃桶里那份装机时的图（2026-10-15 CDP 实测：
+      标签页的 `/favicon.ico` 请求 `fromServiceWorker: true`；把旧图塞进桶后普通刷新
+      拿到旧图、`Network.setBypassServiceWorker` 后再刷才拿到新图）。
+      图标不必离线可用（离线时页面本来就靠外壳桶渲染），放行给网络。
 
    ⚠ 下面用到的桶名常量（SHELL_CACHE / TOOLCHAIN_CACHE / MD_CACHE / LEGACY_BUCKETS）
    **不在本文件里定义**。SW 是 classic worker，没有 import，读不到 services/storageNames.js，
@@ -27,19 +36,15 @@
    生成一段 `const …` 声明前置到这份源码上 —— 要看定义和改名注意事项，去那个文件。 */
 
 // ⚠ 这份列表里的东西会被 fetch 处理器当**不变**的资产缓存优先生效，所以只放
-// 「构建产物 + 永不改内容的静态资源」。`/manifest.webmanifest` **不在**这里 ——
-// 它会随发版改（`theme_color` 就改过三次），见文件头边界 4。
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/favicon.svg',
-  '/favicon.ico',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-maskable-192.png',
-  '/icons/icon-maskable-512.png',
-  '/icons/apple-touch-icon.png',
-]
+// 「构建产物 + 永不改内容的静态资源」。判据是**内容会不会变**，不是「在不在 public/ 下」——
+// 两类被挡在外面：
+//   · `/manifest.webmanifest` —— 随发版改（`theme_color` 就改过三次），见文件头边界 4；
+//   · 站点图标一组（`/favicon.svg`、`/favicon.ico`、`/icons/*.png`，2026-10-15 摘）——
+//     它们**改过**（白底改透明圆角），而路径里没有内容哈希，留着就等于拿装机那一刻的图
+//     永久盖住新图，见文件头边界 5。
+// 同一判据的另外两个样板是 `public/extension/*.zip` 与 `public/fonts/*.woff2`：同样是会变、
+// 无哈希的资产，靠**文件名带版本**轮换，所以也不进这份列表。
+const STATIC_ASSETS = ['/', '/index.html']
 
 // 逐条容错：网络抖动或配额不足都属常见，一条失败不该让整次 install 作废
 // （install 失败等于永远装不上）。没进缓存的，之后真正请求时再由 fetch 处理器补。
@@ -164,8 +169,8 @@ self.addEventListener('fetch', (event) => {
   if (request.headers.has('range')) return
 
   // /api/* 一律放行（边界 3）：云端配置是**会变**的数据，必须每次问网络。
-  // 之前它落到下面 cacheFirst 的兜底桶 cp-shell-v4，而那个桶在 activate 的 keep 白名单里
-  // 永不过期 —— 同一台设备第二次点「下载到本机」拿回的永远是**第一次**读到的那份，
+  // 之前它落到下面 cacheFirst 的兜底桶（即外壳桶 `cp-shell-*`），而那个桶在 activate 的
+  // keep 白名单里永不过期 —— 同一台设备第二次点「下载到本机」拿回的永远是**第一次**读到的那份，
   // 表现就是「上传了新配置，云端同步却没起作用」。写入走 POST，本来就被上面的
   // method 判断挡掉了；这里要挡的是读配置的 GET /api/config/<handle>。
   if (url.pathname.startsWith('/api/')) return
@@ -176,6 +181,12 @@ self.addEventListener('fetch', (event) => {
   // 影响面：安卓（Firefox 添加到主屏）那条状态栏的配色就取自这份 manifest 的 theme_color，
   // 被钉住 = 用户永远停在装机那一刻的配色，重装图标才解得开。
   if (url.pathname === '/manifest.webmanifest') return
+
+  // 站点图标与上面两条同类（边界 5）：会变、无内容哈希。同样**既不读缓存也不写缓存** ——
+  // 只把它从 STATIC_ASSETS 里摘掉是不够的：下面 cacheFirst 在未命中时照样会把响应写进
+  // 兜底桶，下次改图又回到「改了不生效」。`/icons/` 用整目录前缀，将来加尺寸不必回来补。
+  if (url.pathname === '/favicon.svg' || url.pathname === '/favicon.ico') return
+  if (url.pathname.startsWith('/icons/')) return
 
   event.respondWith(request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(request))
 })

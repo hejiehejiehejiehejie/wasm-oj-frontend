@@ -35,8 +35,8 @@
 | 触屏上的可拖目标必须声明 `touch-action` | 各自保住本容器的滚动方向：页签栏的页签 `pan-x`、文件树的行 `pan-y`、分隔条 `none`（它不需要滚动）。**绝不能图省事写 `none`** —— 手指按在它上面就再也滚不动那个容器了。`pointerdown` 里的 `preventDefault()` 挡不住这件事（按规范它只抑制兼容的 `mousedown` / `mouseup`）：手势归属是浏览器在 `touchstart` / `pointerdown` 那一刻定下的，之后改 `touch-action` 无效。配套的还有 `user-select: none` 一族与「`contextmenu` 从 `pointerdown` 就接管」—— 这三件套缺一件都**只在真机上现形**，无头探针全绿什么也说明不了（见坑 30） |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑）。**例外**：服务层的模块级单例（如 `services/shellSettings.js`）**不能**用它 —— 那份靠 `onMounted` 落首值，组件之外不执行（见第 5 节坑 36） |
-| SW 改了**外壳**策略就升 `SHELL_VERSION` | `src/services/storageNames.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v4`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cp-toolchain`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
-| 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物，**不在**构建清单里，改动它们要同步 `sw.js` 的 `STATIC_ASSETS`（见第 9 节） |
+| SW 改了**外壳**策略就升 `SHELL_VERSION` | `src/services/storageNames.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v5`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cp-toolchain`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
+| 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物、**不在**构建清单里，也**不能进** `sw.js` 的 `STATIC_ASSETS`——图标内容会变（白底改透明圆角那次就变过）而路径里没有内容哈希，进了那个列表就等于拿装机那一刻的图永久盖住新图（2026-10-15 踩过，见第 9 节）。改图标要连带递增 `index.html` 里两条 `rel="icon"` 的 `?v=` |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
 | 内置字体文件名必须带版本号 | `public/fonts/<族>-latin-<字重>-<字体内部版本>.woff2`，`@font-face` 只写在 `src/styles/fonts.css`（由 `base.css` 的**首行** `@import` 引入，`@import` 只能出现在其它规则之前）。与扩展包同理**不进 `STATIC_ASSETS`**，靠首次使用落进外壳桶，同名覆盖会让老用户永远吃旧文件。版本号必须取**字体内部**的真实版本，别抄上游 release 号（@fontsource 的包会滞后） |
 | 导入题目挂在 VFS 节点上，不许另立存储 | 一道题 = 一个代码文件 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂根下，无外层 wrapper；年月粒度 `YYYY-MM`；难度导入时一律为空，先落「未分类」）。题目信息（`node.meta`）与抓到的样例（`node.config`）都挂在这个文件节点上，树里不另有条目（2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json`，由 `migrate.js` 一次性搬进节点）。代码文件只在首次导入时创建，**此后正文一个字都不动**（那是用户写的题解），样例整体覆盖而难度由用户手填、重抓要保留；题目身份认 `url` 不认文件名，且**必须全库按 `node.meta.url` 找回原文件**（分层后同一道题会算出新路径，只扫一个 OJ 目录会让老题解变孤儿）。改这里等于动用户数据，见第 13 节 |
@@ -59,8 +59,8 @@ privacy.html / privacy.en.html  # 隐私政策的中英两版（2026-10-06 加�
 vite.config.js                  # 七个 rollup 入口（index / guide / guideEn / notice / noticeEn / privacy / privacyEn）+ COOP/COEP 响应头（本地沙箱的硬前提，别动）+ 构建期产出 precache-manifest.json + `css.postcss` 里的 postcss-pxtorem（全局缩放的 px→rem 转换，四项防御与判据见第 5 节坑 24）
 vercel.json                     # 部署侧同一组响应头 + .wasm 的 MIME 与 immutable 缓存 + manifest/sw.js 的响应头 + sitemap.xml 的 MIME（见第 10 节）
 public/manifest.webmanifest     # PWA 清单：display standalone、start_url /、scope /
-public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)
-public/favicon.svg              # 站点图标（唯一进 STATIC_ASSETS 的 svg）
+public/icons/                   # PWA 图标：icon-192/512、icon-maskable-192/512、apple-touch-icon(180)（同样**不进** STATIC_ASSETS）
+public/favicon.svg              # 站点图标（**不进** STATIC_ASSETS：图会随设计变，见第 9 节）
 public/og-cover.png             # 社交分享大图 1200×630（被 index.html / guide.html / guide.en.html 的 og:image 引用）
 public/extension/               # 站内分发的浏览器扩展安装包：cc-for-web-<版本>.zip（文件名带版本号是刻意的，见第 1 节与第 13 节）
 public/robots.txt               # 抓取规则 + 指向 sitemap
@@ -721,7 +721,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cp.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
 - PWA / 离线专项（动过 `sw.js` / manifest / 图标 / 预缓存清单后必做），仍然临时探针、用完即删：
   1. `npm run build && npm run preview`（**必须是生产构建**，dev 下不注册 SW），DevTools → Application 应看到 manifest 无报错、Service Worker 已是 `activated`；
-  2. Application → Cache Storage 应只有 `cp-shell-v4`（约 100 条：外壳 + 全部 Monaco 分块 + 静态资源）；`cp-toolchain` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
+  2. Application → Cache Storage 应只有 `cp-shell-v5`（约 100 条：外壳 + 全部 Monaco 分块 + 该页用到的其它产物；**图标不在里面**，它们走网络 —— 见第 9 节）；`cp-toolchain` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
   3. 在设置里切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：界面应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
@@ -812,29 +812,32 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | --- | --- |
 | `public/manifest.webmanifest` | `display: standalone`、`start_url: /`、`scope: /`、`id: /`；`theme_color` = `--bg-chrome`（深色那支 `#1c1c1c`）。**它不是「首帧兜底」——它才是 Firefox 安卓唯一认的那个值**，见 9.1 |
 | `public/icons/*.png` | `icon-192/512`（圆角、透明角）、`icon-maskable-192/512`（满幅方块 + 图形收在安全区内）、`apple-touch-icon`（180，满幅） |
-| `public/favicon.svg` + `public/favicon.ico` | 标签页 / 快捷方式图标。**`.ico` 是安卓 Firefox 「添加到主屏幕」那条路唯一认的**：造快捷方式时它按老规矩直接抓根目录 `/favicon.ico`，不看 `<link rel="icon">`、也不看 manifest（2026-10-14 加，见下面那段） |
+| `public/favicon.svg` + `public/favicon.ico` | 标签页 / 快捷方式图标。**`.ico` 是安卓 Firefox 「添加到主屏幕」那条路唯一认的**：造快捷方式时它按老规矩直接抓根目录 `/favicon.ico`，不看 `<link rel="icon">`、也不看 manifest（2026-10-14 加，见下面那段）。两条 URL 在 `index.html` 里都带 `?v=` 版本串（2026-10-15 加）：它们会变、又没有内容哈希，**换图时必须递增那个数字** |
 | `src/sw.js` → `dist/sw.js` | Service Worker，缓存策略见下。**源码是模板、产物由构建生成**（见下） |
 | `src/composables/useInstallPrompt.js` | 拦 `beforeinstallprompt` 交给设置视图「应用」分组里的安装按钮，跟踪 `appinstalled` 与 `display-mode: standalone`。**三层判据**：`INSTALL_EVENT_IMPLEMENTED`（属性检测，原始事实）→ `INSTALL_API_SUPPORTED`（可用性，扣掉 `MANUAL_INSTALL_BROWSER`）→ `canInstall`（事件判据）。`MANUAL_INSTALL_BROWSER` 目前只认三星 Internet（2026-10-14，见 13.4） |
 
 **「添加到主屏幕」造出来的快捷方式没有图标（2026-10-14 修）**：安卓 Firefox 那条路有两个入口，取的图不是同一处 —— 菜单项是 **Install**（站点可安装）时走 manifest 的 `icons`；是 **Add to Home Screen**（普通快捷方式）时，它按 1999 年那条老规矩**直接抓 `/favicon.ico`**，`<link rel="icon">` 与 manifest 都不看。站点以前**只有 `favicon.svg`、根目录没有 `.ico`**（线上是 404），SVG 在它那条路上栅格化不出来 ⇒ 主屏上就是一张空图标。
-修法：新出 `public/favicon.ico`（16/32/48 三尺寸，PNG-in-ICO，源图是 `icons/icon-192.png`，本机用 `sips` 缩放 + 手拼 ICONDIR），并在 `index.html` 里**显式**声明一条（声明了别的 `rel="icon"` 之后浏览器未必再兜底抓根目录那份，写出来才保证它在候选集里）；`/favicon.ico` 同步进 `STATIC_ASSETS`（它跟 `favicon.svg` 一样是内容不动的 `public/` 资产）。
+修法：新出 `public/favicon.ico`（16/32/48 三尺寸，PNG-in-ICO，源图是 `icons/icon-192.png`，本机用 `sips` 缩放 + 手拼 ICONDIR），并在 `index.html` 里**显式**声明一条（声明了别的 `rel="icon"` 之后浏览器未必再兜底抓根目录那份，写出来才保证它在候选集里）。当时顺手把它**同步进了** `STATIC_ASSETS`，判据是「它跟 `favicon.svg` 一样是内容不动的 `public/` 资产」——**这条判断第二天就被证伪了**：图标随后去了白底，于是被那个永不过期的桶钉死。2026-10-15 已把它连同其余图标一起移出，详见下面「站点图标」那段。
 
 **Service Worker 的三段策略**：
 
-- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建、**且内容永不改**的静态资源：favicon、图标）合并后一起预缓存进 `cp-shell-v4`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
+- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建、**且内容永不改**的静态资源 —— 2026-10-15 起缩到只剩 `/` 与 `/index.html`，图标那一组已移出、改走网络放行，见下）合并后一起预缓存进 `cp-shell-v5`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
 - `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。**2026-10-01 起多一步 `migrateLegacyBuckets()`**：按 `storageNames.js` 的 `LEGACY_BUCKETS` 表，把改名前的旧桶**原样搬进新桶**再删旧桶——工具链是随 URL 固定的二进制，不搬的话老用户升一次外壳就得白下 76MB。表里现在是四对（两轮改名的层积）：`cph-toolchain-v3` / `cph-md-runtime-v1`（去 `cph-` 前缀那一轮）与 `cp-toolchain-v3` / `cp-md-runtime-v1`（去版本尾缀那一轮），都指向 `cp-toolchain` / `cp-md-runtime`；**外壳桶 `cph-shell-*` / `cp-shell-v3` 刻意不搬**，它装的是带哈希的构建产物，重新预缓存本来就是升外壳该发生的事。
-- `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错；`/api/*` **与 `/manifest.webmanifest`（2026-10-14 加）** 也放行，判据见下一条。
+- `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错；`/api/*`、**`/manifest.webmanifest`（2026-10-14 加）与站点图标那一组（2026-10-15 加）** 也放行，判据见下一条。
 
-**为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cp-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件必须手动补进 `STATIC_ASSETS`（第 1 节表里那两条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。
+**为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cp-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件要**逐个判内容会不会变**：永不变的才手动补进 `STATIC_ASSETS`（2026-10-15 起只剩 `/` 与 `/index.html`），会变的一律别进 —— 站点图标走网络放行、扩展包与字体靠文件名带版本（第 1 节表里那几条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。
 
 **`/manifest.webmanifest` 只能放行，不进任何缓存（2026-10-14 加，第 4 条判据）**：
-判据一句话 —— **「会变、且没有内容哈希可依赖」的同源 GET，一律别让 SW 碰**（现在就是 `/api/*` 与 `/manifest.webmanifest` 两个）。manifest 原先既在 `STATIC_ASSETS` 里预缓存、又会被 fetch 的 `cacheFirst` 在未命中时写进 `cp-shell-v4`，而外壳桶在 `activate` 的白名单里**永不过期** ⇒ 只有 `sw.js` 自身字节变了（install 重跑预缓存）才会顺带刷新它；**发版只改 manifest 的话，它就是被钉死的那份**。
+判据一句话 —— **「会变、且没有内容哈希可依赖」的同源 GET，一律别让 SW 碰**（现在就是 `/api/*`、`/manifest.webmanifest`，以及 `/favicon.svg` + `/favicon.ico` + `/icons/*` 这一组）。manifest 原先既在 `STATIC_ASSETS` 里预缓存、又会被 fetch 的 `cacheFirst` 在未命中时写进外壳桶，而那个桶在 `activate` 的白名单里**永不过期** ⇒ 只有 `sw.js` 自身字节变了（install 重跑预缓存）才会顺带刷新它；**发版只改 manifest 的话，它就是被钉死的那份**。
 实感：安卓上「添加到主屏后那条状态栏永远是旧配色」。2026-10-14 实测（用户截图逐像素读）：设备停在 10-04 那版的 `#2a2a2b`（读到 `#2a2a2a`），而线上 / 产物 / 三处契约早已是 `#1c1c1c`；`theme_color` 的历史正好是 `#323233`(9-18) → `#2a2a2b`(10-04) → `#1c1c1c`(10-12)，对上设备上那一版就是「装机那天读到的」。现在它在 `fetch` 处理器里直接 `return` 放行给网络 —— 注意**光把它从 `STATIC_ASSETS` 里摘掉不够**，`cacheFirst` 在未命中时同样会写进外壳桶，必须整条 `return` 掉。
 设备侧还有半格手要动：**已装好的那个图标得删掉重新「添加到主屏幕」一次**，装机那一刻的 manifest 元数据不会自己刷新。
 
+**站点图标同一个坑（2026-10-15 修）**：`/favicon.svg`、`/favicon.ico` 与 `public/icons/*.png` 原先也躺在 `STATIC_ASSETS` 里（当初的理由是「`public/` 资产内容不动」，见上面 `.ico` 那段），于是被同一个机制钉死 —— 把图标的白底改成透明圆角重新发版后，用户报「图标又冒出白底、刷新有时管用、过一会又回去」。**CDP 实测**：标签页的 `/favicon.ico` 请求确实走 SW（`Network.responseReceived` 的 `fromServiceWorker: true`；首访 SW 还没接管时是 false），也就是标签页吃的就是桶里那份装机时的图；往 `cp-shell-v4` 里塞回 git 里的旧图后，普通刷新拿到旧图、`Network.setBypassServiceWorker: true` 再刷才拿到新图 —— 与用户描述的「偶尔一次硬刷新对、其余都错」逐条对上。**这次发版更没救回来**：改的只是 `public/` 下的位图，`sw.js` 字节没变 ⇒ 浏览器不会安装新 SW ⇒ 桶里的图标永远不刷新。
+修法与 manifest 完全同款：**从 `STATIC_ASSETS` 摘掉 + 在 `fetch` 处理器里 `return` 放行**（只摘不够，`cacheFirst` 未命中时照样会写进兜底桶）。另加一条 `?v=`：SW 放行只拆掉了「永不过期的桶」这层，还有一层 `cache-control: max-age=14400`（4 小时，来自 Cloudflare 的 Browser Cache TTL，不是 Vercel 默认）压在浏览器与 CDN 上，**换 URL 才能立刻绕开** —— 所以 `index.html` 里两条 `rel="icon"` 都带上了 `?v=2`，换图时必须递增。同时把 `SHELL_VERSION` 升到 `v5`，让旧桶里那 7 条已无消费者的图标记录一并清掉。
+
 **两个版本号，别混**：
 
-- `storageNames.js` 的 `SHELL_VERSION = 'v4'` —— **只决定外壳桶名**（`cp-shell-v4`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。
+- `storageNames.js` 的 `SHELL_VERSION = 'v5'` —— **只决定外壳桶名**（`cp-shell-v5`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。
 - `storageNames.js` 的 `TOOLCHAIN_CACHE = 'cp-toolchain'` —— **不带版本尾缀，也刻意不跟 `SHELL_VERSION` 走**。2026-09-30 前两个桶共用一个版本号，升一次外壳就把老用户的 clang（52MB）+ CPython（24MB）一起删掉、逼他们重下 76MB；现在工具链桶名固定，它落在 `activate` 的 keep 白名单里，跨外壳升级无损继承，一个字节都不用重下。**不带尾缀还有第二个用处**：这个名字同时被 `purgeRuntimeCache` 当成「所有历代工具链桶」的前缀（见第 5 节坑 23），带尾缀就连老桶都配不上了。换代工具链靠 `public/wasm/<版本>/` 的目录名，**不用再动这一行**。
 - 工具链目录 `public/wasm/8.0.1/`（C++）与 `public/wasm/python-3.11.3/`（Python）—— 目录名就是版本号，换名字即自然失效（URL 变了，浏览器与 SW 都当新资源重新取）。**不用再改 `sw.js`**：工具链已改成按需缓存的，`cacheFirst` 只按 `/wasm/` 前缀分流、不认具体版本目录。
 
