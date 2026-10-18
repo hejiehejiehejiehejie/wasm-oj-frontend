@@ -79,6 +79,10 @@ const FRONTEND_ARGS = [
   '4',
   '-fmessage-length',
   '80',
+  // `-w`（2026-10-18 加）：卡片只该显示「为什么编译不过」，编译器警告整类关掉。
+  // 它属于语言选项、会写进 PCH 签名，所以**必须**放在这份公共参数里 —— PCH 生成与
+  // 用户编译共用同一组才不会互拒；`PCH_CACHE_VERSION` 同时 +1，老存档自然取不到。
+  '-w',
   // 不要开 -fcolor-diagnostics：诊断信息会带上 ANSI 颜色码，而测试卡片是纯文本渲染
   // clang 8 的 cc1 默认只到 gnu++14，竞赛代码要 c++17（结构化绑定、if 初始化等）
   '-std=c++17',
@@ -772,7 +776,8 @@ const PCH_UNSUPPORTED_KEY = 'cp.pchUnsupported'
 const PCH_TIMEOUT_MS = 3 * 60 * 1000
 
 // 存档格式版本：改动存档结构（或 PCH 的生成方式）时手动 +1
-const PCH_CACHE_VERSION = 1
+// v2：编译参数加了 `-w`（语言选项变了，v1 的存档加载会被 clang 拒掉 —— 2026-10-18）
+const PCH_CACHE_VERSION = 2
 
 /**
  * 「这次编译失败是 PCH 的锅」的识别特征。

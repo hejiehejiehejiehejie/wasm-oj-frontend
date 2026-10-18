@@ -10,8 +10,9 @@
 //! 前端 `engines/native.js` 包引擎时把 `invoke` 的结果原样递回去。
 //!
 //! 与浏览器沙箱逐条对齐的口径（依据见各处的注释引用，**不许另起一套**）：
-//! - 编译参数 `-std=c++17 -O2`：与 `src/services/runnoSandbox.js` 的 `FRONTEND_ARGS` 同值；
-//!   沙箱那边刻意没开 `-fno-exceptions`，这里也不开
+//! - 编译参数 `-std=c++17 -O2 -w`：与 `src/services/runnoSandbox.js` 的 `FRONTEND_ARGS` 同值；
+//!   沙箱那边刻意没开 `-fno-exceptions`，这里也不开。`-w` 压掉编译器警告（卡片只显示
+//!   错误），改这一组开关时两边必须一起动
 //! - `bits/stdc++.h`：clang 带的是 libc++，**没有**这只 GCC 万能头，而前端 C++ 模板第一行
 //!   恰恰是它（`src/services/templates.js` 的 `CPP_TEMPLATE`）。网页端为此自注入一份同名头
 //!   （`runnoSandbox.js` 的 `UNIVERSAL_HEADER`），原生端按**同一份清单**补上 —— 两处内容
@@ -300,6 +301,9 @@ fn compile_cpp(
     compile
         .arg("-std=c++17")
         .arg("-O2")
+        // `-w`：警告整类关掉，卡片只显示「为什么编译不过」（与网页端 FRONTEND_ARGS
+        // 同一个开关，2026-10-18 加）。它不改任何语义，只压诊断。
+        .arg("-w")
         // `-I` 目录在搜索顺序里排在 `--sysroot` 那些内部路径之前，只在「谁都没有 bits/stdc++.h」
         // 这件事上起作用，不会挤掉工具链自己的头
         .arg("-I")
