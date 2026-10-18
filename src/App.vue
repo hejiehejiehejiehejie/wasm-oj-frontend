@@ -626,8 +626,12 @@ function togglePanel({ instant = false } = {}) {
 // 轻点的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点
 const TAP_SLOP = 10
 
+// 运行中照样能拖 / 能单击折叠（2026-10-18 去掉开头的 `if (running.value) return`）：
+// 那条守卫是建仓时留下的，键盘方向键（nudgeShare）从来没有对应限制，于是同一段时间里
+// 「按方向键能调宽、抓分隔条没反应」——编译一久（大数组带 vector 的用例可达 40s+）就只剩
+// 干等。拖拽本身只写 dragPanelPx / editorShare，与 runCases 不共用任何状态；唯一要留意的
+// 是运行中把侧栏收起来会看不见进度，但结果有 runNotify 那条常驻通知兜底。
 function beginDrag(event) {
-  if (running.value) return
   const surface = workspace.value
   if (!surface) return
   // 取消 pointerdown 会按规范抑制兼容的 mousedown/mouseup，用来阻断从分隔条起手的
