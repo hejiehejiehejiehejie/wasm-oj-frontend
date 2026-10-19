@@ -4,6 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/:path*", "destination": "https://api.998244353.best/api/:path*" },
     { "source": "/:handle([A-Za-z0-9_-]+)", "destination": "/index.html" }
   ],
   "headers": [
