@@ -95,8 +95,9 @@ src/
   composables/useCompanionBridge.js # ★ 扩展消息接收端：window.postMessage 握手（cp-ping → cp-info）与题目投递（cp-task）。状态是**模块级单例**（扩展装没装是全局事实，各组件不该各探一次）；同站多开标签页时扩展会广播，按 taskId 去重。2026-10-11 加了两对**网页发起的请求**：`cp-fill-code`（请扩展去 Codeforces 代填云同步验证码，`requestCodeFill`，超时 `FILL_TIMEOUT = 15000`）与 `cp-cf-check`（问「这个浏览器登的是不是这个 handle」，`checkCfIdentity`，超时 `CF_CHECK_TIMEOUT = 3000`，只回四值枚举），以及**能力协商** `canFillCode` / `canCheckCf`（读 `cp-info` 的 `capabilities`，见 13.1）
   composables/useCompanionImport.js # 订阅扩展题目 → 调 problemImport 落盘 → 把样例**整体替换**进评测面板 → nextTick 后抢焦点。它是 problemImport 返回值的唯一消费方
   composables/useShortcutManager.js # ★ 全局快捷键的唯一权威：动作表 SHORTCUT_ACTIONS（**9 项**）+ 绑定表 + comboFromEvent 规范化 + 冲突检测 + localStorage。**刻意不挂组件生命周期**（App 的全局 keydown 与 EditorPane 的状态栏提示都要在任何组件挂载前就可用）。两条别踩：① 动作表里 **3 条是「作用域受限」的**（`rename-node` / `delete-node` / `select-all-nodes`），执行入口不在 App.vue 的 `SHORTCUT_HANDLERS` 而在 `SHORTCUT_TREE_HANDLERS`，别照抄别的动作往那张表里加；② 裸键默认只放行功能键与 `Esc`（`SAFE_BARE_CODES`），个别动作可用自己的 `bareCodes` 额外点名（目前只有 `delete-node` 的 `Delete`），导出 `bareAllowedFor()` 给录制框共用（见第 13.4 节）
+  composables/springOpen.js      # ★ 悬停在折叠目录上自动展开的时钟（2026-10-19 加）：站内挪文件（`useTreeDrag`）与从系统里拖入（`usePageDrop`）**共用同一份**实现 —— 600ms（`SPRING_OPEN_MS`）、只对折叠的目录计时、目标没变就不重新计时、到点只 `toggleExpand` 一次。`createSpringOpen({ delay, onOpen })` 返回的是**一次拖拽过程内**的状态，别做成模块级单例；调用方必须在拖拽结束（松手 / Esc / dragend / 离开窗口）时 `cancel()`，否则计时器会在结束后补一发展开。`usePageDrop` 用它时多一条「指针真的挪过才重挂」（见第 5 节坑 42 第 7 条）
   composables/useTreeDrag.js     # ★ 资源管理器文件树的拖拽移动（Pointer Events；鼠标位移超 4px 即拖，触屏要先按住 450ms）。本模块不碰 VFS，落盘由 FileExplorer 的 onDrop 交给 vfs.rename；树以外的落点（编辑区 = 拖过去打开 / 跳转页签）由落点自己 registerDropZone 登记。2026-10-10 加触屏长按的两段反馈：`pressingId`（按住中 → 行上 `--pressing`）与 `armedId`（长按已成 → 行上 `--armed`），**两态互斥**、都在这里置位、统一在 cancelPress 收掉（行上怎么画见第 3 节 FileTreeItem 那格）。**2026-10-11 改长按的落点**：到 450ms 那一刻**菜单当场弹出来**（以前要等抬手才弹），此后原地抬手 = 菜单留在屏幕上接着点、指头一动（超 8px）= 先把这个菜单收掉再改判成拖拽；抬手那一下浏览器补的合成 click 在**捕获阶段整个吃掉**（菜单在屏幕下半部会被视口推到指头之上，点击目标正好是某根条目），收网的时机是「它自己吃掉那一发」或「下一根指头按下来」，**不能挂在 cancelPress 上**（那比抬手还早）
-  composables/usePageDrop.js     # ★ **从系统里往页面上拖文件**（2026-10-12 加；与 useTreeDrag 是两套手势、事件面零重叠，别合并）：窗口捕获阶段的 dragenter / dragover / drop，只认 `dataTransfer.types` 里有 `Files` 的（编辑器里拖一段文本不受影响）。落点判据：指针压在资源管理器某一行上 = 那个目录（压着文件行 = 它所在的目录，与站内拖拽同口径）、**别处一律根目录** —— 整页都是落点。状态在模块级 `pageDropTarget`（`{ path, rowId, inExplorer }`），由 FileExplorer 与站内拖拽的高亮**合流**后点亮树（`mergedDropRowId` / `mergedRootDrop`）；导出的 `active` 给 App.vue 干两件事 —— **拖入期间把侧栏撑开到最宽并停在资源管理器**（App.vue 的 `previewDropTargetLayout`，2026-10-13 加；离开窗口 / 松手原样还原），以及松手交给 `onFiles(path, items)` 由 FileExplorer 的 `importDroppedItems` 落盘（与页头导入**同源**，结果播报经 `announce` 出口换成**全局通知**，见 `announceImportInline` 的说明）。坑见第 5 节坑 42
+  composables/usePageDrop.js     # ★ **从系统里往页面上拖文件**（2026-10-12 加；与 useTreeDrag 是两套手势、事件面零重叠，别合并）：窗口捕获阶段的 dragenter / dragover / drop，只认 `dataTransfer.types` 里有 `Files` 的（编辑器里拖一段文本不受影响）。落点判据：指针压在资源管理器某一行上 = 那个目录（压着文件行 = 它所在的目录，与站内拖拽同口径）、**别处一律根目录** —— 整页都是落点。状态在模块级 `pageDropTarget`（`{ path, rowId, inExplorer }`），由 FileExplorer 与站内拖拽的高亮**合流**后点亮树（`mergedDropRowId` / `mergedRootDrop`）；导出的 `active` 给 App.vue 干两件事 —— **拖入期间把侧栏撑开到最宽并停在资源管理器**（App.vue 的 `previewDropTargetLayout`，2026-10-13 加；离开窗口 / 松手原样还原），以及松手交给 `onFiles(path, items)` 由 FileExplorer 的 `importDroppedItems` 落盘（与页头导入**同源**，结果播报经 `announce` 出口换成**全局通知**，见 `announceImportInline` 的说明）。**悬停在折叠的目录行上 600ms 会自动展开**（2026-10-19 加，与站内挪文件**同一份实现** `composables/springOpen.js`；`dragover` 在指针不动时也会反复来，所以计时只在指针真的挪过时重挂 —— 见坑 42 第 7 条）。坑见第 5 节坑 42
   composables/useTabDrag.js      # 编辑器页签的拖动排序（Pointer Events，鼠标 5px 阈值 / 触屏 450ms 长按先 armed 再拖）。**一条混排序列里排**：文件页签与合成视图页签都认同一个 `data-strip-id`，落点在**整条条带**上数（混排这条规矩的来由见 services/tabStrip.js 那格；2026-10-11 之前它是「只排文件页签、视图页签恒定在后」，现已改成混排）。本模块不碰 store，落盘由调用方的 onDrop 交给 `tabStrip.moveStripItem`。触屏另有三件事：`contextmenu` 与非被动 `touchmove` 都在 **pointerdown 那一刻**就挂上（拦截本身只在 armed/dragging 时生效），并输出 `pressingId` / `armedId` 两段长按反馈。详见第 3 节 EditorTabs 那格
   composables/useEditorMenu.js   # 编辑区的上下文菜单（2026-10-10 加）：**桌面鼠标右键与触屏长按共用同一份自绘菜单**（`ContextMenu.vue`），并负责把 Monaco 自带的英文菜单拦掉。触屏长按 450ms 会**先选中手指下的词**再弹菜单（轻点 = 光标、双击 = 选词、长按 = 选词 + 菜单，与 iOS / Android 原生一致；长按处已在选区内则保持原选区）。⚠️ Monaco 那套触摸手势的三个硬事实见第 5 节坑 31与坑 30
   composables/usePopoverLayer.js # 浮层的两件公共事（2026-10-11 从 `ContextMenu.vue` 抽出来）：「匣进视口」与「什么时候关」。传 `{ x, y, align, onDismiss }` —— `x` 默认是浮层左缘、`align: 'right'` 时是右缘（菜单右对齐这么用），量到真实宽度后换算 + 夹进 `[gap, 视口 - 尺寸 - gap]`；关闭四路：点浮层外 / Esc / 窗口失焦 / resize，且监听**延迟一拍**注册（打开这一下往往就是某个 pointerdown 带出来的，当场挂会被同一发事件立刻关掉）。**resize 那一路有例外**（2026-10-11）：焦点在浮层里面时**只重匣位置、不收** —— 手机上点进输入框会顶起软键盘，安卓把视口压矮并派发 resize，照默认口径收掉等于把用户正在填的表单当场销毁（实测 414×896 点进菜单里那个用户名框、视口一变矮整个菜单就没了）。判据是 `root.contains(document.activeElement)`，没有输入框的 `ContextMenu` 因此行为不变。`ContextMenu.vue` 与 `SettingsMenu.vue` 共用，别再手搓第二份定位
@@ -521,13 +522,14 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
     - **空白处（`rowId === null`）的兜底两边口径不同，别搞反**：F2 / Delete 取**主选中**（`workspace.selectedId`），**不能用** roving tabindex 的 `focusedId` —— 那是「键盘最后走到哪一行」，点过空白之后它仍停在一个**早已取消高亮**的行上，实测按 F2 去改名了一个屏幕上根本没被选中的目录；⌘A 则把 null 读成「焦点在根上」（选根的内容）。
     - 配套：`folderContentIds()` 算「父文件夹里的内容」时**逐层往下走**（目录先入列、再把它的孩子跟上 —— 就是「选中目录 = 连里面的文件一起选中」那条），且**顶层节点的 `parentId` 是字面量 `'root'`，而索引里那份根是 `stat('/')` 的浅拷贝、没有 `children`** —— 顺着 `parentId` 取父再取孩子会得到空数组，⌘A 静默什么都不选（探针第一版就是这么红的）。取不到节点、或节点在顶层时一律读 `workspace.tree`。
 
-42. **「从系统里拖文件进来」（`composables/usePageDrop.js`）的六条坑**（2026-10-12 加，探针当场踩中前两条；第 6 条 2026-10-13 加）：
+42. **「从系统里拖文件进来」（`composables/usePageDrop.js`）的七条坑**（2026-10-12 加，探针当场踩中前两条；第 6 条 2026-10-13 加，第 7 条 2026-10-19 加）：
     - **回调不能叫 `onDrop`**：调用方给的落地回调若是这个名字，会被本模块内部的 `function onDrop(event)`（drop 事件处理函数的自然命名）**遮蔽掉** —— 于是「松手」那一发落到自己身上（拿事件对象当 path 传进去），树毫无变化、也**没有任何提示**，比报错难查得多。现名：回调 `onFiles`、事件处理函数 `handleDrop`，别改回去。
     - **回调第一参数是路径字符串**（`onFiles('/P', items)`），不是对象 —— App.vue 第一版按 `target.path` 读，拿到 `undefined` 喂给 `importInto`，报「VFS 只支持绝对路径：undefined」。
     - **`DataTransfer` 只在这一次事件派发期间有效**：派发一结束 `items` 就空了。所以 `readDroppedItems` 的第一段（把 `webkitGetAsEntry()` 与 `files` 的引用抓到手）必须**同步**跑完 —— 它是 async，但 `await` 之前的代码就是同步执行的，前提是调用方在 drop 回调里**直接**调它、前面别先 await 别的东西。之后递归读目录随便多慢都行（`FileSystemEntry` / `File` 对象在事件结束后仍然有效）。
     - **`readEntries()` 一次只回一批**（Chrome 上限 100 条）：要反复读到空数组为止，少读一遍的表现是「目录里超过 100 个条目时后面的凭空消失」—— 静默少东西最难查。
     - **合成 `DragEvent` 造不出 `FileSystemEntry`**：探针里 `new DataTransfer()` + `items.add(new File(...))` 的条目 `webkitGetAsEntry()` 恒为 null —— 这**正好**用来自动走通「退回 files」那条分支；要验目录递归，就把假的 entry（含 `createReader`）直接喂给 `readDroppedItems`。配套判据：dragover 必须 `preventDefault`（不拦浏览器不认落点、drop 永远不来）、drop 必须 `preventDefault`（不拦整页跳去打开那个文件）。
     - **`dragenter` 那一发算落点时，侧栏还没被撑开**（2026-10-13 加）：「拖入期间撑开侧栏」是 App.vue 的响应式更新，晚一个微任务才落到 DOM；而落点判定靠 `elementFromPoint`，那一刻量到的是**撑开前的布局** —— 指针底下还没有树，落点会算成根目录、高亮也不亮。所以 `onDragEnter` 之后要 `requestAnimationFrame(reflowTarget)` 按同一位置重算一次（`reflowTarget` 里判 `depth <= 0` 就返回，防拖拽已结束的定时复活把目标救回来）。后续 `dragover` 本来就持续重算，这里只为把**第一帧**补齐。
+    - **悬停自动展开不能在每发 `dragover` 上重挂计时器**（2026-10-19 加，用户报「拖到文件夹上不会自己张开」）：效果本身与站内挪文件共用 `composables/springOpen.js`（600ms），但两边的触发节奏完全不同 —— 站内拖拽只在**指针挪过**时重算落点（`pointermove`），系统拖入的 `dragover` 在指针**一动不动**时也会隔一会儿来一发。照站内那份「目标变了就重挂」照抄，600ms 永远走不满，实测停在折叠目录上怎么等都不张开。现写法：`settle()` 里比对上一发坐标，**只有 `moved` 为真才 `springOpen.hover(rowId)`**；`dragover` 在静止时照旧只更新落点 / 高亮。连带两条：① 目录张开后新行会顶到指针底下，到点回调里用 `requestAnimationFrame(reflowTarget)` 按同一位置补算一次落点，高亮才不会停在已经被顶走的那一行（这一发 `moved` 为假，所以不会把新长出来的子目录也捎上、一路连环张开）；② `reset()`（松手 / Esc / dragend / 离开窗口）里必须 `springOpen.cancel()`，否则计时器会在拖拽结束后补一发展开。探针口径：合成 `DragEvent` + `DataTransfer` 里塞一个 `File`（`types` 里才有 `Files`），按行中心派发 `dragenter` → 450ms 未展开 → 800ms 已展开；对照项「悬停在已展开目录上 900ms 不折叠」「dragend 后 900ms 不补开」「站内拖拽同一处仍会在 600ms 后展开」（11 + 4 条全绿）。
 43. **覆盖式滚动条（`composables/useOverlayScrollbar.js`）的五条坑**（2026-10-13 加；第 5 条同日加）：
     - **无头环境验不出「占宽度」这件事**：Chrome 无头里原生滚动条本身就是 overlay（实测 `offsetWidth - clientWidth` 恒为 0），拿它当对照会得出「加不加 `scrollbar-width` 都一样」的错误结论。要证「原生那条真的占 11px」，得用**有头**跑一次（`--headless` 去掉）：实测有头原生 11px、补上 `scrollbar-width: none` 后 0。以后动这一块，别只在无头里量。
     - **藏掉原生那条要在调用方的 scoped 里写**，本模块**不管**：`scrollbar-width: none`（标准路径，Chromium 121+ 只认它）+ `::-webkit-scrollbar { width: 0 }`（兜旧内核）两条都要。少一条的表现是「滑块出来了、原生那条也还在」，两条并排。
@@ -1294,9 +1296,9 @@ dev 下模块要加载好几秒，那时应用还没挂上监听（症状：插�
 | --- | --- | --- |
 | 导入云端配置（四条显式入口）/ 登录验证通过 | `success` · 5s，**跨整页刷新** | 走 `notifyAfterReload` 寄存在 `cp.flashNotice`，下次启动 `flushFlashNotification()` 补发 |
 | 登录时云端还没有这个用户名（直接认领，不刷新） | `success` · 5s，当场发 | 与行内那句并存：行内当「下一步去上传」的指引，通知负责让齿轮菜单那条路也看得见 |
-| 取到验证码（登录 / 上传两条路共用） | `info` · **10 分钟**（= 码的有效期 `CODE_TTL_MS`），tag `cloud:code` | 四颗按钮：一键填写（**仅装了带 `fill-code` 能力的扩展时才有**）/ 复制验证码 / 跳转到网页 / 取消登录（上传流程叫「取消上传」） |
+| 取到验证码（登录 / 上传两条路共用） | `info` · **10 分钟**（= 码的有效期 `CODE_TTL_MS`），tag `cloud:code`，正文下带一行**活倒计时** | 五颗按钮：**验证**（2026-10-19 加）/ 一键填写（**仅装了带 `fill-code` 能力的扩展时才有**）/ 复制验证码 / 跳转到网页 / 取消登录（上传流程叫「取消上传」）。过期那行转「已过期，请重新取码」，「验证」同时换成「重新取码」 |
 
-六条不能破的：
+七条不能破的：
 
 1. **`cp.flashNotice` 是全站唯一的持久化例外**，且**只存 sessionStorage**（第 6 节）。理由与边界：
    - 为什么要存：导入 / 登录成功办完就 `window.location.reload()`（见 `adoptCloud`），通知只活在内存里，
@@ -1313,14 +1315,25 @@ dev 下模块要加载好几秒，那时应用还没挂上监听（症状：插�
    清 `code` 的地方有五处（取消 / 两种验证成功 / …），逐个补 `dismiss` 漏一处就是一条甩不掉的通知。
    ⚠️ **验证失败刻意不清 `code`**（码可能还有效，用户改完 Last name 能接着来），所以那条通知留着，
    上面那几颗按钮正好还用得上。
-3. **`keep: true` 的按钮点了不退场**（`notifications.js` 的 action 新增标记）：取码通知的前三颗都是
-   「还得再来一下」的动作（复制完往往还要跳转、跳转完还要回来取消），点一下就把通知收掉等于逼用户
-   把码重新弄出来一次；只有最后一颗「取消」不带 `keep`。
-4. **`MAX_ACTIONS` 由 2 提到 4**：就是为了这条通知。按钮行本来就 `flex-wrap`，四颗在 320px 卡片里
-   折成两行、不会缩成一排小字（实测两行、卡片 320px）。超过 4 颗仍按老规矩拆成两条通知。
-5. **CF 个人资料地址提为常量 `CF_SOCIAL_URL`**（`cloudSession.js` 导出）：面板说明里的 `<a>`、齿轮菜单
+   ⚠️ **同一个码值再来一次时 `watch` 不响**：`refreshCloudCode()` 因此自己补一次
+   `refreshCodeNotice()`（`updateNotification` 原地换内容，失败才补发新的），否则通知会一直停在
+   「已过期」而码其实已经生效（2026-10-19 探针用「每次回同一个码」的 mock 当场撞出来）。
+3. **`keep: true` 的按钮点了不退场**（`notifications.js` 的 action 新增标记）：取码通知的**前四颗**都是
+   「还得再来一下」的动作（复制完往往还要跳转、跳转完还要回来点验证），点一下就把通知收掉等于逼用户
+   把码重新弄出来一次；只有最后一颗「取消」不带 `keep`。**「验证」那颗尤其要 `keep`**：
+   验证成功会清空 `code`、watch 顺势收掉整条，用不着按钮自己退场；失败则要留在场上重试。
+4. **`MAX_ACTIONS` 由 2 提到 4、2026-10-19 再提到 5**：就是为了这条通知（4 颗是「填 / 复制 / 跳转 / 取消」，
+   第 5 颗是「验证」）。按钮行本来就 `flex-wrap`，五颗在 320px 卡片里折成两行、不缩字
+   （2026-10-19 实测：5 颗 / 2 行 / 卡片 320×163）。超过 5 颗仍按老规矩拆成两条通知。
+5. **通知里那行倒计时是通用能力，不是云端专用**（2026-10-19 加）：`notify({ countdown })` 只收
+   `{ deadline, text(remainingMs), expiredText() }` —— 文案与格式由调用方（`cloudSession`）给，
+   组件（`NotificationCenter`）只负责「每秒把 `now` 推进一格再问一次」，所以它不认识任何一门业务。
+   剩余量按 `deadline - Date.now()` 重算、绝不累减（后台节流那条老账，见 13.11 第 2 条）；
+   那只 interval 只在场上确实有带 `countdown` 的通知时才开。
+   起点与面板同一个 `codeDeadline`，两处读数差不超过一秒。
+6. **CF 个人资料地址提为常量 `CF_SOCIAL_URL`**（`cloudSession.js` 导出）：面板说明里的 `<a>`、齿轮菜单
    说明里的 `<a>`、通知上「跳转到网页」那颗按钮**同源**。改地址只改这一处。
-6. **「导入」还是「登录」由 `adoptCloud(data, handle, updatedAt, kind)` 的 `kind` 参数决定**（默认
+7. **「导入」还是「登录」由 `adoptCloud(data, handle, updatedAt, kind)` 的 `kind` 参数决定**（默认
    `'import'`）：四条显式导入入口（面板「导入」/ 菜单「导入」/ 两处「下载到本机」/ 地址栏 `/<handle>` 套用）
    都走默认，只有 `verifyAndLogin` 传 `'login'`。词条表是 `CLOUD_NOTICES`。
 
@@ -1378,6 +1391,77 @@ zh 取到码 → 「等待验证」+ 码进正文 + 三颗按钮（没装扩展�
 ⚠️ **探针坑**：判「3 秒自动消失」不能只看「在场且未退场」的计数 —— 退场动画有 200ms，
 那一刻计数已经是 0 而 DOM 节点还在，紧接着点「撤回」会点在**正在淡出的那颗**上
 （组件对退场中的通知整颗忽略，看着像「撤回没生效」）。要等 DOM 节点真的拆掉。
+
+### 13.11 取码那一步的 10 分钟倒计时（2026-10-19 加）
+
+**为什么加**：这一步的主战场在**另一个网站**（把码填进 Codeforces 的 Last name、点保存、再回来），
+用户在那头折腾多久，这边原先一点提示都没有 —— 只会在点「验证」时撞回服务端那句「验证码已过期或
+未获取」，分不清是码过期了还是自己填错了。
+
+**状态与判据全在 `services/cloudSession.js`**，面板（`EditorSettingsPanel.vue`）与齿轮菜单
+（`SettingsMenu.vue`）只是消费方，两边渲染**同一个** computed：
+
+| 导出 | 作用 |
+| --- | --- |
+| `codeDeadline` | 到期时刻（`Date.now()` 口径），0 = 没在计时 |
+| `codeRemainMs` | 剩余毫秒，随滴答更新 |
+| `codeCountdown` | `{ expired, key, params }` —— 与 `cloudCfHint` 同一写法，模板里自己 `t()` |
+| `refreshCloudCode()` | 过期后重取一枚（同一个 `pendingHandle`） |
+
+**三处显示同一份状态**：面板、齿轮菜单，以及**「等待验证」那条通知**（2026-10-19 加）。前两者渲染
+`codeCountdown`，通知渲染 `notify({ countdown })` 那一行（通用能力，判据见 13.9 第 5 条）——
+起点都是 `codeDeadline`，三处读数差不超过一秒。通知上那颗「验证」也走这里同一个 `confirmCloudCode()`。
+
+五条不能破的：
+
+1. **起点是「收到码的那一刻」**，不是服务端签发时刻（客户端拿不到它）。网络延迟那一秒吃不掉整分钟，
+   宁可晚一丁点判过期，也别把还活着的码提前判死。
+2. **剩余量每次用 `Date.now()` 重算，绝不累减**。后台标签页 / 移动端的 interval 会被节流到一分钟
+   一次甚至冻住，累减出来的读数会比真实时间慢一大截；另挂一条 `visibilitychange`，切回前台先对一次表。
+3. **倒计时由 `requestCloudCode()` 显式 `startCodeTimer()`，`watch(code)` 只负责清空时 `stopCodeTimer()`**。
+   反过来（全靠 watch 启停）会在「同一个码值又来一次」时漏掉重置 —— mock 每次回同一个码正好造出这情形。
+4. **`CODE_TTL_MS` 仍是唯一的时间常量**，必须与后端 `CODE_TTL = 600`、i18n 的 `codeHint` 三处一致；
+   通知那条 `duration` 也吃它（见 13.9）。
+5. **过期只换「验证」那颗，不动「取消」**：`codeCountdown.expired` 为真时，面板与菜单都把
+   「验证并登录 / 验证并上传」换成「重新取码」（`settings.cloud.refreshCode`），通知里那颗则靠
+   `watch(codeCountdown.expired)` + `updateNotification` 原地换掉 —— 那颗验证必然被服务端打回，
+   留着只会制造一次无解释的失败。倒计时那行同时转 `--warn` 并换成「已过期，请重新取码」。
+   **验证失败仍不清 `code`**（老规矩，见 13.9 第 2 条），所以过期前那枚码的失败结论不被这里改写。
+
+**实测**（2026-10-19 探针，mock `/api/config/*` + `/api/get-code`，时钟用 `Date.now` 偏移推快；
+用完即删）：面板取到码 → `剩余 10:00` → 2.3s 后 `9:58`；推快 10 分钟 → 下一拍翻 `已过期，请重新取码`
+（`#c9a45c` = `--warn`）、页脚变 `取消 / 重新取码`；点它 → 回到 `9:59` 且过期态收起；浅色主题
+`--text-dim` = `#616161`；齿轮菜单同场景文案与按钮一致。
+**通知那条**（同一轮）：正文 `把验证码 CF-ABC123 填进 Codeforces 的 Last name` + `剩余 10:00`，
+按钮 `验证 / 复制验证码 / 跳转到网页 / 取消登录`（没装扩展所以没有「一键填写」）折两行；
+推快 10 分钟 → `已过期，请重新取码`、首颗变 `重新取码`；点它 → `剩余 10:00`、首颗变回 `验证`
+（mock 每次回同一个码，走的是 `refreshCodeNotice()` 那条原地刷新）；点 `验证` → 真的打出
+`POST /api/verify-save`，mock 回失败后通知仍在场、码与倒计时照旧（`keep: true` 的预期）。
+装扩展那支的满配形态另量过：5 颗 / 2 行 / 卡片 320×163。
+⚠️ **探针坑**：这里踩的就是 13.9 末尾那条 —— `openSettingsTab('cloud')` 之后设置视图会被
+`deactivateViews()` 收掉，表现为「DOM 在、`page.click` 报 not clickable」。本轮改成页面内
+`import('/src/services/editorViews.js').openSettingsTab('cloud')` 再等 `.cloud-account .text-input`，
+按钮也走 `page.evaluate` 点；用户名框是 `v-model`，必须原生 setter + `input` 事件才写得进去。
+
+#### 取码那一步的排版（2026-10-19 定稿，改这块前先看）
+
+原先「码卡 / 琥珀警告句 / 代填按钮 / 步骤列表 / 页脚」五块各占一段，同一列里没有主次，而且
+「自动填写」与「验证并登录」是两颗同色实心按钮。现在：
+
+1. **一张卡 `.cloud-flow` 收住「码 + 时效 + 步骤 + 代填」**，卡内用 `border-top` 细线分两段。
+2. **外框照抄原来那只验证码盒**：`--border-soft` / `7px` / `--bg-panel` / `margin: 4px 18px 8px` /
+   `padding: 10px 12px`。**别再自造强调条或换 `--bg-card`** —— 用户 2026-10-19 为此退回过一次。
+3. **实心 accent 只留给「验证并登录」**；「在 Codeforces 上自动填写」是描边次按钮（它只是抄近道）。
+   码过期后那颗一并禁用：往 Codeforces 写一枚已经作废的码只是白跑一趟。
+4. **步骤用自绘编号圆点**（`grid 16px + 1fr`），不用 `<ol>` 的默认序数 —— 那个缩进会让两行都挂在
+   第一行下面。`settings.cloud.codeSteps`（「接下来」）只当引导词，压到 11px 灰。
+5. **时效一行说完**：`剩余 9:58 · 同一用户名 10 分钟最多申请 5 次`。`codeHint` 里那句「10 分钟内
+   有效」已删除 —— 与倒计时说的是同一件事。
+6. **按钮行 `.cloud-footer` 排在状态行之后**（「已填好…点下面的按钮」那句话才能字面成立），
+   上下留白刻意不对称：**上 0、下 16** —— 上面那 8px 由卡片 / 状态行的下边距给。
+   ⚠️ `.setting-group` 是 `display: flex` 列，**外边距不会塌陷**，算间距是相加不是取 max。
+7. **「只认屏幕上这一枚…」那行琥珀提示已整行删除**（2026-10-19 用户判为废话）：模板、样式、
+   `settings.cloud.codeWarn` 中英两词条一起清掉。同理，通知正文里的「10 分钟内有效」也删了。
 
 ## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；**桌面端「导出到本机文件夹」已落地（另立 `export_*` 四条命令，不复用 `fs_*`）**，见 14.O；**壳的系统状态栏已跟随站内主题（底色 + 图标明暗，前端 → Rust → JNI）**，见 14.P；Linux 未开工）
 

@@ -469,11 +469,19 @@ export default {
         codeIntroUpload:
           '写云端必须先证明是本人。这一枚码验证成功后，本机会记下服务端签发的设备令牌，之后的写入就不用再取码了。',
         codeLabel: '验证码',
-        codeHint: '10 分钟内有效；同一个用户名 10 分钟最多申请 5 次',
+        /* 时效那半句（「10 分钟内有效」）交给倒计时那一行说，这里只留频率限制 —— 两处都在说
+           「10 分钟」，排在同一行会读成重复（2026-10-19 排版收口） */
+        codeHint: '同一用户名 10 分钟最多申请 5 次',
+        /**
+         * 倒计时与过期提示（2026-10-19 加）。`{time}` 是客户端的 mm:ss，不是服务端给的 ——
+         * 起点是「收到码的那一刻」，见 cloudSession 的 codeDeadline。
+         */
+        codeCountdown: '剩余 {time}',
+        codeExpired: '已过期，请重新取码',
+        refreshCode: '重新取码',
         copyCode: '复制',
         copyCodeTitle: '把这枚验证码复制到剪贴板',
         copied: '已复制',
-        codeWarn: '只认屏幕上这一枚：重新取码会让上一枚立刻作废，取到新码后记得把 Codeforces 上的值也换成新的',
         /**
          * 「代填」只在装了扩展、且扩展能力清单里有 fill-code 时出现（见 useCompanionBridge
          * 的 canFillCode）。文案里必须点明它**不碰凭据** —— 用户装的是一个抓题插件，
@@ -1030,12 +1038,15 @@ export default {
         codeIntroUpload:
           'Writing to the cloud always requires proving it is you. Once this code checks out, this device stores the token the server issues — later writes reuse it and need no new code.',
         codeLabel: 'Verification code',
-        codeHint: 'Valid for 10 minutes; at most 5 codes per handle every 10 minutes',
+        /* See the zh-CN side: the validity clause now lives in the countdown line */
+        codeHint: 'At most 5 codes per handle every 10 minutes',
+        /** 见 zh-CN 那侧的说明：`{time}` 是客户端 mm:ss 倒计时 */
+        codeCountdown: '{time} left',
+        codeExpired: 'Expired — get a new code',
+        refreshCode: 'Get a new code',
         copyCode: 'Copy',
         copyCodeTitle: 'Copy this verification code to the clipboard',
         copied: 'Copied',
-        codeWarn:
-          'Only the code shown here counts — asking for a new one invalidates the previous immediately, so update the value on Codeforces too',
         /** 见 zh-CN 那侧的说明：只在扩展具备 fill-code 能力时出现 */
         fillCode: 'Fill it in on Codeforces',
         fillCodeTitle:

@@ -44,6 +44,7 @@ import {
   cloudAccount,
   code as cloudCode,
   codeCopied,
+  codeCountdown as cloudCodeCountdown,
   codeMode as cloudCodeMode,
   confirmCloudCode,
   copyCloudCode,
@@ -55,6 +56,7 @@ import {
   loginCloud,
   notice as cloudNotice,
   probeCloud,
+  refreshCloudCode,
   splitLinkText,
   unbindCloud,
   uploadCloud,
@@ -806,6 +808,13 @@ function optionLabel(option) {
                     }}</span>
                   </button>
                 </span>
+                <!-- 倒计时：见面板侧同一行，判据与文案都由 cloudSession 的 codeCountdown 给 -->
+                <span
+                  class="settings-menu__code-timer"
+                  :class="{ 'is-expired': cloudCodeCountdown.expired }"
+                >
+                  {{ t(cloudCodeCountdown.key, cloudCodeCountdown.params) }}
+                </span>
                 <span class="settings-menu__code-hint">{{ t('settings.cloud.codeHint') }}</span>
               </div>
               <p class="settings-menu__note">{{ cloudCodeIntro }}</p>
@@ -854,7 +863,18 @@ function optionLabel(option) {
                 >
                   {{ t('settings.cloud.cancel') }}
                 </button>
+                <!-- 过期后「验证」必然被打回，这里直接换成「重新取码」（与面板那颗同一判据） -->
                 <button
+                  v-if="cloudCodeCountdown.expired"
+                  type="button"
+                  class="settings-menu__action settings-menu__action--primary"
+                  :disabled="cloudBusy"
+                  @click="refreshCloudCode"
+                >
+                  {{ t('settings.cloud.refreshCode') }}
+                </button>
+                <button
+                  v-else
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
@@ -1237,6 +1257,20 @@ function optionLabel(option) {
 .settings-menu__code-hint {
   color: var(--menu-muted);
   font-size: calc(11px * var(--menu-scale));
+}
+
+/* 倒计时：与面板同一套写法 —— 等宽定宽数字防抖，到点转 --warn 并换回正文字体 */
+.settings-menu__code-timer {
+  color: var(--menu-text);
+  font-family: var(--mono-font);
+  font-size: calc(11.5px * var(--menu-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-menu__code-timer.is-expired {
+  color: var(--warn);
+  font-family: inherit;
+  font-variant-numeric: normal;
 }
 
 /* 码与「复制」同一行：码自己撑开，按钮固定不缩 */

@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { t } from '../i18n/index.js'
 import { dismissNotification, notifications } from '../services/notifications.js'
@@ -7,6 +7,49 @@ import { dismissNotification, notifications } from '../services/notifications.js
 // 四类型各一枚图标（AppIcon 的名字）。error 用「圆圈 ×」而不是 alert（三角形）：
 // 那枚是警告的字形，压着红字会被读成 warning。
 const ICONS = { info: 'info', success: 'check', warning: 'alert', error: 'error' }
+
+/**
+ * 倒计时用的「现在」。带 `countdown` 的通知（见 services/notifications.js 文件头）
+ * 每秒把它推进一格：模板里那条读数就是 `deadline - now`，所以**必须拿绝对时刻重算**，
+ * 不能自己累减 —— 后台标签页 / 移动端的 interval 会被节流甚至冻住，累减出来的数会比
+ * 真实时间慢一大截。文案与 mm:ss 格式都在调用方给的函数里，这里不认识任何业务。
+ *
+ * 只在「场上确实有带倒计时的通知」时才开着这只 interval：没有它的那几天，
+ * 通知中心不该每秒醒一次。
+ */
+const now = ref(Date.now())
+let ticker = 0
+
+watch(
+  () => notifications.value.some((item) => item.countdown),
+  (hasCountdown) => {
+    if (hasCountdown && !ticker) {
+      now.value = Date.now()
+      ticker = window.setInterval(() => {
+        now.value = Date.now()
+      }, 1000)
+      return
+    }
+    if (!hasCountdown && ticker) {
+      window.clearInterval(ticker)
+      ticker = 0
+    }
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  if (ticker) window.clearInterval(ticker)
+  ticker = 0
+})
+
+/** 某条通知那行倒计时的当前文案；`expired` 只用来决定配色（到点转 --warn） */
+function countdownOf(notif) {
+  const remain = notif.countdown.deadline - now.value
+  return remain > 0
+    ? { expired: false, text: notif.countdown.text(remain) }
+    : { expired: true, text: notif.countdown.expiredText() }
+}
 
 /**
  * 视觉顺序：常驻（expireAt = Infinity）排最上，剩余时间短的排最下 —— 按 expireAt
@@ -50,6 +93,14 @@ function runAction(notif, action) {
           <div class="notif__body">
             <p class="notif__title">{{ notif.title }}</p>
             <p v-if="notif.message" class="notif__message">{{ notif.message }}</p>
+            <!-- 活倒计时（可选）：调用方给 deadline 与两句文案，这里只负责每秒重算 -->
+            <p
+              v-if="notif.countdown"
+              class="notif__countdown"
+              :class="{ 'is-expired': countdownOf(notif).expired }"
+            >
+              {{ countdownOf(notif).text }}
+            </p>
           </div>
           <!-- 操作按钮（可选，至多 MAX_ACTIONS 颗，见服务层契约）：点击跑回调，默认随之退场 -->
           <div v-if="notif.actions.length" class="notif__actions">
@@ -194,6 +245,22 @@ function runAction(notif, action) {
   line-height: 1.5;
   color: var(--text-dim);
   overflow-wrap: break-word;
+}
+
+/* 倒计时那行：等宽 + 定宽数字，免得 9:59 → 9:58 时整行宽度抖一下。
+   到点转 --warn 并换回正文字体 —— 那时它显示的是「已过期」一句中文，不是时间了。 */
+.notif__countdown {
+  margin: 2px 0 0;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.notif__countdown.is-expired {
+  font-family: inherit;
+  font-variant-numeric: normal;
+  color: var(--warn);
 }
 
 /* 操作按钮行：幽灵按钮（透明底 + 描边），压在玻璃底上不再垫一层面色。

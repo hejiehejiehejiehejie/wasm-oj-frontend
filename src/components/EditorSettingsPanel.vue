@@ -80,6 +80,7 @@ import {
   cloudToken,
   code as cloudCode,
   codeMode as cloudCodeMode,
+  codeCountdown as cloudCodeCountdown,
   busy as cloudBusy,
   canFillCode,
   cloudCfHint,
@@ -97,6 +98,7 @@ import {
   remoteProfile as cloudRemoteProfile,
   remoteUpdatedAt as cloudRemoteUpdatedAt,
   requestCloudCode,
+  refreshCloudCode,
   splitLinkText,
   unbindCloud,
   uploadCloud,
@@ -2458,7 +2460,8 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__title">{{ t('settings.section.cloud') }}</p>
         <p class="setting-group__note">{{ t('settings.cloud.groupNote') }}</p>
 
-        <!-- 取过码：这一步要用户去 Codeforces 改 Last name，所以把验证码和操作步骤一起摆出来 -->
+        <!-- 取过码：这一步要用户去 Codeforces 改 Last name，所以把码、步骤、代填收进同一张卡片
+             （2026-10-19 重排：原先码卡 / 警告 / 按钮 / 步骤 / 页脚五块各占一段，读起来像流水账）。 -->
         <template v-if="cloudCode">
           <!-- 登录那条路要额外说一句：这一步只是证明身份，云端内容不会被改。 -->
           <p v-if="cloudCodeMode === 'login'" class="setting-group__note">
@@ -2470,13 +2473,12 @@ watch(pendingUnbind, (open) => {
             {{ t('settings.cloud.codeIntroUpload') }}
           </p>
 
-          <div class="cloud-code">
-            <span class="cloud-code__label">{{ t('settings.cloud.codeLabel') }}</span>
-            <span class="cloud-code__row">
-              <code class="cloud-code__value">{{ cloudCode }}</code>
+          <div class="cloud-flow">
+            <div class="cloud-flow__head">
+              <span class="cloud-flow__label">{{ t('settings.cloud.codeLabel') }}</span>
               <button
                 type="button"
-                class="download-button cloud-code__copy"
+                class="download-button cloud-flow__copy"
                 :class="{ 'is-copied': codeCopied }"
                 :title="t('settings.cloud.copyCodeTitle')"
                 @click="copyCloudCode"
@@ -2484,83 +2486,70 @@ watch(pendingUnbind, (open) => {
                 <AppIcon :name="codeCopied ? 'check' : 'copy'" :size="13" />
                 <span>{{ t(codeCopied ? 'settings.cloud.copied' : 'settings.cloud.copyCode') }}</span>
               </button>
-            </span>
-            <span class="cloud-code__hint">{{ t('settings.cloud.codeHint') }}</span>
-          </div>
-
-          <!-- 取新码会让上一枚作废。不讲清楚，用户很容易两边看着「一样」却怎么都验不过 -->
-          <p class="setting-group__note setting-group__note--warn">
-            {{ t('settings.cloud.codeWarn') }}
-          </p>
-
-          <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的与改动前完全一样，
-               下面那两步手动流程照旧。成功也只是替他填完 Codeforces 那一头，验证仍要他回本页点。 -->
-          <div v-if="canFillCode" class="cloud-fill">
-            <button
-              type="button"
-              class="download-button cloud-primary"
-              :disabled="cloudBusy || cloudFilling"
-              :title="t('settings.cloud.fillCodeTitle')"
-              @click="fillCloudCode"
-            >
-              <AppIcon name="codeforces" :size="13" />
-              <span>
-                {{ t(cloudFilling ? 'settings.cloud.fillCodeBusy' : 'settings.cloud.fillCode') }}
+            </div>
+            <code class="cloud-flow__code">{{ cloudCode }}</code>
+            <!-- 时效一行说完：剩多久（活倒计时）+ 取码的频率限制。原先「10 分钟内有效」与
+                 倒计时各占一行、说的是同一件事，合成一行后不再重复。 -->
+            <p class="cloud-flow__meta">
+              <span class="cloud-flow__timer" :class="{ 'is-expired': cloudCodeCountdown.expired }">
+                {{ t(cloudCodeCountdown.key, cloudCodeCountdown.params) }}
               </span>
-            </button>
-            <span
-              class="cloud-fill__note"
-              :class="cloudCfHint.tone && `cloud-fill__note--${cloudCfHint.tone}`"
-            >
-              {{ t(cloudCfHint.key, cloudCfHint.params) }}
-            </span>
-          </div>
+              <span class="cloud-flow__dot" aria-hidden="true">·</span>
+              <span class="cloud-flow__hint">{{ t('settings.cloud.codeHint') }}</span>
+            </p>
 
-          <p class="setting-subtitle">{{ t('settings.cloud.codeSteps') }}</p>
-          <ol class="cloud-steps">
-            <li>
-              {{ cloudCodeStep1.before
-              }}<a
-                class="cloud-steps__link"
-                :href="CF_SOCIAL_URL"
-                target="_blank"
-                rel="noopener noreferrer"
-                >{{ t('settings.cloud.codeStep1Link') }}</a
-              >{{ cloudCodeStep1.after }}
-            </li>
-            <li>
-              {{
-                cloudCodeMode === 'upload'
-                  ? t('settings.cloud.codeStep2Upload')
-                  : t('settings.cloud.codeStep2')
-              }}
-            </li>
-          </ol>
+            <div class="cloud-flow__block">
+              <p class="cloud-flow__sub">{{ t('settings.cloud.codeSteps') }}</p>
+              <ol class="cloud-flow__steps">
+                <li>
+                  <span class="cloud-flow__num" aria-hidden="true">1</span>
+                  <span>
+                    {{ cloudCodeStep1.before
+                    }}<a
+                      class="cloud-flow__link"
+                      :href="CF_SOCIAL_URL"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >{{ t('settings.cloud.codeStep1Link') }}</a
+                    >{{ cloudCodeStep1.after }}
+                  </span>
+                </li>
+                <li>
+                  <span class="cloud-flow__num" aria-hidden="true">2</span>
+                  <span>
+                    {{
+                      cloudCodeMode === 'upload'
+                        ? t('settings.cloud.codeStep2Upload')
+                        : t('settings.cloud.codeStep2')
+                    }}
+                  </span>
+                </li>
+              </ol>
+            </div>
 
-          <div class="cloud-footer">
-            <button
-              type="button"
-              class="download-button"
-              :disabled="cloudBusy"
-              @click="cancelCloudCode"
-            >
-              {{ t('settings.cloud.cancel') }}
-            </button>
-            <button
-              type="button"
-              class="download-button cloud-primary"
-              :disabled="cloudBusy"
-              @click="confirmCloudCode"
-            >
-              <AppIcon name="check" :size="13" />
-              <span>
-                {{
-                  cloudCodeMode === 'upload'
-                    ? t('settings.cloud.verifyUpload')
-                    : t('settings.cloud.verifyLogin')
-                }}
+            <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的就是上面那两步。
+                 它是**抄近道**，所以排成描边次按钮 —— 实心 accent 只留给最后那颗「验证」。
+                 码过期后一并禁用：往 Codeforces 上写一枚已经作废的码只是白跑一趟。 -->
+            <div v-if="canFillCode" class="cloud-flow__block cloud-flow__block--fill">
+              <span
+                class="cloud-flow__status"
+                :class="cloudCfHint.tone && `cloud-flow__status--${cloudCfHint.tone}`"
+              >
+                {{ t(cloudCfHint.key, cloudCfHint.params) }}
               </span>
-            </button>
+              <button
+                type="button"
+                class="download-button cloud-flow__fill"
+                :disabled="cloudBusy || cloudFilling || cloudCodeCountdown.expired"
+                :title="t('settings.cloud.fillCodeTitle')"
+                @click="fillCloudCode"
+              >
+                <AppIcon name="codeforces" :size="13" />
+                <span>
+                  {{ t(cloudFilling ? 'settings.cloud.fillCodeBusy' : 'settings.cloud.fillCode') }}
+                </span>
+              </button>
+            </div>
           </div>
         </template>
 
@@ -2659,6 +2648,46 @@ watch(pendingUnbind, (open) => {
         <p v-else-if="cloudNotice" class="setting-group__note setting-group__note--ok">
           {{ cloudNotice }}
         </p>
+
+        <!-- 取码那一步的主按钮：排在状态行**下面** —— 「已填好…点下面的按钮完成验证」那句
+             说的就是它，按钮得真的在它下面（2026-10-19 重排前按钮在上面，读着自相矛盾）。 -->
+        <div v-if="cloudCode" class="cloud-footer">
+          <button
+            type="button"
+            class="download-button"
+            :disabled="cloudBusy"
+            @click="cancelCloudCode"
+          >
+            {{ t('settings.cloud.cancel') }}
+          </button>
+          <!-- 过期了就不再给「验证」：那一步必然被服务端打回「已过期或未获取」，
+               直接摆成下一步该做的事 —— 重新取一枚。 -->
+          <button
+            v-if="cloudCodeCountdown.expired"
+            type="button"
+            class="download-button cloud-primary"
+            :disabled="cloudBusy"
+            @click="refreshCloudCode"
+          >
+            {{ t('settings.cloud.refreshCode') }}
+          </button>
+          <button
+            v-else
+            type="button"
+            class="download-button cloud-primary"
+            :disabled="cloudBusy"
+            @click="confirmCloudCode"
+          >
+            <AppIcon name="check" :size="13" />
+            <span>
+              {{
+                cloudCodeMode === 'upload'
+                  ? t('settings.cloud.verifyUpload')
+                  : t('settings.cloud.verifyLogin')
+              }}
+            </span>
+          </button>
+        </div>
 
         <!-- 公开性声明：必须放在「上传」之前能看到的位置（它就在三态 UI 正下方）。
              云端的读接口没有任何鉴权，所以「上传」这一个动作本身就等于同意公开 ——
@@ -3503,112 +3532,196 @@ a.download-button {
   opacity: 0.6;
 }
 
-/* 验证码：唯一一处需要用户原样抄走的内容，所以给卡片底、等宽字、放大字号，
-   并允许整段选中（点一下就把 CF-XXXXXX 全选上，省得手动拖） */
-.cloud-code {
+/* 取码那一步：把「码 / 步骤 / 代填」收进**一张**卡片（2026-10-19 重排）。
+   原先码卡、警告句、代填按钮、步骤列表各占一段，同一列里五六块文字没有主次；
+   收到一起之后，读者第一眼看到的是码，第二眼才是「拿它去干什么」。
+   **外框照抄原 `.cloud-code`**（--border-soft / 7px / --bg-panel / 4px 18px 0 / 10px 12px）：
+   这是这一栏原本就有的「验证码盒子」，不另立一套观感 —— 用户 2026-10-19 明确要求。
+   深浅两套主题都用既有变量，不新增颜色。 */
+.cloud-flow {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin: 4px 18px 0;
+  /* 下边 8：卡片与下面那排按钮之间留一口气（按钮行自己 margin-top 是 0，见 .cloud-footer） */
+  margin: 4px 18px 8px;
   padding: 10px 12px;
   border: 1px solid var(--border-soft);
   border-radius: 7px;
   background: var(--bg-panel);
 }
 
-.cloud-code__label {
-  font-size: 11.5px;
-  color: var(--text-faint);
+/* 标签与「复制」同一行：把唯一要抄走的东西顶到最上面 */
+.cloud-flow__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.cloud-code__value {
-  font-family: var(--mono-font);
-  font-size: 20px;
-  letter-spacing: 0.08em;
-  color: var(--text);
-  user-select: all;
-}
-
-.cloud-code__hint {
+.cloud-flow__label {
   font-size: 11px;
   color: var(--text-faint);
 }
 
-/* 码与「复制」同一行：码自己会撑开，按钮固定不缩 */
-.cloud-code__row {
+/* 码是本栏最大的一处字：等宽 + 放大 + 允许整段选中（点一下就把 CF-XXXXXX 全选上） */
+.cloud-flow__code {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono-font);
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  user-select: all;
+}
+
+/* 时效一行：倒计时 + 频率限制，中间一个间隔点。11px 灰，不跟码抢注意力 */
+.cloud-flow__meta {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
 }
 
-/* 按钮是 .download-button 的缩小版：卡片里空间有限，别让 28px 的常规高度把码压小 */
-.cloud-code__copy {
-  height: 24px;
-  padding: 0 8px;
+/* 倒计时：等宽 + 定宽数字，免得 9:59 → 9:58 时整行抖一下。到点转 --warn 并换回正文字体
+   —— 那时它显示的是「已过期，请重新取码」一句中文，不是时间了 */
+.cloud-flow__timer {
+  font-family: var(--mono-font);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
 }
 
-/* 复制成功：转绿 + 对勾，两秒后 codeCopied 自己复位（与「应用」栏那颗同一套手感） */
-.cloud-code__copy.is-copied {
-  border-color: var(--ok);
-  background: transparent;
-  color: var(--ok);
+.cloud-flow__timer.is-expired {
+  font-family: inherit;
+  font-variant-numeric: normal;
+  color: var(--warn);
 }
 
-/* 代填：只在装了扩展时出现，所以要一眼能和「取消 / 验证」那排主次按钮区分开，
-   下面半步流程照旧摆着 —— 它是抄近道，不是唯一走法 */
-.cloud-fill {
+.cloud-flow__dot {
+  color: var(--text-faint);
+}
+
+/* 卡片内部的两段（步骤 / 代填）各用一条细线分开，代替原先的两段大间距 */
+.cloud-flow__block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* 「接下来」—— 只是一个引导词，压到最小 */
+.cloud-flow__sub {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* 步骤：自绘编号圆点，不用 <ol> 的默认序数（那个缩进会让两行都挂在第一行下面），
+   编号与文字用 grid 对齐，换行后第二行仍与文字左缘齐平 */
+.cloud-flow__steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.cloud-flow__steps li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.cloud-flow__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+/* 步骤第一步里指向 Codeforces Social 设置页的那半句：同字号，只换颜色 + 悬停下划线 */
+.cloud-flow__link {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+.cloud-flow__link:hover {
+  text-decoration: underline;
+}
+
+/* 代填那一行：状态在左、按钮在右。按钮是**描边**次按钮 —— 实心 accent 只留给「验证」，
+   否则卡片里两条实心蓝按钮互相抢主次（重排前就是这样） */
+.cloud-flow__block--fill {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin: 12px 18px 0;
+  justify-content: space-between;
+  gap: 8px 12px;
 }
 
-.cloud-fill__note {
-  flex: 1 1 auto;
+.cloud-flow__status {
+  flex: 1 1 160px;
   min-width: 0;
   font-size: 11.5px;
   color: var(--text-dim);
 }
 
 /* 取码预检那一行的结论色（见 cloudSession 的 cloudCfHint）：绿 = 已确认是这个账号；
-   琥珀 = 点之前就知道会失败，与上面那些云端报错同一支 --warn。刻意没有红色 —— 这是事前
-   提醒，不是已经发生的错误。两条 modifier 必须排在本体之后：同名权重，靠顺序覆盖 */
-.cloud-fill__note--ok {
+   琥珀 = 点之前就知道会失败，与云端报错同一支 --warn。刻意没有红色 —— 这是事前提醒，
+   不是已经发生的错误。两条 modifier 必须排在本体之后：同名权重，靠顺序覆盖 */
+.cloud-flow__status--ok {
   color: var(--ok);
 }
 
-.cloud-fill__note--warn {
+.cloud-flow__status--warn {
   color: var(--warn);
 }
 
-/* 操作步骤：验证码那一步要用户离开本页去改 Cloudflare 资料，步骤得写清楚 */
-.cloud-steps {
-  margin: 0 18px;
-  padding-left: 18px;
+/* 卡片里空间有限：与原先码卡里那颗「复制」同尺寸（24px / 0 8px），免得把码压小；
+   代填按钮多一个字、给 26px 与稍宽的内边距 */
+.cloud-flow__copy {
+  height: 24px;
+  padding: 0 8px;
   font-size: 11.5px;
-  line-height: 1.65;
-  color: var(--text-dim);
 }
 
-/* 步骤第一步里指向 Codeforces Social 设置页的那半句。跟正文同字号，只换颜色 + 悬停下划线 */
-.cloud-steps__link {
-  color: var(--accent-strong);
-  text-decoration: none;
+.cloud-flow__fill {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
 }
 
-.cloud-steps__link:hover {
-  text-decoration: underline;
+/* 复制成功：转绿 + 对勾，两秒后 codeCopied 自己复位（与「应用」栏那颗同一套手感） */
+.cloud-flow__copy.is-copied {
+  border-color: var(--ok);
+  background: transparent;
+  color: var(--ok);
 }
 
-/* 验证码面板下面那一排按钮（不属于任何设置行，所以自己给左右内边距） */
+/* 验证码面板下面那一排按钮（不属于任何设置行，所以自己给左右内边距）。
+   上下留白刻意不对称（2026-10-19 调）：**上 0、下 16** —— 上面那 8px 由卡片自己的下边距
+   与状态行（`.setting-group__note`）的下边距给，所以到按钮是 8；而下面那句「上传后这份配置
+   就是公开的」是脚注、另一个话题，得离远一点，不然会被读成按钮的说明（改前它是
+   margin-bottom: 0，按钮直接压在脚注上）。注意 `.setting-group` 是 flex 列，
+   **外边距不会塌陷**，这里的数就是实际像素。 */
 .cloud-footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin: 12px 18px 0;
+  margin: 0 18px 16px;
 }
 
 /* 保存成功：与警告同一行位置，只换颜色 */

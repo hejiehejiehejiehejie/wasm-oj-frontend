@@ -24,19 +24,25 @@
  *   回调、再按普通流程退场（不传回调的按钮就只是「点掉这条」）。回调拿到的就是这条
  *   通知对象，想在点击后发下一条直接在里面 notify()。Ⓐ 通知不持久化，回调函数
  *   自然也只活在本次会话里。
- *   至多收前 `MAX_ACTIONS`（4）个（2026-10-12 由 2 提到 4：登录验证期那条通知要
- *   「填写 / 复制 / 跳转 / 取消」四颗）。按钮行本身就 flex-wrap，四颗会在 320px
- *   卡片里折成两行，不会缩成一排小字 —— 所以这里只是把上限抬到「够用」，
- *   超过 4 颗才需要拆成两条通知。
+ *   至多收前 `MAX_ACTIONS`（5）个（2026-10-12 由 2 提到 4：登录验证期那条通知要
+ *   「填写 / 复制 / 跳转 / 取消」四颗；2026-10-19 再提到 5：同一处还要一颗「验证」）。
+ *   按钮行本身就 flex-wrap，五颗会在 320px 卡片里折成两行，不会缩成一排小字 ——
+ *   所以这里只是把上限抬到「够用」，超过 5 颗才需要拆成两条通知。
  *   单颗可以带 `keep: true`：**点了不退场**（默认点一下就跑回调 + 退场）。
  *   给「还得再来一下」的按钮用 —— 复制验证码之后用户往往还要点「跳转到网页」，
  *   点完就收掉等于逼他把通知重新弄出来一次。
- * - `tag`（2026-10-12 加，随评测结果通知）：给通知挂一个归属标识（如
+ * - `countdown`（2026-10-19 加）：给通知挂一行**活的倒计时**。它只收三样东西：
+ *   `deadline`（绝对时刻，`Date.now()` 口径）与两个返回整行文案的函数 `text(remainingMs)` /
+ *   `expiredText()`。**文案与格式都由调用方给**，组件只负责「每秒把 now 推进一格再问一次」——
+ *   这样通用组件不必认识任何一门业务（云端验证码那套的措辞在 cloudSession 里）。
+ *   剩余量每次用 `Date.now()` 重算、绝不累减：后台标签页 / 移动端的定时器会被节流甚至冻住，
+ *   累减出来的读数会比真实时间慢一大截。到点后那一行转 `--warn`（组件按 `deadline` 自己判）。
+ *   `tag`（2026-10-12 加，随评测结果通知）：给通知挂一个归属标识（如
  *   `run:<文件路径>`），配 `dismissByTag(tag)` 整组收掉 —— 在场与排队里同 tag 的
  *   一起算。常驻型业务通知（CE）靠它实现「重跑 / 切页签 / 关页签就收」，
  *   不用调用方自己记 id。
  * - `updateNotification(id, patch)`（2026-10-12 加，随设置撤销那条通知）：**原地改**一条在场
- *   通知的 title / message / actions / duration，位置与出场动画都不动。给「同一件事连着来」
+ *   通知的 title / message / actions / duration / countdown，位置与出场动画都不动。给「同一件事连着来」
  *   的通知用 —— 设置连着改时不新发一条，而是复用同一条、把内容与「撤回」目标都换成最新的
  *   （见 services/settingsUndo.js）。条目已退场 / 已不在数组里时返回 false，调用方据此新发一条。
  * - 【唯一的持久化例外】`notifyAfterReload`（2026-10-12 加，随云端导入 / 登录成功）：
@@ -57,7 +63,7 @@ export const NOTIFICATION_TYPES = ['info', 'success', 'warning', 'error']
 export const MAX_VISIBLE = 4
 
 /** 单条通知的操作按钮上限（理由见文件头 actions 那条）。 */
-export const MAX_ACTIONS = 4
+export const MAX_ACTIONS = 5
 
 /** 退场动画时长，须与 NotificationCenter.vue 里 `notif-out` 的 duration 一字不差。 */
 const EXIT_MS = 200
@@ -66,7 +72,7 @@ let seq = 0
 
 /**
  * 当前在场（含退场中）的通知。展示顺序即插入顺序，**别对它排序**（理由见文件头）。
- * 每条：{ id, type, title, message, duration, expireAt, timerId, leaving }
+ * 每条：{ id, type, title, message, duration, expireAt, timerId, leaving, actions, countdown, tag }
  * - `expireAt`：绝对过期时刻；常驻为 Infinity。组件按它排 CSS order。
  * - `timerId`：自动消失的定时器；常驻与排队中为 0。
  * - `leaving`：退场动画播放中。置位后按钮再点也不重复计数。
@@ -105,6 +111,19 @@ function normalizeActions(actions) {
     }))
 }
 
+/**
+ * 归一倒计时：只认 `{ deadline, text, expiredText }`。deadline 必须是有限正数
+ * （绝对时刻），两个格式化函数缺一个就整条作废 —— 半套配置画不出那一行。
+ * 传坏值一律当「没有倒计时」，不影响通知本身照常上屏。
+ */
+function normalizeCountdown(countdown) {
+  if (countdown === null || typeof countdown !== 'object') return null
+  const deadline = Number(countdown.deadline)
+  if (!Number.isFinite(deadline) || deadline <= 0) return null
+  if (typeof countdown.text !== 'function' || typeof countdown.expiredText !== 'function') return null
+  return { deadline, text: countdown.text, expiredText: countdown.expiredText }
+}
+
 /** 队列里还有位就放一条上屏。上屏那一刻才起算时限（见文件头的行为契约）。 */
 function dequeue() {
   if (!queue.length || notifications.value.length >= MAX_VISIBLE) return
@@ -135,8 +154,18 @@ function show(notif) {
  *   默认随后退场；`keep: true` 的那颗点了不退场。没有 `run` 的按钮只做「点掉这条」。
  *   见文件头的行为契约。
  * @param {string} [options.tag=null] 归属标识，配 dismissByTag 用；无归属就不传
+ * @param {{deadline: number, text: (remainingMs: number) => string, expiredText: () => string}} [options.countdown]
+ *   活倒计时（见文件头 countdown 那条）。不传就没有那一行。
  */
-export function notify({ type = 'info', title = '', message = '', duration = 0, actions = [], tag = null } = {}) {
+export function notify({
+  type = 'info',
+  title = '',
+  message = '',
+  duration = 0,
+  actions = [],
+  tag = null,
+  countdown = null,
+} = {}) {
   const id = ++seq
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0
   const notif = {
@@ -149,6 +178,7 @@ export function notify({ type = 'info', title = '', message = '', duration = 0, 
     timerId: 0,
     leaving: false,
     actions: normalizeActions(actions),
+    countdown: normalizeCountdown(countdown),
     tag: tag == null || tag === '' ? null : String(tag),
   }
   if (notifications.value.length >= MAX_VISIBLE) {
@@ -166,12 +196,13 @@ export function notify({ type = 'info', title = '', message = '', duration = 0, 
  * 设置就会看到一条淡出、一条滑入，连点字号步进器时整排通知都在抖。原地改就不动 DOM 节点：
  * 既不重播进场动画，也不改变 CSS order 依赖的数组位置。
  *
- * 【只认这四个字段】title / message / actions / duration —— 其余字段（id / type / tag）
- * 是这条通知的身份，换了就等于另一条通知了，不该走这里。`duration` 传了会**重新起算**时限
- * （顺带给 expireAt 换新，排序跟着变），正是「一边改一边把撤回窗口往后推」要的效果。
+ * 【只认这五个字段】title / message / actions / duration / countdown —— 其余字段
+ * （id / type / tag）是这条通知的身份，换了就等于另一条通知了，不该走这里。
+ * `duration` 传了会**重新起算**时限（顺带给 expireAt 换新，排序跟着变），正是「一边改
+ * 一边把撤回窗口往后推」要的效果。`countdown` 传 null 会把那行倒计时摘掉。
  *
  * @param {number} id notify() / updateNotification 返回的那个 id
- * @param {{title?: string, message?: string, actions?: Array, duration?: number}} [patch]
+ * @param {{title?: string, message?: string, actions?: Array, duration?: number, countdown?: object|null}} [patch]
  * @returns {boolean} 改到了 true；这条已经退场 / 不在数组里（调用方应新发一条）false
  */
 export function updateNotification(id, patch = {}) {
@@ -180,6 +211,7 @@ export function updateNotification(id, patch = {}) {
   if (patch.title !== undefined) notif.title = String(patch.title)
   if (patch.message !== undefined) notif.message = patch.message ? String(patch.message) : ''
   if (patch.actions !== undefined) notif.actions = normalizeActions(patch.actions)
+  if (patch.countdown !== undefined) notif.countdown = normalizeCountdown(patch.countdown)
   if (patch.duration !== undefined) {
     const next = Number.isFinite(patch.duration) && patch.duration > 0 ? patch.duration : 0
     clearTimer(notif)

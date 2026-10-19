@@ -71,8 +71,9 @@ export default {
        *   用户名」的分支 —— 它不刷新，所以是当场发的；不带「已登录」三个字，
        *   标题已经说过了。
        * - 等待验证：取到码就发一条 10 分钟的通知（与码的有效期同长，见 cloudSession
-       *   的 CODE_TTL_MS）。四颗按钮的用词收在这里；最后一颗在「上传」流程里叫
-       *   「取消上传」，与面板 verifyLogin / verifyUpload 同一套分岔。
+       *   的 CODE_TTL_MS），正文下面还有一行**活倒计时**（2026-10-19 加）。按钮的用词收在这里：
+       *   验证 / 一键填写（仅装了扩展）/ 复制验证码 / 跳转到网页 / 取消，最后一颗在「上传」
+       *   流程里叫「取消上传」，与面板 verifyLogin / verifyUpload 同一套分岔。
        */
       cloud: {
         importedTitle: '已导入云端配置',
@@ -81,7 +82,15 @@ export default {
         loggedInBody: '已套用「{handle}」的云端配置',
         loggedInNoCloud: '云端还没有这个用户名的配置，点「上传本机设置」把当前设置存上去',
         codeTitle: '等待验证',
-        codeBody: '把验证码 {code} 填进 Codeforces 的 Last name，10 分钟内有效',
+        /* 时效那句（原先写在这里的「10 分钟内有效」）改成下面那行活的倒计时 —— 同一件事，
+           说一遍就够了；届时的「已过期，请重新取码」也由它接着显示。 */
+        codeBody: '把验证码 {code} 填进 Codeforces 的 Last name',
+        codeCountdown: '剩余 {time}',
+        codeExpired: '已过期，请重新取码',
+        /* 「验证」那颗（2026-10-19 加）：在通知里就能把最后一步办完，不必回设置面板。
+           用两个字的短词 —— 320px 卡片里五颗按钮，长一句会折成三行。 */
+        codeVerify: '验证',
+        codeRefresh: '重新取码',
         codeFill: '一键填写',
         codeCopy: '复制验证码',
         codeOpen: '跳转到网页',
@@ -171,7 +180,12 @@ export default {
         loggedInNoCloud:
           'The cloud has no copy for this handle yet — use “Upload local settings” to store the current setup',
         codeTitle: 'Waiting for verification',
-        codeBody: 'Put the code {code} into your Codeforces Last name — valid for 10 minutes',
+        /* See the zh-CN side: the “valid for 10 minutes” tail moved into the live countdown line */
+        codeBody: 'Put the code {code} into your Codeforces Last name',
+        codeCountdown: '{time} left',
+        codeExpired: 'Expired — get a new code',
+        codeVerify: 'Verify',
+        codeRefresh: 'Get a new code',
         codeFill: 'Auto-fill',
         codeCopy: 'Copy code',
         codeOpen: 'Open page',

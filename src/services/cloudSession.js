@@ -27,7 +27,7 @@ import {
   verifyAndSave,
 } from './cloudProfile.js'
 import { forgetActiveProfile, writeActiveProfile, writeCloudEntryPath } from './cloudEntry.js'
-import { dismissByTag, notify, notifyAfterReload } from './notifications.js'
+import { dismissByTag, notify, notifyAfterReload, updateNotification } from './notifications.js'
 import { CLOUD_ACCOUNT_KEY, CLOUD_TOKEN_KEY } from './storageNames.js'
 import { t } from '../i18n/index.js'
 
@@ -56,6 +56,13 @@ const SUCCESS_NOTICE_MS = 5000
 
 /** 等待验证那条通知的 tag：取到码发一条、码没了整组收（见下面那个 watch） */
 const CODE_NOTICE_TAG = 'cloud:code'
+
+/**
+ * 当下那条「等待验证」通知的 id（0 = 没发过 / 已收）。
+ * 只在过期那一刻用它 `updateNotification` 把那颗「验证」换成「重新取码」——
+ * 换按钮不新发通知，位置与进场动画都不动（见 notifications.js 的那条契约）。
+ */
+let codeNoticeId = 0
 
 /**
  * 验证码有效期：**必须与 i18n 里那句 codeHint（10 分钟）和后端一致**。
@@ -141,29 +148,35 @@ export function cloudFailure(result) {
 /**
  * 取码。同一个函数服务两处入口：未绑定时传输入框的值，已绑定时传已绑定的用户名。
  * （导入的 `requestCode` 是 cloudProfile 那个，本函数叫 requestCloudCode，别混。）
+ *
+ * @returns {Promise<boolean>} 是否真的拿到了一枚新码 —— `refreshCloudCode` 靠它分辨
+ *   「换了一枚」与「被限流 / 断网，什么都没变」，后者不能把通知的倒计时重置成 10 分钟。
  */
 export async function requestCloudCode(handle) {
-  if (busy.value) return
+  if (busy.value) return false
   const target = handle.trim()
   clearCloudFeedback()
   if (!target) {
     error.value = t('settings.cloud.errorHandle')
-    return
+    return false
   }
   busy.value = true
   const result = await requestCode(target)
   busy.value = false
   if (!result.success) {
     error.value = cloudFailure(result)
-    return
+    return false
   }
   pendingHandle.value = target
   code.value = result.code
+  // 新码上台，倒计时跟着重头开始（不能只靠 watch(code)：万一同一个值再来一次就漏了）
+  startCodeTimer()
   // 新码上台，「已复制」得跟着归零：那三个字现在指的已经不是屏幕上这一枚了
   resetCodeCopied()
   // 换了码就是新的一轮：先丢掉上一轮的结论，再问一次「这台浏览器登的是不是他」
   cloudCfStatus.value = 'unknown'
   refreshCfStatus()
+  return true
 }
 
 export function cancelCloudCode() {
@@ -173,6 +186,98 @@ export function cancelCloudCode() {
   // 这一轮结束了，别把它的结论留给下一轮
   cloudCfStatus.value = 'unknown'
   clearCloudFeedback()
+}
+
+// ------------------------------------------------- 验证码倒计时（2026-10-19 加）
+//
+// 服务端给这枚码的 TTL 就是 CODE_TTL_MS（KV 600s，见 docs/云端同步服务.md），而这一步的
+// 主战场在**另一个网站**：用户得在 Codeforces 上把码填进 Last name、点保存、再回来。
+// 那边折腾多久这边都得看得见还剩多少 —— 否则只会在点「验证」时撞回一句「验证码已过期或
+// 未获取」，分不清是码过期了还是自己填错了。
+//
+// 起点取「收到码的那一刻」，不是服务端签发时刻：客户端拿不到签发时间，而网络延迟那一秒
+// 吃不掉整分钟 —— 宁可晚一丁点判过期，也别把还活着的码提前判死。
+//
+// 剩余量每次都拿 Date.now() 重算、绝不累减：后台标签页 / 移动端的 interval 会被节流到
+// 一分钟一次甚至冻住，累减出来的读数会比真实时间慢一大截（回来一看还写着 8:30）。
+
+/** 到期时刻（`Date.now()` 口径）；0 = 当前没有在计时的码 */
+export const codeDeadline = ref(0)
+/** 剩余毫秒（随滴答更新；0 = 已过期或没在计时） */
+export const codeRemainMs = ref(0)
+
+let codeTickTimer = 0
+
+function stopCodeTimer() {
+  if (codeTickTimer) window.clearInterval(codeTickTimer)
+  codeTickTimer = 0
+  codeDeadline.value = 0
+  codeRemainMs.value = 0
+}
+
+function tickCodeTimer() {
+  const remain = codeDeadline.value - Date.now()
+  if (remain > 0) {
+    codeRemainMs.value = remain
+    return
+  }
+  // 到点：把 deadline 也收掉，`codeCountdown` 据此翻成「已过期」
+  stopCodeTimer()
+}
+
+function startCodeTimer() {
+  stopCodeTimer()
+  codeDeadline.value = Date.now() + CODE_TTL_MS
+  codeRemainMs.value = CODE_TTL_MS
+  codeTickTimer = window.setInterval(tickCodeTimer, 1000)
+}
+
+// 切回前台时立刻对一次表：后台标签页里没人给我们滴答，靠它自己醒过来会先显示一帧旧读数
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (codeTickTimer && document.visibilityState === 'visible') tickCodeTimer()
+  })
+}
+
+/** `mm:ss`，向上取整 —— 还剩 0.4s 时写 0:01，别在码还活着的时候先亮 0:00 */
+function formatRemain(ms) {
+  const total = Math.ceil(ms / 1000)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+
+/**
+ * 面板与齿轮菜单共用的一份倒计时文案（与 `cloudCfHint` 同一个写法：只回 key / params，
+ * 让调用方在模板里 `t()` —— 语言一换，模板自己会重算）。
+ *
+ * `expired` 同时是「要不要把那颗『验证』换成『重新取码』」的判据：码都没了还留着验证按钮，
+ * 只会把用户送去服务端换一句「已过期」。
+ */
+export const codeCountdown = computed(() => {
+  if (!code.value) return { expired: false, key: '', params: {} }
+  if (codeRemainMs.value <= 0) {
+    return { expired: true, key: 'settings.cloud.codeExpired', params: {} }
+  }
+  return {
+    expired: false,
+    key: 'settings.cloud.codeCountdown',
+    params: { time: formatRemain(codeRemainMs.value) },
+  }
+})
+
+/**
+ * 过期后重取一枚。服务端每发一枚新码就让上一枚立刻作废，所以这颗只在**过期之后**顶替
+ * 「验证」出现（用户主动换码仍走「取消 → 重新登录」那条既有路径）。
+ * 取码本身受频率限制（同一 handle 10 分钟 5 次），被限流时错误照常显示在这一栏里。
+ *
+ * 拿到新码后通知一般由 `watch(code)` 重建；**只有「同一个码值又来一次」时它不响**
+ * （概率极低，但 mock 与真撞上都一样），那时通知会一直停在「已过期」上 ——
+ * 所以这里补一次原地刷新，别让界面说的和实际状态不一致。
+ */
+export async function refreshCloudCode() {
+  if (busy.value || !pendingHandle.value) return
+  const previous = code.value
+  const refreshed = await requestCloudCode(pendingHandle.value)
+  if (refreshed && code.value === previous) refreshCodeNotice()
 }
 
 // ------------------------------------------------- 取码那一步的通知（2026-10-12 加）
@@ -192,17 +297,36 @@ export function openCfProfileSettings() {
 }
 
 /**
- * 等待验证那条通知：取到码就发一条，四颗按钮 ——
- *   一键填写（**只在装了带 fill-code 能力的扩展时出现**）/ 复制验证码 / 跳转到网页 / 取消。
- * 前三颗都是「还得再来一下」的动作（复制完往往还要跳转、跳转完还要回来取消），
+ * 等待验证那条通知：取到码就发一条，五颗按钮 ——
+ *   验证 / 一键填写（**只在装了带 fill-code 能力的扩展时出现**）/ 复制验证码 / 跳转到网页 / 取消。
+ * 前四颗都是「还得再来一下」的动作（复制完往往还要跳转、跳转完还要回来点验证），
  * 所以都带 `keep: true` 不退场；「取消」那颗点了就结束这一轮（它会清掉 code，
  * 下面那个 watch 顺手把通知收掉）。
  *
+ * **「验证」那颗（2026-10-19 加）也是 `keep: true`**：验证成功会清空 `code`，watch 顺势收掉整条；
+ * 失败则不清（见上），通知留在场上正好接着重试 —— 与面板上那颗的行为一字不差。
+ * 有了它，这条通知自己就能把整条流程走完，不必再回设置面板。
+ * 过期后它换成「重新取码」（见下面的 `watch(codeCountdown.expired)`）。
+ *
  * 停留时长取 CODE_TTL_MS：码什么时候作废，通知就什么时候走。
  */
-function notifyCodeWaiting() {
+function codeActions() {
   const actions = []
-  if (canFillCode.value) {
+  if (codeCountdown.value.expired) {
+    actions.push({
+      label: t('notifications.cloud.codeRefresh'),
+      run: () => void refreshCloudCode(),
+      keep: true,
+    })
+  } else {
+    actions.push({
+      label: t('notifications.cloud.codeVerify'),
+      run: () => void confirmCloudCode(),
+      keep: true,
+    })
+  }
+  // 过期后不再给「一键填写」：往 Codeforces 上写一枚已经作废的码，只是白跑一趟
+  if (canFillCode.value && !codeCountdown.value.expired) {
     actions.push({
       label: t('notifications.cloud.codeFill'),
       run: () => void fillCloudCode(),
@@ -223,14 +347,51 @@ function notifyCodeWaiting() {
     ),
     run: cancelCloudCode,
   })
-  notify({
+  return actions
+}
+
+/**
+ * 通知正文下面那行活倒计时。起点与面板是同一个 `codeDeadline`（收到码的那一刻），
+ * 所以两处读数始终差不超过一秒；文案与 mm:ss 格式都在这里给，通知组件只负责每秒问一次。
+ */
+function codeNoticeCountdown() {
+  return {
+    deadline: codeDeadline.value || Date.now() + CODE_TTL_MS,
+    text: (remain) => t('notifications.cloud.codeCountdown', { time: formatRemain(remain) }),
+    expiredText: () => t('notifications.cloud.codeExpired'),
+  }
+}
+
+function notifyCodeWaiting() {
+  codeNoticeId = notify({
     type: 'info',
     title: t('notifications.cloud.codeTitle'),
     message: t('notifications.cloud.codeBody', { code: code.value }),
     duration: CODE_TTL_MS,
-    actions,
+    actions: codeActions(),
+    countdown: codeNoticeCountdown(),
     tag: CODE_NOTICE_TAG,
   })
+}
+
+/**
+ * 原地换掉那条通知里的内容（码 / 按钮 / 倒计时 / 停留时长），不新发一条。
+ * 只在「同一个码值又来一次」这条窄路上用：那时 `watch(code)` 不会响，通知会一直停在
+ * 「已过期，请重新取码」上，而码其实已经重新生效了。
+ *
+ * `updateNotification` 返回 false = 那条已经退场 / 被 × 掉了，这时补发一条新的。
+ */
+function refreshCodeNotice() {
+  if (code.value && codeNoticeId) {
+    const patched = updateNotification(codeNoticeId, {
+      message: t('notifications.cloud.codeBody', { code: code.value }),
+      actions: codeActions(),
+      countdown: codeNoticeCountdown(),
+      duration: CODE_TTL_MS,
+    })
+    if (patched) return
+  }
+  if (code.value) notifyCodeWaiting()
 }
 
 /**
@@ -244,8 +405,29 @@ function notifyCodeWaiting() {
  */
 watch(code, (value) => {
   dismissByTag(CODE_NOTICE_TAG)
-  if (value) notifyCodeWaiting()
+  if (value) {
+    notifyCodeWaiting()
+    return
+  }
+  // 码没了就没有「还剩多久」这回事：取消 / 两种验证成功都从这里把倒计时收掉
+  codeNoticeId = 0
+  stopCodeTimer()
 })
+
+/**
+ * 过期那一刻把通知上那颗「验证」换成「重新取码」—— 与面板 / 菜单同一判据。
+ *
+ * 通知的 auto-dismiss 也吃 CODE_TTL_MS、与码同时到点，所以这多半只在「这条排过队、
+ * 上屏比码晚」时看得见：那时通知还挂着，而里面的「验证」点下去必然被服务端打回。
+ * 只认 `expired` 这个**布尔**：computed 每次滴答都会产出新对象，盯着对象本身会每秒白跑一次。
+ */
+watch(
+  () => codeCountdown.value.expired,
+  (expired) => {
+    if (!expired || !codeNoticeId) return
+    if (!updateNotification(codeNoticeId, { actions: codeActions() })) codeNoticeId = 0
+  },
+)
 
 // ---------------------------------------- 取码那一步的两处便利：复制 / 让扩展代填
 //
