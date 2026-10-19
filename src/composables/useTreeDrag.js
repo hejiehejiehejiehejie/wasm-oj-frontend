@@ -21,9 +21,10 @@
  * 逐帧算出指针命中了哪一块，并把 `activeDropZone` 告诉它。命中顺序永远是「先树内、后树外」。
  */
 import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
-import { getNodeById, toggleExpand, workspace } from '../services/vfs/workspaceStore.js'
+import { getNodeById } from '../services/vfs/workspaceStore.js'
 import { dirname, isWithin } from '../services/vfs/paths.js'
 import { contentElementAt } from './contentHit.js'
+import { createSpringOpen } from './springOpen.js'
 
 /** 触屏长按多久算「到点了」—— 这一刻菜单当场弹出，也从此可以拖。与系统长按菜单的阈值无关
  *  （按下即接管，见下）——450ms 只是手感。
@@ -34,8 +35,6 @@ const LONG_PRESS_MS = 450
 const MOUSE_MOVE_PX = 4
 /** 触屏 armed 之后判定成拖拽的位移（比鼠标大一点，给手指留抖动的余量） */
 const TOUCH_MOVE_PX = 8
-/** 悬停在折叠目录上多久自动展开（触屏拖拽时没法先点开目录，这个必须有） */
-const SPRING_OPEN_MS = 600
 /** 距树上下边缘多近开始自动滚动 */
 const EDGE_PX = 24
 /** 自动滚动的每帧步长 */
@@ -127,8 +126,8 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
   let press = null
   let scrollFrame = 0
   let scrollDelta = 0
-  let springOpenId = null
-  let springOpenTimer = 0
+  /** 悬停在折叠目录上自动展开的时钟（与系统拖入共用一份实现，见 springOpen.js） */
+  const springOpen = createSpringOpen()
   let suppressClick = false
   let suppressClickTimer = 0
   /** 吃「长按抬手那一发 click」的网是否张着（见 armSwallowClick） */
@@ -417,32 +416,8 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
     activeDropZone.value = next ? null : hitDropZone(clientX, clientY, press.node)
     const changed = next?.rowId !== dropTarget.value?.rowId
     dropTarget.value = next
-    if (changed) updateSpringOpen()
-  }
-
-  /** 悬停在折叠的目录行上就自动展开 —— 触屏拖拽时手指腾不出来点它 */
-  function updateSpringOpen() {
-    const id = dropTarget.value?.rowId
-    if (id === springOpenId) return
-    clearSpringOpen()
-    if (!id || id === 'root') return
-    const node = getNodeById(id)
-    if (!node || node.type !== 'directory') return
-    if (workspace.expandedIds.includes(id)) return
-    springOpenId = id
-    springOpenTimer = window.setTimeout(() => {
-      springOpenTimer = 0
-      springOpenId = null
-      toggleExpand(id)
-    }, SPRING_OPEN_MS)
-  }
-
-  function clearSpringOpen() {
-    if (springOpenTimer) {
-      window.clearTimeout(springOpenTimer)
-      springOpenTimer = 0
-    }
-    springOpenId = null
+    // 悬停在折叠的目录行上就自动展开 —— 触屏拖拽时手指腾不出来点它
+    if (changed) springOpen.hover(next?.rowId ?? null)
   }
 
   /** 指针贴近树容器上下边缘时持续滚动（触屏拖拽时手指滚不了列表） */
@@ -504,7 +479,7 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
     window.removeEventListener('contextmenu', onContextMenuBlock, true)
     window.removeEventListener('keydown', onKeyDown, true)
     stopAutoScroll()
-    clearSpringOpen()
+    springOpen.cancel()
     press = null
     // 触屏那两个提示态统一在这里收：松手、Esc、pointercancel、组件卸载都汇到这条路上，
     // 漏掉任何一个出口，行上的「弹过了 / 正按着」的样子就会一直挂在那儿

@@ -21,6 +21,14 @@
  * 【拖入期间侧栏会被撑开】那是 App.vue 的事（`previewDropTargetLayout`）：落点只有资源管理器
  * 里看得见，所以这里只负责把 `active` 报出去，布局怎么摆不归本文件管。
  *
+ * 【悬停在折叠目录上会自动展开】与站内挪文件同一个效果、同一份实现（`springOpen.js`，600ms）
+ * —— 拖进来之后要一层层往下落的时候，靠拖拽中途去点开目录是不现实的。两处细节：
+ * - 计时只在**指针真的挪过**时重新挂（`settle` 里的 `moved`）。`dragover` 在指针不动时也会
+ *   隔一会儿来一发，每发都重挂的话那个计时器永远走不到 600ms；
+ * - 指针不动、目录却张开了的时候，底下那一行会换人 —— 计时到点后按同一位置补算一次落点
+ *   （`reflowTarget`），高亮才不会停在**已经被顶走的那一行**上。补算这一发不算「挪过」，
+ *   所以不会顺带把新长出来的子目录也捎上、一路连环张开。
+ *
  * 【读文件是异步的，DataTransfer 却只在事件派发期间有效】条目必须在 drop 事件里**同步**
  * 取出来，之后才能慢慢递归读目录 —— 这条落在 `readDroppedItems` 的第一段，别把它的调用
  * 挪到任何 await 之后。
@@ -31,6 +39,7 @@ import { readDroppedItems } from '../services/fileTransfer.js'
 import { getNodeById } from '../services/vfs/workspaceStore.js'
 import { dirname } from '../services/vfs/paths.js'
 import { contentElementAt } from './contentHit.js'
+import { createSpringOpen } from './springOpen.js'
 
 /**
  * 外部文件正拖在页面上时的落点：`{ path, rowId, inExplorer }`；null = 没在拖。
@@ -109,16 +118,38 @@ export function usePageDrop({ onFiles } = {}) {
   /** 拖拽期间最后一次指针位置。给「布局变了要重算一次落点」用，见 `reflowTarget`。 */
   let lastPos = null
 
+  /**
+   * 悬停在折叠目录上自动展开的时钟（与站内挪文件共用一份实现，见 springOpen.js）。
+   * 到点张开之后补算一次落点：新长出来的行可能已经顶到指针底下了。
+   */
+  const springOpen = createSpringOpen({ onOpen: () => requestAnimationFrame(reflowTarget) })
+
   function reset() {
     depth = 0
     lastPos = null
+    springOpen.cancel()
     pageDropTarget.value = null
     window.removeEventListener('keydown', onKeyDown, true)
   }
 
+  /**
+   * 按一个位置定落点。`dragover` 与 `reflowTarget` 共用这一条。
+   *
+   * `moved` 是给自动展开用的：`dragover` 在指针**没动**的时候也会隔一会儿来一发，若每发都
+   * 重新挂计时器，那个 600ms 永远走不完（实测拖进来之后停在折叠目录上，怎么等都不张开）。
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  function settle(clientX, clientY) {
+    const moved = !lastPos || lastPos.x !== clientX || lastPos.y !== clientY
+    lastPos = { x: clientX, y: clientY }
+    const next = resolveDropTarget(clientX, clientY)
+    pageDropTarget.value = next
+    if (moved) springOpen.hover(next.rowId)
+  }
+
   function update(event) {
-    lastPos = { x: event.clientX, y: event.clientY }
-    pageDropTarget.value = resolveDropTarget(event.clientX, event.clientY)
+    settle(event.clientX, event.clientY)
   }
 
   /**
@@ -127,11 +158,12 @@ export function usePageDrop({ onFiles } = {}) {
    * 为什么需要：拖进来的头一发 `dragenter` 算落点时，App.vue 那边「撑开侧栏、切到资源管理器」
    * 还没落到 DOM 上（那是响应式更新，晚一个微任务），于是元素命中测试量到的是撑开前的布局
    * —— 指针底下还没有树，落点会算成根目录、高亮也不亮。等布局落定后补这一发就对了。
-   * 后续的 `dragover` 本来就会持续重算，这里只为把**第一帧**补齐（以及指针停着不动时的那一段）。
+   * 后续的 `dragover` 本来就会持续重算，这里只为把**第一帧**补齐（以及指针停着不动时的那一段，
+   * 比如目录刚自动展开、行换了人）。
    */
   function reflowTarget() {
     if (!lastPos || depth <= 0) return
-    pageDropTarget.value = resolveDropTarget(lastPos.x, lastPos.y)
+    settle(lastPos.x, lastPos.y)
   }
 
   /** @param {DragEvent} event */
