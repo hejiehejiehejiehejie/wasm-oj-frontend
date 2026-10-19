@@ -938,7 +938,7 @@ Activity 的窗口管，得由 `services/systemBars.js` 经 Rust / JNI 送过去
   6. `/robots.txt` 补 `text/plain; charset=utf-8`、`/sitemap.xml` 补 `application/xml; charset=utf-8`，两者都禁缓存（见第 12 节）。
   7. `/api/:path*` → `https://api.998244353.best/api/:path*` 一条 rewrite（2026-10-19 加）：`www` 已改成 **Cloudflare DNS only（灰云）**，Worker Route 只对橙云主机名生效，所以 API 挪到 `api` 子域、由 Vercel 反代回来 —— 浏览器看到的仍是同源 `/api`，`cloudProfile.js` 的相对路径与壳里的绝对地址一行都没动。**别随手删这条，也别把 `www` 改回橙云**（理由与实测数字见 `docs/云端同步服务.md` §1）。
   本地 `vite.config.js` 的 `server.headers` / `preview.headers` 是同一组头的开发侧对应物，两边要一起改。
-- **为什么 `www` 直连 Vercel（2026-10-19 实测）**：走 Cloudflare 橙云时国内 TLS 握手 0/8.1/10.0s、三轮 12s 全超时、`clang.wasm` 15s 收到 0 字节；改成灰云直连 Vercel 后首页 TLS 0.35s / TTFB 0.56s，同一个 `clang.wasm`（31.2MB）**15s 内下完、3.76 MB/s**。Cloudflare 边缘落在 LAX（`cf-ray: …-LAX`），`ping 1.1.1.1` 340ms/20% 丢包、`ping 119.28.28.28` 143ms/0 丢包 —— 瓶颈在「本机 → CF 边缘」这一段，与 Vercel 无关。Cloudflare 只在 `api` 子域上保留，且只有 Vercel 服务端会去打它。
+- **为什么 `www` 直连 Vercel（2026-10-19 实测）**：走 Cloudflare 橙云时国内 TLS 握手 0/8.1/10.0s、三轮 12s 全超时、`clang.wasm` 15s 收到 0 字节；改成灰云直连 Vercel 后首页 TLS 0.35s / TTFB 0.56s，同一个 `clang.wasm`（31.2MB）**15s 内下完、3.76 MB/s**。Cloudflare 边缘落在 LAX（`cf-ray: …-LAX`），`ping 1.1.1.1` 340ms/20% 丢包、`ping 119.28.28.28` 143ms/0 丢包 —— 瓶颈在「本机 → CF 边缘」这一段，与 Vercel 无关。Cloudflare 只在 `api` 子域上保留，且只有 Vercel 服务端会去打它。**apex `998244353.best` 同日也改成了灰云** —— Vercel 侧本来就挂了 apex 并设 308 → www，改前走 CF 是 TTFB 3.47s，改后由 Vercel 直发：TTFB 0.60s，跟着跳到 www 拿到 200 全程 0.99s。`www` / `apex` 两条 DNS 都别再开回橙云。
 - 工具链裸文件（约 52MB）直接进仓库：Vercel 边缘会做压缩传输，**不要自己塞 `.br` / `.gz` 预压缩文件**——那会被二次压缩成 `Content-Encoding: br, br`，Safari 直接崩。
 - 最大的单文件 31.2MB，远低于 GitHub 的 100MB 单文件上限，可以直接 `git push`（但会明显变慢，属正常）。
 - `public/` 下另有被 gitignore 的 `clang_opt.wasm` 之类产物不要提交（见第 7 节的 wasm-opt 结论）。
