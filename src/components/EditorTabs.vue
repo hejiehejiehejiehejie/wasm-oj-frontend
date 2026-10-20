@@ -702,25 +702,17 @@ function measureGroupLines() {
     : null
   const rows = []
   // 「右端收口」（2026-10-20 二十四改，用户口径「最右边为直线的时候，缩短一点它的长度，让它
-  // 正好能露出右边的标签选中的时候的圆角」；二十五改按用户口径「如果右侧为直线，无论右邻页签
-  // 是否选中，都收短线尾」把「右邻选中」这个条件去掉）：
-  // 右端是直线（组尾没有激活成员接下去画）时，只要**紧挨着组尾右缘的是一个页签**，线尾就内收
-  // r px。那一格是右邻选中时它左下外扩脚占的位置（样式表 `.editor-tabs__item--active::before`：
-  // 8×8、left: -8px、半径 8 的凹弧）—— 组线 2px 宽、画在 y=h-1，那两行会把弧的下沿横着削平，
-  // 看上去就是「选中的圆角被一条直边切掉」。
-  // 现在选没选中都收：那 r px 空档恰好是脚在选中时占的宽度，于是右邻在选中 / 未选中之间切换时
-  // 线尾位置**不动**（不再跟着跳 8px），未选中时也只是照同样的位置留一格。
+  // 正好能露出右边的标签选中的时候的圆角」；二十五改去掉「右邻选中」这个前置；二十六改按用户
+  // 口径「无论右边有没有页签，都缩短这个线尾」把「右邻是不是页签」也去掉）：
+  // **右端是直线（组尾没有激活成员接下去画）就一律内收 r px，不看右邻是谁、有没有。**
+  // 收口本身是为了让出右邻选中时它左下外扩脚占的那一格（样式表
+  // `.editor-tabs__item--active::before`：8×8、left: -8px、半径 8 的凹弧）—— 组线 2px 宽、
+  // 画在 y=h-1，那两行会把弧的下沿横着削平，看上去就是「选中的圆角被一条直边切掉」。
   // 往回收 **r px** 正好停在弧与底边的切点：圆心在 (x1-r, h-r)，(x1-r, h) 处切线水平，
   // 线尾与圆弧相切 —— 不交叉，也不在中间留缝（半圆半径与脚同值，改 r 时两边一起改）。
-  // 判据仍是几何（组尾右缘与某个页签左缘重合，容差 1.5px），**不猜 DOM 相邻**：组尾后面若跟着
-  // 另一组芯片（外边距 6px）或什么都没有，那里没有圆角要露，收了只会像线没画到头 —— 照旧 flush。
-  const tabLefts = [...strip.querySelectorAll('.editor-tabs__item')]
-    .filter((el) => !el.classList.contains('is-group-hidden') && vWidth(el) > 0)
-    .map((el) => ({ el, left: vLeft(el) }))
-  const straightTail = (end, floor, members) =>
-    tabLefts.some(({ el, left }) => Math.abs(left - end) <= 1.5 && !members.includes(el))
-      ? Math.max(end - GROUP_LINE_R, floor)
-      : end
+  // 无条件收还顺带消掉三种「跟着右邻跳」的情形：右邻选中 / 未选中切换、右邻是另一组芯片、
+  // 右邻不存在（组在条带最末）—— 以前这三种落点不同，现在线尾位置只由组尾自己决定。
+  const straightTail = (end, floor) => Math.max(end - GROUP_LINE_R, floor)
   // ⚠️ maxX 只能从**元素几何**取，绝不能拿 strip.scrollWidth 当初值：SVG 是条带的子元素，
   // scrollWidth 会把 SVG 自己的宽度算进去 —— 以 scrollWidth 为底就变成「glineWidth =
   // scrollWidth + 1 → SVG 变宽 1px → scrollWidth 跟着大 1 → 再测再 +1」的自增长反馈，
@@ -751,7 +743,7 @@ function measureGroupLines() {
     let d
     const fills = []
     if (!active) {
-      d = `M ${x0} ${h - 1} L ${straightTail(x1, x0, members)} ${h - 1}`
+      d = `M ${x0} ${h - 1} L ${straightTail(x1, x0)} ${h - 1}`
     } else {
       // r 预留：两只外扩脚各要向左右多占 r px，路径弧指令见样式表那段的总说明
       const left = vLeft(active)
@@ -779,7 +771,7 @@ function measureGroupLines() {
         (atRightEdge ? ` L ${right} ${h - 1}` : ` A ${r} ${r} 0 0 0 ${right + r} ${h - 1}`)
       // 激活成员就是组尾时右脚落地即终点，别再往回画一段线
       if (!atRightEdge && x1 > right + r) {
-        d += ` L ${straightTail(x1, right + r, members)} ${h - 1}`
+        d += ` L ${straightTail(x1, right + r)} ${h - 1}`
       }
       // 两只脚的楔形另用一条 path 填激活底色 —— 页签元素的底色盖不到外扩圆角内部
       fills.push(
@@ -1414,10 +1406,11 @@ function onTabEnter(el) {
    圆环脚伪元素 + 挖缺」已整段删除 —— 成员页签回到与普通页签完全相同的规则。
    画法（路径由 script 的 measureGroupLines 生成，模板见 .editor-tabs__gline）：
    · **无激活成员**：一条 path 只画底部水平线 `M 0 H-1 L W H-1`（x0 = 胶囊左缘，
-     x1 = 组尾成员右缘，H = 条带高 35）。**右端为直线、且紧挨着组尾的是个页签时，x1 内收
-     r（8px）—— 右邻选没选中都收**（2026-10-20 二十五改）：那格是它选中时左下外扩脚占的位置，
-     收了才露得出圆角，也让右邻切换选中时线尾不跳。后面跟的是另一组芯片或什么都没有时照旧
-     flush（那里没有圆角要露）。判据见 measureGroupLines 里的 `straightTail` 与那一段注释。
+     x1 = 组尾成员右缘，H = 条带高 35）。**右端为直线时 x1 一律内收 r（8px）**，不看右邻
+     是谁、有没有（2026-10-20 二十六改，前两版分别只收「右邻选中」与「右邻是页签」）：那格
+     是右邻选中时左下外扩脚占的位置，收了才露得出圆角；无条件收也让线尾只由组尾自己决定，
+     右邻切换选中、换成另一组芯片、或干脆没有都不再让它跳。判据见 measureGroupLines 里的
+     `straightTail` 与那一段注释。
    · **有激活成员**：一条连续 path —— 从 (x0, H-1) 水平画到 (left-r, H-1)，`A r r 0 0 0`
      上挑成左下外扩脚（圆心在 (left-r, H-1-r)，弧腹朝向页签），竖边到 (left, top+r)，
      `A r r 0 0 1` 拐右上成左上圆角（圆心 (left+r, top+r)，与页签自己的 8px border-radius
