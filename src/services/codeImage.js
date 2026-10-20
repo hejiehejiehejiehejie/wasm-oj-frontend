@@ -437,9 +437,12 @@ function bracketColorRows(lines, mask, palette) {
 
 /**
  * 质量档 → 渲染倍率。认不出来（旧存档、手改过的值）一律回落到默认档。
+ *
+ * 导出到模块外是给 mdImage.js 用的：Markdown 导出与代码图共用设置里的同一档质量，
+ * 两处各抄一份 2 / 3 / 4 迟早会漂。
  * @param {'medium'|'high'|'ultra'} quality
  */
-function resolveQuality(quality) {
+export function imageQualityScale(quality) {
   return QUALITY_SCALES[quality] ?? QUALITY_SCALES[DEFAULT_QUALITY]
 }
 
@@ -541,7 +544,7 @@ export async function renderCodeCanvas({
 
   // 按质量档放大画布再用 ctx.scale 缩回来，导出的 PNG 才不糊。
   // 注意给 canvas.width 赋值会重置 2d 上下文的状态，所以下面要重设一次字体。
-  const ratio = resolveQuality(quality)
+  const ratio = imageQualityScale(quality)
   canvas.width = Math.round(width * ratio)
   canvas.height = Math.round(height * ratio)
   ctx.scale(ratio, ratio)

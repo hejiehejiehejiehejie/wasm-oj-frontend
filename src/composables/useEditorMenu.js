@@ -58,6 +58,7 @@ import {
   downloadImage,
   renderCodeCanvas,
 } from '../services/codeImage.js'
+import { renderMarkdownCanvas } from '../services/mdImage.js'
 import { notify } from '../services/notifications.js'
 import { formatCombo, useShortcutManager } from './useShortcutManager.js'
 
@@ -230,25 +231,44 @@ export function useEditorMenu({ editor, host }) {
     const code = model.getValueInRange(selection)
     if (!code.trim()) return
     try {
-      // 字体取 Monaco 当前真实生效的那一份（getOption(fontInfo)），排版才和编辑器里一致；
-      // 字号不取 —— 导出图固定字号，见 codeImage.js 的 EXPORT_FONT_SIZE
-      const fontInfo = instance.getOption(monaco.editor.EditorOption.fontInfo)
-      const canvas = await renderCodeCanvas({
-        code,
-        languageId: model.getLanguageId(),
-        showDots: editorSettings.value.codeImageDots,
-        showLineNumbers: editorSettings.value.codeImageLineNumbers,
-        quality: editorSettings.value.codeImageQuality,
-        // 彩色括号跟编辑器同一个开关（编辑器在 .md 下也会自己关掉，这里同口径）
-        bracketColorize:
-          editorSettings.value.bracketPairColorization && model.getLanguageId() !== 'markdown',
-        // 行号从选区所在的那一行起算（选区在文件中间时编号才对得上）
-        startLine: selection.startLineNumber,
-        // 制表符的宽度取当前文件真正生效的那一份（model 级选项，可能被「按内容猜缩进」改过），
-        // 图里的缩进才和编辑器里看到的一致
-        tabSize: model.getOptions().tabSize,
-        fontFamily: fontInfo?.fontFamily,
-      })
+      // .md 文件按「题解预览」的排版出图（Markdown 结构 + KaTeX 公式），其余文件照旧画代码图。
+      // 渲染器没下载时**回落**到代码图，入口不因此失败（用户 2026-10-21 定的口径）。
+      let canvas = null
+      if (model.getLanguageId() === 'markdown') {
+        try {
+          canvas = await renderMarkdownCanvas({
+            source: code,
+            quality: editorSettings.value.codeImageQuality,
+          })
+        } catch (error) {
+          // 少一套画法而已：继续走下面的代码图，不打扰用户。
+          // 渲染器没下载（MD_RUNTIME_MISSING）、预览样式不可用（MD_IMAGE_UNAVAILABLE）、
+          // Safari 那边超时 / 空白 / canvas 不可读（MD_IMAGE_TIMEOUT / _BLANK / _UNREADABLE）
+          // 都算「这套画法走不通」，一律回落；不是 MD_ 前缀的才算真 bug，照旧抛。
+          if (!String(error?.code ?? '').startsWith('MD_')) throw error
+        }
+      }
+      if (!canvas) {
+        // 字体取 Monaco 当前真实生效的那一份（getOption(fontInfo)），排版才和编辑器里一致；
+        // 字号不取 —— 导出图固定字号，见 codeImage.js 的 EXPORT_FONT_SIZE
+        const fontInfo = instance.getOption(monaco.editor.EditorOption.fontInfo)
+        canvas = await renderCodeCanvas({
+          code,
+          languageId: model.getLanguageId(),
+          showDots: editorSettings.value.codeImageDots,
+          showLineNumbers: editorSettings.value.codeImageLineNumbers,
+          quality: editorSettings.value.codeImageQuality,
+          // 彩色括号跟编辑器同一个开关（编辑器在 .md 下也会自己关掉，这里同口径）
+          bracketColorize:
+            editorSettings.value.bracketPairColorization && model.getLanguageId() !== 'markdown',
+          // 行号从选区所在的那一行起算（选区在文件中间时编号才对得上）
+          startLine: selection.startLineNumber,
+          // 制表符的宽度取当前文件真正生效的那一份（model 级选项，可能被「按内容猜缩进」改过），
+          // 图里的缩进才和编辑器里看到的一致
+          tabSize: model.getOptions().tabSize,
+          fontFamily: fontInfo?.fontFamily,
+        })
+      }
       const action = editorSettings.value.codeImageAsk
         ? await askImageAction()
         : editorSettings.value.codeImageAction

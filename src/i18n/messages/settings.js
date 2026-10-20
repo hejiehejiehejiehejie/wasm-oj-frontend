@@ -252,7 +252,10 @@ export default {
         toggleLayout: { label: '侧边栏左右对调' },
         newCase: { label: '新增一条测试用例' },
         openSettings: { label: '打开 / 收起设置' },
-        exportImage: { label: '生成图片', hint: '把选中的代码导成 PNG；没有选区时不响应' },
+        exportImage: {
+          label: '生成图片',
+          hint: '把选中的内容导成 PNG；.md 按题解预览的 Markdown / LaTeX 排版；没有选区时不响应',
+        },
         renameNode: {
           label: '重命名（文件 / 文件夹）',
           hint: 'Windows / Linux 按 F2，macOS 按回车；焦点在资源管理器里才生效',
@@ -836,7 +839,7 @@ export default {
         openSettings: { label: 'Open / close settings' },
         exportImage: {
           label: 'Export image',
-          hint: 'Turns the selected code into a PNG; does nothing when nothing is selected',
+          hint: 'Turns the selection into a PNG; .md uses the rendered Markdown / LaTeX layout; does nothing when nothing is selected',
         },
         renameNode: {
           label: 'Rename (file / folder)',
