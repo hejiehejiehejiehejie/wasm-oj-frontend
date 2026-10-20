@@ -59,6 +59,16 @@ export default {
         untitled: '未命名',
         closeTab: '关闭标签',
         closeSettings: '关闭设置',
+        /** 页签分组（2026-10-19 加，模仿 Chrome 的标签页组） */
+        addToNewGroup: '添加到新标签页组',
+        removeFromGroup: '从标签页组中移除',
+        groupChip: '标签页组',
+        groupNamePh: '为此分组命名',
+        groupColors: '分组颜色',
+        groupAddTab: '在组内添加新标签页',
+        groupClose: '关闭标签页组',
+        groupUngroup: '取消分组',
+        groupDelete: '删除标签页组',
       },
 
       sidebar: {
@@ -194,6 +204,16 @@ export default {
         untitled: 'Untitled',
         closeTab: 'Close tab',
         closeSettings: 'Close settings',
+        /** Tab groups (2026-10-19, Chrome-style tab groups) */
+        addToNewGroup: 'Add to new tab group',
+        removeFromGroup: 'Remove from tab group',
+        groupChip: 'Tab group',
+        groupNamePh: 'Name this tab group',
+        groupColors: 'Group color',
+        groupAddTab: 'Add a new tab to the group',
+        groupClose: 'Close group',
+        groupUngroup: 'Ungroup',
+        groupDelete: 'Delete group',
       },
 
       sidebar: {

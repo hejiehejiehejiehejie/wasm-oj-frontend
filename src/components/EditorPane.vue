@@ -675,11 +675,12 @@ defineExpose({
 </script>
 
 <template>
-  <!-- is-md / is-status-off 只作用于状态栏的显隐，以及页签栏那条分隔线要不要留
-       （见样式表末尾那组闸门 / EditorTabs 的「选中页签与编辑区连成一片」）。
-       这里用 mdActive 而不是 mdFileActive：设成 mdFileActive 时，从 .md 切到设置 / 抽题
-       这类合成视图，viewActive 变 true 但 activeId 没换（合成视图不占 activeId），
-       mdFileActive 仍为 true，is-md 类不掉，刚去掉的分隔线就又会冒出来 -->
+  <!-- is-md 现在只剩一个用处：题解（.md）下把状态栏收掉（见样式表「状态栏的四道闸门」）。
+       它已经不管页签栏那条分隔线（2026-10-19 删了），也不管选中页签底角那两只「脚」
+       （同日 md 工具栏改成与编辑区同色后，脚在 md 下照画 —— 见 EditorTabs 的 ::before / ::after）。
+       这里仍用 mdActive 而不是 mdFileActive：从 .md 切到设置 / 抽题这类合成视图时
+       viewActive 变 true 但 activeId 没换（合成视图不占 activeId），mdFileActive 会仍为 true，
+       is-md 类掉不掉就全看这一个口径 -->
   <div
     class="editor-pane"
     :class="{ 'is-md': mdActive, 'is-status-off': !settings.statusBar }"
@@ -1264,7 +1265,10 @@ defineExpose({
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  background: var(--bg-panel-head);
+  /* 2026-10-19 由 --bg-panel-head 改为与编辑区同色（--bg-editor-pane，即 md 预览那层底色）：
+     上面页签栏的选中页签也是这个色，于是「选中页签 → 工具栏 → 正文」是一条连通的同色面。
+     代价是这条工具栏不再靠底色与下面的正文分开，只剩下面那根 1px --border-soft 断句。 */
+  background: var(--bg-editor-pane);
   border-bottom: 1px solid var(--border-soft);
 }
 

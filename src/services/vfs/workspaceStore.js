@@ -374,6 +374,16 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   revealId(id)
 }
 
+/**
+ * 关闭激活页签时的焦点回退策略（2026-10-20 十四改加的注入点）。默认 pick 为 null：
+ * 沿用「原下标顶上来」的老行为。tabGroups.js 在模块加载时注入可见页签寻址
+ * （findNextVisibleTab，先右后左）—— 可见性判据（分组折叠）活在那边，而本模块不能
+ * 反向 import tabGroups（它已 import 这里，反向会成环），所以做成注入而不是直调。
+ * pick 返回 null / undefined = 没找到可见页签，交回默认逻辑。
+ * @type {{pick: ((closedId: string, index: number, openTabIds: string[]) => string|null|undefined)|null}}
+ */
+export const closeFocus = { pick: null }
+
 /** @param {string} id */
 export function closeTab(id) {
   const index = workspace.openTabIds.indexOf(id)
@@ -386,7 +396,12 @@ export function closeTab(id) {
   modelManager.release(id)
   if (workspace.previewTabId === id) workspace.previewTabId = null
   if (workspace.activeId === id) {
-    workspace.activeId = workspace.openTabIds[Math.min(index, workspace.openTabIds.length - 1)] ?? null
+    // index 是 splice **后**的下标：原来右邻那张此刻恰好顶到 index 上。先问注入的
+    // 可见页签寻址（先右后左），没有注入或没找到（全折叠）再退回「原下标顶上来」——
+    // activeId 落在隐藏页签上时由芯片的 holds-active 环提示（与折叠组的口径一致）。
+    const picked = closeFocus.pick?.(id, index, workspace.openTabIds)
+    workspace.activeId =
+      picked ?? workspace.openTabIds[Math.min(index, workspace.openTabIds.length - 1)] ?? null
   }
 }
 
