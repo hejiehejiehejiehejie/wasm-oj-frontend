@@ -218,12 +218,6 @@ const stripItems = computed(() => {
         kind: 'chip',
         key: `group:${group.id}`,
         group,
-        // 折叠着、而被它藏起来的正是当前打开的那个文件 → 芯片上给一圈环（样式里叫 holds-active）。
-        // 十七改起折叠会把焦点转走、无可见页签时直接清空（transferFocusOutOfGroup），
-        // 正常路径下这圈环不会出现；它只给「没经过折叠动作、焦点却落在折叠组成员上」的
-        // 残留兜底（例如刷新后按 cp.openTabs 复原焦点）—— 那种状态没有别的提示，
-        // 用户会看到「编辑区还开着这个文件、页签栏里却找不到它」。
-        holdsActive: !!group.collapsed && !viewActive.value && tabGroups.groupOf(workspace.activeId)?.id === group.id,
       })
     }
     out.push({
@@ -533,7 +527,8 @@ function finishGroupAnim(gid, rec) {
  * 这时绝不能把焦点留在被藏起来的那张上 —— 否则编辑区还开着那个文件、页签栏里却找不到它
  * （用户报的「状态幽灵化」）。处理：把它记进组的 `lastActiveTabId`（展开时用来恢复），
  * 然后清空焦点，EditorPane 随之卸掉 model、露出「未打开任何文件」的占位。
- * 十四改当时的口径是「不转移、靠芯片的 holds-active 环提示」，十七改按用户要求推翻。
+ * 十四改当时的口径是「不转移」；十七改按用户要求改成现在这套。曾经用来兜底那条残留的
+ * 芯片提示环已于二十八改（2026-10-20 用户口径）删除。
  * @param {string} gid 刚被折叠的组
  */
 function transferFocusOutOfGroup(gid) {
@@ -687,7 +682,11 @@ let glineSig = ''
 function measureGroupLines() {
   const strip = rootEl.value?.querySelector('.editor-tabs__strip')
   if (!strip) return
-  const h = strip.clientHeight
+  // 条带高必须量**小数**（2026-10-20 用户报「组线下面的横线比上面细」）：35px 在 rem 化 +
+  // 界面缩放（如 1.1）之后是 38.5px，clientHeight 会取整成 39 —— 底边线锚在 h-1 = 38、
+  // 2px 描边要占到 39，而 SVG 视口只有 38.5，下沿被裁掉半像素，看着就比顶边细一档。
+  // getBoundingClientRect().height 保留小数，线正好画到条带底、粗细与顶边一致。
+  const h = strip.getBoundingClientRect().height
   // 视觉几何：getBoundingClientRect 换算回条带**内容坐标**（含 scrollLeft）。用 rect 而不是
   // offsetLeft，是因为 rect 带着 transform —— 拖拽的实时让位、让位滑动的中途、WAAPI 展开
   // 动画改的宽度全都反映在 rect 上，包络线才能逐帧贴合页签的**视觉**位置（见拖拽的 rAF 循环）。
@@ -992,7 +991,6 @@ function onTabEnter(el) {
           class="editor-tabs__chip"
           :class="{
             'editor-tabs__chip--named': item.group.name,
-            'editor-tabs__chip--holds-active': item.holdsActive,
             'editor-tabs__chip--collapsed': item.group.collapsed,
             'editor-tabs__chip--pressing': pressingId === `group:${item.group.id}`,
             'editor-tabs__chip--armed': armedId === `group:${item.group.id}`,
@@ -1700,16 +1698,6 @@ function onTabEnter(el) {
   max-width: 140px;
   /* 圆角由基础规则统一给（2026-10-20 晚些时候无名芯片也改成圆角方块，这里那份
      `border-radius: 6px` 的覆盖随之删掉）—— 两态同角，折叠 / 展开不会换形状。 */
-}
-
-/* 折叠着、而它藏起来的那批页签里有当前打开的文件：芯片外面套一圈组色环。
-   没有这圈环，点完折叠会出现「编辑区还开着这个文件，条带上却找不到它」的错觉。
-   环与芯片之间垫一层条带底色（两道 box-shadow 叠出来），不是描边 —— 芯片是纯色块，
-   直接压一圈描边看着像尺寸缩水的洞。 */
-.editor-tabs__chip--holds-active {
-  box-shadow:
-    0 0 0 2px var(--bg-panel-head),
-    0 0 0 3px var(--group-c);
 }
 
 .editor-tabs__chip-name {

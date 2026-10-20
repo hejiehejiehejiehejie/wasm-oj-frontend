@@ -8,20 +8,21 @@
  *
  * 顶部两枚＝侧边栏的两个面板：点一下＝展开侧栏并切到该面板（展开那段在 App.vue 的
  * selectSidebarPanel 里，本组件只负责派发 select）。
- * 底部贴底两枚＝编辑区里的合成页签（Codeforces / 设置）：与页头那两颗同源，
+ * 底部贴底两枚＝编辑区里的合成页签（组件 / 设置）：与页头那两颗同源，
  * 同样不展开侧栏 —— 它们开的是编辑区里的页签，不是侧栏面板。
- * Codeforces 那颗 2026-10-19 起与页头同口径：点它弹组件菜单（CfMenu），
- * 菜单里挑「随机抽题 / 比赛」；它贴着屏幕边缘，所以 placement="beside"。
+ * 「组件」那颗（2026-10-20 起由 Codeforces 那颗改名而来）点它弹组件菜单（ComponentsMenu），
+ * 菜单里按类分组挑：Codeforces（随机抽题 / 比赛）与工具（倒计时）；它贴着屏幕边缘，
+ * 所以 placement="beside"。按钮常驻 —— 工具类与 Codeforces 装没装无关。
  *
  * 面板数据由 App 从 Sidebar 的 defineExpose 透传进来（状态只有一份，仍是 cp.sidebarTab），
  * 本组件不自己存一份。
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
-import CfMenu from './CfMenu.vue'
+import ComponentsMenu from './ComponentsMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
-import { cfReady } from '../services/cfRuntime.js'
+import { countdown } from '../services/countdown.js'
 import { cfContestTab, cfPickerTab, settingsTab } from '../services/editorViews.js'
 
 defineProps({
@@ -31,20 +32,20 @@ defineProps({
 defineEmits(['select'])
 
 // ------------------------------------------------------------ 两个下拉菜单
-// 齿轮弹 SettingsMenu、Codeforces 那颗弹 CfMenu，机制与侧栏页头同款。
+// 齿轮弹 SettingsMenu、组件那颗弹 ComponentsMenu，机制与侧栏页头同款。
 // 菜单在捕获阶段用 pointerdown 收自己，所以点按钮想关菜单时会先被那一层收掉、
 // 按钮的 click 又进来，得记一笔「刚刚那一发是不是点在它身上」。
 const menuAnchor = ref(null)
 const menuButton = ref(null)
-const cfMenuAnchor = ref(null)
-const cfMenuButton = ref(null)
+const compMenuAnchor = ref(null)
+const compMenuButton = ref(null)
 
 let suppressOpen = false
-let suppressCfOpen = false
+let suppressCompOpen = false
 
 function onGlobalPointerDown(event) {
   suppressOpen = Boolean(menuAnchor.value && menuButton.value?.contains(event.target))
-  suppressCfOpen = Boolean(cfMenuAnchor.value && cfMenuButton.value?.contains(event.target))
+  suppressCompOpen = Boolean(compMenuAnchor.value && compMenuButton.value?.contains(event.target))
 }
 
 function toggleMenu() {
@@ -59,16 +60,16 @@ function closeMenu() {
   menuAnchor.value = null
 }
 
-function toggleCfMenu() {
-  if (suppressCfOpen) {
-    suppressCfOpen = false
+function toggleCompMenu() {
+  if (suppressCompOpen) {
+    suppressCompOpen = false
     return
   }
-  cfMenuAnchor.value = cfMenuAnchor.value ? null : cfMenuButton.value?.getBoundingClientRect() ?? null
+  compMenuAnchor.value = compMenuAnchor.value ? null : compMenuButton.value?.getBoundingClientRect() ?? null
 }
 
-function closeCfMenu() {
-  cfMenuAnchor.value = null
+function closeCompMenu() {
+  compMenuAnchor.value = null
 }
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
@@ -94,22 +95,21 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </button>
     </div>
 
-    <!-- 贴底：Codeforces 是可卸载的可选模块（没下载过就整颗不渲染），齿轮是常驻的那个。
-         那颗点开的是组件菜单（与页头同款），开着任一 CF 页签时提亮。 -->
+    <!-- 贴底：组件与齿轮都是常驻入口。组件那颗点开组件菜单（与页头同款），
+         开着任一组件（两个 CF 页签或倒计时卡）时提亮。 -->
     <div class="activity-bar__group activity-bar__group--tools">
       <button
-        v-if="cfReady"
-        ref="cfMenuButton"
+        ref="compMenuButton"
         type="button"
         class="activity-bar__item"
-        :class="{ 'is-active': cfPickerTab.active || cfContestTab.active }"
-        :title="t('cf.menu.title')"
-        :aria-label="t('cf.menu.title')"
+        :class="{ 'is-active': cfPickerTab.active || cfContestTab.active || countdown.open }"
+        :title="t('components.menu.title')"
+        :aria-label="t('components.menu.title')"
         aria-haspopup="menu"
-        :aria-expanded="Boolean(cfMenuAnchor)"
-        @click="toggleCfMenu"
+        :aria-expanded="Boolean(compMenuAnchor)"
+        @click="toggleCompMenu"
       >
-        <AppIcon name="codeforces" size="24" />
+        <AppIcon name="grid" size="24" />
       </button>
 
       <button
@@ -127,7 +127,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </button>
 
       <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="beside" @close="closeMenu" />
-      <CfMenu v-if="cfMenuAnchor" :anchor="cfMenuAnchor" placement="beside" @close="closeCfMenu" />
+      <ComponentsMenu v-if="compMenuAnchor" :anchor="compMenuAnchor" placement="beside" @close="closeCompMenu" />
     </div>
   </nav>
 </template>

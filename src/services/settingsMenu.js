@@ -44,6 +44,7 @@ import { EDITOR_SETTING_RANGES, THEMES } from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
 import { openSettingsTab } from './editorViews.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
+import { openCountdown } from './countdown.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import {
   isNarrowLayout,
@@ -154,6 +155,16 @@ export const SETTINGS_MENU_ROWS = [
     labelKey: 'settings.editor.autoSave.label',
     checked: () => editorSettings.value.autoSave,
     toggle: () => setEditorSetting('autoSave', !editorSettings.value.autoSave),
+  },
+  { kind: 'divider' },
+
+  {
+    id: 'countdown',
+    kind: 'action',
+    // 悬浮倒计时卡的入口（2026-10-20）。它是一次性动作而不是偏好：点开卡、设时长，
+    // 偏好与计时现场都在 services/countdown.js 里自己持久化，菜单不持有任何状态。
+    labelKey: 'settings.menu.openCountdown',
+    run: openCountdown,
   },
   { kind: 'divider' },
 

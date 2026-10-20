@@ -105,8 +105,8 @@
  * CfContestPanel —— Codeforces 比赛（贴链接 → 倒计时 → 题目列表 → 导入 / 抓样例）。
  *
  * 【形态】与「设置」「抽题」同形态，是编辑区里的一个合成页签（services/editorViews.js
- * 的 cfContest 视图）。2026-10-19 起从抽题面板里拆出来单飞：入口在侧栏那颗 Codeforces
- * 按钮唤出的组件菜单（CfMenu）里，与「随机抽题」并列。
+ * 的 cfContest 视图）。2026-10-19 起从抽题面板里拆出来单飞：入口在侧栏那颗「组件」
+ * 按钮唤出的组件菜单（ComponentsMenu）的 Codeforces 类里，与「随机抽题」并列。
  *
  * 【状态在哪】数据与过程全在 useCfContest，**只在本组件的 setup 里调一次**（与
  * useCfPicker 只归 CfPickerPanel 同一条纪律）—— 本组件由 EditorPane 用 v-show 常挂，

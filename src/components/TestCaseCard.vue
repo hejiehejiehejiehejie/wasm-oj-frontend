@@ -910,20 +910,29 @@ function onLongCopy(event, full) {
      行高被它们撑到 22px，而 10px 标签文字的行盒只有 12px、垂直居中 → 文字底下白留 5px，
      再叠 .field__label 的 4px 外边距，实测「文字底 → 框顶」9px，而 input / Expected
      那两处都只有 4px，看着就是这一栏离框格外远。
-     1.4em = 14px（比 12px 行盒多 2px）：文字在行内只白留 1px，标签到框回到 5px；
-     22px 的按钮上下各溢出 4px，底边正好落在框顶，悬停灰块不会压到框上。
+     1.4em = 14px（比 12px 行盒多 2px）：文字在行内只白留 1px。
+     margin-bottom 收到 3px（2026-10-20）：叠上那 1px，「文字底 → 框顶」与 input /
+     Expected 的 4px 完全对齐。代价：22px 按钮的底边从「正好落在框顶」变成压进框 1px
+     （下溢 4px − 外边距 3px），压住的这一条由 .field__actions 的 clip-path 剪掉，
+     否则输入框顶部那 1px 点不到（见下）。
      margin-top 4px 是补回行高缩掉的那 4px，让上一块到 ACTUAL 文字的视觉距离仍是 11px
      （配 .card__body 的 gap 6px，与 input → Expected 那处对齐）。 */
   height: 1.4em;
   margin-top: 4px;
+  margin-bottom: 3px;
 }
 
 /* 标签行右侧的动作组（写入期望输出 + 复制）。两个图标按钮挨着放、间距 2px ——
-   它们各自的 22px 方格里已经有留白，再拉开就显得跟标签不是一行了。 */
+   它们各自的 22px 方格里已经有留白，再拉开就显得跟标签不是一行了。
+   clip-path（2026-10-20）：行高 14px 装不下 22px 的按钮，上下各溢出 4px；行外边距
+   收到 3px 后（见 .field__label--row 的注释），按钮底边压进下方输入框 1px。inset
+   底边内收 1px 把这一条剪掉 —— clip-path 裁的不只是视觉、也裁命中测试，被剪的 1px
+   点击会落到框上；按钮本体与悬停灰块只少了贴着框的那 1px 弧线，肉眼难辨。 */
 .field__actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  clip-path: inset(0 0 1px 0);
 }
 
 .ta {

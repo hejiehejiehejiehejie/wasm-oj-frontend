@@ -19,11 +19,15 @@
  * 一遍补进同一个文件。要不要抓、什么时候抓都由扩展与工作区当场对话决定，这里不必记账
  * （见 useCompanionBridge.js 里那段「自动抓取样例」）。
  *
+ * 【导入后的页签归组】（2026-10-20 用户口径）一批抽到的题打开成页签后归进**同一个标签页组**，
+ * 条带上一眼就看出「这些是这次抽的」；而一批超过 5 道（BULK_TAB_LIMIT）就只落盘、不开页签，
+ * 免得十张页签把条带挤满还把抽题面板顶掉。建组只走 tabGroups 的公开入口，见 trackBatchTab。
+ *
  * 【错误为什么存 key 不存字符串】i18n 纪律：文案在 computed / 模板里 t()，
  * 数据层只留 key 与参数，否则切语言时这条错误会停在旧语言上。
  */
 
-import { computed, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
 import { COUNT_MAX, COUNT_MIN, normalizeHandles, problemKey } from '../cf/pick.js'
@@ -31,8 +35,16 @@ import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
 import { closeCfPickerTab } from '../services/editorViews.js'
 import { notify } from '../services/notifications.js'
+import { addTabsToGroup, groupOfId, groupTabs } from '../services/tabGroups.js'
 import { importProblem } from '../services/vfs/problemImport.js'
 import { usePersistentRef } from './usePersistentRef.js'
+
+/**
+ * 一批抽到的题超过这个数就**只落盘、不开页签**（2026-10-20 用户口径）：
+ * 十道题一起弹出来会把条带挤满、还会把用户正看着的面板顶掉，收益为零。
+ * 判据是**抽到的数量**（results.length），不是「这次导入了几道」—— 后者会随导入进度变化。
+ */
+const BULK_TAB_LIMIT = 5
 
 /** cfReady 翻回 false（例如浏览器清了 IndexedDB，reconcileCfRuntime 把标记正回来）时页签必须跟着关 —— 否则会留下一张点不开（侧栏按钮已经没了）的空页签 */
 watch(cfReady, (ready) => {
@@ -98,6 +110,17 @@ export function useCfPicker() {
   const importingUrl = ref('')
   /** 正在「全部导入」 */
   const importingAll = ref(false)
+
+  /**
+   * 本批抽到的题落在**同一个标签页组**里（2026-10-20 用户口径：「抽到的题直接生成一个
+   * 标签页组，打开的页签放进去」）。这里只记组 id：组的建/收编全交给 tabGroups 的公开入口
+   * （连续性、空组清理都在那边收口，见那个文件头）。
+   *
+   * 换一批（run）就重置 —— 每批一个组。组一旦建出来就归条带管，用户之后再往里拖页签、
+   * 关掉成员，都与这里无关（`groupOfId` 查不到时会另建一个新的，见 trackBatchTab）。
+   * 不放进 `tabGroups` 持久化的理由：它只是「本批的容器」这一层临时记忆，刷新后没有批次。
+   */
+  let batchGroupId = null
 
   const handleState = ref('') // '' | 'checking' | 'ok' | 'bad'
   const handleReason = ref('') // bad 时：'not_found' | 'network'
@@ -187,6 +210,8 @@ export function useCfPicker() {
     const previousKeys = results.value.map((problem) => problemKey(problem))
     error.value = null
     results.value = []
+    // 新的一批：上一个批次的组就留在条带上当普通组，新批重新建
+    batchGroupId = null
     resetHandleState()
 
     const min = toRating(ratingMin.value)
@@ -280,19 +305,24 @@ export function useCfPicker() {
    * 2026-10-20 踩过：导入看着成功（内存树、页签都在），刷新后题目整个没了，库里只剩三个空目录
    * （异常发生在入队中途，见 HANDOFF 坑 62）。
    * @param {{ task: Record<string, any>, rating: number|null }} problem 抽取结果里的一项
+   * @param {{ quiet?: boolean }} [options] `quiet` 只落盘、不开页签也不建组
+   *   （「全部导入」在一批超过 BULK_TAB_LIMIT 道时走它）
    */
-  async function importOne(problem) {
+  async function importOne(problem, options = {}) {
     const url = problem?.task?.url
     if (!url || importingUrl.value || importedUrls.value.has(url)) return
 
     importingUrl.value = url
     error.value = null
     try {
-      await importProblem(toRaw(problem.task), {
+      const { node } = await importProblem(toRaw(problem.task), {
         // 无 rating 的题（用户没设难度区间时可能抽到）不给这个参数，由 importProblem 落「未分类」
         difficulty: problem.rating == null ? '' : String(problem.rating),
+        quiet: !!options.quiet,
       })
       importedUrls.value = new Set(importedUrls.value).add(url)
+      // quiet 时这张页签根本没开，入组也会被 tabGroups 过滤掉（它只收条带上已有的页签）
+      if (!options.quiet) await trackBatchTab(node?.id)
     } catch (failure) {
       error.value = {
         key: 'cf.picker.errors.importFailed',
@@ -304,17 +334,46 @@ export function useCfPicker() {
   }
 
   /**
+   * 把刚打开的页签收进**本批的组**。
+   *
+   * 组的粒度是「批」，不是「次点击」：判据用这批抽到几道（results.length ≥ 2 才建组）——
+   * 免得用户点一道导一道，条带上排出一串只有一个成员的组。单抽一道题就只是打开一张页签。
+   *
+   * 组不命名 —— 一批抽来的题没有天然名字（难度区间、标签都可能重复），交给用户右键改；
+   * 颜色走 tabGroups 自带的「用得最少的那个」，连续抽几批不会撞色。
+   * @param {string|undefined} tabId
+   */
+  async function trackBatchTab(tabId) {
+    if (!tabId) return
+    if (results.value.length < 2) return
+    // 新页签是 openTabIds 的 watch（flush: 'pre'）排进 stripOrder 的，而 tabGroups 只收
+    // 「条带上已有的」页签 —— 不等这次刷新，刚打开的页签会被静默过滤掉（组建不出来 / 加不进去）
+    await nextTick()
+    if (batchGroupId && groupOfId(batchGroupId)) {
+      addTabsToGroup([tabId], batchGroupId)
+      return
+    }
+    // 组被用户整组关掉了（groupOfId 查不到）→ 另建一个，别把页签塞进一个不存在的组
+    batchGroupId = groupTabs([tabId])
+  }
+
+  /**
    * 把这一批全部导入。逐个串行 await —— importProblem 内部走 VFS 的 batch 落库，
    * 并发跑会各自 emit 一次 reset、树跟着抖好几下。
    * 已经导过的跳过；失败就停在那一道上，错误照常显示在状态行里。
+   *
+   * **一批超过 BULK_TAB_LIMIT 道就只落盘、不打开页签**（判据见文件里的 BULK_TAB_LIMIT）：
+   * 十张页签一起弹出来会把条带挤满，还会连着把抽题面板顶掉 —— 用户在结果区本来就看得到
+   * 导没导，不需要靠页签确认。
    */
   async function importAll() {
     if (importingAll.value || importingUrl.value) return
     importingAll.value = true
+    const quiet = results.value.length > BULK_TAB_LIMIT
     try {
       for (const problem of results.value) {
         if (importedUrls.value.has(problem.task.url)) continue
-        await importOne(problem)
+        await importOne(problem, { quiet })
         // importOne 失败时会把 error 挂上：这时别再往下导了，免得用户不知道是哪一道出的问题
         if (error.value) break
       }

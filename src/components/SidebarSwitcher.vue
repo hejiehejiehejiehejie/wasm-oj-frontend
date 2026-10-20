@@ -24,20 +24,20 @@
  * 常见项在菜单里当场改完，末尾两项才打开编辑区里的设置页签。
  * 菜单悬着时不改变齿轮的 is-active（那只跟着设置页签走）。
  *
- * Codeforces 那颗（2026-10 新增，可选模块）排在设置齿轮**左边**，视觉语言与齿轮完全一致
- * （同一颗圆形图标钮、开着任一 CF 页签时填亮）。它在 `ready` 为假时整个不渲染：没下载过
- * 这个模块的用户页头里就不该多一颗按不动的按钮 —— 那是「可选」两个字在界面上的落实。
- * 2026-10-19 起它不再直接开抽题页签，而是与齿轮同款：点它弹出组件菜单（CfMenu），
- * 里面挑「随机抽题 / 比赛」—— 模块多了一块界面，按钮继续「一颗开一个菜单」。
- * 顺序刻意是「Codeforces → 设置」：齿轮是常驻的那个，位置不该被一个可选模块挤走。
+ * 「组件」那颗（2026-10-20 改名，原 Codeforces 那颗）排在设置齿轮**左边**，视觉语言与齿轮
+ * 完全一致（同一颗圆形图标钮、开着任一组件时填亮）。点它弹出组件菜单（ComponentsMenu），
+ * 里面按类分组：Codeforces（随机抽题 / 比赛）与工具（倒计时）。
+ * 2026-10-20 之前它只在 Codeforces 模块就绪时渲染（「没下载就不该多一颗按不动的按钮」）；
+ * 现在菜单里多了与模块无关的「工具」类，按钮因此改为常驻 —— 卸载 Codeforces 之后，
+ * 倒计时的入口不能跟着消失。顺序仍刻意是「组件 → 设置」：齿轮是常驻的那个，排在右端。
  */
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
-import CfMenu from './CfMenu.vue'
+import ComponentsMenu from './ComponentsMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
 
-const { panels, targetPanel, togglePanel, settings, cf, collapse, compact } =
+const { panels, targetPanel, togglePanel, settings, components, collapse, compact } =
   inject('sidebarTabs')
 
 // 指示块的位置信号：当前面板的 id 直接写在 pill 的 data-active 上，
@@ -51,21 +51,21 @@ const activePanelId = computed(() => panels.value.find((panel) => panel.active)?
 // 菜单悬着时不改变齿轮的 is-active（那只跟着设置页签走）。
 
 // ------------------------------------------------------------ 两颗菜单按钮的公共机制
-// 齿轮（SettingsMenu）与 Codeforces 那颗（CfMenu）各有一份 anchor，但「点按钮收菜单
+// 齿轮（SettingsMenu）与组件那颗（ComponentsMenu）各有一份 anchor，但「点按钮收菜单
  // 会被捕获阶段的 pointerdown 抢先」是同一个坑：那一层先收掉菜单、按钮的 click 又进来，
  // 只看 anchor 有没有值就会永远关不掉。所以在更早的一拍记下「这发 pointerdown 是不是
  // 点在某一颗按钮上」，各自的 toggle 拦掉这一次重开。
 const menuAnchor = ref(null)
 const menuButton = ref(null)
-const cfMenuAnchor = ref(null)
-const cfMenuButton = ref(null)
+const compMenuAnchor = ref(null)
+const compMenuButton = ref(null)
 
 let suppressOpen = false
-let suppressCfOpen = false
+let suppressCompOpen = false
 
 function onGlobalPointerDown(event) {
   suppressOpen = Boolean(menuAnchor.value && menuButton.value?.contains(event.target))
-  suppressCfOpen = Boolean(cfMenuAnchor.value && cfMenuButton.value?.contains(event.target))
+  suppressCompOpen = Boolean(compMenuAnchor.value && compMenuButton.value?.contains(event.target))
 }
 
 function toggleMenu() {
@@ -86,22 +86,22 @@ function closeMenu() {
   menuAnchor.value = null
 }
 
-function toggleCfMenu() {
-  if (suppressCfOpen) {
-    suppressCfOpen = false
+function toggleCompMenu() {
+  if (suppressCompOpen) {
+    suppressCompOpen = false
     return
   }
-  if (cfMenuAnchor.value) {
-    closeCfMenu()
+  if (compMenuAnchor.value) {
+    closeCompMenu()
     return
   }
-  // 菜单挂在按钮下方、右缘与按钮对齐（CfMenu 内部做视口收敛）
-  const rect = cfMenuButton.value?.getBoundingClientRect()
-  if (rect) cfMenuAnchor.value = rect
+  // 菜单挂在按钮下方、右缘与按钮对齐（ComponentsMenu 内部做视口收敛）
+  const rect = compMenuButton.value?.getBoundingClientRect()
+  if (rect) compMenuAnchor.value = rect
 }
 
-function closeCfMenu() {
-  cfMenuAnchor.value = null
+function closeCompMenu() {
+  compMenuAnchor.value = null
 }
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
@@ -155,22 +155,21 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </span>
     </button>
 
-    <!-- Codeforces 组件菜单（可选模块）：没下载过就整颗不渲染。放在齿轮左边 —— 齿轮是
-         常驻入口，位置不该被一个可卸载的模块推动；而这一颗在卸载后会消失，
-         留下的空位不该在齿轮右侧。点它弹 CfMenu，与齿轮弹 SettingsMenu 同一套机制。 -->
+    <!-- 组件菜单（常驻）：点它弹 ComponentsMenu，与齿轮弹 SettingsMenu 同一套机制。
+         放在齿轮左边 —— 齿轮是独立于组件的设置入口，排在右端。
+         按钮本身不再按 cfReady 显隐：菜单里的「工具」类与 Codeforces 装没装无关。 -->
     <button
-      v-if="cf.ready"
-      ref="cfMenuButton"
+      ref="compMenuButton"
       type="button"
       class="sidebar-switcher__tab"
-      :class="{ 'is-active': cf.active }"
-      :title="cf.label"
-      :aria-label="cf.label"
+      :class="{ 'is-active': components.active }"
+      :title="components.label"
+      :aria-label="components.label"
       aria-haspopup="menu"
-      :aria-expanded="Boolean(cfMenuAnchor)"
-      @click="toggleCfMenu"
+      :aria-expanded="Boolean(compMenuAnchor)"
+      @click="toggleCompMenu"
     >
-      <AppIcon :name="cf.icon" size="16" />
+      <AppIcon :name="components.icon" size="16" />
     </button>
 
     <button
@@ -188,7 +187,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
     </button>
 
     <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="below-end" @close="closeMenu" />
-    <CfMenu v-if="cfMenuAnchor" :anchor="cfMenuAnchor" placement="below-end" @close="closeCfMenu" />
+    <ComponentsMenu v-if="compMenuAnchor" :anchor="compMenuAnchor" placement="below-end" @close="closeCompMenu" />
   </nav>
 </template>
 
@@ -197,7 +196,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   display: inline-flex;
   align-items: center;
   /* 带标签时轨道 148px + 间距 4px + 设置钮 26px = 178px；紧凑（纯图标）时轨道 64px，
-     合计 94px（与重构前一致）。抽题那颗是可选的：下载过这个模块时再 +30px。
+     合计 94px（与重构前一致）。组件那颗是常驻的：再 +30px。
      页头得容得下这个浮动宽度 —— 它只影响侧栏页头，不会挤到编辑器。 */
   gap: 4px;
   /* 26px 高 + 页头上下各 4px 内边距 + 1px 下边框 = 35px，与面板头同高。

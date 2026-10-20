@@ -7,6 +7,7 @@ import ActivityBar from './components/ActivityBar.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import ToolchainGate from './components/ToolchainGate.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
+import CountdownCard from './components/CountdownCard.vue'
 import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { uiScale } from './composables/useUiScale.js'
@@ -1568,6 +1569,10 @@ onBeforeUnmount(() => {
 
     <!-- Android 端首次准备随包编译器时的等待遮罩（固定定位，不参与上面的排版） -->
     <ToolchainGate />
+
+    <!-- 悬浮倒计时卡：常驻挂载，显隐只看 services/countdown.js 里的 open；
+         位置/计时跨刷新保留，入口在齿轮菜单的「倒计时」 -->
+    <CountdownCard />
   </div>
 </template>
 

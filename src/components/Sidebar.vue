@@ -21,7 +21,7 @@ import SidebarSwitcher from './SidebarSwitcher.vue'
 import { t } from '../i18n/index.js'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { uiScale } from '../composables/useUiScale.js'
-import { cfReady } from '../services/cfRuntime.js'
+import { countdown } from '../services/countdown.js'
 import {
   cfContestTab,
   cfPickerTab,
@@ -103,17 +103,15 @@ const settingsEntry = computed(() => ({
   active: settingsTab.active,
 }))
 
-// Codeforces 组件那颗（2026-10-19 起是**菜单入口**，不再是开关）：它默认安装（启动时
-// 静默预取题库），但预取未完成前页头里根本不该有它 —— 所以是 ready 驱动的显示/隐藏，
-// 而不是禁用态。状态在 services/cfRuntime.js 里，侧栏与设置页那一行读的是同一个 cfReady。
-// 点它弹出 CfMenu（与齿轮的 SettingsMenu 同一套浮层机制），里面挑抽题或比赛 ——
-// 两块都是编辑区里的合成页签，所以与齿轮并排、不进胶囊。开着任一页签时按钮填亮，
-// 跟齿轮那条「填亮＝开着」是同一种语言。
-const cfEntry = computed(() => ({
-  icon: 'codeforces',
-  label: t('cf.menu.title'),
-  active: cfPickerTab.active || cfContestTab.active,
-  ready: cfReady.value,
+// 「组件」那颗（2026-10-20 起是这个身份）：点它弹出组件菜单（ComponentsMenu），
+// 菜单里按类分组 —— Codeforces（随机抽题 / 比赛）与工具（倒计时）。
+// 按钮不再跟着 cfReady 显隐（过去叫 Codeforces 那颗时是「没下载就不渲染」）：
+// 工具那一类与 Codeforces 装没装无关，卸载了模块照样要有入口。
+// 开着任一组件（两个 CF 页签或倒计时卡）时填亮，与齿轮「填亮＝开着」同一种语言。
+const componentsEntry = computed(() => ({
+  icon: 'grid',
+  label: t('components.menu.title'),
+  active: cfPickerTab.active || cfContestTab.active || countdown.open,
 }))
 
 // 「收起侧栏」那颗（2026-10-13 加，只出现在窄屏的底部那条上）：
@@ -184,7 +182,7 @@ provide('sidebarTabs', {
   togglePanel,
   settings: settingsEntry,
   toggleSettings,
-  cf: cfEntry,
+  components: componentsEntry,
   collapse: collapseEntry,
   // 两个面板拿它判「是不是该我把上下文动作投进页头」；切换器拿它判要不要收起文字标签
   activeTab,

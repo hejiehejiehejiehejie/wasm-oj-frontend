@@ -42,15 +42,15 @@ export default {
         },
       },
 
-      /** 侧栏页头那颗按钮（下载过这个组件才存在）：点它唤出组件菜单（CfMenu）。
+      /** 侧栏页头那颗按钮（常驻）：点它唤出组件菜单（ComponentsMenu）。
           文案不含「设置」二字，免得与旁边那颗齿轮在无障碍检索里混起来。 */
       button: {
         label: 'Codeforces 抽题',
       },
 
-      /** 组件菜单（CfMenu）：侧栏那颗按钮唤出的应用抽屉 */
+      /** 组件菜单里「Codeforces」那一类的条目标签；抬头与类名在 components.js
+          （那个菜单不只装 Codeforces，抬头不能挂在可卸载模块的域里） */
       menu: {
-        title: 'Codeforces',
         picker: '随机抽题',
         contest: '比赛',
       },
@@ -194,8 +194,8 @@ export default {
         label: 'Codeforces problem picker',
       },
 
+      /** 同 zh-CN：抬头与类名在 components.js */
       menu: {
-        title: 'Codeforces',
         picker: 'Random problem',
         contest: 'Contest',
       },

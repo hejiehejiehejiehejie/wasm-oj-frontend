@@ -138,6 +138,16 @@ export const CLOUD_ACCOUNT_KEY = 'cp.cloudAccount'
  */
 export const CLOUD_TOKEN_KEY = 'cp.cloudToken'
 
+// ---------------------------------------------------------------- 界面浮层
+
+/**
+ * 悬浮倒计时卡：窗口位置 / 尺寸 / 锁定态 / 计时现场。
+ *
+ * 与工作区模式那两条同一性质 —— 是**这台设备此刻**的事实（窗口摆哪、屏幕多大），
+ * **绝不进云同步白名单**。读写都在 `services/countdown.js`。
+ */
+export const COUNTDOWN_KEY = 'cp.countdown'
+
 // ---------------------------------------------------------------- 跨刷新的一次性通知
 
 /**
