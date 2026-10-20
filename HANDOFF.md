@@ -2260,7 +2260,7 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 
 **文案与主题**
 - 组件文案在 `src/i18n/messages/countdown.js`（中英各一份，预设里的数字走 `{n}`）；菜单行是 `settings.menu.openCountdown`。界面文案没有一处写死。
-- 标题、按钮、输入框、预设、解锁胶囊的颜色全部引用变量；`--toast-bg` + `backdrop-filter` 与通知 toast 同一套玻璃底，浅色 / 深色都已实测。
+- 标题、按钮、输入框、预设、解锁胶囊的颜色全部引用变量，`backdrop-filter: blur(14px)` 保留玻璃质感。**底色是专属的 `--cd-bg`，不再借 `--toast-bg`**（2026-10-21 用户反馈「未锁定时窗口透明度太高」）：toast 的 0.62 是给扫一眼就走的提示用的，而这张卡底下压着编辑器正文、又要盯着读秒，0.62 会让数字和边框糊在一起。现在深色 / 浅色各取 0.94（与放大镜 `--probe-bg` 同一档「看得出是玻璃、又读得清」）。锁定态不受影响（`.cd-card.is-locked` 走 `transparent`），浅色 / 深色均已截图核对。
 
 **验证记录（2026-10-20）**
 - `npm run verify`：A/B/C/D/F 绿；E/G/H 仍是既有失败（判题 WA、快捷键、题解），与本次改动无关。

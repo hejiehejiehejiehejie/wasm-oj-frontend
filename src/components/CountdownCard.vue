@@ -607,7 +607,9 @@ onBeforeUnmount(() => {
   padding: 10px 12px 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--toast-bg);
+  /* 底色不借 --toast-bg（0.62 太透，正文会透进来打架）：--cd-bg 是专为这张卡
+     开的 0.94 一档，与放大镜同一「读得清」的标准；锁定态另走 transparent */
+  background: var(--cd-bg);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--toast-shadow);
