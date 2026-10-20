@@ -51,6 +51,7 @@ import {
   downloadCloud,
   error as cloudError,
   fillCloudCode,
+  fillCodeChained,
   filling as cloudFilling,
   handleInput as cloudHandle,
   loginCloud,
@@ -204,6 +205,25 @@ const cloudCodeStep2 = computed(() =>
 )
 const cloudVerifyLabel = computed(() =>
   t(cloudCodeMode.value === 'upload' ? 'settings.cloud.verifyUpload' : 'settings.cloud.verifyLogin'),
+)
+
+/**
+ * 代填那颗的文案 / title：链路版与老版本各一套。判据只有 `fillCodeChained` 一份
+ * （与设置面板同一段写法，见 EditorSettingsPanel 的同名 computed）。
+ */
+const cloudFillLabel = computed(() =>
+  t(
+    cloudFilling.value
+      ? fillCodeChained.value
+        ? 'settings.cloud.fillCodeChainBusy'
+        : 'settings.cloud.fillCodeBusy'
+      : fillCodeChained.value
+        ? 'settings.cloud.fillCodeChain'
+        : 'settings.cloud.fillCode',
+  ),
+)
+const cloudFillTitle = computed(() =>
+  t(fillCodeChained.value ? 'settings.cloud.fillCodeChainTitle' : 'settings.cloud.fillCodeTitle'),
 )
 
 /** 等点头那一下的说明与按钮名，同样按 `kind` 挑 */
@@ -819,20 +839,18 @@ function optionLabel(option) {
               </div>
               <p class="settings-menu__note">{{ cloudCodeIntro }}</p>
               <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的与改动前
-                   一样。它替用户跑一趟 Codeforces，验证那一步仍然由用户回本页点（理由见
-                   cloudSession.js 的 fillCloudCode），所以下面两步照旧摆着。 -->
+                   一样。扩展能回报「保存完了」时（fill-saved）它会把验证也一起做完，文案随之换成
+                   链路版 —— 下面那两步是给人手动填的路子，两种情况都照旧摆着。 -->
               <div v-if="canFillCode" class="settings-menu__fill">
                 <button
                   type="button"
                   class="settings-menu__action settings-menu__action--primary settings-menu__fill-btn"
                   :disabled="cloudBusy || cloudFilling"
-                  :title="t('settings.cloud.fillCodeTitle')"
+                  :title="cloudFillTitle"
                   @click="fillCloudCode"
                 >
                   <AppIcon name="codeforces" :size="12" />
-                  <span>{{
-                    t(cloudFilling ? 'settings.cloud.fillCodeBusy' : 'settings.cloud.fillCode')
-                  }}</span>
+                  <span>{{ cloudFillLabel }}</span>
                 </button>
                 <span
                   class="settings-menu__note"

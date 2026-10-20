@@ -90,6 +90,7 @@ import {
   downloadCloud,
   error as cloudError,
   fillCloudCode,
+  fillCodeChained,
   filling as cloudFilling,
   handleInput as cloudHandleInput,
   loginCloud,
@@ -1481,6 +1482,26 @@ const cloudUpdatedHint = computed(() => {
 const cloudCodeStep1 = computed(() => splitLinkText('settings.cloud.codeStep1'))
 
 /**
+ * 代填那颗按钮的文案与 title：链路版（扩展能把「保存完」报回来、且这一轮是登录）与
+ * 老版本各一套，判据只有 `fillCodeChained` 一份（见 cloudSession）。
+ * 面板与菜单都要用，所以不各自拼 `t()` 的三元 —— 那两处很容易改一处漏一处。
+ */
+const cloudFillLabel = computed(() =>
+  t(
+    cloudFilling.value
+      ? fillCodeChained.value
+        ? 'settings.cloud.fillCodeChainBusy'
+        : 'settings.cloud.fillCodeBusy'
+      : fillCodeChained.value
+        ? 'settings.cloud.fillCodeChain'
+        : 'settings.cloud.fillCode',
+  ),
+)
+const cloudFillTitle = computed(() =>
+  t(fillCodeChained.value ? 'settings.cloud.fillCodeChainTitle' : 'settings.cloud.fillCodeTitle'),
+)
+
+/**
  * 用户名输入框的回车。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
  * 组字期间敲下去会把半截拼音直接拿去登录 —— 和全局快捷键同一条规矩（见 App.vue 的 onKeydown）：
  * 组字中一律不当成提交。keyCode 229 是部分输入法在组字时不报 isComposing 的补漏。
@@ -2542,7 +2563,9 @@ watch(pendingUnbind, (open) => {
 
             <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的就是上面那两步。
                  它是**抄近道**，所以排成描边次按钮 —— 实心 accent 只留给最后那颗「验证」。
-                 码过期后一并禁用：往 Codeforces 上写一枚已经作废的码只是白跑一趟。 -->
+                 码过期后一并禁用：往 Codeforces 上写一枚已经作废的码只是白跑一趟。
+                 扩展能回报「保存完了」时（fill-saved）这颗连验证一起做完，文案随之换成链路版，
+                 但**仍然**是次按钮：那一轮里真正「落定」的仍是下面那颗验证（见 fillCodeChained）。 -->
             <div v-if="canFillCode" class="cloud-flow__block cloud-flow__block--fill">
               <span
                 class="cloud-flow__status"
@@ -2554,13 +2577,11 @@ watch(pendingUnbind, (open) => {
                 type="button"
                 class="download-button cloud-flow__fill"
                 :disabled="cloudBusy || cloudFilling || cloudCodeCountdown.expired"
-                :title="t('settings.cloud.fillCodeTitle')"
+                :title="cloudFillTitle"
                 @click="fillCloudCode"
               >
                 <AppIcon name="codeforces" :size="13" />
-                <span>
-                  {{ t(cloudFilling ? 'settings.cloud.fillCodeBusy' : 'settings.cloud.fillCode') }}
-                </span>
+                <span>{{ cloudFillLabel }}</span>
               </button>
             </div>
           </div>

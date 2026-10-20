@@ -502,6 +502,15 @@ export default {
         fillCodeNote: '没装扩展也不影响：照下面两步手动填一样可以',
         fillCodeDone: '已在 Codeforces 上填好，回到这里点下面的按钮完成验证',
         /**
+         * 链路那两版（2026-10-20 加）：只在扩展具备 `fill-saved` 能力、且这一轮是登录时用
+         * （见 cloudSession 的 fillCodeChained）。按钮确实多做了一件事，就得在字面上说出来 ——
+         * 否则「点一下自动填写，结果顺手把我登录了」会像个意外。
+         */
+        fillCodeChain: '在 Codeforces 上自动填写并登录',
+        fillCodeChainTitle:
+          '由已装的扩展打开 Codeforces 的 Social 一页，把上面这枚验证码填进 Last name 并保存，然后关掉那一页、回到这里直接完成验证与登录。扩展不会读取、也不会把你的 Codeforces 登录凭据上传到任何地方',
+        fillCodeChainBusy: '正在填写并验证…',
+        /**
          * 取码相里那行提示的另外三种形态（第四种是默认的 fillCodeNote，即「不知道」）。
          * 只在**装了带 cf-check 能力的扩展**、且它报回了明确结论时才出现。
          * 措辞别写成断言：扩展报的是它在浏览器里看到的事实，不是服务端确认过的身份
@@ -1069,6 +1078,11 @@ export default {
         fillCodeBusy: 'Filling…',
         fillCodeNote: 'No extension? No problem — follow the two steps below and do it by hand',
         fillCodeDone: 'Filled in on Codeforces — come back here and press the button below to finish',
+        /** 见 zh-CN 那侧的说明：只有扩展具备 fill-saved 能力、且这一轮是登录时用 */
+        fillCodeChain: 'Fill it in on Codeforces and sign in',
+        fillCodeChainTitle:
+          'The installed extension opens your Codeforces Social page, puts this code into Last name and saves it, then closes that tab and finishes verification and sign-in right here. It never reads your Codeforces credentials, and never uploads them anywhere.',
+        fillCodeChainBusy: 'Filling in and verifying…',
         /** 见 zh-CN 那侧的说明：措辞指着「这个浏览器」，不指人 */
         cfHintMatch: 'Confirmed — this browser is signed in as {handle}; one click will fill it in',
         cfHintMismatch:

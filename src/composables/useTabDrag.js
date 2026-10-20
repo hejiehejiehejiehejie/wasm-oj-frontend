@@ -22,10 +22,14 @@
  *            │
  *            ├── 静止到 200ms（位移 < 10px）──▶ armed「可拖」：轻震 + 浮起
  *            │        ├── 位移 ≥ 5px ────▶ dragging：锁滚动、接管 pointermove 重排
- *            │        └── 继续静止到 500ms ─▶ 弹自定义上下文菜单（拖拽态作废）
+ *            │        └── 继续静止到 500ms ─▶ 菜单：弹自定义上下文菜单（浮起态作废）
+ *            │                                  └── 手指再动 ≥ 10px ─▶ dragging
+ *            │                                      （收菜单，接着拖 —— 二十二改）
  *            └── 200ms 内抬手（位移 < 10px）──▶ tap：切页签 / 折叠分组
  *
- *     200 / 500 / 10 / 5 四个数就是这张图的全部参数，改一个都要回来重画它。
+ *     200 / 500 / 10 / 5 四个数加上「菜单态再动 10px」就是这张图的全部参数，改一个都要
+ *     回来重画它。**菜单不是终点**：菜单弹出后手势仍归我们（滚动锁不解、touchmove 照拦），
+ *     手指一动就收菜单、接着当拖拽走 —— 见 openLongPressMenu 与 onPointerMove 的注释。
  *   · 触屏按下**不切焦点**（鼠标按下即获焦，见 EditorTabs.onTabPointerDown）：手指落在
  *     页签上很可能只是想滚一下条带，按下就切走会让「滚着看一眼」变成「连着切了三个文件」。
  *     切焦点挪到两个出口 —— tap，以及 dragging（经 onDragStart 回调，拖谁就切谁）。
@@ -33,7 +37,7 @@
  *     内联 `overflow-x` 锁成 hidden（`touch-action` 在手势开始时就读定了、中途改它无效，
  *     这条结论与 useTreeDrag / App.vue 分隔条出自同一次踩坑）。锁与解都走
  *     lockStripScroll / unlockStripScroll，**每个出口都必须解**（pointerup / pointercancel /
- *     Esc / 组件卸载全汇到 cancelPress）。
+ *     窗口 blur / Esc / 组件卸载全汇到 cancelPress）。
  *
  * 【触屏要补的三件事，缺一件都只在真机上现形】`dispatchTouchEvent` 那类合成事件**不跑浏览器
  * 的手势识别器**，所以下面三条在无头探针里永远测不出来（2026-10-10 用户报「拖动页签没对触摸屏
@@ -93,6 +97,12 @@
  *     （脱离阈值，防误触）；左出 = 右缘收回到芯片中线以左（几乎完全拖出芯片才算）。
  *     唯一成员的组拖空后，芯片**拖拽期间保留**（反悔拖回去还能吸入），松手结算时才由
  *     tabGroups.removeEmptyGroups 摘除。
+ *   · 跨组越界（二十四改）：未分组的单元撞上某组成员、而这一换会把它塞进**组的内部**时，
+ *     不允许走普通换位 —— 页签就地入组（Chrome：拖到两名组员之间 = 加入该组），视图页签
+ *     连芯片带组员整段跳过。缺这条时那组的成员会在 stripOrder 上被隔成两段，渲染出
+ *     **两枚芯片 + 两条包络线**（2026-10-20 用户报「拖页签到组里出现两个胶囊」）。
+ *     为什么以前多数时候不炸：拖入判据按**被拖页签自己的宽度**算，窄签对宽签时
+ *     「前导边缘过中线」比「压过 40% 自身宽」先到，于是先换位、后入组。
  *
  * 【芯片拖动 = 整组搬移（2026-10-20 十八改）】分组芯片本身就是组的拖把柄（Chrome 同款：
  * 按住芯片拖 = 搬走整组；原样松手仍是折叠 / 展开切换）。被拖对象是「芯片 + 紧随其后的
@@ -130,6 +140,11 @@ const TOUCH_SLOP_PX = 10
 /** 触屏 armed 之后再动这么多就真的起拖。比滚动阈值小：此时「这次手势归我」已经确定，
  *  再要求 10px 只会让拖拽起步发木。 */
 const TOUCH_DRAG_PX = 5
+/** 菜单已经弹出之后，手指再动这么多 = 「其实是要拖」（二十二改）。**故意比 TOUCH_DRAG_PX
+ *  大**：菜单开着的时候手势先被判成了「弹菜单」，重新改口要一点明确意图 —— 手指的细微
+ *  抖动（5px 级）不该把菜单晃没。值取 TOUCH_SLOP_PX 那一档（10px），与「滚动 / 轻点」的
+ *  防抖边界同一个量级，但没有共用那个常量：那边管的是「别把滚动误判成长按」，语义不同。 */
+const TOUCH_MENU_DRAG_PX = 10
 /** 触屏轻点的时间上限：抬手时按下还没满这么久 + 位移 < TOUCH_SLOP_PX = 一次 tap */
 const TOUCH_TAP_MS = 200
 /** 指针距条带左右边缘多近开始自动滚动（用户口径 40px） */
@@ -165,8 +180,11 @@ const GROUP_JOIN_OVERLAP = 12
  *   触屏长按满 500ms 仍不动：在手指位置弹自定义菜单
  * @param {(target: {id: string|null, gid: string|null}) => void} [options.onDragStart]
  *   拖拽真正开始的那一帧（两种设备都会调；触屏靠它补「拖谁就切谁」）
+ * @param {() => void} [options.onMenuDismiss]
+ *   长按菜单弹出后又动起来要拖：调用方就此收起菜单（二十二改）。不收的话那张菜单会盖在
+ *   被拖页签上跟着走完整个拖拽。
  */
-export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) {
+export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, onMenuDismiss }) {
   /** 正在被拖的页签 id；null = 没在拖（页签上的拖拽态类看它）。
    *  芯片拖动时放的是哨兵 `group:<gid>`（芯片没有 strip id；truthy 即可驱动 is-dragging
    *  与包络线的逐帧跟随，且不会与任何页签 id 撞上 —— 组 id 是 `g` 前缀，节点 id 不是）。 */
@@ -335,8 +353,11 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
       startTime: performance.now(),
       armed: false,
       dragging: false,
-      /** 500ms 到点、菜单已弹出：本次手势到此为止（等抬手收尾，不再响应移动） */
+      /** 500ms 到点、菜单已弹出（菜单态不是终点：手指再动 ≥ 10px 就改口成拖拽，见 onPointerMove） */
       menuOpen: false,
+      /** 菜单弹出那一刻的指针位置（二十二改：判「菜单后手指又动了」按相对它的增量） */
+      menuX: 0,
+      menuY: 0,
       captureEl: event.currentTarget instanceof Element ? event.currentTarget : null,
       armTimer: 0,
       menuTimer: 0,
@@ -360,6 +381,22 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', onPointerCancel)
+    // 窗口失焦（Cmd+Tab / 切应用 / 来电）也要走完整清理链（审计发现的缺口）：pointerup
+    // 发生在别的应用里、永远回不来，不拦 blur 的话 armed 的滚动锁与浮起态会永久挂在
+    // DOM 上 —— 那是这套手势里最不能接受的死锁（见 cancelPress 的注释）。与 pointercancel
+    // 同一条出口。
+    window.addEventListener('blur', onWindowBlur)
+  }
+
+  /** 窗口失焦 = 与 pointercancel 同一条出口：拖拽中取消回弹（不提交），按压中直接清 */
+  function onWindowBlur() {
+    if (!press) return
+    if (press.dragging) {
+      finishDrag(false)
+      markClickSuppressed()
+      return
+    }
+    cancelPress()
   }
 
   /**
@@ -421,16 +458,26 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
   /**
    * 长按满 500ms 仍然一动不动：这不是拖拽，是「长按呼出菜单」（十九改）。
    * 位置取手指最后停的地方；菜单由调用方弹（本模块不碰 UI）。
-   * 拖拽态当场作废：收起浮起反馈、松开滚动锁、本次手势不再响应移动（等抬手收尾）。
+   * 浮起反馈当场收起（菜单一出现再顶着「就绪」态很脏），但**手势不结束**：
+   *   · 滚动锁不解、touchmove 照拦（onTouchMoveBlock）—— 二十二改。解了的话菜单打开后
+   *     手指一动浏览器就把它判成横向滚动，等我们读到 >10px 时已经收到 pointercancel，
+   *     「菜单后接着拖」永远起不来（这是本条需求的真正难点，不是判断阈值）。
+   *   · 手指再动 ≥ TOUCH_MENU_DRAG_PX：收菜单、当场并入拖拽（见 onPointerMove）。
+   *   · 原地抬手：仍按「这不是点击」处理（onPointerUp），菜单留着等用户点。
+   * 松手 / 取消走的还是 cancelPress —— 滚动锁在那里统一解，出口没有新增。
    */
   function openLongPressMenu() {
     if (!press || press.dragging || press.menuOpen) return
     press.menuTimer = 0
     press.menuOpen = true
     press.armed = false
+    // 菜单弹出这一刻的指针位置：之后判「手指又动了」按**相对它**的增量算，不按相对按下的总位移
+    // —— 按下到 500ms 之间允许有 <5px 的抖动（再多就已经起拖了），拿总位移当基准会让
+    // 「抖了 4px 的手」再动 6px 就起拖，手感像菜单被碰了一下就没了。
+    press.menuX = press.lastX
+    press.menuY = press.lastY
     pressingId.value = null
     armedId.value = null
-    unlockStripScroll()
     onLongPress?.({ id: press.id, gid: press.gid, x: press.lastX, y: press.lastY })
   }
 
@@ -438,9 +485,13 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
    * 不让浏览器把这次手势当滚动。
    * **armed 之前必须什么都不做**：那 200ms 里手指横向滑动就是「滚页签条」，
    * 一拦（条带是横向滚动容器，页签不溢出时也滚不动）就再也滚不动了。
+   * 菜单态（menuOpen）一并拦：那时手势已经归我们，放行就等于把「菜单后接着拖」交给
+   * 浏览器的滚动识别器（见 openLongPressMenu）。
    */
   function onTouchMoveBlock(event) {
-    if (press && (press.armed || press.dragging) && event.cancelable) event.preventDefault()
+    if (press && (press.armed || press.dragging || press.menuOpen) && event.cancelable) {
+      event.preventDefault()
+    }
   }
 
   /** 按住期间不让系统长按菜单插进来（页签没有自己的右键菜单，拦掉不损失功能） */
@@ -453,8 +504,19 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
     press.lastX = event.clientX
     press.lastY = event.clientY
 
-    // 菜单已经弹出来了：本次手势到此为止，移动不参与任何判定（等抬手，见 onPointerUp）
-    if (press.menuOpen) return
+    // 菜单已经弹出来了（二十二改）：菜单不是手势的终点 —— 手指继续动就是「其实我要拖」，
+    // 收起菜单、当场并进拖拽（用户口径：弹出菜单之后也应该能拖这张页签）。
+    // 阈值比 armed 之后那个 5px 大（见 TOUCH_MENU_DRAG_PX）：先被判成「菜单」的手势，
+    // 改口需要一点明确意图。起拖位置用 press.lastX（= 当前指针），与任何起手路径一样不跳帧。
+    if (press.menuOpen) {
+      const moved = Math.hypot(event.clientX - press.menuX, event.clientY - press.menuY)
+      if (moved < TOUCH_MENU_DRAG_PX) return
+      press.menuOpen = false
+      // 先收菜单再起拖：菜单是 Teleport 到 body 的浮层，留着会跟着拖拽一路盖在页签上
+      onMenuDismiss?.()
+      startDrag(event)
+      return
+    }
 
     if (press.dragging) {
       updateDrag(event.clientX, event.clientY)
@@ -875,6 +937,45 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
       //     谁也不动，页签单纯跟手。
       // 与芯片换位同样用前导边缘：邻位停放时页签右缘 ≈ 芯片左缘、左缘 ≈ 芯片右缘，
       // 两侧都离芯片中线有 chipWidth/2 的余量，起拖瞬间不会误触发（那是旧实现的真实 bug）。
+      // 跨组越界（二十四改）：未分组的单元撞上**已有组**的成员、这一换又正好把它塞进
+      // 那个组的两个成员之间时，普通换位会把组**劈成两段** —— stripOrder 上该组的成员
+      // 不再连续，而 stripItems 按「组首」插芯片，条带上于是出现**两枚胶囊 + 两条包络线**
+      //（2026-10-20 用户报「拖动一个标签页到标签页组中，出现了两个胶囊」截图里就是
+      // new.cpp 被塞进两个长题名页签之间）。
+      // 为什么以前大多数时候不炸：页签拖到组的边缘，tryJoinGroup 会先把它吸进组
+      //（右入要越过组末成员右缘 40% 页签宽、左入要压过组首 12px）。但那两条判据都
+      // **按被拖页签自己的宽度**算，窄页签（new.cpp）对上宽页签（长题名）时，35px 的
+      // 行程里「前导边缘过中线」比「压过 40% 自身宽」先到 —— 于是先换位、后入组，
+      // 那一帧之后它已经在组中间了，两块判据都不再命中。
+      // 分两种收场：
+      //   · 页签（能入组）→ **就地入组**，下一帧起在内侧换位，与 Chrome「拖进组中间
+      //     就是加入该组」一致；
+      //   · 视图页签（不能入组）→ 连芯片带组员**整段**跳过去，绝不劈开组。
+      // 门槛与普通换位逐字相同（前导边缘过邻位中线）；单成员的组劈不开，交给普通换位。
+      if (!drag.gid && dir !== 0) {
+        const nu = dir > 0 ? next : prev
+        if (
+          nu &&
+          nu.kind === 'item' &&
+          nu.gid &&
+          (dir > 0
+            ? rightEdge > drag.pos.get(nu) + nu.width / 2
+            : leftEdge < drag.pos.get(nu) + nu.width / 2)
+        ) {
+          const run = neighborRun(i, dir)
+          if (run && run.list.filter((u) => u.kind === 'item').length >= 2) {
+            if (!drag.unit.view) {
+              drag.gid = nu.gid
+              continue
+            }
+            drag.order.splice(run.at, run.list.length)
+            if (dir > 0) drag.order.splice(i, 0, ...run.list)
+            else drag.order.splice(drag.order.indexOf(drag.unit) + 1, 0, ...run.list)
+            continue
+          }
+        }
+      }
+
       const nextIsJoinableChip = !!next && next.kind === 'chip' && !drag.gid && joinableChip(next)
       if (
         dir > 0 &&
@@ -987,13 +1088,14 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
    * 补间打架。内联 transform 在读数之前清掉。
    */
   function settle(els, visuals) {
+    // 内联 transform 无条件先清（审计改）：哪怕条带此刻不在了（极端时序），残留的内联
+    // 位移也不能留在元素上 —— 清理链的完备性优先于补间。
     const strip = stripEl()
-    if (!strip || !visuals) return
-    const originX = stripOriginX(strip)
+    const originX = strip ? stripOriginX(strip) : 0
     for (const el of els) {
       const from = visuals.get(el)
       el.style.transform = ''
-      if (from == null) continue
+      if (!strip || from == null) continue
       const residual = from - (el.getBoundingClientRect().left - originX)
       if (Math.abs(residual) < 0.5) continue
       el.animate(
@@ -1067,7 +1169,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
   /**
    * 清掉这一轮按压的全部临时状态（不动 click 抑制，那个要活到 click 之后）。
    * **这是所有出口的唯一收口**：松手、轻点、Esc、指针被系统掐断（pointercancel）、
-   * 菜单弹出、组件卸载 —— 谁漏走这里，页签就会卡在「半空中」（浮起 + 滚动锁 + 拖拽态
+   * 窗口失焦（blur）、菜单弹出、组件卸载 —— 谁漏走这里，页签就会卡在「半空中」（浮起 + 滚动锁 + 拖拽态
    * 一起挂在 DOM 上），那是这套手势里最不能接受的一种死锁。
    */
   function cancelPress() {
@@ -1076,6 +1178,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) 
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerup', onPointerUp)
     window.removeEventListener('pointercancel', onPointerCancel)
+    window.removeEventListener('blur', onWindowBlur)
     window.removeEventListener('touchmove', onTouchMoveBlock, true)
     window.removeEventListener('contextmenu', onContextMenuBlock, true)
     window.removeEventListener('keydown', onKeyDown, true)

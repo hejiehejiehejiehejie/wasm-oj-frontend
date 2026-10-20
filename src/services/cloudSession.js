@@ -17,7 +17,13 @@
  */
 import { computed, ref, watch } from 'vue'
 import { flush } from './autoSave.js'
-import { canCheckCf, canFillCode, checkCfIdentity, requestCodeFill } from '../composables/useCompanionBridge.js'
+import {
+  canCheckCf,
+  canFillCode,
+  canFillSaved,
+  checkCfIdentity,
+  requestCodeFill,
+} from '../composables/useCompanionBridge.js'
 import {
   applyProfile,
   collectProfile,
@@ -303,6 +309,10 @@ export function openCfProfileSettings() {
  * 所以都带 `keep: true` 不退场；「取消」那颗点了就结束这一轮（它会清掉 code，
  * 下面那个 watch 顺手把通知收掉）。
  *
+ * **「一键填写」那颗在链路版下叫「填写并登录」（2026-10-20）**：扩展能回报「保存完了」时，
+ * 它点下去会把验证也一起做完（见 fillCodeChained / fillCloudCode）。改的只是标签，
+ * 动作仍是同一个 `fillCloudCode`。
+ *
  * **「验证」那颗（2026-10-19 加）也是 `keep: true`**：验证成功会清空 `code`，watch 顺势收掉整条；
  * 失败则不清（见上），通知留在场上正好接着重试 —— 与面板上那颗的行为一字不差。
  * 有了它，这条通知自己就能把整条流程走完，不必再回设置面板。
@@ -328,7 +338,11 @@ function codeActions() {
   // 过期后不再给「一键填写」：往 Codeforces 上写一枚已经作废的码，只是白跑一趟
   if (canFillCode.value && !codeCountdown.value.expired) {
     actions.push({
-      label: t('notifications.cloud.codeFill'),
+      label: t(
+        fillCodeChained.value
+          ? 'notifications.cloud.codeFillChain'
+          : 'notifications.cloud.codeFill',
+      ),
       run: () => void fillCloudCode(),
       keep: true,
     })
@@ -438,6 +452,9 @@ watch(
 //      填进 Last name 并保存。**代填不等于免验证**：服务端仍然只认 `user.info` 里读回来的
 //      那枚 Last name，信任模型与手工填写一字不差；扩展也绝不回传 cookie 或页面内容，
 //      理由与边界都写在 useCompanionBridge 的 requestCodeFill 上面。
+//      **2026-10-20 起它是一条链路**：扩展多报一条「保存落下去没有」（`fill-saved` 能力），
+//      站点收到就直接接着验证 —— 用户点一下按钮，剩下的（填、保存、关掉那一页、验证、登录）
+//      全在这条链上跑完。老扩展没有这条能力，就还是「填完提示一句，验证留给用户点」。
 //   3. 预检 —— 装了扩展且能力清单里有 `cf-check` 时，取到码就先问一句「这个浏览器登的是不是
 //      你填的这个 handle」（`cloudCfStatus` / `cloudCfHint`），把代填的成败**提前**说清。它只换一行提示
 //      的措辞与颜色，不改变任何按钮的行为，更不参与鉴权。
@@ -445,10 +462,19 @@ watch(
 // 状态与动作放这里而不是各组件：面板与菜单操作的是同一份取码会话（见文件头那段），
 // 复制与代填的忙碌 / 结果同样只能有一份 —— 否则一边点着代填、另一边按钮还亮着。
 //
-// `canFillCode` 从 useCompanionBridge 转出去，是为了让面板与菜单**只认 cloudSession 一个入口**
-// 就能读全这块 UI 的状态，不必各自再去 import 一次桥。
+// `canFillCode` / `canFillSaved` 从 useCompanionBridge 转出去，是为了让面板与菜单**只认
+// cloudSession 一个入口**就能读全这块 UI 的状态，不必各自再去 import 一次桥。
 
-export { canFillCode, canCheckCf }
+export { canFillCode, canCheckCf, canFillSaved }
+
+/**
+ * 这一颗「自动填写」点下去会不会**顺手把验证也做完**（见 fillCloudCode 的链路）。
+ *
+ * 两个条件缺一不可：扩展具备 `fill-saved`（能回报「保存完了」），且这一轮是**登录**。
+ * 上传那条路刻意不串：它会**覆盖云端**，而「覆盖」这一步的最后一次确认该由用户自己按，
+ * 与登录「只是认下这个用户名」不是一个量级 —— 面板与菜单据此换按钮文案。
+ */
+export const fillCodeChained = computed(() => canFillSaved.value && codeMode.value === 'login')
 
 /** 刚复制过验证码（按钮换「已复制」，2s 后复位） */
 export const codeCopied = ref(false)
@@ -558,24 +584,44 @@ async function refreshCfStatus() {
 /**
  * 请扩展把当前这枚码填进 Codeforces。只在 `canFillCode` 为真时会被调用（按钮本身据此显示）。
  *
- * 成功只提示「已填好，回来点验证」—— **验证那一步仍然留给用户自己点**：服务端要的是
- * 「确认这一次写入」，替他点等于把最后一道确认也拿走了；何况码还有 10 分钟有效期，
- * 用户完全来得及先看一眼 Codeforces 上填对了没有。
+ * 【2026-10-20 起它是一条链路】扩展具备 `fill-saved` 能力、且这一轮是**登录**时，这里不止
+ * 「等它填好」，还会等它报**保存落下去**（那一刻它已经把那个 Codeforces 标签页关掉），然后
+ * 直接接着验证 —— 用户点一下按钮，填 / 保存 / 关页 / 验证 / 登录一路跑完。
+ *
+ * 为什么不让用户自己点最后那一下：服务端要的「确认这一次写入」原本是怕站点替用户做主，
+ * 可这一趟的每一步（填什么码、改哪个字段）用户都已经明确要求过，中间没有任何需要他再判断
+ * 的东西；留下那一下只是多一次来回 —— 而且他此刻正盯着另一个网站的标签页，早就没得看了。
+ * **上传那条路刻意不串**（见 fillCodeChained）：它会覆盖云端，最后一下该由用户按。
+ *
+ * 老扩展 / 等不到回报时照旧退回改动前的行为：提示「已填好，回来点验证」，码有 10 分钟有效期。
  */
 export async function fillCloudCode() {
   if (filling.value || !code.value) return
   clearCloudFeedback()
   filling.value = true
   const result = await requestCodeFill(pendingHandle.value, code.value)
-  filling.value = false
-  if (result.ok) {
-    notice.value = t('settings.cloud.fillCodeDone')
-  } else {
+
+  if (!result.ok) {
+    filling.value = false
     error.value = fillFailureText(result.reason)
+    refreshCfStatus()
+    return
   }
+
+  // 等到「保存完了」才松手：这几秒里按钮一直转，免得用户以为没反应又点一次
+  const saved = fillCodeChained.value && (await result.saved)
+  filling.value = false
+
+  // 只有**不接着验证**时才说这句 —— 链路上它紧接着就去验证了，此时提示「回来点验证」
+  // 会与屏幕上的动作打架（而且那一轮结束时页面往往已经重载）
+  if (!saved) notice.value = t('settings.cloud.fillCodeDone')
   // 扩展刚跑完一趟、会话缓存已经对齐（见 cph-companion 的 syncCfIdentityFromFill），
   // 再问一次就能把「没登录 / 登的不是你」这类提示从「失败后才知道」提前到「点之前就知道」
   refreshCfStatus()
+
+  // 保存确实落下去了、码也还在（用户可能刚点了取消）→ 接着验证并登录。
+  // 那一步自己会设 busy / error，成功时整页重载（见 verifyAndLogin → adoptCloud）
+  if (saved && code.value) await verifyAndLogin()
 }
 
 /**

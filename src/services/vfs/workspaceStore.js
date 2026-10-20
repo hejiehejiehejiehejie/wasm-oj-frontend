@@ -397,11 +397,21 @@ export function closeTab(id) {
   if (workspace.previewTabId === id) workspace.previewTabId = null
   if (workspace.activeId === id) {
     // index 是 splice **后**的下标：原来右邻那张此刻恰好顶到 index 上。先问注入的
-    // 可见页签寻址（先右后左），没有注入或没找到（全折叠）再退回「原下标顶上来」——
-    // activeId 落在隐藏页签上时由芯片的 holds-active 环提示（与折叠组的口径一致）。
+    // 可见页签寻址（先右后左，tabGroups.findNextVisibleTab）。
     const picked = closeFocus.pick?.(id, index, workspace.openTabIds)
-    workspace.activeId =
-      picked ?? workspace.openTabIds[Math.min(index, workspace.openTabIds.length - 1)] ?? null
+    if (closeFocus.pick) {
+      // 注入在场就信它的结论（2026-10-20 审计改）：picked 为 null = 条带上已经没有任何
+      // **可见**页签（其余全被折叠藏起来）—— 焦点必须置 null（「焦点必可见」铁律），
+      // 不能再退回「原下标顶上来」：那个下标顶上来的可能是折叠组里藏着的页签，
+      // 焦点落上去就是「编辑区开着文件、条带找不到它」的幽灵态（与十七改的折叠路径同一条
+      // 规矩）。旧注释里「点不到关闭所以走不到这里」不成立 —— 右键菜单 / 中键 / 快捷键
+      // 都能在看不见页签的情况下关它。
+      workspace.activeId = picked ?? null
+    } else {
+      // 注入还没装上（模块加载早期）才退回默认的「原下标顶上来」
+      workspace.activeId =
+        workspace.openTabIds[Math.min(index, workspace.openTabIds.length - 1)] ?? null
+    }
   }
 }
 

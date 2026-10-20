@@ -273,10 +273,9 @@ export function findNextVisibleTab(anchorIndex, excludeId) {
 
 // 关闭激活页签的焦点回退注入（见 workspaceStore.closeFocus 的说明）：可见性判据
 // 活在本模块，workspaceStore 不能反向 import 这里（会成环），所以是注入不是直调。
-// 全折叠等「一张可见页签都没有」的极端情况返回 null，closeTab 退回默认的「原下标顶上来」。
-// 注意它**不**做清除：十七改只把「折叠」这条路改成「全折叠就清空焦点」
-// （EditorTabs.transferFocusOutOfGroup），关闭路径的兜底原样保留 —— 全折叠时用户在
-// 条带上看不见任何页签，正常也点不到关闭，真走到这里说明状态本来就是残留的。
+// 全折叠等「一张可见页签都没有」的极端情况返回 null —— closeTab 据此把焦点置 null
+//（2026-10-20 审计改，「焦点必可见」铁律；原先退回「原下标顶上来」，可能指到折叠组里
+// 藏着的页签，与十七改的折叠路径自相矛盾）。
 closeFocus.pick = (closedId, index) => findNextVisibleTab(index, closedId)
 
 /**
@@ -304,10 +303,18 @@ export function addToGroup(tabId, gid) {
   // 往折叠着的组里加页签 → 顺手展开：否则新页签当场被藏起来，用户看到的只是「点了没反应」
   g.collapsed = false
   relocateIntoRun(tabId, gid)
+  // 与 groupTabs 同一口径：这张页签可能是旧组的最后一名成员，搬走要把旧空组摘掉
+  prune()
 }
 
 export function removeFromGroup(tabId) {
   delete tabGroups.memberOf[tabId]
+  // 「无幽灵空组」不变式：被摘空的组当场销毁（原先只删成员关系，唯一的成员被摘走后
+  // 组对象连同颜色 / 名字永久残留在状态与 localStorage 里 —— 芯片虽不渲染，数据是脏的）。
+  // 与拖拽期的「空组暂留」不冲突：那是 useTabDrag 拖拽期间的实时归属，DOM 上的 memberOf
+  // 在拖拽期间一概不动，松手结算才走到这里（onStripDrop 随后还会再调一次 removeEmptyGroups，
+  // 幂等）。
+  prune()
 }
 
 export function renameGroup(gid, name) {
@@ -401,13 +408,40 @@ export function removeEmptyGroups() {
   }
 }
 
-/** 清掉指向已关闭页签的成员关系，再摘掉空组 */
+/**
+ * 把每组的成员在 stripOrder 上重新贴成**一段**（二十四改，「同组连续」的自愈口）。
+ * 以组内第一名成员为锚（相对次序不动），其余依次贴到前一名右边。
+ *
+ * 正常路径不该出现断裂 —— useTabDrag 的换位判据会把非成员挡在 run 外面（见 updateDrag
+ * 的「跨组越界」）。这里兜两种残留：① 旧版本留下的脏 stripOrder（用户当场的状态靠下一次
+ * 落盘 / 下次开机自愈）；② 以后新增的、绕过拖拽判据直接改 stripOrder 的入口。
+ *
+ * 断裂的代价不只是「组员排得散」：stripItems 按「组首」插芯片，一段组会渲染出**两枚
+ * 芯片 + 两条包络线**（2026-10-20 用户报「拖动一个标签页到标签页组中，出现了两个胶囊」）。
+ */
+export function normalizeRuns() {
+  for (const g of tabGroups.groups) {
+    const members = membersOf(g.id)
+    if (members.length < 2) continue
+    let prev = members[0]
+    for (let i = 1; i < members.length; i += 1) {
+      const id = members[i]
+      // 不在 stripOrder 里（刚开出来还没排进去）就跳过，别把它挪到别处
+      if (stripOrder.indexOf(id) === -1 || stripOrder.indexOf(prev) === -1) continue
+      if (stripOrder.indexOf(id) !== stripOrder.indexOf(prev) + 1) moveAfter(id, prev)
+      prev = id
+    }
+  }
+}
+
+/** 清掉指向已关闭页签的成员关系，再摘掉空组、把每组的成员重新贴成一段 */
 function prune() {
   const open = new Set(workspace.openTabIds)
   for (const id of Object.keys(tabGroups.memberOf)) {
     if (!open.has(id)) delete tabGroups.memberOf[id]
   }
   removeEmptyGroups()
+  normalizeRuns()
 }
 
 watch(() => [...workspace.openTabIds], prune, { immediate: true })

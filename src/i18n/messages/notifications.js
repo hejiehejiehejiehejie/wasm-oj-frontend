@@ -73,8 +73,9 @@ export default {
        *   标题已经说过了。
        * - 等待验证：取到码就发一条 10 分钟的通知（与码的有效期同长，见 cloudSession
        *   的 CODE_TTL_MS），正文下面还有一行**活倒计时**（2026-10-19 加）。按钮的用词收在这里：
-       *   验证 / 一键填写（仅装了扩展）/ 复制验证码 / 跳转到网页 / 取消，最后一颗在「上传」
-       *   流程里叫「取消上传」，与面板 verifyLogin / verifyUpload 同一套分岔。
+       *   验证 / 一键填写（仅装了扩展；扩展还能回报保存结果时叫「填写并登录」，
+       *   见 codeFillChain）/ 复制验证码 / 跳转到网页 / 取消，最后一颗在「上传」流程里
+       *   叫「取消上传」，与面板 verifyLogin / verifyUpload 同一套分岔。
        */
       cloud: {
         importedTitle: '已导入云端配置',
@@ -93,6 +94,9 @@ export default {
         codeVerify: '验证',
         codeRefresh: '重新取码',
         codeFill: '一键填写',
+        /* 链路版（2026-10-20 加）：扩展能回报「保存完了」时，这一颗点下去会连验证与登录
+           一起做完（见 cloudSession 的 fillCodeChained）。字面得说清它多做了什么。 */
+        codeFillChain: '填写并登录',
         codeCopy: '复制验证码',
         codeOpen: '跳转到网页',
         codeCancelLogin: '取消登录',
@@ -188,6 +192,8 @@ export default {
         codeVerify: 'Verify',
         codeRefresh: 'Get a new code',
         codeFill: 'Auto-fill',
+        /** See the zh-CN side: the chained variant also verifies and signs in */
+        codeFillChain: 'Fill in + sign in',
         codeCopy: 'Copy code',
         codeOpen: 'Open page',
         codeCancelLogin: 'Cancel sign-in',

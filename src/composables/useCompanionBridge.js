@@ -13,6 +13,7 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-set-config / cp-config：网页改投递目标开关
  *   - cp-query-need / cp-need-answer：扩展问「这道题要不要抓样例」，网页作答（见下）
  *   - cp-fill-code / cp-fill-code-result：网页请扩展在 Codeforces 上替用户填验证码（见下）
+ *   - cp-fill-code-saved：扩展报「那枚码在 Codeforces 上保存落下去没有」（见下）
  *   - cp-cf-check / cp-cf-check-result：网页问「这个浏览器在 Codeforces 上登的是不是我填的
  *     那个 handle」，扩展只回一个枚举（见下）
  *   - cp-scrape-contest / cp-scrape-contest-done：网页请扩展**整场**抓样例（见下）
@@ -44,6 +45,15 @@ import { IS_DESKTOP } from '../services/platform.js'
  * 地址递过去，扩展在后台开一个不激活的标签页读一遍（整场题面都在那一页里），解析结果仍然
  * **走既有的 cp-task 逐题投递** —— 站点不必为「补样例」再造一条入库路径，扩展也不必另写
  * 一遍解析。它同样受 `capabilities` 的 `contest-batch` 保护，老扩展下那颗按钮不出现。
+ *
+ * 【cp-fill-code-saved 是 2026-10-20 加的，把代填串成一条链路】`cp-fill-code-result` 只说明
+ * 「字填进输入框了」，而验证要等 Codeforces **把表单提交、服务端读完、页面跳回来**才算数 ——
+ * 那个时刻网页看不见，猜一个固定延时必然两头不讨好（猜短了验不过、猜长了白转圈）。
+ * 于是改成由扩展回报：它在提交那一趟跳转走完之后发 `cp-fill-code-saved`（带 `saved` 布尔，
+ * 成功时顺手关掉它自己开的那个 Codeforces 标签页），网页收到就直接去验证。
+ * 它是**加**出来的一条：老扩展不发，站点等不到就退回「回来点验证」那句提示（见
+ * `services/cloudSession.js` 的 fillCloudCode），行为与改动前一致；判断还多一道
+ * `capabilities` 里的 `fill-saved`（见 canFillSaved），老扩展下连等都不会等。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
@@ -87,6 +97,15 @@ const SCRAPE_TIMEOUT = 30000
 const FILL_TIMEOUT = 15000
 
 /**
+ * 等扩展报「这枚码在 Codeforces 上**保存落下去了**」的上限。
+ *
+ * 扩展那一侧给这一趟 10s（提交之后那次整页跳转，`FILL_SAVE_TIMEOUT`），这里留 3s 余量。
+ * 超时一律当「没等到」—— 界面退回改动前那句「回来点验证」，用户手动点一下照样能完成，
+ * 所以宁可早一点放手，也不要让按钮一直转。
+ */
+const FILL_SAVED_TIMEOUT = 13000
+
+/**
  * 等扩展回答「这个浏览器登的是不是这个 handle」的上限。
  *
  * 比代填短得多：这一问**不打开任何页面、不发任何请求**，扩展只是拿它自己存的会话缓存比一下
@@ -125,6 +144,38 @@ const pendingConfigs = new Map()
 let fillSeq = 0
 /** requestId -> { resolve, timer }：等待扩展报「验证码填好了 / 为什么没填成」 */
 const pendingFills = new Map()
+
+/** requestId -> (saved: boolean) => void：等待扩展报「保存落下去没有」（见 waitFillSaved） */
+const pendingFillSaved = new Map()
+
+/** 结算一条「保存完成」的等待；对不上号（超时后才回来 / 这一轮已经翻篇）就丢掉 */
+function settleFillSaved(requestId, saved) {
+  const settle = pendingFillSaved.get(requestId)
+  if (!settle) return
+
+  pendingFillSaved.delete(requestId)
+  settle(Boolean(saved))
+}
+
+/**
+ * 等扩展报「这枚码已经在 Codeforces 上保存好了」（并顺手把那一页收掉）。
+ *
+ * **要在发请求之前挂上**：那一趟回报可能是 `ok` 之后几百毫秒就到的，等 `ok` 回来再挂
+ * 就漏掉了。所以 `requestCodeFill` 里先建这个 Promise、再 postMessage。
+ */
+function waitFillSaved(requestId) {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      pendingFillSaved.delete(requestId)
+      resolve(false)
+    }, FILL_SAVED_TIMEOUT)
+
+    pendingFillSaved.set(requestId, (saved) => {
+      window.clearTimeout(timer)
+      resolve(saved)
+    })
+  })
+}
 
 let cfCheckSeq = 0
 /** requestId -> { resolve, timer }：等待扩展报「这个浏览器登的是不是这个 handle」 */
@@ -216,6 +267,17 @@ export const canFillCode = computed(() =>
 )
 
 /**
+ * 扩展能不能把代填**跑到底**：跟到 Codeforces 保存落下去，然后关掉它自己开的那个标签页、
+ * 回一条 `cp-fill-code-saved`（2026-10-20 加，见文件头的说明）。
+ *
+ * 站点据此把「填写 → 验证 → 登录」串成一条链路（`cloudSession.js` 的 fillCloudCode）；
+ * 老扩展没有这条能力，就还是「填完提示一句，验证留给用户点」。
+ */
+export const canFillSaved = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('fill-saved'),
+)
+
+/**
  * 扩展能不能回答「这个浏览器在 Codeforces 上登的是谁」。与 canFillCode 同一套能力协商。
  *
  * 与 `fill-code` **分开列**是刻意的：两条能力互不蕴含（一个管"能干活"、一个管"能答话"），
@@ -238,26 +300,38 @@ export const canCheckCf = computed(() =>
  * `user.info` 里读回来的那枚 Last name。扩展侧另有三条约束：只认当前登录的 handle 与请求
  * 一致（不一致就什么都不写）、只在这一次调用里用这枚码、用完即弃。
  *
- * 返回 `{ ok, reason }`。扩展没装 / 太旧 / 超时都在这里折成一个失败结果，不往外抛 ——
- * 界面只需要「成功」或者「一句人话」。
+ * 返回 `{ ok, reason, requestId, saved }`。扩展没装 / 太旧 / 超时都在这里折成一个失败结果，
+ * 不往外抛 —— 界面只需要「成功」或者「一句人话」。
+ *
+ * `saved` 是**另一条**等待（`cp-fill-code-saved` 那条，2026-10-20 加）：`ok` 只说明字填进了
+ * 输入框，这条才说明表单提交完、Codeforces 那边真的落下去了 —— 它是「接着验证」的发令枪，
+ * 也是「那个标签页已经被扩展收掉」的时刻。老扩展永远不发，于是它就是一句 13s 后的 `false`；
+ * 调用方**只在 `canFillSaved` 为真时**才等它（否则白等十几秒还挡着按钮）。
  */
 export function requestCodeFill(handle, code) {
   return new Promise((resolve) => {
     if (!canFillCode.value) {
-      resolve({ ok: false, reason: 'unsupported' })
+      resolve({ ok: false, reason: 'unsupported', requestId: '', saved: Promise.resolve(false) })
       return
     }
 
     const requestId = `cp-fill-${++fillSeq}`
+    // 先挂上「保存完成」这条等待，再发请求（理由见 waitFillSaved）
+    const saved = waitFillSaved(requestId)
     const timer = window.setTimeout(() => {
       pendingFills.delete(requestId)
-      resolve({ ok: false, reason: 'timeout' })
+      // 连「填好没有」都没等到，就更不会有「保存完」：把那条等待一起结算掉，
+      // 免得它在十几秒后回来拍一下早就翻篇的界面
+      settleFillSaved(requestId, false)
+      resolve({ ok: false, reason: 'timeout', requestId, saved })
     }, FILL_TIMEOUT)
 
     pendingFills.set(requestId, {
       resolve: (result) => {
         window.clearTimeout(timer)
-        resolve(result)
+        // 没填成就别留一份「保存完成」的等待悬在那儿
+        if (!result.ok) settleFillSaved(requestId, false)
+        resolve({ ...result, requestId, saved })
       },
     })
 
@@ -535,6 +609,13 @@ function onMessage(event) {
     return
   }
 
+  // 扩展报「这枚码在 Codeforces 上保存落下去没有」（代填收尾那一趟）：按 requestId 结算
+  // 上面那条等待。这一步同时意味着「那个标签页已经收掉了」，所以调用方收到就可以直接验证
+  if (data.type === 'cp-fill-code-saved') {
+    settleFillSaved(data.requestId, data.saved === true)
+    return
+  }
+
   // 扩展报「这个浏览器登的是不是这个 handle」（cp-cf-check 的回执）：按 requestId 认领
   if (data.type === 'cp-cf-check-result') {
     const pending = pendingCfChecks.get(data.requestId)
@@ -600,6 +681,7 @@ export function useCompanionBridge(onTask) {
     refresh: refreshExtensionInfo,
     setExtensionConfig,
     canFillCode,
+    canFillSaved,
     requestCodeFill,
     canCheckCf,
     checkCfIdentity,

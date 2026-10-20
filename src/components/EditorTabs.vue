@@ -318,6 +318,9 @@ const { draggingId, draggingIds, dragEdge, touchDrag, pressingId, armedId, liveG
     onTap: onStripTap,
     onLongPress: onStripLongPress,
     onDragStart: onStripDragStart,
+    // 菜单弹出后又动起来要拖（二十二改）：两种长按菜单就地收起 —— 不收的话那张浮层会
+    // 跟着被拖页签走完整个拖拽（它是 Teleport 到 body 的 fixed 元素，不会自己让路）。
+    onMenuDismiss: dismissStripMenus,
   })
 
 /**
@@ -401,6 +404,9 @@ function onStripDrop(payload, index) {
   instantSwap.value = true
   if (payload.kind === 'group') {
     moveStripRun(tabGroups.membersOf(payload.gid), index)
+    // 二十四改：整段搬移的落点若落在**另一个组**的成员之间，那个组会被劈成两段
+    //（渲染成两枚芯片）。所有落盘出口统一在这里把每组的成员重新贴成一段。
+    tabGroups.normalizeRuns()
   } else {
     moveStripItem(payload.id, index)
     if (payload.liveGid === undefined) {
@@ -411,6 +417,7 @@ function onStripDrop(payload, index) {
       if (payload.liveGid && payload.liveGid !== before) tabGroups.addToGroup(payload.id, payload.liveGid)
       else if (!payload.liveGid && before) tabGroups.removeFromGroup(payload.id)
       tabGroups.removeEmptyGroups()
+      tabGroups.normalizeRuns()
     }
   }
   nextTick(() => {
@@ -625,12 +632,12 @@ function toggleGroup(group, { fromGesture = false } = {}) {
     for (const el of els) {
       const natural = widths.get(el) ?? 0
       if (!natural) continue
-      // 首尾两帧的 padding 与 .editor-tabs__item 的 `0 7px 0 10px` 对齐 ——
-      // 宽度收到 0 时内边距也得跟着收，否则盒子的下限还留在 17px。
+      // 首尾两帧的 padding 与 .editor-tabs__item 的 `0 6px 0 9px` 对齐 ——
+      // 宽度收到 0 时内边距也得跟着收，否则盒子的下限还留在 15px。
       const open = {
         width: `${natural}px`,
-        paddingLeft: '10px',
-        paddingRight: '7px',
+        paddingLeft: '9px',
+        paddingRight: '6px',
         opacity: '1',
       }
       const shut = { width: '0px', paddingLeft: '0px', paddingRight: '0px', opacity: '0' }
@@ -659,6 +666,14 @@ function toggleGroup(group, { fromGesture = false } = {}) {
    一段 inset 下划线 + 选中成员背景渐变描边 + 两只圆环脚伪元素 + 挖缺」的零散 CSS 已整段
    删除（用户口径：那样画左下 / 右下角会出现断裂和向内弯曲）。 */
 const GROUP_LINE_R = 8
+/** 选中页签的底色比页签盒**上抬**多少（2026-10-20 用户口径「被选中的样式高度应该和高亮的
+ *  区域高度对齐」）。页签盒只有 30px 且贴底，而悬停高光是一块以条带中心为准的块（上下各留
+ *  2.5px，见样式表 `:hover::before` 的 `inset`）。选中块的**上缘**要跟着那块走 —— 用
+ *  box-shadow 往上多铺 2.5px（见样式表 `--active` 那条），下缘照旧铺到条带底缘、与编辑区
+ *  连成一片。
+ *  ⚠️ 三处必须同值：这里的 TAB_RAISE、`:hover::before` 的 `inset: -2.5px 0 2.5px`、
+ *  `--active` 的 `box-shadow: 0 -2.5px …`。改一处就得改三处。 */
+const TAB_RAISE = 2.5
 const groupLines = ref([])
 const glineWidth = ref(0)
 /** 上一次测量结果的签名。**必须比对后再写 ref**：groupLines 每次赋新数组都会触发组件
@@ -686,6 +701,26 @@ function measureGroupLines() {
     ? strip.querySelector(`.editor-tabs__item[data-strip-id="${draggingId.value}"]`)
     : null
   const rows = []
+  // 「右端收口」（2026-10-20 二十四改，用户口径「最右边为直线的时候，缩短一点它的长度，让它
+  // 正好能露出右边的标签选中的时候的圆角」；二十五改按用户口径「如果右侧为直线，无论右邻页签
+  // 是否选中，都收短线尾」把「右邻选中」这个条件去掉）：
+  // 右端是直线（组尾没有激活成员接下去画）时，只要**紧挨着组尾右缘的是一个页签**，线尾就内收
+  // r px。那一格是右邻选中时它左下外扩脚占的位置（样式表 `.editor-tabs__item--active::before`：
+  // 8×8、left: -8px、半径 8 的凹弧）—— 组线 2px 宽、画在 y=h-1，那两行会把弧的下沿横着削平，
+  // 看上去就是「选中的圆角被一条直边切掉」。
+  // 现在选没选中都收：那 r px 空档恰好是脚在选中时占的宽度，于是右邻在选中 / 未选中之间切换时
+  // 线尾位置**不动**（不再跟着跳 8px），未选中时也只是照同样的位置留一格。
+  // 往回收 **r px** 正好停在弧与底边的切点：圆心在 (x1-r, h-r)，(x1-r, h) 处切线水平，
+  // 线尾与圆弧相切 —— 不交叉，也不在中间留缝（半圆半径与脚同值，改 r 时两边一起改）。
+  // 判据仍是几何（组尾右缘与某个页签左缘重合，容差 1.5px），**不猜 DOM 相邻**：组尾后面若跟着
+  // 另一组芯片（外边距 6px）或什么都没有，那里没有圆角要露，收了只会像线没画到头 —— 照旧 flush。
+  const tabLefts = [...strip.querySelectorAll('.editor-tabs__item')]
+    .filter((el) => !el.classList.contains('is-group-hidden') && vWidth(el) > 0)
+    .map((el) => ({ el, left: vLeft(el) }))
+  const straightTail = (end, floor, members) =>
+    tabLefts.some(({ el, left }) => Math.abs(left - end) <= 1.5 && !members.includes(el))
+      ? Math.max(end - GROUP_LINE_R, floor)
+      : end
   // ⚠️ maxX 只能从**元素几何**取，绝不能拿 strip.scrollWidth 当初值：SVG 是条带的子元素，
   // scrollWidth 会把 SVG 自己的宽度算进去 —— 以 scrollWidth 为底就变成「glineWidth =
   // scrollWidth + 1 → SVG 变宽 1px → scrollWidth 跟着大 1 → 再测再 +1」的自增长反馈，
@@ -716,12 +751,19 @@ function measureGroupLines() {
     let d
     const fills = []
     if (!active) {
-      d = `M ${x0} ${h - 1} L ${x1} ${h - 1}`
+      d = `M ${x0} ${h - 1} L ${straightTail(x1, x0, members)} ${h - 1}`
     } else {
       // r 预留：两只外扩脚各要向左右多占 r px，路径弧指令见样式表那段的总说明
       const left = vLeft(active)
       const right = left + vWidth(active)
       const r = GROUP_LINE_R
+      // 顶边的 y（2026-10-20「缩小高亮区域」）：原先是写死的 1（页签顶到条带顶时才成立）。
+      // 现在页签自己矮了 5px、由条带的 align-items: flex-end 从**顶部**让出那一截，
+      // 顶边要跟着页签的**实测**上缘走，否则线的顶边会悬在页签上方、把让出来的那一截
+      // 又圈回高亮里。offsetTop 相对条带（定位祖先），不受 transform 影响（只影响横向跟手）。
+      // 再减 TAB_RAISE：选中页签的底色靠 box-shadow 往上多铺了 2.5px（与悬停高光的上缘齐平），
+      // 线不跟着抬就会在块面里往下切 2.5px、看着像画歪了。
+      const top = active.offsetTop - TAB_RAISE + 1
       // 激活成员贴着条带最右（is-strip-last，十八改）：右脚没有地方落（条带不为脚预留
       // 内边距），改从页签右缘直落到底收口，楔形填充一并省掉 —— 硬画的话脚会被滚动
       // 容器裁平，还会把条带撑出几像素的假滚动行程
@@ -729,14 +771,16 @@ function measureGroupLines() {
       d =
         `M ${x0} ${h - 1} L ${left - r} ${h - 1}` +
         ` A ${r} ${r} 0 0 0 ${left} ${h - 1 - r}` +
-        ` L ${left} ${1 + r}` +
-        ` A ${r} ${r} 0 0 1 ${left + r} 1` +
-        ` L ${right - r} 1` +
-        ` A ${r} ${r} 0 0 1 ${right} ${1 + r}` +
+        ` L ${left} ${top + r}` +
+        ` A ${r} ${r} 0 0 1 ${left + r} ${top}` +
+        ` L ${right - r} ${top}` +
+        ` A ${r} ${r} 0 0 1 ${right} ${top + r}` +
         ` L ${right} ${h - 1 - r}` +
         (atRightEdge ? ` L ${right} ${h - 1}` : ` A ${r} ${r} 0 0 0 ${right + r} ${h - 1}`)
       // 激活成员就是组尾时右脚落地即终点，别再往回画一段线
-      if (!atRightEdge && x1 > right + r) d += ` L ${x1} ${h - 1}`
+      if (!atRightEdge && x1 > right + r) {
+        d += ` L ${straightTail(x1, right + r, members)} ${h - 1}`
+      }
       // 两只脚的楔形另用一条 path 填激活底色 —— 页签元素的底色盖不到外扩圆角内部
       fills.push(
         `M ${left - r} ${h - 1} A ${r} ${r} 0 0 0 ${left} ${h - 1 - r} L ${left} ${h - 1} Z`,
@@ -846,6 +890,17 @@ function openGroupCard(group, event) {
 /** 在指定位置弹分组卡片（右键与触屏长按共用） */
 function openGroupCardAt(group, x, y) {
   groupCard.value = { group, x, y }
+}
+
+/**
+ * 收起条带上的长按浮层（页签菜单与分组卡片共用这一个出口）。
+ * 由 useTabDrag 在「菜单弹出后又动起来要拖」时调用（二十二改）：那一刻手势从「看菜单」
+ * 改口成「拖页签」，浮层必须让路 —— 它是 Teleport 到 body 的 fixed 元素，
+ * 不主动收掉就会盖在被拖页签上一路跟着走。
+ */
+function dismissStripMenus() {
+  menu.value = null
+  groupCard.value = null
 }
 
 // 被顶替那一格在更新前的宽度，供新页签的宽度过渡当起点（见 onTabEnter）
@@ -1124,7 +1179,11 @@ function onTabEnter(el) {
 .editor-tabs__strip {
   flex: 1 1 auto;
   display: flex;
-  align-items: stretch;
+  /* 页签与条带**底边对齐**（2026-10-20 用户口径「缩小高亮区域」，高度跟着页签自己的
+     height 走，见 .editor-tabs__item 的 height）：选中页签仍要接住下面的
+     编辑区，所以只能从**顶部**收 —— 条带顶上留出那一截就是收掉的高度。
+     芯片是 align-self: center，不受这里影响。 */
+  align-items: flex-end;
   min-width: 0;
   /* 退场页签要相对条带定位（onTabBeforeLeave 写 left/top），所以条带得是定位祖先。
      它同时是横向滚动容器，absolute 子元素会跟着内容一起滚，符合预期。 */
@@ -1152,6 +1211,17 @@ function onTabEnter(el) {
   display: inline-flex;
   align-items: center;
   position: relative;
+  /* 自成层叠上下文（2026-10-20 加）：悬停高光已从「整盒底色」改成挂在 ::before 上的一块
+     （见下面 :hover 那段），它用 `z-index: -1` 降到内容之下 —— 没有这一行，负层会继续往
+     最近的外层叠上下文里降、跑到页签底色甚至条带底色下面去（高光就整块不见了）。
+     只做隔离、不动 z-index：条带里的组包络线 SVG 是**后续兄弟**，按源序仍盖在页签之上。 */
+  isolation: isolate;
+  /* 页签高度（2026-10-20 用户口径「缩小这个高亮的区域」—— 高度与宽度都要收）：
+     条带本身仍是 35px（布局与拖拽的几何都以它为基准，不动），页签从 35 缩到 30；靠底部
+     的那 5px 由条带的 align-items: flex-end 让出来（不写 margin-top —— 对齐已经把它压到
+     底缘了，再叠一层外边距只会在别处复用时把页签顶下去）。底边必须留在条带底缘 ——
+     选中页签要与下面的编辑区连成一片（见下面 ::before / ::after 那两只脚）。 */
+  height: 30px;
   /* 底色与文字色淡入淡出 —— **这段过渡同时服务两处底色变化**：
      ① 悬停时整块底色换一档（见下面的 :hover，2026-10-10 由「下沿一条 1px 细线」改来）；
      ② 选中时底色淡入到 --bg-tab-active（原先那条会「上浮 + 变蓝」的高亮线已去掉，
@@ -1160,28 +1230,45 @@ function onTabEnter(el) {
   transition:
     background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
     color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    /* 悬停高光的外形（下两角从 0 长到 8px）跟着底色一起淡入淡出，别让圆角硬跳。 */
+    border-radius 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    /* 选中块的上缘靠 box-shadow 往上多铺 2.5px（见 --active 那条）：不写在这里，
+       选中那一瞬会先冒出一条 2.5px 的硬边、底色再淡入。起点是下面的透明零偏移。 */
+    box-shadow 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
     /* 触屏拖拽的「抓起」放大走独立的 `scale` 属性（transform 被 useTabDrag 逐帧写成
        translate3d 占着），松手时 --dragging 一摘就靠这条过渡柔和缩回去 —— 不写在这里，
        类一消失 transition 也跟着消失，页签会「啪」地缩回原尺寸。 */
     scale 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
   /* 5px（原 6px，2026-10-01 收紧）：真机反馈页签里的空白偏大。这一条同时管
      「图标 ↔ 标签」与「标签 ↔ 关闭按钮」两处 —— 图标/× 的墨迹在各自的 12px 方框里
-     本来就留了余量，视觉上的间距比 5px 还多一点点。 */
-  gap: 5px;
+     本来就留了余量，视觉上的间距比 5px 还多一点点。
+     2026-10-20 随「缩小高亮区域」再收到 4px（宽度一并收，见 padding / 标签上限）。 */
+  gap: 4px;
   flex: 0 0 auto;
   /* 左 10px、右 7px（2026-10-01 收窄，真机反馈「页签右侧空白比较大」）。
      不对称是有原因的：右端那颗 × 的墨迹只占 15px 框里的 7px（图标是 24 viewBox 里
      6→18 的线段，四周本来就留了 25% 空），左端那颗代码图标的墨迹要满得多，
      所以左右各给 10px 时右边看着空出去一大截。右内边距收到 7px 后，
-     「× 墨迹 → 页签右缘」与「代码图标墨迹 → 页签左缘」的留白基本齐平。 */
-  padding: 0 7px 0 10px;
+     「× 墨迹 → 页签右缘」与「代码图标墨迹 → 页签左缘」的留白基本齐平。
+     2026-10-20 随「缩小高亮区域」左右各再收 1px（10/7 → 9/6），保持那条不对称口径。
+     下内边距 5px：页签自己只有 30px、还贴着条带底缘，内容若在**页签盒内**居中就会整体
+     偏下 2.5px（看着像文字坠在栏底）。补上这 5px，内容盒变成 12→37、中心正好落在
+     35px 条带的中心（24.5）—— 文字与图标相对**标签页栏**上下居中，而底色 / 两只脚
+     仍铺满整个 30px 的盒（背景覆盖 padding box、脚锚 `bottom: 0`）。 */
+  padding: 0 6px 5px 9px;
   background: transparent;
+  /* 透明的零偏移投影（2026-10-20）：只是给上面那条 box-shadow 过渡一个起点 —— 选中态的
+     上缘靠它往上多铺 2.5px（见 --active），从「无」插值到「有一块」时浏览器按列表逐项过渡，
+     起点必须是等长的影子列表而不是 `none`（`none` 不参与插值，会硬跳）。本身不画任何东西。 */
+  box-shadow: 0 0 0 0 transparent;
   /* ---------------------------------------------------------- Chrome 风格的页签外形
      （2026-10-19 改）上圆角 8px、下沿齐平：选中的那张与下面的编辑区连成一片（底色的来由见
      「选中页签与编辑区连成一片」那块），底角再向外摊出一段凹弧 —— 就是浏览器里那张
      「从工具栏长出来」的标签，两只脚由下面 ::before / ::after 补（md 模式也画 —— 那边工具栏
      的底色同日改成了 --bg-editor-pane，与页签同色）。
-     ⚠️ 不要改成四角全圆：页签是贴着编辑区上沿的，下圆角会在它与内容之间露出一条缝。 */
+     ⚠️ 不要改成四角全圆：页签是贴着编辑区上沿的，下圆角会在它与内容之间露出一条缝。
+     唯一例外是**悬停高光那一层底色**（见下面的 :hover）：它是一块临时的高光、不是页签本身的
+     面，刻意画成上下都带圆角的矩形（2026-10-20 用户口径），并不影响这里的齐平口径。 */
   border-radius: 8px 8px 0 0;
   /* 页签之间那条 1px 竖线（原 border-right: 1px solid var(--border-soft)）2026-10-10 去掉：
      相邻页签不再互相描边，三种态全靠底色与文字色区分 —— 静止「透明底 + --text-dim 文字」、
@@ -1212,29 +1299,69 @@ function onTabEnter(el) {
   -webkit-touch-callout: none;
 }
 
-/* 悬停（2026-10-10 改）：从「页签下沿一条 1px 细线从中心展开」换成**整块底色换一档**。
+/* 悬停（2026-10-10 改；2026-10-20 两次改外形与位置）：从「页签下沿一条 1px 细线从中心
+   展开」换成**一整块底色**，并且这块高光本身是一个**上下都带圆角的矩形**（四角 8px）——
+   用户 2026-10-20 上午的口径。
+   同日再改一次**位置**（用户报「鼠标放上去之后，高光与上下的间距不同」）：页签盒自己只有
+   30px、还贴着条带底缘，底色若铺满整盒，就是「上留 5px、下留 0」；而文字早已按**条带**
+   居中（见 padding 那段）。所以高光也改成以条带中心为准 —— 由 ::before 画一块
+   `inset: -2.5px 0 2.5px` 的块（顶边越过页签盒 2.5px、底边内收 2.5px），块高仍是 30、
+   上下各留 2.5px，与文字同心。**别再退回「background 铺整盒」**：那块永远上 5 / 下 0。
    取 --bg-tab-hover（深色比页签栏底 --bg-panel-head 提亮 6 阶、浅色压深 6 阶 —— 两套主题方向
-   相反，原因写在 base.css 那两条注释里），过渡走上面基类那两行，
-   于是鼠标划过去是底色的淡入淡出，页签上不再有任何会移动的东西。
-   两条注意：
+   相反，原因写在 base.css 那两条注释里），过渡走基类那几行。
+   三条注意：
    - **刻意不放进 @media (hover: hover)**：与下面 .editor-tabs__close 那条不同 —— 触屏上
      这层底色不会误伤，因为手指点页签必定把它切成选中态，选中规则的背景会盖住这里
      （见下面两条注释）。
-   - 必须写在 .editor-tabs__item--active 那组**之前**，靠顺序让选中色胜出。 */
+   - 必须写在 .editor-tabs__item--active 那组**之前**，靠顺序让选中色胜出。
+   - 四角圆角只属于**这块临时高光**；选中页签（下面那条）必须把 border-radius 改回
+     `8px 8px 0 0`，否则悬停当前页签时下沿也会翘起来、与编辑区脱开。 */
 .editor-tabs__item:hover {
-  background: var(--bg-tab-hover);
+  /* 底色交给下一条的 ::before；自身透明，否则整盒又铺一层、把「底边内收 2.5px」盖掉。 */
+  background: transparent;
   color: var(--text);
+  /* 圆角一并移交（留着会在盒上压出一个看不见但会过渡的 8px，划过去时与 ::before 错拍）。 */
+  border-radius: 0;
+}
+
+/* 悬停高光块（2026-10-20 加）：以**条带**中心为基准的圆角块，块高 30（= 页签高）、
+   块心 24.5 = 条带心。排除三种状态：
+   - `--active`：选中页签有自己的底色（贴底、连编辑区），悬停不该再叠一块；
+   - `--pressing`：长按进度要**整盒**（进度从整块底色走到 --bg-tab-hover，见下面那条）；
+   - `--dragging`：拖动中页签已浮起，整盒底色才像「被拎起来的那一张」。
+   `z-index: -1` 落在内容之下 —— 由页签自己的 `isolation: isolate` 兜住，不外泄到条带。 */
+.editor-tabs__item:hover:not(.editor-tabs__item--active):not(.editor-tabs__item--pressing):not(.editor-tabs__item--dragging)::before {
+  content: '';
+  position: absolute;
+  inset: -2.5px 0 2.5px 0;
+  background: var(--bg-tab-hover);
+  border-radius: 8px;
+  z-index: -1;
+  pointer-events: none;
 }
 
 /* 选中：**只有底色**（2026-10-10 起不再有顶部高亮条）。点选页签看见的动画就是
    底色从页签栏底色淡入到 --bg-tab-active（顺带文字转亮），过渡写在上面基类那两行。
    `--active:hover` 那一条**不是冗余**：`.editor-tabs__item:hover` 的特异性是 (0,2,0)，
    高过单写 `.editor-tabs__item--active` 的 (0,1,0) —— 少了它，鼠标停在当前页签上时
-   底色会被换成 --bg-tab-hover（选中色一闪一闪）。两条同为 (0,2,0)，靠这里的顺序取胜。 */
+   底色会被换成 --bg-tab-hover（选中色一闪一闪）。两条同为 (0,2,0)，靠这里的顺序取胜。
+   同理，`--active:hover` 还要把 border-radius 改回 `8px 8px 0 0` —— 上一条 :hover 给的是
+   四角全圆，不盖回来的话悬停当前页签时它的下沿也会翘起、与编辑区脱开。 */
 .editor-tabs__item--active,
 .editor-tabs__item--active:hover {
   background: var(--bg-tab-active);
   color: var(--text);
+  border-radius: 8px 8px 0 0;
+  /* 选中块的上缘**上抬 2.5px**，与悬停高光的上缘齐平（2026-10-20 用户口径「被选中的样式
+     高度应该和高亮的区域高度对齐」）。做法不是撑高盒子（那会把页签顶掉、内容跟着偏），
+     而是往正上方多铺一块同样形状、同色、零模糊的影子：影子是整块盒子形状上移 2.5px，
+     落在盒子之外的部分只有顶边那一条 2.5px 的带子，两侧与下缘全被盒子自己的底色盖住 ——
+     净效果就是上缘抬了 2.5px、下缘一个像素没动（仍铺到条带底缘、与编辑区连成一片，
+     两只脚照旧接得上）。
+     圆角不用另给：影子继承 border-radius，抬起后露出的那段弧仍是 8px，与盒子自己的顶角同心。
+     ⚠️ 三处同值 2.5：这里、`:hover::before` 的 `inset: -2.5px 0 2.5px`、脚本的 TAB_RAISE
+     （包络线顶边靠它算）。改一处就得改三处。 */
+  box-shadow: 0 -2.5px 0 0 var(--bg-tab-active);
 }
 
 /* ------------------------------------------------------ 选中页签底下那两只「脚」
@@ -1267,12 +1394,15 @@ function onTabEnter(el) {
   background: radial-gradient(circle at 100% 0, transparent 8px, var(--bg-tab-active) 8px);
 }
 
-/* 贴着条带端缘的激活页签不画朝外的脚（十八改）：条带不再预留端缘内边距，脚会被滚动
-   容器裁平不说，朝右那只还会把条带撑出几像素的假滚动行程（::after 参与可滚动溢出）。
-   端缘那侧本来就没有「邻签的底角」要接，方角贴边是更干净的样子。左向这只其实
-   x<0 早被裁掉看不见了，这里一并显式关掉，两端同一条判据好记。 */
-.editor-tabs__item--active.is-strip-first::before,
-.editor-tabs__item--active.is-strip-last::after {
+/* 贴着条带**左端**的激活页签不画朝左那只脚（十八改）：条带不再预留端缘内边距，这只脚
+   x<0 早被滚动容器裁掉、本来就看不见，显式关掉只是别让它白白参与溢出计算。
+   ⚠️ 右端那只**不要关**（2026-10-20 用户口径，附参考图）：选中态的条带末位页签要和左边
+   那只对称地摊出去、再落进编辑区；关掉之后右下角只剩一个方角或一个向内收的圆角，看着
+   都像「一块浮在条带上的方片」，接不住下面的内容区。
+   代价是它给条带垫出 8px 假滚动行程（::after 是 abspos，溢出算进 scrollWidth；**换成
+   `transform: translateX(8px)` 也躲不掉**，实测 scrollWidth 1164 → 1172 一样多）。条带
+   滚到最右时多出的这 8px 空白，正好就是这只脚落地的地方，所以留着不管。 */
+.editor-tabs__item--active.is-strip-first::before {
   display: none;
 }
 
@@ -1284,13 +1414,18 @@ function onTabEnter(el) {
    圆环脚伪元素 + 挖缺」已整段删除 —— 成员页签回到与普通页签完全相同的规则。
    画法（路径由 script 的 measureGroupLines 生成，模板见 .editor-tabs__gline）：
    · **无激活成员**：一条 path 只画底部水平线 `M 0 H-1 L W H-1`（x0 = 胶囊左缘，
-     x1 = 组尾成员右缘，H = 条带高 35）。
+     x1 = 组尾成员右缘，H = 条带高 35）。**右端为直线、且紧挨着组尾的是个页签时，x1 内收
+     r（8px）—— 右邻选没选中都收**（2026-10-20 二十五改）：那格是它选中时左下外扩脚占的位置，
+     收了才露得出圆角，也让右邻切换选中时线尾不跳。后面跟的是另一组芯片或什么都没有时照旧
+     flush（那里没有圆角要露）。判据见 measureGroupLines 里的 `straightTail` 与那一段注释。
    · **有激活成员**：一条连续 path —— 从 (x0, H-1) 水平画到 (left-r, H-1)，`A r r 0 0 0`
-     上挑成左下外扩脚（圆心在 (left-r, H-1-r)，弧腹朝向页签），竖边到 (left, 1+r)，
-     `A r r 0 0 1` 拐右上成左上圆角（圆心 (left+r, 1+r)，与页签自己的 8px border-radius
-     同心同径，描边正好贴住页签顶角），顶边到 (right-r, 1)，`A r r 0 0 1` 拐右下圆角，
+     上挑成左下外扩脚（圆心在 (left-r, H-1-r)，弧腹朝向页签），竖边到 (left, top+r)，
+     `A r r 0 0 1` 拐右上成左上圆角（圆心 (left+r, top+r)，与页签自己的 8px border-radius
+     同心同径，描边正好贴住页签顶角），顶边到 (right-r, top)，`A r r 0 0 1` 拐右下圆角，
      竖边到 (right, H-1-r)，`A r r 0 0 0` 落成右下外扩脚，再水平画到 (x1, H-1)
      （激活成员就是组尾时右脚落地即终点，不再回画）。r = 8，线宽 2px，色 = 组色。
+     `top` 取激活页签的**实测上缘 + 1**（2026-10-20 起页签矮了 5px、不顶到条带顶上，
+     原先写死的 1 会把让出来的那一截又圈进高亮里）。
    · **激活背景**：两只脚的楔形区域（外扩圆角内部，页签盒子外面那 8px）另用一条 path
      填 --bg-tab-active；页签矩形自己的底色仍由页签元素的 background-color 画。
    · 几何现场量：成员 offsetLeft / offsetWidth 以条带（定位祖先）为基准，正好是 SVG 的
@@ -1360,8 +1495,12 @@ function onTabEnter(el) {
   background: var(--bg-hover);
   /* 线性（不加缓动）：进度条要走得均匀，到头才是「正好可以松手」的那一瞬。
      时长必须与 useTabDrag.js 的 LONG_PRESS_MS（200ms）一致。
-     减弱动效时会被 base.css 的 prefers-reduced-motion 压成 0.01ms —— 那就只剩到点时的弹一下。 */
-  transition: background-color 200ms linear;
+     减弱动效时会被 base.css 的 prefers-reduced-motion 压成 0.01ms —— 那就只剩到点时的弹一下。
+     box-shadow 跟着一起写：这条 transition 会把基类那条整个顶掉，漏了它，选中页签长按时
+     顶上那 2.5px 的檐会硬切色、进度条却在慢慢走。 */
+  transition:
+    background-color 200ms linear,
+    box-shadow 200ms linear;
 }
 
 .editor-tabs__item.editor-tabs__item--armed {
@@ -1399,6 +1538,14 @@ function onTabEnter(el) {
 .editor-tabs__item--armed::before,
 .editor-tabs__item--armed::after {
   display: none;
+}
+
+/* 同一件事的另一半（2026-10-20）：选中块顶上那 2.5px 是靠 box-shadow 铺出来的，两段按压
+   反馈把整块底色换成 --bg-hover 之后，檐还得跟着换色 —— 不然选中的页签一长按，顶上就
+   留一条选中色的小檐，比那两只脚还显眼。非选中的页签本来就没有这条影子，不受影响。 */
+.editor-tabs__item--active.editor-tabs__item--pressing,
+.editor-tabs__item--active.editor-tabs__item--armed {
+  box-shadow: 0 -2.5px 0 0 var(--bg-hover);
 }
 
 @keyframes tab-press-pop {
@@ -1442,6 +1589,15 @@ function onTabEnter(el) {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
+/* 触屏拖的若是**当前选中那一张**，上面那条 (0,3,0) 会把选中块顶上那 2.5px 的檐一起顶掉 ——
+   抓起来的瞬间页签的上缘会自己往下掉一截。这里把两条影子叠在一起：投影管「浮起来」，
+   檐管「仍是选中态」。偏移不同、不冲突。 */
+.editor-tabs.is-touch-drag .editor-tabs__item--active.editor-tabs__item--dragging {
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.45),
+    0 -2.5px 0 0 var(--bg-tab-active);
+}
+
 /* 拖动中：整条栏换成抓取光标；指针划过沿途页签时不再给悬停反馈（注意力留给实时让位）。
    这里的 user-select 现在是**兜底**了 —— 每条页签自己已经常开 `user-select: none`（见基类里
    那组触屏声明），留着是防「拖拽时把标签文字拖出一片选区」在别的子元素上再冒出来。 */
@@ -1482,11 +1638,12 @@ function onTabEnter(el) {
 
 /* -------------------------------------------------------- 分组芯片
    （2026-10-19 加，模仿 Chrome；2026-10-20 按用户截图改形）组前那枚独立小胶囊：高 20px
-   （约条高的六成，与截图里那枚「123」胶囊在页签条里的占比一致）、**两端全圆的圆角矩形**，
-   文字在胶囊里水平 + 垂直都居中（inline-flex 双向 center + 名字 span 的 text-align），
-   不是页签 —— 不参与拖拽与激活。**左键 = 展开 / 折叠，右键 = 分组卡片**（同日按用户口径改）。
-   没名字时 min-width 撑成正圆；九改起有无名字都吃组色底（用户口径「线和胶囊的颜色没有
-   遵循选中的颜色」），深字 --tab-group-text 不变。 */
+   （约条高的六成，与截图里那枚「123」胶囊在页签条里的占比一致）、**圆角 6px 的矩形**
+   （同日从「两端全圆」改到 6px），文字在胶囊里水平 + 垂直都居中（inline-flex 双向 center +
+   名字 span 的 text-align），不是页签 —— 不参与拖拽与激活。**左键 = 展开 / 折叠，右键 =
+   分组卡片**（同日按用户口径改）。没名字时 min-width 撑成 20×20 的圆角方块（同日从正圆改）；
+   九改起有无名字都吃组色底（用户口径「线和胶囊的颜色没有遵循选中的颜色」），深字
+   --tab-group-text 不变。 */
 .editor-tabs__chip {
   flex: 0 0 auto;
   align-self: center;
@@ -1498,7 +1655,11 @@ function onTabEnter(el) {
   margin: 0 6px;
   padding: 0;
   border: none;
-  border-radius: 999px;
+  /* 圆角方块 6px（2026-10-20 用户口径：未命名的芯片也改成「带圆角的矩形」）：
+     6px 是项目里出现最多的小圆角（base.css 与各组件按钮 / 弹层同值），与命名胶囊同一套
+     语言。原先这里是**无名字专用的全圆 999px**，改完之后条带上不再有正圆的芯片，
+     所以 999px 从这组规则里彻底消失，别再往 --chip--named 上挂一份覆盖。 */
+  border-radius: 6px;
   /* 九改（2026-10-20 用户口径「线和胶囊的颜色没有遵循选中的颜色」）：底色改回组色
      --group-c —— 五改时按参考图给命名胶囊配的中性浅底 --group-chip-bg 作废。 */
   background: var(--group-c);
@@ -1533,7 +1694,8 @@ function onTabEnter(el) {
   filter: brightness(1.12);
 }
 
-/* 未命名的组没有文字，颜色就是它唯一的身份 —— 保留组色小圆（Chrome 同款）。
+/* 未命名的组没有文字，颜色就是它唯一的身份 —— 保留组色小方块（20×20 / r 6px；2026-10-20
+   起由基础规则给角，原先这里还是一颗正圆）。
    有名字的胶囊九改起同样吃组色底（基础规则已改 --group-c，这里的覆盖只剩深字，
    过渡期中性底的说明已删）。 */
 .editor-tabs__chip:not(.editor-tabs__chip--named) {
@@ -1543,10 +1705,8 @@ function onTabEnter(el) {
 .editor-tabs__chip--named {
   padding: 0 9px;
   max-width: 140px;
-  /* 圆角矩形 6px（2026-10-20 用户口径「--named 改为圆角矩形，r 角用项目里常见那个」）：
-     6px 是项目里出现最多的小圆角（base.css 与各组件按钮 / 弹层同值）；全圆 999px
-     只留给上面那颗无名字色点。 */
-  border-radius: 6px;
+  /* 圆角由基础规则统一给（2026-10-20 晚些时候无名芯片也改成圆角方块，这里那份
+     `border-radius: 6px` 的覆盖随之删掉）—— 两态同角，折叠 / 展开不会换形状。 */
 }
 
 /* 折叠着、而它藏起来的那批页签里有当前打开的文件：芯片外面套一圈组色环。
@@ -1604,7 +1764,10 @@ function onTabEnter(el) {
 }
 
 .editor-tabs__label {
-  max-width: 160px;
+  /* 160 → 128（2026-10-20 用户口径「缩小这个高亮的区域」，宽度一并收）：页签宽度是
+     内容撑起来的，标签上限就是那张页签（连同它的选中高亮框）最宽能到哪儿 —— 收上限
+     才收得住宽页签，单收内边距只省得下 3px。长名字更早出省略号。 */
+  max-width: 128px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
