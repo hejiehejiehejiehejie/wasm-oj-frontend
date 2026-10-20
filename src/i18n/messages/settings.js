@@ -31,7 +31,6 @@ export default {
        *  是同一句话，改一处两边都跟着变，不维护第二份。 */
       menu: {
         openSettings: '打开设置面板…',
-        openCountdown: '倒计时',
         sections: '设置分类',
         /* 菜单里那一行**不复用** section.cloud（2026-10-11 用户定的）：同一个功能在下拉里
            读作「同步设置」，进了设置面板那一栏仍叫「云端同步」——两处刻意不同名，别顺手统一 */
@@ -602,7 +601,6 @@ export default {
        *  as in the settings panel, so there is no second copy to keep in sync. */
       menu: {
         openSettings: 'Open settings…',
-        openCountdown: 'Countdown',
         sections: 'Settings sections',
         /* Deliberately NOT reusing section.cloud (decided 2026-10-11): in the dropdown the row
            reads "Sync settings", while the panel section stays "Cloud sync" — do not unify. */

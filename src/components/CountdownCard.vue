@@ -607,11 +607,11 @@ onBeforeUnmount(() => {
   padding: 10px 12px 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  /* 底色不借 --toast-bg（0.62 太透，正文会透进来打架）：--cd-bg 是专为这张卡
-     开的 0.94 一档，与放大镜同一「读得清」的标准；锁定态另走 transparent */
+  /* 不借 --toast-bg（0.62 太透，正文会透进来打架），也**不做毛玻璃**：
+     2026-10-21 先抬到 0.94 仍被指「好像没变化」，根因是那 6% 底会被 backdrop-blur
+     糊成一片亮斑，压着代码时照样像玻璃。要盯着读秒的卡就直接给不透明底（--cd-bg），
+     锁定态另走 transparent。 */
   background: var(--cd-bg);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--toast-shadow);
   /* 圆角边之外一律不画：环、弧头光点、解锁胶囊再怎么变，都不会漏到边框外面 */
   overflow: hidden;
@@ -631,8 +631,6 @@ onBeforeUnmount(() => {
 .cd-card.is-locked {
   border-color: transparent;
   background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   box-shadow: none;
   cursor: default;
   pointer-events: none;

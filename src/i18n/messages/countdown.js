@@ -2,8 +2,8 @@
  * 悬浮倒计时卡（components/CountdownCard.vue）的文案。
  *
  * 状态点、按钮的 title / aria-label 与设置区里的单位都走这里；预设时长的数字通过
- * `{n}` 插值，中英各写一份。菜单入口 `settings.menu.openCountdown` 在 settings 域里，
- * 与其它菜单行放在一起。
+ * `{n}` 插值，中英各写一份。入口只有组件菜单 › 工具这一处（齿轮菜单那一行
+ * 2026-10-21 按用户要求删掉了）。
  */
 export default {
   'zh-CN': {
