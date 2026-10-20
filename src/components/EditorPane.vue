@@ -25,6 +25,7 @@ import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
 import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
+import { releaseSyntaxDiagnostics, scheduleSyntaxCheck } from '../services/monaco/syntaxDiagnostics.js'
 import {
   anyViewOpen,
   cfPickerTab,
@@ -249,6 +250,8 @@ function applyModelOptions(model) {
 
 /** 当前订阅着内容变化的 model（切文件时先退订旧的） */
 let contentSub = null
+/** C++ 语法诊断的订阅（与题解预览互不相干，单独一条） */
+let syntaxSub = null
 /** 「编辑器 → 预览」那一侧的 rAF 句柄，用来把连续滚动合并成一帧一次 */
 let scrollFrame = 0
 
@@ -511,6 +514,11 @@ onMounted(() => {
   instance.onDidScrollChange(onEditorScroll)
   window.addEventListener('keydown', onWindowKeydown, true)
 
+  // C++ 语法诊断：内容一停手就跑一次 `-fsyntax-only`（防抖与「只让最新一枪落地」
+  // 都在 services/monaco/syntaxDiagnostics.js 里）。工具链没加载时它自己会静默跳过。
+  syntaxSub = instance.onDidChangeModelContent(() => scheduleSyntaxCheck(instance.getModel()))
+  scheduleSyntaxCheck(instance.getModel(), { immediate: true })
+
   instance.onDidChangeCursorPosition((event) => {
     cursor.value = { lineNumber: event.position.lineNumber, column: event.position.column }
   })
@@ -544,6 +552,9 @@ onBeforeUnmount(() => {
   window.cancelAnimationFrame(scrollFrame)
   contentSub?.dispose()
   contentSub = null
+  syntaxSub?.dispose()
+  syntaxSub = null
+  releaseSyntaxDiagnostics()
   editor.value?.dispose()
   editor.value = null
 })
@@ -570,6 +581,8 @@ watch(
     // 否则行号会跟着上一个文件的状态留在屏幕上
     instance.updateOptions(editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }))
     trackMarkdown(model)
+    // 切进一个 C++ 文件：内容没变就直接重放上次的标记，没查过就立刻查一次
+    scheduleSyntaxCheck(model, { immediate: true })
     disposeInMemoryOrphans()
     const saved = viewStates.get(nextId)
     if (saved) instance.restoreViewState(saved)

@@ -284,7 +284,7 @@ function makeProvider(items, triggerCharacters, options = {}) {
   const swallowHash = options.swallowHash === true
   return {
     triggerCharacters,
-    provideCompletionItems(model, position) {
+    provideCompletionItems(model, position, context) {
       const word = model.getWordUntilPosition(position)
       // `#` 不在 C/C++ 的 wordPattern 里，所以打 `#inc` 时 Monaco 只认单词 `inc`，
       // 默认的替换范围会漏掉那个 `#`：采用 `#include <bits/stdc++.h>` 就变成 `##include …`
@@ -301,17 +301,46 @@ function makeProvider(items, triggerCharacters, options = {}) {
         position.lineNumber,
         word.endColumn,
       )
+
+      // 只有「按触发字符弹出来的」才做拦截；手动 Ctrl+Space 一律给全表，那是用户明确要的。
+      //
+      // 拦的是「光标前还没有任何前缀」这一种：`<` `>` `#` 单独按下时，以前会把整表
+      // 连同片段一起摊开，`#include <iostream>` 后面接个 `<` 就预选了 `abs`。
+      // `.` / `->` / `::` 是成员访问，照旧给（那正是要弹的时候）。
+      if (context?.triggerKind === monaco.languages.CompletionTriggerKind.TriggerCharacter) {
+        const ch = context.triggerCharacter
+        if (ch === '<' || ch === '>' || ch === '#' || ch === ':') {
+          const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+          const memberAccess = /(?:\.|->|::)$/.test(before)
+          if (!memberAccess && !word.word) return { suggestions: [] }
+        }
+      }
+
+      // 预处理指令按前缀收窄。
+      //
+      // 展开 `#` 之后 range 里的文本就是 `#d` 这种带井号的串，而 Monaco 的过滤是模糊匹配：
+      // `d` 会在 `#include <bits/stdc++.h>` 的 `stdc` 里命中，于是打 `#d` 想写 `#define`
+      // 却弹出这条唯一的指令、Tab/Enter 一按就把 `#d` 整段换掉。指令没有模糊匹配的意义，
+      // 这里直接按 label 前缀筛一遍，命中不了就干脆不给。
+      const typed = model.getValueInRange(range)
+      const pool = typed.startsWith('#')
+        ? items.filter((item) => item.label.startsWith(typed))
+        : items
       // insertText 必须每条都落地：不给的话 Monaco 内部（内联补全适配层）会拿到 undefined
       // 再去调 .replaceAll，直接抛异常，补全框虽弹出但控制台是红的。片段自带 insertText，
       // 展开时会覆盖这里的默认值。
       return {
-        suggestions: items.map((item) => ({ insertText: item.label, ...item, range })),
+        suggestions: pool.map((item) => ({ insertText: item.label, ...item, range })),
       }
     },
   }
 }
 
-// `.` / `->` / `::` 之后要能接着出成员与命名空间里的名字，`<` / `#` 之后是模板参数与预处理指令
+// 触发字符只登记「真有可能接着写字」的几种：
+// `.` 成员；`>` / `:` 是给 `->` / `::` 留的，单独按下时由 provider 判空前缀后拒绝；
+// `#` 只在前缀非空（`#inc` 这类）时才有内容，单独一个 `#` 同样被拒。
+// `<` 刻意留着而不是删掉：模板实参里 `vector<` 之后确实要写类型名，
+// 但「`<` 之后空前缀」这种情况一律返回空表 —— 以前正是在这里摊开整表、预选 `abs`。
 const CPP_TRIGGERS = ['.', '>', ':', '<', '#']
 const PYTHON_TRIGGERS = ['.', ':']
 

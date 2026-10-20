@@ -121,6 +121,7 @@ export default {
         groupCursor: '光标与高亮',
         groupView: '视图',
         groupImage: '代码图片',
+        groupPerformance: '性能',
 
         fontFamily: { label: '字体', hint: '代码编辑器使用的等宽字体' },
         lineHeightRatio: { label: '行高', hint: '行间距相对字号的倍数' },
@@ -169,6 +170,10 @@ export default {
         statusBar: {
           label: '底部状态栏',
           hint: '显示编辑器底部的状态栏（文件名、光标位置、判题语言等）。题解（.md）下始终不显示',
+        },
+        lowPower: {
+          label: '低配模式',
+          hint: '把编辑器的后台语法检查放慢到停手 1.2 秒后才跑（默认 0.3 秒），连续编辑时最多退到 3.6 秒。老机器上少烧一点 CPU，判题与运行不受影响',
         },
         codeImageQuality: {
           label: '导出质量',
@@ -674,6 +679,7 @@ export default {
         groupCursor: 'Cursor & highlighting',
         groupView: 'View',
         groupImage: 'Code image',
+        groupPerformance: 'Performance',
 
         fontFamily: { label: 'Font family', hint: 'The monospace font used by the code editor' },
         lineHeightRatio: { label: 'Line height', hint: 'Line spacing as a multiple of the font size' },
@@ -737,6 +743,10 @@ export default {
         statusBar: {
           label: 'Bottom status bar',
           hint: 'Show the status bar at the bottom of the editor (file name, cursor position, judge language…). Never shown for editorials (.md)',
+        },
+        lowPower: {
+          label: 'Low-spec mode',
+          hint: 'Waits 1.2s after you stop typing before running the background syntax check (0.3s by default), backing off to 3.6s while you keep editing. Saves CPU on older machines; judging and running are unaffected',
         },
         codeImageQuality: {
           label: 'Export quality',

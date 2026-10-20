@@ -199,25 +199,24 @@ const UNIVERSAL_HEADER = `#ifndef OJ_SANDBOX_BITS_STDCXX_H
 `
 
 /**
- * 「微型」预编译头的源码 —— 刻意只放最重、最常用的 5 个 STL 头。
+ * 预编译头的源码 —— **就是上面那份完整的 bits/stdc++.h**，连 include guard 也一样。
  *
- * 为什么不用上面那份完整的 bits/stdc++.h：它会把 30 个头全拉进来，
- * 生成的 .pch 体积直接翻几倍，而老机器连「序列化 + 把文件搬回主线程」这一步都过不去。
- * 这 5 个是竞赛代码里覆盖率最高的组合（<iostream> 本身就吃掉了大半解析开销），
- * .pch 实测落在 10-20MB 区间。
+ * 早先这里是「微型版」：只放 iostream / vector / string / algorithm / map 五个头，
+ * 担心 30 个头生成的 .pch 太大（怕老机器扛不住序列化）。实测这个担心不成立
+ * （2026-10-19，站内同一份 clang 8 + sysroot，85 行线段树题解）：
  *
- * 单独加 include guard 不是为了防重复引入，而是为了让 PCH 里的宏状态和后面
- * 真正 #include <bits/stdc++.h> 的那份不打架。
+ *   5 个头  → .pch 6.9MB，`-fsyntax-only` 104–127ms
+ *   30 个头 → .pch 8.6MB，`-fsyntax-only` 42–44ms
+ *
+ * 只多 1.7MB，却把每次检查砍掉约 60ms：剩下的 25 个头（尤其是 <sstream> / <deque> /
+ * <unordered_map>）解析起来比前 5 个还贵。所以 PCH 覆盖整份万能头，用户代码里那句
+ * `#include <bits/stdc++.h>` 命中同名 guard 直接整段跳过 —— 这才是「解析开销」的正解。
+ *
+ * guard 必须与 UNIVERSAL_HEADER 一字不差：两者不同名时（早先的 MICRO_）用户那句 include
+ * 仍会被重新展开一遍（虽然只是 30 行 #include，每行都被各自头文件的 guard 挡掉，
+ * 实测多花 5ms 左右）。同守卫版本实测 42–44ms，是三者里最快的。
  */
-const MICRO_STDCXX_H = `#ifndef OJ_SANDBOX_MICRO_STDCXX_H
-#define OJ_SANDBOX_MICRO_STDCXX_H
-#include <iostream>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <map>
-#endif
-`
+const PCH_SOURCE_TEXT = UNIVERSAL_HEADER
 
 /** 浏览器原生 gzip 解压，省掉 pako 依赖 */
 async function gunzip(bytes) {
@@ -290,6 +289,36 @@ let toolchain = null
 let toolchainPromise = null
 
 /**
+ * 「某个语言的运行时首次进内存」的监听器。
+ *
+ * 唯一的用途是编辑器内的语法诊断（monaco/syntaxDiagnostics）：诊断只认
+ * 「改内容 / 切文件」这两个时机，而运行时可能在文件**已经打开之后**才被第一次
+ * 运行拉进内存 —— 不发通知的话，加载完成那一刻屏幕上不会补出红线，
+ * 要等下一次击键才有。卸载再重装会再次触发（promise 被清掉后重新加载）。
+ */
+const runtimeReadyListeners = new Set()
+
+/**
+ * @param {(language: 'cpp' | 'python') => void} listener
+ * @returns {() => void} 退订函数
+ */
+export function onRuntimeReady(listener) {
+  runtimeReadyListeners.add(listener)
+  return () => runtimeReadyListeners.delete(listener)
+}
+
+/** @param {'cpp' | 'python'} language */
+function notifyRuntimeReady(language) {
+  for (const listener of runtimeReadyListeners) {
+    try {
+      listener(language)
+    } catch {
+      /* 一个监听器坏了不能连坐其他的 */
+    }
+  }
+}
+
+/**
  * 把编译器二进制的字节读进 HTTP 缓存，但**不**转成 blob: URL。
  *
  * 为什么不能转 blob：runno 内部是 WebAssembly.instantiateStreaming(fetch(url))，
@@ -320,6 +349,7 @@ function loadToolchain(onStatus) {
         warmCache(LINKER_URL, 'wasm-ld'),
       ])
       toolchain = { clangURL: CLANG_URL, linkerURL: LINKER_URL, sysroot: sysroot.fs }
+      notifyRuntimeReady('cpp')
       return toolchain
     })()
     // 失败时把缓存的 promise 清掉，下次点「下载」能重试
@@ -517,7 +547,7 @@ function runClang(tool, baseFs, pch, onHost) {
         ...baseFs,
         // PCH 里记着自己的原始来源是 /stdc++.h，把它一并挂上：
         // 让 clang 在加载 PCH 时既能看到原始头、也免得因缺文件报错
-        [PCH_SOURCE_PATH]: wasiFile(PCH_SOURCE_PATH, MICRO_STDCXX_H),
+        [PCH_SOURCE_PATH]: wasiFile(PCH_SOURCE_PATH, PCH_SOURCE_TEXT),
         [PCH_PATH]: wasiFile(PCH_PATH, pch, 'binary'),
       }
     : baseFs
@@ -618,6 +648,7 @@ function loadPythonRuntime(onStatus) {
         warmCache(PYTHON_BINARY_URL, 'python'),
       ])
       pythonRuntime = { binaryURL: PYTHON_BINARY_URL, stdlib: stdlib.fs }
+      notifyRuntimeReady('python')
       return pythonRuntime
     })()
     // 失败时清掉缓存的 promise，下次点运行还能重试
@@ -762,7 +793,8 @@ export async function runPython({
 // ---------------------------------------------------------------- 预编译头（PCH）
 //
 // 目的：老机器上编译一次竞赛代码，CPU 和内存的大头都花在反复解析 STL 头上。
-// 这 5 个头的 AST 每次编译都一模一样，做成 PCH 后每次编译只需反序列化。
+// 整份万能头的 AST 每次编译都一模一样，做成 PCH 后每次编译只需反序列化
+// （覆盖范围与收益见 PCH_SOURCE_TEXT 上方那段实测）。
 //
 // 这条路和用户编译的差别只有一个：产物不是 .o 而是 .pch。
 // 文件系统照旧走 runno 那一套 —— clang 用 path_open(O_CREAT) 建文件、写完
@@ -771,13 +803,15 @@ export async function runPython({
 /** PCH 在本机不可用（生成时 OOM / cc1 卡死，或加载时被判不匹配）后写下的永久标记 */
 const PCH_UNSUPPORTED_KEY = 'cp.pchUnsupported'
 
-// 给足预算：老机器解析这 5 个头 + 序列化 AST 可能要几十秒，但超过这个时间
+// 给足预算：老机器解析整份万能头（30 个头）+ 序列化 AST 可能要几十秒，但超过这个时间
 // 基本可以断定是 cc1 卡死（本项目踩过），杀掉并标记不支持。
 const PCH_TIMEOUT_MS = 3 * 60 * 1000
 
 // 存档格式版本：改动存档结构（或 PCH 的生成方式）时手动 +1
 // v2：编译参数加了 `-w`（语言选项变了，v1 的存档加载会被 clang 拒掉 —— 2026-10-18）
-const PCH_CACHE_VERSION = 2
+// v3：PCH 从「5 个头的微型版」换成整份 bits/stdc++.h（体积 6.9→8.6MB，检查快 2.4 倍 —— 2026-10-19）
+//     内容指纹本来也会变，版本号只是让「旧存档作废」这件事一眼可见
+const PCH_CACHE_VERSION = 3
 
 /**
  * 「这次编译失败是 PCH 的锅」的识别特征。
@@ -826,10 +860,10 @@ function hashString(text) {
  * 判废**必须**靠这个 id，不能指望 clang 报错：PCH 的控制块里签着 clang 版本和
  * -internal-isystem 路径（实测 '/sys/include/c++/v1' 在控制块里出现 150 次），
  * 参数一变加载就会失败 —— 而那个失败会被「降级重试」吃掉，退化成不报错但静默变慢。
- * 所以工具链版本、微缩头内容、存档格式三者任一变化，id 都不一样，旧存档自然取不到。
+ * 所以工具链版本、PCH 源码内容、存档格式三者任一变化，id 都不一样，旧存档自然取不到。
  */
 function pchCacheId() {
-  return `${PCH_CACHE_VERSION}:${TOOLCHAIN_VERSION}:${hashString(MICRO_STDCXX_H)}`
+  return `${PCH_CACHE_VERSION}:${TOOLCHAIN_VERSION}:${hashString(PCH_SOURCE_TEXT)}`
 }
 
 /** @type {Promise<Uint8Array | null> | null} */
@@ -891,7 +925,7 @@ export function generatePch() {
         // 只多塞一个 /stdc++.h；sysroot 原样复用，头文件搜索路径由 FRONTEND_ARGS 保证一致
         fs: {
           ...tool.sysroot,
-          [PCH_SOURCE_PATH]: wasiFile(PCH_SOURCE_PATH, MICRO_STDCXX_H),
+          [PCH_SOURCE_PATH]: wasiFile(PCH_SOURCE_PATH, PCH_SOURCE_TEXT),
         },
         // 这条流水线不在 wasmRuntime 的任务体系里，没人替它收尸：
         // 自己挂一个看门狗，卡死就 kill() 掉这个 WASI 实例（工具链缓存不受影响）
@@ -925,4 +959,156 @@ export function generatePch() {
 
   pchPromise.catch(markPchUnsupported)
   return pchPromise
+}
+
+/**
+ * 语法检查的命令行：只做前端（解析 + 语义），不产生 .o、不链接。
+ *
+ * 和编译**共用 FRONTEND_ARGS** 是硬要求：诊断必须按用户真正编译时那套
+ * `-std=c++17` / `-isysroot /sys` / libc++ 头路径去判，否则会出现
+ * 「编辑器说没问题、运行却编译不过」这种最招人烦的分歧。
+ * -w 也在里面，所以这里只出 error —— 与判题卡片上看到的完全一致。
+ */
+function syntaxArgs(pchPath) {
+  return [
+    '-cc1',
+    '-fsyntax-only',
+    ...FRONTEND_ARGS,
+    ...(pchPath ? ['-include-pch', pchPath] : []),
+    '-x',
+    'c++',
+    SOURCE_PATH,
+  ]
+}
+
+/** 单次语法检查的看门狗：正常 0.2–0.5s，15s 还没完就是卡死了（老机器 / 死循环模板） */
+const SYNTAX_TIMEOUT_MS = 15000
+
+/**
+ * 对一段 C++ 源码跑一次语法检查，返回 clang 的 stderr（诊断原文）。
+ *
+ * 与判题的区别只有一个：`-fsyntax-only` 到前端就停，不生成机器码。
+ * 实测同一份 85 行题解：带 PCH 时 `-fsyntax-only` 155–268ms，
+ * 而 `-emit-obj` 要 690–782ms —— 代码生成才是大头，编辑器里不值得付。
+ *
+ * 三条使用前提：
+ * 1. **工具链必须已经加载**（`isToolchainReady()`）。这里刻意不主动
+ *    `preloadToolchain()`：那等于用户一打开 .cpp 就偷偷下 30MB。谁调谁决定；
+ * 2. 每次调用会起一个独立的 WASI worker，调用方要自己管「上一枪还在跑」的取消
+ *    （通过 onHost 拿到 host 后 kill()）；
+ * 3. 返回值可能为 null（工具链没就绪），调用方按「这次没有结论」处理，
+ *    不要清掉已有标记 —— 那会把用户已经看到的红波浪线擦掉。
+ *
+ * @param {string} code
+ * @param {{ onHost?: (host: object | null) => void }} [options]
+ * @returns {Promise<{ exitCode: number, stderr: string } | null>}
+ */
+export async function checkCppSyntax(code, { onHost } = {}) {
+  if (!toolchain) return null
+  const pch = await loadPchBytes()
+  const fs = {
+    ...toolchain.sysroot,
+    [UNIVERSAL_HEADER_PATH]: wasiFile(UNIVERSAL_HEADER_PATH, UNIVERSAL_HEADER),
+    [SOURCE_PATH]: wasiFile(SOURCE_PATH, code),
+  }
+  // PCH 与它的原始头必须成对挂上：clang 加载 PCH 时会去核对最初的头文件
+  if (pch) {
+    fs[PCH_SOURCE_PATH] = wasiFile(PCH_SOURCE_PATH, PCH_SOURCE_TEXT)
+    fs[PCH_PATH] = wasiFile(PCH_PATH, pch, 'binary')
+  }
+
+  let timer = 0
+  try {
+    const result = await runWasi(toolchain.clangURL, {
+      name: 'clang',
+      args: syntaxArgs(pch ? PCH_PATH : null),
+      fs,
+      onHost: (host) => {
+        clearTimeout(timer)
+        if (host) {
+          timer = setTimeout(() => {
+            try {
+              host.kill()
+            } catch {
+              /* 已经跑完或被杀过 */
+            }
+          }, SYNTAX_TIMEOUT_MS)
+        }
+        onHost?.(host)
+      },
+    })
+    return { exitCode: result.exitCode, stderr: result.stderr }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * python 语法检查的 `-c` 脚本：对入口文件做 `compile()`，把 SyntaxError 译成
+ * **clang 同款格式**（`路径:行:列: error: 消息`）打到 stderr —— 上层的解析器
+ * （monaco/syntaxDiagnostics 的 parseDiagnostics）就一份，两种语言共用。
+ *
+ * ⚠️ 两条刻意的边界：
+ * - **只解析、绝不执行**。诊断要是把用户代码跑起来，`while True:` 就变成烧 CPU 的
+ *   死循环、副作用也会污染工作区。`compile()` 编到字节码就停，一个字节都不执行。
+ * - 错误只报第一条。Python 的异常模型决定了 `compile()` 一次只抛一个 SyntaxError，
+ *   不像 clang 有 `-ferror-limit` 连环报 —— 这是语言本身的口径，不是缺陷。
+ */
+const PY_SYNTAX_CHECK_SCRIPT = [
+  'import sys',
+  "try:",
+  "    compile(open('/main.py', encoding='utf-8').read(), 'main.py', 'exec')",
+  'except SyntaxError as e:',
+  "    print('%s:%d:%d: error: %s' % ('main.py', e.lineno or 1, e.offset or 1, e.msg or 'invalid syntax'), file=sys.stderr)",
+  'except (ValueError, TypeError) as e:',
+  "    print('main.py:1:1: error: %s' % e, file=sys.stderr)",
+].join('\n')
+
+/**
+ * 对一段 Python 源码跑一次语法检查，返回解释器的 stderr（诊断原文，已是 clang 格式）。
+ *
+ * 用已在场的 python.wasm 跑 `-c` 小脚本：解释器启动 + 解析小文件实测 100–250ms，
+ * 不需要 C++ 那套 PCH 预处理。fs 直接叠 stdlib（`import sys` 是内建模块，
+ * 挂 stdlib 只是让解释器像 runPython 一样正常开机）。
+ *
+ * 使用前提与 checkCppSyntax 完全一致：运行时必须已加载（`isPythonRuntimeReady()`，
+ * 刻意不主动下载 —— 用户没用过 Python 就不该为诊断下 24MB）；每次调用起独立
+ * worker，取消由调用方经 onHost 自己管；返回 null 表示「这次没有结论」，
+ * 调用方不清已有标记。
+ *
+ * @param {string} code
+ * @param {{ onHost?: (host: object | null) => void }} [options]
+ * @returns {Promise<{ exitCode: number, stderr: string } | null>}
+ */
+export async function checkPythonSyntax(code, { onHost } = {}) {
+  if (!pythonRuntime) return null
+  const fs = {
+    ...pythonRuntime.stdlib,
+    '/main.py': wasiFile('/main.py', code),
+  }
+
+  let timer = 0
+  try {
+    const result = await runWasi(pythonRuntime.binaryURL, {
+      name: 'python',
+      args: ['-c', PY_SYNTAX_CHECK_SCRIPT],
+      fs,
+      onHost: (host) => {
+        clearTimeout(timer)
+        if (host) {
+          timer = setTimeout(() => {
+            try {
+              host.kill()
+            } catch {
+              /* 已经跑完或被杀过 */
+            }
+          }, SYNTAX_TIMEOUT_MS)
+        }
+        onHost?.(host)
+      },
+    })
+    return { exitCode: result.exitCode, stderr: result.stderr }
+  } finally {
+    clearTimeout(timer)
+  }
 }

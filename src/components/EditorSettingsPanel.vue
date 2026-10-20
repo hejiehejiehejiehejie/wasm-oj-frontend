@@ -367,6 +367,19 @@ const EDITOR_GROUPS = [
       },
     ],
   },
+  {
+    // 「性能」这一组只有一行，单独成组是为了让老机器用户找得到 —— 它不改变编辑器长什么样，
+    // 只管**后台语法检查**多久跑一次（见 services/monaco/syntaxDiagnostics.js）。
+    titleKey: 'settings.editor.groupPerformance',
+    rows: [
+      {
+        key: 'lowPower',
+        labelKey: 'settings.editor.lowPower.label',
+        hintKey: 'settings.editor.lowPower.hint',
+        control: 'switch',
+      },
+    ],
+  },
 ]
 
 /**

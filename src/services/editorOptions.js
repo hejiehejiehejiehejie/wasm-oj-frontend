@@ -161,6 +161,17 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   // 攒在同一个存档里只是图「新增一项偏好不用再开一份 localStorage」。
   // 默认开＝改造前就有状态栏，老用户升上来零变化。
   statusBar: true,
+  /**
+   * 低配模式：只影响**编辑器内的后台语法检查**（`services/monaco/syntaxDiagnostics.js`）。
+   *
+   * 开着眼务于老机器 —— 那条检查每触发一次就要起一个 WASI worker、实例化 30MB 的 clang、
+   * 再跑一遍前端，弱机上比强机贵得多。开启后整档防抖换成 1.2s 起、连续编辑退到 3.6s
+   * （正常档是 0.3s 起、退到 1.2s），打字过程中基本不会再起实例；
+   * 判题链路完全不受影响（它本来就不是逐键跑的）。
+   *
+   * 默认关：正常机器上 0.3s 起跳的反馈延迟才是想要的。
+   */
+  lowPower: false,
   // 「生成图片」的三项（都不是 Monaco 选项，与 statusBar 同理，攒在同一份存档里）：
   // 导出质量、左上角窗口栏三点、以及正文左侧的行号栏。默认高 + 画点 + 画行号，
   // 即用户定的形态；行号默认开是刻意的 —— 导出去给人看的代码图，没行号不好指某一行。
@@ -353,8 +364,13 @@ export function editorOptions(settings, scale = 1, { markdown = false } = {}) {
     suggestOnTriggerCharacters: true,
     // 同文档里出现过的词也参与补全（Monaco 默认就是这个档，写出来备查）
     wordBasedSuggestions: 'currentDocument',
-    // Tab 接受当前建议（没有建议时 Tab 照常插入制表符 / 空格）
-    tabCompletion: 'on',
+    // Tab 只负责缩进，绝不接受建议。
+    //
+    // Monaco / VSCode 的默认值都是 'off'，这里曾经写成 'on'：于是补全框关着、
+    // 光标前只有一个词时按 Tab 也会把它换成最佳建议（`retur` + Esc + Tab = `return`），
+    // 更常见的是「按 Tab 缩进，结果上一行的词被吞掉」。缩进是高频动作，不能有歧义。
+    // 要接受建议就用 Enter（见下面那条 acceptSuggestionOnEnter）。
+    tabCompletion: 'off',
     // 'smart'：光标处已经写完一个完整词时 Enter 才是换行，避免敲回车顺手吞掉一条建议
     acceptSuggestionOnEnter: 'smart',
     // 片段不挤掉同文档词汇（completion.js 里给片段排了 zz_ 前缀，两者同屏）
