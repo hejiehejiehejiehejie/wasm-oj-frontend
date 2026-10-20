@@ -177,8 +177,9 @@ export const SETTINGS_MENU_ROWS = [
    * 装了旧版的人若看不到它，只剩「有新版」这个事实可读、没有任何途径拿到新包（与设置面板
    * 「装包行不能收」是同一条判据）。反过来「装好了且是最新版」四颗全不出现。
    *
-   * 两组词的差别只在**这条机器的路怎么走**：Firefox 去 AMO 拿最新版（叫「更新」），
-   * Chromium 要重新下一份 zip 再加载（叫「重新下载」）—— 与上面「安装 / 下载」的分法一致。
+   * 【词上只分「没装 / 旧版」两种（2026-10-20 用户要求）】更新那一对统一叫「更新浏览器插件」
+   * （原来 Chromium 那颗叫「重新下载浏览器插件」，用户指出这与没装时的「下载浏览器插件」
+   * 分不开）；Firefox 去 AMO、Chromium 重下 zip 的区别只在**动作**，不再落在词上。
    */
   {
     id: 'installApp',
@@ -234,9 +235,10 @@ export const SETTINGS_MENU_ROWS = [
   {
     id: 'updateExtensionManual',
     kind: 'action',
-    /** 装着旧版 + 走手动加载那条：重新下一份新包，用户换掉解压目录后刷新即可（路还是这一条） */
+    /** 装着旧版 + 走手动加载那条：重新下一份新包，用户换掉解压目录后刷新即可（路还是这一条）。
+     *  词与 Firefox 那颗同为「更新浏览器插件」（2026-10-20 起，理由见上面块注释） */
     when: () => extensionOutdated() && EXTENSION_ROUTES.value.includes('manual'),
-    labelKey: 'settings.menu.updateExtensionManual',
+    labelKey: 'settings.menu.updateExtension',
     run: () => downloadExtensionPackage(),
   },
 

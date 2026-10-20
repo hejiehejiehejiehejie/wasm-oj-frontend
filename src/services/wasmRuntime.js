@@ -327,6 +327,38 @@ async function isAssetCached(url) {
 }
 
 /**
+ * 把一个**已经缓存过**的运行时读进内存（不产生任何下载）。
+ *
+ * 给编辑器内的语法诊断用的：诊断绝不主动下载，但「本机早就下过、只是还没进内存」
+ * 与「本机没有」是两回事 —— 前者读缓存 + 解包只要几十到几百毫秒，不该逼用户
+ * 先跑一次代码才能看到红线；后者直接放弃，等用户自己点运行。
+ *
+ * 判据做成两级：先 `probeRuntime` 探缓存（不触网），再 `preload*`。因为探针通过
+ * 之后 fetch 一定命中缓存；反过来直接 preload，缓存缺失时就会真的下 50MB。
+ *
+ * @param {'cpp' | 'python'} language
+ * @returns {Promise<boolean>} true = 现在已在内存里
+ */
+export async function ensureRuntimeLoaded(language) {
+  if (language !== 'cpp' && language !== 'python') return false
+  if (language === 'python' ? isPythonRuntimeReady() : isToolchainReady()) return true
+  // 只在 SW 控制的页面上做（线上 / 装好的 PWA）：那时判据是 `caches.match`，静默。
+  // 没有 SW（dev）就只能用 only-if-cached 探 HTTP 缓存，而**未命中时它本身是一条
+  // 会失败的请求** —— 控制台记 ERR_CACHE_MISS、Network 里三行红。dev 里「先跑一次」
+  // 本来就是常态，不值得为它刷一屏红字（与设置页探针同一条取舍）。
+  if (!navigator.serviceWorker?.controller) return false
+  if (!(await probeRuntime(language))) return false
+  try {
+    if (language === 'python') await preloadPythonRuntime()
+    else await preloadToolchain()
+    return true
+  } catch {
+    /* 探针说是缓存、实际读失败（缓存被清 / 配额）：当作没有，静默放弃 */
+    return false
+  }
+}
+
+/**
  * 卸载某个本地运行时的全部本地痕迹（设置页「本地运行环境」的卸载按钮）。
  *
  * 除 runnoSandbox 那边的缓存与内存，还要把本模块的 PCH 预热开关复位 ——

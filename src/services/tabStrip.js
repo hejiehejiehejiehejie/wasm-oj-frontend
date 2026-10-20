@@ -96,3 +96,31 @@ export function moveStripItem(id, insertIndex) {
   fileIds.forEach((fileId, index) => moveTab(fileId, index))
   setViewOrder(stripOrder.filter(isViewId))
 }
+
+/**
+ * 拖动**整组**的落盘入口（useTabDrag 芯片拖动的 onDrop 转交，2026-10-20 十八改）：
+ * 把一整段连续的成员 id 挪到 insertIndex。芯片不进 stripOrder（它只是渲染在组首前的
+ * 把柄），搬组 = 搬它的成员段，芯片跟着组首走。
+ *
+ * insertIndex 与 moveStripItem 同一契约 —— 按「去掉被搬段」的列表数（useTabDrag 的
+ * commitIndex 数到的就是这份坐标）。段不连续（不该发生 —— 组的不变式保证连续）就拒绝，
+ * 不做半吊子重排。重排之后与 moveStripItem 同样分部写回两份状态。
+ *
+ * @param {string[]} ids 组成员 id（保持原有相对次序）
+ * @param {number} insertIndex
+ */
+export function moveStripRun(ids, insertIndex) {
+  if (!Array.isArray(ids) || ids.length === 0) return
+  const at = ids.map((id) => stripOrder.indexOf(id))
+  if (at.some((i) => i === -1)) return
+  for (let k = 1; k < at.length; k += 1) {
+    if (at[k] !== at[k - 1] + 1) return
+  }
+  const rest = stripOrder.filter((id) => !ids.includes(id))
+  const target = Math.max(0, Math.min(rest.length, insertIndex))
+  stripOrder.splice(0, stripOrder.length, ...rest.slice(0, target), ...ids, ...rest.slice(target))
+
+  const fileIds = stripOrder.filter((x) => !isViewId(x))
+  fileIds.forEach((fileId, index) => moveTab(fileId, index))
+  setViewOrder(stripOrder.filter(isViewId))
+}

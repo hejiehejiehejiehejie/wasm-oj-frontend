@@ -192,11 +192,15 @@ const MD_VIEW_ICONS = { edit: 'edit', split: 'split', preview: 'eye' }
 /** 工具栏与预览都只对题解有意义，且设置视图盖上来时整块让位（判据与 App 共用一份） */
 const mdBarVisible = mdActive
 
-/** 编辑区空着的判据：没有活跃文件、也没有任何合成视图页签**开着**（anyViewOpen，
-    不是 viewActive —— 页签开着但没盖着编辑器时（比如刚关掉最后一个代码页签），
-    这条横栏必须留着，不然那两颗页签就凭空消失了（2026-10-10）。
-    中间那块占位提示的条件在下面模板里另写，只看 viewActive：视图没盖上来时空态照旧露出。 */
-const editorEmpty = computed(() => !activeNode.value && !anyViewOpen.value)
+/** 页签栏收不收起来的判据：条带里**再也没有东西可显示**才算空。
+    这里不能照旧判「有没有活跃文件」（2026-10-10 那版是 `!activeNode && !anyViewOpen`）：
+    2026-10-20 十七改起，折叠分组时若整条条带一张可见页签都没有、activeId 会被清成 null ——
+    按旧口径这里会把整条页签栏（连同那枚唯一能点开分组的**组芯片**）一起收掉，组从此
+    展不开，`lastActiveTabId` 的焦点恢复也就永远走不到。所以看的是「还开着文件页签吗 /
+    还有合成视图页签开着吗」（anyViewOpen 而不是 viewActive：页签开着但没盖着编辑器时
+    这条横栏必须留着，不然那两颗页签就凭空消失了 —— 2026-10-10）。
+    编辑区正中那块占位提示的条件在模板里另写，只看 viewActive：视图没盖上来时空态照旧露出。 */
+const stripEmpty = computed(() => !workspace.openTabIds.length && !anyViewOpen.value)
 
 /** 预览的正文来源：活跃 model 的当前内容 */
 const mdSource = ref('')
@@ -686,8 +690,9 @@ defineExpose({
     :class="{ 'is-md': mdActive, 'is-status-off': !settings.statusBar }"
   >
     <!-- 全屏编辑时页签栏整条让位（Esc 或再点一次那颗按钮退出）；
-         编辑区空着（没开任何文件、也没在看设置 / 抽题）时同样收掉那条空横条 -->
-    <EditorTabs v-show="!mdFullscreen && !editorEmpty" />
+         条带里一张页签都没有了才收掉那条空横条（判据见 stripEmpty —— 不是「有没有活跃文件」，
+         全折叠时 activeId 是 null 但芯片还得留着让人点开） -->
+    <EditorTabs v-show="!mdFullscreen && !stripEmpty" />
 
     <!-- 题解工具栏：左边文本格式与插入，右边字数与视图模式 -->
     <div v-if="mdBarVisible" class="editor-pane__bar">

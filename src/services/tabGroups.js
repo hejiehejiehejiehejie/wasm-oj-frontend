@@ -56,7 +56,12 @@ const STORAGE_KEY = 'cp.tabGroups'
 export const GROUP_COLORS = ['blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange']
 
 export const tabGroups = reactive({
-  /** @type {{id: string, color: string, name: string, collapsed: boolean}[]} */
+  /**
+   * `lastActiveTabId` 是折叠时记下的「折叠前最后停着的那个文件」（2026-10-20 十七改）：
+   * 折叠把焦点转走或清空，展开时若全局 activeId 仍为 null 就靠它把焦点还回去。
+   * 只在 EditorTabs.transferFocusOutOfGroup 的全折叠兜底里写。
+   * @type {{id: string, color: string, name: string, collapsed: boolean, lastActiveTabId?: string}[]}
+   */
   groups: [],
   /** @type {Record<string, string>} tabId → groupId */
   memberOf: {},
@@ -268,9 +273,10 @@ export function findNextVisibleTab(anchorIndex, excludeId) {
 
 // 关闭激活页签的焦点回退注入（见 workspaceStore.closeFocus 的说明）：可见性判据
 // 活在本模块，workspaceStore 不能反向 import 这里（会成环），所以是注入不是直调。
-// 全折叠等「一张可见页签都没有」的极端情况返回 null，closeTab 退回默认的
-// 「原下标顶上来」—— activeId 落在隐藏页签上由芯片的 holds-active 环提示，与折叠
-// 组焦点转移的口径一致（见 EditorTabs.transferFocusOutOfGroup）。
+// 全折叠等「一张可见页签都没有」的极端情况返回 null，closeTab 退回默认的「原下标顶上来」。
+// 注意它**不**做清除：十七改只把「折叠」这条路改成「全折叠就清空焦点」
+// （EditorTabs.transferFocusOutOfGroup），关闭路径的兜底原样保留 —— 全折叠时用户在
+// 条带上看不见任何页签，正常也点不到关闭，真走到这里说明状态本来就是残留的。
 closeFocus.pick = (closedId, index) => findNextVisibleTab(index, closedId)
 
 /**
@@ -423,6 +429,8 @@ function load() {
       if (typeof g.name !== 'string') g.name = ''
       // 旧档没有这一栏（折叠是 2026-10-19 晚加的），缺省当展开
       g.collapsed = !!g.collapsed
+      // 十七改加的「折叠前的焦点」，非字符串就当没有
+      if (typeof g.lastActiveTabId !== 'string') delete g.lastActiveTabId
     }
     tabGroups.groups = groups
     const memberOf = {}

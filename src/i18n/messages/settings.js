@@ -42,13 +42,13 @@ export default {
         increase: '增大',
         /* 下面四条是**条件行**（见 services/settingsMenu.js 的 `when`）：
            「安装为应用」的判据就是 canInstall；插件那四条按**两种状态 × 这台机器的路**二选一 ——
-           没探到扩展叫「安装 / 下载」，探到旧版叫「更新 / 重新下载」（2026-10-12 用户要求把
-           安装与更新分开。Firefox 走 AMO、Chromium 走 zip，两组词的区别只在路怎么走）。 */
+           没探到扩展叫「安装 / 下载」，探到旧版两颗统一叫「更新」（2026-10-12 用户要求把安装与
+           更新分开；2026-10-20 再要求旧版那对与「下载」也分得开，Firefox 走 AMO、Chromium 走 zip
+           的区别只在动作，不落在词上）。 */
         installApp: '安装为应用',
         installExtension: '安装浏览器插件',
         updateExtension: '更新浏览器插件',
         downloadExtension: '下载浏览器插件',
-        updateExtensionManual: '重新下载浏览器插件',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -253,7 +253,10 @@ export default {
         newCase: { label: '新增一条测试用例' },
         openSettings: { label: '打开 / 收起设置' },
         exportImage: { label: '生成图片', hint: '把选中的代码导成 PNG；没有选区时不响应' },
-        renameNode: { label: '重命名（文件 / 文件夹）', hint: '焦点在资源管理器里才生效' },
+        renameNode: {
+          label: '重命名（文件 / 文件夹）',
+          hint: 'Windows / Linux 按 F2，macOS 按回车；焦点在资源管理器里才生效',
+        },
         deleteNode: {
           label: '删除（文件 / 文件夹）',
           hint: '焦点在资源管理器里才生效 · Delete 就是它自己的键位，清除这行请用 × 或 Backspace',
@@ -600,14 +603,13 @@ export default {
         increase: 'Increase',
         /* Four conditional rows (see `when` in services/settingsMenu.js): the install-as-app one is
            gated on canInstall, while the extension ones cover two states on this machine's route —
-           nothing detected reads "install / download", an outdated install reads
-           "update / download again" (asked for on 2026-10-12: keep the two states apart).
-           AMO on Firefox, the zip on Chromium; the wording differs only in how the route works. */
+           nothing detected reads "install / download", an outdated install reads "update" on both
+           routes (2026-10-12: keep install and update apart; 2026-10-20: keep update and download
+           apart too — AMO vs zip differs only in the action, not in the wording). */
         installApp: 'Install as an app',
         installExtension: 'Install the extension',
         updateExtension: 'Update the extension',
         downloadExtension: 'Download the extension',
-        updateExtensionManual: 'Download the extension again',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -827,7 +829,10 @@ export default {
           label: 'Export image',
           hint: 'Turns the selected code into a PNG; does nothing when nothing is selected',
         },
-        renameNode: { label: 'Rename (file / folder)', hint: 'Applies while the focus is in the explorer' },
+        renameNode: {
+          label: 'Rename (file / folder)',
+          hint: 'F2 on Windows / Linux, Enter on macOS; applies while the focus is in the explorer',
+        },
         deleteNode: {
           label: 'Delete (file / folder)',
           hint: 'Applies while the focus is in the explorer · Delete is its own binding, clear this row with × or Backspace',

@@ -999,7 +999,8 @@ const SHORTCUT_HANDLERS = {
 const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
 
 /**
- * 作用域受限的三条动作（F2 重命名 / Delete 删除 / ⌘·Ctrl+A 全选 资源树里的节点）：只有焦点在
+ * 作用域受限的三条动作（重命名 / 删除 / ⌘·Ctrl+A 全选 资源树里的节点；重命名的键位按平台分岔，
+ * macOS 是 Enter、其它平台 F2，见 useShortcutManager）：只有焦点在
  * **资源管理器那块面板**里时才生效（行上、或树的空白处都算 —— 见下面的 treeScopeFrom）。
  *
  * 为什么不放进 SHORTCUT_HANDLERS：上面那些都是「在哪儿按都算」，而这三条得先过一道闸门 ——
@@ -1095,7 +1096,7 @@ function regionUnderPointer() {
  * - 指针在编辑区里 → 一律 `undefined`（放行）：这时 ⌘A 就是编辑器自己的「全选代码」。
  * - 指针在别处（或根本没有指针：纯键盘、触摸）→ 落回下面的 DOM 焦点判据。
  *
- * 为什么只给 ⌘A 开这个口子，F2 / Delete 不看指针：Delete 不带修饰键，光标在代码里、
+ * 为什么只给 ⌘A 开这个口子，重命名 / Delete 不看指针：Delete 不带修饰键，光标在代码里、
  * 指针恰巧搭在侧栏上时按一下 Delete 就成了「弹删除文件确认框」—— 那个方向的风险比收益大得多。
  * @param {KeyboardEvent} event
  * @param {string} actionId
@@ -1114,6 +1115,20 @@ function treeScopeFrom(event, actionId) {
   if (!(target instanceof Element)) return undefined
   if (target.closest('input, textarea, select, [contenteditable]')) return undefined
   if (!target.closest('[data-panel="explorer"]')) return undefined
+
+  // 重命名另加两道（2026-10-20）：它在 macOS 上的键位是**裸 Enter**，误触的代价是
+  // 「在编辑器里按一下回车，树上的文件被改了名」。所以除了事件落点，还要求：
+  //   ① `document.activeElement` 真的在树里 —— 焦点在编辑器 / 页签栏 / 顶栏时一律不认；
+  //      不能只信 `event.target`：合成事件、或窗口刚被激活那一瞬，两者会对不上。
+  //   ② 落点不是在按钮 / 链接上 —— 那类元素自己的 Enter 是「按一下」，不该被抢走。
+  // Delete / ⌘A 不加这两道：它们的既有判据（焦点在树里、不在可编辑元素上）已经够用，
+  // 擅自收紧会改变用户已经用顺手的行为。
+  if (actionId === 'rename-node') {
+    const active = document.activeElement
+    if (!(active instanceof Element) || !active.closest('[data-panel="explorer"]')) return undefined
+    if (target.closest('button, a, [role="button"]')) return undefined
+  }
+
   return { rowId: target.closest('[data-tree-id]')?.dataset.treeId ?? null }
 }
 
@@ -1150,7 +1165,7 @@ function onKeydown(event) {
     return
   }
 
-  // 作用域受限的三条（F2 / Delete / ⌘·Ctrl+A）：不在资源管理器里就整条放行，不拦原生行为
+  // 作用域受限的三条（重命名 / Delete / ⌘·Ctrl+A）：不在资源管理器里就整条放行，不拦原生行为
   if (actionId && SHORTCUT_TREE_HANDLERS[actionId]) {
     const scope = treeScopeFrom(event, actionId)
     if (!scope) return

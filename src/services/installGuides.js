@@ -12,7 +12,7 @@
  * - `app-manual`   引擎没有可用的一键入口 → 只说明（按浏览器 / 系统挑一句：三星的「＋」徽标与
  *                  菜单、Firefox 安卓的 ⋮、iOS 的分享、桌面 Safari 的程序坞…）
  * - `ext-install`  没探到插件、且这台机器有路 → 通知带「下载 / Firefox 版」按钮
- * - `ext-update`   探到插件但版本旧 → 通知带「重新下载 / Firefox 版」按钮
+ * - `ext-update`   探到插件但版本旧 → 通知带「更新 / Firefox 版」按钮
  *
  * 【自动弹一次的记录】`cp.installGuides`（本文件唯一读写），存**已自动弹过的引导 id 数组**。
  * 四条各记各的：见过「可以装应用」不等于见过「插件有新版」，所以状态变了仍会再提示一次。
@@ -220,7 +220,7 @@ function extensionGuide() {
     }
     if (route === 'manual') {
       actions.push({
-        label: t(outdated ? 'notifications.guide.redownload' : 'app.download'),
+        label: t(outdated ? 'notifications.guide.update' : 'app.download'),
         run: () => downloadExtensionPackage(),
       })
     }

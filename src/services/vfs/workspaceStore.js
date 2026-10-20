@@ -420,6 +420,16 @@ export function setActiveTab(id) {
 }
 
 /**
+ * 清空当前焦点（2026-10-20 十七改）。目前只有一个调用方：折叠分组时整条条带已经没有任何
+ * **可见**页签了 —— 焦点必须跟着清掉，否则编辑区还开着那个文件、页签栏里却找不到它
+ * （「状态幽灵化」）。与 setActiveTab 对称，组件不直接写 store 字段。
+ * 清空后 activeNode 为 null，EditorPane 卸掉 model、露出「未打开任何文件」的占位。
+ */
+export function clearActiveTab() {
+  workspace.activeId = null
+}
+
+/**
  * 把页签挪到新位置（页签栏拖动排序）。
  *
  * 只动 `openTabIds` 的顺序，**不碰** activeId / previewTabId / model —— 节点 id 没变，

@@ -13,12 +13,27 @@
  * 【为什么不用 HTML5 拖放】同 useTreeDrag：`dragstart` / `drop` 在触屏上根本不触发，
  * 幽灵元素的外观与自动滚动也不可控。这里从 `pointerdown` 起手自己实现。
  *
- * 【两类设备的起手判据】
- *   - 鼠标 / 笔：不需要长按，横向位移超过 5px 即算拖。
- *   - 触屏：条带本身是**横向滚动容器**，直接拖会与滚动打架，所以按住约 450ms 先进入
- *     armed（可拖）态，之后继续移动才真的开始拖；armed 之后用**非被动** `touchmove`
- *     + `preventDefault()` 把滚动按住（`touch-action` 在手势开始时就读定了、中途改它无效，
- *     这条结论与 useTreeDrag / App.vue 分隔条出自同一次踩坑）。
+ * 【两类设备两套起手判据（2026-10-20 十九改：触屏手势状态机）】
+ *   - 鼠标 / 笔：按下即进候选，位移超过 5px 立刻起拖（原来的行为一点没变）。
+ *   - 触屏：条带本身是**横向滚动容器**，「拖」与「滚」共用同一根手指，只能靠时间 + 位移
+ *     分开。press 上的 armed / dragging / menuOpen 三个标志构成一台状态机：
+ *
+ *       pointerdown ──200ms 内位移 > 10px──▶ 取消：这是横向滚动，放行原生 pan-x
+ *            │
+ *            ├── 静止到 200ms（位移 < 10px）──▶ armed「可拖」：轻震 + 浮起
+ *            │        ├── 位移 ≥ 5px ────▶ dragging：锁滚动、接管 pointermove 重排
+ *            │        └── 继续静止到 500ms ─▶ 弹自定义上下文菜单（拖拽态作废）
+ *            └── 200ms 内抬手（位移 < 10px）──▶ tap：切页签 / 折叠分组
+ *
+ *     200 / 500 / 10 / 5 四个数就是这张图的全部参数，改一个都要回来重画它。
+ *   · 触屏按下**不切焦点**（鼠标按下即获焦，见 EditorTabs.onTabPointerDown）：手指落在
+ *     页签上很可能只是想滚一下条带，按下就切走会让「滚着看一眼」变成「连着切了三个文件」。
+ *     切焦点挪到两个出口 —— tap，以及 dragging（经 onDragStart 回调，拖谁就切谁）。
+ *   · armed 之后用**非被动** `touchmove` + `preventDefault()` 把滚动按住；同时把条带的
+ *     内联 `overflow-x` 锁成 hidden（`touch-action` 在手势开始时就读定了、中途改它无效，
+ *     这条结论与 useTreeDrag / App.vue 分隔条出自同一次踩坑）。锁与解都走
+ *     lockStripScroll / unlockStripScroll，**每个出口都必须解**（pointerup / pointercancel /
+ *     Esc / 组件卸载全汇到 cancelPress）。
  *
  * 【触屏要补的三件事，缺一件都只在真机上现形】`dispatchTouchEvent` 那类合成事件**不跑浏览器
  * 的手势识别器**，所以下面三条在无头探针里永远测不出来（2026-10-10 用户报「拖动页签没对触摸屏
@@ -27,11 +42,12 @@
  *   ① `touch-action: pan-x`（写在 EditorTabs.vue 的 `.editor-tabs__item` 上）：
  *      `auto` 允许双指缩放 / 双击缩放，手势里插进第二根手指就会立刻收到 pointercancel，
  *      正在拖的那一帧被打断。与文件树行 `.tree-item__row` 的 `pan-y` 同源、方向相反。
- *   ② `user-select: none` + `-webkit-touch-callout: none`（同上）：长按 450ms 起手时不许
+ *   ② `user-select: none` + `-webkit-touch-callout: none`（同上）：长按 200ms 起手时不许
  *      选中标签文字 —— iOS 一旦开始选词就会连带弹出 callout（放大镜 + 菜单），拖拽当场变成选词。
- *   ③ 系统长按菜单（`contextmenu`）**从按下那一刻就接管**（见 onTabPointerDown）：各家系统
- *      的阈值大多在 500ms 上下，与我们这 450ms 贴得很近，等 armed 再拦已经晚了一步 ——
- *      菜单会在拖拽中途弹出来，还要等下一次点击才关掉。页签本来没有右键菜单，拦掉不损失功能。
+ *   ③ 系统长按菜单（`contextmenu`）**从按下那一刻就接管**（见 beginPress）：各家系统
+ *      的阈值大多在 500ms 上下，与我们弹自定义菜单的 500ms 正好撞车 —— 等 armed 再拦已经
+ *      晚了一步，系统菜单会先于我们的卡片弹出来，而且还要等下一次点击才关掉。页签本来
+ *      没有原生右键菜单，拦掉不损失功能。触屏的长按菜单由 openLongPressMenu 自己弹。
  *      这三条与 useTreeDrag 的对应处完全同源，改一处记得看另一处。
  *
  * 【③ 为什么挂在按下、而不是 armed】非被动 `touchmove` 也一并提前挂（拦截本身仍只在
@@ -42,8 +58,8 @@
  *
  * 【折叠的分组怎么算】折叠组的成员页签仍然在 DOM 里，只是 display: none（见
  * services/tabGroups.js 的文件头：摘出序列会让这里的下标数学整体错位）。它们量不出矩形、
- * 不进让位序列，在虚拟序列里由所属组的**芯片**代表 —— 芯片就画在组的左缘，页签拖过
- * 芯片的中线就算越过了整段组；提交时（commitIndex）芯片再展开成它藏着的成员，
+ * 不进让位序列，在虚拟序列里由所属组的**芯片**代表 —— 芯片就画在组的左缘，页签的前导
+ * 边缘越过芯片的中线就算越过了整段组；提交时（commitIndex）芯片再展开成它藏着的成员，
  * 换算回全表下标。反过来，`onTabPointerDown` 的「只剩一张就别拖」只数**可见**的页签：
  * 全被折叠藏起来时拖无可拖。
  *
@@ -52,17 +68,19 @@
  * 算目标槽位，差值用 translate3d 写到元素上：被拖的那张**无过渡**逐帧跟手（锁 X 轴、
  * 钳在条带内容范围内，z-index 抬到 100），其余的交给 CSS 过渡（200ms
  * cubic-bezier(0.2, 0, 0, 1)，写在 EditorTabs 的 is-dragging 规则里）滑到新槽位。
- * 换位判据是「被拖页签的中心越过相邻槽位的中线」，且中线永远按**换位后的目标位置**
- * 算 —— 用当前位置会在交换瞬间自我反馈、来回横跳。松手才把虚拟序列换算成全表下标
- * 提交（不动 stripOrder / openTabIds / viewOrder），提交那一刻调用方把 TransitionGroup
- * 切到 tab-instant（FLIP 不发），由 settle() 从**提交前记下的**各元素视觉位置用 150ms
- * ease-out 补间到新车位 —— 已经就位的差为 0 自动跳过，还在半路的平滑接上。
- * （残差为什么必须提交前记：见 finishDrag 里的注释。）
+ * 换位判据（2026-10-20 十六改）是「**移动方向上的前导边缘**越过相邻槽位的中线」：
+ * 向右拖看右缘、向左拖看左缘，外加一道**方向门控**（这一帧指针真往哪边动才查哪一侧）。
+ * 原来的中心判据要多推半个页签才触发，手感偏迟钝；前导边缘早半格。中线永远按**换位后的
+ * 目标槽位**算 —— 用正在播过渡的实时 DOM 坐标会在动画半途自我反馈、来回横跳。
+ * 松手才把虚拟序列换算成全表下标提交（不动 stripOrder / openTabIds / viewOrder），提交
+ * 那一刻调用方把 TransitionGroup 切到 tab-instant（FLIP 不发），由 settle() 从**提交前
+ * 记下的**各元素视觉位置用 150ms ease-out 补间到新车位 —— 已经就位的差为 0 自动跳过，
+ * 还在半路的平滑接上。（残差为什么必须提交前记：见 finishDrag 里的注释。）
  *
  * 【拖入 / 拖出分组（2026-10-20 十三改，Chrome 原生手感）】被拖页签的**实时归属**记在
  * `drag.gid`（初始 = 真实归属），拖拽期间随几何阈值翻转，并经 `liveGroup` ref 喂给
  * EditorTabs 的包络线测量 —— DOM 上的真实归属（tabGroups.memberOf）**一概不动**，松手
- * 才随下标一起提交（onDrop 的第三参）。判定全部走扁平槽位模型（见下），组内拖 / 组外拖
+ * 才随下标一起提交（onDrop 载荷的 liveGid 字段）。判定全部走扁平槽位模型（见下），组内拖 / 组外拖
  * 不是两套逻辑，只是「成员身份」会挡住两类普通换位、并给出一组额外的阈值判定。
  * **判据全部锚在被拖页签自己的边缘上，而不是中心**：页签比芯片宽得多，邻位停放时中心
  * 早就越过芯片的任何固定线，中心判据会在起拖瞬间误触发（且与拖动方向无关）——
@@ -76,25 +94,49 @@
  *     唯一成员的组拖空后，芯片**拖拽期间保留**（反悔拖回去还能吸入），松手结算时才由
  *     tabGroups.removeEmptyGroups 摘除。
  *
- * 【本模块不碰 store】落盘由调用方的 `onDrop(id, insertIndex, liveGid)` 交给 tabStrip 的
- * moveStripItem —— 由它分部写回 openTabIds（含持久化）与 viewOrder；第三参是拖拽结束时
- * 被拖页签的实时归属，调用方据它结算成员关系（拖出组 = 退组、拖进组 = 入组、拖空的组
- * 就地摘除）。
+ * 【芯片拖动 = 整组搬移（2026-10-20 十八改）】分组芯片本身就是组的拖把柄（Chrome 同款：
+ * 按住芯片拖 = 搬走整组；原样松手仍是折叠 / 展开切换）。被拖对象是「芯片 + 紧随其后的
+ * 全体可见组员」的**整段块**（折叠组只有芯片 —— 组员由它代表，见 collectUnits），块内
+ * 全体共用同一个 translate3d，视觉上钢性连体。两条专属规则：
+ *   · **整段换位**：碰撞按「邻接 run」算 —— 无组单元就是它自己，某组则是「芯片 + 它的
+ *     组员」整段。组对组必须整段换：只换芯片会把对方的组员与它的芯片拆开，破坏「同组
+ *     成员在 stripOrder 里连续」的不变式（tabGroups 文件头），松手后那组的包络线会
+ *     永久断成两截。阈值（二十改）锚在**紧挨着被拖块那个单元**的中线上 —— 与页签拖动
+ *     的前导边缘判据逐字相同；十八改取的是整段 run 的中点，拖过一串散签 / 一个大组
+ *     都要多走半格，用户报「要完全拖到对应位置才换」。
+ *   · **无成员结算**：搬组不改成员关系（drag.gid 恒等于组 id，无出入组判定），松手只把
+ *     整段成员在 stripOrder 里挪到落点（tabStrip.moveStripRun）。onDrop 的载荷用
+ *     `{ kind: 'group' }` 与页签拖动的 `{ kind: 'tab' }` 区分，调用方各走各的结算。
+ *
+ * 【本模块不碰 store】落盘由调用方的 `onDrop(payload, insertIndex)` 交给 tabStrip 的
+ * moveStripItem / moveStripRun —— 由它们分部写回 openTabIds（含持久化）与 viewOrder；
+ * 页签拖动的 payload.liveGid 是被拖页签的实时归属，调用方据它结算成员关系（拖出组 =
+ * 退组、拖进组 = 入组、拖空的组就地摘除）。
  */
 import { nextTick, onBeforeUnmount, shallowRef } from 'vue'
 
-/** 触屏长按多久算「我要拖了」。与 useTreeDrag 同值，手感一致
- *  ⚠️ 这个数牵着一处样式：`EditorTabs.vue` 里按压进度那条 `transition: background-color 450ms linear`
+/** 触屏从按下到「可以拖了」的长按门槛（十九改：450 → 200ms，用户口径）。
+ *  ⚠️ 这个数牵着一处样式：`EditorTabs.vue` 里按压进度那条 `transition: background-color 200ms linear`
  *  ——底色要在到点那一刻刚好走完，改一边就得改另一边（见那两个类上的注释）。 */
-const LONG_PRESS_MS = 450
+const LONG_PRESS_MS = 200
+/** 触屏长按之后仍一动不动多久 → 这不是拖拽，是「呼出上下文菜单」（用户口径 500ms）。
+ *  必须大于 LONG_PRESS_MS：先给「可拖」的反馈，再决定是拖还是弹菜单。 */
+const TOUCH_MENU_MS = 500
 /** 鼠标判定成拖拽的位移（像素）。比 useTreeDrag 的 4px 大一点：页签窄，抖动误触的代价是「位置被改」 */
 const MOUSE_MOVE_PX = 5
-/** 触屏 armed 之后判定成拖拽的位移（比鼠标大一点，给手指留抖动余量） */
-const TOUCH_MOVE_PX = 8
-/** 指针距条带左右边缘多近开始自动滚动 */
-const EDGE_PX = 24
-/** 自动滚动每帧步长 */
-const SCROLL_STEP = 8
+/** 触屏按下后的「滚动判据」：位移超过它 = 想横向滚动，撤销长按、放行原生滚动。
+ *  它同时是轻点的位移上限（< 10px），两处共用一个数。 */
+const TOUCH_SLOP_PX = 10
+/** 触屏 armed 之后再动这么多就真的起拖。比滚动阈值小：此时「这次手势归我」已经确定，
+ *  再要求 10px 只会让拖拽起步发木。 */
+const TOUCH_DRAG_PX = 5
+/** 触屏轻点的时间上限：抬手时按下还没满这么久 + 位移 < TOUCH_SLOP_PX = 一次 tap */
+const TOUCH_TAP_MS = 200
+/** 指针距条带左右边缘多近开始自动滚动（用户口径 40px） */
+const EDGE_PX = 40
+/** 自动滚动速度：贴边每帧 14px、退到 40px 线时每帧 3px，中间线性过渡（不突变） */
+const SCROLL_MAX = 14
+const SCROLL_MIN = 3
 /** 拖拽结束后用来吃掉紧随其后那次 click 的时间上限 */
 const CLICK_SUPPRESS_MS = 300
 /** 拖出分组的脱离阈值（px）：组末成员的左缘越过「组剩余部分右缘」这么多才算真出组。
@@ -114,11 +156,32 @@ const GROUP_JOIN_OVERLAP = 12
  * @param {object} options
  * @param {import('vue').Ref<HTMLElement|null>} options.rootEl `.editor-tabs` 根元素
  *   （指示条相对它定位，所以要拿它算 rect，而不能只看条带）
- * @param {(id: string, insertIndex: number) => void} options.onDrop 松手时的落盘回调
+ * @param {(payload: {kind: 'tab', id: string, liveGid: string|null} | {kind: 'group', gid: string}, insertIndex: number) => void} options.onDrop
+ *   松手时的落盘回调
+ * @param {(target: {id: string|null, gid: string|null}) => void} [options.onTap]
+ *   触屏轻点（<200ms、<10px）：切页签 / 折叠分组。鼠标不走这条 —— 它在 pointerdown
+ *   就已经获焦、click 也照常触发。
+ * @param {(info: {id: string|null, gid: string|null, x: number, y: number}) => void} [options.onLongPress]
+ *   触屏长按满 500ms 仍不动：在手指位置弹自定义菜单
+ * @param {(target: {id: string|null, gid: string|null}) => void} [options.onDragStart]
+ *   拖拽真正开始的那一帧（两种设备都会调；触屏靠它补「拖谁就切谁」）
  */
-export function useTabDrag({ rootEl, onDrop }) {
-  /** 正在被拖的页签 id；null = 没在拖（页签上的拖拽态类看它） */
+export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart }) {
+  /** 正在被拖的页签 id；null = 没在拖（页签上的拖拽态类看它）。
+   *  芯片拖动时放的是哨兵 `group:<gid>`（芯片没有 strip id；truthy 即可驱动 is-dragging
+   *  与包络线的逐帧跟随，且不会与任何页签 id 撞上 —— 组 id 是 `g` 前缀，节点 id 不是）。 */
   const draggingId = shallowRef(null)
+
+  /** 这一轮拖拽是不是触屏发起的（模板据它挂 is-touch-drag：放大 1.04 + 加深投影）。
+   *  鼠标拖拽不放大 —— 页签必须严丝合缝地跟着指针走。 */
+  const touchDrag = shallowRef(false)
+
+  /**
+   * 被拖**块**里带 strip id 的单元（页签拖动 = [它自己]；芯片拖动 = 全体可见组员）。
+   * 模板据此给块内每一张挂 --dragging 类（关过渡 + 抬层）—— 只有芯片自己关过渡的话，
+   * 组员会被 200ms 让位过渡拖着走，整组在拖拽中肉眼可见地脱节。
+   */
+  const draggingIds = shallowRef([])
 
   /**
    * 被拖页签的**实时归属**（组 id 或 null），只在拖拽期间有值；null 同时表示
@@ -128,13 +191,24 @@ export function useTabDrag({ rootEl, onDrop }) {
    */
   const liveGroup = shallowRef(null)
 
+  /**
+   * 被拖块此刻**视觉上**贴着条带哪一端（'first' 左端 | 'last' 右端 | null 都不贴），
+   * 每帧随 updateDrag 重算。strip-first / strip-last 的「关朝外那只脚」吃的是这份标记
+   *（见 EditorTabs 的 stripItems 尾部覆盖）：脚的显隐判据是「贴着端缘、脚没地方落」，
+   * 这只跟**视觉位置**有关，与 DOM 顺序（stripOrder，松手才提交）无关 —— 不按视觉算的话，
+   * 「把最左的激活页签拖到中间」整路上它都顶着 is-strip-first、左脚被压着，一松手
+   * DOM 序更新才突然长出来（2026-10-20 用户报「放下时突然出现一个圆角」）。
+   */
+  const dragEdge = shallowRef(null)
+
   /** 实时让位的整轮拖拽状态（结构见 beginLiveReorder）；null = 没在拖 */
   let drag = null
 
   /**
    * 触屏按压中的页签 id —— 页签上的「按住进度」底色靠它（见 EditorTabs 的 --pressing）。
    * 只对触屏置位：鼠标按下就该立刻拖，中间那段「等待」不存在，给进度反而像卡了。
-   * 与 useTreeDrag 的 pressingId 同款 —— 触屏借不到 hover，这 450ms 不给反馈就是「按了没反应」。
+   * 与 useTreeDrag 的 pressingId 同款 —— 触屏借不到 hover，这 200ms 不给反馈就是「按了没反应」。
+   * 芯片没有 strip id，这里放哨兵 `group:<gid>`（模板给芯片单独挂类）。
    */
   const pressingId = shallowRef(null)
   /**
@@ -149,13 +223,38 @@ export function useTabDrag({ rootEl, onDrop }) {
   let scrollDelta = 0
   let suppressClick = false
   let suppressClickTimer = 0
+  /** 条带的滚动锁是否已上（见 lockStripScroll）。按位记，解除时只清自己写的那两条内联 */
+  let scrollLocked = false
 
   const stripEl = () => rootEl.value?.querySelector('.editor-tabs__strip') ?? null
 
-  /** 参与排序的页签元素（按 DOM 顺序，即 tabStrip.stripOrder 的当前顺序） */
-  function tabEls() {
+  /** 芯片在 pressingId / armedId / draggingId 里的哨兵值（芯片没有 strip id） */
+  const sentinel = (gid) => (gid ? `group:${gid}` : null)
+
+  /**
+   * 拖拽期间锁住条带的横向滚动（十九改）。两个手段叠着：
+   *   · 内联 `overflow-x: hidden` —— 立刻生效，挡住滚轮 / 第二个指针；
+   *   · 内联 `touch-action: none` —— 给**下一次**手势读（本次手势的 touch-action 在
+   *     touchstart 时就定死了，中途改它无效，本次靠非被动的 touchmove preventDefault）。
+   * 只写内联、不挂类：解的时候原样清空，不会把样式表里的 pan-x 永久改掉。
+   */
+  function lockStripScroll() {
     const strip = stripEl()
-    return strip ? [...strip.querySelectorAll('.editor-tabs__item[data-strip-id]')] : []
+    if (!strip || scrollLocked) return
+    strip.style.overflowX = 'hidden'
+    strip.style.touchAction = 'none'
+    scrollLocked = true
+  }
+
+  /** 解除滚动锁（每个出口都要走：松手 / cancel / Esc / 菜单弹出 / 组件卸载） */
+  function unlockStripScroll() {
+    if (!scrollLocked) return
+    const strip = stripEl()
+    if (strip) {
+      strip.style.overflowX = ''
+      strip.style.touchAction = ''
+    }
+    scrollLocked = false
   }
 
   /** 真的占着位置的页签（折叠组的成员也在条带里，但 display: none 量不出矩形） */
@@ -214,44 +313,46 @@ export function useTabDrag({ rootEl, onDrop }) {
   // ------------------------------------------------------------ 按压
 
   /**
-   * 页签上的 pointerdown，由模板转交（`@pointerdown`）。
+   * 页签 / 芯片 pointerdown 共用的按压建档。页签传 id、芯片传 gid（二者互斥）。
+   * 触屏在这里挂两条计时：200ms 进入可拖态、500ms 弹菜单（任一先到先得，见文件头的状态机）。
    * @param {PointerEvent} event
-   * @param {string} id
+   * @param {{id?: string|null, gid?: string|null}} target
    */
-  function onTabPointerDown(event, id) {
-    if (event.button !== 0) return
-    if (press || draggingId.value) return
-    // 关闭按钮（×）上起手不拖 —— 那是要关页签
-    if (event.target instanceof Element && event.target.closest('.editor-tabs__close')) return
-    // 看得见的只剩一张时无处可放，不起手（既省掉一次无意义的拖拽，也不会有「拖动一个不动的页签」的怪感）。
-    // 只数可见的：折叠组藏起来的那几张不能算「有地方可放」。
-    if (tabEls().filter(isRendered).length < 2) return
-
+  function beginPress(event, { id = null, gid = null }) {
+    const pointerType = event.pointerType || 'mouse'
     press = {
       id,
+      gid,
       pointerId: event.pointerId,
       // 老浏览器可能不给 pointerType，按鼠标处理（退化成「直接拖」而不是「拖不动」）
-      pointerType: event.pointerType || 'mouse',
+      pointerType,
       startX: event.clientX,
       startY: event.clientY,
       lastX: event.clientX,
       lastY: event.clientY,
+      // 按下时刻：轻点判据（<200ms）认它，不认「armed 有没有置上」—— 主线程忙的时候
+      // setTimeout 会晚几十毫秒，拿 armed 当时间判据会把慢一点的点按判丢
+      startTime: performance.now(),
       armed: false,
       dragging: false,
+      /** 500ms 到点、菜单已弹出：本次手势到此为止（等抬手收尾，不再响应移动） */
+      menuOpen: false,
       captureEl: event.currentTarget instanceof Element ? event.currentTarget : null,
-      timer: 0,
+      armTimer: 0,
+      menuTimer: 0,
     }
-    if (press.pointerType !== 'mouse') {
-      // 按压进度：页签底色从当前底色线性走到 --bg-hover（450ms 那条过渡写在 EditorTabs 的
+    if (pointerType !== 'mouse') {
+      // 按压进度：页签底色从当前底色线性走到 --bg-hover（200ms 那条过渡写在 EditorTabs 的
       // --pressing 上，与这张表同步）；到点由 arm() 换成「就绪态」。
-      pressingId.value = id
-      press.timer = window.setTimeout(arm, LONG_PRESS_MS)
+      pressingId.value = id ?? sentinel(gid)
+      press.armTimer = window.setTimeout(arm, LONG_PRESS_MS)
+      press.menuTimer = window.setTimeout(openLongPressMenu, TOUCH_MENU_MS)
       // 触屏专用的两条都挂在**按下这一刻**，不能等 armed 再挂（理由见文件头「触屏要补的三件事」）：
       //   · touchmove 非被动 —— 浏览器在 touchstart 时就决定了「这次手势要不要等 JS 说话」，
       //     中途补挂的监听器不保证还拦得住第一帧滚动；
-      //   · contextmenu —— 系统长按菜单的阈值与我们的 450ms 太近，等 armed 再拦晚一步。
+      //   · contextmenu —— 系统长按菜单也在 500ms 上下，等 armed 再拦晚一步。
       // 按下就挂**不影响「短滑滚页签条」**：onTouchMoveBlock 只在 armed / dragging 时才
-      // preventDefault，那 450ms 里手指滑动照旧是原生横滚。
+      // preventDefault，那 200ms 里手指滑动照旧是原生横滚。
       window.addEventListener('touchmove', onTouchMoveBlock, { passive: false, capture: true })
       window.addEventListener('contextmenu', onContextMenuBlock, true)
     }
@@ -261,23 +362,81 @@ export function useTabDrag({ rootEl, onDrop }) {
     window.addEventListener('pointercancel', onPointerCancel)
   }
 
-  /** 触屏按住不动到点了：进入可拖态（这一下只翻标志位 —— 拦滚动的那条 touchmove 按下时已挂好） */
+  /**
+   * 页签上的 pointerdown，由模板转交（`@pointerdown`）。
+   * @param {PointerEvent} event
+   * @param {string} id
+   */
+  function onTabPointerDown(event, id) {
+    if (event.button !== 0) return
+    if (press || draggingId.value) return
+    // 关闭按钮（×）上起手不拖 —— 那是要关页签
+    if (event.target instanceof Element && event.target.closest('.editor-tabs__close')) return
+    // 看得见的只剩一张时照旧建档：拖是拖不动的（beginLiveReorder 发现单元不足会当没拖起来），
+    // 但长按 500ms 的菜单还得能弹 —— 只剩一张时「添加到分组 / 关闭」反而最常用。
+    beginPress(event, { id })
+  }
+
+  /**
+   * 芯片上的 pointerdown（十八改）：按住芯片拖动 = 搬走整组（Chrome 同款 —— 芯片就是
+   * 组的把柄）。与页签共用同一套手势状态机，press.id 为 null、press.gid 记组 id，
+   * beginLiveReorder 据此把被拖对象换成「芯片 + 全体可见组员」的整段块。
+   * 原样松手（没动过）不走这里 —— click 照常触发 toggleGroup 的折叠 / 展开。
+   * @param {PointerEvent} event
+   * @param {string} gid
+   */
+  function onChipPointerDown(event, gid) {
+    if (event.button !== 0) return
+    if (press || draggingId.value) return
+    beginPress(event, { gid })
+  }
+
+  /**
+   * 触屏按住不动满 200ms：进入「可拖态」（这一下只翻标志位 —— 拦滚动的那条 touchmove
+   * 按下时已挂好）。三件事：反馈、轻震、锁滚动。
+   */
   function arm() {
-    if (!press || press.dragging) return
-    press.timer = 0
+    if (!press || press.dragging || press.menuOpen) return
+    press.armTimer = 0
     press.armed = true
-    // 到点了：页签换成「就绪态」——弹一下，底色停在 --bg-hover 上（不是页签自己的 --bg-tab-hover：
-    // 那一档太淡，实拍量过只比栏底差 6 阶，当进度条等于没有；理由写在 EditorTabs 那段注释里），直到松手或开始拖。
+    // 到点了：页签换成「就绪态」——弹一下 + 轻轻放大，底色停在 --bg-hover 上（不是页签
+    // 自己的 --bg-tab-hover：那一档太淡，实拍量过只比栏底差 6 阶，当进度条等于没有；
+    // 理由写在 EditorTabs 那段注释里），直到松手或开始拖。
     // 这一刻是整条手势里唯一「告诉用户长按成功了」的信号，别把它省掉。
-    // pressing 必须同时退场：两态互斥（等 → 已就绪），而且 --pressing 自带那条 450ms linear
-    // 的过渡会跟着留下，松手时整块底色要用 450ms 才淡回去、比别的页签慢一拍。
+    // pressing 必须同时退场：两态互斥（等 → 已就绪），而且 --pressing 自带那条 200ms linear
+    // 的过渡会跟着留下，松手时整块底色要用 200ms 才淡回去、比别的页签慢一拍。
     pressingId.value = null
-    armedId.value = press.id
+    armedId.value = press.id ?? sentinel(press.gid)
+    // 「抓起来了」：设备支持就轻震一下（iOS Safari 没有 vibrate，可选调用兜住）
+    try {
+      navigator.vibrate?.(15)
+    } catch {
+      /* 某些浏览器会因「非用户手势」抛错，震动只是锦上添花，吞掉 */
+    }
+    // 从这一刻起手势归我们：先把条带的横向滚动锁上（真正拦本次手势的还是下面那条
+    // 非被动 touchmove，这里锁的是容器本身）
+    lockStripScroll()
+  }
+
+  /**
+   * 长按满 500ms 仍然一动不动：这不是拖拽，是「长按呼出菜单」（十九改）。
+   * 位置取手指最后停的地方；菜单由调用方弹（本模块不碰 UI）。
+   * 拖拽态当场作废：收起浮起反馈、松开滚动锁、本次手势不再响应移动（等抬手收尾）。
+   */
+  function openLongPressMenu() {
+    if (!press || press.dragging || press.menuOpen) return
+    press.menuTimer = 0
+    press.menuOpen = true
+    press.armed = false
+    pressingId.value = null
+    armedId.value = null
+    unlockStripScroll()
+    onLongPress?.({ id: press.id, gid: press.gid, x: press.lastX, y: press.lastY })
   }
 
   /**
    * 不让浏览器把这次手势当滚动。
-   * **armed 之前必须什么都不做**：那 450ms 里手指横向滑动就是「滚页签条」，
+   * **armed 之前必须什么都不做**：那 200ms 里手指横向滑动就是「滚页签条」，
    * 一拦（条带是横向滚动容器，页签不溢出时也滚不动）就再也滚不动了。
    */
   function onTouchMoveBlock(event) {
@@ -294,23 +453,29 @@ export function useTabDrag({ rootEl, onDrop }) {
     press.lastX = event.clientX
     press.lastY = event.clientY
 
+    // 菜单已经弹出来了：本次手势到此为止，移动不参与任何判定（等抬手，见 onPointerUp）
+    if (press.menuOpen) return
+
     if (press.dragging) {
       updateDrag(event.clientX, event.clientY)
       return
     }
 
     const distance = Math.hypot(event.clientX - press.startX, event.clientY - press.startY)
-    if (press.armed) {
-      // 长按之后动了 = 拖拽；没动就松手 = 什么都不做（在 onPointerUp 里处理）
-      if (distance > TOUCH_MOVE_PX) startDrag(event)
-      return
-    }
     if (press.pointerType === 'mouse') {
       if (distance > MOUSE_MOVE_PX) startDrag(event)
       return
     }
-    // 触屏还没到长按阈值就滑走了：这是一次横向滚动，放弃本次按压（浏览器多半已发 pointercancel）
-    if (distance > TOUCH_MOVE_PX) cancelPress()
+
+    if (press.armed) {
+      // 长按已成、手指终于动了 = 拖拽（菜单定时器在 startDrag 里销毁）；
+      // 没动就松手 = 什么都不做（在 onPointerUp 里处理）
+      if (distance > TOUCH_DRAG_PX) startDrag(event)
+      return
+    }
+    // 还没到 200ms 就滑出 10px：这是一次「横向滚动页签条」。撤销长按 / 菜单两条计时、
+    // 松开一切，把这次手势原样还给浏览器（touch-action: pan-x 从没改过，能立刻滚）。
+    if (distance > TOUCH_SLOP_PX) cancelPress()
   }
 
   function onPointerUp(event) {
@@ -324,16 +489,37 @@ export function useTabDrag({ rootEl, onDrop }) {
       return
     }
 
+    // 轻点判据（触屏）：按下到抬手不足 200ms、位移 < 10px。
+    // 时间是现算的 —— 不能拿 armed 当「还没到 200ms」的证明（定时器可能还没轮到跑）。
+    const elapsed = performance.now() - state.startTime
+    const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY)
+    const tap =
+      state.pointerType !== 'mouse' &&
+      !state.menuOpen &&
+      elapsed < TOUCH_TAP_MS &&
+      distance < TOUCH_SLOP_PX
+
     cancelPress()
-    // 触屏长按后原地松手：多半是想拖但没动，不当作点击（吃掉紧随其后的 activate）
-    if (state.armed) markClickSuppressed()
+
+    if (tap) {
+      // 触屏的切页签 / 折叠分组只在这里发生（按下时故意不抢焦，见文件头）。
+      // 先压住紧随其后的 click，再由 onTap 自己走一次 —— 两条路只许走一条。
+      markClickSuppressed()
+      onTap?.({ id: state.id, gid: state.gid })
+      return
+    }
+    // 长按后原地松手（armed 但没拖）、或菜单刚弹过：都不算点击，
+    // 吃掉紧随其后的 click，免得顺带把页签切走 / 把分组折叠掉
+    if (state.armed || state.menuOpen) markClickSuppressed()
   }
 
   function onPointerCancel(event) {
     if (!press || event.pointerId !== press.pointerId) return
-    // 拖拽中被系统打断（来电、第二根手指…）：不提交，原地回弹
+    // 触屏最容易被系统手势（边缘返回、多指、来电）从中间掐断。两条出口都要做完整清理：
+    // 定时器、滚动锁、浮起态全在 cancelPress 里收，拖拽中的另外走一次回弹（不提交排序）。
     if (press.dragging) {
       finishDrag(false)
+      markClickSuppressed()
       return
     }
     cancelPress()
@@ -353,15 +539,28 @@ export function useTabDrag({ rootEl, onDrop }) {
 
   function startDrag(event) {
     press.dragging = true
-    if (press.timer) {
-      window.clearTimeout(press.timer)
-      press.timer = 0
+    if (press.armTimer) {
+      window.clearTimeout(press.armTimer)
+      press.armTimer = 0
     }
-    draggingId.value = press.id
+    // 手指一动就销毁菜单定时器（用户口径）：拖拽与「长按弹菜单」是互斥的两条路
+    if (press.menuTimer) {
+      window.clearTimeout(press.menuTimer)
+      press.menuTimer = 0
+    }
+    draggingId.value = press.id ?? sentinel(press.gid)
     // 真的拖起来了：按压 / 就绪那一套退场，改由 draggingId 表达（浮起跟手 + 让位滑动）。
     // 留着的话，被拖的那一张会同时挂着就绪底色与拖拽态，叠起来很脏。
     pressingId.value = null
     armedId.value = null
+    // 触屏：抓起来要放大 + 加深投影（模板据此挂 is-touch-drag）。鼠标不放大 —— 页签
+    // 必须严丝合缝地跟着指针走。滚动锁在 armed 那 200ms 就上了，这里再兜一次。
+    touchDrag.value = press.pointerType !== 'mouse'
+    if (touchDrag.value) {
+      lockStripScroll()
+      // 触屏按下时故意没抢焦（见文件头），真正开拖的这一帧补上 —— 拖谁就切谁
+      onDragStart?.({ id: press.id, gid: press.gid })
+    }
 
     // 指针捕获：横向拖出条带之后事件仍然回得来。只在该开始拖时才捕获 —— 提前捕获会把
     // 普通点击与横向滚动一起搅进来（指针可能已失效，照 App.vue 分隔条的写法兜住）。
@@ -396,28 +595,58 @@ export function useTabDrag({ rootEl, onDrop }) {
     const strip = stripEl()
     if (!strip) return false
     const { units, hiddenByGroup } = collectUnits(strip)
-    const dragged = units.find((u) => u.id === press.id)
+    // 页签拖动按 strip id 认；芯片拖动按组 id 认（芯片没有 strip id）
+    const dragged = press.gid
+      ? units.find((u) => u.kind === 'chip' && u.gid === press.gid)
+      : units.find((u) => u.id === press.id)
     if (!dragged || units.length < 2) return false
+    // 被拖块：页签拖动 = [它自己]；芯片拖动 = [芯片, ...紧随其后的全体可见组员]
+    //（组员在 DOM 序里紧跟芯片 —— 「同组成员连续」的不变式；折叠组的组员不在 units 里，
+    // 由芯片代表，commit 时经 hiddenByGroup 展开）。块内单元的相对间距 == 槽位模型的
+    // 间距（mr(prev) + ml(next)），整段挪动不改变它 ⇒ 全程共用同一个 translate3d。
+    const block = [dragged]
+    if (press.gid) {
+      for (let k = units.indexOf(dragged) + 1; k < units.length; k += 1) {
+        const u = units[k]
+        if (u.kind === 'item' && u.gid === press.gid) block.push(u)
+        else break
+      }
+    }
+    const first = block[0]
+    const last = block[block.length - 1]
     drag = {
       id: press.id,
+      // 实时归属：页签拖动 = 真实归属（随出入组判定翻转）；芯片拖动 = 组自己的 id
+      //（恒定 —— 搬组不改成员关系，无出入组判定）
+      gid: press.gid ?? dragged.gid ?? null,
+      // 'tab' = 单张页签（有出入组判定与逐张换位）；'group' = 芯片带整组（邻接 run 整段换位）
+      kind: press.gid ? 'group' : 'tab',
+      // 被拖块（页签拖动长度 1；锚点 grabDX 按块首 —— 用户抓住的就是它）
       unit: dragged,
+      block,
+      blockSet: new Set(block),
+      // 块的视觉宽（前导边缘判据用）与占位宽（条带钳制用），都从自然位置算、拖拽中不变
+      blockEdge: last.left + last.width - first.left,
+      blockSpan: last.left + last.width + last.mr - (first.left - first.ml),
       units,
       hiddenByGroup,
-      // 被拖页签的实时归属：初始 = 真实归属，拖拽中随出入组判定翻转（见文件头）
-      gid: dragged.gid ?? null,
       // 虚拟序列：拖拽期间的「逻辑顺序」。初始与 DOM 一致；换位只改它，DOM 不动
       order: units.slice(),
       // 虚拟序列里每个单元的目标左缘（内容坐标），layoutTargets 现算
       pos: new Map(),
       // 布局起点：DOM 首元左缘减它自己的左外边距（= 内容盒起点）。所有槽位以此为基准
       start: units[0].left - units[0].ml,
-      // 抓取锚点：指针相对被拖页签左缘的偏移。全程按「指针 - 锚点」定位页签，
-      // 起手那一帧不会跳
+      // 抓取锚点：指针相对被拖块首元左缘的偏移。全程按「指针 - 锚点」定位，起手那一帧不会跳
       grabDX: 0,
-      // 被拖页签当前的视觉左缘（内容坐标）
-      visual: 0,
+      // 被拖块首元当前的视觉左缘（内容坐标）；起手 = 它的自然左缘（第一帧的 dir 因此为 0）
+      visual: dragged.left,
+      // 上一帧指针 clientX（方向门控用，见 updateDrag）。null = 还没收到过移动
+      lastPointerX: null,
     }
     liveGroup.value = drag.gid
+    // 拖拽态类覆盖整块：块内组员也要关掉 200ms 让位过渡并抬层，
+    // 否则芯片逐帧跟手、组员被过渡拖着走，整组肉眼可见地拉开
+    draggingIds.value = block.filter((u) => u.id).map((u) => u.id)
     drag.grabDX = press.lastX - stripOriginX(strip) - dragged.left
     layoutTargets()
     updateDrag(press.lastX, press.lastY)
@@ -437,6 +666,45 @@ export function useTabDrag({ rootEl, onDrop }) {
    *  Chrome 同款：往折叠组里塞页签等于当场消失），视图页签不参与分组 */
   function joinableChip(u) {
     return !!u && u.kind === 'chip' && !u.collapsed && !drag.unit.view
+  }
+
+  /**
+   * 芯片拖动时紧贴被拖块的邻接 run（dir=1 看右侧、-1 看左侧）：`{ at, list }` 或 null。
+   * run = 无组单元自己；某组则是「芯片 + 它紧随的全部同组组员」整段 —— 组对组必须整段
+   * 换位，只换芯片会把对方组员与芯片拆开（连续性不变式，见文件头）。折叠组没有可见
+   * 组员，run 就只有芯片。
+   * @param {number} i 被拖块首元在虚拟序列里的下标
+   * @param {number} dir 本帧移动方向
+   */
+  function neighborRun(i, dir) {
+    const at = dir > 0 ? i + drag.block.length : i - 1
+    const head = drag.order[at]
+    if (!head || head.gid === drag.gid) return null
+    // **无组单元在这里就返回**（二十改）：下面的「同组成员连续」判据写的是
+    // `v.gid === head.gid`，而普通页签的 gid 是 null —— 它跟**后面每一张普通页签**都
+    // 相等，于是向右一拖就把一串互不相干的散签当成一个 run，阈值变成整串的中点。
+    // 表现正是「必须完全拖到对应位置才换位」（2026-10-20 用户报）。
+    if (!head.gid) return { at, list: [head] }
+    // head 是某组的成员（芯片不邻着我们时只可能撞见组尾）：往左走到组首、再把芯片圈进来
+    let start = at
+    if (head.kind === 'item') {
+      while (start > 0) {
+        const v = drag.order[start - 1]
+        if (v.kind === 'item' && v.gid === head.gid) start -= 1
+        else break
+      }
+      if (start > 0) {
+        const c = drag.order[start - 1]
+        if (c.kind === 'chip' && c.gid === head.gid) start -= 1
+      }
+    }
+    const list = [drag.order[start]]
+    for (let m = start + 1; m < drag.order.length; m += 1) {
+      const v = drag.order[m]
+      if (v.kind === 'item' && v.gid === head.gid) list.push(v)
+      else break
+    }
+    return { at: start, list }
   }
 
   /**
@@ -514,86 +782,146 @@ export function useTabDrag({ rootEl, onDrop }) {
     return false
   }
 
-  /** 拖拽中的每次移动：被拖页签跟手 + 出入组判定 + 中线碰撞换位 + 必要时自动滚动 */
+  /** 拖拽中的每次移动：被拖块跟手 + 出入组判定（仅页签拖动）+ 前导边缘碰撞换位 + 必要时自动滚动 */
   function updateDrag(clientX, clientY) {
     const strip = stripEl()
     if (!strip || !drag) return
     const px = clientX - stripOriginX(strip)
+    const prevVisual = drag.visual
 
-    // 被拖页签实时跟手：锁 X 轴、横向钳在**可视条带**内（内容坐标 = scrollLeft ~
+    // 被拖块实时跟手：锁 X 轴、横向钳在**可视条带**内（内容坐标 = scrollLeft ~
     // scrollLeft + clientWidth）。这就是条带级的移动边界钳制：左界 = 容器左内边（滚动了
-    // 就是 scrollLeft），右界 = 容器右内边 − 页签宽 —— 不会拖出条带两端。本项目条带里
+    // 就是 scrollLeft），右界 = 容器右内边 − 块占位宽 —— 不会拖出条带两端。本项目条带里
     // 没有固定页签区、也没有「+」按钮，两端即全部可拖区；将来若加了，这两界各往内收
-    // 一段即可。不能钳在内容总宽里 —— 那样最后一个槽位的中线恰好等于内容右缘，中心
-    // 永远只差 1px 越不过去（宽度不等时向左拖同理卡死）；Chrome 的做法就是允许拖进
-    // 条带右侧的空白区，溢出时靠边缘自动滚动扩行程。
+    // 一段即可。钳的是**可视条带**而不是内容总宽（十六改后与换位判据无关，纯是把跟手
+    // 范围锁在看得见的地方）：内容总宽的右缘 = 最后一个槽位的右缘，按内容钳的话块能被
+    // 推到条带外面去，而指针没贴到条带边、边缘自动滚动又不触发 —— 只能看见半个单元在
+    // 跟手。Chrome 的做法是允许拖进条带右侧的空白区，溢出时靠边缘自动滚动扩行程。
     // 元素自身的 transition 已被 --dragging 关掉，这里写多少走多少，跟手无延迟。
-    const span = drag.unit.ml + drag.unit.width + drag.unit.mr
+    // 块内全体共用同一个 tx：它们的相对间距 == 槽位模型的间距（见 beginLiveReorder），
+    // 钢性连体，一个 transform 值全员够用。
     const minLeft = strip.scrollLeft
-    const maxLeft = strip.scrollLeft + strip.clientWidth - span
+    const maxLeft = strip.scrollLeft + strip.clientWidth - drag.blockSpan
     drag.visual = Math.max(minLeft, Math.min(maxLeft, px - drag.grabDX))
-    drag.unit.tx = drag.visual - drag.unit.left
-    drag.unit.el.style.transform = `translate3d(${drag.unit.tx}px, 0, 0)`
+    const tx = drag.visual - drag.unit.left
+    for (const u of drag.block) {
+      u.tx = tx
+      u.el.style.transform = `translate3d(${tx}px, 0, 0)`
+    }
 
-    // 碰撞循环：可能一帧跨过好几格，循环换到位为止。每轮先重摆槽位，再依次过
-    // 「拖出 → 拖入 → 普通换位」三道判定 —— 出入组的阈值与中线的先后关系见各分支注释。
+    // 方向门控：这一帧指针**真的**往哪边动了（+1 右 / -1 左 / 0 没动）。
+    // 拿视觉位移兜底 —— 自动滚动时指针一动不动、但内容在指针底下走，被拖块在内容坐标里
+    // 照样在移动；只认 clientX 的话滚到边缘就再也换不了位。起手第一帧 lastPointerX 还是
+    // null（prevVisual == visual），dir = 0，不会在抓起来那一瞬间就换位。
+    const moveX = drag.lastPointerX === null ? 0 : clientX - drag.lastPointerX
+    drag.lastPointerX = clientX
+    const dir = moveX !== 0 ? Math.sign(moveX) : Math.sign(drag.visual - prevVisual)
+
+    // 前导边缘（十六改）：左缘 / 右缘。块拖动时右缘 = 首元视觉左缘 + 块视觉宽
+    //（blockEdge 从自然位置算，拖拽中不变 —— 块内相对间距恒定）。
+    const leftEdge = drag.visual
+    const rightEdge = drag.visual + drag.blockEdge
+
+    // 碰撞循环：可能一帧跨过好几格，循环换到位为止。每轮先重摆槽位，再过各道判定 ——
+    // 阈值与中线的先后关系见各分支注释。
     for (;;) {
       layoutTargets()
-      const slot = drag.order.indexOf(drag.unit)
-      const prev = drag.order[slot - 1] ?? null
-      const next = drag.order[slot + 1] ?? null
-      const center = drag.visual + drag.unit.width / 2
+      const i = drag.order.indexOf(drag.unit)
+      const prev = drag.order[i - 1] ?? null
+
+      if (drag.kind === 'group') {
+        // 整组搬移（十八改）：与邻接 run 整段换位。触发判据（二十改）锚在**紧挨着被拖块
+        // 的那个单元**的中线上 —— 向右取 run 首元、向左取 run 末元，也就是邻位那枚芯片
+        // 或那张页签自己的中线，与页签拖动的「前导边缘过邻位中线」逐字相同。
+        // 十八改当时取的是 run **整段的中点**：拖过一串 3 张的组，得走过半段组宽才换位，
+        // 比页签拖动迟钝一大截（用户口径「应该和拖动页签相同」）。整段照样整段换
+        //（组员的连续性不变式不变），只是门槛挪到贴脸的那一侧。方向门控与「中线按槽位
+        // 算」两条防抖一并沿用，见下面普通换位那段注释。
+        const run = dir !== 0 ? neighborRun(i, dir) : null
+        if (run) {
+          const edgeUnit = dir > 0 ? run.list[0] : run.list[run.list.length - 1]
+          const center = drag.pos.get(edgeUnit) + edgeUnit.width / 2
+          if (dir > 0 ? rightEdge > center : leftEdge < center) {
+            drag.order.splice(run.at, run.list.length)
+            drag.order.splice(dir > 0 ? i : run.at + drag.block.length, 0, ...run.list)
+            continue
+          }
+        }
+        break
+      }
+
+      const next = drag.order[i + 1] ?? null
 
       // 出入组：成员身份走拖出判定，无身份走拖入判定（视图页签两侧都跳过）
-      if (drag.gid ? tryExitGroup(slot, prev, next) : !drag.unit.view && tryJoinGroup(slot, prev, next)) {
+      if (drag.gid ? tryExitGroup(i, prev, next) : !drag.unit.view && tryJoinGroup(i, prev, next)) {
         continue
       }
 
-      // 普通换位：中心越过相邻**槽位**的中线就交换虚拟顺序（页签 ↔ 页签）。中线按换位
-      // 后的目标位置算（layoutTargets 现摆的），不是按元素当前位置 —— 否则交换瞬间位置
-      // 一变、条件立刻反过来，会来回横跳。两类例外：
+      // 普通换位（2026-10-20 十六改：**前导边缘**判据，替代原来的中心判据）：
+      //   向右 → 被拖页签的**右缘**越过右邻槽位的中线；向左 → **左缘**越过左邻的。
+      // 比中心判据早半个邻签宽度（等宽相邻时行程 0.5w，原来要 1.0w），这就是「手感偏迟钝」
+      // 的根 —— 手指其实只想挪半格，却得把整张页签推过去。
+      // 两条防抖（缺一条就会来回鬼畜）：
+      //   · 中线一律按**槽位**算（layoutTargets 现摆的目标位置），不读相邻页签的
+      //     getBoundingClientRect —— 它正在播 200ms 让位过渡，半途中读到的中线是移动的，
+      //     会在动画没走完时反复触发反向碰撞；
+      //   · **方向门控** dir（见上）：前导边缘判据在换位刚完成时，另一侧边缘必然已经
+      //     跨过新邻居的中线（只差 ε），只要指针没有反向回拉就绝不查那一侧，也就不会
+      //     瞬间换回来（Ping-Pong）。等宽 / 不等宽都一样。
+      // 两类例外不动：
       //   · 成员身份挡住与外部单元的换位（要先过脱离阈值退组）和与自家芯片的换位
       //     （左出判据管）—— 组内成员之间照常换位（组内排序）；
-      //   · 与芯片换位不能用中心判据：芯片只有十几像素宽，邻位停放时页签中心本来就
-      //     越过芯片中线，起拖瞬间就会被「交换」到芯片另一侧（宽度无关的起拖瞬移，
-      //     旧实现的真实 bug）。向右改用**右缘压过芯片中线**；向左是中心越过芯片中线
-      //     （那本就要拖过半枚页签才触发，天然安全）。
       //   · 可吸入的芯片不做「换位」—— 吸入（tryJoinGroup）取代它；没到吸入深度就
       //     谁也不动，页签单纯跟手。
+      // 与芯片换位同样用前导边缘：邻位停放时页签右缘 ≈ 芯片左缘、左缘 ≈ 芯片右缘，
+      // 两侧都离芯片中线有 chipWidth/2 的余量，起拖瞬间不会误触发（那是旧实现的真实 bug）。
       const nextIsJoinableChip = !!next && next.kind === 'chip' && !drag.gid && joinableChip(next)
       if (
+        dir > 0 &&
         next &&
         !nextIsJoinableChip &&
         (!drag.gid || next.gid === drag.gid) &&
-        (next.kind === 'chip'
-          ? drag.visual + drag.unit.width > drag.pos.get(next) + next.width / 2
-          : center > drag.pos.get(next) + next.width / 2)
+        rightEdge > drag.pos.get(next) + next.width / 2
       ) {
-        drag.order.splice(slot, 1)
-        drag.order.splice(slot + 1, 0, drag.unit)
+        drag.order.splice(i, 1)
+        drag.order.splice(i + 1, 0, drag.unit)
         continue
       }
       if (
+        dir < 0 &&
         prev &&
         (!drag.gid || (prev.kind !== 'chip' && prev.gid === drag.gid)) &&
-        center < drag.pos.get(prev) + prev.width / 2
+        leftEdge < drag.pos.get(prev) + prev.width / 2
       ) {
-        drag.order.splice(slot, 1)
-        drag.order.splice(slot - 1, 0, drag.unit)
+        drag.order.splice(i, 1)
+        drag.order.splice(i - 1, 0, drag.unit)
         continue
       }
       break
     }
     // 归属翻过的话同步给包络线（EditorTabs 的测量读这份 ref）
     if (liveGroup.value !== drag.gid) liveGroup.value = drag.gid
+
+    // 端缘标记（二十一改）：按**视觉**位置算，判据与脚的几何对齐 ——
+    //   · 左：块视觉左缘 ≤ 0.5（内容坐标；左脚伸到 x=-8，x<0 就被条带裁平，等于没地方落）；
+    //   · 右：块视觉右缘 ≥ 内容总宽 − 0.5（右脚伸到末槽右缘之外 8px，越过内容总宽就会
+    //     把条带撑出几像素假滚动行程 —— 十八改关 strip-last 右脚的那条理由，同样成立）。
+    // 内容总宽从槽位模型取（末单元的 pos+width+mr），换位不改变它。0.5px 容差吃掉亚像素。
+    const lastU = drag.order[drag.order.length - 1]
+    const contentRight = drag.pos.get(lastU) + lastU.width + lastU.mr
+    let edge = null
+    if (drag.visual <= 0.5) edge = 'first'
+    else if (drag.visual + drag.blockEdge >= contentRight - 0.5) edge = 'last'
+    if (dragEdge.value !== edge) dragEdge.value = edge
     applyOthers()
     updateAutoScroll(clientX, clientY)
   }
 
-  /** 让位：其余单元滑向自己在虚拟序列里的槽位（过渡由 EditorTabs 的 is-dragging 规则给） */
+  /** 让位：其余单元滑向自己在虚拟序列里的槽位（过渡由 EditorTabs 的 is-dragging 规则给）。
+   *  被拖块全体跳过 —— 它们的 transform 由 updateDrag 每帧直写（跟手优先）。 */
   function applyOthers() {
     for (const u of drag.units) {
-      if (u === drag.unit) continue
+      if (drag.blockSet.has(u)) continue
       const tx = drag.pos.get(u) - u.left
       if (u.tx === tx) continue
       u.tx = tx
@@ -609,7 +937,9 @@ export function useTabDrag({ rootEl, onDrop }) {
   function commitIndex(d) {
     let index = 0
     for (const u of d.order) {
-      if (u === d.unit) break
+      // 块锚在块首（页签拖动 = 它自己；芯片拖动 = 芯片 —— 块内的组员全排在芯片后面，
+      // 不该被数进去，落点下标按「去掉整段成员」的列表算，与 moveStripRun 的契约对齐）
+      if (u === d.block[0]) break
       if (u.kind === 'chip') index += d.hiddenByGroup.get(u.gid)?.length ?? 0
       else index += 1
     }
@@ -624,9 +954,14 @@ export function useTabDrag({ rootEl, onDrop }) {
   function finishDrag(commit) {
     const d = drag
     const index = commit && d ? commitIndex(d) : null
-    // 实时归属随下标一起交出去：拖出组 = null、拖进组 = 组 id、没翻过 = 原值。
-    // 取消（commit=false）不给第三参 —— 调用方不做任何成员结算。
-    const gid = commit && d ? d.gid : undefined
+    // 落盘载荷：页签拖动带实时归属（调用方结算成员关系）；芯片拖动只报组 —— 成员关系
+    // 不动，调用方整段挪 stripOrder。取消（commit=false）不发货 —— 调用方什么都不做。
+    const payload =
+      commit && d
+        ? d.kind === 'group'
+          ? { kind: 'group', gid: d.gid }
+          : { kind: 'tab', id: d.id, liveGid: d.gid }
+        : null
     // 元素清单先抓下来（cancelPress 会把 drag 置空）
     const els = d ? d.units.map((u) => u.el) : []
     // 视觉位置必须在**提交之前**记（内容坐标）：提交重排后 offsetLeft 变成新车位，
@@ -640,7 +975,7 @@ export function useTabDrag({ rootEl, onDrop }) {
       for (const el of els) visuals.set(el, el.getBoundingClientRect().left - originX)
     }
     cancelPress()
-    if (index !== null) onDrop?.(d.id, index, gid)
+    if (payload) onDrop?.(payload, index)
     if (d) nextTick(() => settle(els, visuals))
   }
 
@@ -676,14 +1011,19 @@ export function useTabDrag({ rootEl, onDrop }) {
     const strip = stripEl()
     if (!strip) return
     const rect = strip.getBoundingClientRect()
-    // 指针已不在条带的纵向范围内（比如拖到编辑区里去）：别滚
-    if (clientY < rect.top - 12 || clientY > rect.bottom + 12) {
+    // 指针已不在条带的纵向范围内（比如拖到编辑区里去）：别滚。触屏手指容易上下飘，
+    // 纵向容差放到 20px（条带本身只有 35px 高）
+    if (clientY < rect.top - 20 || clientY > rect.bottom + 20) {
       stopAutoScroll()
       return
     }
+    // 贴边 40px 内开始滚，速度随距离线性加快（3 → 14 px/帧）：
+    // 越靠边越急，靠近这 40px 边界时几乎不动，不会「一进边缘就窜出去」
     let delta = 0
-    if (clientX < rect.left + EDGE_PX) delta = -SCROLL_STEP
-    else if (clientX > rect.right - EDGE_PX) delta = SCROLL_STEP
+    const leftGap = clientX - rect.left
+    const rightGap = rect.right - clientX
+    if (leftGap < EDGE_PX) delta = -scrollStepFor(leftGap)
+    else if (rightGap < EDGE_PX) delta = scrollStepFor(rightGap)
 
     scrollDelta = delta
     if (!delta) {
@@ -691,6 +1031,12 @@ export function useTabDrag({ rootEl, onDrop }) {
       return
     }
     if (!scrollFrame) scrollFrame = window.requestAnimationFrame(stepAutoScroll)
+  }
+
+  /** 离边缘还有多远 → 这一帧滚多少（贴边最大，退到 EDGE_PX 处最小；越界按 0 算） */
+  function scrollStepFor(gap) {
+    const t = 1 - Math.max(0, Math.min(gap, EDGE_PX)) / EDGE_PX
+    return Math.round(SCROLL_MIN + (SCROLL_MAX - SCROLL_MIN) * t)
   }
 
   function stepAutoScroll() {
@@ -718,9 +1064,15 @@ export function useTabDrag({ rootEl, onDrop }) {
 
   // ------------------------------------------------------------ 收尾
 
-  /** 清掉这一轮按压的全部临时状态（不动 click 抑制，那个要活到 click 之后） */
+  /**
+   * 清掉这一轮按压的全部临时状态（不动 click 抑制，那个要活到 click 之后）。
+   * **这是所有出口的唯一收口**：松手、轻点、Esc、指针被系统掐断（pointercancel）、
+   * 菜单弹出、组件卸载 —— 谁漏走这里，页签就会卡在「半空中」（浮起 + 滚动锁 + 拖拽态
+   * 一起挂在 DOM 上），那是这套手势里最不能接受的一种死锁。
+   */
   function cancelPress() {
-    if (press?.timer) window.clearTimeout(press.timer)
+    if (press?.armTimer) window.clearTimeout(press.armTimer)
+    if (press?.menuTimer) window.clearTimeout(press.menuTimer)
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerup', onPointerUp)
     window.removeEventListener('pointercancel', onPointerCancel)
@@ -728,14 +1080,20 @@ export function useTabDrag({ rootEl, onDrop }) {
     window.removeEventListener('contextmenu', onContextMenuBlock, true)
     window.removeEventListener('keydown', onKeyDown, true)
     stopAutoScroll()
+    // 滚动锁必须在任何出口都解开（touch-action 也要还原成样式表里的 pan-x）
+    unlockStripScroll()
     press = null
     // 触屏那两个提示态统一在这里收：松手、Esc、pointercancel、组件卸载都汇到这条路上，
     // 漏掉任何一个出口，页签上「弹过了 / 正按着」的样子就会一直挂在那儿
     pressingId.value = null
     armedId.value = null
     draggingId.value = null
+    touchDrag.value = false
     // 实时归属一并收（没提交的翻转就地丢弃 —— 取消 / Esc 不该留任何副作用）
     liveGroup.value = null
+    // 端缘标记一并收（strip-first / strip-last 回归 DOM 顺序的静态判定）
+    dragEdge.value = null
+    draggingIds.value = []
     // 让位状态一并收（内联 transform 不在这里清 —— finishDrag 的 settle 还要拿它算残差）
     drag = null
   }
@@ -764,15 +1122,23 @@ export function useTabDrag({ rootEl, onDrop }) {
   onBeforeUnmount(cancelPress)
 
   return {
-    /** 正在被拖的页签 id（页签上的拖拽态类用） */
+    /** 正在被拖的页签 id（芯片拖动时是 `group:<gid>` 哨兵）；页签上的拖拽态类用 */
     draggingId,
+    /** 这一轮拖拽是不是触屏发起的（模板挂 is-touch-drag：放大 + 投影） */
+    touchDrag,
+    /** 被拖块里带 strip id 的单元（模板给整块挂 --dragging 类用） */
+    draggingIds,
     /** 被拖页签的实时归属（组 id | null）；只在拖拽期间有值 —— 包络线测量读它 */
     liveGroup,
-    /** 触屏按压中的页签 id（「按住进度」底色用） */
+    /** 被拖块视觉上贴着条带哪端（'first' | 'last' | null）；拖拽期间按视觉位置每帧重算
+     *  —— strip-first / strip-last 的拖拽期覆盖用（EditorTabs 的 stripItems 尾部） */
+    dragEdge,
+    /** 触屏按压中的页签 id（芯片为 `group:<gid>` 哨兵；「按住进度」底色用） */
     pressingId,
-    /** 长按已成、尚未松手的页签 id（「弹一下」动画用） */
+    /** 长按已成、尚未松手的页签 id（同上哨兵；「弹一下」动画用） */
     armedId,
     onTabPointerDown,
+    onChipPointerDown,
     consumeClickSuppression,
   }
 }

@@ -12,10 +12,15 @@
  *   拖入 / 拖出分组（2026-10-20 十三改）也在拖拽中实时判定：归属翻转经 useTabDrag 的
  *   liveGroup 喂进包络线测量（线当场拉长 / 收缩），松手才随下标一起结算成员关系，
  *   被拖空的组到那时才摘除（拖拽期间芯片保留，反悔拖回还能吸进去）。
- * - **触屏**（同日补）：长按 450ms 起手，中间有「按住进度 → 就绪弹一下」两段反馈
- *   （`--pressing` / `--armed`，与文件树的同款逐条对应）；页签上还声明了
- *   `touch-action: pan-x` + `user-select: none` + `-webkit-touch-callout: none`。
- *   四条各自的理由写在样式表那两处注释里，**改拖拽时别忘了它们**。
+ *   分组芯片本身也是拖把柄（2026-10-20 十八改）：按住芯片拖 = 整组搬移，落盘走
+ *   tabStrip.moveStripRun，成员关系不动。
+ * - **触屏**（2026-10-10 初版；2026-10-20 十九改升级成手势状态机）：按下后 200ms 内滑走
+ *   10px = 横向滚动条带；按住不动 200ms = 「可拖」（进度底 → 弹一下 + 放大 + 轻震）；
+ *   再动 5px = 拖拽（锁滚动、放大 1.04 + 投影）；一直不动到 500ms = 弹自定义菜单；
+ *   200ms 内抬手 = 轻点（切页签 / 折叠分组）。状态机全在 useTabDrag 里，本文件只接
+ *   三个回调（onTap / onLongPress / onDragStart）并渲染各态样式。
+ *   页签与芯片上都声明了 `touch-action: pan-x` + `user-select: none` +
+ *   `-webkit-touch-callout: none`，理由写在样式表那两处注释里，**改拖拽时别忘了它们**。
  * - 预览页签（单击文件树开出来的那个）标签用斜体，见 workspace.previewTabId。
  * - dirty 文件显示圆点替代图标；活跃标签顶边取主题强调色。开着自动保存时不显示圆点
  *   （dirty 只存在几百毫秒，圆点只会闪一下），见下面的 isDirtyTab。
@@ -56,8 +61,15 @@ import {
   settingsTab,
   viewActive,
 } from '../services/editorViews.js'
-import { isViewId, moveStripItem, stripOrder } from '../services/tabStrip.js'
-import { closeTab, getNodeById, pinTab, setActiveTab, workspace } from '../services/vfs/workspaceStore.js'
+import { isViewId, moveStripItem, moveStripRun, stripOrder } from '../services/tabStrip.js'
+import {
+  clearActiveTab,
+  closeTab,
+  getNodeById,
+  pinTab,
+  setActiveTab,
+  workspace,
+} from '../services/vfs/workspaceStore.js'
 
 /** 激活一个文件页签（不挡拖动收尾的 click）—— pointerdown 抢焦与 click 共用 */
 function activateNow(id) {
@@ -101,6 +113,24 @@ function isStaleTab(id) {
  */
 function tabIcon(id) {
   return fileIconName(getNodeById(id)?.name ?? '')
+}
+
+/**
+ * 页签上的 ×：先看这次 click 是不是拖拽 / 手势收尾那一下，再关。
+ * **触屏特别需要这一条**（十九改）：轻点未激活页签时，onTap 先把页签激活、× 随之从
+ * `pointer-events: none` 变成可点；而浏览器是在**抬手那一刻**做 click 的命中测试 ——
+ * 同一个落点，按下时命中页签本体、抬手时命中刚露出来的 ×，「第一次点只切换」就变成了
+ * 「第一次点直接关掉」（探针实测踩到）。抑制标记是 useTabDrag 为这串收尾压上的，这里消费。
+ */
+function onCloseClick(id) {
+  if (consumeClickSuppression()) return
+  closeTab(id)
+}
+
+/** 合成视图页签上的 ×（同一条抑制规则） */
+function onViewCloseClick(view) {
+  if (consumeClickSuppression()) return
+  view.close?.()
 }
 
 /** 中键关掉合成视图页签（设置 / 抽题同一套） */
@@ -189,9 +219,10 @@ const stripItems = computed(() => {
         key: `group:${group.id}`,
         group,
         // 折叠着、而被它藏起来的正是当前打开的那个文件 → 芯片上给一圈环（样式里叫 holds-active）。
-        // 十四改起折叠会把焦点转给相邻可见页签（transferFocusOutOfGroup），环只在
-        // 「全折叠、无处可转」的极端情况出现；没有这圈环，用户会看到「编辑区还开着
-        // 这个文件，页签栏里却找不到它」。
+        // 十七改起折叠会把焦点转走、无可见页签时直接清空（transferFocusOutOfGroup），
+        // 正常路径下这圈环不会出现；它只给「没经过折叠动作、焦点却落在折叠组成员上」的
+        // 残留兜底（例如刷新后按 cp.openTabs 复原焦点）—— 那种状态没有别的提示，
+        // 用户会看到「编辑区还开着这个文件、页签栏里却找不到它」。
         holdsActive: !!group.collapsed && !viewActive.value && tabGroups.groupOf(workspace.activeId)?.id === group.id,
       })
     }
@@ -204,6 +235,32 @@ const stripItems = computed(() => {
       groupLast: !!group && tabGroups.groupOf(stripOrder[i + 1])?.id !== group.id,
       hidden: !!group?.collapsed,
     })
+  }
+  // 边缘标记（十八改）：可见单元里的第一名 / 末名。贴着条带端缘的页签**没有地方落外扩脚**
+  //（条带不再为脚预留 9px 内边距，见样式表 .editor-tabs__strip 那段），激活的是它们时
+  // CSS 侧不画朝外的脚、SVG 侧不画朝外的右脚 —— 不然脚会被滚动容器裁平，还会把条带撑出
+  // 几像素的假滚动行程。芯片排第一 / 末位时标记落在芯片上（CSS 只吃页签类，等于无操作），
+  // 它身后的组员照常有脚 —— 脚锚在组员身上，永远够不到条带端缘。
+  const visible = out.filter((it) => it.kind !== 'file' || !it.hidden)
+  if (visible.length) {
+    visible[0].stripFirst = true
+    visible[visible.length - 1].stripLast = true
+  }
+  // 拖拽期覆盖（二十一改）：被拖项的端缘标记按 useTabDrag 每帧算好的**视觉位置**覆盖，
+  // 不吃上面按 DOM 顺序打的标。stripOrder 松手才提交，而脚的显隐（--active 的两只
+  // ::before/::after 与包络线的 atRightEdge）吃的是这份标记 —— 不覆盖的话，「把最左的
+  // 激活页签拖到中间」整路上它都顶着 is-strip-first、左脚被压着，一松手才突然长出来
+  //（2026-10-20 用户报「放下时突然出现一个圆角」）；反向（中间拖到端缘）则是拖着一只
+  // 会被裁掉的脚。**离开端缘也要覆盖**（dragEdge 为 null 时写成 false）：被拖项原来
+  // 挂着的标是 DOM 序打的，视觉上已不在端缘就得摘，否则右脚在半路上还是被压着。
+  // 芯片拖动不走这里：draggingId 是 `group:<gid>` 哨兵、匹配不到页签，组员的端缘标记
+  // 维持原样（脚锚在组员身上，永远够不到端缘）。
+  if (draggingId.value) {
+    const dragged = out.find((it) => it.kind !== 'chip' && it.id === draggingId.value)
+    if (dragged) {
+      dragged.stripFirst = dragEdge.value === 'first'
+      dragged.stripLast = dragEdge.value === 'last'
+    }
   }
   return out
 })
@@ -245,56 +302,116 @@ const instantSwap = ref(false)
 // 拖动排序：条带上的页签都从这里起手（useTabDrag 认 data-strip-id，两类页签都带它），
 // 条带是一条混排序列，所以文件页签与视图页签可以互相穿插换位。
 // 放在 rootEl 之后 —— useTabDrag 拿的是这个 ref 对象，声明顺序上不能提前。
-const { draggingId, pressingId, armedId, liveGroup, onTabPointerDown: dragPointerDown, consumeClickSuppression } =
+const { draggingId, draggingIds, dragEdge, touchDrag, pressingId, armedId, liveGroup, onTabPointerDown: dragPointerDown, onChipPointerDown, consumeClickSuppression } =
   useTabDrag({
     rootEl,
     // 落盘走 tabStrip：由它改 stripOrder，再分部写回 openTabIds / viewOrder。
-    // 第三参是被拖页签的**实时归属**（拖拽中包络线一直按它画的那份）：拖出组 = null、
-    // 拖进组 = 组 id，在此结算成员关系（比松手后按落点猜的 syncAfterDrop 准 —— 用户
-    // 特意拖出脱离阈值又拖回来的意图，只有拖拽过程知道）。
+    // payload 两型：页签拖动 { kind:'tab', id, liveGid }（liveGid 是被拖页签的**实时归属**
+    // —— 拖出组 = null、拖进组 = 组 id，在此结算成员关系，比松手后按落点猜的
+    // syncAfterDrop 准 —— 用户特意拖出脱离阈值又拖回来的意图，只有拖拽过程知道）；
+    // 芯片拖动 { kind:'group', gid } —— 搬组不改成员关系，整段挪 stripOrder。
     onDrop: onStripDrop,
+    // 触屏的三个出口（鼠标全都不走：按下即获焦、click 照常、右键原生）：
+    //   onTap —— 轻点（<200ms、<10px）切页签 / 折叠分组；
+    //   onLongPress —— 按住 500ms 不动，在手指位置弹自定义菜单；
+    //   onDragStart —— 拖拽真正开始的那一帧，补「拖谁就切谁」。
+    onTap: onStripTap,
+    onLongPress: onStripLongPress,
+    onDragStart: onStripDragStart,
   })
 
 /**
- * 页签 pointerdown（2026-10-20 十四改，需求 1「按下即获焦」）：pointerdown 瞬间就把
- * activeId 切过去，不等 click、也不等拖动阈值 —— 被拖页签当即穿上激活态样式，包络线
- * 经 MutationObserver 立即重绘成包裹它的形态，后续 pointermove 全程跟着走。两条豁免：
- * 中键（关页签，Chrome 同款不抢焦）与落点在关闭按钮上（`.editor-tabs__close` 的
- * click.stop 关闭，按下那一下不能顺带切走别的焦点）。走 activateNow 而不是 activate：
- * 这里的时机在拖拽开始前，绝不能吃掉拖拽收尾那 300ms 的 click 抑制窗口。
+ * 页签 pointerdown（2026-10-20 十四改「按下即获焦」；十九改给触屏开口子）：
+ * **鼠标 / 笔**在 pointerdown 瞬间就把 activeId 切过去，不等 click、也不等拖动阈值 ——
+ * 被拖页签当即穿上激活态样式，包络线经 MutationObserver 立即重绘成包裹它的形态，后续
+ * pointermove 全程跟着走。两条豁免：中键（关页签，Chrome 同款不抢焦）与落点在关闭
+ * 按钮上（`.editor-tabs__close` 的 click.stop 关闭，按下那一下不能顺带切走别的焦点）。
+ * 走 activateNow 而不是 activate：这里的时机在拖拽开始前，绝不能吃掉拖拽收尾那 300ms
+ * 的 click 抑制窗口。
+ *
+ * **触屏不在这里切**（十九改）：手指落在页签上很可能只是想横向滚一下条带，按下就切
+ * 会让「滚着看一眼」变成「连着切了三个文件」。触屏的两个出口在 useTabDrag 里 ——
+ * 轻点（<200ms、<10px）走 onTap、真正开拖走 onDragStart，两条都会回来切页签。
  */
 function onTabPointerDown(event, id) {
   const hitClose = event.target.closest?.('.editor-tabs__close')
-  if (event.button !== 1 && !hitClose) activateNow(id)
+  const touch = (event.pointerType ?? 'mouse') !== 'mouse'
+  if (event.button !== 1 && !hitClose && !touch) activateNow(id)
   // × 上按下连拖拽起手都不给：关按钮不是拖把柄，按住 × 横移不该拖走页签
   if (!hitClose) dragPointerDown(event, id)
 }
 
 /**
- * 视图页签（设置 / 抽题 / 比赛）pointerdown：同样按下即获焦（与文件页签同一套
- * 豁免判据），激活走 viewMeta 的 activate —— 视图是另一条激活轴，不能碰 setActiveTab。
+ * 视图页签（设置 / 抽题 / 比赛）pointerdown：与文件页签同一套判据（鼠标按下即获焦、
+ * 触屏等 tap），激活走 viewMeta 的 activate —— 视图是另一条激活轴，不能碰 setActiveTab。
  */
 function onViewPointerDown(event, viewItem) {
   const hitClose = event.target.closest?.('.editor-tabs__close')
-  if (event.button !== 1 && !hitClose) viewItem.activate()
+  const touch = (event.pointerType ?? 'mouse') !== 'mouse'
+  if (event.button !== 1 && !hitClose && !touch) viewItem.activate()
   if (!hitClose) dragPointerDown(event, viewItem.id)
 }
 
-/** 拖动落盘：先照旧改顺序，再按实时归属结算被拖那张的成员关系，最后摘掉被拖空的组
- *  （拖拽期间空组的芯片故意保留 —— 反悔往回拖还能吸进去，松手才真正销毁）。
+/** 触屏轻点：文件页签切 activeId、合成视图走各自的 activate、芯片折叠 / 展开分组。
+ *  这里已经晚了 click 一步（useTabDrag 先压了 click 抑制），所以两条路只走一条。 */
+function onStripTap({ id, gid }) {
+  if (gid) {
+    const group = tabGroups.groupOfId(gid)
+    // fromGesture: 抑制标记是 useTabDrag 为「紧随其后的 click」压的，
+    // 不是给这条手势路径设的 —— 不绕过的话芯片会被连点两次（展开又折叠）
+    if (group) toggleGroup(group, { fromGesture: true })
+    return
+  }
+  if (!id) return
+  if (isViewId(id)) viewMeta(id).activate()
+  else activateNow(id)
+}
+
+/** 触屏拖拽真正开始的那一帧：拖谁就切谁（与鼠标「按下即获焦」对齐）。
+ *  芯片没有 id，搬组不改焦点。 */
+function onStripDragStart({ id, gid }) {
+  if (gid || !id) return
+  if (isViewId(id)) viewMeta(id).activate()
+  else activateNow(id)
+}
+
+/** 触屏长按满 500ms 仍不动：在手指位置弹各自的菜单（页签 = 右键菜单，芯片 = 分组卡片） */
+function onStripLongPress({ id, gid, x, y }) {
+  if (gid) {
+    const group = tabGroups.groupOfId(gid)
+    if (group) openGroupCardAt(group, x, y + 12)
+    return
+  }
+  const item = stripItemOf(id)
+  if (item) openTabMenuAt(item, x, y + 12)
+}
+
+/** 条带里某一项（文件页签 / 合成视图页签）的渲染描述 —— 长按要按 id 反查回来 */
+function stripItemOf(id) {
+  if (!id) return null
+  return stripItems.value.find((it) => (it.kind === 'file' || it.kind === 'view') && it.id === id) ?? null
+}
+
+/** 拖动落盘：页签拖动先照旧改顺序，再按实时归属结算被拖那张的成员关系，最后摘掉被拖空
+ *  的组（拖拽期间空组的芯片故意保留 —— 反悔往回拖还能吸进去，松手才真正销毁）。
+ *  芯片拖动（十八改）：搬组不改成员关系，整段成员挪到落点即可（moveStripRun）。
  *  instantSwap 顶起一拍：提交重排的那一帧 TransitionGroup 不发 FLIP —— 各页签从
  *  拖拽 / 让位位置到新车位的补间由 useTabDrag 的 settle() 统一做，两套动画叠着会打架。 */
-function onStripDrop(id, index, liveGid) {
+function onStripDrop(payload, index) {
   instantSwap.value = true
-  moveStripItem(id, index)
-  if (liveGid === undefined) {
-    // 没带实时归属（防御分支，正常提交路径都会带）：兜底走落点启发式
-    tabGroups.syncAfterDrop(id)
+  if (payload.kind === 'group') {
+    moveStripRun(tabGroups.membersOf(payload.gid), index)
   } else {
-    const before = tabGroups.groupOf(id)?.id ?? null
-    if (liveGid && liveGid !== before) tabGroups.addToGroup(id, liveGid)
-    else if (!liveGid && before) tabGroups.removeFromGroup(id)
-    tabGroups.removeEmptyGroups()
+    moveStripItem(payload.id, index)
+    if (payload.liveGid === undefined) {
+      // 没带实时归属（防御分支，正常提交路径都会带）：兜底走落点启发式
+      tabGroups.syncAfterDrop(payload.id)
+    } else {
+      const before = tabGroups.groupOf(payload.id)?.id ?? null
+      if (payload.liveGid && payload.liveGid !== before) tabGroups.addToGroup(payload.id, payload.liveGid)
+      else if (!payload.liveGid && before) tabGroups.removeFromGroup(payload.id)
+      tabGroups.removeEmptyGroups()
+    }
   }
   nextTick(() => {
     instantSwap.value = false
@@ -313,6 +430,11 @@ const menu = ref(null)
  */
 function openTabMenu(event, item) {
   event.preventDefault()
+  openTabMenuAt(item, event.clientX, event.clientY)
+}
+
+/** 在指定位置弹页签菜单（右键与触屏长按共用；长按拿不到 MouseEvent，只有坐标） */
+function openTabMenuAt(item, x, y) {
   const items =
     item.kind === 'file'
       ? [
@@ -323,7 +445,7 @@ function openTabMenu(event, item) {
           { id: 'close', label: t('app.tabs.closeTab') },
         ]
       : [{ id: 'close-view', label: t('app.tabs.closeTab') }]
-  menu.value = { x: event.clientX, y: event.clientY, tabId: item.id, viewItem: item, items }
+  menu.value = { x, y, tabId: item.id, viewItem: item, items }
 }
 
 function onMenuSelect(id) {
@@ -395,12 +517,16 @@ function finishGroupAnim(gid, rec) {
 }
 
 /**
- * 折叠组的焦点转移（2026-10-20 十四改，需求 2 的状态机）：焦点（activeId）在被折叠的
- * 组里 → 立即交给相邻**可见**页签（先右后左，寻址见 tabGroups.findNextVisibleTab，
- * anchor 传组内第一名成员的下标 —— 组内其余成员已被折叠隐藏，右扫天然越过整段组）；
- * 焦点不在组内则不动。全折叠（整条条带一张可见页签都没有）时不转移：activeId 留在被
- * 折叠的那张上，芯片的 holds-active 环就是这个状态的既有提示；置 null 会让「编辑区还
- * 开着文件、页签栏却没有激活态」，比现状更糟，Chrome 全折叠时同样保留。
+ * 折叠组的焦点转移（2026-10-20 十四改，需求 2 的状态机；十七改补全折叠兜底）：
+ * 焦点（activeId）在被折叠的组里 → 立即交给相邻**可见**页签（先右后左，寻址见
+ * tabGroups.findNextVisibleTab，anchor 传组内第一名成员的下标 —— 组内其余成员已被折叠
+ * 隐藏，右扫天然越过整段组）；焦点不在组内则不动。
+ *
+ * **全折叠兜底（十七改）**：向右向左都找不到可见页签 = 折叠之后条带上一张页签都看不见了。
+ * 这时绝不能把焦点留在被藏起来的那张上 —— 否则编辑区还开着那个文件、页签栏里却找不到它
+ * （用户报的「状态幽灵化」）。处理：把它记进组的 `lastActiveTabId`（展开时用来恢复），
+ * 然后清空焦点，EditorPane 随之卸掉 model、露出「未打开任何文件」的占位。
+ * 十四改当时的口径是「不转移、靠芯片的 holds-active 环提示」，十七改按用户要求推翻。
  * @param {string} gid 刚被折叠的组
  */
 function transferFocusOutOfGroup(gid) {
@@ -409,26 +535,62 @@ function transferFocusOutOfGroup(gid) {
   if (!members.length) return
   const first = Math.min(...members.map((m) => stripOrder.indexOf(m)))
   const next = tabGroups.findNextVisibleTab(first, workspace.activeId)
-  if (next) setActiveTab(next)
+  if (next) {
+    setActiveTab(next)
+    return
+  }
+  const group = tabGroups.groupOfId(gid)
+  if (group) group.lastActiveTabId = workspace.activeId
+  clearActiveTab()
+}
+
+/**
+ * 展开分组的焦点恢复（十七改，与上面的全折叠兜底配对）：上一次折叠把焦点清空了
+ * （全局 activeId 为 null），展开就把焦点还给组里 —— 优先 `lastActiveTabId`（折叠前
+ * 最后停着的那个文件），它已经被关掉或摘出组了则退回组内第一名成员。activeId 有值
+ * （用户在这期间点开了别的文件）一概不动。
+ * @param {string} gid 刚被展开的组
+ */
+function restoreFocusIntoGroup(gid) {
+  if (workspace.activeId) return
+  const members = tabGroups.membersOf(gid)
+  if (!members.length) return
+  const saved = tabGroups.groupOfId(gid)?.lastActiveTabId
+  // 走 activateNow 而不是 setActiveTab：与「点页签」同一条路 —— 合成视图若正盖在编辑区上，
+  // 恢复焦点同时要把它让开，否则文件回来了却仍被视图挡着
+  activateNow(saved && members.includes(saved) ? saved : members[0])
+}
+
+/** 折叠 / 展开之后的焦点结算：折叠走转移（含全折叠兜底），展开走恢复 */
+function settleFocusAfterToggle(gid, collapsing) {
+  if (collapsing) transferFocusOutOfGroup(gid)
+  else restoreFocusIntoGroup(gid)
 }
 
 /**
  * 芯片左键：展开 / 折叠这一组（Chrome 的手感 —— 芯片就是这一组的把柄）。
  * **菜单挪到右键**（2026-10-19 用户口径）：左键点芯片弹卡片会被读成「我想折叠，结果弹了个框」。
- * 芯片不是页签、不参与拖动，所以这里不用挡 click 抑制。
+ * 十八改起芯片可以拖着整组走，所以这里要挡拖拽收尾的 click 抑制 —— 拖完松手那一下的
+ * click 不能被读成「我要折叠」。
+ *
+ * 十九改起触屏的轻点由手势状态机直接调到这里（onStripTap），那条路要先压 click 抑制、
+ * 再自己走一次 —— 传 fromGesture 跳过抑制检查，否则标记被这里吃掉，紧随其后的 click
+ * 又会再折叠一次（展开完当场收起）。
  * @param {{id: string, collapsed: boolean}} group
+ * @param {{fromGesture?: boolean}} [opts]
  */
-function toggleGroup(group) {
+function toggleGroup(group, { fromGesture = false } = {}) {
+  if (!fromGesture && consumeClickSuppression()) return
   const gid = group.id
+  const collapsing = !group.collapsed
   cancelGroupAnim(gid)
   const els = memberElsOf(gid)
   if (!els.length) {
     tabGroups.toggleCollapsed(gid)
-    transferFocusOutOfGroup(gid)
+    settleFocusAfterToggle(gid, collapsing)
     return
   }
 
-  const collapsing = !group.collapsed
   const widths = new Map()
   if (collapsing) {
     // 此刻还看得见，直接量（offsetWidth 不受 FLIP 的 transform 影响，量的就是布局宽度）
@@ -453,9 +615,9 @@ function toggleGroup(group) {
 
   animatingGroups.add(gid)
   tabGroups.toggleCollapsed(gid)
-  // 焦点在被折叠的组里 → 立即转移给相邻可见页签（需求 2 的状态机）。必须在
-  // toggleCollapsed 之后调：isHiddenTab 的判据吃的就是刚翻面的 collapsed 标志
-  if (collapsing) transferFocusOutOfGroup(gid)
+  // 焦点结算（十七改）：折叠 → 转给相邻可见页签、全折叠则清空；展开 → 恢复上次的焦点。
+  // 必须在 toggleCollapsed 之后调：isHiddenTab 的判据吃的就是刚翻面的 collapsed 标志
+  settleFocusAfterToggle(gid, collapsing)
 
   nextTick(() => {
     const rec = { els, animations: [] }
@@ -560,6 +722,10 @@ function measureGroupLines() {
       const left = vLeft(active)
       const right = left + vWidth(active)
       const r = GROUP_LINE_R
+      // 激活成员贴着条带最右（is-strip-last，十八改）：右脚没有地方落（条带不为脚预留
+      // 内边距），改从页签右缘直落到底收口，楔形填充一并省掉 —— 硬画的话脚会被滚动
+      // 容器裁平，还会把条带撑出几像素的假滚动行程
+      const atRightEdge = active.classList.contains('is-strip-last')
       d =
         `M ${x0} ${h - 1} L ${left - r} ${h - 1}` +
         ` A ${r} ${r} 0 0 0 ${left} ${h - 1 - r}` +
@@ -568,17 +734,19 @@ function measureGroupLines() {
         ` L ${right - r} 1` +
         ` A ${r} ${r} 0 0 1 ${right} ${1 + r}` +
         ` L ${right} ${h - 1 - r}` +
-        ` A ${r} ${r} 0 0 0 ${right + r} ${h - 1}`
+        (atRightEdge ? ` L ${right} ${h - 1}` : ` A ${r} ${r} 0 0 0 ${right + r} ${h - 1}`)
       // 激活成员就是组尾时右脚落地即终点，别再往回画一段线
-      if (x1 > right + r) d += ` L ${x1} ${h - 1}`
+      if (!atRightEdge && x1 > right + r) d += ` L ${x1} ${h - 1}`
       // 两只脚的楔形另用一条 path 填激活底色 —— 页签元素的底色盖不到外扩圆角内部
       fills.push(
         `M ${left - r} ${h - 1} A ${r} ${r} 0 0 0 ${left} ${h - 1 - r} L ${left} ${h - 1} Z`,
       )
-      fills.push(
-        `M ${right + r} ${h - 1} A ${r} ${r} 0 0 1 ${right} ${h - 1 - r} L ${right} ${h - 1} Z`,
-      )
-      maxX = Math.max(maxX, right + r)
+      if (!atRightEdge) {
+        fills.push(
+          `M ${right + r} ${h - 1} A ${r} ${r} 0 0 1 ${right} ${h - 1 - r} L ${right} ${h - 1} Z`,
+        )
+      }
+      maxX = Math.max(maxX, atRightEdge ? right : right + r)
     }
     maxX = Math.max(maxX, x1)
     rows.push({ id: gid, colorVar: chip.style.getPropertyValue('--group-c'), d, fills })
@@ -672,7 +840,12 @@ const groupCard = ref(null)
 
 function openGroupCard(group, event) {
   const rect = event.currentTarget.getBoundingClientRect()
-  groupCard.value = { group, x: rect.left, y: rect.bottom + 6 }
+  openGroupCardAt(group, rect.left, rect.bottom + 6)
+}
+
+/** 在指定位置弹分组卡片（右键与触屏长按共用） */
+function openGroupCardAt(group, x, y) {
+  groupCard.value = { group, x, y }
 }
 
 // 被顶替那一格在更新前的宽度，供新页签的宽度过渡当起点（见 onTabEnter）
@@ -733,7 +906,11 @@ function onTabEnter(el) {
 </script>
 
 <template>
-  <div ref="rootEl" class="editor-tabs" :class="{ 'is-dragging': draggingId }">
+  <!-- is-dragging 的判据是 draggingId（二十改），不是 draggingIds.length：折叠组的芯片
+       拖动时，块里一个可见组员都没有、draggingIds 是空数组，可它明明是拖拽的主语。
+       挂不上的代价是实打实的 —— 抬层（--dragging 的 z-index: 100）与邻居的让位过渡
+       全都写在 .is-dragging 下面，于是芯片被右边的页签整块盖住、邻居瞬移不滑。 -->
+  <div ref="rootEl" class="editor-tabs" :class="{ 'is-dragging': !!draggingId, 'is-touch-drag': touchDrag }">
       <!-- TransitionGroup 直接反映 openTabIds / 视图 open 状态的变化，所以打开、关闭、
            切换、预览页签被顶替四种操作共用这一套进出场，workspaceStore 不用改。
            子项都带 key（文件 = 节点 id，视图 = `view:<id>`）。
@@ -756,10 +933,12 @@ function onTabEnter(el) {
            key 打在 template 上。 -->
       <template v-for="item in stripItems" :key="item.key">
         <!-- 分组芯片：Chrome 把它渲染成组前的一枚独立小圆（不是页签本体的一部分）。
-             **左键 = 展开 / 折叠，右键 = 分组卡片**（2026-10-19 用户口径）。
-             它不能被拖（没有 data-strip-id、不进 onTabPointerDown），但**让位序列算它**：
-             页签拖过组边界时芯片要跟着滑，否则组包络线断开；折叠组的成员在
-             useTabDrag.collectUnits 里反过来记在它名下，提交时由它展开换算下标。 -->
+             **左键 = 展开 / 折叠，右键 = 分组卡片，按住拖动 = 搬走整组**（十八改，
+             Chrome 同款 —— 芯片就是组的把柄；拖拽的收尾 click 由 toggleGroup 里的
+             click 抑制吃掉，不会误触折叠）。芯片没有 data-strip-id（拖拽的落点数学
+             里组由成员段代表），但**让位序列算它**：页签拖过组边界时芯片要跟着滑，
+             否则组包络线断开；折叠组的成员在 useTabDrag.collectUnits 里反过来记在
+             它名下，提交时由它展开换算下标。 -->
         <button
           v-if="item.kind === 'chip'"
           type="button"
@@ -768,6 +947,9 @@ function onTabEnter(el) {
             'editor-tabs__chip--named': item.group.name,
             'editor-tabs__chip--holds-active': item.holdsActive,
             'editor-tabs__chip--collapsed': item.group.collapsed,
+            'editor-tabs__chip--pressing': pressingId === `group:${item.group.id}`,
+            'editor-tabs__chip--armed': armedId === `group:${item.group.id}`,
+            'editor-tabs__chip--dragging': draggingId === `group:${item.group.id}`,
           }"
           :style="{ '--group-c': `var(--group-${item.group.color})` }"
           :data-group-id="item.group.id"
@@ -775,6 +957,7 @@ function onTabEnter(el) {
           :aria-label="item.group.name || t('app.tabs.groupChip')"
           :aria-expanded="!item.group.collapsed"
           @click.stop="toggleGroup(item.group)"
+          @pointerdown="onChipPointerDown($event, item.group.id)"
           @contextmenu.prevent="openGroupCard(item.group, $event)"
         >
           <span v-if="item.group.name" class="editor-tabs__chip-name">{{ item.group.name }}</span>
@@ -787,13 +970,15 @@ function onTabEnter(el) {
           :class="{
             'editor-tabs__item--active': item.id === workspace.activeId && !viewActive,
             'editor-tabs__item--preview': item.id === workspace.previewTabId,
-            'editor-tabs__item--dragging': item.id === draggingId,
+            'editor-tabs__item--dragging': draggingIds.includes(item.id),
             'editor-tabs__item--pressing': item.id === pressingId,
             'editor-tabs__item--armed': item.id === armedId,
             'is-grouped': !!item.group,
             'is-group-first': item.groupFirst,
             'is-group-last': item.groupLast,
             'is-group-hidden': item.hidden && !animatingGroups.has(item.group?.id),
+            'is-strip-first': item.stripFirst,
+            'is-strip-last': item.stripLast,
           }"
           :style="item.group ? { '--group-c': `var(--group-${item.group.color})` } : undefined"
           role="tab"
@@ -835,7 +1020,7 @@ function onTabEnter(el) {
             class="editor-tabs__close"
             role="button"
             :aria-label="t('app.tabs.closeTab')"
-            @click.stop="closeTab(item.id)"
+            @click.stop="onCloseClick(item.id)"
           >
             <AppIcon name="close" :size="12" />
           </span>
@@ -853,9 +1038,11 @@ function onTabEnter(el) {
           class="editor-tabs__item"
           :class="{
             'editor-tabs__item--active': item.active,
-            'editor-tabs__item--dragging': item.id === draggingId,
+            'editor-tabs__item--dragging': draggingIds.includes(item.id),
             'editor-tabs__item--pressing': item.id === pressingId,
             'editor-tabs__item--armed': item.id === armedId,
+            'is-strip-first': item.stripFirst,
+            'is-strip-last': item.stripLast,
           }"
           role="tab"
           :data-strip-id="item.id"
@@ -873,7 +1060,7 @@ function onTabEnter(el) {
             class="editor-tabs__close"
             role="button"
             :aria-label="item.closeLabel"
-            @click.stop="item.close"
+            @click.stop="onViewCloseClick(item)"
           >
             <AppIcon name="close" :size="12" />
           </span>
@@ -945,12 +1132,16 @@ function onTabEnter(el) {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  /* 左右各留 9px（外扩脚 r=8 + 描边各 1px）：组芯片可能顶到条带最左 / 最右，包络线的
-     两只外扩脚要向组外伸 r，没这段预留会被 SVG 视口（x<0 直接裁）与滚动容器一起裁成
-     平角（2026-10-20 自查单第 1 项）。条内的所有坐标数学 —— SVG 绝对定位、
-     measureGroupLines 的 rect 换算、useTabDrag 的 offsetLeft 槽位 —— 全都以 padding 盒
-     为原点，加 padding 不动它们的相对关系。 */
-  padding: 0 9px;
+  /* 条带两端**不留内边距**（十八改，用户口径「最左页签的外扩曲线虚假占用空间」）：
+     页签顶到条带端缘。外扩脚贴端缘的两只由 is-strip-first / is-strip-last 关掉
+     （CSS 伪元素与 SVG 包络线各有一处，见下面那两条规则）—— 此前两端各留 9px 给
+     「可能顶到端缘的组芯片 + 它的外扩脚」，实测最左激活页签的左脚会悬空画出一段
+     弧线、看着像凭空多占一块；而包络线的脚锚在**组员**身上，组员左边永远垫着芯片
+     （≥20px），左向的脚根本伸不到端缘，这段预留只对右向的脚有意义，右向的那只
+     现在按「贴端缘不画」处理，预留整个作废。条内所有坐标数学 —— SVG 绝对定位、
+     measureGroupLines 的 rect 换算、useTabDrag 的 offsetLeft 槽位 —— 以条带边界
+     为原点，与内边距无关。 */
+  padding: 0;
 }
 
 .editor-tabs__strip::-webkit-scrollbar {
@@ -968,7 +1159,11 @@ function onTabEnter(el) {
      与场次动画（.tab-*）用同一支缓动，观感是一次动作。 */
   transition:
     background-color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    color 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    color 150ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    /* 触屏拖拽的「抓起」放大走独立的 `scale` 属性（transform 被 useTabDrag 逐帧写成
+       translate3d 占着），松手时 --dragging 一摘就靠这条过渡柔和缩回去 —— 不写在这里，
+       类一消失 transition 也跟着消失，页签会「啪」地缩回原尺寸。 */
+    scale 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
   /* 5px（原 6px，2026-10-01 收紧）：真机反馈页签里的空白偏大。这一条同时管
      「图标 ↔ 标签」与「标签 ↔ 关闭按钮」两处 —— 图标/× 的墨迹在各自的 12px 方框里
      本来就留了余量，视觉上的间距比 5px 还多一点点。 */
@@ -1072,6 +1267,15 @@ function onTabEnter(el) {
   background: radial-gradient(circle at 100% 0, transparent 8px, var(--bg-tab-active) 8px);
 }
 
+/* 贴着条带端缘的激活页签不画朝外的脚（十八改）：条带不再预留端缘内边距，脚会被滚动
+   容器裁平不说，朝右那只还会把条带撑出几像素的假滚动行程（::after 参与可滚动溢出）。
+   端缘那侧本来就没有「邻签的底角」要接，方角贴边是更干净的样子。左向这只其实
+   x<0 早被裁掉看不见了，这里一并显式关掉，两端同一条判据好记。 */
+.editor-tabs__item--active.is-strip-first::before,
+.editor-tabs__item--active.is-strip-last::after {
+  display: none;
+}
+
 /* -------------------------------------------------------- 页签分组（SVG 连续包络线）
    （2026-10-19 加下划线版；2026-10-20 深夜十改按用户口径整体重写：「不要零散的 CSS
    border——那会让左下 / 右下角断裂、向内弯曲；用一个绝对定位、pointer-events:none 的
@@ -1155,18 +1359,37 @@ function onTabEnter(el) {
 .editor-tabs__item.editor-tabs__item--pressing {
   background: var(--bg-hover);
   /* 线性（不加缓动）：进度条要走得均匀，到头才是「正好可以松手」的那一瞬。
+     时长必须与 useTabDrag.js 的 LONG_PRESS_MS（200ms）一致。
      减弱动效时会被 base.css 的 prefers-reduced-motion 压成 0.01ms —— 那就只剩到点时的弹一下。 */
-  transition: background-color 450ms linear;
+  transition: background-color 200ms linear;
 }
 
 .editor-tabs__item.editor-tabs__item--armed {
   /* 弹起来的页签要盖住左右邻签：它是 position: relative，靠 z-index 提到同层兄弟之上 */
   z-index: 2;
   background: var(--bg-hover);
-  /* 只动 transform，页签盒子的宽度不变、邻签一个像素都不动，播完自己回到原样。
-     放 animation 而不是 transition，是为了让它**只播这一次** —— 留在就绪态里等松手时
-     不会再被任何属性变化重新触发。 */
+  /* 就绪态停在「轻微浮起」上（十九改）：只动独立的 scale 属性，页签盒子的宽度不变、
+     邻签一个像素都不动。
+     下面那条 animation 仍然只动 transform，播完自己回到原样；放 animation 而不是
+     transition，是为了让它**只播这一次** —— 留在就绪态里等松手时不会再被任何属性变化
+     重新触发。scale 那条靠基类里的 140ms 过渡淡入，于是「弹一下 → 停在 1.02」是连贯的。 */
+  scale: 1.02;
   animation: tab-press-pop 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 芯片的按压 / 就绪（十九改：芯片也是拖把柄，触屏同样得有这两段反馈）。
+   芯片本身是**组色块**，不能拿底色当进度条（会把组色抹掉），改走亮度 —— 与它的
+   hover（brightness 1.12）同一条路子，只是分两档。⚠️ 双类选择器是为了压过
+   `.editor-tabs__chip:hover`（触屏浏览器按下就补一个 :hover，单类会被它顶掉）。 */
+.editor-tabs .editor-tabs__chip.editor-tabs__chip--pressing {
+  filter: brightness(1.08);
+  transition: filter 200ms linear;
+}
+
+.editor-tabs .editor-tabs__chip.editor-tabs__chip--armed {
+  z-index: 2;
+  scale: 1.08;
+  filter: brightness(1.18);
 }
 
 /* 长按的两段反馈期间（触屏）把那两只脚藏起来：此刻整块底色已经换成 --bg-hover，
@@ -1199,8 +1422,24 @@ function onTabEnter(el) {
 .editor-tabs__item--dragging {
   z-index: 100;
   cursor: grabbing;
-  transition: none;
+  /* 跟手优先：transform 必须**零延迟**（每帧直写）；scale / 投影另给一小段过渡，
+     抓起来与松手那一下才不是硬跳。不能像以前那样一句 `transition: none` ——
+     那会把「抓起放大」也一起变成瞬变。 */
+  transition:
+    transform 0s linear,
+    scale 140ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
+}
+
+/* 触屏拖拽的「抓起」态（十九改）：放大一档 + 一圈投影。**只给触屏** —— 鼠标要的是
+   页签严丝合缝跟着指针，放大 4% 会让它相对指针变大一圈，反而不准。
+   投影用 box-shadow 而不是 filter：被拖页签 z-index 100，落在邻签身上照样看得见；
+   条带下沿那部分会被 .editor-tabs 的 overflow 裁掉，这是既有布局的必然，接受。 */
+.editor-tabs.is-touch-drag .editor-tabs__item--dragging,
+.editor-tabs.is-touch-drag .editor-tabs__chip--dragging {
+  scale: 1.04;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 /* 拖动中：整条栏换成抓取光标；指针划过沿途页签时不再给悬停反馈（注意力留给实时让位）。
@@ -1227,6 +1466,18 @@ function onTabEnter(el) {
 .editor-tabs.is-dragging .editor-tabs__item:not(.editor-tabs__item--dragging),
 .editor-tabs.is-dragging .editor-tabs__chip {
   transition: transform 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* 被拖的芯片（十八改）：整组跟手的锚，逐帧直写 transform，与页签的 --dragging 同一套
+   关过渡 + 抬层 —— 不关的话 200ms 让位过渡会拖着它晚半拍，块内组员（挂着 --dragging）
+   却即时跟手，整组肉眼可见地拉开。
+   十九改：与页签那条一样，只有 transform 归零延迟，scale / 投影留过渡。 */
+.editor-tabs.is-dragging .editor-tabs__chip--dragging {
+  transition:
+    transform 0s linear,
+    scale 140ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  z-index: 100;
 }
 
 /* -------------------------------------------------------- 分组芯片
@@ -1262,7 +1513,15 @@ function onTabEnter(el) {
      会被裁掉。文字截断由 .editor-tabs__chip-name 自己管（它带着 overflow + ellipsis）。 */
   position: relative;
   cursor: pointer;
-  transition: filter 120ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition:
+    filter 120ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    scale 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* 触屏（十九改）：芯片也是拖把柄，三件套与页签同源 —— 横向滑动留给条带去滚，
+     长按不许选字 / 弹 callout（系统菜单由 useTabDrag 从按下那一刻拦掉）。 */
+  touch-action: pan-x;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* 线不再由胶囊补（2026-10-20 十改）：五改时那道「跨过 6px 缝、把下划线接到胶囊左缘」
@@ -1366,6 +1625,9 @@ function onTabEnter(el) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 触屏那圈 32px 的透明热区挂在它的伪元素上（见下面 @media (pointer: coarse)），
+     所以这里得是定位祖先 */
+  position: relative;
   /* 15px：原来是 18px，真机反馈「关闭按钮比较大」——× 只有 12px（墨迹约 7px），
      18px 的框空得太多、hover 底色也显笨。图标尺寸不动（全应用的 AppIcon 尺寸都是
      不随 UI 缩放的裸 px，只改这一处会跟旁边的代码图标对不齐）。 */
@@ -1398,6 +1660,34 @@ function onTabEnter(el) {
 .editor-tabs__close:hover {
   opacity: 1;
   background: var(--bg-control-hover);
+}
+
+/* ------------------------------------------------------------ 触屏上的 ×（十九改）
+   两条口径，都只在粗指针设备上生效：
+   ① **非激活页签一律不露 ×**。上面那两条规则其实已经做到了（默认 opacity 0 +
+      pointer-events: none，:hover 那条被 @media (hover: hover) 挡住），但有些安卓
+      浏览器会同时报 `hover: hover` —— 手指一按下就补 :hover，× 抢在激活之前冒出来，
+      于是「点页签切换」变成「点 × 关文件」。这里用一条特异性更高的
+      `:not(--active)`（0,4,0）把它钉死，与浏览器怎么报 hover 无关。
+   ② **激活页签的 × 热区扩到 32×32**。墨迹仍是 15px 的框，多出来的是一块透明命中区：
+      伪元素挂在 × 自己身上，点它等于点 ×。右缘与页签右缘齐平（-7px = 页签的右内边距），
+      所以一条边都不越到邻签上去；多出来的宽度全落在本页签内部。
+      只在粗指针设备上给 —— 鼠标的 15px 框够用，32px 会把「点页签右半边」变成「关页签」。 */
+@media (pointer: coarse) {
+  .editor-tabs__item:not(.editor-tabs__item--active) .editor-tabs__close {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .editor-tabs__item--active .editor-tabs__close::after {
+    content: '';
+    position: absolute;
+    right: -7px;
+    top: 50%;
+    width: 32px;
+    height: 32px;
+    transform: translateY(-50%);
+  }
 }
 
 /* --------------------------------------------- 选中页签与编辑区连成一片（不再需要额外处理）

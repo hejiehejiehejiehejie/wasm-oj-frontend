@@ -57,8 +57,9 @@ export default {
         extRecheck: '装完回设置 →「浏览器插件」栏点一次「重新检测」。',
         extUpToDate: '插件已经是最新版（v{version}），不用更新。',
         later: '以后再说',
-        /** Chromium 那条更新的按钮字：动作就是重下一份 zip，面板那边叫「重新下载浏览器插件」 */
-        redownload: '重新下载',
+        /** Chromium 那条更新的按钮字：动作就是重下一份 zip。叫「更新」与没装那条的「下载」分开
+            （2026-10-20 用户要求；标题已经是「更新浏览器插件」，按钮不重复全称） */
+        update: '更新',
         copyFailed: '复制失败，请手动复制这个地址',
       },
 
@@ -167,7 +168,7 @@ export default {
         extRecheck: 'Once installed, go to Settings → “Browser extension”, then hit “Check again”.',
         extUpToDate: 'The extension is already up to date (v{version}).',
         later: 'Not now',
-        redownload: 'Download again',
+        update: 'Update',
         copyFailed: 'Copy failed — please copy this address manually',
       },
 

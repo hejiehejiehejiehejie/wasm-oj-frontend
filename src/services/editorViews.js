@@ -168,8 +168,9 @@ export function deactivateCfContestTab() {
 
 // 「活跃文件变了」就等于用户想看代码：点资源管理器、点文件页签、会话恢复都走 activeId，
 // 在这里统一收口，省得每个入口各自记得把视图让开（漏一个就会出现「点了文件还在看设置」）。
-// activeId 变成 null 只发生在「最后一个代码页签被关掉 / 活跃文件被删」：没有代码可看，
-// 开着的视图就留在原地 —— 收掉只会让页签栏跟着塌掉（见 EditorPane.editorEmpty）。
+// activeId 变成 null 只发生在「最后一个代码页签被关掉 / 活跃文件被删 / 折叠组的全折叠兜底」：
+// 没有代码可看，开着的视图就留在原地（页签栏的收放看条带里还有没有东西，不看 activeId ——
+// 见 EditorPane.stripEmpty）。
 watch(
   () => workspace.activeId,
   (id) => {

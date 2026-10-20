@@ -11,8 +11,10 @@
  *   它是鼠标事件的修饰键，`useShortcutManager` 那套 keydown 管线（comboFromEvent）接不住，
  *   所以也不进绑定表、不占任何键位。
  * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
+ *   **macOS 例外（2026-10-20）**：单按回车是「重命名」（与 Finder / VS Code 一致），
+ *   「打开 / 切换展开」移到 **⌘ + ↓**；Windows / Linux 不变。
  * - 右键菜单与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
- *   而 F2 重命名、Delete 删除、⌘/Ctrl+A 全选是全局快捷键，见 onKeyDown 末尾那条注释）。
+ *   而重命名、Delete 删除、⌘/Ctrl+A 全选是全局快捷键，见 onKeyDown 末尾那条注释）。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
 import { computed, inject, nextTick, ref, watch } from 'vue'
@@ -219,8 +221,12 @@ function startRename() {
  * 组字中一律不当成提交。keyCode 229 是部分输入法在组字时不报 isComposing 的补漏。
  */
 async function submitRenameOnEnter(event) {
+  // 组字中一律不拦：中文输入法的回车是「候选词上屏」，不是提交（见上面那条注释）
   if (event.isComposing || event.keyCode === 229) return
   event.preventDefault()
+  // 必须截住冒泡：这个输入框长在行**内部**，keydown 会冒到 row 的 onKeyDown，那里
+  // 的 'Enter' 分支会顺手把文件打开 —— 改完名立刻弹出一个页签，看着像误操作。
+  event.stopPropagation()
   await commitRename()
   // 提交成功才把焦点交还这一行；撞名失败时输入框还在（renameMode 仍是 true），
   // 那时抢走焦点用户就没法接着改了（refocusRow 里也有这道闸）。
@@ -327,6 +333,14 @@ function onKeyDown(event) {
 
   switch (event.key) {
     case 'ArrowDown':
+      // macOS：⌘ + ↓ = 打开文件 / 展开折叠目录（Finder、VS Code 同一套口径）。
+      // mac 上单按回车已经让给「重命名」了（全局那条捕获监听先拦走），「打开」必须有别的键；
+      // Windows / Linux 不动，仍是回车打开、⌘/Ctrl+↓ 按顺序移到下一行。
+      if (IS_MAC && event.metaKey) {
+        event.preventDefault()
+        onEnter()
+        break
+      }
       event.preventDefault()
       focusRowAt(items[index + 1], event.shiftKey)
       break
@@ -361,6 +375,11 @@ function onKeyDown(event) {
       }
       break
     case 'Enter':
+      // macOS 上单按回车是**重命名**（默认键位，见 useShortcutManager 的 rename-node）：
+      // App.vue 的窗口捕获监听先一步 preventDefault + stopPropagation，所以这一支在 mac
+      // 上根本收不到。留在这里是有意的兜底 —— 用户若把重命名改绑到别的键，回车就会重新
+      // 落到这儿当「打开」，不至于变成一个按了没反应的键。
+      // 非 mac 上回车照旧是打开 / 切换展开（F2 才是重命名）。
       event.preventDefault()
       onEnter()
       break
@@ -372,8 +391,8 @@ function onKeyDown(event) {
         selectNode(workspace.selectedId ?? props.node.id)
       }
       break
-    // F2（重命名）、Delete（删除）、⌘/Ctrl + A（全选）**刻意不在这里**：2026-10-10 起
-    // 前两条、2026-10-12 起全选也是，都登记在 useShortcutManager 里的全局动作，由 App.vue
+    // 重命名（mac Enter / 其它平台 F2）、Delete（删除）、⌘/Ctrl + A（全选）**刻意不在这里**：
+    // 2026-10-10 起前两条、2026-10-12 起全选也是，都登记在 useShortcutManager 里的全局动作，由 App.vue
     // 那个窗口捕获监听统一处理（先过作用域闸门「焦点在资源管理器里、且不在输入框上」，
     // 再进 FileExplorer 的 startRename / requestDelete / selectAllNodes）。留在这里就等于
     // 第二份真相：全局那条在捕获阶段就 stopPropagation 了，这里的分支永远收不到按键；
@@ -445,7 +464,9 @@ function focusRowAt(el, extend) {
       <span v-if="!renameMode" class="tree-item__label">{{ node.name }}</span>
       <span v-if="!renameMode && dirty" class="tree-item__dot" :title="t('app.tabs.dirty')"></span>
       <!-- data-keep-focus-on-pan：这张框失焦即提交（下面的 @blur），滑动时不许被
-           useMobileKeyboard 代劳 blur —— 那会把「拖选一段文字」变成「提交改名」，选区也一起丢。 -->
+           useMobileKeyboard 代劳 blur —— 那会把「拖选一段文字」变成「提交改名」，选区也一起丢。
+           Enter / Esc 都 stop：keydown 会冒到这一行的 onKeyDown（'Enter' 会打开文件、
+           'Escape' 会改选区），改名这个闭环里不许它们插进来。 -->
       <input
         v-if="renameMode"
         ref="renameInput"
@@ -453,7 +474,7 @@ function focusRowAt(el, extend) {
         class="tree-item__input"
         data-keep-focus-on-pan
         @keydown.enter="submitRenameOnEnter"
-        @keydown.esc.prevent="cancelRenameByEsc"
+        @keydown.esc.stop.prevent="cancelRenameByEsc"
         @blur="commitRename"
       />
     </div>

@@ -27,7 +27,11 @@ import { t } from '../i18n/index.js'
 
 const STORAGE_KEY = 'cp.shortcuts'
 
-/** macOS 上 Mod 是 ⌘、Ctrl 是字面的 Control；其他平台 Mod 就是 Ctrl */
+/**
+ * 当前是不是 macOS（含 iPad / iPhone：外接键盘上同样没有 F2，同样按 ⌘ 当主修饰键）。
+ * 除了「Mod 映射成 ⌘ 还是 Ctrl」，它还决定**文件树重命名的默认键位**（见 SHORTCUT_ACTIONS 的
+ * rename-node）：mac 是 Enter，其它平台是 F2。所以这份判定只做一次、全站共用。
+ */
 export const IS_MAC =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)
 
@@ -38,9 +42,12 @@ export const IS_MAC =
  * Shift+Alt+F 在 C++ / Python 下没有注册 formatter，绑了也是空按。
  *
  * `bareCodes`（可选）= 这个动作额外允许的**裸键**（不带任何修饰键）。默认只有功能键与 Esc
- * 能裸按（见 SAFE_BARE_CODES），目前唯一的例外是「删除节点」的 Delete —— 它敢裸按是因为
- * 有一道作用域闸门兜着：只有焦点在文件树上时才触发（App.vue 的 treeRowFrom）。
- * **给别的动作加裸键之前先想清楚有没有同款闸门**，否则打字时会被全局吃掉。
+ * 能裸按（见 SAFE_BARE_CODES），例外只有两处：「删除节点」的 Delete，与 macOS 上
+ * 「重命名」的 Enter —— 它们敢裸按是因为有一道作用域闸门兜着：只有焦点在文件树上时才触发
+ * （App.vue 的 treeScopeFrom）。**给别的动作加裸键之前先想清楚有没有同款闸门**，否则打字时
+ * 会被全局吃掉。
+ *
+ * `aliases`（可选）= 额外认得、但不进绑定表、也不在界面上当当前键位显示的键（见 aliasesOf）。
  */
 export const SHORTCUT_ACTIONS = [
   { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
@@ -70,10 +77,22 @@ export const SHORTCUT_ACTIONS = [
   // **不跟着焦点走遍全站**，只作用于「资源管理器里当前有焦点的那些行」。执行入口不在
   // SHORTCUT_HANDLERS 里，而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
   {
+    /**
+     * 重命名（2026-10-20 起按平台分岔）：**Windows / Linux 仍是 F2，macOS 是 Enter**。
+     * mac 上 F2 被系统占成「调屏幕亮度」、按下去要配 Fn，而且 Finder / VS Code 都是
+     * 单按回车改名 —— mac 用户的肌肉记忆里 Enter 才是重命名。
+     *
+     * mac 上 F2 变成**别名键**（aliases）保留：外接机械键盘、或按 Fn+F2 的人照样能改。
+     * Enter 是裸键，按规矩得在 `bareCodes` 里点名放行才录得回来 —— 敢裸按的理由和 Delete
+     * 同款：App.vue 的 treeScopeFrom 有一道闸门，只有焦点在资源管理器里（且不在输入框 /
+     * 按钮上）时才认这一发。
+     */
     id: 'rename-node',
     labelKey: 'settings.shortcut.renameNode.label',
     hintKey: 'settings.shortcut.renameNode.hint',
-    default: 'F2',
+    default: IS_MAC ? 'Enter' : 'F2',
+    aliases: IS_MAC ? ['F2'] : [],
+    bareCodes: IS_MAC ? ['Enter'] : [],
   },
   {
     id: 'delete-node',
@@ -209,6 +228,17 @@ function defaultBindings() {
 }
 
 /**
+ * macOS 上「重命名」的老默认键位迁移的一次性标记（2026-10-20）。
+ *
+ * 为什么需要迁移：`readBindings` 的口径是「盘里存的值一律优先」，而老用户的盘里躺着
+ * `rename-node: 'F2'`。不迁的话，mac 用户升级之后按回车照样改不了名 —— 等于没改。
+ *
+ * 为什么非要一个标记键：光看「值是 F2」分不清它是「从没动过的默认」还是「用户自己
+ * 特意绑回 F2」。迁过一次就记下，此后用户再绑 F2 就是他自己的选择，不再被覆盖。
+ */
+const RENAME_MIGRATION_KEY = 'cp.shortcuts.mac-enter'
+
+/**
  * 读盘。以默认值打底再套已存的键，这样以后新增动作时老用户也能拿到它的默认键，
  * 同时把已经不存在的动作（或手改坏的值）自然丢掉。
  */
@@ -217,6 +247,14 @@ function readBindings() {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
     if (!stored || typeof stored !== 'object') return map
+    // 一次性迁移：mac 上的老默认 F2 → 新默认 Enter。**先落盘再打标记** ——
+    // 反过来的话（标记写成功、值没写成）下次启动会读到 F2 却不再迁移，从此卡在旧键位上。
+    // F2 不会因此丢掉：它退成了这个动作的别名键（见 aliasesOf），照样能改名。
+    if (IS_MAC && stored['rename-node'] === 'F2' && !localStorage.getItem(RENAME_MIGRATION_KEY)) {
+      stored['rename-node'] = defaultBindings()['rename-node']
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
+      localStorage.setItem(RENAME_MIGRATION_KEY, '1')
+    }
     for (const action of SHORTCUT_ACTIONS) {
       if (typeof stored[action.id] === 'string') map[action.id] = stored[action.id]
     }
@@ -405,10 +443,26 @@ export function comboFromChromeShortcut(raw) {
 /** @param {string} combo @returns {string|null} 命中的动作 id */
 export function actionForCombo(combo) {
   if (!combo) return null
+  // 主绑定优先：用户显式绑定过的那一颗永远比别人的别名键更算数（细则见 aliasesOf）
   for (const action of SHORTCUT_ACTIONS) {
     if (bindings.value[action.id] === combo) return action.id
   }
+  for (const action of SHORTCUT_ACTIONS) {
+    if (aliasesOf(action).includes(combo)) return action.id
+  }
   return null
+}
+
+/**
+ * 别名键（动作上的 `aliases`）是「额外认得、但不进绑定表、也不在界面上当当前键位显示」的键。
+ *
+ * 只给「平台默认键必须留个后门」的动作用（目前只有重命名：mac 默认 Enter、F2 作别名）。
+ * 它不参与 `bindings` 的读写 —— 设置页显示、右键菜单右列都只认主绑定，免得同一个动作
+ * 在界面上挂着两个键位。但匹配（actionForCombo）与冲突检测（shortcutConflict）都得认，
+ * 否则把 F2 绑给别的动作时，mac 上会变成两颗一起响。
+ */
+function aliasesOf(action) {
+  return action.aliases ?? []
 }
 
 /**
@@ -423,7 +477,11 @@ export function shortcutConflict(actionId, combo) {
   if (!hasModifier(combo) && !bareAllowedFor(actionId, combo)) {
     return t('settings.shortcut.needModifier')
   }
-  const owner = SHORTCUT_ACTIONS.find((action) => action.id !== actionId && bindings.value[action.id] === combo)
+  const owner = SHORTCUT_ACTIONS.find(
+    (action) =>
+      action.id !== actionId &&
+      (bindings.value[action.id] === combo || aliasesOf(action).includes(combo)),
+  )
   if (owner) return t('settings.shortcut.alreadyBound', { name: t(owner.labelKey) })
   return null
 }

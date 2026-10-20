@@ -17,18 +17,26 @@
  * 「设置 › 编辑器 › 性能 › 低配模式」另给一对 1200–3600ms 的档，供老机器少烧一点 CPU。
  *
  * 四条纪律：
- * 1. **不主动下工具链**。对应语言的运行时没加载就静默跳过（checkCppSyntax /
- *    checkPythonSyntax 返回 null）——绝不能在「打开一个 .cpp / .py」时偷下几十 MB。
- *    用户点过运行 / 下载之后，下一次输入就自然有了。
+ * 1. **不主动下载**。运行时不在内存里时先探本机缓存（`ensureRuntimeLoaded`，全程不触网）：
+ *    缓存齐了就静默读进内存（几十到几百毫秒），于是**装过一次之后，打开文件就有红线**，
+ *    不必先跑一遍；缓存里没有就静默跳过（checkCppSyntax / checkPythonSyntax 返回 null）——
+ *    绝不能在「打开一个 .cpp / .py」时偷下几十 MB。
  * 2. **只有最新一枪的结果能落地**。续写会 kill 掉还在跑的实例，序号对不上的一律丢弃 ——
  *    否则慢的那一枪回来会把新代码的标记覆盖成旧代码的。
  * 3. **判据与真编译共用一份来源**：C++ 的检查参数与真编译共用 FRONTEND_ARGS；
  *    Python 的检查只比真运行少一个「执行」——诊断说没问题、运行时却跑不过，
  *    比没有诊断更糟。
  * 4. **按内容指纹缓存**：切回文件 / 撤销回去直接重放，不重跑。
+ * 5. **区间宽度自己算**：clang 的文本诊断只给「起始行列」，没有结构化 range
+ *    （那是 clangd 的 JSON 才有）。若只画 `列..列+1`，`solve()` 就只有那个 `s` 被划上；
+ *    这里按源码在该列的词法边界把整个标识符 / 数字 / 字面量标出来，与 VSCode 的观感一致。
+ *    刻意**不用** `monaco.editor.tokenize`：cpp 的 monarch 定义是懒加载的
+ *    （`loader: () => import('./cpp.js')`），没加载时它会把整行当成一个空 token，
+ *    反而标满一整行。
  */
 import { monaco } from '../../monaco-setup.js'
 import { editorSettings } from '../editorSettings.js'
+import { ensureRuntimeLoaded } from '../wasmRuntime.js'
 import {
   checkCppSyntax,
   checkPythonSyntax,
@@ -132,14 +140,117 @@ function runSyntaxCheck(language, text, { onHost }) {
 }
 
 /**
+ * 「本机已经下过这个运行时、只是还没进内存」时，把它读进来 —— **不产生任何下载**。
+ *
+ * 判据在 `ensureRuntimeLoaded` 里：先用 probeRuntime 探缓存（SW 用 caches.match，
+ * dev 用 only-if-cached，都不触网），缓存齐了才 preload。缓存里没有就直接放弃，
+ * 等用户自己点运行 —— 绝不能因为「打开了一个 .cpp」就去下 50MB。
+ *
+ * 每语言每会话只试一次：读了缓存之后仍失败（配额 / 缓存被清）就不要再反复探了，
+ * 下一次机会是用户真跑一次代码（`onRuntimeReady` 会接住）。
+ */
+const bootstrapAttempts = new Set()
+
+function ensureRuntimeReadyInBackground(language) {
+  if (runtimeReady(language) || bootstrapAttempts.has(language)) return
+  bootstrapAttempts.add(language)
+  // 成功之后不用在这里补枪：loadToolchain / loadPythonRuntime 会发 onRuntimeReady，
+  // 下面那个模块级订阅统一处理（避免和它重复排两次检查）
+  ensureRuntimeLoaded(language).catch(() => {})
+}
+
+/** 词法边界：标识符允许 Unicode 字母（Python 的中文变量名、C++ 的 UCN） */
+const WORD_START = /[\p{L}_$]/u
+const WORD_PART = /[\p{L}\p{N}_$]/u
+/** 数字里可能出现的字符（`0x1F`、`1e-9`、`1'000`、`1.5f`） */
+const NUMBER_PART = /[0-9A-Za-z._']/
+
+/**
+ * 该列所在的整个词占哪几列（1-based，右开区间）。
+ *
+ * clang 只告诉我们 `行:列`，没有长度；而「红线只盖一个字母」比「盖住整个标识符」
+ * 差得多 —— VSCode 里点开也是整个 token。这里按最小词法常识找边界：
+ * 标识符 / 数字 / 字符串字面量各自吃到自己的结尾，运算符、括号、分号保持单列。
+ *
+ * 列越界（clang 偶尔指到行尾之后）或落在空白上时保持单列宽度。
+ */
+function tokenRangeAt(line, column) {
+  const single = [column, column + 1]
+  if (!line) return single
+  const offset = column - 1
+  if (offset < 0 || offset >= line.length) return single
+  const first = line[offset]
+
+  // 字符串 / 字符字面量：吃到同一行里配对的引号（跳过 `\` 转义）
+  if (first === '"' || first === "'") {
+    let i = offset + 1
+    while (i < line.length) {
+      if (line[i] === '\\') {
+        i += 2
+        continue
+      }
+      if (line[i] === first) {
+        i += 1
+        break
+      }
+      i += 1
+    }
+    return [column, Math.min(i, line.length) + 1]
+  }
+
+  // 标识符 / 关键字：`solve` 整段；中文标识符同样成立
+  if (WORD_START.test(first)) {
+    let end = offset + 1
+    while (end < line.length && WORD_PART.test(line[end])) end += 1
+    return [column, end + 1]
+  }
+
+  // 数字：`1e-9` 里的 `-` 不并进来（`1e` / `-` / `9` 三段），够用了
+  if (first >= '0' && first <= '9') {
+    let end = offset + 1
+    while (end < line.length && NUMBER_PART.test(line[end])) end += 1
+    return [column, end + 1]
+  }
+
+  return single
+}
+
+/**
+ * clang 的列号是**字节**偏移，而 Monaco 的列是 UTF-16 码元 —— 行内只要有中文，
+ * 同一个 token 就会整体右移：行首四空格 + 一段含四个汉字的注释 + `int a = ;`，
+ * 分号实际在第 24 列，clang 报 32（四个汉字各多 2 字节 = 偏 8），红线于是落到行外。
+ *
+ * Python 那条**不能**换算：CPython 的 `SyntaxError.offset` 本来就是字符列
+ * （实测同一行中文，`:` 报 10 而不是 14）。
+ * @param {string} line 该行源码
+ * @param {number} column clang 给的 1-based 字节列
+ */
+function byteColumnToChar(line, column) {
+  const target = column - 1
+  if (!line || target <= 0) return column
+  let bytes = 0
+  let index = 0
+  while (index < line.length && bytes < target) {
+    const code = line.codePointAt(index)
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+    index += code > 0xffff ? 2 : 1
+  }
+  return index + 1
+}
+
+/**
  * 解析 clang 的诊断原文。
  *
  * 只认 `路径:行:列: 级别: 消息` 这一种行（clang 8 的固定格式）；note 一律丢掉 ——
  * 它们是错误的补充说明，铺成标记只会把正文挤满。后面那几行缩进的源码回显也对不上正则，
  * 自然被跳过。
  * @param {string} stderr
+ * @param {{ text?: string, language?: 'cpp' | 'python' }} [source]
+ *   text 用来算列单位与区间宽度；language 只影响列单位（clang 是字节列、Python 是字符列）
  */
-function parseDiagnostics(stderr) {
+function parseDiagnostics(stderr, { text = '', language = 'cpp' } = {}) {
+  const lines = String(text).split('\n')
+  const byteColumns = language !== 'python'
   const markers = []
   for (const line of String(stderr ?? '').split('\n')) {
     if (markers.length >= MARKER_LIMIT) break
@@ -148,17 +259,19 @@ function parseDiagnostics(stderr) {
     const [, , lineText, columnText, level, message] = match
     if (level === 'note') continue
     const lineNumber = Number(lineText)
-    const column = Number(columnText)
-    if (!Number.isFinite(lineNumber) || !Number.isFinite(column)) continue
+    const rawColumn = Number(columnText)
+    if (!Number.isFinite(lineNumber) || !Number.isFinite(rawColumn)) continue
+    const source = lines[lineNumber - 1]
+    const column = byteColumns ? byteColumnToChar(source, rawColumn) : rawColumn
+    const [startColumn, endColumn] = tokenRangeAt(source, column)
     markers.push({
       severity:
         level === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Error,
       message: message.slice(0, MESSAGE_LIMIT),
       startLineNumber: lineNumber,
-      startColumn: column,
+      startColumn,
       endLineNumber: lineNumber,
-      // 给一列宽度：零宽区间在有些主题下只剩一个看不见的插入符
-      endColumn: column + 1,
+      endColumn,
       source: 'clang',
     })
   }
@@ -202,7 +315,7 @@ async function runCheck(model, language, text) {
   // 期间内容又变了：这一枪的结论已经过期，等下一枪
   if (model.getValue() !== text) return
 
-  const markers = parseDiagnostics(result.stderr)
+  const markers = parseDiagnostics(result.stderr, { text, language })
   checked.set(model.uri.toString(), { text, markers })
   applyMarkers(model, markers)
 }
@@ -216,6 +329,8 @@ async function runCheck(model, language, text) {
 export function scheduleSyntaxCheck(model, { immediate = false } = {}) {
   const language = checkableLanguage(model)
   if (!language) return
+  // 运行时不在内存里：若本机缓存过就静默读进来（不下载），否则就此打住
+  ensureRuntimeReadyInBackground(language)
   const text = model.getValue()
   const key = model.uri.toString()
 
