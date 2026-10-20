@@ -35,6 +35,13 @@ const intIn = (value, min, max, fallback) =>
 
 function defaults() {
   return {
+    /**
+     * 组件是否「装着」（2026-10-21）。与运行环境那几个组件同一套语义：
+     * 卸载后「组件 › 工具」里不再出现这一格、齿轮菜单那一行也随之收起，
+     * 只剩设置 › 应用 › 组件里一行带「安装」按钮的记录可以装回来。
+     * 默认 true —— 它是内置组件，老存档（没有这个字段）一律按装着算。
+     */
+    installed: true,
     /** 卡片此刻是否显示 */
     open: false,
     /** 锁定后只留环形，点击穿透 */
@@ -66,6 +73,8 @@ function load() {
   }
   if (!raw || typeof raw !== 'object') return state
 
+  // 只有明确写了 false 才算卸载：老存档没有这个字段，按「装着」处理
+  state.installed = raw.installed !== false
   state.open = raw.open === true
   state.locked = raw.locked === true
   state.phase = PHASES.includes(raw.phase) ? raw.phase : 'setup'
@@ -96,6 +105,8 @@ function load() {
     state.totalMs = 0
     state.pausedRemain = 0
   }
+  // 卸载状态下不该留着一张开着的卡（存档里可能是更早一次会话留下的现场）
+  if (!state.installed) state.open = false
   return state
 }
 
@@ -256,7 +267,30 @@ if (typeof window !== 'undefined') {
 
 // ---------------------------------------------------------------- 动作
 
+/**
+ * 装 / 卸（设置 › 应用 › 组件那一行用）。
+ *
+ * 这里没有资产可删 —— 组件本体就在仓库里，所谓「卸载」是把它的入口收起来：
+ * 卡片关掉、计时现场清回待开始，位置与尺寸留着（再装回来时还在原处）。
+ * 与 Codeforces 组件同一个形态：卸了之后设置里那一行还在，点「安装」即可回来。
+ */
+export function installCountdown() {
+  countdown.installed = true
+}
+
+export function uninstallCountdown() {
+  countdown.installed = false
+  countdown.open = false
+  countdown.locked = false
+  countdown.phase = 'setup'
+  countdown.endAt = 0
+  countdown.totalMs = 0
+  countdown.pausedRemain = 0
+}
+
 export function openCountdown() {
+  // 卸载后两处入口都该收起，这里是兜底：真被点到也不弹一张空卡
+  if (!countdown.installed) return
   countdown.open = true
   clampCountdownBox()
 }

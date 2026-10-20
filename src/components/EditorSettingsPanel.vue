@@ -59,6 +59,9 @@ import {
   reconcileCfRuntime,
   uninstallCfPicker,
 } from '../services/cfRuntime.js'
+// 悬浮倒计时卡也是「组件」组里的一行（2026-10-21）：它没有资产要下，装 / 卸只是
+// 把入口收起来，判据与侧栏「组件 › 工具」读的是同一个 `countdown.installed`
+import { countdown, installCountdown, uninstallCountdown } from '../services/countdown.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { MEMORY_LIMIT_OPTIONS, TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
@@ -1143,6 +1146,11 @@ async function confirmUninstall() {
   const entry = pendingUninstall.value
   pendingUninstall.value = null
   if (!entry) return
+  // 倒计时同样不是 RUNTIMES 那一套：没有资产可删，卸的是入口与计时现场
+  if (entry.id === COUNTDOWN_UNINSTALL_TARGET.id) {
+    uninstallCountdown()
+    return
+  }
   // 抽题组件不是 RUNTIMES 里那一套：资产在 IndexedDB 里、状态机在 cfRuntime，
   // 所以只有「清本机」交给服务层，界面状态与那两个开关各自归位
   if (entry.id === CF_UNINSTALL_TARGET.id) {
@@ -1267,6 +1275,29 @@ async function downloadCf() {
 function requestCfUninstall() {
   if (cfBusy.value || !cfReady.value) return
   pendingUninstall.value = CF_UNINSTALL_TARGET
+}
+
+// ------------------------------------------------------------ 倒计时（内置组件）
+// 它没有下载过程、也没有缓存：「安装」就是让侧栏「组件 › 工具」里那一格重新出现。
+// 卸载走同一颗确认弹窗 —— 卸载会连同正在进行的计时一起清掉，值得先说一句。
+const COUNTDOWN_UNINSTALL_TARGET = {
+  id: 'countdown',
+  titleKey: 'countdown.title',
+  uninstallTitleKey: 'countdown.module.uninstallTitle',
+  uninstallHintKey: 'countdown.module.uninstallHint',
+}
+
+const countdownInstalled = computed(() => countdown.installed)
+
+const countdownDotClass = computed(() => (countdownInstalled.value ? 'is-ok' : 'is-idle'))
+
+const countdownHint = computed(() =>
+  t(countdownInstalled.value ? 'countdown.module.installedHint' : 'countdown.module.idleHint'),
+)
+
+function requestCountdownUninstall() {
+  if (!countdownInstalled.value) return
+  pendingUninstall.value = COUNTDOWN_UNINSTALL_TARGET
 }
 
 /**
@@ -2232,6 +2263,40 @@ watch(pendingUnbind, (open) => {
                 :disabled="cfBusy"
                 :title="t('cf.module.uninstallActionTitle', { title: t('cf.module.title') })"
                 @click="requestCfUninstall"
+              >
+                <AppIcon name="trash" :size="13" />
+                <span>{{ t('runtime.uninstall') }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 倒计时（2026-10-21 加）：内置组件，没有要下的资产 —— 装 / 卸只是让侧栏
+               「组件 › 工具」里那一格出现或消失。判据与那边读同一个 countdown.installed。 -->
+          <div class="runtime-row">
+            <span class="runtime-row__icon"><AppIcon name="timer" :size="17" /></span>
+            <span class="runtime-row__text">
+              <span class="runtime-row__title">{{ t('countdown.title') }}</span>
+              <span class="runtime-row__hint">
+                <span class="app-dot" :class="countdownDotClass"></span>
+                <span>{{ countdownHint }}</span>
+              </span>
+            </span>
+            <div class="runtime-row__actions">
+              <button
+                v-if="!countdownInstalled"
+                class="download-button is-primary"
+                :title="t('countdown.module.install')"
+                @click="installCountdown"
+              >
+                <AppIcon name="download" :size="13" />
+                <span>{{ t('countdown.module.install') }}</span>
+              </button>
+              <button
+                v-else
+                type="button"
+                class="download-button is-uninstall"
+                :title="t('countdown.module.uninstallActionTitle', { title: t('countdown.title') })"
+                @click="requestCountdownUninstall"
               >
                 <AppIcon name="trash" :size="13" />
                 <span>{{ t('runtime.uninstall') }}</span>

@@ -15,7 +15,7 @@ export default {
         /** 设置 › 应用 里的分区标题 */
         group: '组件',
         groupNote:
-          '随机抽题与比赛随站点默认安装（题库约 2MB），此处显示安装状态，下载失败可重试。「默认安装」开关在「云同步」一栏，会随账号同步到其他设备。',
+          '随机抽题、比赛与倒计时随站点默认安装（题库约 2MB），此处显示安装状态，下载失败可重试；卸载后可以随时点「安装」装回来。「默认安装」开关在「云同步」一栏，会随账号同步到其他设备。',
         title: 'Codeforces',
         idleHint: '按难度与标签随机抽题、贴比赛链接看倒计时与题目（题库缓存约 2MB），只下一次',
         downloadTitle: '下载 / 重试 Codeforces 题库',
@@ -164,7 +164,7 @@ export default {
       module: {
         group: 'Components',
         groupNote:
-          'Random problems and contests are installed by default (about 2MB of problemset); this row shows the install status and offers a retry on failure. The "install by default" switch lives in the "Cloud sync" section and follows your account across devices.',
+          'Random problems, contests and the countdown are installed by default (about 2MB of problemset); these rows show the install status and offer a retry on failure. Anything uninstalled can be brought back with "Install". The "install by default" switch lives in the "Cloud sync" section and follows your account across devices.',
         title: 'Codeforces',
         idleHint:
           'Picks random problems by difficulty and tags, and tracks contests by link (about 2MB of problemset cache), downloaded once',

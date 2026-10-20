@@ -44,7 +44,7 @@ import { EDITOR_SETTING_RANGES, THEMES } from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
 import { openSettingsTab } from './editorViews.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
-import { openCountdown } from './countdown.js'
+import { countdown, openCountdown } from './countdown.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import {
   isNarrowLayout,
@@ -156,13 +156,18 @@ export const SETTINGS_MENU_ROWS = [
     checked: () => editorSettings.value.autoSave,
     toggle: () => setEditorSetting('autoSave', !editorSettings.value.autoSave),
   },
-  { kind: 'divider' },
+  // 这一条分隔线跟着倒计时那一行一起走：卸载后它下面紧跟的就是「云端同步」前那条分割线，
+  // 留着会并排出现两道（本表不做相邻分隔线的合并）
+  { kind: 'divider', when: () => countdown.installed },
 
   {
     id: 'countdown',
     kind: 'action',
     // 悬浮倒计时卡的入口（2026-10-20）。它是一次性动作而不是偏好：点开卡、设时长，
     // 偏好与计时现场都在 services/countdown.js 里自己持久化，菜单不持有任何状态。
+    // 2026-10-21 起跟着安装态显隐：在设置 › 应用 › 组件里卸载后，这一行没东西可开，整行收起
+    // （与文件头「不留点了没用的东西」同一条规矩）。
+    when: () => countdown.installed,
     labelKey: 'settings.menu.openCountdown',
     run: openCountdown,
   },

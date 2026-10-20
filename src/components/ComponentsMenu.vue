@@ -14,8 +14,9 @@
  * 【菜单里有什么】按「类」分组（2026-10-20 用户定的结构）：
  * - Codeforces：随机抽题（CfPickerPanel）与比赛（CfContestPanel）两块合成页签。
  *   整组跟着 `cfReady` 显隐 —— 模块没下载时不该留两颗点了没反应的格子。
- * - 工具：倒计时（悬浮卡）。这一类与 Codeforces 装没装无关，所以按钮本身改为常驻
- *   （2026-10-20 之前是 cfReady 为假就整颗不渲染）。
+ * - 工具：倒计时（悬浮卡）。它与 Codeforces 的安装态互不相干，所以侧栏那颗「组件」
+ *   按钮本身常驻（2026-10-20 之前是 cfReady 为假就整颗不渲染）；而**组内**的格子
+ *   跟着各自的安装态走 —— 倒计时在设置里被卸载后，这一组就整组消失（2026-10-21）。
  * 点哪项就把那个界面亮出来，然后收掉菜单。
  *
  * 【键盘】Esc 关（usePopoverLayer 捕获阶段）；Tab 在可见项之间自然走，
@@ -26,7 +27,7 @@ import AppIcon from './AppIcon.vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { t } from '../i18n/index.js'
 import { cfReady } from '../services/cfRuntime.js'
-import { openCountdown } from '../services/countdown.js'
+import { countdown, openCountdown } from '../services/countdown.js'
 import { openCfContestTab, openCfPickerTab } from '../services/editorViews.js'
 
 const props = defineProps({
@@ -64,7 +65,9 @@ const { root, position, ready } = usePopoverLayer({
 })
 
 /**
- * 分组表。Codeforces 组只在模块就绪时出现；工具组常驻。
+ * 分组表。两组都只在「装着」时出现（2026-10-21：工具组也跟着倒计时的安装态走，
+ * 它不再是无条件常驻的那一组）：没装的组件不该留一颗点了没反应的格子 ——
+ * 与设置里卸载那一行是同一条判据 `countdown.installed`。
  * 动作直接用 editorViews 的 open*Tab / countdown 的 openCountdown：
  * 重复点亮同一个页签、重复开同一张卡都没有副作用。
  */
@@ -80,13 +83,15 @@ const groups = computed(() => {
       ],
     })
   }
-  list.push({
-    id: 'tools',
-    label: t('components.menu.tools'),
-    items: [
-      { id: 'countdown', icon: 'timer', label: t('countdown.title'), run: openCountdown },
-    ],
-  })
+  if (countdown.installed) {
+    list.push({
+      id: 'tools',
+      label: t('components.menu.tools'),
+      items: [
+        { id: 'countdown', icon: 'timer', label: t('countdown.title'), run: openCountdown },
+      ],
+    })
+  }
   return list
 })
 
@@ -120,6 +125,7 @@ watch(ready, (shown) => {
       role="menu"
       :aria-label="t('components.menu.title')"
     >
+      <p v-if="!groups.length" class="components-menu__empty">{{ t('components.menu.empty') }}</p>
       <section v-for="group in groups" :key="group.id" class="components-menu__section">
         <h3 class="components-menu__section-label">{{ group.label }}</h3>
         <div class="components-menu__grid">
@@ -185,6 +191,17 @@ watch(ready, (shown) => {
   font-size: calc(11px * var(--menu-scale));
   font-weight: 600;
   line-height: 1.2;
+}
+
+/* 两组都空（Codeforces 没下、倒计时也卸了）：面板本身还在，不然一颗常驻按钮点了毫无反应；
+   这里给一句话说明「装哪儿」。文案走 i18n，与别处同一纪律 */
+.components-menu__empty {
+  margin: 0;
+  padding: calc(4px * var(--menu-scale)) calc(6px * var(--menu-scale)) calc(6px * var(--menu-scale));
+  color: var(--menu-muted);
+  font-family: var(--font-sans, system-ui);
+  font-size: calc(12px * var(--menu-scale));
+  line-height: 1.4;
 }
 
 .components-menu__grid {
