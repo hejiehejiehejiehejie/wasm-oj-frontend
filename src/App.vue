@@ -369,7 +369,7 @@ let virtualShare = editorShare.value
 // 量一次工作区，推出拖拽界线
 function measureLimits() {
   const surface = workspace.value
-  if (!surface) return { width: 1, left: 0, contentRight: 1, minPanelPx: 0, maxPanelPx: 1, collapsedPx: 48, hingePx: 24, maxShare: 24, edgeShare: 100 }
+  if (!surface) return { width: 1, paneSpace: 1, left: 0, contentRight: 1, minPanelPx: 0, maxPanelPx: 1, collapsedPx: 48, hingePx: 24, maxShare: 24, edgeShare: 100 }
   // 百分比 flex-basis 是按「内容盒」算的，而 getBoundingClientRect 含外侧留白，
   // 用后者会把鼠标位移折算小了、分隔条跟不满 1:1，所以这里要扣掉 padding。
   const style = getComputedStyle(surface)
@@ -398,10 +398,28 @@ function measureLimits() {
   // 用户第二次改口径，理由见那个常量）：窄屏折叠后图标栏是一条通栏横条、横向上什么都没拿走，
   // 中点会落在「最窄宽度的一半」——390 档离边缘 94.5px，太远、容易误触。宽屏照旧。
   const hingePx = isNarrowLayout() ? NARROW_HINGE_PX : (collapsedPx + panelMin) / 2
+  // 分隔条的**净占宽**：热区盒 12px（触屏 24px）减去它那条负外边距，真正从两栏手里拿走的只有 4px
+  //（样式表 .splitter 那段注释里有算式；缩放时三者同乘 --ui-scale，差值不变）。
+  // 两个数都要读：宽度用 rect（缩放后的真实值），外边距用计算值（负的，抵消一部分宽度）。
+  const splitterEl = surface.querySelector('.splitter')
+  const splitterRect = splitterEl?.getBoundingClientRect().width ?? 0
+  const splitterStyle = splitterEl ? getComputedStyle(splitterEl) : null
+  const splitterOuter =
+    splitterRect > 0 && splitterStyle
+      ? splitterRect +
+        (Number.parseFloat(splitterStyle.marginLeft) || 0) +
+        (Number.parseFloat(splitterStyle.marginRight) || 0)
+      : 0
+  // 两栏真正能分到的宽度：百分比 flex-basis 是按**内容宽** width 算的，可这一行里还有个分隔条，
+  // 于是每条 basis 都会被按比例缩掉一点（shrink 权重 = 各自 basis，所以面板那条少的正是
+  // splitterOuter × 面板占比）。松手反算占比时除以它才是「这块地方真有多宽」（见 finish）。
+  const paneSpace = Math.max(1, width - splitterOuter)
   // 再加分隔条自身宽度：百分比 flex-basis 下，面板内容盒能压到多窄还要看分隔条占掉的那几像素。
-  const minTests = panelMin + (surface.querySelector('.splitter')?.getBoundingClientRect().width ?? 0)
+  const minTests = panelMin + splitterRect
   return {
     width,
+    // 两栏可分的总宽（= 内容宽 − 分隔条净占宽），见上面那段
+    paneSpace,
     // 内容盒左右边界：像素直连拖拽里，把鼠标位置直接换算成面板内容宽
     left: surface.getBoundingClientRect().x + Number.parseFloat(style.paddingLeft),
     contentRight: surface.getBoundingClientRect().x + Number.parseFloat(style.paddingLeft) + width,
@@ -626,6 +644,24 @@ function togglePanel({ instant = false } = {}) {
 // 轻点的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点
 const TAP_SLOP = 10
 
+// 「单击分隔条 = 折叠 / 展开」的判定（2026-10-20 收紧，用户报「本是在拖动，却判定成点击」）。
+// 手机端那条「按了没动就把占比原样退回」仍用上面的 TAP_SLOP；下面这三支只服务宽屏这条入口。
+//
+// 三条都过才算单击，任一条不过就按拖拽处理（拖拽不翻面）：
+//   ① 横向位移 ≤ CLICK_SLOP —— **只量横向**：分隔条只做横向拖拽，纵向抖动不该被算成「动手了」。
+//      鼠标 4px（点击抖动通常 ≤2px，仍有余量）；手指 / 笔沿用 10px —— 触屏点按的抖动本来就大，
+//      压到 4 会让宽屏触控设备上「点一下收起」直接失灵。
+//   ② 这一趟**真的改过面板宽**（> CLICK_WIDTH_EPS）—— 宽度跟手变过就是在拖。这条专治
+//      「只挪了三四像素」：位移还在 slop 里，但面板已经被拖着变窄了，那就不是点击。
+//   ③ 松手是 pointerup（pointercancel 一律不翻面，原样保留）。
+//
+// 为什么不用「按了多久」当判据：按住不动再松手仍然是点击意图，用时长卡它只会让「按一下想收起」
+// 偶尔失灵；位移与宽度这两条已经把「在拖」这个意图分干净了。
+const CLICK_SLOP_MOUSE = 4
+const CLICK_SLOP_TOUCH = TAP_SLOP
+// 宽度改动超过它才算「拖动过」：1px 是点击时按下点与松手点之间的常态抖动
+const CLICK_WIDTH_EPS = 2
+
 // 运行中照样能拖 / 能单击折叠（2026-10-18 去掉开头的 `if (running.value) return`）：
 // 那条守卫是建仓时留下的，键盘方向键（nudgeShare）从来没有对应限制，于是同一段时间里
 // 「按方向键能调宽、抓分隔条没反应」——编译一久（大数组带 vector 的用例可达 40s+）就只剩
@@ -640,6 +676,9 @@ function beginDrag(event) {
   // 而是在下面的 pointerup 上自己认（见 stop；**窄屏没有这个入口**，2026-10-13 起去掉）。
   event.preventDefault()
   let moved = 0
+  // 横向位移单独记一份：宽屏的单击判定只看它（见 CLICK_SLOP_*），纵向抖动不算「动手了」。
+  // `moved` 仍按两轴取大值 —— 窄屏那条「原样退回占比」沿用的是触摸端「轻点 / 滑动」口径。
+  let dragDx = 0
   const startX = event.clientX
   const startY = event.clientY
   // 按下那一刻的占比：窄屏的「轻点」要原样退回去（见 finish），否则按在热区里会把面板顶宽十几像素
@@ -648,6 +687,13 @@ function beginDrag(event) {
   // 面板在右时，面板内容宽 = 容器右边界到鼠标的距离；在左则 = 鼠标到容器左边界。
   // 像素直连按下图换算，跟手不打折、不累计误差（多轮折叠展开后也不漂移）。
   const panelOnRight = panelPosition.value === 'right'
+  // 按下那一刻「按同一套像素直连算出来的面板宽」，只用来判断这一趟有没有真的改过宽度（判据 ②）。
+  // 它的绝对值偏不偏不重要：热区是整块铺在细线一侧的 24px 盒子，按下点未必落在线上，
+  // 但那个偏移在首尾两端同时出现、相减即消 —— 比的是差值。
+  const pressPanelW = Math.max(
+    limits.minPanelPx,
+    Math.min(limits.maxPanelPx, panelOnRight ? limits.contentRight - startX : startX - limits.left),
+  )
   dragging.value = true
   // 新手势：可能上一次的越界翻转还卡在 pending 上（例如中途被别的入口翻了状态），一并清掉。
   dragLive = true
@@ -674,6 +720,7 @@ function beginDrag(event) {
       return
     }
     moved = Math.max(moved, Math.abs(moveEvent.clientX - startX), Math.abs(moveEvent.clientY - startY))
+    dragDx = Math.max(dragDx, Math.abs(moveEvent.clientX - startX))
     // 面板目标内容宽（像素），由鼠标位置一次算到位
     const panelW = panelOnRight ? limits.contentRight - moveEvent.clientX : moveEvent.clientX - limits.left
     if (panelVisible.value) {
@@ -705,10 +752,16 @@ function beginDrag(event) {
       // `margin: 0 -20px 0 0`，在右时镜像到左侧，见样式表 .splitter），按在热区中间就等于把面板
       // 边缘当成指针 → 面板凭空宽十几像素并落盘。宽屏不必这么兜 ——
       // 那边轻点会整块翻面，这点宽度变化看不出来（且翻回来时落点由 togglePanel 决定）。
+      // 分母是 **paneSpace**（内容宽 − 分隔条净占宽的 4px），不是 width：百分比 flex-basis 是按
+      // 内容宽算的，而这一行里还要放下分隔条，于是每条 basis 都按自己的占比缩掉一点，
+      // 面板那条少的正是 4 × 面板占比。老式子拿 width 当分母，等于把这段收缩算漏了 ——
+      // 松手瞬间面板会当场窄 1~2px（实测 1400 宽：拖到 470.531 → 松手 469.172，差 1.36），
+      // 就是用户报的「松手时有 1px 抖动」。
+      // 舍入也一并收紧到 0.01%：0.1% 在 1400 宽上还有 ≤0.7px 的余量，松手照样看得见半像素位移。
       editorShare.value =
         isNarrowLayout() && moved <= TAP_SLOP
           ? startShare
-          : Math.round(((limits.width - dragPanelPx.value) / limits.width) * 100 * 10) / 10
+          : Math.round((1 - dragPanelPx.value / limits.paneSpace) * 10000) / 100
       virtualShare = editorShare.value
     }
     dragPanelPx.value = null
@@ -720,6 +773,9 @@ function beginDrag(event) {
     window.removeEventListener('pointercancel', stop)
   }
   const stop = (upEvent) => {
+    // 判据 ② 必须在这里先算：下面 finish() 会把 dragPanelPx 清成 null
+    const resized =
+      dragPanelPx.value !== null && Math.abs(dragPanelPx.value - pressPanelW) > CLICK_WIDTH_EPS
     finish()
     editorPane.value?.layout()
     // 窄屏不给「单击分隔条 = 折叠 / 展开」这个入口（2026-10-13 用户要求「去掉窄屏模式里的
@@ -727,10 +783,13 @@ function beginDrag(event) {
     // 最窄落点上，手指按住它稍一抖动就会被当成轻点、面板整块翻面。窄屏要收起请拖到底，
     // 或用底栏那枚箭头 / 图标栏那颗按钮 —— 那两条入口一直都有，与这里无关。
     if (isNarrowLayout()) return
-    // 没怎么动的松手才算「单击」，拖过就不算 —— 拖到贴边那次折叠不能被松手这一下再翻回去。
+    // 「单击」判定（2026-10-20 收紧，三条判据见 CLICK_SLOP_* 那段）：横向位移在 slop 内
+    // **且**这一趟没真的改过面板宽，才算单击。拖到贴边那次折叠因此不会被松手这一下再翻回去。
     // 特意不看原生 click：pointerdown 里的 preventDefault 会抑制兼容鼠标事件，
     // 各浏览器补不补回 click 并不一致，所以在自己的 pointerup 上收口。
-    if (upEvent.type !== 'pointerup' || moved > TAP_SLOP) return
+    if (upEvent.type !== 'pointerup') return
+    const slop = upEvent.pointerType === 'mouse' ? CLICK_SLOP_MOUSE : CLICK_SLOP_TOUCH
+    if (dragDx > slop || resized) return
     togglePanel()
   }
   window.addEventListener('pointermove', move)
