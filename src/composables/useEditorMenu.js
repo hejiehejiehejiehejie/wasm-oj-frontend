@@ -274,21 +274,45 @@ export function useEditorMenu({ editor, host }) {
         : editorSettings.value.codeImageAction
       // 取消（Esc / 点遮罩 / 「取消」）：图丢掉，什么都不做
       if (!action) return
-      if (action !== 'save' && (await copyCanvasToClipboard(canvas))) {
+      if (action !== 'save') {
+        const copied = await copyCanvasToClipboard(canvas)
+        if (copied.ok) {
+          notify({
+            type: 'success',
+            title: t('notifications.image.copiedTitle'),
+            message: t('notifications.image.copiedBody'),
+            duration: 3000,
+          })
+          return
+        }
+        // 复制没成 → 改成下载，说法按失败原因分两种：
+        // «不支持» 只给能力上真的没有的浏览器；正常设备上被权限 / 手势卡住的那次
+        // 不能也说成不支持（用户 2026-10-21 指出）。
+        // 下载只认 data URL（<a download> 不收 Blob），所以这一路才现编一次
+        downloadImage(canvas.toDataURL('image/png'), imageFileName(model))
+        const unsupported = copied.reason === 'unsupported'
         notify({
-          type: 'success',
-          title: t('notifications.image.copiedTitle'),
-          message: t('notifications.image.copiedBody'),
+          type: unsupported ? 'info' : 'warning',
+          title: t(
+            unsupported
+              ? 'notifications.image.copyUnsupportedTitle'
+              : 'notifications.image.copyFailedTitle',
+          ),
+          message: t(
+            unsupported
+              ? 'notifications.image.copyUnsupportedBody'
+              : 'notifications.image.copyFailedBody',
+          ),
           duration: 3000,
         })
         return
       }
-      // 下载只认 data URL（<a download> 不收 Blob），所以这一路才现编一次
+      // 用户自己点的「保存」：就是一次下载，不该夹带任何剪贴板的话
       downloadImage(canvas.toDataURL('image/png'), imageFileName(model))
       notify({
         type: 'info',
-        title: t('notifications.image.downloadedTitle'),
-        message: t('notifications.image.downloadedBody'),
+        title: t('notifications.image.savedTitle'),
+        message: t('notifications.image.savedBody'),
         duration: 3000,
       })
     } catch {

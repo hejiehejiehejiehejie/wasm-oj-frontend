@@ -29,16 +29,25 @@ export default {
 
       /**
        * 「生成图片」（services/codeImage.js + 编辑区右键菜单）。
-       * 复制成功给 success；浏览器不支持图片剪贴板、退化成下载时给 info；
-       * 整条链路出错给 error 且常驻 —— 那是需要人看一眼的情形。
+       * 四条出口各一套话（2026-10-21 按用户要求拆开）：
+       * · 复制成功 → success；
+       * · 用户自己点了「保存」→ saved，纯下载，不夹带剪贴板的话；
+       * · 复制没成、退化成下载 → 按**失败原因**分两条：能力上没有（copyUnsupported）
+       *   才说「不支持」；有能力却这次没写成（copyFailed）只说「这次没写成」——
+       *   正常桌面浏览器权限被拒 / 手势过期都走这条，不能说成不支持；
+       * · 整条链路出错 → error 且常驻 —— 那是需要人看一眼的情形。
        */
       image: {
         copiedTitle: '图片已复制',
-        copiedBody: '选中的代码已生成 PNG，可以直接粘贴',
-        downloadedTitle: '图片已下载',
-        downloadedBody: '这个浏览器不支持写入图片剪贴板，已改为下载 PNG',
+        copiedBody: '选中的内容已生成 PNG，可以直接粘贴',
+        savedTitle: '图片已保存',
+        savedBody: 'PNG 已下载到本机',
+        copyUnsupportedTitle: '图片已下载',
+        copyUnsupportedBody: '这个浏览器不支持写入图片剪贴板，已改为下载 PNG',
+        copyFailedTitle: '图片已下载',
+        copyFailedBody: '这次没能写入剪贴板，已改为下载 PNG',
         failedTitle: '生成图片失败',
-        failedBody: '没能导出这次选中的代码',
+        failedBody: '没能导出这次选中的内容',
       },
 
       /**
@@ -158,10 +167,14 @@ export default {
       image: {
         copiedTitle: 'Image copied',
         copiedBody: 'The selection was rendered to PNG — paste it anywhere',
-        downloadedTitle: 'Image downloaded',
-        downloadedBody: 'This browser cannot write images to the clipboard, so the PNG was downloaded instead',
+        savedTitle: 'Image saved',
+        savedBody: 'The PNG has been downloaded to this device',
+        copyUnsupportedTitle: 'Image downloaded',
+        copyUnsupportedBody: 'This browser cannot write images to the clipboard, so the PNG was downloaded instead',
+        copyFailedTitle: 'Image downloaded',
+        copyFailedBody: 'Writing to the clipboard did not go through this time, so the PNG was downloaded instead',
         failedTitle: 'Export failed',
-        failedBody: 'The selected code could not be exported',
+        failedBody: 'The selected content could not be exported',
       },
 
       /** See the zh-CN side: titles come from `settings.menu.*`, body text mostly reuses panel strings */

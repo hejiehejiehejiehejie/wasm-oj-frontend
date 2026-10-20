@@ -612,7 +612,7 @@ function canvasToBlob(canvas) {
 }
 
 /**
- * 把 canvas 里的图写进系统剪贴板。**不抛异常**，只回成功与否 ——
+ * 把 canvas 里的图写进系统剪贴板。**不抛异常**，只回结果 ——
  * 调用方据此决定要不要退化成下载。
  *
  * 【为什么在 Android 上会失败，以及这里怎么绕】
@@ -627,14 +627,23 @@ function canvasToBlob(canvas) {
  *
  * 仍留一道兜底：不认「值是 Promise」的老浏览器会走第二次尝试（先取 Blob 再写）。
  *
+ * 【为什么要区分两种失败】（2026-10-21）
+ * 失败分两类，给用户的话完全不同：**能力上没有**（没有 ClipboardItem / write，或
+ * `supports('image/png')` 明说不行）才是「这个浏览器不支持」；**有能力却这次没写成**
+ * （权限被拒、手势窗口过期、系统剪贴板被别的程序占住……）在正常桌面浏览器上很常见，
+ * 不能也说成「不支持」—— 那会让人以为自己的浏览器有问题。所以 reason 分
+ * `'unsupported'` / `'failed'` 两种，文案由调用方按它挑。
+ *
  * @param {HTMLCanvasElement} canvas
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ok: boolean, reason?: 'unsupported' | 'failed'}>}
  */
 export async function copyCanvasToClipboard(canvas) {
-  if (!canvas || typeof ClipboardItem !== 'function' || !navigator.clipboard?.write) return false
+  if (!canvas || typeof ClipboardItem !== 'function' || !navigator.clipboard?.write) {
+    return { ok: false, reason: 'unsupported' }
+  }
   // 没有 supports 这个静态方法（老浏览器）时不拦 —— 那时只能真的试一次才知道
   if (typeof ClipboardItem.supports === 'function' && !ClipboardItem.supports('image/png')) {
-    return false
+    return { ok: false, reason: 'unsupported' }
   }
   const pending = canvasToBlob(canvas)
   // 第一次尝试若失败，这个 Promise 的 rejection 就没人接了，先挂个空 catch 免得冒
@@ -642,16 +651,16 @@ export async function copyCanvasToClipboard(canvas) {
   pending.catch(() => {})
   try {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': pending })])
-    return true
+    return { ok: true }
   } catch {
     /* 落到下面的兜底 */
   }
   try {
     const blob = await pending
     await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })])
-    return true
+    return { ok: true }
   } catch {
-    return false
+    return { ok: false, reason: 'failed' }
   }
 }
 
