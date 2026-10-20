@@ -123,6 +123,44 @@ export function cfCheckHandles(handles) {
   return request({ type: 'checkHandles', handles })
 }
 
+/**
+ * 取一场比赛的元数据（名字、阶段、开赛时间）。`parseContestSpec` 的产物直接传进来。
+ *
+ * 与 cfContestProblems 分两条消息是刻意的：倒计时要在开赛前就能看，
+ * 而题目列表可能要先拉题库（2MB）甚至兜底榜单（5.9MB）。合成一条会让倒计时跟着一起等。
+ *
+ * 失败时 reject 的 Error.code 见 cfContestProblems。`contest` 可能为 null ——
+ * group 的比赛不在 contest.list 里，拿不到元数据但题目列表仍可能拿到。
+ * @param {{ kind: string, contestId: string, groupId?: string }} spec
+ */
+export function cfContest(spec) {
+  return request({
+    type: 'contest',
+    contestId: spec?.contestId,
+    kind: spec?.kind,
+    groupId: spec?.groupId,
+  })
+}
+
+/**
+ * 取一场比赛的题目列表。
+ *
+ * 失败时 reject 的 Error.code 可能是：
+ *   BAD_CONTEST_ID       ID 不合法（正常走不到，调用方已解析过）
+ *   CONTEST_NEEDS_LOGIN  gym / group 的榜单要 CF 凭据，浏览器这边拿不到 —— 是能力边界，
+ *                        不是故障，界面该说「这类比赛要靠浏览器扩展」
+ *   WORKER_ERROR / ERROR 其余（网络、CF 侧拒绝）
+ * @param {{ kind: string, contestId: string, groupId?: string }} spec
+ */
+export function cfContestProblems(spec) {
+  return request({
+    type: 'contestProblems',
+    contestId: spec?.contestId,
+    kind: spec?.kind,
+    groupId: spec?.groupId,
+  })
+}
+
 /** 清空本地缓存（卸载组件） */
 export function cfClear() {
   return request({ type: 'clear' })

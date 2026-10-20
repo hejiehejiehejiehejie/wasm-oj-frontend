@@ -1,5 +1,5 @@
 /**
- * editorViews —— 编辑区里的「合成视图」页签状态（设置 / Codeforces 抽题）。
+ * editorViews —— 编辑区里的「合成视图」页签状态（设置 / Codeforces 抽题 / 比赛）。
  *
  * 【什么是合成视图】它们长得跟代码文件页签一模一样、排在文件页签之后，但**不是**
  * 真实的 VFS 节点：没有 model、不在文件树里。刻意**不**塞进 workspaceStore / openTabIds：
@@ -20,7 +20,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { workspace } from './vfs/workspaceStore.js'
 
 /** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 tabStrip.stripOrder） */
-export const EDITOR_VIEW_IDS = ['settings', 'cfPicker']
+export const EDITOR_VIEW_IDS = ['settings', 'cfPicker', 'cfContest']
 
 /**
  * 已打开视图页签的顺序（谁先开谁靠左）。与文件页签「新开的排最后」同一条规矩：
@@ -37,6 +37,7 @@ export const viewOrder = reactive([])
 const state = reactive({
   settings: { open: false, active: false },
   cfPicker: { open: false, active: false },
+  cfContest: { open: false, active: false },
 })
 
 /** 点视图入口 / 点它的页签：亮出这一个，其余一律让开（它们铺在同一层）。
@@ -142,6 +143,27 @@ export function activateCfPickerTab() {
 
 export function deactivateCfPickerTab() {
   state.cfPicker.active = false
+}
+
+// ------------------------------------------------- Codeforces 比赛
+// 与抽题同一套口径：show() 负责互斥（三个视图铺在同一层），关只归页签上的 × 管。
+
+export const cfContestTab = state.cfContest
+
+export function openCfContestTab() {
+  show('cfContest')
+}
+
+export function closeCfContestTab() {
+  close('cfContest')
+}
+
+export function activateCfContestTab() {
+  show('cfContest')
+}
+
+export function deactivateCfContestTab() {
+  state.cfContest.active = false
 }
 
 // 「活跃文件变了」就等于用户想看代码：点资源管理器、点文件页签、会话恢复都走 activeId，

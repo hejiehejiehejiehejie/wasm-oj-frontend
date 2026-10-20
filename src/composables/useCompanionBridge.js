@@ -15,6 +15,7 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-fill-code / cp-fill-code-result：网页请扩展在 Codeforces 上替用户填验证码（见下）
  *   - cp-cf-check / cp-cf-check-result：网页问「这个浏览器在 Codeforces 上登的是不是我填的
  *     那个 handle」，扩展只回一个枚举（见下）
+ *   - cp-scrape-contest / cp-scrape-contest-done：网页请扩展**整场**抓样例（见下）
  *
  * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
  * 改了任何一条都必须同步改 cph-companion 并发新版插件，否则新旧两边互相认不出、
@@ -36,6 +37,13 @@ import { IS_DESKTOP } from '../services/platform.js'
  * ② 一律当**提示**用，绝不参与鉴权 —— 扩展是用户可替换的组件，伪造一个就能回答任意 handle，
  * 所以它只能决定「显示什么」，不能决定「放行什么」（服务端那条 Last name 验证一字不改）；
  * ③ 拿不到就按 `unknown` 收场，界面退回改动前的样子。
+ *
+ * 【cp-scrape-contest 这一对是 2026-10-19 新加的】抽题面板导入的题目**没有样例**
+ * （CF 的 problemset 接口不返回样例，题目页又没有 CORS 头），以前只能靠「用户打开这道题的
+ * 页面、扩展顺手补」这条被动链路。整场抓样例把这步变成一次点击：网页把这场比赛题目列表页的
+ * 地址递过去，扩展在后台开一个不激活的标签页读一遍（整场题面都在那一页里），解析结果仍然
+ * **走既有的 cp-task 逐题投递** —— 站点不必为「补样例」再造一条入库路径，扩展也不必另写
+ * 一遍解析。它同样受 `capabilities` 的 `contest-batch` 保护，老扩展下那颗按钮不出现。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
@@ -93,6 +101,15 @@ const CF_CHECK_TIMEOUT = 3000
  */
 const CF_IDENTITY_STATUSES = ['match', 'mismatch', 'not-logged-in', 'unknown']
 
+/**
+ * 等扩展整场抓完的上限。
+ *
+ * 这一趟比单题重得多：扩展要开一个标签页把整场题目页 load 完（上限 45s）、解析、
+ * 再逐题投递（扩展侧整趟上限 120s）。留 30s 余量 —— 宁可晚一点判失败，也不要
+ * 在扩展其实还在跑的时候把界面切成「失败」，那会让用户重复点。
+ */
+const CONTEST_SCRAPE_TIMEOUT = 150000
+
 const taskHandlers = new Set()
 const seenTaskIds = new Set()
 
@@ -112,6 +129,10 @@ const pendingFills = new Map()
 let cfCheckSeq = 0
 /** requestId -> { resolve, timer }：等待扩展报「这个浏览器登的是不是这个 handle」 */
 const pendingCfChecks = new Map()
+
+let contestScrapeSeq = 0
+/** requestId -> { resolve, timer }：等待扩展报「这一场抓完了没有」 */
+const pendingContestScrapes = new Map()
 
 function clearPingTimers() {
   for (const timer of pingTimers) window.clearTimeout(timer)
@@ -292,6 +313,65 @@ export function checkCfIdentity(handle) {
   })
 }
 
+/**
+ * 扩展能不能**整场**抓样例（一次读一页，不再逐题开标签页）。与 canFillCode 同一套能力协商。
+ *
+ * 单独列一条而不是揉进 `fill-code`：两者管的完全是两件事。老扩展不带这条能力，
+ * 比赛里那颗「抓样例」按钮就不出现，界面退回 P1 的样子（先落题、样例留给
+ * 「打开题目页自动补」那条既有链路）。
+ */
+export const canScrapeContest = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-batch'),
+)
+
+/**
+ * 请扩展抓一整场的样例，入参是这场比赛**题目列表页**的地址（`/contest/{id}/problems`）。
+ *
+ * 【为什么给页面地址而不是题号列表】Codeforces 把一场的全部题面连同样例都渲染在这一页里
+ * （见 `cf/contest.js` 的 contestProblemsUrl），扩展读一页就够；给它题号反而要它自己
+ * 拼 N 个地址、开 N 次页面。
+ *
+ * 【结果怎么落地】扩展那边抓完仍是**逐题 cp-task 投递**（与点图标抓题完全同一条链路），
+ * 站点这边由 `importProblem` 按 url 并进已有的题里 —— 所以这个 Promise 只负责
+ * 「这一场结束了没有」，样例入库不经过它。
+ *
+ * 返回 `{ ok, count, reason }`；扩展没装 / 太旧 / 超时都折成失败结果，不往外抛。
+ */
+export function requestContestScrape(url) {
+  return new Promise((resolve) => {
+    if (!canScrapeContest.value || !url) {
+      resolve({ ok: false, count: 0, reason: 'unsupported' })
+      return
+    }
+
+    const requestId = `cp-scrape-${++contestScrapeSeq}`
+    const timer = window.setTimeout(() => {
+      pendingContestScrapes.delete(requestId)
+      resolve({ ok: false, count: 0, reason: 'timeout' })
+    }, CONTEST_SCRAPE_TIMEOUT)
+
+    pendingContestScrapes.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        resolve(result)
+      },
+    })
+
+    window.postMessage(
+      { source: PAGE_SOURCE, type: 'cp-scrape-contest', requestId, url },
+      window.location.origin,
+    )
+  })
+}
+
+/**
+ * 有没有一场整场抓取正在跑。给入库那边判「要不要安静地落库」用：
+ * 一场会连着投七八道题，每道都抢一次焦点的话页签会连着翻七八次。
+ */
+export function isContestScrapeActive() {
+  return pendingContestScrapes.size > 0
+}
+
 // ------------------------------------------------------- 自动抓取样例
 //
 // 【为什么不存名单】早先的做法是：导入时把「没带样例的题」记成一份名单推给扩展，用户之后
@@ -463,6 +543,20 @@ function onMessage(event) {
     pendingCfChecks.delete(data.requestId)
     // 认不出的枚举一律收敛成 unknown —— 多一个没见过的值不该让界面切到别的分支去
     pending.resolve(CF_IDENTITY_STATUSES.includes(data.status) ? data.status : 'unknown')
+    return
+  }
+
+  // 扩展报「这一场抓完了 / 卡在哪一步」：按 requestId 认领
+  if (data.type === 'cp-scrape-contest-done') {
+    const pending = pendingContestScrapes.get(data.requestId)
+    if (!pending) return
+
+    pendingContestScrapes.delete(data.requestId)
+    pending.resolve({
+      ok: data.ok === true,
+      count: typeof data.count === 'number' ? data.count : 0,
+      reason: typeof data.reason === 'string' ? data.reason : '',
+    })
     return
   }
 

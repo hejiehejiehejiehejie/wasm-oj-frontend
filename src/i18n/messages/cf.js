@@ -15,20 +15,20 @@ export default {
         /** 设置 › 应用 里的分区标题 */
         group: '组件',
         groupNote:
-          '随机抽题随站点默认安装（题库约 2MB），此处显示安装状态，下载失败可重试。「默认安装」开关在「云同步」一栏，会随账号同步到其他设备。',
-        title: 'Codeforces 抽题',
-        idleHint: '按难度与标签从 Codeforces 题库里随机抽题（题库缓存约 2MB），只下一次',
+          '随机抽题与比赛随站点默认安装（题库约 2MB），此处显示安装状态，下载失败可重试。「默认安装」开关在「云同步」一栏，会随账号同步到其他设备。',
+        title: 'Codeforces',
+        idleHint: '按难度与标签随机抽题、贴比赛链接看倒计时与题目（题库缓存约 2MB），只下一次',
         downloadTitle: '下载 / 重试 Codeforces 题库',
         /** 卸载：与运行环境那三行共用同一颗确认弹窗，所以要的也是这两个 key
             （action 那版不带问号，是行内按钮的 tooltip） */
         uninstallActionTitle: '卸载「{title}」',
         uninstallTitle: '卸载「{title}」？',
         uninstallHint:
-          '将从本机删除已缓存的 Codeforces 题库（约 2MB），并关掉「默认安装」—— 不关的话下次打开站点它会自己装回来。想重新装上，点这一行的「下载」即可。',
+          '将从本机删除已缓存的 Codeforces 题库（约 2MB），「随机抽题」与「比赛」两个页签随之关掉，并关掉「默认安装」—— 不关的话下次打开站点它会自己装回来。想重新装上，点这一行的「下载」即可。',
         /** 设置 › 云同步 里的「默认安装」开关（跟在「预下载」一组，同为云同步的偏好） */
         autoInstall: {
           label: '默认安装',
-          switchTitle: '打开站点时自动安装 Codeforces 抽题组件',
+          switchTitle: '打开站点时自动安装 Codeforces 组件',
           note: '开启后，每次打开站点都会检查题库是否在本机，不在就自动下载（约 2MB）。关掉则只保留上面那一行的手动下载。',
         },
         downloading: '正在获取 Codeforces 题库…',
@@ -37,20 +37,28 @@ export default {
           problemset: '正在获取 Codeforces 题库（约 2MB）…',
           solved: '正在获取账号已通过的题目…',
           handle: '正在校验 Codeforces 账号…',
+          contestList: '正在获取比赛列表…',
+          standings: '正在获取这场比赛的题目…',
         },
       },
 
-      /** 侧栏页头那颗按钮（下载过这个组件才存在）。文案不含「设置」二字，
-          免得与旁边那颗齿轮在无障碍检索里混起来。 */
+      /** 侧栏页头那颗按钮（下载过这个组件才存在）：点它唤出组件菜单（CfMenu）。
+          文案不含「设置」二字，免得与旁边那颗齿轮在无障碍检索里混起来。 */
       button: {
         label: 'Codeforces 抽题',
-        open: '打开 Codeforces 抽题窗口',
-        close: '关闭 Codeforces 抽题窗口',
       },
 
-      /** 编辑区里那个抽题页签 */
+      /** 组件菜单（CfMenu）：侧栏那颗按钮唤出的应用抽屉 */
+      menu: {
+        title: 'Codeforces',
+        picker: '随机抽题',
+        contest: '比赛',
+      },
+
+      /** 编辑区里那两个抽题 / 比赛页签 */
       tab: {
         close: '关闭抽题页签',
+        closeContest: '关闭比赛页签',
       },
 
       /** 抽题页签的内容。版式＝一张网格表，一行一项（左名字、右控件） */
@@ -108,6 +116,46 @@ export default {
           importFailed: '导入工作区失败：{detail}',
         },
       },
+
+      /**
+       * 比赛（P1）。导入按钮那三种状态复用 `picker.result.*`
+       * —— 「导入 / 导入中 / 已导入」是同一件事，写两遍必然漂移。
+       */
+      contest: {
+        title: '比赛',
+        fields: {
+          link: '比赛',
+          linkPlaceholder: '比赛链接或 ID，如 2276 / codeforces.com/contest/2276',
+        },
+        action: {
+          load: '载入',
+          scrape: '抓样例',
+          scraping: '抓取中…',
+        },
+        status: {
+          loading: '正在获取比赛信息…',
+          problems: '正在获取题目列表…',
+          upcoming: '距开始 {time}',
+          running: '已开赛 {time}',
+          finished: '已结束',
+          scraping: '正在抓取样例，这一趟要读完整个题目页…',
+          scraped: '已抓取 {n} 道题的样例',
+        },
+        errors: {
+          badLink: '认不出这是哪一场比赛，贴完整链接或 ID 试试',
+          notFound: 'Codeforces 上没有这场比赛',
+          notStarted: '还没开赛，题目开赛后才会出现',
+          noProblems: '这场比赛没有题目列表（可能是 gym 或 group 的场次）',
+          needsLogin: 'gym / group 的题目要登录 Codeforces 才能取，网页这条路过不去',
+          worker: '抽题组件没起来，去设置里重新下载一次',
+          fetch: '拉取 Codeforces 数据失败：{detail}',
+          importFailed: '导入工作区失败：{detail}',
+          scrapeUnsupported: '抓样例要新版浏览器扩展（当前这版没有这功能）',
+          scrapeBusy: '扩展正在抓另一场，稍后再试',
+          scrapeTimeout: '抓取样例超时了，可以重试一次',
+          scrapeFailed: '抓取样例失败：{detail}',
+        },
+      },
     },
   },
 
@@ -116,20 +164,20 @@ export default {
       module: {
         group: 'Components',
         groupNote:
-          'The problem picker is installed by default (about 2MB of problemset); this row shows the install status and offers a retry on failure. The "install by default" switch lives in the "Cloud sync" section and follows your account across devices.',
-        title: 'Codeforces problem picker',
+          'Random problems and contests are installed by default (about 2MB of problemset); this row shows the install status and offers a retry on failure. The "install by default" switch lives in the "Cloud sync" section and follows your account across devices.',
+        title: 'Codeforces',
         idleHint:
-          'Picks a random problem from Codeforces by difficulty and tags (about 2MB of problemset cache), downloaded once',
+          'Picks random problems by difficulty and tags, and tracks contests by link (about 2MB of problemset cache), downloaded once',
         downloadTitle: 'Download / retry the Codeforces problemset',
         /** 同 zh-CN：卸载走运行环境那颗共用弹窗，要的也是这两个 key */
         uninstallActionTitle: 'Uninstall "{title}"',
         uninstallTitle: 'Uninstall "{title}"?',
         uninstallHint:
-          'Deletes the cached Codeforces problemset from this device (about 2MB) and turns off "install by default" — otherwise it would install itself again the next time the site opens. Use "Download" on this row to bring it back.',
+          'Deletes the cached Codeforces problemset from this device (about 2MB), closes both the "Random problem" and "Contest" tabs, and turns off "install by default" — otherwise it would install itself again the next time the site opens. Use "Download" on this row to bring it back.',
         /** 同 zh-CN：云同步栏里的「默认安装」开关 */
         autoInstall: {
           label: 'Install by default',
-          switchTitle: 'Automatically install the Codeforces problem picker when the site opens',
+          switchTitle: 'Automatically install the Codeforces component when the site opens',
           note: 'When on, every visit checks whether the problemset is on this device and downloads it (about 2MB) if not. When off, only the manual download above remains.',
         },
         downloading: 'Fetching the Codeforces problemset…',
@@ -137,17 +185,24 @@ export default {
           problemset: 'Fetching the Codeforces problemset (about 2MB)…',
           solved: 'Fetching the problems already solved by this account…',
           handle: 'Verifying the Codeforces account…',
+          contestList: 'Fetching the contest list…',
+          standings: 'Fetching this contest’s problems…',
         },
       },
 
       button: {
         label: 'Codeforces problem picker',
-        open: 'Open the Codeforces problem picker',
-        close: 'Close the Codeforces problem picker',
+      },
+
+      menu: {
+        title: 'Codeforces',
+        picker: 'Random problem',
+        contest: 'Contest',
       },
 
       tab: {
         close: 'Close the picker tab',
+        closeContest: 'Close the contest tab',
       },
 
       picker: {
@@ -201,6 +256,43 @@ export default {
           worker: 'The picker worker is not running; download the module again in Settings',
           fetch: 'Could not fetch data from Codeforces: {detail}',
           importFailed: 'Could not import into the workspace: {detail}',
+        },
+      },
+
+      /** 同 zh-CN：导入按钮那三种状态复用 `picker.result.*` */
+      contest: {
+        title: 'Contest',
+        fields: {
+          link: 'Contest',
+          linkPlaceholder: 'Contest link or ID, e.g. 2276 / codeforces.com/contest/2276',
+        },
+        action: {
+          load: 'Load',
+          scrape: 'Fetch samples',
+          scraping: 'Fetching…',
+        },
+        status: {
+          loading: 'Fetching contest…',
+          problems: 'Fetching the problem list…',
+          upcoming: 'Starts in {time}',
+          running: 'Running for {time}',
+          finished: 'Finished',
+          scraping: 'Fetching samples — the whole problems page has to load first…',
+          scraped: 'Samples fetched for {n} problems',
+        },
+        errors: {
+          badLink: 'Could not tell which contest this is — paste a full link or an ID',
+          notFound: 'No such contest on Codeforces',
+          notStarted: 'Not started yet — problems appear once it begins',
+          noProblems: 'No problem list for this contest (it may be a gym or group round)',
+          needsLogin: 'Gym and group problems need a Codeforces login, which this page cannot do',
+          worker: 'The picker worker is not running; download the module again in Settings',
+          fetch: 'Could not fetch data from Codeforces: {detail}',
+          importFailed: 'Could not import into the workspace: {detail}',
+          scrapeUnsupported: 'Fetching samples needs a newer browser extension than the one installed',
+          scrapeBusy: 'The extension is already fetching another contest — try again shortly',
+          scrapeTimeout: 'Fetching samples timed out — you can retry',
+          scrapeFailed: 'Could not fetch samples: {detail}',
         },
       },
     },

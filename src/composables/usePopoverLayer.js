@@ -18,8 +18,9 @@ import { nextTick, onBeforeUnmount, onMounted, ref, toValue } from 'vue'
  *
  * 【关闭】四路：点浮层外（捕获阶段）/ Esc（捕获阶段）/ 窗口失焦 / 视口尺寸变化
  * （最后一路有例外：焦点在浮层里时只重匣位置、不收 —— 那是软键盘，见 onResize）。
- * 监听是**延迟一拍**注册的：打开这一下往往就是某个 pointerdown / click 带出来的，
- * 当场挂上会被同一发事件立刻关掉（表现为「点了没反应」）。
+ * 注册时机是**分开的**（2026-10-19 修，见 onMounted 里那段）：`pointerdown` 延迟一拍 ——
+ * 打开这一下往往就是某个 pointerdown / click 带出来的，当场挂上会被同一发事件立刻关掉
+ * （表现为「点了没反应」）；Esc / blur / resize 当场挂上 —— 它们打开不了浮层，晚挂只会吞键。
  * 另外 resize 也会关：浮层是 fixed 定位、贴着某个元素，视口一变那个元素就挪走了，
  * 留在原地的浮层会指向错的位置 —— 重定位不如直接收掉（原生菜单也是这么干的）。
  *
@@ -112,15 +113,30 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   let timers = []
 
   onMounted(async () => {
-    await clampIntoViewport()
-    ready.value = true
+    /**
+     * ⚠️ **只有 pointerdown 该迟一拍，其余三路必须当场挂上**（2026-10-19 修）。
+     *
+     * 四路统一塞进 `setTimeout(0)` 那版有个真实的吞键窗口：timer 还是排在
+     * `await clampIntoViewport()`（要等一个 nextTick）之后的，浮层刚显出 `--ready`、
+     * 主线程正忙时，0ms 的 timer 可能拖到几十毫秒才跑。实测「打开后立刻按 Esc」
+     * 第一发完全不生效、第二发才关 —— 手速快的人当场就会遇到（探针里必现）。
+     *
+     * 分家的判据：`pointerdown` 是可能**打开**浮层的那个手势（菜单都挂在 click 上，
+     * click 前面必有一发 pointerdown），当场挂上会被它自己立刻关掉，所以要等它派发完；
+     * 而 Esc / 失焦 / 视口变化打开不了任何浮层，晚挂只会漏掉按键，没有好处。
+     * `blur` 也不能等：窗口在你等这一拍的时候失焦，浮层就永远留着了。
+     */
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('blur', dismiss)
+    window.addEventListener('resize', onResize)
+
     const timer = window.setTimeout(() => {
       window.addEventListener('pointerdown', onPointerDown, true)
-      window.addEventListener('keydown', onKeyDown, true)
-      window.addEventListener('blur', dismiss)
-      window.addEventListener('resize', onResize)
     }, 0)
     timers.push(timer)
+
+    await clampIntoViewport()
+    ready.value = true
   })
 
   onBeforeUnmount(() => {

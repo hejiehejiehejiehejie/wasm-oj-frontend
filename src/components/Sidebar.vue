@@ -23,10 +23,9 @@ import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { uiScale } from '../composables/useUiScale.js'
 import { cfReady } from '../services/cfRuntime.js'
 import {
+  cfContestTab,
   cfPickerTab,
-  closeCfPickerTab,
   closeSettingsTab,
-  openCfPickerTab,
   openSettingsTab,
   settingsTab,
 } from '../services/editorViews.js'
@@ -96,11 +95,6 @@ function toggleSettings() {
   settingsTab.active ? closeSettingsTab() : openSettingsTab()
 }
 
-/** Codeforces 那颗：开着就收起抽题页签，与设置齿轮同一套肌肉记忆 */
-function toggleCfPicker() {
-  cfPickerTab.active ? closeCfPickerTab() : openCfPickerTab()
-}
-
 // 设置那颗整条做成一个 computed 对象：属性跟着 settingsTab 走，
 // 下发给子组件后在模板里直接写 settings.active 就行（不用 .value）
 const settingsEntry = computed(() => ({
@@ -109,17 +103,17 @@ const settingsEntry = computed(() => ({
   active: settingsTab.active,
 }))
 
-// 抽题组件那颗：它默认安装（启动时静默预取题库），但预取未完成前页头里根本不该有它 ——
-// 所以是 ready 驱动的显示/隐藏，而不是禁用态。状态在 services/cfRuntime.js 里，侧栏与
-// 设置页那一行读的是同一个 cfReady。
-// 点它开的是编辑区里的合成页签（与设置同形态），所以与齿轮并排、不进胶囊。
-const cfPickerEntry = computed(() => ({
+// Codeforces 组件那颗（2026-10-19 起是**菜单入口**，不再是开关）：它默认安装（启动时
+// 静默预取题库），但预取未完成前页头里根本不该有它 —— 所以是 ready 驱动的显示/隐藏，
+// 而不是禁用态。状态在 services/cfRuntime.js 里，侧栏与设置页那一行读的是同一个 cfReady。
+// 点它弹出 CfMenu（与齿轮的 SettingsMenu 同一套浮层机制），里面挑抽题或比赛 ——
+// 两块都是编辑区里的合成页签，所以与齿轮并排、不进胶囊。开着任一页签时按钮填亮，
+// 跟齿轮那条「填亮＝开着」是同一种语言。
+const cfEntry = computed(() => ({
   icon: 'codeforces',
-  label: t('cf.button.label'),
-  title: t(cfPickerTab.active ? 'cf.button.close' : 'cf.button.open'),
-  active: cfPickerTab.active,
+  label: t('cf.menu.title'),
+  active: cfPickerTab.active || cfContestTab.active,
   ready: cfReady.value,
-  toggle: toggleCfPicker,
 }))
 
 // 「收起侧栏」那颗（2026-10-13 加，只出现在窄屏的底部那条上）：
@@ -190,7 +184,7 @@ provide('sidebarTabs', {
   togglePanel,
   settings: settingsEntry,
   toggleSettings,
-  cfPicker: cfPickerEntry,
+  cf: cfEntry,
   collapse: collapseEntry,
   // 两个面板拿它判「是不是该我把上下文动作投进页头」；切换器拿它判要不要收起文字标签
   activeTab,

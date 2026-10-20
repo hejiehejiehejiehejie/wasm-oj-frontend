@@ -8,18 +8,21 @@
  *
  * 顶部两枚＝侧边栏的两个面板：点一下＝展开侧栏并切到该面板（展开那段在 App.vue 的
  * selectSidebarPanel 里，本组件只负责派发 select）。
- * 底部贴底两枚＝编辑区里的两个合成页签（抽题 / 设置）：与页头那两颗同源，
+ * 底部贴底两枚＝编辑区里的合成页签（Codeforces / 设置）：与页头那两颗同源，
  * 同样不展开侧栏 —— 它们开的是编辑区里的页签，不是侧栏面板。
+ * Codeforces 那颗 2026-10-19 起与页头同口径：点它弹组件菜单（CfMenu），
+ * 菜单里挑「随机抽题 / 比赛」；它贴着屏幕边缘，所以 placement="beside"。
  *
  * 面板数据由 App 从 Sidebar 的 defineExpose 透传进来（状态只有一份，仍是 cp.sidebarTab），
  * 本组件不自己存一份。
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import CfMenu from './CfMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
 import { cfReady } from '../services/cfRuntime.js'
-import { cfPickerTab, closeCfPickerTab, openCfPickerTab, settingsTab } from '../services/editorViews.js'
+import { cfContestTab, cfPickerTab, settingsTab } from '../services/editorViews.js'
 
 defineProps({
   /** Sidebar 透传的面板表：{ id, icon, label, active } */
@@ -27,24 +30,21 @@ defineProps({
 })
 defineEmits(['select'])
 
-// 与页头那两颗同一套肌肉记忆：开着再点一次＝收起
-function toggleCfPicker() {
-  cfPickerTab.active ? closeCfPickerTab() : openCfPickerTab()
-}
-
-// ------------------------------------------------------------ 设置下拉菜单
-// 与侧栏页头那颗齿轮同一份菜单（SettingsMenu），只是展开方向不同：
-// 这一栏贴着屏幕边缘，往下会让菜单压到自己所在的那一栏或直接溢出，所以往屏幕内侧展开
-// （placement="beside"，朝向由 SettingsMenu 按锚点在视口的哪一半自己判）。
+// ------------------------------------------------------------ 两个下拉菜单
+// 齿轮弹 SettingsMenu、Codeforces 那颗弹 CfMenu，机制与侧栏页头同款。
+// 菜单在捕获阶段用 pointerdown 收自己，所以点按钮想关菜单时会先被那一层收掉、
+// 按钮的 click 又进来，得记一笔「刚刚那一发是不是点在它身上」。
 const menuAnchor = ref(null)
 const menuButton = ref(null)
+const cfMenuAnchor = ref(null)
+const cfMenuButton = ref(null)
 
-// 同 SidebarSwitcher：菜单在捕获阶段用 pointerdown 收自己，所以点这颗齿轮想关菜单时
-// 会先被那一层收掉、这颗按钮的 click 又进来，得记一笔「刚刚那一发是不是点在它身上」
 let suppressOpen = false
+let suppressCfOpen = false
 
 function onGlobalPointerDown(event) {
   suppressOpen = Boolean(menuAnchor.value && menuButton.value?.contains(event.target))
+  suppressCfOpen = Boolean(cfMenuAnchor.value && cfMenuButton.value?.contains(event.target))
 }
 
 function toggleMenu() {
@@ -57,6 +57,18 @@ function toggleMenu() {
 
 function closeMenu() {
   menuAnchor.value = null
+}
+
+function toggleCfMenu() {
+  if (suppressCfOpen) {
+    suppressCfOpen = false
+    return
+  }
+  cfMenuAnchor.value = cfMenuAnchor.value ? null : cfMenuButton.value?.getBoundingClientRect() ?? null
+}
+
+function closeCfMenu() {
+  cfMenuAnchor.value = null
 }
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
@@ -82,17 +94,20 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </button>
     </div>
 
-    <!-- 贴底：抽题是可卸载的可选模块（没下载过就整颗不渲染），齿轮是常驻的那个 -->
+    <!-- 贴底：Codeforces 是可卸载的可选模块（没下载过就整颗不渲染），齿轮是常驻的那个。
+         那颗点开的是组件菜单（与页头同款），开着任一 CF 页签时提亮。 -->
     <div class="activity-bar__group activity-bar__group--tools">
       <button
         v-if="cfReady"
+        ref="cfMenuButton"
         type="button"
         class="activity-bar__item"
-        :class="{ 'is-active': cfPickerTab.active }"
-        :title="t(cfPickerTab.active ? 'cf.button.close' : 'cf.button.open')"
-        :aria-label="t('cf.button.label')"
-        :aria-pressed="cfPickerTab.active"
-        @click="toggleCfPicker"
+        :class="{ 'is-active': cfPickerTab.active || cfContestTab.active }"
+        :title="t('cf.menu.title')"
+        :aria-label="t('cf.menu.title')"
+        aria-haspopup="menu"
+        :aria-expanded="Boolean(cfMenuAnchor)"
+        @click="toggleCfMenu"
       >
         <AppIcon name="codeforces" size="24" />
       </button>
@@ -112,6 +127,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </button>
 
       <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="beside" @close="closeMenu" />
+      <CfMenu v-if="cfMenuAnchor" :anchor="cfMenuAnchor" placement="beside" @close="closeCfMenu" />
     </div>
   </nav>
 </template>

@@ -9,7 +9,7 @@
  * 命中缓存就不再触网 —— CF API 有频率限制，缓存是**必需**而不是优化。
  *
  * 【消息协议】
- *   主线程 → Worker：{ id, type: 'status' | 'prefetch' | 'pick' | 'checkHandles' | 'clear', ... }
+ *   主线程 → Worker：{ id, type: 'status' | 'prefetch' | 'pick' | 'checkHandles' | 'contest' | 'contestProblems' | 'clear', ... }
  *   Worker → 主线程：{ id, ok: true, ...payload } / { id, ok: false, code, message }
  *   另有主动推送：{ type: 'progress', stage } —— stage 是机器码，文案由主线程翻译，
  *   这里刻意不做 i18n（Worker 不该关心界面语言）。
@@ -23,6 +23,7 @@ import {
   normalizeTags,
   problemKey,
 } from './pick.js'
+import { contestProblemUrl } from './contest.js'
 import { readRecord, writeRecord, clearRecords } from './cfCache.js'
 
 const CF_API = 'https://codeforces.com/api'
@@ -32,6 +33,26 @@ const PROBLEMSET_KEY = 'problemset'
 const PROBLEMSET_TTL = 24 * 60 * 60 * 1000
 const SOLVED_TTL = 12 * 60 * 60 * 1000
 const HANDLE_TTL = 60 * 60 * 1000
+/**
+ * 比赛列表的缓存期。比题库短得多：`phase` 会随着开赛 / 结束变化，
+ * 而倒计时靠 `relativeTimeSeconds` + 记录的取数时刻自洽（见 contest.js），
+ * 所以这里只需要「别太旧」，1h 足够。
+ */
+const CONTEST_LIST_TTL = 60 * 60 * 1000
+
+/** 非 gym 与 gym 是两个独立列表（CF 的接口按 gym 参数分开返回），缓存也分开存 */
+const CONTEST_LIST_KEY = 'contestList'
+const CONTEST_LIST_GYM_KEY = 'contestList:gym'
+
+/**
+ * 每场比赛题目列表的缓存。**来源只有 standings**（见 loadContestProblems 的长注释），
+ * 比赛开赛后题目清单就不会再变，缓存给 24h：老比赛重看零请求，最坏也一天付一次流量。
+ */
+const CONTEST_PROBLEMS_TTL = 24 * 60 * 60 * 1000
+
+/** 某场比赛题目列表的缓存键（按场次分开，量级是几 KB，不是榜单那几 MB） */
+const contestProblemsKey = (contestId) => `contestProblems:${contestId}`
+
 
 const solvedKey = (handle) => `solved:${handle.toLowerCase()}`
 const handleKey = (handle) => `handle:${handle.toLowerCase()}`
@@ -134,6 +155,166 @@ async function verifyHandle(rawHandle) {
   }
 }
 
+// ------------------------------------------------------------ 比赛（看板 / 倒计时）
+
+/**
+ * 取比赛列表（非 gym 约 400KB、gym 约 1MB），缓存 1h。
+ *
+ * 只留会用到的六个字段：整份原样塞进 IndexedDB 既没必要，也会让 `contest.list` 里的
+ * 名字 / 类型这类会变的东西跟着一起陈旧。`relativeTimeSeconds` 必须留 —— 倒计时靠它
+ * 自洽（见 contest.js 的 contestRemainingMs），gym 的条目里没有这个字段，落成 null。
+ *
+ * @returns {Promise<{ list: Array<Record<string, any>>, fetchedAt: number }>}
+ */
+async function loadContestList(gym) {
+  const key = gym ? CONTEST_LIST_GYM_KEY : CONTEST_LIST_KEY
+  const cached = await readRecord(key, CONTEST_LIST_TTL)
+  if (Array.isArray(cached?.data) && cached.data.length) {
+    return { list: cached.data, fetchedAt: cached.ts }
+  }
+
+  notify('contestList')
+  const result = await fetchResult(`${CF_API}/contest.list${gym ? '?gym=true' : ''}`)
+  const list = (result || [])
+    .filter((contest) => contest?.id)
+    .map((contest) => ({
+      id: contest.id,
+      name: contest.name,
+      phase: contest.phase,
+      startTimeSeconds: contest.startTimeSeconds ?? null,
+      durationSeconds: contest.durationSeconds ?? null,
+      relativeTimeSeconds: contest.relativeTimeSeconds ?? null,
+    }))
+
+  await writeRecord(key, list)
+  return { list, fetchedAt: Date.now() }
+}
+
+/**
+ * 在比赛列表里找一场。找不到返回 null（用户可能贴了 group 或 edu 的比赛，那些不在列表里）。
+ *
+ * 先查非 gym，没命中再查 gym —— 后者要多下 1MB，别为了一场普通比赛白拉。
+ */
+async function findContest(contestId, preferGym) {
+  const order = preferGym ? [true, false] : [false, true]
+  for (const gym of order) {
+    try {
+      const { list, fetchedAt } = await loadContestList(gym)
+      const contest = list.find((item) => String(item.id) === String(contestId))
+      if (contest) return { contest, fetchedAt }
+    } catch {
+      // 拉不到就换下一份：列表只是用来取名字和开赛时间，拿不到也不该把整件事炸掉
+    }
+  }
+  return null
+}
+
+/**
+ * 取某场比赛的题目列表。
+ *
+ * 【唯一来源是 standings】裸参 `contest.standings?contestId=<id>` 的 `problems` 数组。
+ * 2026-10-20 用户实报：2274（8 天前结束的 Div. 2）六道题只回来两道 —— 曾经的主路径
+ * `problemset.problems`（全局题库 dump）**对部分比赛是不完整的**：那场的 C–F 是
+ * olympiad 镜像题，CF 至今没把它们收进归档（dump 已收录更新的 2275/2276，说明不是
+ * dump 陈旧，是缺就缺定了）。所以「题库找不到才打 standings」的兜底口径整个作废：
+ * standings 的 problems 自带 contestId / index / name / tags，是唯一跟 CF 榜单
+ * 对得上号的清单。代价是裸参返回整个榜单（实测 2–6MB），所以：
+ *   1) 按场次缓存（contestProblems:<id>，24h）—— 每场只付一次；
+ *   2) 缓存里只有几 KB 的 problems 数组，不存榜单行；
+ *   3) standings 不带 rating，从题库 dump 里按 (contestId, index) 补 —— **只在 dump
+ *      已经在缓存里时**补，不为补 rating 专门拉那 2MB。
+ *
+ * 【两个坑，都在注释里写死了】
+ *   1) 非 gym 只允许**裸参数**（带 from/count 直接 FAILED），见上面的体积说明。
+ *   2) gym / group 的 standings 要 apiKey/apiSig 签名，浏览器这边没有凭据，会回
+ *      "You have to be authenticated"。这不是故障，是能力边界：转成 CONTEST_NEEDS_LOGIN，
+ *      由界面说「gym 的题目列表要靠浏览器扩展拿」。
+ *
+ * @returns {Promise<{ problems: Array<Record<string, any>>, source: 'standings', pending?: boolean }>}
+ *   `pending` 为真表示「这场还没开赛，题目还没出现」—— 空列表但**不是**错误。
+ */
+async function loadContestProblems(contestId) {
+  const key = contestProblemsKey(contestId)
+  const cached = await readRecord(key, CONTEST_PROBLEMS_TTL)
+  if (Array.isArray(cached?.data) && cached.data.length) {
+    return { problems: cached.data, source: 'standings' }
+  }
+
+  notify('standings')
+  // 不走 fetchResult：它对 !response.ok 直接抛「HTTP 400」，把 CF 写在 body 里的原因丢了。
+  // 而「这场还没开赛」与「gym 要认证」都只能靠那句 comment 区分，丢了就都变成一句网络错误。
+  const response = await fetch(`${CF_API}/contest.standings?contestId=${encodeURIComponent(contestId)}`)
+  const body = await response.json().catch(() => null)
+
+  if (body?.status !== 'OK') {
+    const comment = String(body?.comment || '')
+
+    // 未开赛：CF 回 400 + "Contest with id N has not started"。不是故障 —— 题目本来就还没出现
+    if (/has not started/i.test(comment)) {
+      return { problems: [], source: 'standings', pending: true }
+    }
+
+    // gym / group 的榜单要 apiKey + apiSig，浏览器这边没有凭据
+    if (/authenticated/i.test(comment)) {
+      const error = new Error('contest-needs-login')
+      error.code = 'CONTEST_NEEDS_LOGIN'
+      throw error
+    }
+
+    throw new Error(comment || `HTTP ${response.status}`)
+  }
+
+  const result = body.result
+
+  // standings 的 problems 本来就属于这一场且自带 contestId，这里再补一遍是防御：
+  // 后面拼链接与认题都假设字段在。**不回退 problemset** —— 部分缺失比完全失败更害人
+  // （用户看着 2/6 当成全场就完了），连不上就报错重试。
+  const list = (result?.problems || []).map((problem) => ({
+    ...problem,
+    contestId: Number(contestId),
+  }))
+
+  // 补 rating：standings 没有，题库 dump 有。只读缓存，不触发网络。
+  if (list.length) {
+    const dump = await readRecord(PROBLEMSET_KEY, 0)
+    if (Array.isArray(dump?.data)) {
+      const ratings = new Map(
+        dump.data
+          .filter((problem) => problem?.contestId != null && problem?.index)
+          .map((problem) => [`${problem.contestId}:${problem.index}`, problem.rating]),
+      )
+      for (const problem of list) {
+        if (problem.rating == null) {
+          problem.rating = ratings.get(`${problem.contestId}:${problem.index}`)
+        }
+      }
+    }
+    // 空列表不落库：还没开赛的「空」不能把 24h 缓存占住，开赛瞬间就该能取到真清单
+    await writeRecord(key, list)
+  }
+
+  return { problems: list, source: 'standings' }
+}
+
+/**
+ * 把主线程传来的参数收敛成一只 spec。两条比赛消息共用，判据只维护一份。
+ * ID 不合法时抛 BAD_CONTEST_ID —— 正常走不到（主线程已经用 parseContestSpec 解析过），
+ * 留着是为了让协议在只有 Worker 这一侧被调用时也能自己把关。
+ */
+function contestSpecOf(message) {
+  const contestId = String(message?.contestId ?? '').trim()
+  if (!/^\d+$/.test(contestId)) {
+    const error = new Error('bad-contest-id')
+    error.code = 'BAD_CONTEST_ID'
+    throw error
+  }
+
+  const kind =
+    message?.kind === 'gym' || message?.kind === 'group' ? message.kind : 'contest'
+
+  return { kind, contestId, groupId: String(message?.groupId ?? '') }
+}
+
 // ------------------------------------------------------------ 消息处理
 
 const handlers = {
@@ -215,6 +396,55 @@ const handlers = {
         tags: problem.tags || [],
         task: cfProblemToTask(problem),
       })),
+    }
+  },
+
+  /**
+   * 比赛的元数据（名字、阶段、开赛时间）。
+   *
+   * 【为什么和题目列表分成两条消息】倒计时是开赛前唯一要看的东西，而题目列表可能要
+   * 要拉一次整场榜单（裸参 2–6MB，见 loadContestProblems）。合成一条的话，用户为了看倒计时要等十几秒。
+   * 拆开之后元数据先到、界面立刻有东西，题目列表随后自己补上。
+   *
+   * 返回的 `fetchedAt` 是**元数据取回来的本地时刻**，倒计时拿它算「这份数据放了多久」。
+   */
+  async contest(message) {
+    const spec = contestSpecOf(message)
+
+    // group 的比赛不进 contest.list：名字与开赛时间都拿不到
+    const meta = spec.kind === 'group' ? null : await findContest(spec.contestId, spec.kind === 'gym')
+
+    return {
+      contest: meta?.contest ?? null,
+      fetchedAt: meta?.fetchedAt ?? 0,
+    }
+  },
+
+  /** 某场比赛的题目列表（唯一来源是 standings，按场次缓存 —— 见 loadContestProblems） */
+  async contestProblems(message) {
+    const spec = contestSpecOf(message)
+    const { problems, source, pending } = await loadContestProblems(spec.contestId)
+
+    return {
+      source,
+      pending: pending === true,
+      problems: problems.map((problem) => {
+        const index = String(problem.index ?? '').toUpperCase()
+        return {
+          contestId: spec.contestId,
+          index,
+          name: problem.name ?? '',
+          rating: typeof problem.rating === 'number' ? problem.rating : null,
+          tags: problem.tags || [],
+          // task 在这里现拼：cfProblemToTask 只会拼 /contest/…，gym 与 group 的链接是另一种形态
+          task: {
+            name: `CF${spec.contestId}${index} ${problem.name ?? ''}`.trim(),
+            url: contestProblemUrl(spec, index),
+            timeLimit: 0,
+            tests: [],
+          },
+        }
+      }),
     }
   },
 

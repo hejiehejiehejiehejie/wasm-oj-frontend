@@ -28,6 +28,7 @@ import { modelManager } from '../services/monaco/modelManager.js'
 import { releaseSyntaxDiagnostics, scheduleSyntaxCheck } from '../services/monaco/syntaxDiagnostics.js'
 import {
   anyViewOpen,
+  cfContestTab,
   cfPickerTab,
   deactivateViews,
   settingsTab,
@@ -55,6 +56,7 @@ import {
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import AppIcon from './AppIcon.vue'
+import CfContestPanel from './CfContestPanel.vue'
 import CfPickerPanel from './CfPickerPanel.vue'
 import ContextMenu from './ContextMenu.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
@@ -838,6 +840,10 @@ defineExpose({
       <!-- Codeforces 抽题：可选模块的视图，与设置同形态（都是编辑区里的一个合成页签）。
            v-show 保状态：切走再切回来，表单值与抽到的题目都还在（偏好另有 usePersistentRef 落盘） -->
       <CfPickerPanel v-show="cfPickerTab.active" />
+
+      <!-- Codeforces 比赛：同一形态的第三个合成页签（入口在侧栏那颗按钮唤出的
+           组件菜单里）。同样 v-show 常挂，切走再切回来那场与题目列表都还在 -->
+      <CfContestPanel v-show="cfContestTab.active" />
 
       <!-- 设置视图与 Monaco 同一层，靠 v-show 互斥：切来切去不重建编辑器，
            也不重挂设置组件（它的运行环境探针订阅只建立一次） -->

@@ -215,6 +215,9 @@ async function resolveFreeName(vfs, dir, baseName) {
  * @param {object} [options]
  * @param {string} [options.difficulty] 已知难度（如 CF 的 rating `'1600'`）。给了就按它分目录，
  *   并作为元数据的初值；不给（扩展抓题）则落「未分类」。用户已手填过难度时以用户填的为准
+ * @param {boolean} [options.quiet] 不抢焦点：只落库，不切页签、不展开目录。
+ *   整场抓样例（一场七八道连续投递）走这条 —— 否则页签会连着翻七八次，
+ *   而且会把用户正看着的抽题面板关掉（`deactivateViews`）
  * @returns {Promise<{ name: string, ojDir: string, codePath: string, created: boolean, config: Record<string, any>, node: import('./BaseVFSProvider.js').VFSNode }>}
  */
 export async function importProblem(task, options = {}) {
@@ -278,8 +281,18 @@ export async function importProblem(task, options = {}) {
     )
 
     // 样例与限制整体覆盖：用户重抓，图的就是拿到最新的。
+    // 唯一的例外是**本次一个样例都没带**：抽题面板 / 比赛导入的是元数据（CF 的接口
+    // 不返回样例），样例随后由扩展补进来；此时若照旧覆盖，用户再点一次「导入」就会把
+    // 刚抓到的样例冲成空数组 —— 那不是「刷新」，是白抓一趟
+    const incomingTests = Array.isArray(config.tests) ? config.tests : []
+    const previousTests = Array.isArray(existingCode?.config?.tests) ? existingCode.config.tests : []
+    const nextConfig =
+      incomingTests.length === 0 && previousTests.length > 0
+        ? { ...config, tests: previousTests }
+        : config
+
     // 挂在 config 字段上而不是 meta 里 —— 上面刚整体替换过 meta，混在一起会被抹掉
-    await vfs.setConfig(codePath, config)
+    await vfs.setConfig(codePath, nextConfig)
 
     return nextNode
   })
@@ -287,8 +300,11 @@ export async function importProblem(task, options = {}) {
   // 焦点跳转：合成视图（设置 / 抽题）可能正占着编辑器（那时 activeId 没变，editorViews 的
   // 自动让位 watch 不会触发），先显式让开；openFile 负责建 model、开页签、展开祖先目录。
   // 已经打开过这道题时 activeId 不变，EditorPane 的 watch 不响，由调用方补一次 focus。
-  deactivateViews()
-  await openFile(node.id, node)
+  // quiet 时整段跳过：整场抓样例会连着投递七八道，抢焦点等于把用户的页签翻七八次
+  if (!options.quiet) {
+    deactivateViews()
+    await openFile(node.id, node)
+  }
 
   return { name, ojDir: dir, codePath, created: !existingCode, config, node }
 }

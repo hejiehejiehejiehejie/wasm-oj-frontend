@@ -1,6 +1,6 @@
 import { nextTick } from 'vue'
 import { importProblem } from '../services/vfs/problemImport.js'
-import { useCompanionBridge } from './useCompanionBridge.js'
+import { isContestScrapeActive, useCompanionBridge } from './useCompanionBridge.js'
 
 /**
  * 把扩展推来的题目接进工作区。
@@ -21,7 +21,9 @@ import { useCompanionBridge } from './useCompanionBridge.js'
  */
 export function useCompanionImport({ onImported } = {}) {
   useCompanionBridge((task) => {
-    importProblem(task)
+    // 整场抓样例时安静落库：那一路会连着投七八道题，抢焦点等于把用户的页签翻七八次。
+    // 判据取「此刻有没有一场抓取在跑」—— 只有它能区分「用户点图标抓一道」与「批量补样例」
+    importProblem(task, { quiet: isContestScrapeActive() })
       .then(async (result) => {
         await nextTick()
         onImported?.(result)

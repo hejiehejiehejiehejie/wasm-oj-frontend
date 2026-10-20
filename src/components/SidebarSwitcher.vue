@@ -24,17 +24,20 @@
  * 常见项在菜单里当场改完，末尾两项才打开编辑区里的设置页签。
  * 菜单悬着时不改变齿轮的 is-active（那只跟着设置页签走）。
  *
- * 抽题那颗（2026-10 新增，可选模块）排在设置齿轮**左边**，视觉语言与齿轮完全一致
- * （同一颗圆形图标钮、开着时填亮）。它在 `ready` 为假时整个不渲染：没下载过这个模块的
- * 用户页头里就不该多一颗按不动的按钮 —— 那是「可选」两个字在界面上的落实。
- * 顺序刻意是「抽题 → 设置」：齿轮是常驻的那个，位置不该被一个可选模块挤走。
+ * Codeforces 那颗（2026-10 新增，可选模块）排在设置齿轮**左边**，视觉语言与齿轮完全一致
+ * （同一颗圆形图标钮、开着任一 CF 页签时填亮）。它在 `ready` 为假时整个不渲染：没下载过
+ * 这个模块的用户页头里就不该多一颗按不动的按钮 —— 那是「可选」两个字在界面上的落实。
+ * 2026-10-19 起它不再直接开抽题页签，而是与齿轮同款：点它弹出组件菜单（CfMenu），
+ * 里面挑「随机抽题 / 比赛」—— 模块多了一块界面，按钮继续「一颗开一个菜单」。
+ * 顺序刻意是「Codeforces → 设置」：齿轮是常驻的那个，位置不该被一个可选模块挤走。
  */
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import CfMenu from './CfMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
 
-const { panels, targetPanel, togglePanel, settings, cfPicker, collapse, compact } =
+const { panels, targetPanel, togglePanel, settings, cf, collapse, compact } =
   inject('sidebarTabs')
 
 // 指示块的位置信号：当前面板的 id 直接写在 pill 的 data-active 上，
@@ -44,21 +47,25 @@ const activePanelId = computed(() => panels.value.find((panel) => panel.active)?
 // ------------------------------------------------------------ 设置下拉菜单
 // 点齿轮不再直接开设置页，而是在齿轮位置弹一个 Quick Settings 菜单（SettingsMenu）：
 // 主题 / 缩放 / 字号这类常用项在菜单里当场改完（内联开关 / 步进器 / 二级子菜单），
-// 末尾两项才打开编辑区里那个设置页签 —— 「打开设置面板…」落在默认的「外观」，
-// 「设置分类」的子菜单按分类直达（落点由 openSettingsTab(sectionId) 交下去）。
+// 末尾两项才打开编辑区里那个设置页签。
+// 菜单悬着时不改变齿轮的 is-active（那只跟着设置页签走）。
+
+// ------------------------------------------------------------ 两颗菜单按钮的公共机制
+// 齿轮（SettingsMenu）与 Codeforces 那颗（CfMenu）各有一份 anchor，但「点按钮收菜单
+ // 会被捕获阶段的 pointerdown 抢先」是同一个坑：那一层先收掉菜单、按钮的 click 又进来，
+ // 只看 anchor 有没有值就会永远关不掉。所以在更早的一拍记下「这发 pointerdown 是不是
+ // 点在某一颗按钮上」，各自的 toggle 拦掉这一次重开。
 const menuAnchor = ref(null)
 const menuButton = ref(null)
+const cfMenuAnchor = ref(null)
+const cfMenuButton = ref(null)
 
-/**
- * SettingsMenu 经 usePopoverLayer 在 window **捕获阶段**用 pointerdown 收菜单（早于按钮的
- * click），所以「点同一颗齿轮想把它关掉」会先被它关掉、随后这颗按钮的 click 又进来 ——
- * 只看 menuAnchor 有没有值就会永远关不掉。这里在更早的一拍记下「这发 pointerdown 是不是
- * 点在齿轮上」，交给 toggleMenu 拦掉这一次重开。
- */
 let suppressOpen = false
+let suppressCfOpen = false
 
 function onGlobalPointerDown(event) {
   suppressOpen = Boolean(menuAnchor.value && menuButton.value?.contains(event.target))
+  suppressCfOpen = Boolean(cfMenuAnchor.value && cfMenuButton.value?.contains(event.target))
 }
 
 function toggleMenu() {
@@ -77,6 +84,24 @@ function toggleMenu() {
 
 function closeMenu() {
   menuAnchor.value = null
+}
+
+function toggleCfMenu() {
+  if (suppressCfOpen) {
+    suppressCfOpen = false
+    return
+  }
+  if (cfMenuAnchor.value) {
+    closeCfMenu()
+    return
+  }
+  // 菜单挂在按钮下方、右缘与按钮对齐（CfMenu 内部做视口收敛）
+  const rect = cfMenuButton.value?.getBoundingClientRect()
+  if (rect) cfMenuAnchor.value = rect
+}
+
+function closeCfMenu() {
+  cfMenuAnchor.value = null
 }
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
@@ -130,19 +155,22 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </span>
     </button>
 
-    <!-- 抽题组件（可选模块）：没下载过就整颗不渲染。放在齿轮左边 —— 齿轮是常驻入口，
-         位置不该被一个可卸载的模块推动；而这一颗在卸载后会消失，留下的空位不该在齿轮右侧。 -->
+    <!-- Codeforces 组件菜单（可选模块）：没下载过就整颗不渲染。放在齿轮左边 —— 齿轮是
+         常驻入口，位置不该被一个可卸载的模块推动；而这一颗在卸载后会消失，
+         留下的空位不该在齿轮右侧。点它弹 CfMenu，与齿轮弹 SettingsMenu 同一套机制。 -->
     <button
-      v-if="cfPicker.ready"
+      v-if="cf.ready"
+      ref="cfMenuButton"
       type="button"
       class="sidebar-switcher__tab"
-      :class="{ 'is-active': cfPicker.active }"
-      :title="cfPicker.title"
-      :aria-label="cfPicker.label"
-      :aria-pressed="cfPicker.active"
-      @click="cfPicker.toggle"
+      :class="{ 'is-active': cf.active }"
+      :title="cf.label"
+      :aria-label="cf.label"
+      aria-haspopup="menu"
+      :aria-expanded="Boolean(cfMenuAnchor)"
+      @click="toggleCfMenu"
     >
-      <AppIcon :name="cfPicker.icon" size="16" />
+      <AppIcon :name="cf.icon" size="16" />
     </button>
 
     <button
@@ -160,6 +188,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
     </button>
 
     <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="below-end" @close="closeMenu" />
+    <CfMenu v-if="cfMenuAnchor" :anchor="cfMenuAnchor" placement="below-end" @close="closeCfMenu" />
   </nav>
 </template>
 
