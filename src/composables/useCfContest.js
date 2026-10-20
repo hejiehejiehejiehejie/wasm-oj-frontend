@@ -21,7 +21,7 @@
  * 「抓样例」把整场交给扩展读一遍（P2，要扩展支持 `contest-batch` 能力）。
  * 两条路最后都落到同一条 cp-task 投递上，由 importProblem 按 url 并进已有的题里。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
 import {
@@ -282,6 +282,10 @@ export function useCfContest() {
    * 难度按 CF 的 rating 交给 importProblem，与抽题面板一致（它会据此分目录并写进元数据）。
    * **单题导入仍然抢焦点**（importProblem 末尾 openFile）：用户点的是这一道，跳过去是预期行为。
    * 批量那条路（抓样例前的「先落题」）走 `quiet: true`，见 scrapeSamples。
+   *
+   * ⚠️ `toRaw(problem.task)` 不能省：`problems` 是 ref，`problem.task` 与其嵌套字段都是 reactive
+   * Proxy，IndexedDB 的 structured clone 拒绝它（DataCloneError），落库会整批失败 ——
+   * 界面上看着导入成功、刷新后题目没了。抽题面板同款，见 HANDOFF 坑 62。
    */
   async function importOne(problem) {
     const target = problem?.task?.url
@@ -289,7 +293,7 @@ export function useCfContest() {
 
     importingUrl.value = target
     try {
-      await importProblem(problem.task, {
+      await importProblem(toRaw(problem.task), {
         difficulty: problem.rating == null ? '' : String(problem.rating),
       })
       importedUrls.value = new Set(importedUrls.value).add(target)
@@ -414,7 +418,8 @@ export function useCfContest() {
     try {
       for (const problem of problems.value) {
         if (importedUrls.value.has(problem.task.url)) continue
-        await importProblem(problem.task, {
+        // toRaw 的理由见 importOne 上面那段（reactive Proxy 进不了 IndexedDB）
+        await importProblem(toRaw(problem.task), {
           difficulty: problem.rating == null ? '' : String(problem.rating),
           quiet: true,
         })

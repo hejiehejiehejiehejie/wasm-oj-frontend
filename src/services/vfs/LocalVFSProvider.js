@@ -384,14 +384,24 @@ export class LocalVFSProvider extends BaseVFSProvider {
     })
   }
 
+  /**
+   * 落这一批。
+   *
+   * 返回值只在「本来能落库却失败了」时才有意义：`false` = 内存已改、库里没有（刷新即丢），
+   * 由 `BaseVFSProvider.batch` 记一条警告。两种情形不算失败、不回 false：
+   * 纯内存降级（`#db` 为 null，隐私模式，`capabilities.persistent` 已经说明了这件事）与
+   * 空批次（没什么要写，直接算成功）。
+   * @returns {Promise<boolean|undefined>}
+   */
   async _commit() {
     const puts = [...this.#pending.puts.values()]
     const deletes = [...this.#pending.deletes]
     this.#snapshot = null
     this.#pending = { puts: new Map(), deletes: new Set() }
-    if (!this.#db || (!puts.length && !deletes.length)) return
+    if (!this.#db) return
+    if (!puts.length && !deletes.length) return true
 
-    await commitTransaction(this.#db, STORES, 'readwrite', (tx) => {
+    return commitTransaction(this.#db, STORES, 'readwrite', (tx) => {
       const nodesStore = tx.objectStore(NODES_STORE)
       const contentsStore = tx.objectStore(CONTENTS_STORE)
       for (const { node, content } of puts) {
@@ -431,7 +441,7 @@ export class LocalVFSProvider extends BaseVFSProvider {
   /** 立即写一批（非 batch 的单条 mutation） */
   async #persistPuts(puts) {
     if (!this.#db) return
-    await commitTransaction(this.#db, STORES, 'readwrite', (tx) => {
+    const written = await commitTransaction(this.#db, STORES, 'readwrite', (tx) => {
       const nodesStore = tx.objectStore(NODES_STORE)
       const contentsStore = tx.objectStore(CONTENTS_STORE)
       for (const { node, content } of puts) {
@@ -440,6 +450,10 @@ export class LocalVFSProvider extends BaseVFSProvider {
         if (content !== null) contentsStore.put({ id: node.id, content })
       }
     })
+    // batch 路径的失败由 BaseVFSProvider.batch 记；这条路没有上层可报，就地留一条
+    if (!written) {
+      console.warn('[vfs] write not persisted: change lives in memory only and will be lost on reload')
+    }
   }
 
   #ensureSnapshot() {

@@ -702,6 +702,13 @@ chips=2 → normalizeRuns 后回到 1**）；verify 基线不变（A/B/C/D/F 绿
     - **修法**：`measureLimits()` 多返回 `paneSpace = 内容宽 − splitterOuter`（宽度读 rect、左右外边距读计算值 —— 两者都随 `--ui-scale` 缩放，差值恒为 4；分隔条不可见时 rect 为 0，按净占 0 处理）。`finish()` 反算改成 `100 − dragPanelPx / paneSpace × 100`。**别再把 `width` 当分母**。
     - **舍入同时从 0.1% 收到 0.01%**：0.1% 在 1400 宽上是 1.4px 一格，余量还有 ≤0.7px —— 修掉收缩之后那半像素就成了新的「松手一抖」。收紧后残差 ≤0.0625px（一个 LayoutUnit）。落盘的 `cp.editorShare` 因此可能带两位小数（如 72.86），`applyShare` 那套 0.1% 舍入只服务方向键 / 收敛，不冲突。
     - **`handoffDrag()` 里那两处反算没跟着改**（仍是 `(width − px) / width`）：它们只是折叠动画的起点，面板随即收到 `0%`，差 0.7px 看不出来。要改就两处一起想清楚，别只改一半。改完实测：五次不同位移（含 33.7 / 60.3 / 87.45 这类小数）松手前后差 **≤0.0625px**，反向拖同样；`npm run verify` 基线不变（A/B/C/D/F 绿，E/G/H 既有红）。
+62. **Vue 的 reactive Proxy 进不了 IndexedDB；事务中途抛异常时不 abort 会留下「半批数据」**（2026-10-20 加，用户报「推送之后刷新，通过随机题目得到的题目会丢失」—— 与推送无关，任何一次刷新都丢）。六条：
+    - **症状**：抽题面板里导入的题目，界面上树里有、页签也开着；刷新后题目整个消失，**IndexedDB 里只剩 `/<年月>`、`/<年月>/Codeforces`、`/…/<难度>` 三个空目录**，文件节点与它的正文一个字都没进库。树里留下空文件夹，页签被 `rebuildTree` 当「文件已删除」清掉。
+    - **真因链条**（四步，缺一不成立）：① `useCfPicker` 的 `results` 是 `ref`，`results.value = response.problems` ⇒ 元素与**嵌套字段**（`task.tests`、`task.languages`）都是 reactive Proxy；② `importOne` 把 `problem.task` 原样交给 `importProblem`，`buildConfig` 只做**浅**展开 `{...task, oj, importedAt}` ⇒ 嵌套值仍是 Proxy；③ `LocalVFSProvider._commit()` 的 `nodesStore.put()` 对 Proxy 抛 `DataCloneError`（structured clone 不认 Proxy）；④ `idb.js` 的 `commitTransaction` 用 `try` 把**同步抛异常**吞成 `resolve(false)`、**却不 `tx.abort()`** ⇒ 抛之前已入队的记录（三个目录）照常提交，抛之后的一个都不写。
+    - **为什么只有抽题这条会中**：扩展抓题走 `postMessage` 的普通对象、手写探针也是普通对象，都能 clone。**落库层只该看见纯数据**，reactive 数据必须在入口 `toRaw` 剥掉 —— 现在 `importOne` 传的是 `toRaw(problem.task)`。
+    - **修法三条**：① `useCfPicker.importOne` 传 `toRaw(problem.task)`（`toRaw` 取回原始对象，它底下本来就是原始对象）；**比赛视图同款两处也一起改**（`useCfContest` 的 `importOne` 与 `scrapeSamples`，`problems` 也是 ref，症状一字不差）；② `commitTransaction` 的 `catch` 里先 `tx?.abort()` 再 `resolve(false)`，让事务**要么全成、要么全不成**（这一刻 `onabort` 还没挂上，不会二次 resolve；事务可能已被浏览器自动中止，再 abort 抛的 `InvalidStateError` 咽掉）；③ 别让失败静默：`LocalVFSProvider._commit()` 返回布尔（纯内存降级与空批次不算失败），`BaseVFSProvider.batch()` 见 `false` 记一条 `console.warn`，单条写路径（`#persistPuts`）就地记一条。判据用 `=== false`，默认 `_commit` 是 no-op、返回 `undefined`，不能当失败。
+    - **验证**（自起 dev server、真界面走「抽题 → 导入 → 刷新」）：修前刷新后库里只剩三个空目录；修后文件节点带 `meta` + `config` 落库，刷新后树里可见、页签自动恢复、`contents` store 三条（main.cpp / main.py / 题目）。abort 语义单独验：往事务里先塞目录再塞带 Proxy 的记录 → 返回 `false` 且目录**也没落库**；走 `vfs.batch()` 同样不留半批，控制台出现一条 `[vfs] batch not persisted: …`。
+    - **没做的**：`_commit` 失败只留 warn、不抛错（抛错会连带 `_rollback()` 把内存也退回去，行为变更比这次请求大）。要是哪天要「写入失败就提示用户」，得把 `batch()` 的返回值改成显式失败、并在调用方接住，别只在 VFS 里抛。比赛视图那两处 `toRaw` 未单独跑端到端（要真实比赛 + 扩展才能验），与抽题那条是同一行代码、同一个数据形状。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 

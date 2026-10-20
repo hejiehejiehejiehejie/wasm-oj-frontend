@@ -23,7 +23,7 @@
  * 数据层只留 key 与参数，否则切语言时这条错误会停在旧语言上。
  */
 
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
 import { COUNT_MAX, COUNT_MIN, normalizeHandles, problemKey } from '../cf/pick.js'
@@ -272,6 +272,13 @@ export function useCfPicker() {
    *
    * 认题靠 url，重复导入同一道题是幂等的：正文一个字不动，只刷新样例与元数据。
    * 已经落过盘的题不会被搬到新目录（搬动 = 丢题解），难度也以用户手填的为准。
+   *
+   * 【⚠️ 必须 toRaw 再交给 importProblem】`results` 是 ref，元素与它底下每一层字段都是
+   * reactive Proxy。`importProblem` 的 buildConfig 只做浅展开，嵌套值（`tests` / `languages` …）
+   * 会原样保留 Proxy，而 IndexedDB 的 `put()` 走 structured clone、**拒绝 Proxy**（DataCloneError）。
+   * toRaw 取回原始对象，它底下本来就是原始对象 —— 落库层只该看见纯数据。
+   * 2026-10-20 踩过：导入看着成功（内存树、页签都在），刷新后题目整个没了，库里只剩三个空目录
+   * （异常发生在入队中途，见 HANDOFF 坑 62）。
    * @param {{ task: Record<string, any>, rating: number|null }} problem 抽取结果里的一项
    */
   async function importOne(problem) {
@@ -281,7 +288,7 @@ export function useCfPicker() {
     importingUrl.value = url
     error.value = null
     try {
-      await importProblem(problem.task, {
+      await importProblem(toRaw(problem.task), {
         // 无 rating 的题（用户没设难度区间时可能抽到）不给这个参数，由 importProblem 落「未分类」
         difficulty: problem.rating == null ? '' : String(problem.rating),
       })

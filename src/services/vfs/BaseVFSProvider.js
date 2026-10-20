@@ -238,7 +238,12 @@ export class BaseVFSProvider {
     let failed = false
     try {
       const result = await exec()
-      if (this.#batchDepth === 1) await this._commit()
+      // `_commit` 返回 false = 这一批没能落库（配额满 / 记录撞上 structured clone 拒绝）。
+      // 内存已经前进、事件照发，界面看着成功，只有刷新后才知道丢了 —— 至少留一条记录，
+      // 别再静默。默认实现是 no-op、返回 undefined，不能当成失败判据。
+      if (this.#batchDepth === 1 && (await this._commit()) === false) {
+        console.warn('[vfs] batch not persisted: changes live in memory only and will be lost on reload')
+      }
       return result
     } catch (error) {
       failed = true

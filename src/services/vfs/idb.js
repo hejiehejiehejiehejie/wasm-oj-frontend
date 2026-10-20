@@ -66,6 +66,11 @@ export function withTransaction(db, stores, mode, task) {
 /**
  * 在单个事务里执行多步写入，等事务真正提交后 resolve。
  * 注意：put 的请求成功只代表进队，配额超限在提交时才失败，所以必须看 oncomplete。
+ *
+ * ⚠️ `fn` 里**同步抛出**时（最典型：`put()` 撞上 structured clone 拒绝的值，比如 Vue 的
+ * reactive Proxy 会 DataCloneError）必须主动 `abort()`：抛出点**之前**已经入队的记录否则
+ * 会照常提交，留下「半批数据」—— 目录进了库、文件没进，界面因为内存是改过的、看着还成功，
+ * 只有刷新后才露馅。2026-10-20 踩过（HANDOFF 坑 62）。
  * @param {IDBDatabase} db
  * @param {string[]} stores
  * @param {IDBTransactionMode} mode
@@ -74,12 +79,20 @@ export function withTransaction(db, stores, mode, task) {
  */
 export function commitTransaction(db, stores, mode, fn) {
   return new Promise((resolve) => {
+    let tx
     try {
-      const tx = db.transaction(stores, mode)
+      tx = db.transaction(stores, mode)
       fn(tx)
       tx.oncomplete = () => resolve(true)
       tx.onabort = tx.onerror = () => resolve(false)
     } catch {
+      // 这一刻 onabort 还没挂上，abort 不会造成二次 resolve；事务可能已被浏览器自动中止，
+      // 再 abort 一次会抛 InvalidStateError，一并咽掉
+      try {
+        tx?.abort()
+      } catch {
+        /* 已中止 */
+      }
       resolve(false)
     }
   })
