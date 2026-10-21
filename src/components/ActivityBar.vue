@@ -95,6 +95,10 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       </button>
     </div>
 
+    <!-- demo · 方向一：胶囊形态下两簇不再顶到条的两端（条本身已按内容定高），
+         中间用一条 20px 的细线分组。横排（窄屏）时它自己转 90° 变成竖线，见样式。 -->
+    <span class="activity-bar__divider" aria-hidden="true"></span>
+
     <!-- 贴底：组件与齿轮都是常驻入口。组件那颗点开组件菜单（与页头同款），
          开着任一组件（两个 CF 页签或倒计时卡）时提亮。 -->
     <div class="activity-bar__group activity-bar__group--tools">
@@ -136,13 +140,21 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
 /* 与两块 .pane 同一种卡片外观（圆角 / 细边 / 面板底色），只是收窄成 48px 一竖条。
    边框用 --border-faint 而不是 .pane 那条 --border-soft：折叠态下它是全界面唯一在场
    的卡片边界（侧栏收起、编辑器那半张卡离得远），同一支笔在这里会偏亮、抢戏。
-   宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。 */
+   宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。
+
+   demo · 方向一：高度不再撑满，改成**按内容定高**的一枚胶囊（align-self: center）。
+   这样做不脱排版（编辑器的可用宽一格没多），换来的只是视觉：这条栏从「一根通天的框」
+   变成「一颗挂在侧边的胶囊」，上下两头的空档留给底色。真正的「悬浮 + 把 48px 还给编辑器」
+   要 absolute，会压到编辑区页签栏上，那条口径另定（见备案 §1 的待定）。
+   ⚠️ 窄屏横排里必须还原成 stretch（见 App.vue 那条 is-narrow 规则），否则这条会缩成
+   跟内容一样宽、贴在中间。 */
 .activity-bar {
   flex: 0 0 48px;
   min-width: 0;
+  align-self: center;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: stretch;
   padding: 4px 0;
   overflow: hidden;
@@ -165,6 +177,18 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   /* 相邻两格的间隔：格里是 24px 图标、方块 40×40，不留间隔时两枚图标是「紧挨着的两个方块」，
      加 4px 后图标之间的呼吸感与 VS Code 接近（间距只加在这里，方块本身的可点面积不变） */
   gap: 4px;
+}
+
+/* 叠在一起的两簇之间那条分组线（demo · 方向一）。
+   20px 长、1px 粗，左端对齐方块的中轴：方块左边距 3 + (40 − 20) / 2 = 13。
+   上下各 2px 外边距 —— 配合组内 4px 的 gap，两条簇之间净空约 9px（比格间距 4 大一档，
+   分组的界线才读得出来）。横排（窄屏）时它自己转 90°，见文件末尾那组窄屏规则。 */
+.activity-bar__divider {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 1px;
+  margin: 2px 0 2px 13px;
+  background: var(--border-soft);
 }
 
 /* 40×40 的圆角方块：hover 时整块提亮（而不是只提亮图标），可点范围一眼可见。
@@ -207,5 +231,13 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
    开着时得在这条栏上直接看出来，所以保留提亮。 */
 .activity-bar__group--tools .activity-bar__item.is-active {
   color: var(--text);
+}
+
+/* 横排（窄屏）里分组线转 90°：1px 宽、20px 高，居中 —— 与竖排里那条是同一根线，
+   只是主轴翻了面。窄屏下这条栏本身已被 App.vue 还原成 stretch（见那边的注释）。 */
+:where(html.is-narrow) .activity-bar__divider {
+  width: 1px;
+  height: 20px;
+  margin: 0;
 }
 </style>

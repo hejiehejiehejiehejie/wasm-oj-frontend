@@ -1845,6 +1845,10 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   /* 竖着时的上下留白，横过来变成左右留白 */
   padding: 4px 8px;
+  /* demo · 方向一：胶囊形态（宽屏）靠 ActivityBar.vue 的 align-self: center 按内容定高。
+     横过来之后「侧边」变成「工作区的上/下边」，必须还原成 stretch —— 否则这条通栏会
+     缩成跟内容一样宽、飘在中间，不再是贴边的一条。 */
+  align-self: stretch;
 }
 
 /* 与编辑器卡片之间那条 4px 空隙：分隔条已经不排版了，改由这里补。
