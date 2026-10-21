@@ -298,6 +298,41 @@ const activityBarStyle = computed(() => ({
 // 经 defineExpose 透传上来；首帧 ref 还没落地时先给空数组，下一 tick 即补齐（不会闪一下布局）
 const sidebarPanels = computed(() => sidebarRef.value?.panels ?? [])
 
+/**
+ * 折叠态图标栏上的状态读数（demo · 方向三，见 docs/折叠侧栏设计备案.md §3）。
+ *
+ * 折叠后评测面板整个 hidden，页头那枚 verdict 胶囊也就跟着看不见了 —— 但「刚跑完是 AC 还是 WA」
+ * 恰恰是收侧栏时最惦记的一件事。这里把它缩成方块右下角的一枚点，颜色与页头 tone 同源
+ * （ok / fail / err / warn / info），鼠标移上去再展开成 `2/3` 的数字。
+ *
+ * 判定口径与 TestPanel 的 verdict 一致，但**只报 tonal 结论、不报文字**：
+ * 一条都没跑过（全 idle）时不给点 —— 那时点一枚灰点只是噪音。
+ * 数据全部来自 App 自己的 ref（testCases / running / dirtyIds），不依赖面板是否挂载。
+ */
+const activityBadges = computed(() => {
+  const badges = {}
+  // 未保存：与页签上那枚点同源（modelManager.dirtyIds）。只要还有 dirty 模型就点着，
+  // 表示「资源管理器里还有没落盘的东西」—— 不细分是哪个文件，那是展开后树该说的话。
+  if (modelManager.dirtyIds.size) badges.explorer = { tone: 'dirty' }
+
+  const total = testCases.value.length
+  if (total) {
+    const passed = testCases.value.filter((item) => item.status === 'passed').length
+    const spinning = running.value || testCases.value.some((item) => item.status === 'running')
+    const stale = testCases.value.some((item) => item.stale)
+    let tone = ''
+    // 优先级：跑着 > 结论过期 > 全过 > 编译/运行错误 > 判错。
+    // stale 排在「全过」前面：改完代码之后上一轮的 AC 不再作数（同 TestPanel 页头）。
+    if (spinning) tone = 'running'
+    else if (stale) tone = 'stale'
+    else if (passed === total) tone = 'passed'
+    else if (testCases.value.some((item) => item.status === 'error')) tone = 'error'
+    else if (testCases.value.some((item) => item.status === 'failed')) tone = 'failed'
+    if (tone) badges.tests = { tone, text: `${passed}/${total}` }
+  }
+  return badges
+})
+
 // 触摸屏默认开启的「键盘模式」：键盘弹起时整块应用收缩到键盘上方（见 .app.is-keyboard），
 // 并保证滑动只滚动、轻点输入框才唤键盘。鼠标设备上它不生效，行为与之前完全一致。
 // keyboardUp 是「键盘**真的**弹着」（visualViewport 实测收缩），窄屏贴底那条图标栏靠它
@@ -1563,6 +1598,8 @@ onBeforeUnmount(() => {
         :class="{ 'is-collapsed': !panelVisible }"
         :style="activityBarStyle"
         :panels="sidebarPanels"
+        :badges="activityBadges"
+        :panel-position="panelPosition"
         @select="selectSidebarPanel"
       />
     </main>
