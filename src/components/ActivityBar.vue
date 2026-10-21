@@ -28,6 +28,12 @@ import { cfContestTab, cfPickerTab, settingsTab } from '../services/editorViews.
 defineProps({
   /** Sidebar 透传的面板表：{ id, icon, label, active } */
   panels: { type: Array, default: () => [] },
+  /**
+   * 侧栏停靠在哪一侧。本组件只用它判一件事：上簇 hover 时那枚小 chevron 指哪边
+   * （箭头朝工作区 = 点下去会把侧栏往那边推开），以及它该贴在方块的内缘还是外缘。
+   * 状态归 shellSettings.js，App 透传进来 —— 本组件不自己存一份。
+   */
+  panelPosition: { type: String, default: 'left' },
 })
 defineEmits(['select'])
 
@@ -77,7 +83,11 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
 </script>
 
 <template>
-  <nav class="activity-bar" :aria-label="t('app.sidebar.switcherLabel')">
+  <nav
+    class="activity-bar"
+    :data-side="panelPosition === 'right' ? 'right' : 'left'"
+    :aria-label="t('app.sidebar.switcherLabel')"
+  >
     <div class="activity-bar__group activity-bar__group--panels">
       <button
         v-for="panel in panels"
@@ -172,6 +182,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
    图标就会在方块里居中位移、看着像在飘；定宽 + 固定左边距之后方块钉在原地，
    由 .activity-bar 的 overflow: hidden 把它裁出去。 */
 .activity-bar__item {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -189,7 +200,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  transition: color 0.16s ease, background-color 0.16s ease;
+  transition: color 0.16s ease, background-color 0.16s ease, opacity 0.16s ease;
 }
 
 /* 选中态只提亮图标，**不画那道左缘 2px 主题色指示条**（2026-10-04 用户反馈去掉了）：
@@ -207,5 +218,79 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
    开着时得在这条栏上直接看出来，所以保留提亮。 */
 .activity-bar__group--tools .activity-bar__item.is-active {
   color: var(--text);
+}
+
+/* ------------------------------------------- 上下两簇的「行为差异」暗示（2026-10-22 采纳）
+
+   动机：上簇点下去**改变布局**（推开侧栏）、下簇点下去只弹一个浮层，两者长得一模一样，
+   用户点之前没有预期。这是 `docs/折叠侧栏设计备案.md` 方向四「行为视觉解耦」的正式版，
+   只动视觉：
+
+   - 上簇：hover（或键盘聚焦）时，方块**朝工作区那一侧**浮出一枚 4px 的小 chevron，
+     从外侧滑进来 2px。箭头指哪、侧栏就从哪边推出来 —— 与侧栏停靠侧成镜像
+     （`panelPosition` 由 App 透传，落成根上的 data-side）。
+     它画在方块内缘（图标 24px 居中后左右各剩 8px，chevron 贴在距右缘 3px 处、
+     占掉其中 4px），**不进布局、不改可点区**（absolute + pointer-events: none），
+     方块仍是 40×40 —— 靠上面基础类新加的 `position: relative` 做定位基准。
+   - 下簇：默认图标降到 0.7，hover / 菜单开着 / 页签开着时回到 1 ——
+     弱一档表示「这是浮层工具，不是侧栏视图」。
+
+   ⚠️ 窄屏（横排、触屏）两条都不生效：横排里没有「横向推开」这回事，触屏也没有 hover，
+   留着只会让一排方块更挤。见文件末尾那两条 :where(html.is-narrow) 规则。 */
+.activity-bar__group--panels .activity-bar__item::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 4px;
+  height: 4px;
+  box-sizing: border-box;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  opacity: 0;
+  /* 先旋转（45° 得到一个 `>`），再按未旋转的坐标系水平外移 2px、垂直居中 */
+  transform: translate(-2px, -50%) rotate(45deg);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  pointer-events: none;
+}
+
+.activity-bar__group--panels .activity-bar__item:hover::after,
+.activity-bar__group--panels .activity-bar__item:focus-visible::after {
+  opacity: 1;
+  transform: translate(0, -50%) rotate(45deg);
+}
+
+/* 侧栏停靠在右：工作区在图标栏左边 ⇒ 箭头指左、贴在方块左缘、从左边滑进来 */
+.activity-bar[data-side='right'] .activity-bar__group--panels .activity-bar__item::after {
+  right: auto;
+  left: 3px;
+  border-right: none;
+  border-left: 1.5px solid currentColor;
+  transform: translate(2px, -50%) rotate(-45deg);
+}
+
+.activity-bar[data-side='right'] .activity-bar__group--panels .activity-bar__item:hover::after,
+.activity-bar[data-side='right'] .activity-bar__group--panels .activity-bar__item:focus-visible::after {
+  transform: translate(0, -50%) rotate(-45deg);
+}
+
+/* 下簇弱一档。aria-expanded 是菜单开着（点完把指针移开也应该亮着） */
+.activity-bar__group--tools .activity-bar__item {
+  opacity: 0.7;
+}
+
+.activity-bar__group--tools .activity-bar__item:hover,
+.activity-bar__group--tools .activity-bar__item.is-active,
+.activity-bar__group--tools .activity-bar__item[aria-expanded='true'] {
+  opacity: 1;
+}
+
+/* 窄屏：横排里两条暗示都不成立（见上面动机那段的 ⚠️） */
+:where(html.is-narrow) .activity-bar__group--panels .activity-bar__item::after {
+  display: none;
+}
+
+:where(html.is-narrow) .activity-bar__group--tools .activity-bar__item {
+  opacity: 1;
 }
 </style>

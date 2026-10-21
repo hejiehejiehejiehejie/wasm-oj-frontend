@@ -1563,6 +1563,7 @@ onBeforeUnmount(() => {
         :class="{ 'is-collapsed': !panelVisible }"
         :style="activityBarStyle"
         :panels="sidebarPanels"
+        :panel-position="panelPosition"
         @select="selectSidebarPanel"
       />
     </main>
