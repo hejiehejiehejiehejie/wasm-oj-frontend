@@ -492,6 +492,30 @@ textarea {
   outline-offset: 1px;
 }
 
+/* -------------------------------------------------- Monaco 控件提示条：不许折行
+
+   唯一目的是几何，不是好看 —— **折行会把提示顶到它自己要说明的那颗按钮身上**
+   （2026-10-21 用户报「⌘F 查找框的 ✕ 点不动，悬停时 close 提示还在闪」）。
+
+   来龙去脉：提示的位置是「量到的高度往上摆」算出来的（`platform/hover/browser/hoverWidget.js`
+   的 layout → computeYCordinate），而内容默认 `white-space: pre-wrap`（string 内容那条是
+   hoverWidget.js 写在内联样式上的）。本站的字体栈下，量到的那点宽度比文字窄了一丝，
+   于是 **量的时候一行、画出来两行**：实测 `.monaco-hover` 定位置时按 28px 摆，
+   最终渲染 44px（+3px 指针内边距 = 47），下沿从 51 掉到 70 —— 正好盖住 y=51..67 的 ✕。
+
+   后果比「挡住看不见」更糟：提示自己是 `pointer-events: auto`，指针压上去就命中 `.hover-contents`，
+   按钮收到 mouseout → 提示收起 → 指针又落回按钮 → 再 mouseover…… 实测 900ms 里
+   mouseover / mouseout 各 5 次（就是用户看到的「闪」），点下去落在提示上，查找框关不掉。
+   改成不折行后：一行 28px、下沿正好 51（= 按钮上沿，压 0px），`elementFromPoint` 就是按钮本身，
+   一次点击关掉；同样的 900ms 里 mouseover 2 次、mouseout 0 次。
+
+   只认 `.compact`：那是按钮 / 菜单这类**单行**提示（`HoverStyle.Pointer` 那条路），
+   编辑器正文的信息提示不带这个类，长文本该折行照旧折。`!important` 躲不掉 ——
+   那条 pre-wrap 是内联样式。 */
+.monaco-hover.compact .hover-contents {
+  white-space: pre !important;
+}
+
 /* Layout swap animation, driven by the View Transitions API when available. */
 ::view-transition-old,
 ::view-transition-new {
