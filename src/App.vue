@@ -1878,6 +1878,100 @@ onBeforeUnmount(() => {
   margin-left: 0;
 }
 
+/* ==================================================== 方向五 · 零侧栏（demo/fold-zero-rail）
+
+   备案 `docs/折叠侧栏设计备案.md` §5：折叠后**彻底不留那 48px**，四个入口收进工作区
+   左上角、与编辑器页签栏同一条带子。宽屏折叠态的竖栏就此消失，`ACTIVITY_BAR_PX`
+   那 48px 全归编辑器。
+
+   做法全是 CSS，一行 JS 都没加（判据落在 html.is-narrow 与 .workspace.is-collapsed 上，
+   与折叠态本身同源，不需要另存一份状态）：
+
+   1. `.workspace.is-collapsed` 补 `position: relative` —— 图标栏的绝对定位含块。
+      只在折叠态补，展开态整条栏本来就不在（v-show）。
+   2. 图标栏改 `position: absolute` + `flex-direction: row`：脱排版之后那 48px 的 flex
+      槽位自动消失，编辑器涨满。位置压在页签栏那条 35px 带子里（top 6px = 工作区
+      padding），缩放成 26×26 的小方块（竖排是 40×40，35px 的带子装不下）。
+   3. 页签条整体右移一个簇宽，页签不会钻到图标底下 —— `.editor-tabs` 是外层容器、
+      `overflow: hidden` 而真正的横向滚动在内层 `.editor-tabs__strip`，所以内边距加在
+      外层，不会跟着内容滚走，也不动条带里那套以条带端缘为原点的坐标数学。
+
+   ⚠️ 三件没做的（评审时要一起看）：
+   - **窄屏不动**。它本来就是一条通栏横条（见上面那几条 is-narrow 规则），把「宽窄两套
+     合并成一套」要重量 390 / 320 两档，先单独放着 —— 方向五真正的收益有一半在那。
+   - **右停靠不镜像**。图标簇留在左上角：零侧栏之后这四枚不再是「侧栏的边」，
+     而是全局视图开关，不跟着停靠侧跑。要不要镜像请评审定。
+   - 分隔条在折叠态仍停在左边（热区净占 4px，平时看不见），所以编辑器左缘距离窗口
+     11px、右缘 6px，左右略不对称。要拉平就得让折叠态的分隔条也让位，那会动
+     measureLimits 的 collapsedPx（拖拽折点），不在这一版里。 */
+:where(html:not(.is-narrow)) .workspace.is-collapsed {
+  position: relative;
+}
+
+:where(html:not(.is-narrow)) .workspace.is-collapsed :deep(.activity-bar) {
+  position: absolute;
+  z-index: 4;
+  top: 6px;
+  left: 6px;
+  /* 竖排时 flex-basis 是宽度（48px），横排里它成了高度，且不能参与分配 */
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  /* 两簇之间也补一个同值间隔：竖排靠 space-between 拉开，横排里不补就会比组内紧 4px
+     （与上面 is-narrow 那条同一个道理、同一个 4px） */
+  gap: 4px;
+  width: auto;
+  height: 35px;
+  /* 竖排的上下留白横过来变成左右留白 */
+  padding: 0 3px;
+  /* 竖排里这条 overflow 是给「收缩时把方块裁出去」用的；横排里方块已经缩到 26px，
+     留着它只会把图标的描边裁掉一圈 */
+  overflow: visible;
+}
+
+:where(html:not(.is-narrow)) .workspace.is-collapsed :deep(.activity-bar__group) {
+  flex-direction: row;
+  align-items: center;
+}
+
+/* 35px 带子里放 26×26：图标仍是 16px，四周留 5px —— 视觉上与页签等高，可点区还够用 */
+:where(html:not(.is-narrow)) .workspace.is-collapsed :deep(.activity-bar__item) {
+  width: 26px;
+  height: 26px;
+  margin-left: 0;
+  border-radius: 7px;
+}
+
+/* AppIcon 的 24 是 svg 的 width/height 属性（不是内联样式），CSS 覆盖得动 */
+:where(html:not(.is-narrow)) .workspace.is-collapsed :deep(.activity-bar__item svg) {
+  width: 16px;
+  height: 16px;
+}
+
+/* 方向四那枚 4px chevron 在这里让位：26px 方块里图标占 16、左右各只剩 5px，
+   箭头（right 3 / 宽 4）会压在文件图标右缘上 —— 实测 x 19..23 与图标 21 交叠 2px，
+   截图里看着像图标自带的尾巴。何况这一排已经落在页签栏里，hover 语汇归页签那一套。
+   要不要在 26px 上换一枚更小的形态，留给评审。
+   ⚠️ 方向四那两条规则里，右停靠那条是 (0,4,0)（多一个属性选择器），所以这里的选择器
+   也写足到 (0,4,0)，别退化成 (0,3,0) —— 那样右停靠不会生效。 */
+:where(html:not(.is-narrow)) .workspace.is-collapsed :deep(.activity-bar .activity-bar__group--panels .activity-bar__item::after) {
+  display: none;
+}
+
+/* 簇宽 = 4×26 + 组内 2×4 + 两组间 4 + 左右内边距 2×3 + 边框 2 = 124，图标簇右缘因此落在
+   130（工作区留白 6 + 124）。页签要停在它右边、留 5px 呼吸 —— 而两块卡片并不都从 6 起：
+   左停靠时编辑器被那 1px 折叠卡 + 分隔条净占的 4px 顶到 11（页签起点 12）⇒ 让 123；
+   右停靠时卡片就贴着 6（页签起点 7）⇒ 让 128。两个数差的就是那 5px。
+   ⚠️ 改簇内尺寸（方块 26 / 内边距 3 / 边框 1）要连这两个数一起改，否则页签会钻进图标底下。 */
+:where(html:not(.is-narrow)) .workspace.is-collapsed :deep(.editor-tabs) {
+  padding-left: 123px;
+}
+
+:where(html:not(.is-narrow)) .workspace.is-right.is-collapsed :deep(.editor-tabs) {
+  padding-left: 128px;
+}
+
 .workspace.is-dragging {
   cursor: col-resize;
   user-select: none;
