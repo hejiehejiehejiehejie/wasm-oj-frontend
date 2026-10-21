@@ -142,25 +142,50 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
    的卡片边界（侧栏收起、编辑器那半张卡离得远），同一支笔在这里会偏亮、抢戏。
    宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。
 
-   demo · 方向一：高度不再撑满，改成**按内容定高**的一枚胶囊（align-self: center）。
-   这样做不脱排版（编辑器的可用宽一格没多），换来的只是视觉：这条栏从「一根通天的框」
-   变成「一颗挂在侧边的胶囊」，上下两头的空档留给底色。真正的「悬浮 + 把 48px 还给编辑器」
-   要 absolute，会压到编辑区页签栏上，那条口径另定（见备案 §1 的待定）。
-   ⚠️ 窄屏横排里必须还原成 stretch（见 App.vue 那条 is-narrow 规则），否则这条会缩成
-   跟内容一样宽、贴在中间。 */
+   demo · 方向一（完整版，2026-10-21 第二版）：**脱排版**。不再当 flex 子项（原来的
+   `flex: 0 0 48px` 作废），改成 absolute 浮在工作区上 —— 那个 48px 因此真正还给了编辑器
+   （1400 档 1335 → 1383）。代价是它压在编辑器左侧那一列上，实测：与 Monaco 行号槽
+   相交 42px、与代码正文相交 **0px**（只盖住中间那几行的行号）；窄屏 Dock 横过来
+   压住底部 50px 的代码。
+   上下两簇仍按内容定高，所以是一枚胶囊而不是一根通天的框。
+
+   ⚠️ 居中**不用 transform**：横幅菜单（SettingsMenu）是 position: fixed，
+   祖先链上只要出现 transform，fixed 就改以它为参照，菜单会整体跑偏 ——
+   这正是备案 §1「代价」第一条点名的坑。改用纯盒模型：
+   `top: 0; bottom: 0` + `height: fit-content` + `margin-block: auto`，
+   两个 auto 外边距平分剩余空间，效果同居中但不产生 transform。
+
+   ⚠️ 窄屏横排里它变成一枚**居中的悬浮 Dock**（见 App.vue 那组 is-narrow 规则：
+   width/height: fit-content + left/right 归零 + margin-inline: auto）。 */
 .activity-bar {
-  flex: 0 0 48px;
-  min-width: 0;
-  align-self: center;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* 压在编辑器卡片之上，也压过分隔条那条 12px 热区（它 z-index: 5）：
+     折叠态两者本来就抢同一块位置，让胶囊赢 —— 它是唯一看得见的东西 */
+  z-index: 6;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
+  width: 48px;
+  height: fit-content;
+  /* 垂直居中（两个 auto 平分 top/bottom 归零后的剩余空间） */
+  margin-block: auto;
   padding: 4px 0;
   overflow: hidden;
   border-radius: 10px;
   border: 1px solid var(--border-faint);
   background: var(--bg-panel);
+}
+
+/* demo · 方向一 · 可选的毛玻璃形态（默认不启用，评审时在 devtools 里把根元素的
+   data-dock 改成 glass 就能对比）。⚠️ 与 2026-10-21 去掉倒计时卡毛玻璃的决定冲突 ——
+   那次的理由是「叠字发糊」，而胶囊浮在代码之上，正是同一类场景，所以默认仍是实色。
+   半透明比例取 0.72：再低会看不清它自己的边界，再高 blur 就看不出来。 */
+.activity-bar[data-dock='glass'] {
+  background: color-mix(in srgb, var(--bg-panel) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(120%);
 }
 
 /* 展开态不写规则：这一栏的在场与否由 App 的 v-show 决定（判据与 is-collapsed 同源），

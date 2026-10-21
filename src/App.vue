@@ -1631,6 +1631,9 @@ onBeforeUnmount(() => {
   display: flex;
   /* 布局对调只发生在这里 */
   flex-direction: row;
+  /* demo · 方向一：折叠态那枚胶囊是 absolute，含块取这里 —— 它要浮在工作区上，
+     而不是跟着编辑器卡片滚 / 被卡片的 overflow 裁掉 */
+  position: relative;
   /* 四周留白 6px + 两栏之间 4px 空隙（分隔条负外边距后剩下的部分，见 .splitter）：
      两块卡片浮在底色上 */
   padding: 6px;
@@ -1771,6 +1774,20 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+/* demo · 方向一：胶囊横向贴在哪一侧 —— 只由停靠侧决定（垂直居中在 ActivityBar.vue，
+   横向位置在这里，因为它要跟 .workspace 的 6px 留白对齐，而留白只在这份样式里）。
+   ⚠️ 这两条必须写在小面那组窄屏规则**之前**：两边特异性都是 (0,4,0)，靠顺序决胜，
+   而窄屏要把 left/right 一起改掉（Dock 居中）。 */
+.workspace.is-collapsed.is-left :deep(.activity-bar) {
+  left: 6px;
+  right: auto;
+}
+
+.workspace.is-collapsed.is-right :deep(.activity-bar) {
+  right: 6px;
+  left: auto;
+}
+
 /* ------------------------------------------------- 窄屏折叠态：图标栏横过来贴边（2026-10-13）
 
    窄屏展开态的左簇已经沉到侧栏底部（同一个 `is-narrow` 判据，见 Sidebar.vue），折叠态却还留着一竖条
@@ -1784,6 +1801,12 @@ onBeforeUnmount(() => {
    贴哪条边由设置 `cp.narrowCollapseSide` 决定（上 / 下，默认下）：模板上落成 `.is-fold-top` /
    `.is-fold-bottom`，下面那**四条 flex-direction** 就是它的全部实现。默认「下」＝ 2026-10-13
    定这条形态时的样子，所以不设这一项时的观感与本条上线时完全一致。
+
+   ⚠️ 2026-10-21（demo · 方向一）：这一横排已经由「通栏」改成**悬浮 Dock**（见下面 is-narrow
+   那组里的 width/height: fit-content 与两条 fold 规则里的 left/right 居中），它不再参与排版。
+   于是这四条 flex-direction 只剩「1px 的侧栏残盒排在编辑器前面还是后面」这一件事，肉眼
+   无从分辨 —— 规则留着没删：一不碍事，二来「贴顶 / 贴底」这两个语义还挂在这两个类上
+   （下面那两条 bottom: 33 / top: 46 就是按类分的）。
 
    竖排怎么排出来的：**不碰 JS 写在内联 style 上的 order**（那边是布局换边的唯一出处），
    改用 flex-direction 把主轴翻过来 —— 图标栏在两个停靠侧上 order 的位置不同，正好各用一条：
@@ -1840,26 +1863,44 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度 ——
-     48 装不下「40px 方块 + 上下各 4px 内边距 + 上下各 1px 边框」，方块会被裁掉一像素 */
-  flex: 0 0 auto;
   /* 竖着时的上下留白，横过来变成左右留白 */
   padding: 4px 8px;
-  /* demo · 方向一：胶囊形态（宽屏）靠 ActivityBar.vue 的 align-self: center 按内容定高。
-     横过来之后「侧边」变成「工作区的上/下边」，必须还原成 stretch —— 否则这条通栏会
-     缩成跟内容一样宽、飘在中间，不再是贴边的一条。 */
-  align-self: stretch;
+  /* demo · 方向一：横过来是一枚**悬浮 Dock**，不再通栏 —— 宽高都由内容定
+     （40 方块 + 上下 padding 8 + 上下边框 2 = 50）。同样不用 transform：
+     横幅菜单是 fixed，祖先有 transform 会跑偏。竖排基础规则里那条
+     `margin-block: auto` 是把竖胶囊垂直居中的，这里必须归零，否则 Dock 会被拉到半空。
+     左右居中那三条写在下面两条 fold 规则里 —— 它们要压过宽屏的
+     `.is-left / .is-right`（同是 (0,4,0)，靠这里写在后面才赢）。 */
+  width: fit-content;
+  height: fit-content;
+  margin-block: 0;
+  top: auto;
+  bottom: 10px;
 }
 
-/* 与编辑器卡片之间那条 4px 空隙：分隔条已经不排版了，改由这里补。
-   写在两档里而不是合并成一条 —— 栏在下补上边距、栏在上补下边距；
-   用物理的 margin-top / margin-bottom，column-reverse 也不会把它翻到另一边去。 */
+/* 贴哪一边由 cp.narrowCollapseSide 决定（默认下）。原来这里是给通栏补的 4px 外边距，
+   悬浮之后改成「让开那条 UI 带 + 4px 呼吸」—— 通栏时代栏是排版里的一员，天然在状态栏
+   后面；悬浮之后它压在最上层，直接贴边就会盖住状态栏（实测 390 档先盖掉了「main.cpp ·
+   空格:4」那一条的下半）。两个偏移量的构成：
+     底：6（workspace 留白）+ 1（卡片边框）+ 22（.editor-pane__status 的高度）+ 4（呼吸）= 33
+     顶：6（workspace 留白）+ 36（页签栏 editor-tabs）+ 4（呼吸）= 46
+   ⚠️ 22 与 36 是从那两个组件里量来的，它们一改高度这里要跟着改（没有变量可引用）。
+   left/right 归零 + margin-inline: auto 才是 Dock 的水平居中（实测 390 档：
+   195 宽的 Dock 落在 x=98，两侧各 98）。 */
 :where(html.is-narrow) .workspace.is-collapsed.is-fold-bottom :deep(.activity-bar) {
-  margin-top: 4px;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  bottom: 33px;
+  top: auto;
 }
 
 :where(html.is-narrow) .workspace.is-collapsed.is-fold-top :deep(.activity-bar) {
-  margin-bottom: 4px;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  top: 46px;
+  bottom: auto;
 }
 
 /* 软键盘弹起 + 图标栏贴底：这时候整块应用挂到 visualViewport 实测出来的范围上
