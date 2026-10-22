@@ -347,7 +347,7 @@
         <ol>
           <li>工具栏 14 颗按钮：加粗、斜体、删除线、行内代码、标题、引用、无序列表、有序列表、代码块、链接、图片、公式、表格、分割线。悬停能看到键位，比如加粗是 <kbd>Mod</kbd> + <kbd>B</kbd>。</li>
           <li>右端三颗视图按钮（仅编辑 / 双栏 / 仅预览）随时切换摆法，<kbd>Mod</kbd> + <kbd>\</kbd> 挨个轮换；旁边那颗全屏按钮让编辑区占满窗口，按 <kbd>Esc</kbd> 退出。</li>
-          <li>公式写 <code>$行内$</code> 与 <code>$$独占一段$$</code>，预览会渲染成 LaTeX。</li>
+          <li>公式写 <code>$行内$</code> 与 <code>$$独占一段$$</code>，预览会渲染成 LaTeX。从别处粘来的 <code>\(…\)</code>、<code>\[…\]</code> 也认，不用改写 —— 但 <code>\[</code> 要落在行首（<code>见 \[1\] 式</code> 这种正文不会被当成公式）；Codeforces 那套 <code>$$$…$$$</code> 同样能渲染。</li>
         </ol>
         <p>预览要先下载一次渲染器（marked + KaTeX，约 578KB），和本地运行环境一样只下一次、可随时卸载。</p>
         <p>题解不参与评测：打开 <code>.md</code> 时运行按钮会置灰，按 <kbd>Mod</kbd> + <kbd>Enter</kbd> 也不会进编译。</p>

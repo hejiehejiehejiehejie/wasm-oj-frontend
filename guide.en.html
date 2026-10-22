@@ -351,7 +351,7 @@
         <ol>
           <li>14 toolbar buttons: bold, italic, strikethrough, inline code, heading, quote, bullet list, numbered list, code block, link, image, formula, table and horizontal rule. Hover one to see its shortcut — bold is <kbd>Mod</kbd> + <kbd>B</kbd>.</li>
           <li>The three view buttons at the right end (editor only / split / preview only) switch the layout at any time, and <kbd>Mod</kbd> + <kbd>\</kbd> cycles through them; the button next to them gives the editor the whole window, and <kbd>Esc</kbd> leaves it.</li>
-          <li>Write formulas as <code>$inline$</code> and <code>$$on their own line$$</code>; the preview renders them as LaTeX.</li>
+          <li>Write formulas as <code>$inline$</code> and <code>$$on their own line$$</code>; the preview renders them as LaTeX. <code>\(…\)</code> and <code>\[…\]</code> pasted from elsewhere work too, no rewriting needed — but <code>\[</code> must start the line (so prose like <code>see \[1\]</code> stays literal text). Codeforces' <code>$$$…$$$</code> renders as well.</li>
         </ol>
         <p>
           The preview needs a one-time renderer download (marked + KaTeX, about 578KB) — like the local runtime, it is
