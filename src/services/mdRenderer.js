@@ -82,9 +82,12 @@ function blockStartIndex(src, pattern, lineStartOnly = false) {
 
 /**
  * 行内公式 `$…$`。
- * 两条克制的边界（都是为了让「不是公式的美元符号」留在原地）：
- * - 起始 `$` 后面不能是空白或另一个 `$`，收尾 `$` 前面不能是空白 —— 于是 `$5 和 $10`
- *   不会被当成一个公式；
+ * 三条克制的边界（都是为了让「不是公式的美元符号」留在原地）：
+ * - 起始 `$` 后面不能是空白或另一个 `$`；
+ * - 收尾 `$` 前面不能是空白 —— 于是 `价格 $5 和 $10` 不会被当成一个公式；
+ * - 收尾 `$` 后面不能紧跟数字 —— 于是 `价格 $5和$10`（不带空格）也不会。这条取自
+ *   Pandoc 的 `tex_math_dollars`：紧贴数字的 `$` 几乎一定是货币或计数器，而真公式
+ *   收尾后紧跟数字的写法（`$a$2`）本来就不成立，要写也该是 `$a$ 2`。
  * - 内容不许跨行、不许出现裸 `$`，`\$` 仍可作为转义写在里面。
  */
 const INLINE_MATH = {
@@ -94,7 +97,7 @@ const INLINE_MATH = {
     return src.match(/\$(?!\$)/)?.index
   },
   tokenizer(src) {
-    const match = /^\$(?![\s$])((?:\\.|[^\\$\n])+?)(?<!\s)\$(?!\$)/.exec(src)
+    const match = /^\$(?![\s$])((?:\\.|[^\\$\n])+?)(?<!\s)\$(?![\$\d])/.exec(src)
     if (!match) return undefined
     return { type: 'inlineMath', raw: match[0], text: match[1] }
   },
