@@ -17,6 +17,18 @@ export default {
         tools: '工具',
         empty: '还没有已安装的组件，可在「设置 › 应用 › 组件」里安装。',
       },
+      /**
+       * 折叠图标栏（ActivityBar）的右键菜单。只在「非窄屏 + 鼠标」下弹（触屏没有右键）。
+       * 第一项随当前停靠侧换词：现在在左就写「移到右侧」，说的永远是**点下去会发生什么**，
+       * 而不是「现在在哪」—— 后者点一下什么都没变，读起来像坏了。
+       * 下面列的是可固定到上簇的组件，条目名直接复用各组件自己的文案键
+       * （`cf.menu.*` / `countdown.title`），这里不重复一份。
+       */
+      bar: {
+        menuLabel: '图标栏菜单',
+        moveLeft: '侧边栏移到左侧',
+        moveRight: '侧边栏移到右侧',
+      },
     },
   },
   en: {
@@ -26,6 +38,11 @@ export default {
         codeforces: 'Codeforces',
         tools: 'Tools',
         empty: 'No components installed yet — install them in Settings › App › Components.',
+      },
+      bar: {
+        menuLabel: 'Activity bar menu',
+        moveLeft: 'Move Sidebar to Left',
+        moveRight: 'Move Sidebar to Right',
       },
     },
   },

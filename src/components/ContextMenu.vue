@@ -19,6 +19,7 @@
  * 定位收敛与「什么时候关」两件事已抽到 `composables/usePopoverLayer.js`（2026-10-11），
  * 与设置下拉菜单共用同一套；本组件只剩渲染。
  */
+import { computed } from 'vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 
 /**
@@ -26,6 +27,7 @@ import { usePopoverLayer } from '../composables/usePopoverLayer.js'
  * @property {string} id
  * @property {string} [label]
  * @property {string} [shortcut] 右列的快捷键文本（如 `Ctrl+C`）；不给就不占位
+ * @property {boolean} [checked] 勾选态（只在可勾选的菜单里给，见下面 `hasChecks`）
  * @property {boolean} [disabled]
  * @property {boolean} [divider]
  */
@@ -38,6 +40,18 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select', 'close'])
+
+/**
+ * 「有没有勾位」与「这条是不是勾选项」是两个判据，别合并：
+ * - `hasChecks`：整份菜单里有一条带 `checked`，就所有条目都留出左侧勾位 ——
+ *   否则同一份菜单里有勾的条目文字比没勾的右移一格，左边缘就对不齐。
+ *   （文件树 / 编辑区那些菜单一条都不带这个字段，因此完全不受影响，
+ *   布局与以前逐像素相同。）
+ * - 单个条目的 `role` / `aria-checked`：只看**它自己**有没有 `checked`。
+ *   同一份菜单里混着「动作项」（如「侧边栏移到右侧」）和「勾选项」时，
+ *   动作项仍得读成普通 menuitem，标成复选框会让读屏念错。
+ */
+const hasChecks = computed(() => props.items.some((item) => typeof item.checked === 'boolean'))
 
 const { root, position, ready } = usePopoverLayer({
   x: () => props.x,
@@ -66,10 +80,14 @@ function select(item) {
           v-else
           type="button"
           class="context-menu__item"
+          :class="{ 'context-menu__item--checked': item.checked }"
           :disabled="item.disabled"
-          role="menuitem"
+          :role="typeof item.checked === 'boolean' ? 'menuitemcheckbox' : 'menuitem'"
+          :aria-checked="typeof item.checked === 'boolean' ? Boolean(item.checked) : undefined"
           @click="select(item)"
         >
+          <!-- 勾位：只有整份菜单里存在 checked 字段时才渲染（见 script 里的 hasChecks） -->
+          <span v-if="hasChecks" class="context-menu__check" aria-hidden="true"></span>
           <span class="context-menu__label">{{ item.label }}</span>
           <!-- 右列快捷键（模板里「文字在左、键位在右」的排布）。给不给由调用方决定：
                现在文件树的「重命名 / 删除」与编辑区那四项都带数据，其余项不带、这一格就不出现。
@@ -159,6 +177,41 @@ function select(item) {
   /* 0.4 取自模板（原先是 0.45） */
   opacity: 0.4;
   cursor: default;
+}
+
+/* 条目文字：撑满中间那段，右列键位才贴得住右缘。
+   有勾位时它夹在「勾位」与「键位」之间（space-between + 这条 flex:1 等价于
+   原来两栏时的效果，所以不带勾位的菜单布局逐像素没变）。 */
+.context-menu__label {
+  flex: 1;
+}
+
+/* 勾位（2026-10-22 加，图标栏右键菜单是第一个用户）：固定一格宽，有没有勾都占位，
+   同一份菜单里各条目的文字左边缘才对得齐。勾本身用两条边框旋转出来，
+   不用 `✓` 字符 —— 字符在不同平台的字体里形态与基线都不一样。
+   颜色走 currentColor：条目 hover 提亮时勾跟着一起亮。 */
+.context-menu__check {
+  position: relative;
+  flex: 0 0 auto;
+  width: calc(12px * var(--menu-scale));
+  height: calc(12px * var(--menu-scale));
+}
+
+.context-menu__check::before {
+  content: '';
+  position: absolute;
+  left: calc(1px * var(--menu-scale));
+  top: calc(3px * var(--menu-scale));
+  width: calc(8px * var(--menu-scale));
+  height: calc(4px * var(--menu-scale));
+  border-left: calc(1.5px * var(--menu-scale)) solid currentColor;
+  border-bottom: calc(1.5px * var(--menu-scale)) solid currentColor;
+  transform: rotate(-45deg);
+  opacity: 0;
+}
+
+.context-menu__item--checked .context-menu__check::before {
+  opacity: 1;
 }
 
 /* 右列快捷键：11px + 暗一档（`--menu-muted`），退到背景里。

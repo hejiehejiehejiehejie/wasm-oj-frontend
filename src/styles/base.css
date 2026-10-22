@@ -90,6 +90,10 @@
 
   --text: #d4d4d4;
   --text-dim: #9b9b9b;
+  /* 「选中」这一档：夹在 --text-dim 与 --text 之间，只给折叠图标栏选中的那几格用
+     （2026-10-22 用户要求减弱选中后的加亮 —— 直接跳到 --text 太抢眼，
+     因为折叠态下「组件 / 设置」一开就是常驻状态）。约从 dim 往 text 走 45%。 */
+  --text-active: #b5b5b5;
   --text-faint: #6d6d72;
   --text-on-accent: #f1f7f4;
   --statusbar-text: #cfe3f2;
@@ -159,11 +163,6 @@
   /* 用例卡片 */
   --case-border: #45454a;
   --case-chip-bg: #303034;
-
-  /* 分隔条正中的三点抓手：常驻，好让人一眼看出这里能拖。
-     2026-10-11 压暗一档（#525258 → #3f3f45）：原来比 --case-border（#45454a）还亮，
-     在深色底上有点跳；现在退到边框以下，只留「看得见」这一档。 */
-  --splitter-dot: #3f3f45;
 
   /* 分隔条显影的那条线（悬停 / 键盘聚焦 / 拖拽三态同色，见 App.vue 的 .splitter__line）。
      2026-10-11：先由 --focus 亮蓝改成中性灰，当天又改回蓝 —— 要求是「蓝、比 --focus
@@ -296,6 +295,7 @@
 
   --text: #1f1f1f;
   --text-dim: #616161;
+  --text-active: #434343;
   --text-faint: #8b8b8b;
   --text-on-accent: #ffffff;
   --statusbar-text: #ffffff;
@@ -347,10 +347,6 @@
 
   --case-border: #d6d6d6;
   --case-chip-bg: #ececec;
-
-  /* 与深色同步退一档（#b0b0b0 → #c8c8c8）：往 --case-border（#d6d6d6）那边靠，
-     浅色底上不再是一个偏暗的小点 */
-  --splitter-dot: #c8c8c8;
 
   /* 见深色那支的说明：同一色相下压暗一档、饱和度拉满（#0078d4 → #006cc0）。
      白底上对比度约 5.4:1，一条 2px 的线够看清 */

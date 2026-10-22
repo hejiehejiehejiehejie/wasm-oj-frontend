@@ -1498,6 +1498,8 @@ onBeforeUnmount(() => {
         <NotificationCenter />
       </section>
 
+      <!-- 折叠态的分隔条上不再画那三点抓手（2026-10-22 用户要求去掉，见样式表里
+           .splitter__line 上面那段说明）：这里只剩热区与一条悬停才显影的线。 -->
       <div
         v-show="!mdFullscreen"
         class="splitter"
@@ -1511,7 +1513,6 @@ onBeforeUnmount(() => {
         @keydown.right.prevent="nudgeShare(2)"
       >
         <span class="splitter__line"></span>
-        <span class="splitter__dots" aria-hidden="true"><i></i><i></i><i></i></span>
       </div>
 
       <!-- 统一侧边栏：资源管理器与评测样例合并成一个页签容器，
@@ -1776,7 +1777,8 @@ onBeforeUnmount(() => {
 
    窄屏展开态的左簇已经沉到侧栏底部（同一个 `is-narrow` 判据，见 Sidebar.vue），折叠态却还留着一竖条
    48px 的图标栏贴在屏幕左边 —— 两个形态对不上；而且折叠之后唯一剩下的入口是那条「边界线」，
-   它的可见部分只是热区里一列 2px 的点（线平时 opacity: 0，触屏还没有 hover），
+   它在触屏上根本指望不上（线平时 opacity: 0、触屏又没有 hover；那阵子热区正中还有一列
+   2px 的三点抓手，而 2px 远小于指尖 —— 三点后来在 2026-10-22 也撤掉了），
    热区左半又正好压在图标栏中部那片没有按钮的空白上（点下去什么都不会发生）——
    手指基本指不准，用户反馈的「触屏点边界线展不开」就是这个。
    所以折叠态也统一成横排：**图标栏横过来、通栏贴在工作区的一条边上**，展开 / 选面板由它的
@@ -1835,16 +1837,21 @@ onBeforeUnmount(() => {
    所以这里给整条补一个 gap: 4px，与组内格间距同值 ⇒ 一排等距按钮。
    ⚠️ 这个 4px 与 ActivityBar.vue 里 `.activity-bar__group { gap: 4px }` 是同一个数，改一处要一起改。
    两簇的语义分界因此只剩图标与选中态差异；要拉开簇间距，把这里的 gap 调大即可。
-   外观与它竖着时同一套（同圆角 / 同底色 / 同边框）。 */
+   外观与它竖着时同一套（同圆角 / 同底色，都**不描边** —— 那圈 1px 边框 2026-10-22 去掉了）。 */
 :where(html.is-narrow) .workspace.is-collapsed :deep(.activity-bar) {
   flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度 ——
-     48 装不下「40px 方块 + 上下各 4px 内边距 + 上下各 1px 边框」，方块会被裁掉一像素 */
+  /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度。
+     内容高度 = 「40px 方块 + 上下各 4px 内边距」= 48，靠 auto 撑开；写死 48 也刚好，
+     但没有余量，字号 / 缩放一变就会被裁掉一像素 */
   flex: 0 0 auto;
-  /* 竖着时的上下留白，横过来变成左右留白 */
+  /* 横排的取值与竖排那套是两回事，别按「竖着的上下变成左右的」去推：
+     - 上下 4px：方块 40 撑满这条横栏的高度，这 4px 只是别让圆角 / 缩放把它裁掉一像素；
+     - 左右 8px：两侧的呼吸位。横排是 justify-content: center，内容居中且远没到溢出，
+       所以这两个值只在极窄时起作用 —— 竖排那条（上簇距栏顶 / 下簇距栏底）在横排里
+       没有对应物（上簇在最左、下簇在最右，谈不上"离边多远"），因此不跟着放大。 */
   padding: 4px 8px;
 }
 
@@ -1931,8 +1938,8 @@ onBeforeUnmount(() => {
    触屏 24px 里有 20px 压在侧栏左缘上，树行最左边那一段（含文件夹的展开箭头）点不动，
    而且在上面拖**滑不动树**（热区带 touch-action: none）；宽屏那 12px 里同样压进 8px，
    还会被当成「单击分隔条」直接把侧栏折了（宽屏的轻点入口）。镜像后与在左时逐像素对称：
-   净空隙同为 4px，热区盒只是翻转了朝哪边长的方向 —— 线 / 三点那两条偏移跟着取反号
-   （见 .splitter__line 与 .splitter__dots 各自的 is-right 规则）。 */
+   净空隙同为 4px，热区盒只是翻转了朝哪边长的方向 —— 线那条偏移跟着取反号
+   （见 .splitter__line 的 is-right 规则）。 */
 .workspace.is-right .splitter {
   margin: 0 0 0 -8px;
 }
@@ -1995,86 +2002,16 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 正中间的三点抓手：只在**折叠态**、且那条线没亮的时候显示（收起规则见下面两条）。
-
-   两条纪律（都是 2026-10-11 定的）：
-   1. 不给底色 —— 有底色时会遮出整整一段缺口（容器高 ≈ 点高 × 3 + 点间距 × 2 +
-      上下内边距），线亮起来就断成三段；
-   2. 线亮的三种情形（悬停 / 键盘聚焦 / 拖拽）下把点隐去 —— 光去掉底色还不够，
-      这三个实心点本身就压在线身上，看着线被啃掉三小段。
-   结果是「点」与「线」互斥出现：平时给点提示能拖，线亮起来时只剩一条完整的线。
-   ⚠️ 热区 2026-10-13 起只向右外扩（见 .splitter 的 margin），三点靠 left:50% 居中在**热区**里，
-   折叠态它常驻可见、偏 4px 一眼看得出来 —— 所以折叠态下另有一条把它钉回中缝（见下面）。 */
-.splitter__dots {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 0.5px;
-  opacity: 1;
-  /* 与 .splitter__line 同时长：点淡出的同一段时间里线淡入，不会出现「线亮了点还在」 */
-  transition: opacity 0.16s ease;
-  pointer-events: none;
-}
-
-/* 展开态收起小圆点（2026-10-11 定）：它是常驻的，会把线切成一段一段；收起后
-   线从上到下连贯。折叠态仍留着，提示「往这边拖能拉出来」 */
-.workspace:not(.is-collapsed) .splitter__dots {
-  display: none;
-}
-
-/* 点径 2px（2026-10-11 由 3px 调小）。注意 2px < postcss-pxtorem 的 minPixelValue，
-   不再参与 rem 缩放，是固定像素；要它跟着界面缩放就得写回 3px 以上 */
-.splitter__dots i {
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
-  background: var(--splitter-dot);
-}
-
-/* 折叠态把三点钉回中缝（2026-10-13 加，用户报「三个小圆点错位」）：热区只向右外扩后，
-   它的 50% 偏右 4px，点是 left:50% 居中在热区里的，于是跟着偏 —— 折叠态只有它是常驻的
-   「往这边拖能拉出来」提示，偏一眼就看出来。**只挪点、不挪热区**：热区位置挪动会让左缘
-   压进折叠图标栏（试过一版当天撤掉，见 .splitter 的注释）；点不接指针事件、纯视觉，挪它
-   没有行为代价。偏移量与线同源（.splitter__line 里同样减 4px）。
-   ⚠️ 触屏那条必须写在这个基础规则之后：同特异性 (0,3,0) 下后者压前者（实测踩过）。 */
-.workspace.is-collapsed .splitter__dots {
-  left: calc(50% - 4px);
-}
-
-@media (pointer: coarse) {
-  .workspace.is-collapsed .splitter__dots {
-    /* 触屏 24px 热区的 50% 偏右 10px（与 .splitter__line 的 -10px 同源） */
-    left: calc(50% - 10px);
-  }
-}
-
-/* 侧栏在右：三点跟着线一起镜像（同一条中缝提示，偏移取反号）。
-   特异性 (0,4,0) 高于上面两条 (0,3,0)，谁先谁后都不吃亏；粗指针那条仍写在基础规则之后。 */
-.workspace.is-right.is-collapsed .splitter__dots {
-  left: calc(50% + 4px);
-}
-
-@media (pointer: coarse) {
-  .workspace.is-right.is-collapsed .splitter__dots {
-    left: calc(50% + 10px);
-  }
-}
-
+/* 折叠态的分隔条上曾有一列三点抓手（2026-10-11 加，2026-10-22 用户要求去掉）。
+   那时它是折叠后「往这边拖能拉出来」的常驻视觉提示；去掉的理由是它太吵 ——
+   折叠态本来就只剩一条图标栏，中缝上再挂三个小点，像多出一串挂件。
+   去掉之后把侧栏拉回来仍有几条路，都不依赖它：拖这条热区（悬停 / 聚焦 / 拖拽时
+   线才显影）、宽屏轻点分隔条走 togglePanel、窄屏点图标栏上那两枚面板按钮。
+   ⚠️ 因此别顺手把 .splitter 的热区收窄：点没了之后，那 12px（触屏 24px）就是
+   折叠态唯一的抓取面。颜色变量 --splitter-dot 随三点一起从 base.css 删掉了。 */
 .splitter:focus-visible .splitter__line,
 .workspace.is-dragging .splitter__line {
   opacity: 1;
-}
-
-/* 线亮起来时把三个点隐去（原因见 .splitter__dots 上面第 2 条）：点、线互斥出现，
-   线才是完整的。注意必须与上面那条线规则成对写上，漏一条就会出现「线亮了还带点」 */
-.splitter:focus-visible .splitter__dots,
-.workspace.is-dragging .splitter__dots {
-  opacity: 0;
 }
 
 /* 「悬停显影」只在真有悬停能力的指针上生效。触屏没有 hover，浏览器会把点按瞬间的 :hover
@@ -2083,10 +2020,6 @@ onBeforeUnmount(() => {
 @media (hover: hover) {
   .splitter:hover .splitter__line {
     opacity: 1;
-  }
-
-  .splitter:hover .splitter__dots {
-    opacity: 0;
   }
 }
 </style>

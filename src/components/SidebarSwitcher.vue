@@ -106,6 +106,32 @@ function closeCompMenu() {
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
 onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
+
+// ------------------------------------------------------------ 页头图标的墨迹口径
+// 两颗独立钮（组件 / 设置）过去同画布 size=16，但两个字形在 24 网格里的外接框不同：
+// gear 22/24、grid 只有 16/24（外框实测与 ActivityBar 的 ICON_INK 表同源，改字形两边一起改）。
+// 画布一样大、墨迹差约 4px —— 组件那颗看着小一圈（2026-10-22 用户要求对齐到齿轮）。
+// 换算：对齐的是「字形外框」（gear@16 的外框 22×16/24 ≈ 14.67px），按各自外框反解 size
+// （grid → 22）。描边基准取**页头现状**而不是 1.9：两颗钮在 size=16 画布上的视觉描边
+// 一直是 1.9×16/24 ≈ 1.27px（ActivityBar 那套「补偿到 1.9」是折叠栏 21px 墨迹的口径，
+// 搬过来会把齿轮凭空描粗一圈 —— 2026-10-22 首版踩到，读数 2.85 当场露馅）。
+// 所以补偿写成 HEAD_ICON_STROKE × HEAD_ICON_SIZE / size：gear 走恒等映射（16 / 1.9 原样），
+// grid 拿到 1.38，两颗的视觉描边与墨迹（≈15.93px）都相等。
+// 表里没有的图标保持 size=16 原样（与胶囊段位、收起箭头同档）；gear 走同一函数是恒等映射，
+// 把「与设置相同」的基准显式写在同一处，防两边漂移。
+const HEAD_ICON_SIZE = 16
+const HEAD_ICON_STROKE = 1.9
+const HEAD_ICON_INK = { grid: 16, gear: 22 }
+
+function headIconOptics(name) {
+  const ink = HEAD_ICON_INK[name]
+  if (!ink) return { size: HEAD_ICON_SIZE }
+  const size = (HEAD_ICON_INK.gear * HEAD_ICON_SIZE) / ink
+  return {
+    size: Number(size.toFixed(2)),
+    strokeWidth: Number(((HEAD_ICON_STROKE * HEAD_ICON_SIZE) / size).toFixed(2)),
+  }
+}
 </script>
 
 <template>
@@ -169,7 +195,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       :aria-expanded="Boolean(compMenuAnchor)"
       @click="toggleCompMenu"
     >
-      <AppIcon :name="components.icon" size="16" />
+      <AppIcon :name="components.icon" v-bind="headIconOptics(components.icon)" />
     </button>
 
     <button
@@ -183,7 +209,7 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
       :aria-expanded="Boolean(menuAnchor)"
       @click="toggleMenu"
     >
-      <AppIcon :name="settings.icon" size="16" />
+      <AppIcon :name="settings.icon" v-bind="headIconOptics(settings.icon)" />
     </button>
 
     <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="below-end" @close="closeMenu" />

@@ -26,9 +26,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { t } from '../i18n/index.js'
-import { cfReady } from '../services/cfRuntime.js'
-import { countdown, openCountdown } from '../services/countdown.js'
-import { openCfContestTab, openCfPickerTab } from '../services/editorViews.js'
+import { COMPONENT_GROUPS } from '../services/activityBarPins.js'
 
 const props = defineProps({
   /** 锚点（那颗「组件」按钮）的 rect；菜单按它的位置展开 */
@@ -65,35 +63,24 @@ const { root, position, ready } = usePopoverLayer({
 })
 
 /**
- * 分组表。两组都只在「装着」时出现（2026-10-21：工具组也跟着倒计时的安装态走，
- * 它不再是无条件常驻的那一组）：没装的组件不该留一颗点了没反应的格子 ——
- * 与设置里卸载那一行是同一条判据 `countdown.installed`。
- * 动作直接用 editorViews 的 open*Tab / countdown 的 openCountdown：
+ * 分组表从 `services/activityBarPins.js` 的 COMPONENT_GROUPS 派生（2026-10-22）——
+ * 那张表同时喂给折叠图标栏的右键菜单与固定格，**不要再在这里另抄一份**：
+ * 图标名 / 文案键 / 可用判据三样一旦分叉，同一个组件会在两处长得不一样。
+ *
+ * 过滤规则没变（2026-10-21 定）：两组都只在「装着」时出现 —— 没装的组件不该留一颗
+ * 点了没反应的格子，与设置里卸载那一行是同一条判据（各自的 `available()`）。
+ * 动作直接用目录里的 `run`（open*Tab / openCountdown）：
  * 重复点亮同一个页签、重复开同一张卡都没有副作用。
  */
-const groups = computed(() => {
-  const list = []
-  if (cfReady.value) {
-    list.push({
-      id: 'codeforces',
-      label: t('components.menu.codeforces'),
-      items: [
-        { id: 'picker', icon: 'codeforces', label: t('cf.menu.picker'), run: openCfPickerTab },
-        { id: 'contest', icon: 'clock', label: t('cf.menu.contest'), run: openCfContestTab },
-      ],
-    })
-  }
-  if (countdown.installed) {
-    list.push({
-      id: 'tools',
-      label: t('components.menu.tools'),
-      items: [
-        { id: 'countdown', icon: 'timer', label: t('countdown.title'), run: openCountdown },
-      ],
-    })
-  }
-  return list
-})
+const groups = computed(() =>
+  COMPONENT_GROUPS.map((group) => ({
+    id: group.id,
+    label: t(group.labelKey),
+    items: group.items
+      .filter((item) => item.available())
+      .map((item) => ({ ...item, label: t(item.labelKey) })),
+  })).filter((group) => group.items.length),
+)
 
 /** 扁平表只用于「第一项是谁」：焦点落点与 ref 回收都按 id 走 */
 const flatItems = computed(() => groups.value.flatMap((group) => group.items))

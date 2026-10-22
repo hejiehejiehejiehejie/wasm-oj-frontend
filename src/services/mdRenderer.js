@@ -5,7 +5,7 @@
  * KaTeX 吐出来的是 MathML + 一堆内联样式/类名，DOMPurify 的默认白名单会把它们当成
  * 可疑标记删掉 —— 「先渲染公式、再整体清洗」等于把公式洗没。反过来，先清洗用户正文、
  * 再往干净的空壳里灌公式就绕开了这个矛盾：
- *   1) marked 把公式（`$x$` / `\(x\)` / `$$…$$` / `\[…\]`）解析成**空壳元素**
+ *   1) marked 把公式（下面那几个扩展，各认一种写法）解析成**空壳元素**
  *      （`.md-math`，正文以纯文本放在里面，
  *      一个标签、一个属性都不来自用户）；
  *   2) DOMPurify 清洗整棵 HTML —— 这一步只面对用户写的正文（含 raw HTML 与粘贴来的
@@ -107,6 +107,25 @@ const INLINE_MATH = {
 }
 
 /**
+ * 转义形态的正文还原：`\_` → `_`。
+ *
+ * 只用在 `\\(…\\)` / `\\[…\\]` 这两种形态里。它们是从「在 markdown 里显示 LaTeX」
+ * 的地方复制来的 —— 分隔符 `\(` 在 markdown 里是「字面的 `(`」，于是作者写 `\\(`；
+ * 同理下划线写 `\_`。原样交给 KaTeX **不会报错**，只是静默出错：
+ * `\underbrace{…}\_{k}` 里的 `\_` 被当成字面下划线字符，下标那一块直接消失，
+ * `throwOnError` 也不会响（渲染结果看着像「作者没写下标」）。
+ *
+ * 只还原这一个，不碰其它「反斜杠 + 标点」，原因有二：
+ * - `\{` `\}` `\%` `\&` `\|` `\,` 这些在 TeX 里都是**有意义的命令**，还原掉就残了；
+ *   而 `\_` 在 TeX 里只是「文本下划线」，与下标符 `_` 撞车，正是要拆开的那个。
+ * - `\\`（TeX 换行）更不能碰：作者若已按 markdown 规则写成 `\\\`（三个），还原反而把
+ *   换行变成控制空格、cases 挤成一行。所以这里只管 `\_`，别的原样透传给 KaTeX。
+ */
+function unescapeTex(text) {
+  return text.replace(/\\_/g, '_')
+}
+
+/**
  * 行内公式的另一种写法 `\(…\)`，LaTeX 原生那一套。
  *
  * 为什么要认它：题解、笔记、题面多半是抄来改的，`$…$` 与 `\(…\)` 混着出现很常见。
@@ -127,6 +146,34 @@ const INLINE_MATH_PAREN = {
     const match = /^\\\(((?:\\.|[^\\\n])+?)\\\)/.exec(src)
     if (!match) return undefined
     return { type: 'inlineMathParen', raw: match[0], text: match[1] }
+  },
+  renderer(token) {
+    return mathShell(token.text, false)
+  },
+}
+
+/**
+ * 行内公式的**转义形态** `\\(…\\)`。
+ *
+ * 为什么会有这一种：题解多半是抄来改的，而「在 markdown 里显示 LaTeX」的那些载体
+ * （博客编辑器、论坛、聊天窗口）会把 `\(` 转义成 `\\(` —— 否则 markdown 自己先把
+ * 反斜杠吃掉、`\(` 当场变成 `(`。实测的一整篇题解就是这种形态：`\\(` 20 处、
+ * `\\[` 2 处，单写的 `\(` 一处都没有，于是 22 个公式全退化成正文乱码。
+ *
+ * 判据与 `\(…\)` 那条一样（允许空白、不许跨行），差别只在多认一个反斜杠、
+ * 内容过一遍 unescapeTex。注意它**不**和普通版抢：`^\\\\\(` 在 `\(c\)` 上第 2 个字符
+ * 是 `(`，匹配不上；普通版在 `\\(c\\)` 上同理也匹配不上。
+ */
+const INLINE_MATH_PAREN_ESCAPED = {
+  name: 'inlineMathParenEscaped',
+  level: 'inline',
+  start(src) {
+    return src.match(/\\\\\(/)?.index
+  },
+  tokenizer(src) {
+    const match = /^\\\\\(((?:\\.|[^\\\n])+?)\\\\\)/.exec(src)
+    if (!match) return undefined
+    return { type: 'inlineMathParenEscaped', raw: match[0], text: unescapeTex(match[1]) }
   },
   renderer(token) {
     return mathShell(token.text, false)
@@ -173,6 +220,28 @@ const BLOCK_MATH_BRACKET = {
     const match = /^\\\[([\s\S]+?)\\\]/.exec(src)
     if (!match) return undefined
     return { type: 'blockMathBracket', raw: match[0], text: match[1].trim() }
+  },
+  renderer(token) {
+    return mathShell(token.text, true)
+  },
+}
+
+/**
+ * 独占一段的公式 `\\[…\\]`，`\[…\]` 的转义形态（来源同上）。
+ *
+ * 判据与 `\[` 版完全一致 —— 起始仍必须落在行首。多认的那个反斜杠不改变歧义的性质：
+ * `\\[1\\]` 在 markdown 里同样是「字面的 [1]」，写在句中就该留在正文里。
+ */
+const BLOCK_MATH_BRACKET_ESCAPED = {
+  name: 'blockMathBracketEscaped',
+  level: 'block',
+  start(src) {
+    return blockStartIndex(src, /\\\\\[/, true)
+  },
+  tokenizer(src) {
+    const match = /^\\\\\[([\s\S]+?)\\\\\]/.exec(src)
+    if (!match) return undefined
+    return { type: 'blockMathBracketEscaped', raw: match[0], text: unescapeTex(match[1]).trim() }
   },
   renderer(token) {
     return mathShell(token.text, true)
@@ -234,8 +303,10 @@ function configure(marked) {
       // 它才会先被问到；反过来写就永远是 `$$` 抢走前两个美元。
       INLINE_MATH,
       INLINE_MATH_PAREN,
+      INLINE_MATH_PAREN_ESCAPED,
       BLOCK_MATH,
       BLOCK_MATH_BRACKET,
+      BLOCK_MATH_BRACKET_ESCAPED,
       BLOCK_MATH_TRIPLE,
     ],
   })
