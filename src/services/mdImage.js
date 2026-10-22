@@ -15,7 +15,8 @@
  * 【DOM → PNG 的路：SVG foreignObject，不引第三方库】
  * 项目纪律是不为导出再加一个 html2canvas 之类的依赖（它们本身也是同一套路数）。步骤：
  *   1) 在页面里挂一个离屏容器（`position: fixed; left: -100000px`），renderMarkdown 进去；
- *   2) 把每个元素的**计算样式**内联到克隆体上（下面 STYLE_PROPERTIES 的白名单）；
+ *   2) 把每个元素的**计算样式**内联到克隆体上（下面 STYLE_PROPERTIES 的白名单；
+ *      SVG 元素另抄 fill/stroke —— 见 SVG_STYLE_PROPERTIES 的注释）；
  *   3) 连同 @font-face（字体转 data URL）一起塞进 `<svg><foreignObject>`，用 <img> 解码；
  *   4) 按质量档放大画到 canvas。
  * 为什么要内联字体：SVG 作为图片加载时**不会去取外部资源**，KaTeX 的 20 个 woff2 与站内
@@ -154,6 +155,21 @@ const STYLE_PROPERTIES = [
   'column-gap',
   'order',
 ]
+
+/**
+ * SVG 元素额外内联的颜色属性（只对 SVG 命名空间的元素抄，HTML 元素绝不抄）。
+ *
+ * KaTeX 的横大括号（`\underbrace` / `\overbrace`）、根号、弹性定界符都是
+ * `<svg><path/></svg>`，路径本身不带 fill/stroke 属性，颜色全靠 KaTeX CSS 的
+ * `.katex svg { fill: currentColor; stroke: currentColor }` —— 而导出的 foreignObject
+ * 里没有 KaTeX CSS，`fill` 一旦漏抄就回落到 SVG 初始值**黑**（2026-10-22 实测：
+ * 深色出图里公式是白的、横大括号是黑的）。
+ *
+ * 为什么不放进 STYLE_PROPERTIES：HTML 元素的 `fill` / `stroke` 计算值是初始值（黑），
+ * 全量内联会顺着继承盖到 svg 头上，正好把对的值顶掉。只对 SVG 元素抄计算值，
+ * 且 `currentColor` 在计算样式里已经解析成实际色值，图里不依赖任何 CSS 规则。
+ */
+const SVG_STYLE_PROPERTIES = ['fill', 'stroke', 'stroke-width']
 
 const URL_PATTERN = /url\((['"]?)([^'")]+)\1\)/g
 
@@ -443,6 +459,12 @@ function cloneWithStyles(node) {
     for (const property of STYLE_PROPERTIES) {
       const value = computed.getPropertyValue(property)
       if (value) clone.style.setProperty(property, value)
+    }
+    if (node instanceof SVGElement) {
+      for (const property of SVG_STYLE_PROPERTIES) {
+        const value = computed.getPropertyValue(property)
+        if (value) clone.style.setProperty(property, value)
+      }
     }
   }
   for (const child of node.childNodes) clone.appendChild(cloneWithStyles(child))
