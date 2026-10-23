@@ -1636,7 +1636,7 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 ⚠️ 别为了「省高度」把这行改回两端对齐：这张卡是竖着长的，按钮必须跟文字同一条左轴线；
 真要并排，三颗按钮加起来 294px，容器得 ≥ 380 才放得下，而设置视图在窄编辑器里远远到不了。
 
-### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.1）
+### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.2）
 
 **为什么必须走扩展**：站点自己提交不了 —— 提交页要 CSRF token，跨源也读不到用户的登录 cookie。扩展本来就注入在 codeforces.com、本来就带着登录态，与代填验证码是同一条信任边界：源码由网页显式递过去，扩展只把它写进表单，**不读 cookie、不回传页面内容**，回给网页的只有原因枚举、提交号与判定码。
 
@@ -1675,6 +1675,23 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 
 清单（`host_permissions` 190 / `content_scripts` 4）与 API `permissions` 未变，第三方组件未变。
 
+**2.67.2 当日补丁**（2026-10-23 晚，在用户**已登录**的浏览器里看真实提交页 + 真交了一次）：**根因与上面三条都不同 —— 真页面的源码框叫 `source`，不是 `sourceFile`。** `fillSource` 早先按 `textarea[name="sourceFile"]` 找，可 `sourceFile` 在真页面上是旁边那个**上传文件的 input**，全页没有一个叫 sourceFile 的文本域，于是 `fill` 在最后一步返回 `page`，用户看到的就是「提交页认不出来」。
+
+真实提交页（`/contest/1832/submit`，2026-10-23 登录态实测）的结构：
+
+| 元素 | 真实值 |
+| --- | --- |
+| 表单 | `form.submit-form.submitFrameForm`；action 自带 `?adcd1e=…&csrf_token=…` |
+| 题目 | `select[name="submittedProblemIndex"]`，value 就是 `A` / `D1` |
+| 编译器 | `select[name="programTypeId"]`，34 项；最后一个 `GNU G++` 是 `91` = `GNU G++23 14.2 (64 bit, msys2)` |
+| 源码 | `textarea[name="source"]`（`#sourceCodeTextarea`，`display:none`）—— **`sourceFile` 是文件上传框** |
+| 可见编辑器 | Ace（`window.ace`，`#editor`），与那个隐藏框**双向同步**：写隐藏框再派发 `input`，Ace 里的内容跟着变（实测 249/249 字符一致）；反向也一样 |
+| 隐藏域 | `csrf_token` / `ftaa` / `bfaa` / `_tta` —— 点页面自己的提交按钮就由页面带着走，扩展不用碰 |
+
+**实测**：按修好后的步骤（同样的选择器、同样派发 `input` / `change`、同样点 `input[type=submit]`）在真实页面上选 A、选 91、写入源码 → 302 到 `/contest/1832/my` → 新行 `data-submission-id=395707398`、判定 `Running on test 1` → 落定为 **Accepted**（C++23 GCC 14-64）。源码若没进 POST 会直接 CE，所以这条 AC 同时证明源码确实到了判题机。
+
+**判定读取的实况**：刚跳转时实时行上还有 `.submissionVerdictWrapper`（读到 `Running on test 1`）；判定落定后实时行被站点自己的脚本改写，包裹类**消失**、只剩 `<td>` 文本（`Accepted`）；而 `fetch()` 重新拉到的 HTML 里仍带包裹类。两条路都必须留 —— `VERDICT_HINT` 扫各列不是备用，是主力之一。
+
 **端到端实测**（2026-10-23 晚，真扩展 + 真站点 dev server + headless Chrome；`codeforces.com` 由本机 CONNECT 代理喂一个「已登录」的假提交页，主机名与同源都保持真实；探针跑完即删）：
 
 | 场景 | 结果 |
@@ -1684,9 +1701,9 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 | Cloudflare 验证页 | 通知「提交失败 / Codeforces 正在人机验证，请在打开的页面里完成后重试」；验证页保留且在前台 |
 | 真实 codeforces.com（未登录的干净环境） | 落到 CF 的 Cloudflare 托管验证页，返回 `challenge` 而不是 `page`；那一页被亮出来，用户能直接看到「正在进行安全验证」 |
 
-**尚未验证的**：真实账号下的一次提交 —— 那需要用户的 Codeforces 登录态（扩展刻意不读 cookie，探针也不碰它）。上面这条链路已经覆盖了除「CF 真实表单字段 / 判定文案」之外的全部环节；这两处若改版，分别会以 `problem-missing` / `language-missing` 或 `other` 的形式暴露。
+**仍未自动化的**：扩展整条链跑在真实登录态里 —— 那要把 2.67.2 装进用户已登录的 Chrome 并由本站触发；探针不碰用户的登录态，所以这次修复是在真实页面上按扩展的同一套步骤逐字执行的（选择器、事件、点按钮都一样）。真实的表单字段与判定文案已由 2026-10-23 那次真提交（#395707398，`Accepted`）覆盖。
 
-**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.1）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记两笔）。
+**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1 / 2.67.2）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.2）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记三笔）。
 
 **还不做什么**：其余 OJ 的提交页各是另一套形态（洛谷要 token、牛客 / LeetCode 是接口），首版只认 Codeforces；**不自动提交**（不发源码、不后台跑，只认用户那一次显式动作）；不替用户选题目 —— 题目由地址里的 contest + index 唯一确定，扩展只是把它在提交页的下拉框里选中。
 
