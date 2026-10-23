@@ -36,6 +36,16 @@ const props = defineProps({
    */
   runBlocked: { type: String, default: '' },
   /**
+   * 不可提交的原因（由 App 按活跃文件与扩展能力算好）。空串＝可提交。
+   * 与 runBlocked 共用页脚那一行说明，但它们是两件事：
+   * 能跑 ≠ 能交（洛谷题能跑不能交；没装插件也能跑）。
+   */
+  submitBlocked: { type: String, default: '' },
+  /** 提交请求在途：按钮置灰，防止连点（扩展那边一次只跑一趟） */
+  submitting: Boolean,
+  /** 这个文件是不是一道题 —— 是才显示提交按钮，普通草稿文件不摆一颗永远灰着的图标 */
+  showSubmit: Boolean,
+  /**
    * 空态里追加的一行提示，没有就是 null（非题目文件、或样例已经在了）。两种形状：
    *   { text, tone }                            —— 纯文本（正在抓 / 抓失败）
    *   { before, linkText, after, url, tone }    —— 中间带一个可点的题目链接（还没到手）
@@ -44,7 +54,7 @@ const props = defineProps({
   notice: { type: Object, default: null },
 })
 
-const emit = defineEmits(['add', 'remove', 'run-one', 'run-all'])
+const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit'])
 
 // 页脚上沿那条「还有下文」线（2026-10-23 加；判据同日按用户口径翻过一面）：
 // 页脚底色已改成与面板同色（--bg-editor，即整页地面），不再靠色差与列表分开，
@@ -198,8 +208,9 @@ const elapsedText = computed(() => {
 
     <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
       <!-- 置灰的按钮在浏览器里收不到鼠标事件，title 也就悬不出来 ——
-           所以「为什么不能运行」必须写成一行看得见的字，不能只塞进 title -->
-      <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
+           所以「为什么不能运行 / 不能提交」必须写成一行看得见的字，不能只塞进 title。
+           两条原因同时存在时优先说运行那条：它覆盖的场景（题解、没开文件）更基础。 -->
+      <p v-if="runBlocked || submitBlocked" class="run-blocked">{{ runBlocked || submitBlocked }}</p>
       <div class="panel__foot-row">
         <!-- 跑不了的活跃文件也加不出用例：用例是挂在活跃文件上的（写进它的 config.tests），
              题解这类文件根本没有能跑它们的地方 —— 与两个 ▶ 一起置灰，别让这一颗还亮着。
@@ -221,6 +232,19 @@ const elapsedText = computed(() => {
           @click="emit('run-all')"
         >
           <AppIcon name="play" :size="13" />
+        </button>
+        <!-- 一键提交（2026-10-23 加）：与 ▶ 同高、纯图标，标题说明动作与原因。
+             只用图标是为了窄侧栏（下限 158px）不折行 —— 与 ▶ 的口径一致。 -->
+        <button
+          v-if="showSubmit"
+          class="submit-inline"
+          :class="{ 'is-submitting': submitting }"
+          :disabled="running || submitting || Boolean(submitBlocked)"
+          :title="submitBlocked || t('tests.submit.button')"
+          :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
+          @click="emit('submit')"
+        >
+          <AppIcon name="arrow-up" :size="13" />
         </button>
       </div>
     </footer>
@@ -497,5 +521,43 @@ const elapsedText = computed(() => {
 .run-inline:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* 一键提交：与 ▶ 同高同圆角，用 --accent 而不是运行那颗绿 ——
+   「跑」和「交」是两件事，颜色分开才不用读 title 就知道点的是哪颗。
+   禁用态与另外两颗同一档 0.45（见 .add 那条注释）。 */
+.submit-inline {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  transition: background-color 0.16s ease;
+}
+
+.submit-inline:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.submit-inline:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 在途时轻微呼吸，表明「还在等 Codeforces」—— 没有这一步，慢的时候按钮看起来像坏了 */
+.submit-inline.is-submitting {
+  animation: submit-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes submit-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
 }
 </style>

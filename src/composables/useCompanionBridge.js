@@ -17,6 +17,8 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-cf-check / cp-cf-check-result：网页问「这个浏览器在 Codeforces 上登的是不是我填的
  *     那个 handle」，扩展只回一个枚举（见下）
  *   - cp-scrape-contest / cp-scrape-contest-done：网页请扩展**整场**抓样例（见下）
+ *   - cp-submit / cp-submit-result：网页请扩展把当前文件提交到 Codeforces（见下）
+ *   - cp-submit-status：扩展回报这次提交的评测状态变化（见下）
  *
  * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
  * 改了任何一条都必须同步改 cph-companion 并发新版插件，否则新旧两边互相认不出、
@@ -54,6 +56,14 @@ import { IS_DESKTOP } from '../services/platform.js'
  * 它是**加**出来的一条：老扩展不发，站点等不到就退回「回来点验证」那句提示（见
  * `services/cloudSession.js` 的 fillCloudCode），行为与改动前一致；判断还多一道
  * `capabilities` 里的 `fill-saved`（见 canFillSaved），老扩展下连等都不会等。
+ *
+ * 【cp-submit / cp-submit-status 这一组是 2026-10-23 新加的】网页请扩展把当前文件提交到
+ * Codeforces，并跟到评测结果。站点自己做不到：跨源拿不到 cookies、也读不到提交页的 CSRF
+ * token；而扩展本来就注入在 codeforces.com、本来就带着用户登录态 —— 与「代填验证码」是
+ * 同一条信任边界：**源码由网页显式递过去，扩展只把它写进提交表单**，不读 cookie、不回传
+ * 页面内容。`cp-submit-result` 只说明「提交这半步成没成 + submissionId」，之后由扩展在
+ * 那个标签页里盯着 `/my` 页，verdict 每变一次发一条 `cp-submit-status`（`testing` 之后
+ * 才有终态），终了就收掉自己开的标签页。同样受 `capabilities` 的 `submit-code` 保护。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
@@ -446,6 +456,92 @@ export function isContestScrapeActive() {
   return pendingContestScrapes.size > 0
 }
 
+// ------------------------------------------------------- 一键提交（2026-10-23 加）
+//
+// 【为什么必须走扩展】站点自己提交不了：Codeforces 的提交页要 CSRF token，跨源也读不到
+// 用户的登录 cookie。扩展本来就注入在 codeforces.com、本来就带着登录态，与代填验证码
+// 是同一条信任边界 —— 源码由网页显式递过去，扩展只写进表单，不读 cookie、不回传页面内容。
+//
+// 【提交成没成 vs 评测结果】扩展先回 `cp-submit-result`（表单提交这半步），之后在
+// `/contest/{id}/my` 页面上盯新提交的 verdict，每变一次推一条 `cp-submit-status`。
+// 站点这边把两件事分开等：前者决定按钮转不转圈，后者决定发哪条结果通知。
+
+/**
+ * 等扩展把「提交成没成」答回来的上限。
+ *
+ * 这一趟比代填重得多：可能要开一个新标签页、等加载、填表、提交、等整页跳到 `/my`、
+ * 再解析出 submissionId。扩展侧每一段各有上限（开页 20s + 跳转 20s + 解析重试 5s），
+ * 这里留 15s 余量。
+ */
+const SUBMIT_TIMEOUT = 60000
+
+/** 一条 verdict 等待在站点这边的存活上限（扩展那边最多盯 2 分钟，这里给 5 分钟防表只增不减） */
+const SUBMIT_WATCH_TIMEOUT = 5 * 60 * 1000
+
+let submitSeq = 0
+/** requestId -> { resolve, timer }：等待扩展回「提交这半步成没成」 */
+const pendingSubmits = new Map()
+/** requestId -> { onVerdict, timer }：提交成功之后等 verdict 变化 */
+const submitWatchers = new Map()
+
+/**
+ * 扩展能不能把文件提交到 Codeforces。与 canFillCode 同一套能力协商：
+ * 老扩展没有这条能力，提交按钮连出现都不出现。
+ */
+export const canSubmitCode = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('submit-code'),
+)
+
+/**
+ * 请扩展把当前文件提交到 Codeforces。
+ *
+ * @param {{url: string, source: string, language: 'cpp'|'python'}} payload
+ *   `url` 是题目页地址（扩展据此算提交页）；`source` 是**编辑器里的当前正文**，
+ *   不要求先存盘 —— 「一键提交」提交的就是眼前这一份。
+ * @param {(status: {submissionId: string, verdict: string}) => void} [onVerdict]
+ *   提交成功之后，verdict 每变一次调一次（`testing` 只是中转，终态之后不再调）。
+ * @returns {Promise<{ok: boolean, reason: string, submissionId: string, verdict: string, requestId: string}>}
+ *   扩展没装 / 太旧 / 超时都折成失败结果，不往外抛 —— 界面只需要「成功」或「一句人话」。
+ */
+export function requestSubmit({ url, source, language }, onVerdict) {
+  return new Promise((resolve) => {
+    if (!canSubmitCode.value || typeof source !== 'string' || !source.trim()) {
+      resolve({ ok: false, reason: 'unsupported', submissionId: '', verdict: '', requestId: '' })
+      return
+    }
+
+    const requestId = `cp-submit-${++submitSeq}`
+    const timer = window.setTimeout(() => {
+      pendingSubmits.delete(requestId)
+      submitWatchers.delete(requestId)
+      resolve({ ok: false, reason: 'timeout', submissionId: '', verdict: '', requestId })
+    }, SUBMIT_TIMEOUT)
+
+    pendingSubmits.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        // 提交都没成，就不会有 verdict 可等 —— 把那条等待一起收掉
+        if (!result.ok) submitWatchers.delete(requestId)
+        resolve({ ...result, requestId })
+      },
+    })
+
+    if (typeof onVerdict === 'function') {
+      const watchTimer = window.setTimeout(() => {
+        submitWatchers.delete(requestId)
+      }, SUBMIT_WATCH_TIMEOUT)
+
+      submitWatchers.set(requestId, { onVerdict, timer: watchTimer })
+    }
+
+    window.postMessage(
+      // `source` 这个名字已经被信封（cp-page）占了，源码那一栏改用 sourceCode
+      { source: PAGE_SOURCE, type: 'cp-submit', requestId, oj: 'codeforces', url, sourceCode: source, language },
+      window.location.origin,
+    )
+  })
+}
+
 // ------------------------------------------------------- 自动抓取样例
 //
 // 【为什么不存名单】早先的做法是：导入时把「没带样例的题」记成一份名单推给扩展，用户之后
@@ -641,6 +737,42 @@ function onMessage(event) {
     return
   }
 
+  // 扩展回「提交成没成」（cp-submit 的回执）：按 requestId 认领
+  if (data.type === 'cp-submit-result') {
+    const pending = pendingSubmits.get(data.requestId)
+    if (!pending) return
+
+    pendingSubmits.delete(data.requestId)
+    pending.resolve({
+      ok: data.ok === true,
+      reason: typeof data.reason === 'string' ? data.reason : '',
+      submissionId: typeof data.submissionId === 'string' ? data.submissionId : '',
+      verdict: typeof data.verdict === 'string' ? data.verdict : '',
+    })
+    return
+  }
+
+  // 扩展推「这次提交的评测状态变了」：只往 onVerdict 转，不动按钮状态
+  if (data.type === 'cp-submit-status') {
+    const watcher = submitWatchers.get(data.requestId)
+    if (!watcher) return
+
+    const verdict = typeof data.verdict === 'string' ? data.verdict : ''
+    if (!verdict) return
+
+    watcher.onVerdict({
+      submissionId: typeof data.submissionId === 'string' ? data.submissionId : '',
+      verdict,
+    })
+
+    // testing 之外都是终态：收掉等待，让扩展之后即使再发也不再处理
+    if (verdict !== 'testing') {
+      window.clearTimeout(watcher.timer)
+      submitWatchers.delete(data.requestId)
+    }
+    return
+  }
+
   if (data.type !== 'cp-info') return
   // 只认自己那一轮的握手回包（页面里可能有其它脚本也在 postMessage）
   if (data.requestId !== currentRequestId) return
@@ -685,5 +817,7 @@ export function useCompanionBridge(onTask) {
     requestCodeFill,
     canCheckCf,
     checkCfIdentity,
+    canSubmitCode,
+    requestSubmit,
   }
 }

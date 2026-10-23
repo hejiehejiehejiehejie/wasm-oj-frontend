@@ -51,6 +51,17 @@ export const IS_MAC =
  */
 export const SHORTCUT_ACTIONS = [
   { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
+  /**
+   * 一键提交到 Codeforces（2026-10-23 加）：执行落在 App.vue 的 submitActiveFile，
+   * 与样例面板页脚那颗提交按钮同源。没有关联题目 / 没装插件时它会弹一条说明而不是静默 ——
+   * 快捷键不像按钮那样有置灰态，没反应会被读成「键位没生效」。
+   */
+  {
+    id: 'submit-solution',
+    labelKey: 'settings.shortcut.submitSolution.label',
+    hintKey: 'settings.shortcut.submitSolution.hint',
+    default: 'Mod+Shift+Enter',
+  },
   { id: 'toggle-panel', labelKey: 'settings.shortcut.togglePanel.label', default: 'Mod+KeyB' },
   {
     id: 'switch-panel',

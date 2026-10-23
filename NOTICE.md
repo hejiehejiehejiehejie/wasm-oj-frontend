@@ -16,6 +16,8 @@
 
 > 最后核对：**2026-10-23**（新增一条**运行时**依赖 `canvas-confetti` 1.9.4（ISC）—— 一次评测全部样例通过时、在样例面板里飘落的彩带，随主包分发；画面落在样例面板自己那块 canvas 上、跑在主线程（**不用它的 worker 模式**）。版本与许可由 `node_modules/canvas-confetti/package.json` 实读，不是照写。依赖条数按同日 `package-lock.json` 重核：`lockfileVersion: 3`，共 **108** 个包 —— **32** 条生产、**76** 条开发；下面 2026-09-30 那条记的 94 / 30 / 64 是那天的读数，此后陆续加了 `@tauri-apps/api` 等，**以本条为准**）。
 >
+> 此前核对：**2026-10-23**（换扩展包 → `cc-for-web-2.67.0.zip`。本次是**一键提交到 Codeforces**：新增 `submit-code` 能力与 `cp-submit` / `cp-submit-result` / `cp-submit-status` 三条跨仓消息 —— 用户在本站样例面板点那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定、逐次推回本站。信任边界与验证码代填一致：只往提交框里写源码、不读 cookie、不回传页面内容，且只在用户显式点按时发生一次。清单随之变化：`host_permissions` 184 → 190、`content_scripts` 3 → 4（多出的一条注入 Codeforces 的 `contest` / `gym` / `group` 提交页与「我的提交」页），API `permissions` 一条未新增。属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+>
 > 此前核对：**2026-10-11**（换扩展包 → `cc-for-web-2.66.4.zip`。本次两项行为改动，都是云同步登录的便利：① **验证码代填** —— 用户在本站点那颗按钮时，扩展去 Codeforces 的 Social 设置页把本站取到的码写进 Last name 并提交（只写这一格，不读 cookie、不读凭据）；② **登录态预检** —— 扩展在本地比对本浏览器登录的 handle 与用户填的是否一致，只回 `match` / `mismatch` / `not-logged-in` / `unknown` 四个枚举、**绝不回用户名**。清单随之变化：`host_permissions` 183 → 184、`content_scripts` 2 → 3（多出的一条只注入 `https://codeforces.com/settings/social*`），API `permissions` 一条未新增。属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
 >
 > 此前二次核对：**2026-10-10**（换扩展包 → `cc-for-web-2.66.3.zip`。三项行为改动：① 扩展开始支持 **Firefox for Android**（manifest 增加 `gecko_android`、下限 142），并修复后台脚本在安卓上的两处致命崩溃（`contextMenus` / `commands` 命名空间在安卓端不存在，原代码在模块求值时抛 TypeError 导致整个后台失效，安卓上表现为网站「未检测到插件」、抓题无反应——已在真机 Firefox 143 实测通过）；② 题目**来源**站点注入范围改由 parser 注册表自动推导，`host_permissions` 与自动解析脚本的范围随之扩大（6 条 → 183 条 / 2 条 → 182 条）；③ Firefox 端 manifest 描述加注「Fork of Competitive Companion, now also working on Firefox for Android.」。三项都属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
@@ -92,7 +94,7 @@
 
 ## 四、浏览器扩展 CC for Web
 
-安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.66.4**；2026-10-11 换版，行为改动是云同步登录的两项便利 —— 用户点按钮时把本站的验证码代填进 Codeforces 的 Social 设置页（只写 Last name 一格，不读 cookie），以及本地比对「本浏览器登录的 handle 是不是用户填的那个」（只回四个枚举、不回用户名），`host_permissions` 因此 183 → 184、`content_scripts` 2 → 3；包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
+安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.67.0**；2026-10-23 换版，行为改动是**一键提交到 Codeforces** —— 用户点样例面板页脚那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定推回本站（只写提交框、不读 cookie、不回传页面内容，且只在用户显式点按时发生；`host_permissions` 也因此 184 → 190、`content_scripts` 3 → 4）；包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
 
 | 组件 | 版本 | 许可 | 说明 |
 | --- | --- | --- | --- |

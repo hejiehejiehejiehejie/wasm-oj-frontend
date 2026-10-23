@@ -36,6 +36,14 @@ import {
   updateFileConfig,
   workspace as workspaceStore,
 } from './services/vfs/workspaceStore.js'
+import {
+  shouldShowSubmit,
+  submitActiveSolution,
+  submitBlockedReason,
+  submitReasonText,
+  submitVerdictText,
+  submitVerdictType,
+} from './services/ojSubmit.js'
 import { clearRunNotify, notifyRunOutcome } from './services/runNotify.js'
 import { modelManager } from './services/monaco/modelManager.js'
 import {
@@ -49,7 +57,7 @@ import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
 import { celebrateAllPassed } from './services/confetti.js'
-import { flushFlashNotification, notify } from './services/notifications.js'
+import { dismissByTag, flushFlashNotification, notify } from './services/notifications.js'
 import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
 import {
@@ -871,6 +879,105 @@ const runBlockedReason = computed(() => {
 })
 
 /**
+ * 一键提交到 Codeforces（2026-10-23 加）。
+ *
+ * 提交这件事本站自己做不了：提交页要 CSRF token、跨源也拿不到登录 cookie，
+ * 所以动作整个交给浏览器扩展（见 services/ojSubmit.js 与 useCompanionBridge 的 requestSubmit）。
+ * 这里只管三件事：判断按钮在不在 / 能不能按、发通知、把扩展回来的判定码翻成人话。
+ *
+ * `submitBlocked` 只在按钮真出现时才给理由：没有关联题目的普通代码文件不该在页脚
+ * 多出一行「无法提交」—— 那颗按钮本来就不在。
+ */
+const submitting = ref(false)
+const showSubmit = computed(() => shouldShowSubmit(activeNode.value))
+const submitBlocked = computed(() => {
+  if (!showSubmit.value) return ''
+  return submitBlockedReason({
+    node: activeNode.value,
+    language: activeLanguage.value,
+    capability: canSubmitCode.value,
+    checking: extensionChecking.value,
+  })
+})
+
+/** 同一道题连着交两次时，只让最后那一条通知留下（旧提交的判定回来不许盖掉新的） */
+let submitSeq = 0
+
+async function submitActiveFile() {
+  if (submitting.value || running.value) return
+
+  // 快捷键没有置灰态：按下去没反应会被读成「键位失灵」，所以这一幕也要说明白
+  if (submitBlocked.value) {
+    notify({
+      type: 'warning',
+      title: t('tests.submit.failedTitle'),
+      message: submitBlocked.value,
+      duration: 5000,
+    })
+    return
+  }
+
+  const node = activeNode.value
+  const tag = `submit:${node.path}`
+  const seq = ++submitSeq
+
+  dismissByTag(tag)
+  submitting.value = true
+  notify({
+    type: 'info',
+    title: t('tests.submit.submitting'),
+    message: node.name,
+    duration: 0,
+    tag,
+  })
+
+  const result = await submitActiveSolution({
+    // 判定由扩展在 Codeforces 页内轮询推送（见 useCompanionBridge 的 cp-submit-status），
+    // 常驻「提交中」到这一步才收；中间那条 testing 不算结果，继续等。
+    onVerdict: (status) => {
+      if (seq !== submitSeq) return
+      // testing 只是「评测机接单了」的中转，不是结果 —— 常驻那条「提交中」刚刚换成
+      // 「已提交」，这里再弹一条「其他结果」只会是噪音
+      if (status.verdict === 'testing') return
+      dismissByTag(tag)
+      const verdict = submitVerdictText(status.verdict)
+      notify({
+        type: submitVerdictType(status.verdict),
+        title: status.submissionId ? `#${status.submissionId} ${verdict}` : verdict,
+        message: node.name,
+        duration: 8000,
+        tag,
+      })
+    },
+  })
+
+  if (seq !== submitSeq) return
+  submitting.value = false
+  dismissByTag(tag)
+
+  if (!result.ok) {
+    notify({
+      type: 'error',
+      title: t('tests.submit.failedTitle'),
+      message: submitReasonText(result.reason),
+      duration: 6000,
+      tag,
+    })
+    return
+  }
+
+  notify({
+    type: 'success',
+    title: t('tests.submit.submittedTitle'),
+    message: result.submissionId
+      ? t('tests.submit.submittedMessage', { id: result.submissionId })
+      : t('tests.submit.submittedUnknown'),
+    duration: 6000,
+    tag,
+  })
+}
+
+/**
  * 空态里那行「样例还没到」的提示。
  *
  * 判据是**当前文件是一道题**（meta.url 有值，说明它是抓下来的、不是用户自己建的）
@@ -1058,6 +1165,9 @@ watch(
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
 const SHORTCUT_HANDLERS = {
   run: () => runAll(),
+  // 与样例面板页脚那颗提交按钮同源（见 submitActiveFile）；不可提交时它弹一条说明，
+  // 不像按钮那样有置灰态可看
+  'submit-solution': () => submitActiveFile(),
   // 全屏编辑时侧栏整块让位，这两条按下去什么也看不见 —— 先退出全屏再执行，
   // 免得看起来像快捷键失灵（与 runAll 里 revealTestsPanel 的思路一致）。
   // instant 取的是 exitFullscreen **之前**那个值：退出全屏是「编辑器从铺满跳回两栏」，
@@ -1383,7 +1493,7 @@ const { active: dropActive } = usePageDrop({ onFiles: importDroppedFiles })
 watch(dropActive, previewDropTargetLayout)
 
 // 空态提示要按「插件装没装」分岔：attach 是幂等的，这里只为读全局状态
-const { extensionInfo, checking: extensionChecking } = useCompanionBridge()
+const { extensionInfo, checking: extensionChecking, canSubmitCode } = useCompanionBridge()
 
 // 安装引导（装成应用 / 装插件）的开机自动弹一次：不画东西，只在这里挂上计时与监听。
 // 放在这一行下面是有意的 —— 它要读的就是上面那份插件状态，早于 attach 评估会读到「没装」。
@@ -1569,10 +1679,14 @@ onBeforeUnmount(() => {
                 :elapsed="elapsed"
                 :run-blocked="runBlockedReason"
                 :notice="emptyNotice"
+                :show-submit="showSubmit"
+                :submit-blocked="submitBlocked"
+                :submitting="submitting"
                 @add="addCase"
                 @remove="removeCase"
                 @run-one="runOne"
                 @run-all="runAll"
+                @submit="submitActiveFile"
               />
             </template>
           </Sidebar>

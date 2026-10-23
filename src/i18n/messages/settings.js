@@ -247,6 +247,10 @@ export default {
       shortcut: {
         /** 动作名（用 in SHORTCUT_ACTIONS） */
         run: { label: '运行全部用例', hint: '光标在编辑器里也生效' },
+        submitSolution: {
+          label: '提交到 Codeforces',
+          hint: '提交当前文件到题目来源的 Codeforces 比赛；需要浏览器插件，未关联题目时不会响应',
+        },
         togglePanel: { label: '显示 / 隐藏侧边栏' },
         switchPanel: { label: '切换侧栏面板', hint: '资源管理器 ↔ 评测样例' },
         toggleLayout: { label: '侧边栏左右对调' },
@@ -833,6 +837,10 @@ export default {
 
       shortcut: {
         run: { label: 'Run all test cases', hint: 'Works while the focus is in the editor' },
+        submitSolution: {
+          label: 'Submit to Codeforces',
+          hint: 'Submits the current file to the Codeforces contest it came from; needs the browser extension and does nothing when the file is not linked to a problem',
+        },
         togglePanel: { label: 'Show / hide the sidebar' },
         switchPanel: { label: 'Switch sidebar panel', hint: 'Explorer ↔ Test cases' },
         toggleLayout: { label: 'Swap sidebar side' },

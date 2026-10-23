@@ -76,6 +76,52 @@ export default {
       /** 页头耗时的 title，{time} 形如 120ms */
       elapsedTitle: '最慢用例耗时 {time}（只计运行段，不含编译）',
 
+      /**
+       * 「一键提交到 Codeforces」（2026-10-23 加）。
+       * 按钮文案与三条闸门说的是同一件事：能不能交、为什么不能交。
+       * verdict 里翻的是判定码的含义，判定码本身（AC / WA …）当标题用，不翻。
+       */
+      submit: {
+        button: '提交到 Codeforces',
+        submitting: '提交中…',
+        submittedTitle: '已提交到 Codeforces',
+        submittedMessage: '提交 #{id}',
+        submittedUnknown: '已提交，结果请到 Codeforces 查看',
+        failedTitle: '提交失败',
+
+        blockedDesktop: '桌面端没有浏览器插件，暂不支持一键提交',
+        blockedNoFile: '没有打开的文件，无法提交',
+        blockedNoProblem: '这个文件没有关联题目，无法提交',
+        blockedOj: '目前只支持提交到 Codeforces',
+        blockedLanguage: '只有 C++ / Python 文件能提交',
+        blockedChecking: '正在检测浏览器插件…',
+        blockedExtension: '需要浏览器插件 CC for Web（含提交能力）才能提交',
+
+        reason: {
+          unsupported: '浏览器插件版本太旧，不支持提交',
+          unsupportedUrl: '这个题目地址认不出来，无法提交',
+          timeout: '等 Codeforces 回应超时',
+          notLoggedIn: '浏览器没有登录 Codeforces',
+          problemMissing: '提交页里找不到这道题（比赛可能未开放提交）',
+          languageMissing: '提交页里找不到对应的编译器',
+          rejected: 'Codeforces 拒绝了这次提交',
+          noTab: '打不开 Codeforces 提交页',
+          page: '提交页认不出来（站点可能改版了）',
+          empty: '文件内容是空的，无法提交',
+          unknown: '提交没有成功',
+        },
+
+        verdict: {
+          ac: '通过',
+          wa: '答案错误',
+          tle: '运行超时',
+          mle: '内存超限',
+          re: '运行出错',
+          ce: '编译错误',
+          other: '其它结果',
+        },
+      },
+
       card: {
         /** 徽标文案：跑完的用例改用判定码（AC/WA/CE/TLE/RE/ERR），这里只有「还没跑」和「正在跑」 */
         idle: '待运行',
@@ -169,6 +215,48 @@ export default {
       },
 
       elapsedTitle: 'Slowest case took {time} (run phase only, excludes compilation)',
+
+      /** 同 zh-CN：一键提交的按钮 / 闸门 / 失败原因 / 判定码说明（2026-10-23 加） */
+      submit: {
+        button: 'Submit to Codeforces',
+        submitting: 'Submitting…',
+        submittedTitle: 'Submitted to Codeforces',
+        submittedMessage: 'Submission #{id}',
+        submittedUnknown: 'Submitted — check Codeforces for the result',
+        failedTitle: 'Submission failed',
+
+        blockedDesktop: 'One-click submit needs the browser extension and is not available in the desktop app',
+        blockedNoFile: 'No file is open, so there is nothing to submit',
+        blockedNoProblem: 'This file is not linked to a problem',
+        blockedOj: 'Only Codeforces submissions are supported for now',
+        blockedLanguage: 'Only C++ / Python files can be submitted',
+        blockedChecking: 'Detecting the browser extension…',
+        blockedExtension: 'The CC for Web browser extension (with submit support) is required',
+
+        reason: {
+          unsupported: 'The browser extension is too old to submit',
+          unsupportedUrl: 'This problem URL isn’t recognised',
+          timeout: 'Codeforces did not answer in time',
+          notLoggedIn: 'This browser is not signed in to Codeforces',
+          problemMissing: 'The problem isn’t available on the submit page (submission may be closed)',
+          languageMissing: 'The matching compiler isn’t available on the submit page',
+          rejected: 'Codeforces rejected the submission',
+          noTab: 'Could not open the Codeforces submit page',
+          page: 'The submit page isn’t recognised (the site may have changed)',
+          empty: 'The file is empty, so there is nothing to submit',
+          unknown: 'The submission did not go through',
+        },
+
+        verdict: {
+          ac: 'Accepted',
+          wa: 'Wrong answer',
+          tle: 'Time limit exceeded',
+          mle: 'Memory limit exceeded',
+          re: 'Runtime error',
+          ce: 'Compilation error',
+          other: 'Other result',
+        },
+      },
 
       card: {
         idle: 'Not run',
