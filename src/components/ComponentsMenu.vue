@@ -226,13 +226,19 @@ watch(ready, (shown) => {
   width: calc(42px * var(--menu-scale));
   height: calc(42px * var(--menu-scale));
   border-radius: calc(12px * var(--menu-scale));
-  background: var(--menu-hover-bg);
+  background: var(--menu-tile-bg);
   color: var(--menu-text);
 }
 
 .components-menu__item:hover .components-menu__tile,
 .components-menu__item:focus-visible .components-menu__tile {
   background: var(--menu-bg);
+}
+
+/* 悬停 / 键盘选中时整格变蓝，文字也要跟着转白，否则浅色主题下是深灰压亮蓝 */
+.components-menu__item:hover .components-menu__label,
+.components-menu__item:focus-visible .components-menu__label {
+  color: var(--menu-hover-text);
 }
 
 .components-menu__label {

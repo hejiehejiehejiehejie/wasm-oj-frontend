@@ -192,7 +192,7 @@
         </div>
       </div>
 
-      <!-- ===== 锁定态：只剩环与一颗常显解锁胶囊 ===== -->
+      <!-- ===== 锁定态：只剩环与一颗常显解锁按钮 ===== -->
       <button
         v-if="countdown.locked"
         type="button"
@@ -604,15 +604,19 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding: 10px 12px 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  /* 内边距比旧版四周各宽 2–4px：设置区的三行控件贴边会显得挤，
+     拉开之后卡片更像一张浮起来的工具，而不是一块塞满按钮的方框 */
+  padding: 14px 16px 12px;
+  /* 不画实线边框：边界交给 --cd-shadow 的大范围柔影。
+     深色主题阴影分不出层次，所以在同一支里垫一圈 4% 白的极淡描边（见 base.css） */
+  border: 0;
+  border-radius: 16px;
   /* 不借 --toast-bg（0.62 太透，正文会透进来打架），也**不做毛玻璃**：
      2026-10-21 先抬到 0.94 仍被指「好像没变化」，根因是那 6% 底会被 backdrop-blur
      糊成一片亮斑，压着代码时照样像玻璃。要盯着读秒的卡就直接给不透明底（--cd-bg），
      锁定态另走 transparent。 */
   background: var(--cd-bg);
-  box-shadow: var(--toast-shadow);
+  box-shadow: var(--cd-shadow);
   /* 圆角边之外一律不画：环、弧头光点、解锁胶囊再怎么变，都不会漏到边框外面 */
   overflow: hidden;
   color: var(--text);
@@ -629,7 +633,6 @@ onBeforeUnmount(() => {
 /* 锁定：外框整个消失，只剩环本身，点击穿透到下面的页面。
    头部槽位保留（透明、不可见），否则环会突然长大一圈、和锁定前对不上。 */
 .cd-card.is-locked {
-  border-color: transparent;
   background: transparent;
   box-shadow: none;
   cursor: default;
@@ -743,7 +746,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
 }
 
@@ -752,7 +755,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
 }
 
@@ -762,25 +765,35 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  /* 单位贴着数字：1px 是「同一组」的距离，再大就又变成两行了 */
+  gap: 1px;
 }
 
+/* 浅色给一层无描边的浅实底；深色那支是 transparent —— 数字直接浮在卡面上，
+   色块一去掉，这块就没有「组件库表单」的厚重感了。数字放大、字重降到 500：
+   等宽字体笔画本来就匀，600 以上会显笨 */
 .cd-dms input {
   width: 100%;
-  height: 36px;
+  height: 40px;
   padding: 0;
   text-align: center;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg-input);
+  border: 0;
+  border-radius: 10px;
+  background: var(--cd-field-bg);
   color: var(--text);
   font-family: var(--mono-font);
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
   outline: none;
-  transition: border-color 0.16s ease, background-color 0.16s ease;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
   -moz-appearance: textfield;
+}
+
+/* 深色没有底色块撑着，数字再大一档，读起来才像仪表盘 */
+html[data-theme='dark'] .cd-dms input {
+  font-size: 22px;
 }
 
 .cd-dms input::-webkit-outer-spin-button,
@@ -789,23 +802,28 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
+/* 获焦也不回实线：底色提亮一点 + 一圈 1px 内描边（焦点必须看得见） */
 .cd-dms input:focus {
-  border-color: var(--focus);
+  background: var(--cd-field-focus-bg);
+  box-shadow: inset 0 0 0 1px var(--focus), 0 0 0 3px var(--focus-ring);
 }
 
 .cd-dms i {
   font-style: normal;
   font-size: 10px;
-  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: var(--cd-label);
 }
 
 /* 冒号与输入框同高、垂直居中：不再靠 padding-top 猜基线 */
 .cd-sep {
   display: flex;
   align-items: center;
-  height: 36px;
-  color: var(--text-faint);
-  font-size: 15px;
+  height: 40px;
+  color: var(--cd-label);
+  font-family: var(--mono-font);
+  font-size: 16px;
 }
 
 .cd-presets {
@@ -815,48 +833,53 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+/* 圆角矩形 + 无描边：未选中是比卡片底色深一档的灰面，选中的那枚只换「淡色面 + 彩字」，
+   不再靠蓝线框标记（线框一多，整块设置区就碎了）。圆角与输入框 / 主按钮同一档 10px
+   （2026-10-24 起全站禁用胶囊形，见 HANDOFF 第 1 节） */
 .cd-presets button {
-  height: 26px;
+  height: 28px;
   padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-control);
+  border: 0;
+  border-radius: 10px;
+  background: var(--cd-chip-bg);
   color: var(--text-dim);
   font-family: inherit;
   font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
-  transition: color 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+  transition: color 0.16s ease, background-color 0.16s ease;
 }
 
 .cd-presets button:hover {
   color: var(--text);
-  border-color: var(--focus);
-  background: var(--bg-control-hover);
+  background: var(--cd-chip-hover);
 }
 
 /* 与当前时长一致的那一枚：给出「这档已经选上了」的落点 */
 .cd-presets button.is-on {
-  color: var(--text);
-  border-color: var(--focus);
-  background: var(--bg-control-hover);
+  color: var(--cd-chip-on-text);
+  background: var(--cd-chip-on-bg);
+  font-weight: 600;
 }
 
+/* 主按钮浅色用深藏青、深色用主题蓝：既压得住整块轻量控件，又不像近白面那样刺眼；
+   圆角跟输入框同一档，不再用按钮自己的一套 */
 .cd-primary {
-  height: 34px;
+  height: 38px;
   border: 0;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--text-on-accent);
+  border-radius: 10px;
+  background: var(--cd-primary-bg);
+  color: var(--cd-primary-text);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
   transition: background-color 0.16s ease;
 }
 
 .cd-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--cd-primary-hover);
 }
 
 .cd-primary:disabled {
@@ -943,9 +966,9 @@ onBeforeUnmount(() => {
   color: var(--text);
   font-family: var(--mono-font);
   font-size: var(--cd-size, 20px);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.005em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -965,7 +988,9 @@ onBeforeUnmount(() => {
   letter-spacing: 0.08em;
 }
 
-/* ---------------------------------------------------------------- 锁定态的解锁胶囊 */
+/* ---------------------------------------------------------------- 锁定态的解锁按钮
+   圆角 10px：26px 高装得下 10+10，不落到「相邻两角之和超边长被夹成半圆」那条；
+   与设置区的输入框 / 预设 / 主按钮取同一档（2026-10-24 全站禁用胶囊形）。 */
 .cd-unlock {
   position: absolute;
   left: 50%;
@@ -975,7 +1000,7 @@ onBeforeUnmount(() => {
   height: 26px;
   padding: 0 11px 0 8px;
   border: 1px solid var(--ok);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--bg-raised);
   box-shadow: var(--toast-shadow);
   color: var(--ok);

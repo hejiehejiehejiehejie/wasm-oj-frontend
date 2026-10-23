@@ -97,9 +97,10 @@ export default {
         detailFailedOn: '测试点 {n}',
 
         /* 确认弹窗（2026-10-23 加）：提交会在 Codeforces 上留一条真实记录、删不掉，
-           所以点按钮 / 按快捷键都先停在这里，点「确认提交」才发 */
-        confirmTitle: '提交到 Codeforces？',
-        confirmDesc: '提交 {name} 会在 Codeforces 生成真实记录，无法撤回。',
+           所以点按钮 / 按快捷键都先停在这里，点「确认提交」才发。
+           标题直接问「是否提交 <文件名>」（2026-10-24 改，原先那句「生成真实记录、无法撤回」
+           换成了这句问句；文件名太长会折行） */
+        confirmTitle: '是否提交 {name} 到 Codeforces？',
         confirmAction: '确认提交',
         targetChanged: '当前文件已切换，这次提交没有发出',
 
@@ -147,6 +148,8 @@ export default {
       },
 
       card: {
+        /** 卡片标题：原先只显示一个序号，认不出这是「第几个样例」（2026-10-24 改） */
+        title: '样例 {n}',
         /** 徽标文案：跑完的用例改用判定码（AC/WA/CE/TLE/RE/ERR），这里只有「还没跑」和「正在跑」 */
         idle: '待运行',
         running: '运行中',
@@ -257,9 +260,7 @@ export default {
         detailFailedOn: 'test {n}',
 
         /* 同 zh-CN：提交前的确认弹窗（2026-10-23 加） */
-        confirmTitle: 'Submit to Codeforces?',
-        confirmDesc:
-          'Submitting {name} creates a real, irreversible Codeforces submission.',
+        confirmTitle: 'Submit {name} to Codeforces?',
         confirmAction: 'Submit',
         targetChanged: 'The active file changed — nothing was submitted',
 
@@ -306,6 +307,8 @@ export default {
       },
 
       card: {
+        /** 同 zh-CN：卡片标题由序号改成「Testcase N」 */
+        title: 'Testcase {n}',
         idle: 'Not run',
         running: 'Running',
         expand: 'Expand this case',

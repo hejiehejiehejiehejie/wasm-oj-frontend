@@ -65,6 +65,11 @@
   --bg-control: #343434;
   --bg-control-hover: #3d3d3e;
   --bg-input: #131315;
+  /* 测试样例里 Input / Expected / Actual 三块代码面的底色（2026-10-24 加）。
+     卡片本身不再铺底、不描边，层次只由这三块「很弱的深色面」交代：
+     暗色在宿主底（--bg-editor #1c1c1c）上再压暗一档，浅色在 #f3f3f3 上压深约 3.5%。
+     透明度而不是实色：同一块面落在侧栏 / 浮层上都能跟着宿主沉下去。 */
+  --code-block-bg: rgba(0, 0, 0, 0.18);
   --bg-hover: #323539;
   --bg-selection: #264f78;
   /* 拖拽落点提示：--bg-selection 的半透明版，压住的范围线/圆点仍然看得见 */
@@ -73,6 +78,10 @@
   --bg-drop-root: rgba(38, 79, 120, 0.3);
   /* 文件树行的鼠标悬停：比 --bg-hover（选中的那一行）淡一档，免得悬停和选中看起来一样 */
   --bg-hover-soft: #242427;
+  /* 纯图标按钮的悬停底（2026-10-24 晚加）：运行 ▶ / 垃圾桶这类没有底板的小图标，
+     悬停时只浮出一层极淡的白。它比 --bg-hover 轻得多，不会把「无框、轻盈」的
+     静息态一下子压成一块灰板。 */
+  --icon-hover-bg: rgba(255, 255, 255, 0.08);
 
   --border: #3d3d3d;
   --border-soft: #2d2d32;
@@ -166,6 +175,24 @@
      锁定态不读这支（整卡透明，见该组件的 .cd-card.is-locked）。 */
   --cd-bg: #1e1e20;
 
+  /* 倒计时卡内部控件（2026-10-24 重做视觉，唯一消费者 CountdownCard.vue）：
+     输入框不用描边，也不给色块 —— 深色下数字直接浮在卡面上；预设改无边框圆角矩形
+     （10px，2026-10-24 全站禁用胶囊形），选中的那枚提亮成浅蓝面 + 深蓝字，和未选中的
+     暗灰面拉开明度；主按钮压回主题蓝，
+     不再用近白面（大块白在暗色里太刺眼）。卡片顶部另垫一道 1px 内发光，当作金属边。 */
+  --cd-shadow: 0 20px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --cd-field-bg: transparent;
+  --cd-field-focus-bg: rgba(255, 255, 255, 0.05);
+  --cd-chip-bg: rgba(255, 255, 255, 0.05);
+  --cd-chip-hover: rgba(255, 255, 255, 0.09);
+  --cd-chip-on-bg: #c9e3ff;
+  --cd-chip-on-text: #0a3f74;
+  --cd-label: #9a9aa3;
+  --cd-primary-bg: #0e639c;
+  --cd-primary-hover: #1177bb;
+  --cd-primary-text: #f2f7fb;
+
   /* 拖选区手柄时那颗放大镜（EditorPane.vue 的 .magnifier*，唯一消费者）。
      --probe-bg 是**镜片底**：底下的代码要靠 backdrop-filter 糊掉再透一点上来，所以不能全不透明，
      但也不能像通知那样淡到底（0.62）—— 里面压着的是代码，透明度一高两侧的正文就透进来打架，
@@ -215,8 +242,18 @@
   /* 悬停那一行的快捷键：压在深蓝底上要够亮，模板给的就是这抹淡蓝（两套主题同值 —— 两边的
      悬停底都是深蓝，同一支淡蓝都压得住） */
   --menu-hover-muted: #b0d0ff;
+  /* 组件菜单里图标方块自己的静态底色：菜单面上中性提亮一档。
+     绝不能复用 --menu-hover-bg —— 那是蓝色的列表选中色，铺成静态色块后浅色主题下会是一块亮蓝。 */
+  --menu-tile-bg: rgba(255, 255, 255, 0.06);
   --menu-separator: #454545;
   --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+  /* 图标提示框（components/AppTooltip.vue，唯一消费者，2026-10-24 晚加）。
+     用户要求「去边框 + 深底 + 柔和投影」：两套主题都用同一支近黑底配白字 ——
+     它是浮在界面之上的临时标签，不该跟着主题翻色；两套只在投影浓度上分家。 */
+  --tooltip-bg: #111113;
+  --tooltip-text: #f2f2f2;
+  --tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 
   /* 卡片投影：只有浅色主题下卡片是「浮在白底上的纸」，才需要这层淡影；
      深色主题里卡片靠边框分层，投影只会糊成一团，所以直接不给 */
@@ -297,6 +334,8 @@
   --bg-control: #ececec;
   --bg-control-hover: #e0e0e0;
   --bg-input: #f6f6f6;
+  /* 同深色那支：代码面只比宿主底深一点点，读起来是一块「墨迹区」，不是一只输入框 */
+  --code-block-bg: rgba(0, 0, 0, 0.035);
   --bg-hover: #e8e8e8;
   --bg-selection: #add6ff;
   /* 拖拽落点提示：--bg-selection 的半透明版，压住的范围线/圆点仍然看得见 */
@@ -308,6 +347,8 @@
      悬停几乎看不见；这里跟着压到 #ededed —— 与深色那对同为「比面板暗 7 阶」（244-237 /
      29-36 反向），两套主题的悬停醒目度对齐。 */
   --bg-hover-soft: #ededed;
+  /* 见深色那支的说明：白底上不「提亮」而是压深一点，方向与深色相反 */
+  --icon-hover-bg: rgba(0, 0, 0, 0.055);
 
   --border: #cecece;
   --border-soft: #e4e4e4;
@@ -375,6 +416,20 @@
   /* 倒计时卡，见深色那支的说明：同样不透明，白底与面板同色 */
   --cd-bg: #ffffff;
 
+  /* 倒计时卡内部控件，见深色那支的说明：白底上靠极淡的灰面区分控件，
+     卡片本身不再画 1px 实线，只用大范围低透明度投影浮起来。 */
+  --cd-shadow: 0 20px 40px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --cd-field-bg: #f5f7fa;
+  --cd-field-focus-bg: #ffffff;
+  --cd-chip-bg: #f2f4f7;
+  --cd-chip-hover: #e9edf2;
+  --cd-chip-on-bg: #e6f0ff;
+  --cd-chip-on-text: #0b4ea2;
+  --cd-label: #8b8b8b;
+  --cd-primary-bg: #16202b;
+  --cd-primary-hover: #0d151d;
+  --cd-primary-text: #f7fafc;
+
   /* 放大镜，见深色那支的说明。白底上那圈黑影单独调淡（理由同 --menu-shadow）；
      光束换成浅色那支 --accent（#005fb8），透明度也降一档：白底上蓝更跳 */
   --probe-bg: rgba(255, 255, 255, 0.94);
@@ -406,10 +461,17 @@
   --menu-hover-bg: #0060c0;
   --menu-hover-text: #ffffff;
   --menu-hover-muted: #b0d0ff;
+  /* 见深色那支的说明：白底上取一层极淡的灰，别用蓝色 */
+  --menu-tile-bg: rgba(0, 0, 0, 0.05);
   /* 模板的 #454545 压在深色底上是一道看得清的发丝线；白底上同等的可见度约在 #d4d4d4 */
   --menu-separator: #d4d4d4;
   /* 深色那份 0.5 的黑影是为 #252526 那种暗面准备的，白底上会糊成一圈脏边，单独调淡 */
   --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+
+  /* 提示框，见深色那支的说明：底色与字色两套主题同值，白底上只把投影压淡一档 */
+  --tooltip-bg: #111113;
+  --tooltip-text: #f2f2f2;
+  --tooltip-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
 
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
 

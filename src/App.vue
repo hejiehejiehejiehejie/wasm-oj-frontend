@@ -1289,10 +1289,12 @@ async function runOne(target) {
   // 与 runAll 同一套通知纪律：单跑也是「一次运行」，先收旧的常驻 CE，跑完发新的一条
   const entryPath = activeNode.value?.path
   if (entryPath) clearRunNotify(entryPath)
-  // 逐张 ▶ 也可能把整组凑成全过（用户的实际用法）：先记下跑之前的样子，
-  // 只有「这一跑刚好凑齐」才庆祝 —— 已经全过时重跑任意一张不再放，避免重复庆祝。
+  // 逐张 ▶ 也可能把整组凑成全过（用户的实际用法）：先记下跑之前的样子。
+  // 多样例时只有「这一跑刚好凑齐」才庆祝 —— 已经全过时重跑任意一张不再放，避免重复庆祝；
+  // 单样例时不再拦：那一次运行本身就是整份提交，与页脚 runAll 的行为对齐（用户 2026-10-24 要求）。
   const queue = [...testCases.value]
   const wasAccepted = isAllAccepted(queue)
+  const isSingleCase = queue.length === 1
   // 与 runAll 同一套清场口径（含「不清上一轮输出」那条），见 resetCase
   resetCase(target)
   try {
@@ -1313,7 +1315,7 @@ async function runOne(target) {
     if (!controller.signal.aborted) {
       notifyRunOutcome({ path: entryPath, cases: [target] })
       // 中途切了文件就不放：庆祝的落点是「此刻这份文件的样例栏」。
-      if (!wasAccepted && activeNode.value?.path === entryPath && isAllAccepted(queue)) {
+      if ((!wasAccepted || isSingleCase) && activeNode.value?.path === entryPath && isAllAccepted(queue)) {
         if (editorSettings.value.celebration) celebrateAllPassed()
       }
     }
@@ -1965,7 +1967,7 @@ onBeforeUnmount(() => {
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="submit-confirm-title"
-          aria-describedby="submit-confirm-desc"
+          :aria-describedby="pendingSubmit.duplicate ? 'submit-confirm-desc' : undefined"
           @keydown.esc.stop.prevent="cancelSubmit"
         >
           <p
@@ -1973,14 +1975,14 @@ onBeforeUnmount(() => {
             class="confirm__title"
             :class="{ 'confirm__title--warn': pendingSubmit.duplicate }"
           >
-            {{ pendingSubmit.duplicate ? t('tests.submit.duplicateTitle') : t('tests.submit.confirmTitle') }}
-          </p>
-          <p id="submit-confirm-desc" class="confirm__desc">
             {{
               pendingSubmit.duplicate
-                ? t('tests.submit.duplicateDesc', { name: pendingSubmit.name })
-                : t('tests.submit.confirmDesc', { name: pendingSubmit.name })
+                ? t('tests.submit.duplicateTitle')
+                : t('tests.submit.confirmTitle', { name: pendingSubmit.name })
             }}
+          </p>
+          <p v-if="pendingSubmit.duplicate" id="submit-confirm-desc" class="confirm__desc">
+            {{ t('tests.submit.duplicateDesc', { name: pendingSubmit.name }) }}
           </p>
           <div class="confirm__actions">
             <button ref="cancelSubmitBtn" type="button" class="confirm__btn" @click="cancelSubmit">
@@ -2478,6 +2480,8 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 650;
   color: var(--text);
+  /* 提交确认的标题里带文件名（可能很长），到边界就折，别把卡片撑破 */
+  overflow-wrap: anywhere;
 }
 
 /* 重复提交那版标题染成警示色：两张卡长得一模一样时，用户很容易当成普通确认一路回车 */

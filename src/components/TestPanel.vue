@@ -243,6 +243,21 @@ const elapsedText = computed(() => {
            （见 showSubmit 与 App 里那段说明）。 -->
       <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
       <div class="panel__foot-row">
+        <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠左，与主条同高。
+             只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
+             一起收掉，页脚不留占位（原因走快捷键那条通知）。
+             2026-10-24：与「运行全部」交换左右顺序，提交落在最左。 -->
+        <button
+          v-if="showSubmit"
+          class="submit-inline"
+          :class="{ 'is-submitting': submitting }"
+          :disabled="running || submitting"
+          :title="t('tests.submit.button')"
+          :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
+          @click="emit('submit')"
+        >
+          <AppIcon name="arrow-up" :size="13" />
+        </button>
         <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
              图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
              文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
@@ -255,20 +270,6 @@ const elapsedText = computed(() => {
         >
           <AppIcon name="play" :size="14" />
           <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
-        </button>
-        <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠右，与主条同高。
-             只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
-             一起收掉，页脚不留占位（原因走快捷键那条通知）。 -->
-        <button
-          v-if="showSubmit"
-          class="submit-inline"
-          :class="{ 'is-submitting': submitting }"
-          :disabled="running || submitting"
-          :title="t('tests.submit.button')"
-          :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
-          @click="emit('submit')"
-        >
-          <AppIcon name="arrow-up" :size="13" />
         </button>
       </div>
     </footer>
@@ -379,19 +380,24 @@ const elapsedText = computed(() => {
   flex: 1 1 auto;
   min-height: 0;
   margin: 0;
-  /* 横向 12px → 8px：卡片改成无边框之后，两边这 12px 纯粹是把用例往里挤，
-     收到 8px 就换回来 8px 实际宽度（再多贴边就顶到面板与分隔条上了）。
+  /* 横向 8px：列表与面板分隔条之间的留白。卡片自身已无外框（2026-10-24 晚），
+     这 8px 现在只剩一件事：不让代码面贴上分隔条。
      顶部单独给 0（2026-10-13，用户要求「首个样例与首个文件离页头一样远」）：
      卡片头行自带 7px 上内边距 + 头行内容（22px 的折叠箭头盒）居中，所以卡片盒顶留 8px
      时首行墨迹比文件树低 10px。去掉这 8px 后——卡片头行盒顶 7px、内容中心 18px——
      与文件树（.explorer__tree 顶 6px、行文字中心 18px）两个口径同时对上（各差 1px）。
-     ⚠️ 别把顶部补回 8px 去「和左右对齐」：左右那 8px 是给卡片的横向余量，
+     ⚠️ 别把顶部补回 8px 去「和左右对齐」：左右那 8px 是给列表的横向余量，
      纵向没有对应的东西，补回来首行就又低 8px。 */
   padding: 0 8px 8px;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  /* 留白即边界，且留白要匀（2026-10-24 晚）：卡片底色、外框、头部分隔线全部撤掉后，
+     样例与样例之间只靠空白分开。2026-10-24 深夜底部那条单线也去掉，间距保持原样。
+     账目：上侧 = .card__body 的下内边距 10 + .card 自身的下内边距 10 = 20；
+     下侧 = 这里的 gap 10 + 下一张头栏的上内边距 2 + 标题在 32px 行内的居中余量约 8 = 20。
+     改 gap 就要同步改那两处内边距，否则上下两半会一胖一瘦。 */
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
   /* 原生滚动条藏掉，由 useOverlayScrollbar 那条滑块接手（2026-10-13）：原生那条占掉 11px，
@@ -471,10 +477,11 @@ const elapsedText = computed(() => {
 
 /* 列表末尾那条「添加测试样例」（2026-10-23 从页脚搬进来）。
    `flex: 0 0 auto` 与卡片同一条纪律：列表溢出时不许被压矮。
-   上下留白全由 .cases 的 gap（12px）与底部 padding（8px）出 —— 它不再是页脚里
-   那颗需要自己撑出 10px 间距的按钮。 */
+   上下留白：gap 10 + 这里的 margin-top 10 = 20，与样例之间的「线到下一块」同距；
+   底部 padding 8 由 .cases 出 —— 它不再是页脚里那颗需要自己撑间距的按钮。 */
 .cases__add {
   flex: 0 0 auto;
+  margin-top: 10px;
 }
 
 /* 空列表：按钮落回列表底部（也就是它原先在页脚正上方的位置）。
@@ -556,7 +563,7 @@ const elapsedText = computed(() => {
 .run-inline {
   /* 主操作条（2026-10-24 改）：从 32px 的线框图标改成整条图文按钮。
      `flex: 1 1 auto` 让它吃掉这一排的剩余宽度 —— 提交按钮不出现时就是通栏；
-     出现时它也让出 36 + 8px 给提交那颗，而不是缩成一颗小图标。
+     出现时它也让出 36 + 8px 给提交那颗（提交在最左），主条仍占满其余宽度。
      宽高账：侧栏下限 158px 时页脚内容宽 142，主条 = 142 - 36 - 8 = 98px，
      内容「14(图标) + 7(间距) + 50(四个 12.5px 汉字)」= 71px，再加左右 24px 内边距 = 95px，
      刚好放得下（英文 Run all 更短）。所以这颗字不用藏，title 只用来交代完整动作。 */

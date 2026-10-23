@@ -20,7 +20,9 @@ import { COUNTDOWN_KEY } from './storageNames.js'
 export const COUNTDOWN_DEFAULT_W = 300
 export const COUNTDOWN_DEFAULT_H = 212
 export const COUNTDOWN_MIN_W = 260
-export const COUNTDOWN_MIN_H = 186
+// 2026-10-24 设置区随视觉重做长大（输入 40 + 预设 28 + 主按钮 38 + 两处间距），
+// 186 会把这组内容压出卡外（卡片 overflow: hidden，按钮会被裁掉），最低抬到 200
+export const COUNTDOWN_MIN_H = 200
 
 const PHASES = ['setup', 'running', 'paused', 'done']
 const MAX_TOTAL_MS = 99 * 3600 * 1000
