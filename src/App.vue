@@ -891,13 +891,24 @@ const runBlockedReason = computed(() => {
  * 所以动作整个交给浏览器扩展（见 services/ojSubmit.js 与 useCompanionBridge 的 requestSubmit）。
  * 这里只管三件事：判断按钮在不在 / 能不能按、发通知、把扩展回来的判定码翻成人话。
  *
- * `submitBlocked` 只在按钮真出现时才给理由：没有关联题目的普通代码文件不该在页脚
- * 多出一行「无法提交」—— 那颗按钮本来就不在。
+ * 按钮只在**这一屏真的交得了**的时候出现（2026-10-23 改，用户要求：「如果无法提交，
+ * 干脆就不要显示这个按钮，不要占用视觉」）。以前是「是题就显示、交不了置灰 + 页脚
+ * 一行原因」—— 一颗永远灰着的按钮加一句「没装插件 / 不是 CF 题」，占着页脚，而那两样
+ * 对绝大多数文件都用不上。现在交不了就整个不出现（连同那行原因一起收掉）。
+ * ⚠️ 快捷键（Mod+Shift+Enter）没有「不出现」这个选项，按下去仍要能解释为什么没动静 ——
+ * 所以 `submitBlocked` 保留，只给 requestSubmitConfirmation 那条路用，不再往面板里传。
+ *
+ * 点按钮 / 按快捷键都**不直接提交**：先把目标记进 `pendingSubmit`、弹一张确认卡，
+ * 点「确认提交」才真的发（2026-10-23 用户要求加确认；提交会在 Codeforces 上留一条
+ * 删不掉的记录，误触的代价比多一次点击大）。确认前再核一次身份：弹窗开着时切了文件，
+ * 宁可一条都不发，也不要把 A 的代码交到 B 的题上。
  */
 const submitting = ref(false)
-const showSubmit = computed(() => shouldShowSubmit(activeNode.value))
+const pendingSubmit = ref(null)
+const confirmSubmitBtn = ref(null)
+
 const submitBlocked = computed(() => {
-  if (!showSubmit.value) return ''
+  if (!shouldShowSubmit(activeNode.value)) return ''
   return submitBlockedReason({
     node: activeNode.value,
     language: activeLanguage.value,
@@ -905,6 +916,57 @@ const submitBlocked = computed(() => {
     checking: extensionChecking.value,
   })
 })
+const showSubmit = computed(() => shouldShowSubmit(activeNode.value) && !submitBlocked.value)
+
+// 弹窗一出现就把焦点送到「确认提交」：Enter 确认、Esc 取消都能纯键盘走完
+watch(
+  () => pendingSubmit.value,
+  (pending) => {
+    if (pending) nextTick(() => confirmSubmitBtn.value?.focus())
+  },
+)
+
+/** 门卫：能交才弹确认；交不了的那一屏没有按钮可点，按快捷键也得听一句解释 */
+function requestSubmitConfirmation() {
+  if (submitting.value || running.value || pendingSubmit.value) return
+
+  if (submitBlocked.value) {
+    notify({
+      type: 'warning',
+      title: t('tests.submit.failedTitle'),
+      message: submitBlocked.value,
+      duration: 5000,
+    })
+    return
+  }
+
+  const node = activeNode.value
+  pendingSubmit.value = { id: node.id, name: node.name }
+}
+
+function cancelSubmit() {
+  pendingSubmit.value = null
+  // 键盘取消后焦点别掉到 <body>：回到那颗提交按钮（弹窗只会在它存在时打开）
+  nextTick(() => document.querySelector('.panel .submit-inline')?.focus())
+}
+
+async function confirmSubmit() {
+  const pending = pendingSubmit.value
+  pendingSubmit.value = null
+  if (!pending) return
+
+  if (activeNode.value?.id !== pending.id) {
+    notify({
+      type: 'warning',
+      title: t('tests.submit.failedTitle'),
+      message: t('tests.submit.targetChanged'),
+      duration: 5000,
+    })
+    return
+  }
+
+  await submitActiveFile()
+}
 
 /** 同一道题连着交两次时，只让最后那一条通知留下（旧提交的判定回来不许盖掉新的） */
 let submitSeq = 0
@@ -912,7 +974,7 @@ let submitSeq = 0
 async function submitActiveFile() {
   if (submitting.value || running.value) return
 
-  // 快捷键没有置灰态：按下去没反应会被读成「键位失灵」，所以这一幕也要说明白
+  // 弹窗可能开了一小会儿：这期间扩展被关掉 / 语言变了，末尾这道闸门还要再拦一次
   if (submitBlocked.value) {
     notify({
       type: 'warning',
@@ -1176,9 +1238,9 @@ watch(
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
 const SHORTCUT_HANDLERS = {
   run: () => runAll(),
-  // 与样例面板页脚那颗提交按钮同源（见 submitActiveFile）；不可提交时它弹一条说明，
-  // 不像按钮那样有置灰态可看
-  'submit-solution': () => submitActiveFile(),
+  // 与样例面板页脚那颗提交按钮同源（见 requestSubmitConfirmation）：先弹确认，
+  // 交不了时它弹一条说明，不像按钮那样有置灰态可看
+  'submit-solution': () => requestSubmitConfirmation(),
   // 全屏编辑时侧栏整块让位，这两条按下去什么也看不见 —— 先退出全屏再执行，
   // 免得看起来像快捷键失灵（与 runAll 里 revealTestsPanel 的思路一致）。
   // instant 取的是 exitFullscreen **之前**那个值：退出全屏是「编辑器从铺满跳回两栏」，
@@ -1691,13 +1753,12 @@ onBeforeUnmount(() => {
                 :run-blocked="runBlockedReason"
                 :notice="emptyNotice"
                 :show-submit="showSubmit"
-                :submit-blocked="submitBlocked"
                 :submitting="submitting"
                 @add="addCase"
                 @remove="removeCase"
                 @run-one="runOne"
                 @run-all="runAll"
-                @submit="submitActiveFile"
+                @submit="requestSubmitConfirmation"
               />
             </template>
           </Sidebar>
@@ -1725,6 +1786,43 @@ onBeforeUnmount(() => {
     <!-- 悬浮倒计时卡：常驻挂载，显隐只看 services/countdown.js 里的 open；
          位置/计时跨刷新保留，入口在齿轮菜单的「倒计时」 -->
     <CountdownCard />
+
+    <!-- 提交确认：点页脚那颗提交 / 按 Mod+Shift+Enter 都先停在这里，点「确认提交」
+         才真的发。与删除确认同款自绘卡片（不用 window.confirm，理由见 FileExplorer
+         的 requestDelete），Teleport 到 body 只依赖主题变量。
+         点遮罩 / Esc = 取消；打开瞬间焦点落在「确认提交」上，纯键盘能走完。 -->
+    <Teleport to="body">
+      <div v-if="pendingSubmit" class="confirm" @pointerdown.self="cancelSubmit">
+        <div
+          class="confirm__card"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="submit-confirm-title"
+          aria-describedby="submit-confirm-desc"
+          @keydown.esc.stop.prevent="cancelSubmit"
+        >
+          <p id="submit-confirm-title" class="confirm__title">
+            {{ t('tests.submit.confirmTitle') }}
+          </p>
+          <p id="submit-confirm-desc" class="confirm__desc">
+            {{ t('tests.submit.confirmDesc', { name: pendingSubmit.name }) }}
+          </p>
+          <div class="confirm__actions">
+            <button type="button" class="confirm__btn" @click="cancelSubmit">
+              {{ t('app.cancel') }}
+            </button>
+            <button
+              ref="confirmSubmitBtn"
+              type="button"
+              class="confirm__btn confirm__btn--primary"
+              @click="confirmSubmit"
+            >
+              {{ t('tests.submit.confirmAction') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -2174,6 +2272,82 @@ onBeforeUnmount(() => {
   .splitter:hover .splitter__line {
     opacity: 1;
   }
+}
+
+/* ---------------------------------------------------------------- 提交确认
+   Teleport 到 body，所以这里的定位与色值都只依赖主题变量，不依赖应用容器。
+   与 FileExplorer 的删除确认同一套尺寸与色值（两处各自 scoped，改动要成对看一眼）。 */
+.confirm {
+  position: fixed;
+  inset: 0;
+  /* 高于右键菜单（120），与删除确认同一档 */
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.confirm__card {
+  width: min(340px, 100%);
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+
+.confirm__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.confirm__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.confirm__btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 500 12.5px/1.5 var(--font-sans, system-ui);
+  cursor: pointer;
+}
+
+.confirm__btn:hover {
+  background: var(--bg-hover);
+}
+
+/* 主操作沿用 accent：与站内其它主要按钮同色 */
+.confirm__btn--primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.confirm__btn--primary:hover {
+  background: var(--accent-hover);
+}
+
+.confirm__btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 </style>
 

@@ -89,6 +89,13 @@ export default {
         submittedUnknown: '已提交，结果请到 Codeforces 查看',
         failedTitle: '提交失败',
 
+        /* 确认弹窗（2026-10-23 加）：提交会在 Codeforces 上留一条真实记录、删不掉，
+           所以点按钮 / 按快捷键都先停在这里，点「确认提交」才发 */
+        confirmTitle: '确认提交到 Codeforces？',
+        confirmDesc: '即将提交 {name}。这会在 Codeforces 上生成一条真实的提交记录，无法撤回。',
+        confirmAction: '确认提交',
+        targetChanged: '当前文件已切换，这次提交没有发出',
+
         blockedDesktop: '桌面端没有浏览器插件，暂不支持一键提交',
         blockedNoFile: '没有打开的文件，无法提交',
         blockedNoProblem: '这个文件没有关联题目，无法提交',
@@ -225,6 +232,13 @@ export default {
         submittedMessage: 'Submission #{id}',
         submittedUnknown: 'Submitted — check Codeforces for the result',
         failedTitle: 'Submission failed',
+
+        /* 同 zh-CN：提交前的确认弹窗（2026-10-23 加） */
+        confirmTitle: 'Submit to Codeforces?',
+        confirmDesc:
+          'About to submit {name}. This creates a real submission on Codeforces and cannot be undone.',
+        confirmAction: 'Submit',
+        targetChanged: 'The active file changed, so nothing was submitted',
 
         blockedDesktop: 'One-click submit needs the browser extension and is not available in the desktop app',
         blockedNoFile: 'No file is open, so there is nothing to submit',

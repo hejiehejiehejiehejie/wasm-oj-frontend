@@ -88,9 +88,11 @@ export function parseCodeforcesProblem(url) {
 }
 
 /**
- * 这颗提交按钮该不该出现在样例面板页脚。
- * 判据是「这个文件是不是一道题」，与能不能交无关 —— 洛谷题、题解文件也显示，
- * 置灰并在标题里说清原因，比按钮凭空消失更容易理解。
+ * 「这个文件是不是一道题」—— 提交按钮的第一道闸门。
+ *
+ * 它**不再单独决定按钮出不出**：还要 `submitBlockedReason()` 为空才真的显示
+ * （2026-10-23 用户要求「如果无法提交，干脆就不要显示这个按钮」）。
+ * 洛谷题（非 CF）在这里为 true，随后被 blockedOj 挡掉、按钮不渲染；桌面壳直接 false。
  */
 export function shouldShowSubmit(node) {
   return !IS_DESKTOP && Boolean(node?.meta?.url)

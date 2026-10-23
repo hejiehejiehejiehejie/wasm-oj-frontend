@@ -36,14 +36,14 @@ const props = defineProps({
    */
   runBlocked: { type: String, default: '' },
   /**
-   * 不可提交的原因（由 App 按活跃文件与扩展能力算好）。空串＝可提交。
-   * 与 runBlocked 共用页脚那一行说明，但它们是两件事：
-   * 能跑 ≠ 能交（洛谷题能跑不能交；没装插件也能跑）。
+   * 提交请求在途：按钮置灰，防止连点（扩展那边一次只跑一趟）
    */
-  submitBlocked: { type: String, default: '' },
-  /** 提交请求在途：按钮置灰，防止连点（扩展那边一次只跑一趟） */
   submitting: Boolean,
-  /** 这个文件是不是一道题 —— 是才显示提交按钮，普通草稿文件不摆一颗永远灰着的图标 */
+  /**
+   * 这一屏能不能交（由 App 算好：是不是题 + 扩展能力 + 语言都齐了才算）。
+   * **交不了就整个不渲染**（2026-10-23 改，用户要求「不要占用视觉」）——
+   * 所以这里没有「置灰的提交按钮」，也没有属于它的原因行；原因只走快捷键那条通知。
+   */
   showSubmit: Boolean,
   /**
    * 空态里追加的一行提示，没有就是 null（非题目文件、或样例已经在了）。两种形状：
@@ -170,10 +170,11 @@ const elapsedText = computed(() => {
       </div>
     </Teleport>
 
-    <ul ref="listEl" class="cases">
+    <ul ref="listEl" class="cases" :class="{ 'is-empty': !cases.length }">
       <li v-if="!cases.length" class="empty">
         <!-- 空态只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个用例…」和一颗
-             「添加第一个用例」大按钮，前者是废话、后者与页脚那颗「添加测试样例」重复。
+             「添加第一个用例」大按钮，前者是废话、后者与列表末尾那颗「添加测试样例」重复
+             （那颗当时在页脚，2026-10-23 挪进列表）。
              这句话**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是这行
              居中的淡灰字）：与三个小标题 input / Expected / Actual 同一个理由 —— 它是一句
              格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它**不在消息表里**。
@@ -204,27 +205,34 @@ const elapsedText = computed(() => {
         @remove="emit('remove', $event)"
         @run="emit('run-one', $event)"
       />
-    </ul>
 
-    <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
-      <!-- 置灰的按钮在浏览器里收不到鼠标事件，title 也就悬不出来 ——
-           所以「为什么不能运行 / 不能提交」必须写成一行看得见的字，不能只塞进 title。
-           两条原因同时存在时优先说运行那条：它覆盖的场景（题解、没开文件）更基础。 -->
-      <p v-if="runBlocked || submitBlocked" class="run-blocked">{{ runBlocked || submitBlocked }}</p>
-      <div class="panel__foot-row">
-        <!-- 跑不了的活跃文件也加不出用例：用例是挂在活跃文件上的（写进它的 config.tests），
-             题解这类文件根本没有能跑它们的地方 —— 与两个 ▶ 一起置灰，别让这一颗还亮着。
-             ⚠️ `title` 不能省：窄屏下那个 `span` 被隐藏（见 Sidebar.vue 的窄屏块），
-             AppIcon 是 aria-hidden，没有它这颗按钮就成了一个没有名字的图标按钮。 -->
+      <!-- 添加用例：从页脚挪到列表末尾（2026-10-23，用户：「移到样例栏中去，
+           到所有样例的后面」）。它是这条列表的收尾项，仍然整宽。
+           `flex: 0 0 auto` 不能省：卡片也靠同一条避免被压扁（见 .card 的头注），
+           用例一多、列表开始滚动时它同样不该被压。
+           空列表时它由 .cases.is-empty 推回列表底部（见样式里那条），
+           与绝对定位在 38.2% 处的空态文案各安其位。
+           ⚠️ `title` 不能省：窄屏下那个 `span` 被隐藏（规则在 Sidebar.vue 的窄屏块里），
+           AppIcon 是 aria-hidden，没有它这颗按钮就成了一个没有名字的图标按钮。 -->
+      <li class="cases__add">
         <button
           class="add"
           :title="t('tests.panel.addCase')"
-          @click="emit('add')"
           :disabled="running || Boolean(runBlocked)"
+          @click="emit('add')"
         >
           <AppIcon name="plus" :size="14" />
           <span class="add__label">{{ t('tests.panel.addCase') }}</span>
         </button>
+      </li>
+    </ul>
+
+    <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
+      <!-- 跑不了的原因写成一行看得见的字（置灰的按钮在浏览器里收不到鼠标事件，
+           title 也就悬不出来）。**提交那条不在这里**：交不了的时候那颗按钮压根不渲染
+           （见 showSubmit 与 App 里那段说明）。 -->
+      <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
+      <div class="panel__foot-row">
         <button
           class="run-inline"
           :disabled="running || !cases.length || Boolean(runBlocked)"
@@ -233,14 +241,16 @@ const elapsedText = computed(() => {
         >
           <AppIcon name="play" :size="13" />
         </button>
-        <!-- 一键提交（2026-10-23 加）：与 ▶ 同高、纯图标，标题说明动作与原因。
-             只用图标是为了窄侧栏（下限 158px）不折行 —— 与 ▶ 的口径一致。 -->
+        <!-- 一键提交（2026-10-23 加）：与 ▶ 同高、纯图标，标题说明动作。
+             只用图标是为了窄侧栏（下限 158px）不折行 —— 与 ▶ 的口径一致。
+             只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
+             一起收掉，页脚不留占位（原因走快捷键那条通知）。 -->
         <button
           v-if="showSubmit"
           class="submit-inline"
           :class="{ 'is-submitting': submitting }"
-          :disabled="running || submitting || Boolean(submitBlocked)"
-          :title="submitBlocked || t('tests.submit.button')"
+          :disabled="running || submitting"
+          :title="t('tests.submit.button')"
           :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
           @click="emit('submit')"
         >
@@ -438,6 +448,21 @@ const elapsedText = computed(() => {
   color: var(--accent-strong);
 }
 
+/* 列表末尾那条「添加测试样例」（2026-10-23 从页脚搬进来）。
+   `flex: 0 0 auto` 与卡片同一条纪律：列表溢出时不许被压矮。
+   上下留白全由 .cases 的 gap（12px）与底部 padding（8px）出 —— 它不再是页脚里
+   那颗需要自己撑出 10px 间距的按钮。 */
+.cases__add {
+  flex: 0 0 auto;
+}
+
+/* 空列表：按钮落回列表底部（也就是它原先在页脚正上方的位置）。
+   空态文案是绝对定位在 38.2% 的，不占布局；这里靠 auto 外边距把这一项推到底，
+   没有它按钮会紧贴列表顶端，看起来像是「空列表里孤零零一颗按钮」。 */
+.cases.is-empty .cases__add {
+  margin-top: auto;
+}
+
 .add {
   display: inline-flex;
   align-items: center;
@@ -458,8 +483,9 @@ const elapsedText = computed(() => {
   border-color: var(--info-soft-border-hover);
 }
 
-/* 页脚两颗按钮的禁用态必须是同一档（2026-10-06）：原先 .add 是 0.5、.run-inline 是 0.45，
-   两档差不出所以然，却会让「题解这类文件下三颗按钮全灰」的那一屏看起来像两个不同的系统。 */
+/* 三颗按钮的禁用态必须是同一档（2026-10-06）：原先 .add 是 0.5、.run-inline 是 0.45，
+   两档差不出所以然，却会让「题解这类文件下按钮全灰」的那一屏看起来像两个不同的系统。
+   .add 已在 2026-10-23 挪进列表，但它与页脚两颗仍是同一套语汇，这条注释仍然管三颗。 */
 .add:disabled {
   opacity: 0.45;
   cursor: default;
@@ -472,7 +498,7 @@ const elapsedText = computed(() => {
   gap: 8px;
   padding: 10px 12px;
   /* 底色与面板同色（--bg-editor，即整页地面），照侧边栏页头那套「透明条」的做法（2026-10-23）：
-     页脚不再是一块比正文亮一档的色斑，而是同一条地面的末段，两颗按钮直接浮在上面。
+     页脚不再是一块比正文亮一档的色斑，而是同一条地面的末段，剩下的按钮直接浮在上面。
      与正文的分界改由一条发丝线承担 —— 但它只在**还有内容压在下面**时才描出来
      （.is-more-below，判据在 script 的 syncFootEdge，与页头同一套显影语汇）。
      那条 border 常时也在、只是透明：显示 / 隐藏时不改盒高，页脚才不抖 1px。 */
