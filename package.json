@@ -25,6 +25,7 @@
   "dependencies": {
     "@runno/wasi": "0.10.0",
     "@tauri-apps/api": "^2.12.1",
+    "canvas-confetti": "^1.9.4",
     "dompurify": "^3.4.8",
     "katex": "^0.18.9",
     "marked": "^14.0.0",

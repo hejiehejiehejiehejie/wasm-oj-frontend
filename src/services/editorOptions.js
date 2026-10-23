@@ -162,6 +162,14 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   // 默认开＝改造前就有状态栏，老用户升上来零变化。
   statusBar: true,
   /**
+   * 「全部样例通过」的庆祝纸屑（2026-10-23 加，见 services/confetti.js）。
+   *
+   * 与 statusBar / lowPower 同理，不是 Monaco 选项，攒在这份存档里只是图「新增一项偏好
+   * 不用再开一份 localStorage」。默认开：它是奖励反馈，绝大多数人不会想去关；
+   * 关掉的入口在 设置 › 评测（`settings.judge.celebration`），关掉之后连 canvas 都不建。
+   */
+  celebration: true,
+  /**
    * 低配模式：只影响**编辑器内的后台语法检查**（`services/monaco/syntaxDiagnostics.js`）。
    *
    * 开着眼务于老机器 —— 那条检查每触发一次就要起一个 WASI worker、实例化 30MB 的 clang、

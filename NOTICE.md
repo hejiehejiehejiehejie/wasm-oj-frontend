@@ -14,17 +14,19 @@
 - 站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。
 - 本文件只列**别人的**项目。本仓库自己目前没有 `LICENSE` 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。
 
-> 最后核对：**2026-10-11**（换扩展包 → `cc-for-web-2.66.4.zip`。本次两项行为改动，都是云同步登录的便利：① **验证码代填** —— 用户在本站点那颗按钮时，扩展去 Codeforces 的 Social 设置页把本站取到的码写进 Last name 并提交（只写这一格，不读 cookie、不读凭据）；② **登录态预检** —— 扩展在本地比对本浏览器登录的 handle 与用户填的是否一致，只回 `match` / `mismatch` / `not-logged-in` / `unknown` 四个枚举、**绝不回用户名**。清单随之变化：`host_permissions` 183 → 184、`content_scripts` 2 → 3（多出的一条只注入 `https://codeforces.com/settings/social*`），API `permissions` 一条未新增。属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+> 最后核对：**2026-10-23**（新增一条**运行时**依赖 `canvas-confetti` 1.9.4（ISC）—— 一次评测全部样例通过时、在样例面板里飘落的彩带，随主包分发；画面落在样例面板自己那块 canvas 上、跑在主线程（**不用它的 worker 模式**）。版本与许可由 `node_modules/canvas-confetti/package.json` 实读，不是照写。依赖条数按同日 `package-lock.json` 重核：`lockfileVersion: 3`，共 **108** 个包 —— **32** 条生产、**76** 条开发；下面 2026-09-30 那条记的 94 / 30 / 64 是那天的读数，此后陆续加了 `@tauri-apps/api` 等，**以本条为准**）。
 >
-> 此前核对：**2026-10-10**（换扩展包 → `cc-for-web-2.66.3.zip`。三项行为改动：① 扩展开始支持 **Firefox for Android**（manifest 增加 `gecko_android`、下限 142），并修复后台脚本在安卓上的两处致命崩溃（`contextMenus` / `commands` 命名空间在安卓端不存在，原代码在模块求值时抛 TypeError 导致整个后台失效，安卓上表现为网站「未检测到插件」、抓题无反应——已在真机 Firefox 143 实测通过）；② 题目**来源**站点注入范围改由 parser 注册表自动推导，`host_permissions` 与自动解析脚本的范围随之扩大（6 条 → 183 条 / 2 条 → 182 条）；③ Firefox 端 manifest 描述加注「Fork of Competitive Companion, now also working on Firefox for Android.」。三项都属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+> 此前核对：**2026-10-11**（换扩展包 → `cc-for-web-2.66.4.zip`。本次两项行为改动，都是云同步登录的便利：① **验证码代填** —— 用户在本站点那颗按钮时，扩展去 Codeforces 的 Social 设置页把本站取到的码写进 Last name 并提交（只写这一格，不读 cookie、不读凭据）；② **登录态预检** —— 扩展在本地比对本浏览器登录的 handle 与用户填的是否一致，只回 `match` / `mismatch` / `not-logged-in` / `unknown` 四个枚举、**绝不回用户名**。清单随之变化：`host_permissions` 183 → 184、`content_scripts` 2 → 3（多出的一条只注入 `https://codeforces.com/settings/social*`），API `permissions` 一条未新增。属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
 >
-> 此前一次核对：**2026-10-02**（代码区新增三款内置等宽字体：JetBrains Mono 2.211 / Fira Code 5.002 / Cascadia Code 2407.024，源文件落在 `public/fonts/`。**只取 latin 子集的 woff2（Regular + Bold，合计 149KB）**，来自 [@fontsource](https://github.com/fontsource/fontsource) 5.3.0 的构建产物，上游均为 **OFL-1.1**。版本号按字体内部的真实版本核出 —— fontsource 的包偏旧，例如 Fira Code 上游 6.2 而包内是 5.002，按上游 release 号写文件名就会记错。属于新增素材而非依赖变动，`package.json` 与运行时清单**未变**）。
+> 此前二次核对：**2026-10-10**（换扩展包 → `cc-for-web-2.66.3.zip`。三项行为改动：① 扩展开始支持 **Firefox for Android**（manifest 增加 `gecko_android`、下限 142），并修复后台脚本在安卓上的两处致命崩溃（`contextMenus` / `commands` 命名空间在安卓端不存在，原代码在模块求值时抛 TypeError 导致整个后台失效，安卓上表现为网站「未检测到插件」、抓题无反应——已在真机 Firefox 143 实测通过）；② 题目**来源**站点注入范围改由 parser 注册表自动推导，`host_permissions` 与自动解析脚本的范围随之扩大（6 条 → 183 条 / 2 条 → 182 条）；③ Firefox 端 manifest 描述加注「Fork of Competitive Companion, now also working on Firefox for Android.」。三项都属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
 >
-> 此前二次核对：**2026-10-01**（同日两次换扩展包：先 → `cc-for-web-2.66.1.zip`（行为改动同上一条，握手消息名去 `cph-` 前缀），随即 → `cc-for-web-2.66.2.zip`（行为改动：「样例待抓名单」机制整体移除 —— 扩展不再保存名单，改成用户打开题目页时由扩展现场问网页「这道题在工作区里且样例为空吗」（新消息 `cp-query-need` / `cp-need-answer`，见 `src/composables/useCompanionBridge.js`），要抓才抓；跨仓契约，必须与本站同版发布）。两次都属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+> 此前三次核对：**2026-10-02**（代码区新增三款内置等宽字体：JetBrains Mono 2.211 / Fira Code 5.002 / Cascadia Code 2407.024，源文件落在 `public/fonts/`。**只取 latin 子集的 woff2（Regular + Bold，合计 149KB）**，来自 [@fontsource](https://github.com/fontsource/fontsource) 5.3.0 的构建产物，上游均为 **OFL-1.1**。版本号按字体内部的真实版本核出 —— fontsource 的包偏旧，例如 Fira Code 上游 6.2 而包内是 5.002，按上游 release 号写文件名就会记错。属于新增素材而非依赖变动，`package.json` 与运行时清单**未变**）。
 >
-> 此前三次核对：**2026-10-01**（换扩展包 → `cc-for-web-2.66.0.zip`。唯一的改动是插件与网页之间的握手消息名去掉 `cph-` 前缀、统一成 `cp-`（跨仓契约，见 `src/composables/useCompanionBridge.js`），属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+> 此前四次核对：**2026-10-01**（同日两次换扩展包：先 → `cc-for-web-2.66.1.zip`（行为改动同上一条，握手消息名去 `cph-` 前缀），随即 → `cc-for-web-2.66.2.zip`（行为改动：「样例待抓名单」机制整体移除 —— 扩展不再保存名单，改成用户打开题目页时由扩展现场问网页「这道题在工作区里且样例为空吗」（新消息 `cp-query-need` / `cp-need-answer`，见 `src/composables/useCompanionBridge.js`），要抓才抓；跨仓契约，必须与本站同版发布）。两次都属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
 >
-> 此前四次核对：**2026-09-30**（同日两件事：① 换扩展包 → `cc-for-web-2.65.3.zip`，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可**未变**；
+> 此前五次核对：**2026-10-01**（换扩展包 → `cc-for-web-2.66.0.zip`。唯一的改动是插件与网页之间的握手消息名去掉 `cph-` 前缀、统一成 `cp-`（跨仓契约，见 `src/composables/useCompanionBridge.js`），属于行为改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
+>
+> 此前六次核对：**2026-09-30**（同日两件事：① 换扩展包 → `cc-for-web-2.65.3.zip`，行为改动是「可在本站设置页直接切换投递目标」，包内第三方组件的版本与许可**未变**；
 > ② 题解功能上线，新增自托管的 Markdown / LaTeX 渲染运行时 `public/md/`（KaTeX 0.18.9 + marked 14.0.0），并因此把 `marked` / `dompurify` / `katex` 提为本站的**直接依赖**。
 > 依赖清单按同一天的 `package-lock.json` 重核：`lockfileVersion: 3`，共 **94** 条依赖：**30** 条生产、**64** 条开发）。
 
@@ -40,12 +42,13 @@
 | └─ [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.8 | **MPL-2.0 OR Apache-2.0**（双许可） | Monaco 的传递依赖（HTML 净化）。**这是本站唯一一个非宽松许可的运行时依赖** |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.18.9 | MIT | 题解的 LaTeX 公式渲染。**不在主包里**，只在 `public/md/` 按需下载（见 2.2） |
 | [@runno/wasi](https://github.com/taybenlor/runno) | 0.10.0 | MIT | 本地沙箱的 WASI 运行时：起实例、喂 stdin、`kill()`（TLE 靠它） |
+| [canvas-confetti](https://github.com/catdad/canvas-confetti) | 1.9.4 | ISC | 全部样例通过时的彩带庆祝。随主包分发：画面落在样例面板自己那块 canvas 上（由 `TestPanel.vue` 摆放，`position: absolute; inset: 0; pointer-events: none`），**刻意不用它的 Web Worker 模式**（`useWorker: false`，理由见 `src/services/confetti.js`）；系统开启「减弱动态效果」时不出动画 |
 
 题解功能（2026-09-30 上线）把上面那两条 Monaco 的传递依赖也提成了**本站的直接依赖**：`mdRenderer.js` 直接 `import` DOMPurify（本来就随 Monaco 进主包），marked 则除了 Monaco 拉进主包的那一份之外，还在 `public/md/` 里自托管一份按需下载。已实测（在主包 `dist/assets/main-*.js` 里搜）：
 `DOMPurify` ✓、`marked` ✓（Monaco 依赖树那一份）、`katex` ✗（主包里只有「katex」字样的文案与文件名）。
 所以「按需下载」不等于「没下载过的用户外壳里一份 marked 都没有」—— **marked 早在主包里了**；`public/md/` 那一份是为了让渲染器与站点版本对齐，同时把 katex 整个挡在首屏之外。
 
-`package-lock.json` 里那 30 条「生产依赖」的其余部分（`@vue/compiler-*`、`@babel/*`、`entities`、`postcss`、`magic-string`、`source-map-js`、`estree-walker`、`csstype`、`nanoid`、`picocolors` 等）是 Vue 的编译器链，只在**构建期**使用，不进产物。
+`package-lock.json` 里那 32 条「生产依赖」的其余部分（`@vue/compiler-*`、`@babel/*`、`entities`、`postcss`、`magic-string`、`source-map-js`、`estree-walker`、`csstype`、`nanoid`、`picocolors` 等）是 Vue 的编译器链，只在**构建期**使用，不进产物。
 
 ## 二、自托管运行时（`public/` 下，都只在用户点过「下载」之后才进浏览器）
 

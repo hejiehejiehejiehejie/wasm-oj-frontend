@@ -3,6 +3,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import AppIcon from './AppIcon.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
+import { mountConfetti, unmountConfetti } from '../services/confetti.js'
 import { t } from '../i18n/index.js'
 
 // 页头右侧的 verdict + 耗时经 Teleport 投进 Sidebar 的共享页头（#sidebar-context），
@@ -15,6 +16,14 @@ const isActivePanel = computed(() => activeTab.value === 'tests')
 // scrollbar-width / ::-webkit-scrollbar 藏掉
 const listEl = ref(null)
 useOverlayScrollbar(listEl)
+
+// 庆祝纸屑层（2026-10-23 加）：canvas 铺满这块面板，尺寸 / 颜色 / 摆法全在
+// services/confetti.js 里，这里只负责「挂上 / 摘掉」这一对。
+// 触发方是 App 的 celebrateIfAllPassed（整轮跑完全过时调一次），不是这里 watch props.cases ——
+// 用例回写会在运行途中整批换掉卡片对象，watch 拿到的「上一份 status」经常已经丢了。
+const confettiEl = ref(null)
+onMounted(() => mountConfetti(confettiEl.value))
+onBeforeUnmount(unmountConfetti)
 
 const props = defineProps({
   cases: { type: Array, required: true },
@@ -215,6 +224,12 @@ const elapsedText = computed(() => {
         </button>
       </div>
     </footer>
+
+    <!-- 庆祝纸屑层（2026-10-23 加）：铺满整块样例面板、盖在列表与页脚之上，
+         但不吃指针事件 —— 卡片、▶、覆盖式滑块照常能点。位图尺寸由
+         services/confetti.js 每次放之前按 getBoundingClientRect 现设，这里只管「和面板一样大」。
+         aria-hidden：纯装饰，不进无障碍树（同样理由，也不用 aria-live 念出来）。 -->
+    <canvas ref="confettiEl" class="panel__confetti" aria-hidden="true"></canvas>
   </section>
 </template>
 
@@ -229,6 +244,21 @@ const elapsedText = computed(() => {
   /* 与统一侧边栏同色（--bg-editor，即整页底色）：这个面板盖在 .sidebar 上，
      两边不同值的话切页签就能看出「底板被换了一档」（2026-10-23）。 */
   background: var(--bg-editor);
+  /* 纸屑层（.panel__confetti）的定位上下文。写成 relative 而不是给画布用 position: fixed ——
+     画布必须跟着面板走，面板被 v-show 藏起来时它才一起消失（2026-10-23）。 */
+  position: relative;
+}
+
+/* 庆祝纸屑层：铺满整块面板，纯装饰。
+   ⚠️ 别给它 `overflow` / `border-radius` 之类：画布不裁剪，粒子「落出」面板下沿就自然消失
+   （超出画布的部分浏览器本来就不画）。`pointer-events: none` 是硬要求 ——
+   没有它，整块面板上就再也点不到卡片与页脚那两颗按钮。 */
+.panel__confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 /* 页头本身已上提到 Sidebar 的共享页头（.sidebar__head，2026-10-11）：折行、

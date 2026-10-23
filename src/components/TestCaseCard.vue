@@ -682,16 +682,17 @@ function onLongCopy(event, full) {
   background: rgba(224, 163, 78, 0.18);
 }
 
+/* 运行中的徽标**静态**（2026-10-23 改；此前是 `breathe` 呼吸：opacity 1 ↔ 0.55、1.15s 无限循环）。
+   用户报「点运行，侧边栏的评测样例卡片发生闪烁」。实测（12 条用例、echo 引擎）：运行一开始
+   **所有**卡片同时进 `running`（`runAll` 的 `queue.forEach(resetCase)`），于是 12 枚徽标的
+   文字在 725ms 里同步淡到 0.55、再同步淡回来 —— 一片同步明灭的字，观感就是整栏在闪。
+   而卡片高度全程恒为 349px、`.card` 节点零增删（探针记录），所以闪烁**只来自这条动画**，
+   与布局、重渲染都无关。
+   别再加回任何 opacity / 闪烁类的 infinite 动画：运行状态由圆点的涟漪（`.card__dot`）交代，
+   一枚 8px 的光晕是背景节奏，一行 11px 的字明灭不是。 */
 .badge[data-status='running'] {
   color: var(--info);
   background: rgba(79, 193, 255, 0.16);
-  animation: breathe 1.15s ease-in-out infinite;
-}
-
-@keyframes breathe {
-  50% {
-    opacity: 0.55;
-  }
 }
 
 .stale {

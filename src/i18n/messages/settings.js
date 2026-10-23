@@ -293,6 +293,7 @@ export default {
       judge: {
         timeLimit: { label: '运行时限', hint: '只计程序运行阶段，不含编译' },
         memoryLimit: { label: '内存上限', hint: '超出判 MLE；抓来的题优先用题目限制，这里只是默认值。wasm 沙箱与 Judge0 支持，其余引擎忽略' },
+        celebration: { label: '通过动画', hint: '所有样例都通过时，在样例栏飘落彩色纸屑' },
         engines: '评测引擎',
       },
 
@@ -879,6 +880,7 @@ export default {
       judge: {
         timeLimit: { label: 'Time limit', hint: 'Counts the run phase only, excluding compilation' },
         memoryLimit: { label: 'Memory limit', hint: 'Exceeding it reports MLE; imported problems use their own limit first, this is only the default. Supported by the wasm sandbox and Judge0, ignored by other engines' },
+        celebration: { label: 'Pass animation', hint: 'Confetti falls over the sample panel when every test case passes' },
         engines: 'Judge engine',
       },
 

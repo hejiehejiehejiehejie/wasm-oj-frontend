@@ -2074,6 +2074,30 @@ watch(pendingUnbind, (open) => {
           </span>
         </label>
 
+        <!-- 全部样例通过时的纸屑（2026-10-23 加，落点就在样例栏那块面板里）。摆在这两条限制之后、引擎之前：
+             它讲的是「评测结果怎么反馈」，与上面两条同属「这一次怎么判」。
+             开关本体在 services/confetti.js，关掉后连那块 canvas 都不建。 -->
+        <div class="setting-row setting-row--switch">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.judge.celebration.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.judge.celebration.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              class="switch"
+              :class="{ 'is-on': settings.celebration }"
+              role="switch"
+              :aria-checked="settings.celebration"
+              :aria-label="t('settings.judge.celebration.label')"
+              @click="set('celebration', !settings.celebration)"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+        </div>
+
         <p class="setting-subtitle">{{ t('settings.judge.engines') }}</p>
         <EngineSettingsPanel
           :judge="judge"

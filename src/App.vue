@@ -48,6 +48,7 @@ import {
 import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
+import { celebrateAllPassed } from './services/confetti.js'
 import { flushFlashNotification, notify } from './services/notifications.js'
 import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
@@ -813,6 +814,28 @@ function applyPatch(target, patch, index) {
   Object.assign(target, patch, { stale: false })
 }
 
+/**
+ * 「全部样例都通过」才放的庆祝纸屑（services/confetti.js，2026-10-23 加；同日从
+ * 「每张 AC 放一次」改成「整份提交全过才放一次」）。纸屑落在**样例面板整块**里
+ * （`.panel__confetti`，见 TestPanel.vue），不是整页：这一栏就是「评测页」，庆祝落在这里。
+ *
+ * 判据只有一条：**手上这一组用例全部 `passed`**。所以它必须等整轮跑完再判，
+ * 不能挂在 applyPatch 里逐张看 —— 逐张看只会得到「这一张过了」，那正是要改掉的旧行为。
+ *
+ * 只有 `runAll`（页脚 ▶ / ⌘·Ctrl+Enter）调它，**单卡 ▶ 不调**：单卡那条路是「我就看这一张」，
+ * 把它也算成「全部样例都通过」的话，在一份早已全过的卷子上重跑任意一张都会再放一次纸屑。
+ * 单卡跑完想让整份庆祝，去按页脚那颗 ▶ —— 那才是「整份提交」的语义。
+ *
+ * 中断（abort）的那次不庆祝：那种「全过」只是没跑完的假象。
+ * 开关在 设置 › 评测（`cp.editorSettings.celebration`，默认开）。
+ */
+function celebrateIfAllPassed(list) {
+  if (!list?.length) return
+  if (!editorSettings.value.celebration) return
+  if (!list.every((item) => item.status === 'passed')) return
+  celebrateAllPassed()
+}
+
 // 切到某个侧栏面板，并保证它看得见：折叠着就先展开（折叠时侧栏整栏不显示）。
 // 折叠态那条图标栏与运行入口共用这一条路径，不写两套「展开 + 切面板」。
 function selectSidebarPanel(id) {
@@ -926,6 +949,8 @@ async function runAll() {
   // 读到没跑过的新对象（实测 verdict 全空）。queue 与 patch 的落点是同一批引用。
   // 被中断（abort）的那次不弹 —— 中断几乎总紧跟着一次新的运行，弹一条半截的结果只会误导
   if (!signal.aborted) notifyRunOutcome({ path: entryPath, cases: queue })
+  // 庆祝纸屑同理，且用 queue 而不是 testCases.value（理由同上一条）
+  if (!signal.aborted) celebrateIfAllPassed(queue)
 
   running.value = false
   abortController = null
