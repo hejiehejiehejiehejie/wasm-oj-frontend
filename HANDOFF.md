@@ -1636,7 +1636,7 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 ⚠️ 别为了「省高度」把这行改回两端对齐：这张卡是竖着长的，按钮必须跟文字同一条左轴线；
 真要并排，三颗按钮加起来 294px，容器得 ≥ 380 才放得下，而设置视图在窄编辑器里远远到不了。
 
-### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.2）
+### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.3）
 
 **为什么必须走扩展**：站点自己提交不了 —— 提交页要 CSRF token，跨源也读不到用户的登录 cookie。扩展本来就注入在 codeforces.com、本来就带着登录态，与代填验证码是同一条信任边界：源码由网页显式递过去，扩展只把它写进表单，**不读 cookie、不回传页面内容**，回给网页的只有原因枚举、提交号与判定码。
 
@@ -1701,9 +1701,25 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 | Cloudflare 验证页 | 通知「提交失败 / Codeforces 正在人机验证，请在打开的页面里完成后重试」；验证页保留且在前台 |
 | 真实 codeforces.com（未登录的干净环境） | 落到 CF 的 Cloudflare 托管验证页，返回 `challenge` 而不是 `page`；那一页被亮出来，用户能直接看到「正在进行安全验证」 |
 
-**仍未自动化的**：扩展整条链跑在真实登录态里 —— 那要把 2.67.2 装进用户已登录的 Chrome 并由本站触发；探针不碰用户的登录态，所以这次修复是在真实页面上按扩展的同一套步骤逐字执行的（选择器、事件、点按钮都一样）。真实的表单字段与判定文案已由 2026-10-23 那次真提交（#395707398，`Accepted`）覆盖。
+**仍未自动化的**：扩展整条链跑在真实登录态里 —— 那要把新版装进用户已登录的 Chrome 并由本站触发；探针不碰用户的登录态，所以这几次修复都是在真实页面上按扩展的同一套步骤逐字执行的（选择器、事件、点按钮都一样）。真实的表单字段与判定文案已由 2026-10-23 两次真提交（#395707398、#395709826，均 `Accepted`）覆盖。
 
-**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1 / 2.67.2）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.2）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记三笔）。
+**2.67.3 当日补丁**（2026-10-23 深夜，用户装了 2.67.2 后实报：「打开了提交界面，代码也已经粘贴进去了，过一会儿超时返回失败；此时我手动点一下提交就成功了」）：**源码框修好之后，卡在提交按钮上 —— 它是服务端渲染成 `disabled` 的。**
+
+真页面上那颗按钮是 `<input class="submit" type="submit" id="singlePageSubmitButton" disabled="disabled">`，解禁它的只有页面内联脚本里挂在题目下拉框上的 change 处理器：
+
+```js
+function updateSubmitButtonState() { ... if (problemIndex == "") $(".submit-form :submit").attr("disabled","disabled")
+                                          else $(".submit-form :submit").removeAttr("disabled") }
+$("select[name=submittedProblemIndex]").bind('change', updateSubmitButtonState);
+```
+
+扩展只写 `select.value = 'A'` 而不派发事件，处理器从不触发，按钮一直是灰的 → `click()` 在浏览器里对 disabled 控件是空操作 → 没有任何 POST → 后台等不到跳转 `/my`，20 秒后按超时回 `rejected`。**这正好解释了「手动点就成功」**：用户接管那一刻页面早已解禁（或他重选了下拉框），按钮当然能点。
+
+实测（真实登录页，未做任何其他操作）：只设 `.value` 后等 3 s / 8 s，按钮 `disabled` 仍是 `true`；随后 `dispatchEvent(new Event('change', { bubbles: true }))`，**同步**变成 `false`（jQuery 的处理器当场 `removeAttr`）。
+
+修法：`submitCode.ts` 新增 `enableSubmit(select)`（就是派发那个 `change`），`selectProblem` 的两个分支都调它；选编译器之后也补一次 `change`（同样是页面脚本在监听）。随后在一个**全新的**提交页上按扩展的顺序走一遍（选 A → change → 选 91 → change → 写源码 253 字符 → 50 ms 后点按钮）→ 302 到 `/contest/1832/my` → `#395709826` **Accepted**（46 ms，C++23 GCC 14-64）。
+
+**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1 / 2.67.2 / 2.67.3）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.3）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记三笔）。
 
 **还不做什么**：其余 OJ 的提交页各是另一套形态（洛谷要 token、牛客 / LeetCode 是接口），首版只认 Codeforces；**不自动提交**（不发源码、不后台跑，只认用户那一次显式动作）；不替用户选题目 —— 题目由地址里的 contest + index 唯一确定，扩展只是把它在提交页的下拉框里选中。
 
