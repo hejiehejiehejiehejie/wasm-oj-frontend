@@ -59,6 +59,10 @@ export default {
         untitled: '未命名',
         closeTab: '关闭标签',
         closeSettings: '关闭设置',
+        /** 页签右键菜单里的「打开题目」：与资源管理器同一条功能（explorer.menu.openUrl 同义），
+         *  只在文件页签有 meta.url 时出现；右列是 ⌘ / Ctrl + 单击这个手势本身 */
+        openUrl: '打开题目',
+        openUrlClick: '{mod} + 单击',
         /** 页签分组（2026-10-19 加，模仿 Chrome 的标签页组） */
         addToNewGroup: '添加到新标签页组',
         removeFromGroup: '从标签页组中移除',
@@ -204,6 +208,11 @@ export default {
         untitled: 'Untitled',
         closeTab: 'Close tab',
         closeSettings: 'Close settings',
+        /** "Open problem" in the tab context menu: same feature as the explorer one
+         *  (explorer.menu.openUrl); only shown when the file tab has meta.url. The right
+         *  column is the ⌘ / Ctrl + click gesture itself */
+        openUrl: 'Open problem',
+        openUrlClick: '{mod} + Click',
         /** Tab groups (2026-10-19, Chrome-style tab groups) */
         addToNewGroup: 'Add to new tab group',
         removeFromGroup: 'Remove from tab group',

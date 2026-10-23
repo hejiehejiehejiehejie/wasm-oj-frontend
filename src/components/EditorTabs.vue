@@ -43,11 +43,13 @@ import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import TabGroupCard from './TabGroupCard.vue'
 import { useTabDrag } from '../composables/useTabDrag.js'
+import { IS_MAC } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
 import { autoSaveEnabled } from '../services/autoSave.js'
 import * as tabGroups from '../services/tabGroups.js'
 import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
+import { openProblemUrl, problemUrlOf } from '../services/problemMeta.js'
 import {
   activateCfContestTab,
   activateCfPickerTab,
@@ -79,9 +81,18 @@ function activateNow(id) {
   setActiveTab(id)
 }
 
-function activate(id) {
+/**
+ * 点页签（含 ⌘ / Ctrl + 单击打开题目）。
+ *
+ * 修饰键那一下与文件树同一个语义：**只开题目，不切页签**。开成了就到此为止；没链接
+ * （`openTabProblem` 回 false）整条退化成普通单击，照旧切过去。
+ * @param {string} id
+ * @param {MouseEvent} [event]
+ */
+function activate(id, event) {
   // 拖动收尾那一下会顺带来一个 click：吃掉它，否则拖完顺带把页签切过去
   if (consumeClickSuppression()) return
+  if (event && isProblemClick(event) && openTabProblem(id)) return
   activateNow(id)
 }
 
@@ -321,8 +332,9 @@ const { draggingId, draggingIds, dragEdge, touchDrag, pressingId, armedId, liveG
  * 页签 pointerdown（2026-10-20 十四改「按下即获焦」；十九改给触屏开口子）：
  * **鼠标 / 笔**在 pointerdown 瞬间就把 activeId 切过去，不等 click、也不等拖动阈值 ——
  * 被拖页签当即穿上激活态样式，包络线经 MutationObserver 立即重绘成包裹它的形态，后续
- * pointermove 全程跟着走。两条豁免：中键（关页签，Chrome 同款不抢焦）与落点在关闭
- * 按钮上（`.editor-tabs__close` 的 click.stop 关闭，按下那一下不能顺带切走别的焦点）。
+ * pointermove 全程跟着走。三条豁免：中键（关页签，Chrome 同款不抢焦）、落点在关闭
+ * 按钮上（`.editor-tabs__close` 的 click.stop 关闭，按下那一下不能顺带切走别的焦点）、
+ * 以及 ⌘ / Ctrl + 单击（只开题目，不抢焦 —— 见下面那条注释）。
  * 走 activateNow 而不是 activate：这里的时机在拖拽开始前，绝不能吃掉拖拽收尾那 300ms
  * 的 click 抑制窗口。
  *
@@ -333,7 +345,10 @@ const { draggingId, draggingIds, dragEdge, touchDrag, pressingId, armedId, liveG
 function onTabPointerDown(event, id) {
   const hitClose = event.target.closest?.('.editor-tabs__close')
   const touch = (event.pointerType ?? 'mouse') !== 'mouse'
-  if (event.button !== 1 && !hitClose && !touch) activateNow(id)
+  // ⌘ / Ctrl + 单击只开题目，**按下也不抢焦点**（与树行同一条语义：修饰键不是「看这个文件」，
+  // 是「开它的题目页」）。没链接就照旧按下即获焦。
+  const problemClick = !touch && isProblemClick(event) && !!tabProblemUrl(id)
+  if (event.button !== 1 && !hitClose && !touch && !problemClick) activateNow(id)
   // × 上按下连拖拽起手都不给：关按钮不是拖把柄，按住 × 横移不该拖走页签
   if (!hitClose) dragPointerDown(event, id)
 }
@@ -425,7 +440,66 @@ function onStripDrop(payload, index) {
 const menu = ref(null)
 
 /**
- * 页签右键：文件页签给分组两项 + 关闭；合成视图页签只有关闭。
+ * 这个文件页签有没有可打开的题目链接。判据与出图都在 `services/problemMeta.js`
+ * （`problemUrlOf` / `openProblemUrl`）—— 与资源管理器右键菜单、树行上的 ⌘ / Ctrl + 单击
+ * 是同一份实现，别在这里另写一套 URL 校验。
+ * @param {string} id 文件页签的节点 id
+ * @returns {string}
+ */
+function tabProblemUrl(id) {
+  return problemUrlOf(getNodeById(id)?.meta)
+}
+
+/**
+ * 在新标签页打开这个页签对应的题目。返回「到底开没开」—— ⌘ / Ctrl + 单击要靠它决定
+ * 要不要退化成普通单击（没链接时照旧切页签）。
+ * @param {string} id
+ * @returns {boolean}
+ */
+function openTabProblem(id) {
+  return openProblemUrl(getNodeById(id)?.meta)
+}
+
+/**
+ * 这一次点击是不是「打开题目」的手势（⌘ / Ctrl + 单击）。
+ * 平台主修饰键按 IS_MAC 分岔：macOS 上 Control + 单击是系统右键，不能拿来当「打开」
+ * （与 FileTreeItem 的判据同款）。
+ * @param {MouseEvent} event
+ * @returns {boolean}
+ */
+function isProblemClick(event) {
+  return IS_MAC ? event.metaKey : event.ctrlKey
+}
+
+/**
+ * 页签右键：文件页签给「打开题目」（有链接才给）+ 分组两项 + 关闭；合成视图页签只有关闭。
+ * 「打开题目」与文件树同款：右列不是 keydown 组合键，而是 ⌘ / Ctrl + 单击这个**手势**本身，
+ * 走不了 formatCombo，但它是真的能按的，所以照旧填右列。
+ * @param {{kind: string, id: string, close?: Function}} item stripItems 里那一项
+ */
+function buildTabMenuItems(item) {
+  if (item.kind !== 'file') return [{ id: 'close-view', label: t('app.tabs.closeTab') }]
+  const items = []
+  if (tabProblemUrl(item.id)) {
+    items.push({
+      id: 'open-url',
+      label: t('app.tabs.openUrl'),
+      shortcut: t('app.tabs.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
+    })
+    items.push({ id: 'div-open', divider: true })
+  }
+  items.push(
+    tabGroups.groupOf(item.id)
+      ? { id: 'remove-from-group', label: t('app.tabs.removeFromGroup') }
+      : { id: 'add-to-new-group', label: t('app.tabs.addToNewGroup') },
+  )
+  items.push({ id: 'div-close', divider: true })
+  items.push({ id: 'close', label: t('app.tabs.closeTab') })
+  return items
+}
+
+/**
+ * 页签右键（条目见 buildTabMenuItems：打开题目 / 分组 / 关闭）。
  * @param {MouseEvent} event
  * @param {{kind: string, id: string, close?: Function}} item stripItems 里那一项
  */
@@ -436,17 +510,7 @@ function openTabMenu(event, item) {
 
 /** 在指定位置弹页签菜单（右键与触屏长按共用；长按拿不到 MouseEvent，只有坐标） */
 function openTabMenuAt(item, x, y) {
-  const items =
-    item.kind === 'file'
-      ? [
-          tabGroups.groupOf(item.id)
-            ? { id: 'remove-from-group', label: t('app.tabs.removeFromGroup') }
-            : { id: 'add-to-new-group', label: t('app.tabs.addToNewGroup') },
-          { id: 'div-close', divider: true },
-          { id: 'close', label: t('app.tabs.closeTab') },
-        ]
-      : [{ id: 'close-view', label: t('app.tabs.closeTab') }]
-  menu.value = { x, y, tabId: item.id, viewItem: item, items }
+  menu.value = { x, y, tabId: item.id, viewItem: item, items: buildTabMenuItems(item) }
 }
 
 function onMenuSelect(id) {
@@ -455,7 +519,8 @@ function onMenuSelect(id) {
   // 开着菜单直接去拖页签，第一下 pointerdown 落在菜单上被dismiss，拖拽没起手）
   menu.value = null
   if (!m) return
-  if (id === 'add-to-new-group') tabGroups.createGroupWithTab(m.tabId)
+  if (id === 'open-url') openTabProblem(m.tabId)
+  else if (id === 'add-to-new-group') tabGroups.createGroupWithTab(m.tabId)
   else if (id === 'remove-from-group') tabGroups.removeFromGroup(m.tabId)
   else if (id === 'close') closeTab(m.tabId)
   else if (id === 'close-view') m.viewItem?.close?.()
@@ -1033,7 +1098,7 @@ function onTabEnter(el) {
           :data-preview="item.id === workspace.previewTabId || undefined"
           :aria-selected="item.id === workspace.activeId && !viewActive"
           :title="getNodeById(item.id)?.path"
-          @click="activate(item.id)"
+          @click="activate(item.id, $event)"
           @dblclick="onTabDblClick(item.id)"
           @mousedown="onMouseDown($event, item.id)"
           @pointerdown="onTabPointerDown($event, item.id)"
@@ -1130,7 +1195,7 @@ function onTabEnter(el) {
       </svg>
     </TransitionGroup>
 
-    <!-- 页签右键菜单（通用件，文件树同款）：分组两项 + 关闭 -->
+    <!-- 页签右键菜单（通用件，文件树同款）：打开题目（有 meta.url 才有）+ 分组 + 关闭 -->
     <ContextMenu
       v-if="menu"
       :x="menu.x"

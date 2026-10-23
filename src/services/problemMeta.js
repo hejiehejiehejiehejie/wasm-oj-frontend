@@ -113,6 +113,41 @@ export function todayISO() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
+/**
+ * 题目链接归一化：`meta.url` 是不可信输入（一半来自扩展解析结果、一半来自用户手输），
+ * `javascript:` 这类伪协议会被 window.open 当代码执行，所以只放行 http / https，
+ * 且返回归一化后的 href；拿不到就给空串。
+ *
+ * **判据只有这一份**：资源管理器（右键菜单那一项 + 树行上的 ⌘ / Ctrl + 单击）与页签栏
+ * （页签右键菜单 + ⌘ / Ctrl + 单击）都走它。菜单项也用它做 `v-if` —— 拿不到链接就不给
+ * 这一项，免得出现点了没反应的菜单。
+ * @param {{ url?: string } | null | undefined} meta
+ * @returns {string}
+ */
+export function problemUrlOf(meta) {
+  const raw = meta?.url
+  if (!raw) return ''
+  try {
+    const target = new URL(raw)
+    return target.protocol === 'http:' || target.protocol === 'https:' ? target.href : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 在新标签页打开这道题。返回「到底开没开」—— 调用方（⌘ / Ctrl + 单击）要靠它决定
+ * 要不要退化成普通单击，所以拿不到链接时**必须**回 false，不能只是静默。
+ * @param {{ url?: string } | null | undefined} meta
+ * @returns {boolean}
+ */
+export function openProblemUrl(meta) {
+  const url = problemUrlOf(meta)
+  if (!url) return false
+  window.open(url, '_blank', 'noopener')
+  return true
+}
+
 /** timeLimit 合法范围（毫秒）：低于 100ms 毫无意义，高于 60s 足以覆盖任何 OJ */
 const TIME_LIMIT_MIN_MS = 100
 const TIME_LIMIT_MAX_MS = 60000

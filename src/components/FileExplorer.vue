@@ -88,6 +88,8 @@ import {
   emptyMeta,
   labelOf,
   normalizeMeta,
+  openProblemUrl,
+  problemUrlOf,
   todayISO,
 } from '../services/problemMeta.js'
 
@@ -284,36 +286,26 @@ function closeContextMenu() {
 }
 
 /**
- * 取出可安全打开的题目链接，拿不到就返回空串。
+ * 取出这一行可安全打开的题目链接，拿不到就返回空串。
  *
- * `meta.url` 是不可信输入（一半来自扩展解析结果、一半来自用户手输），`javascript:` 这类
- * 伪协议会被 window.open 当代码执行，所以只放行 http / https，且返回归一化后的 href。
- * 菜单项与开链接共用这一个判据：拿不到链接就不给这一项，免得出现点了没反应的菜单。
+ * 判据本体在 `services/problemMeta.js` 的 `problemUrlOf`（页签栏的右键菜单与 ⌘ / Ctrl + 单击
+ * 共用同一份），这里只是把节点换成它的 `meta`，让下面的调用点保持 node 口径。
  */
 function problemUrl(node) {
-  const raw = node?.meta?.url
-  if (!raw) return ''
-  try {
-    const target = new URL(raw)
-    return target.protocol === 'http:' || target.protocol === 'https:' ? target.href : ''
-  } catch {
-    return ''
-  }
+  return problemUrlOf(node?.meta)
 }
 
 /**
  * 在新标签页打开这一行的题目。返回「到底开没开」—— 调用方（树项里的 ⌘ / Ctrl + 单击）要靠它
  * 决定要不要退化成普通单击，所以拿不到链接时**必须**回 false，不能只是静默。
  *
- * 菜单里那一项与 ⌘ / Ctrl + 单击共用这一个出口，判据（`problemUrl`）也只有一份。
+ * 出口同样在 problemMeta.js（`openProblemUrl`）：与页签右键菜单、页签上的 ⌘ / Ctrl + 单击
+ * 是同一个实现，别在这儿另开一条 window.open。
  * @param {object} node
  * @returns {boolean}
  */
 function openProblem(node) {
-  const url = problemUrl(node)
-  if (!url) return false
-  window.open(url, '_blank', 'noopener')
-  return true
+  return openProblemUrl(node?.meta)
 }
 
 /**
