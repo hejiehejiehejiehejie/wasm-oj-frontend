@@ -43,7 +43,7 @@ export default {
         /** 桌面端点「导出」时的二选一卡片（只有桌面壳做得到写盘） */
         exportTitle: '导出到哪里？',
         exportToDisk: '保存到本机文件夹',
-        exportToDiskHint: '按原目录结构写进你选的文件夹，同名文件会被覆盖',
+        exportToDiskHint: '保留目录结构；同名文件会被覆盖',
         exportZip: '下载为 zip',
         exportZipHint: '打包成一个文件下载',
         /** 结果提示。skipped 那句接在上面几句后面，所以自带前导标点 */
@@ -58,6 +58,10 @@ export default {
         importDone: '已导入 {n} 个文件',
         importSkipped: '已导入 {n} 个文件，跳过 {k} 个（二进制或过大）',
         importFailed: '导入失败',
+        /** 搬运 / 删除进行中的行内提示（延迟 120ms 才出现，见 FileExplorer 的 beginTransferNotice） */
+        importing: '正在导入 {n} 项…',
+        exporting: '正在导出 {n} 项…',
+        deleting: '正在删除 {n} 项…',
         /**
          * 从系统里把文件拖进页面后的**结果通知**（2026-10-13 起走全局通知，见 App.vue 的
          * reportDropImport）。重点是把「放到哪儿」说出来 —— 那条通知露面时侧栏已经还原，
@@ -78,7 +82,7 @@ export default {
         /** 路径列不完时折成这一句（接在列出的那几条之后） */
         more: '…另有 {n} 项',
         /** 名单里有目录时补的一句，单独一段 */
-        directoryNote: '目录内的全部内容将一并删除。',
+        directoryNote: '目录内所有内容会一并删除。',
       },
 
       meta: {
@@ -135,7 +139,7 @@ export default {
       saveFailed: 'Could not save',
       deleteFailed: 'Could not delete {n} item(s)',
 
-      emptyTree: 'No files yet — use the buttons above to create one',
+      emptyTree: 'No files yet — create one above',
 
       menu: {
         meta: 'Problem info',
@@ -155,7 +159,7 @@ export default {
       transfer: {
         exportTitle: 'Export where?',
         exportToDisk: 'Save into a folder',
-        exportToDiskHint: 'Writes into the folder you pick, keeping the tree; same-name files are overwritten',
+        exportToDiskHint: 'Keeps the folder structure; same-name files are overwritten',
         exportZip: 'Download as zip',
         exportZipHint: 'Packs everything into a single file',
         exportAs: 'Exported {name}',
@@ -168,6 +172,10 @@ export default {
         importDone: 'Imported {n} file(s)',
         importSkipped: 'Imported {n} file(s), skipped {k} (binary or too large)',
         importFailed: 'Could not import',
+        /** See the zh-CN side for the 120ms delay before these appear */
+        importing: 'Importing {n} item(s)…',
+        exporting: 'Exporting {n} item(s)…',
+        deleting: 'Deleting {n} item(s)…',
         /** See the zh-CN side: the drop-result toast, which must name the destination folder */
         dropDoneTitle: 'Import finished',
         dropDone: 'Imported {n} file(s) into {where}',
@@ -179,7 +187,7 @@ export default {
         title: 'Delete this?',
         titleMany: 'Delete these {n} items?',
         more: '…and {n} more',
-        directoryNote: 'Everything inside the folder will be deleted as well.',
+        directoryNote: 'Everything inside will be deleted too.',
       },
 
       meta: {

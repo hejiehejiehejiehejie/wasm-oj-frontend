@@ -8,6 +8,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { engineChoices } from '../services/engines/index.js'
 
@@ -106,7 +107,8 @@ function applyBase() {
         :disabled="connection.state === 'checking'"
         @click="emit('test-connection')"
       >
-        <AppIcon name="reset" :size="13" />
+        <LoadingSpinner v-if="connection.state === 'checking'" :size="12" />
+        <AppIcon v-else name="reset" :size="13" />
         <span>{{ t(connection.state === 'checking' ? 'engine.checking' : 'engine.selfTest') }}</span>
       </button>
       <span v-if="connection.message" class="engine-probe__message" :class="probeTone">

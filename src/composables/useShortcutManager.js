@@ -52,9 +52,10 @@ export const IS_MAC =
 export const SHORTCUT_ACTIONS = [
   { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
   /**
-   * 一键提交到 Codeforces（2026-10-23 加）：执行落在 App.vue 的 submitActiveFile，
-   * 与样例面板页脚那颗提交按钮同源。没有关联题目 / 没装插件时它会弹一条说明而不是静默 ——
-   * 快捷键不像按钮那样有置灰态，没反应会被读成「键位没生效」。
+   * 一键提交到 Codeforces（2026-10-23 加）：执行落在 App.vue 的
+   * requestSubmitConfirmation（先弹确认，确认后才走 submitActiveFile），
+   * 与样例面板页脚那颗提交按钮同源。没有关联题目 / 没装插件 / 正在运行时它会弹一条
+   * 说明而不是静默 —— 快捷键不像按钮那样有置灰态，没反应会被读成「键位没生效」。
    */
   {
     id: 'submit-solution',
@@ -73,10 +74,9 @@ export const SHORTCUT_ACTIONS = [
   { id: 'new-case', labelKey: 'settings.shortcut.newCase.label', default: 'Mod+Alt+Enter' },
   { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
   /**
-   * 生成图片：把编辑器里的选区导成 PNG（实现在 composables/useEditorMenu.js，
+   * 生成图片：把编辑器里的选区（没有选区就整篇）导成 PNG（实现在 composables/useEditorMenu.js，
    * 由 EditorPane 经 defineExpose 递给 App.vue 的 SHORTCUT_HANDLERS）。
-   * 与上面几条一样「在哪儿按都算」，但**没有选区时静默什么都不做** ——
-   * 它与右键菜单那一项同源，那边是无选区置灰，这里则没有可置灰的地方。
+   * 与上面几条一样「在哪儿按都算」；没有打开文件时静默什么都不做。
    */
   {
     id: 'export-image',

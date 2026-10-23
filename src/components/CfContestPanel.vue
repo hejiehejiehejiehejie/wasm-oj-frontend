@@ -7,7 +7,10 @@
       <!-- 抬头：标题 + 状态（倒计时挂在这一行，见 useCfContest 的 statusText） -->
       <header class="cf-cell cf-cell--span cf-bar">
         <span class="cf-bar__title">{{ t('cf.contest.title') }}</span>
-        <span class="cf-status" :class="{ 'is-error': !!error }">{{ statusText }}</span>
+        <span class="cf-status" :class="{ 'is-error': !!error }">
+          <LoadingSpinner v-if="loadingContest || loadingProblems" :size="10" />
+          <span class="cf-status__text">{{ statusText }}</span>
+        </span>
       </header>
 
       <label class="cf-cell cf-cell--label">{{ t('cf.contest.fields.link') }}</label>
@@ -28,7 +31,8 @@
           :disabled="busy"
           @click="load"
         >
-          {{ busy ? t('cf.contest.status.loading') : t('cf.contest.action.load') }}
+          <LoadingSpinner v-if="busy" :size="11" />
+          <span>{{ busy ? t('cf.contest.status.loading') : t('cf.contest.action.load') }}</span>
         </button>
       </div>
     </div>
@@ -48,18 +52,22 @@
             v-if="scrapeAvailable"
             type="button"
             class="cf-head-btn"
+            :class="{ 'cf-head-btn--busy': scraping }"
             :disabled="scraping"
             @click="scrapeSamples"
           >
-            {{ scraping ? t('cf.contest.action.scraping') : t('cf.contest.action.scrape') }}
+            <LoadingSpinner v-if="scraping" :size="10" />
+            <span>{{ scraping ? t('cf.contest.action.scraping') : t('cf.contest.action.scrape') }}</span>
           </button>
           <button
             type="button"
             class="cf-head-btn"
+            :class="{ 'cf-head-btn--busy': importingAll }"
             :disabled="importingAll || allImported"
             @click="importAll"
           >
-            {{ importingAll ? t('cf.picker.result.importing') : t('cf.picker.result.importAll') }}
+            <LoadingSpinner v-if="importingAll" :size="10" />
+            <span>{{ importingAll ? t('cf.picker.result.importing') : t('cf.picker.result.importAll') }}</span>
           </button>
         </span>
       </div>
@@ -82,7 +90,8 @@
             :disabled="importState(problem) !== 'import'"
             @click="importOne(problem)"
           >
-            {{ t(`cf.picker.result.${importState(problem)}`) }}
+            <LoadingSpinner v-if="importState(problem) === 'importing'" :size="9" />
+            <span>{{ t(`cf.picker.result.${importState(problem)}`) }}</span>
           </button>
           <a
             class="cf-result__link"
@@ -116,6 +125,7 @@
  * 比赛自己特有的两条规则。
  */
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { useCfContest } from '../composables/useCfContest.js'
 
@@ -123,6 +133,8 @@ const {
   specText,
   load,
   busy,
+  loadingContest,
+  loadingProblems,
   error,
   problems,
   problemsNote,

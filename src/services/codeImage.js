@@ -454,11 +454,11 @@ export function imageQualityScale(quality) {
  * （见 copyCanvasToClipboard）。先统一画成 canvas，两条出口各取所需。
  *
  * @param {object} options
- * @param {string} options.code 要画的代码（通常是编辑器里的选区）
+ * @param {string} options.code 要画的代码（编辑器里的选区；没有选区时是整篇）
  * @param {string} [options.languageId='plaintext'] Monaco 的语言 id，决定分词结果
  * @param {boolean} [options.showDots=true] 是否画左上角三个窗口圆点
  * @param {boolean} [options.showLineNumbers=true] 是否在正文左侧画行号栏（设置项 codeImageLineNumbers）
- * @param {number} [options.startLine=1] 第一行的行号（选区从中间开始时要跟着选区走）
+ * @param {number} [options.startLine=1] 第一行的行号（选区从中间开始时跟着选区走；整篇导出即 1）
  * @param {number} [options.tabSize=4] 制表符宽度（列数），取编辑器当前文件的缩进宽度
  * @param {'medium'|'high'|'ultra'} [options.quality='high'] 导出质量（见 QUALITY_SCALES）
  * @param {boolean} [options.bracketColorize=true] 是否按嵌套深度给括号上色（编辑器设置项

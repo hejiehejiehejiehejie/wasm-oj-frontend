@@ -37,6 +37,9 @@ import {
   workspace as workspaceStore,
 } from './services/vfs/workspaceStore.js'
 import {
+  fetchSubmissionDetail,
+  isDuplicateSubmission,
+  rememberSubmission,
   shouldShowSubmit,
   submitActiveSolution,
   submitBlockedReason,
@@ -57,7 +60,12 @@ import { MD_SHORTCUTS } from './services/mdFormat.js'
 import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
 import { celebrateAllPassed } from './services/confetti.js'
-import { dismissByTag, flushFlashNotification, notify } from './services/notifications.js'
+import {
+  dismissByTag,
+  flushFlashNotification,
+  notify,
+  updateNotification,
+} from './services/notifications.js'
 import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
 import {
@@ -891,38 +899,61 @@ const runBlockedReason = computed(() => {
  * 对绝大多数文件都用不上。现在交不了就整个不出现（连同那行原因一起收掉）。
  * ⚠️ 快捷键（Mod+Shift+Enter）没有「不出现」这个选项，按下去仍要能解释为什么没动静 ——
  * 所以 `submitBlocked` 保留，只给 requestSubmitConfirmation 那条路用，不再往面板里传。
+ * ⚠️ 它**不能**先按 `shouldShowSubmit` 短路成空串：快捷键那条路要靠它拿到「没有文件 /
+ * 不是题目 / 桌面端」这几句原因。短路之后 `requestSubmitConfirmation` 会把「交不了」
+ * 当成「可交」，给普通文件弹出确认卡；`activeNode` 为 null 时还会在取 `node.id` 时抛错。
+ * 按钮出不出现由下面的 `showSubmit` 单独判。
  *
  * 点按钮 / 按快捷键都**不直接提交**：先把目标记进 `pendingSubmit`、弹一张确认卡，
  * 点「确认提交」才真的发（2026-10-23 用户要求加确认；提交会在 Codeforces 上留一条
  * 删不掉的记录，误触的代价比多一次点击大）。确认前再核一次身份：弹窗开着时切了文件，
  * 宁可一条都不发，也不要把 A 的代码交到 B 的题上。
+ *
+ * 同一份源码重交时，确认卡换成「这份代码已经提交过」（2026-10-23 加）：CF 不生成提交
+ * 记录，只把提交页刷回来并提示「You have submitted exactly the same code before」，
+ * 扩展那头看到的只是「没跳到 /my」。指纹表在 services/ojSubmit.js（跨刷新保留），
+ * 这里只负责把那一趟的结论带进确认卡、并在拒收时换一句具体的话。
  */
 const submitting = ref(false)
 const pendingSubmit = ref(null)
 const confirmSubmitBtn = ref(null)
+const cancelSubmitBtn = ref(null)
 
-const submitBlocked = computed(() => {
-  if (!shouldShowSubmit(activeNode.value)) return ''
-  return submitBlockedReason({
+const submitBlocked = computed(() =>
+  submitBlockedReason({
     node: activeNode.value,
     language: activeLanguage.value,
     capability: canSubmitCode.value,
     checking: extensionChecking.value,
-  })
-})
+  }),
+)
 const showSubmit = computed(() => shouldShowSubmit(activeNode.value) && !submitBlocked.value)
 
-// 弹窗一出现就把焦点送到「确认提交」：Enter 确认、Esc 取消都能纯键盘走完
+// 弹窗一出现就把焦点送到默认动作上：普通情形是「确认提交」（Enter 确认、Esc 取消）；
+// 重复代码那一版默认落在「取消」—— 重交注定被拒，别让多按一下 Enter 就送出去
 watch(
   () => pendingSubmit.value,
   (pending) => {
-    if (pending) nextTick(() => confirmSubmitBtn.value?.focus())
+    if (!pending) return
+    nextTick(() => (pending.duplicate ? cancelSubmitBtn.value : confirmSubmitBtn.value)?.focus())
   },
 )
 
 /** 门卫：能交才弹确认；交不了的那一屏没有按钮可点，按快捷键也得听一句解释 */
 function requestSubmitConfirmation() {
-  if (submitting.value || running.value || pendingSubmit.value) return
+  // 弹窗已经开着：再按一次不用叠第二张，也不用解释
+  if (pendingSubmit.value) return
+
+  // 运行 / 提交在途：按钮是灰的，但快捷键没有置灰态 —— 静默会被读成键位失灵
+  if (submitting.value || running.value) {
+    notify({
+      type: 'warning',
+      title: t('tests.submit.failedTitle'),
+      message: t('tests.submit.busy'),
+      duration: 5000,
+    })
+    return
+  }
 
   if (submitBlocked.value) {
     notify({
@@ -935,7 +966,11 @@ function requestSubmitConfirmation() {
   }
 
   const node = activeNode.value
-  pendingSubmit.value = { id: node.id, name: node.name }
+  pendingSubmit.value = {
+    id: node.id,
+    name: node.name,
+    duplicate: isDuplicateSubmission({ node, source: peekActiveContent() }),
+  }
 }
 
 function cancelSubmit() {
@@ -959,14 +994,38 @@ async function confirmSubmit() {
     return
   }
 
-  await submitActiveFile()
+  await submitActiveFile({ duplicate: pending.duplicate })
 }
 
 /** 同一道题连着交两次时，只让最后那一条通知留下（旧提交的判定回来不许盖掉新的） */
 let submitSeq = 0
 
-async function submitActiveFile() {
-  if (submitting.value || running.value) return
+/** 这些失败连 CF 的提交按钮都没点到，下一趟同样的代码不算重复 */
+const NOT_DELIVERED_REASONS = new Set([
+  'unsupported',
+  'unsupported-url',
+  'empty',
+  'not-logged-in',
+  'challenge',
+  'problem-missing',
+  'language-missing',
+  'page',
+  'no-tab',
+  'rejected',
+])
+
+async function submitActiveFile({ duplicate = false } = {}) {
+  // 确认卡可能开了一小会儿：这期间若已有运行 / 提交在跑，说清楚再收场 ——
+  // 弹窗关掉却没有下文，用户会把它当成「已提交」
+  if (submitting.value || running.value) {
+    notify({
+      type: 'warning',
+      title: t('tests.submit.failedTitle'),
+      message: t('tests.submit.busy'),
+      duration: 5000,
+    })
+    return
+  }
 
   // 弹窗可能开了一小会儿：这期间扩展被关掉 / 语言变了，末尾这道闸门还要再拦一次
   if (submitBlocked.value) {
@@ -980,8 +1039,26 @@ async function submitActiveFile() {
   }
 
   const node = activeNode.value
+  const url = node.meta?.url
+  // 指纹要取「这一趟真正发出去的那份」：往返期间用户可能继续改代码，
+  // 回头再 peek 一次会把没交过的内容记成已提交
+  const source = peekActiveContent()
   const tag = `submit:${node.path}`
   const seq = ++submitSeq
+
+  // 提交号一到就查细节，和评测并行 —— contest.status 对老题目要 8 秒上下，
+  // 等判定回来才查的话，通知多半已经到期了（耗时见 ojSubmit 的说明）
+  const detail = { promise: null, value: null }
+  const loadDetail = (submissionId) => {
+    if (detail.value || detail.promise) return detail.promise ?? Promise.resolve(detail.value)
+    if (!/^\d+$/.test(String(submissionId ?? ''))) return Promise.resolve(null)
+    detail.promise = fetchSubmissionDetail({ url, submissionId }).then((value) => {
+      detail.value = value
+      detail.promise = null
+      return value
+    })
+    return detail.promise
+  }
 
   dismissByTag(tag)
   submitting.value = true
@@ -997,21 +1074,17 @@ async function submitActiveFile() {
     // 判定由扩展在 Codeforces 页内轮询推送（见 useCompanionBridge 的 cp-submit-status），
     // 常驻「提交中」到这一步才收；中间那条 testing 不算结果，继续等。
     onVerdict: (status) => {
-      if (seq !== submitSeq) return
       // testing 只是「评测机接单了」的中转，不是结果 —— 常驻那条「提交中」刚刚换成
       // 「已提交」，这里再弹一条「其他结果」只会是噪音
       if (status.verdict === 'testing') return
-      dismissByTag(tag)
-      const verdict = submitVerdictText(status.verdict)
-      notify({
-        type: submitVerdictType(status.verdict),
-        title: status.submissionId ? `#${status.submissionId} ${verdict}` : verdict,
-        message: node.name,
-        duration: 8000,
-        tag,
-      })
+      void reportSubmitVerdict({ seq, tag, node, status, url, loadDetail })
     },
   })
+
+  if (result.ok && result.submissionId) void loadDetail(result.submissionId)
+
+  // 记指纹不看「这一趟还是不是最新的」：代码确实递到了 CF，只是被后来的提交抢了通知位
+  if (result.ok || !NOT_DELIVERED_REASONS.has(result.reason)) rememberSubmission({ node, source })
 
   if (seq !== submitSeq) return
   submitting.value = false
@@ -1021,7 +1094,12 @@ async function submitActiveFile() {
     notify({
       type: 'error',
       title: t('tests.submit.failedTitle'),
-      message: submitReasonText(result.reason),
+      // 用户是看过「这份代码提交过」的警告后坚持要交的：再回一句笼统的「被拒收」
+      // 等于没回答他 —— 这里把重复这件事说死
+      message:
+        duplicate && result.reason === 'rejected'
+          ? t('tests.submit.duplicateRejected')
+          : submitReasonText(result.reason),
       duration: 6000,
       tag,
     })
@@ -1036,6 +1114,68 @@ async function submitActiveFile() {
       : t('tests.submit.submittedUnknown'),
     duration: 6000,
     tag,
+  })
+}
+
+/** 内存按 Codeforces 界面的口径：1 MB 以上给一位小数，否则给 KB */
+function formatMemory(bytes) {
+  if (!(bytes > 0)) return ''
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.round(bytes / 1024)} KB`
+}
+
+/**
+ * 判定通知的第二行：文件名 · 挂点 · 耗时 · 内存。
+ *
+ * 挂点 = passedTestCount + 1：CF 只告诉「过了几个」，失败的正是下一个。AC 时这个数
+ * 就是总测试点数。CE 没有测试点，只报耗时（内存那栏 CF 自己也是空的）。
+ */
+function verdictDetailMessage(name, detail) {
+  const notes = []
+  const passed = detail.passedTestCount
+  if (passed != null && detail.verdict === 'ac') {
+    notes.push(t('tests.submit.detailPassed', { n: passed }))
+  } else if (passed != null && detail.verdict !== 'ce') {
+    notes.push(t('tests.submit.detailFailedOn', { n: passed + 1 }))
+  }
+  if (detail.timeConsumedMillis > 0) notes.push(`${detail.timeConsumedMillis} ms`)
+  const memory = formatMemory(detail.memoryConsumedBytes)
+  if (memory) notes.push(memory)
+  return [name, ...notes].join(' · ')
+}
+
+/**
+ * 判定到了：先把结论弹出来，再用官方 API 补「挂点 / 耗时 / 内存」，原地替换正文。
+ *
+ * 预取通常已经跑了有一会儿（提交号一到就发，见 submitActiveFile）。它若赶上评测还在跑，
+ * API 里是 TESTING，映射不成判定码 → 这里是 null，判定既已终就再查一次。
+ * 仍拿不到（群组 / 可见性 / 限流 / 网络）就维持扩展给的判定码那版。
+ */
+async function reportSubmitVerdict({ seq, tag, node, status, url, loadDetail }) {
+  if (seq !== submitSeq) return
+  dismissByTag(tag)
+
+  const verdict = submitVerdictText(status.verdict)
+  const id = notify({
+    type: submitVerdictType(status.verdict),
+    title: status.submissionId ? `#${status.submissionId} ${verdict}` : verdict,
+    message: node.name,
+    // 有提交号就有细节在路上（老题目要 10 秒上下，见 ojSubmit）：给足它在路上这段时间，
+    // 细节一到再把时限重置回 8 秒 —— 否则通知会在补细节之前自己消失
+    duration: status.submissionId ? 12000 : 8000,
+    tag,
+  })
+
+  let detail = await loadDetail(status.submissionId)
+  if (!detail && seq === submitSeq && status.submissionId) {
+    detail = await fetchSubmissionDetail({ url, submissionId: status.submissionId })
+  }
+  // 等 API 这几秒里用户可能又交了一次，或者自己把这条关掉了 —— 两种都不该再动界面
+  if (!detail || seq !== submitSeq) return
+  updateNotification(id, {
+    message: verdictDetailMessage(node.name, detail),
+    duration: 8000,
   })
 }
 
@@ -1252,8 +1392,8 @@ const SHORTCUT_HANDLERS = {
   'toggle-layout': () => flipPanelPosition(),
   'new-case': () => addCase(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
-  // 生成图片：落在 EditorPane 里（那边持有 Monaco 实例与选区）。没有选区、或没开文件时
-  // 它自己静默返回 —— 与右键菜单那一项同口径（那边是置灰）
+  // 生成图片：落在 EditorPane 里（那边持有 Monaco 实例与选区）。没有选区时导出整个文件，
+  // 没开文件（或文件为空）时静默返回 —— 与右键菜单那一项同源
   'export-image': () => editorPane.value?.exportImage?.(),
 }
 
@@ -1403,6 +1543,20 @@ function inMonacoEditor(event) {
 function onKeydown(event) {
   // 输入法组字期间的按键不算快捷键（否则拼音选词会被当成命令）
   if (event.isComposing) return
+  // 提交确认弹窗打开时，键盘只归它自己：全局快捷键不执行，而且**带修饰键的站点组合要拦下来** ——
+  // 否则 Enter 会落到当前聚焦的「确认提交」按钮上，Mod+Enter 反而把确认点掉。
+  // 纯 Enter / Space（按钮激活）与 Esc / Tab（弹窗自己的键盘路径）必须放行；
+  // ⚠️ 不能用「命中 actionForCombo 就拦」当判据：macOS 上裸 Enter 是「重命名」的别名，
+  // 那样连确认按钮的回车都会一起吞掉（实测）。
+  if (pendingSubmit.value) {
+    const plainActivation =
+      (event.key === 'Enter' || event.key === ' ') && !event.metaKey && !event.ctrlKey && !event.altKey
+    if (!plainActivation && actionForCombo(comboFromEvent(event))) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    return
+  }
   // 正在录制快捷键：全局这条在捕获阶段，永远早于录制框自己的监听，得主动让路
   if (recordingActive.value) return
 
@@ -1784,7 +1938,8 @@ onBeforeUnmount(() => {
     <!-- 提交确认：点页脚那颗提交 / 按 Mod+Shift+Enter 都先停在这里，点「确认提交」
          才真的发。与删除确认同款自绘卡片（不用 window.confirm，理由见 FileExplorer
          的 requestDelete），Teleport 到 body 只依赖主题变量。
-         点遮罩 / Esc = 取消；打开瞬间焦点落在「确认提交」上，纯键盘能走完。 -->
+         点遮罩 / Esc = 取消。同一份代码重交时换一版文案（CF 必然拒收），默认焦点
+         落在「取消」上；普通情形落在「确认提交」上。纯键盘两种都能走完。 -->
     <Teleport to="body">
       <div v-if="pendingSubmit" class="confirm" @pointerdown.self="cancelSubmit">
         <div
@@ -1795,14 +1950,22 @@ onBeforeUnmount(() => {
           aria-describedby="submit-confirm-desc"
           @keydown.esc.stop.prevent="cancelSubmit"
         >
-          <p id="submit-confirm-title" class="confirm__title">
-            {{ t('tests.submit.confirmTitle') }}
+          <p
+            id="submit-confirm-title"
+            class="confirm__title"
+            :class="{ 'confirm__title--warn': pendingSubmit.duplicate }"
+          >
+            {{ pendingSubmit.duplicate ? t('tests.submit.duplicateTitle') : t('tests.submit.confirmTitle') }}
           </p>
           <p id="submit-confirm-desc" class="confirm__desc">
-            {{ t('tests.submit.confirmDesc', { name: pendingSubmit.name }) }}
+            {{
+              pendingSubmit.duplicate
+                ? t('tests.submit.duplicateDesc', { name: pendingSubmit.name })
+                : t('tests.submit.confirmDesc', { name: pendingSubmit.name })
+            }}
           </p>
           <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelSubmit">
+            <button ref="cancelSubmitBtn" type="button" class="confirm__btn" @click="cancelSubmit">
               {{ t('app.cancel') }}
             </button>
             <button
@@ -1811,7 +1974,7 @@ onBeforeUnmount(() => {
               class="confirm__btn confirm__btn--primary"
               @click="confirmSubmit"
             >
-              {{ t('tests.submit.confirmAction') }}
+              {{ pendingSubmit.duplicate ? t('tests.submit.duplicateAction') : t('tests.submit.confirmAction') }}
             </button>
           </div>
         </div>
@@ -2297,6 +2460,11 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 650;
   color: var(--text);
+}
+
+/* 重复提交那版标题染成警示色：两张卡长得一模一样时，用户很容易当成普通确认一路回车 */
+.confirm__title--warn {
+  color: var(--warn);
 }
 
 .confirm__desc {

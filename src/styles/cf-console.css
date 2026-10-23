@@ -120,6 +120,14 @@
   cursor: pointer;
 }
 
+/* 等待中的抬头按钮：转圈与文字并排。只在这一档改 display ——
+   其余状态保持内联按钮，不为一个等待指示去动所有按钮的排版 */
+.cf-head-btn--busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .cf-head-btn:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--text);
@@ -138,6 +146,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   width: 100%;
   height: 30px;
   background: var(--accent);
@@ -196,12 +205,21 @@
 }
 
 /* ---------------- 状态 ---------------- */
+/* 状态行可能是「转圈 + 一句话」：外层用 inline-flex 把两者对齐，
+   省略号交给里面的文字 —— 转圈本身不该被截成半个 */
 .cf-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
-  overflow: hidden;
   color: var(--text-faint);
   font-family: var(--mono-font);
   font-size: 10px;
+}
+
+.cf-status__text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -290,6 +308,14 @@
 .cf-result__import:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--text);
+}
+
+/* 导入中：转圈与「导入中」并排。68px 的列宽够放下，居中即可 */
+.cf-result__import.is-importing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 /* 导入完成：边框收掉（不再是可点的样子），转成完成的绿色 */

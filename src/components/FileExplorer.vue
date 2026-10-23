@@ -48,6 +48,7 @@ import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
 import InlineCreateRow from './InlineCreateRow.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { useTreeDrag } from '../composables/useTreeDrag.js'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { pageDropTarget } from '../composables/usePageDrop.js'
@@ -130,6 +131,38 @@ const pendingExport = ref([])
 const exportFirstBtn = ref(null)
 /** 导入 / 导出进行中：两颗页头按钮与菜单项据此禁用，别让用户连点 */
 const transferBusy = ref(false)
+
+/**
+ * 导入 / 导出 / 删除进行中的行内提示：`{ key, params } | null`。
+ *
+ * **延迟 120ms 才露面**：小文件、单条删除经常几十毫秒就完事，立刻亮一行「正在…」
+ * 只会闪一下、还把树往下顶一次。真等到这一刻的用户才需要看见它；不足 120ms 的
+ * 操作从头到尾什么都不多出来。
+ */
+const transferPhase = ref(null)
+let transferPhaseTimer = 0
+let transferPhaseToken = 0
+
+function beginTransferNotice(key, params) {
+  const token = ++transferPhaseToken
+  window.clearTimeout(transferPhaseTimer)
+  transferPhaseTimer = window.setTimeout(() => {
+    if (token === transferPhaseToken) transferPhase.value = { key, params }
+  }, 120)
+  return token
+}
+
+function endTransferNotice(token) {
+  if (token !== transferPhaseToken) return
+  transferPhaseToken += 1
+  window.clearTimeout(transferPhaseTimer)
+  transferPhase.value = null
+}
+
+const transferNotice = computed(() => {
+  const phase = transferPhase.value
+  return phase ? t(phase.key, phase.params) : ''
+})
 
 /** 正在编辑题目信息的节点；null = 弹窗关闭 */
 const metaTarget = ref(null)
@@ -482,12 +515,17 @@ async function confirmDelete() {
   // 先关弹窗再动 VFS：删除过程中（可能要等 VFS 的异步事件）不该再留一个可点的按钮
   pendingDelete.value = []
   let failed = 0
-  for (const node of list) {
-    try {
-      await deleteNode(node.path)
-    } catch {
-      failed += 1
+  const token = beginTransferNotice('explorer.transfer.deleting', { n: list.length })
+  try {
+    for (const node of list) {
+      try {
+        await deleteNode(node.path)
+      } catch {
+        failed += 1
+      }
     }
+  } finally {
+    endTransferNotice(token)
   }
   if (failed) showNotice(t('explorer.deleteFailed', { n: failed }))
 }
@@ -578,6 +616,7 @@ async function importItems(targetPath, items, { announce = announceImportInline 
   }
   if (transferBusy.value) return null
   transferBusy.value = true
+  const token = beginTransferNotice('explorer.transfer.importing', { n: items.length })
   try {
     const stats = await importInto(targetPath, items)
     if (stats.imported) {
@@ -592,6 +631,7 @@ async function importItems(targetPath, items, { announce = announceImportInline 
     return null
   } finally {
     transferBusy.value = false
+    endTransferNotice(token)
   }
 }
 
@@ -669,6 +709,7 @@ function cancelExport() {
 async function runExportDownload(nodes) {
   pendingExport.value = []
   transferBusy.value = true
+  const token = beginTransferNotice('explorer.transfer.exporting', { n: nodes.length })
   try {
     if (nodes.length === 1 && nodes[0].type === 'file') {
       await exportSingleFile(nodes[0])
@@ -687,6 +728,7 @@ async function runExportDownload(nodes) {
     showNotice(error.message || t('explorer.transfer.exportFailed'))
   } finally {
     transferBusy.value = false
+    endTransferNotice(token)
   }
 }
 
@@ -706,6 +748,7 @@ async function runExportDownload(nodes) {
 async function runExportToDisk(nodes) {
   pendingExport.value = []
   transferBusy.value = true
+  const token = beginTransferNotice('explorer.transfer.exporting', { n: nodes.length })
   try {
     const { entries, files, skipped } = await collectExport(nodes)
     if (!files) {
@@ -752,6 +795,7 @@ async function runExportToDisk(nodes) {
     showNotice(error.message || t('explorer.transfer.exportFailed'))
   } finally {
     transferBusy.value = false
+    endTransferNotice(token)
   }
 }
 
@@ -1003,10 +1047,16 @@ function showNotice(text) {
   }, 4000)
 }
 
+/** 点横幅关掉结果提示；进行中的那条点不掉（操作还没结束，点掉只会让人以为它停了） */
+function dismissNotice() {
+  if (!transferPhase.value) notice.value = ''
+}
+
 // 工作区启动期的一次性提示（如侧车 JSON 损坏）：provider 只投递 i18n key，这里翻成文案弹横幅。
 // 订阅放在这里（组件 setup）而不是 onMounted —— FileExplorer 比 App.vue 的 onMounted 先初始化，
 // 于是 provider 在 init() 里投递时订阅已就位。
 onUnmounted(onStartupNotice((key) => showNotice(t(key))))
+onUnmounted(() => window.clearTimeout(transferPhaseTimer))
 
 // ------------------------------------------------------------ 焦点（roving tabindex）
 
@@ -1172,8 +1222,18 @@ defineExpose({
       </span>
     </Teleport>
 
-    <!-- 拖拽 / 粘贴失败只在这里提示一句（没有行内位置可放），约 4s 后自己消失 -->
-    <p v-if="notice" class="explorer__notice" role="status" @click="notice = ''">{{ notice }}</p>
+    <!-- 搬运结果与进行中状态共用这一行：进行中排在前面（转圈 + 正在做什么），
+         结束后立刻换成结果 / 失败提示。延迟露面的判据见 transferPhase 的注释。 -->
+    <p
+      v-if="transferNotice || notice"
+      class="explorer__notice"
+      :class="{ 'explorer__notice--busy': !!transferNotice }"
+      role="status"
+      @click="dismissNotice"
+    >
+      <LoadingSpinner v-if="transferNotice" :size="11" />
+      <span>{{ transferNotice || notice }}</span>
+    </p>
 
     <div
       ref="rootEl"
@@ -1725,8 +1785,11 @@ defineExpose({
   border-radius: 4px;
 }
 
-/* 拖拽 / 粘贴失败的临时提示 */
+/* 拖拽 / 粘贴失败、以及导入 / 导出 / 删除进行中的临时提示 */
 .explorer__notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   padding: 4px 10px;
   border-bottom: 1px solid var(--border-soft);
@@ -1735,6 +1798,11 @@ defineExpose({
   font-size: 11.5px;
   line-height: 16px;
   cursor: default;
+}
+
+/* 进行中是中性灰，不是错误红：它说的是「稍等」，不是「出事了」 */
+.explorer__notice--busy {
+  color: var(--text-dim);
 }
 
 /* 拖拽幽灵：Teleport 到 body，只依赖主题变量 */

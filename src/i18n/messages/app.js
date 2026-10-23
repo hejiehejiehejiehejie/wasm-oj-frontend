@@ -13,14 +13,14 @@ export default {
       download: '下载',
 
       /** 编辑区没有任何打开文件时的空状态 */
-      emptyEditor: '在侧边栏的「资源管理器」里打开或新建文件',
+      emptyEditor: '在资源管理器中打开或新建文件',
       /** 评测面板页脚那颗 ▶ 的 title */
       runAllTests: '运行全部测试用例',
 
       /** Android 端首次准备随包编译器时的等待遮罩（ToolchainGate） */
       toolchain: {
         title: '正在准备编译环境',
-        note: '首次启动要把随包的 clang 工具链解到应用目录，需要几秒钟；只做这一次，之后启动直接跳过。',
+        note: '首次启动需解压随包的 clang 工具链，约几秒。',
         failedTitle: '编译环境准备失败',
         /** 失败时的退路：不准备也能用编辑器，只是点运行会报缺编译器 */
         skip: '先进入',
@@ -46,8 +46,10 @@ export default {
 
       /** 「生成图片」之后那一次询问：要复制还是保存（设置里可关掉，见 codeImageAsk） */
       imageAsk: {
+        // 渲染期间编辑区底部那颗小胶囊（图还没出来，问句也还没弹）
+        exporting: '正在生成图片…',
         title: '图片已生成',
-        desc: '要复制这张图，还是保存成 PNG 文件？',
+        desc: '复制还是保存为 PNG？',
         copy: '复制',
         save: '保存',
       },
@@ -55,7 +57,7 @@ export default {
       tabs: {
         listLabel: '打开的文件',
         dirty: '未保存',
-        diskChanged: '磁盘上的这个文件已被外部修改；保存会以编辑器里的内容覆盖它',
+        diskChanged: '文件已在磁盘上被修改，保存会覆盖它',
         untitled: '未命名',
         closeTab: '关闭标签',
         closeSettings: '关闭设置',
@@ -69,7 +71,7 @@ export default {
         groupChip: '标签页组',
         groupNamePh: '为此分组命名',
         groupColors: '分组颜色',
-        groupAddTab: '在组内添加新标签页',
+        groupAddTab: '在组内新建标签页',
         groupClose: '关闭标签页组',
         groupUngroup: '取消分组',
         groupDelete: '删除标签页组',
@@ -104,11 +106,11 @@ export default {
           /** 预览面板当前状态的标题，key 即状态名 */
           state: {
             pending: '正在渲染…',
-            missing: '题解渲染器还没下载',
+            missing: '渲染器未下载',
             downloading: '正在下载渲染器',
             failed: '渲染失败',
           },
-          missingHint: '预览与公式渲染需要 katex + marked（约 0.6MB），只下一次，之后离线也能用。',
+          missingHint: '公式与预览需 katex + marked（约 0.6MB），仅下载一次，之后可离线。',
           download: '下载渲染器',
           downloading: '正在下载…',
         },
@@ -150,7 +152,7 @@ export default {
           alt: '图片描述',
           url: '链接地址',
           confirm: '插入',
-          invalidUrl: '请填 http 或 https 开头的地址',
+          invalidUrl: '地址需以 http 或 https 开头',
         },
         stats: {
           chars: '{count} 字',
@@ -168,12 +170,12 @@ export default {
       retry: 'Retry',
       download: 'Download',
 
-      emptyEditor: 'Open or create a file from the Explorer in the sidebar',
+      emptyEditor: 'Open or create a file in the Explorer',
       runAllTests: 'Run all test cases',
 
       toolchain: {
         title: 'Preparing the compiler environment',
-        note: 'The first launch extracts the bundled clang toolchain into the app directory. It takes a few seconds and happens only once — later launches skip it.',
+        note: 'First launch extracts the bundled clang toolchain (a few seconds).',
         failedTitle: 'Could not prepare the compiler environment',
         skip: 'Continue anyway',
       },
@@ -195,8 +197,9 @@ export default {
       },
 
       imageAsk: {
+        exporting: 'Generating image…',
         title: 'Image ready',
-        desc: 'Copy it, or save it as a PNG file?',
+        desc: 'Copy or save as PNG?',
         copy: 'Copy',
         save: 'Save',
       },
@@ -204,7 +207,7 @@ export default {
       tabs: {
         listLabel: 'Open files',
         dirty: 'Unsaved',
-        diskChanged: 'This file changed on disk; saving will overwrite it with the editor content',
+        diskChanged: 'This file changed on disk; saving will overwrite it',
         untitled: 'Untitled',
         closeTab: 'Close tab',
         closeSettings: 'Close settings',
@@ -219,7 +222,7 @@ export default {
         groupChip: 'Tab group',
         groupNamePh: 'Name this tab group',
         groupColors: 'Group color',
-        groupAddTab: 'Add a new tab to the group',
+        groupAddTab: 'Add a tab to this group',
         groupClose: 'Close group',
         groupUngroup: 'Ungroup',
         groupDelete: 'Delete group',
@@ -249,12 +252,12 @@ export default {
         preview: {
           state: {
             pending: 'Rendering…',
-            missing: 'The editorial renderer is not downloaded yet',
+            missing: 'Renderer not downloaded yet',
             downloading: 'Downloading the renderer',
             failed: 'Rendering failed',
           },
           missingHint:
-            'Preview and math rendering need katex + marked (about 0.6MB). Downloaded once, then it works offline.',
+            'Preview and math need katex + marked (~0.6MB); downloaded once, then available offline.',
           download: 'Download renderer',
           downloading: 'Downloading…',
         },

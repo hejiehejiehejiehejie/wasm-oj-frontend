@@ -56,6 +56,7 @@ import {
   workspace,
 } from '../services/vfs/workspaceStore.js'
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import CfContestPanel from './CfContestPanel.vue'
 import CfPickerPanel from './CfPickerPanel.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -103,10 +104,28 @@ const {
   menu: editorMenu,
   closeMenu: closeEditorMenu,
   onMenuSelect: onEditorMenuSelect,
-  exportSelectionImage,
+  exportEditorImage,
+  exporting: imageExporting,
   ask: imageAsk,
   answerImageAction,
 } = useEditorMenu({ editor, host })
+
+// 「生成图片」画布期间的局部等待胶囊。渲染通常只有一瞬，所以先等 140ms 再露 ——
+// 快的时候一闪而过反而像画面抖了一下；题解带公式那种慢的才看得到它。
+// 熄火立即生效（问句弹窗一出来就该是干净的），不等那个计时器。
+const showImageExporting = ref(false)
+let imageExportTimer = 0
+watch(imageExporting, (busy) => {
+  window.clearTimeout(imageExportTimer)
+  if (!busy) {
+    showImageExporting.value = false
+    return
+  }
+  imageExportTimer = window.setTimeout(() => {
+    showImageExporting.value = true
+  }, 140)
+})
+onBeforeUnmount(() => window.clearTimeout(imageExportTimer))
 
 // 询问弹窗一出现就把焦点送进「复制」：Enter / Esc 都能纯键盘走完（与删除确认同款）
 const askCopyBtn = ref(null)
@@ -666,8 +685,8 @@ watch(
 defineExpose({
   layout: () => editor.value?.layout(),
   // ⌘ / Ctrl+P（快捷键 export-image）走这条：与右键菜单那一项是同一份实现，
-  // 没有选区时它自己会静默返回
-  exportImage: () => exportSelectionImage(),
+  // 没有选区时它导出整个文件
+  exportImage: () => exportEditorImage(),
   focus: () => {
     if (isTouchPointer()) return
     editor.value?.focus()
@@ -882,6 +901,13 @@ defineExpose({
            必须排在 stage 最后 —— 里面几层都是 inset: 0 的绝对定位、没有 z-index，
            谁在后面谁在上面。pointer-events: none，否则会把命中和 Monaco 一起挡住 -->
       <div v-if="isDropTarget" class="editor-pane__drop" aria-hidden="true"></div>
+
+      <!-- 生成图片的等待胶囊：画布这几百毫秒到几秒里，编辑区得有一处「还在动」的迹象。
+           只盖在编辑区底部中央，不吃指针事件（这期间菜单已关、用户也不必点别处） -->
+      <div v-if="showImageExporting" class="editor-pane__exporting" role="status">
+        <LoadingSpinner :size="11" />
+        <span>{{ t('app.imageAsk.exporting') }}</span>
+      </div>
     </div>
 
     <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看着合成视图时它没有意义；
@@ -1478,6 +1504,32 @@ defineExpose({
   height: auto;
   max-height: 50%;
   opacity: 0.5;
+}
+
+/* 「生成图片」的局部等待：一枚贴底居中、跟着通知同一套玻璃质感的淡胶囊。
+   z-index 压在 toast（150）之下 —— 两条同时出现时先读结果，不读等待。
+   pointer-events: none：它不该拦住下面 Monaco 的任何一次点击（渲染期间也允许继续编辑，
+   导出的本来就是点下那一刻的内容）。 */
+.editor-pane__exporting {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 140;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--toast-bg);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--toast-shadow);
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .editor-pane__status {

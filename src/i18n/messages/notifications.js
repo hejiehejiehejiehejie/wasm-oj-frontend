@@ -39,15 +39,15 @@ export default {
        */
       image: {
         copiedTitle: '图片已复制',
-        copiedBody: '选中的内容已生成 PNG，可以直接粘贴',
+        copiedBody: '已生成 PNG，可以直接粘贴',
         savedTitle: '图片已保存',
         savedBody: 'PNG 已下载到本机',
         copyUnsupportedTitle: '图片已下载',
-        copyUnsupportedBody: '这个浏览器不支持写入图片剪贴板，已改为下载 PNG',
+        copyUnsupportedBody: '浏览器不支持写入剪贴板',
         copyFailedTitle: '图片已下载',
-        copyFailedBody: '这次没能写入剪贴板，已改为下载 PNG',
+        copyFailedBody: '写入剪贴板失败',
         failedTitle: '生成图片失败',
-        failedBody: '没能导出这次选中的内容',
+        failedBody: '内容没能导出',
       },
 
       /**
@@ -59,17 +59,16 @@ export default {
        * 只有手动按钮与设置面板才发得出，见 installGuides.js 的 available。
        */
       guide: {
-        appReady:
-          '点下面的「安装」，把本站装成独立应用 —— 之后能像桌面软件一样从程序坞 / 开始菜单直接打开。',
-        appInstalled: '本站已经装成应用了，不用再装。',
+        appReady: '装好后可从程序坞 / 开始菜单直接打开。',
+        appInstalled: '本站已装成应用。',
         /** 插件那几条安装步骤里只有 Firefox 那条自带「装完回来点重新检测」，其余的在通知里补这一句 */
-        extRecheck: '装完回设置 →「浏览器插件」栏点一次「重新检测」。',
-        extUpToDate: '插件已经是最新版（v{version}），不用更新。',
+        extRecheck: '装完回设置 →「浏览器插件」点一次「重新检测」。',
+        extUpToDate: '插件已是最新版（v{version}）。',
         later: '以后再说',
         /** Chromium 那条更新的按钮字：动作就是重下一份 zip。叫「更新」与没装那条的「下载」分开
             （2026-10-20 用户要求；标题已经是「更新浏览器插件」，按钮不重复全称） */
         update: '更新',
-        copyFailed: '复制失败，请手动复制这个地址',
+        copyFailed: '复制失败，请手动复制',
       },
 
       /**
@@ -88,10 +87,10 @@ export default {
        */
       cloud: {
         importedTitle: '已导入云端配置',
-        importedBody: '本机设置已换成「{handle}」存在云端的那一份',
+        importedBody: '已套用「{handle}」的云端配置',
         loggedInTitle: '登录成功',
         loggedInBody: '已套用「{handle}」的云端配置',
-        loggedInNoCloud: '云端还没有这个用户名的配置，点「上传本机设置」把当前设置存上去',
+        loggedInNoCloud: '云端暂无该用户名的配置，点「上传本机设置」保存',
         codeTitle: '等待验证',
         /* 时效那句（原先写在这里的「10 分钟内有效」）改成下面那行活的倒计时 —— 同一件事，
            说一遍就够了；届时的「已过期，请重新取码」也由它接着显示。 */
@@ -124,7 +123,7 @@ export default {
 
       demo: {
         label: '通知',
-        note: '通知系统尚未接入业务事件：下面几颗按钮各触发一种类型，用来检查样式、自动消失与排队行为（最多同显 4 条，超出的排队等候）。「带按钮」演示通知上的操作按钮：点按钮跑回调、这条随之退场。',
+        note: '用于预览通知样式与行为：每颗按钮各发一种类型；「带按钮」演示操作按钮与回调。最多同显 4 条，超出的排队。',
         info: '信息 · 3 秒',
         success: '成功 · 5 秒',
         warning: '警告 · 10 秒',
@@ -132,13 +131,13 @@ export default {
         action: '带按钮 · 常驻',
         clear: '清空全部',
         infoTitle: '系统提示',
-        infoBody: '这条通知 3 秒后自动消失。',
+        infoBody: '3 秒后自动消失。',
         successTitle: '任务完成',
-        successBody: '操作已成功结束。',
+        successBody: '操作已完成。',
         warningTitle: '需要注意',
-        warningBody: '这条通知会停留 10 秒。',
+        warningBody: '停留 10 秒后消失。',
         errorTitle: '出了点问题',
-        errorBody: '这条通知不会自动消失，需要手动关闭。',
+        errorBody: '需手动关闭。',
         actionTitle: '文件已删除',
         actionBody: '「demo.txt」已移入回收站。',
         undo: '撤销',
@@ -166,37 +165,35 @@ export default {
 
       image: {
         copiedTitle: 'Image copied',
-        copiedBody: 'The selection was rendered to PNG — paste it anywhere',
+        copiedBody: 'The PNG is ready — paste it anywhere',
         savedTitle: 'Image saved',
-        savedBody: 'The PNG has been downloaded to this device',
+        savedBody: 'PNG downloaded',
         copyUnsupportedTitle: 'Image downloaded',
-        copyUnsupportedBody: 'This browser cannot write images to the clipboard, so the PNG was downloaded instead',
+        copyUnsupportedBody: 'This browser can’t write images to the clipboard',
         copyFailedTitle: 'Image downloaded',
-        copyFailedBody: 'Writing to the clipboard did not go through this time, so the PNG was downloaded instead',
+        copyFailedBody: 'Couldn’t write to the clipboard',
         failedTitle: 'Export failed',
-        failedBody: 'The selected content could not be exported',
+        failedBody: 'The content could not be exported',
       },
 
       /** See the zh-CN side: titles come from `settings.menu.*`, body text mostly reuses panel strings */
       guide: {
-        appReady:
-          'Hit “Install” below to install this site as a standalone app — you can then open it from the Dock / Start menu like any desktop program.',
-        appInstalled: 'This site is already installed as an app — nothing to do.',
-        extRecheck: 'Once installed, go to Settings → “Browser extension”, then hit “Check again”.',
-        extUpToDate: 'The extension is already up to date (v{version}).',
+        appReady: 'It then opens from the Dock / Start menu.',
+        appInstalled: 'This site is already installed as an app.',
+        extRecheck: 'Then go to Settings → “Browser extension” and hit “Check again”.',
+        extUpToDate: 'The extension is up to date (v{version}).',
         later: 'Not now',
         update: 'Update',
-        copyFailed: 'Copy failed — please copy this address manually',
+        copyFailed: 'Copy failed — copy it manually',
       },
 
       /** See the zh-CN side: import / sign-in success survive a full page reload via notifyAfterReload */
       cloud: {
         importedTitle: 'Cloud settings imported',
-        importedBody: 'Local settings now come from the copy “{handle}” stores in the cloud',
+        importedBody: 'Applied the cloud settings stored by “{handle}”',
         loggedInTitle: 'Signed in',
         loggedInBody: 'Applied the cloud settings stored by “{handle}”',
-        loggedInNoCloud:
-          'The cloud has no copy for this handle yet — use “Upload local settings” to store the current setup',
+        loggedInNoCloud: 'No cloud settings for this handle yet — use “Upload local settings”',
         codeTitle: 'Waiting for verification',
         /* See the zh-CN side: the “valid for 10 minutes” tail moved into the live countdown line */
         codeBody: 'Put the code {code} into your Codeforces Last name',
@@ -221,7 +218,7 @@ export default {
 
       demo: {
         label: 'Notifications',
-        note: 'The notification system is not wired to app events yet: the buttons below fire one type each, for checking styling, auto-dismiss and queueing (max 4 visible at once, the rest wait in a queue). "With actions" shows action buttons on a notification: clicking one runs its callback and dismisses the toast.',
+        note: 'Preview notification styles and behaviour: each button fires one type; “With actions” shows action buttons. Max 4 visible, the rest queue.',
         info: 'Info · 3s',
         success: 'Success · 5s',
         warning: 'Warning · 10s',
@@ -229,13 +226,13 @@ export default {
         action: 'With actions · sticky',
         clear: 'Clear all',
         infoTitle: 'Heads up',
-        infoBody: 'This notification dismisses itself in 3 seconds.',
+        infoBody: 'Closes itself in 3 seconds.',
         successTitle: 'All done',
-        successBody: 'The operation finished successfully.',
+        successBody: 'Operation completed.',
         warningTitle: 'Needs attention',
-        warningBody: 'This notification stays for 10 seconds.',
+        warningBody: 'Stays for 10 seconds.',
         errorTitle: 'Something went wrong',
-        errorBody: 'This notification will not dismiss itself — close it manually.',
+        errorBody: 'Stays until you close it.',
         actionTitle: 'File deleted',
         actionBody: '"demo.txt" was moved to the trash.',
         undo: 'Undo',

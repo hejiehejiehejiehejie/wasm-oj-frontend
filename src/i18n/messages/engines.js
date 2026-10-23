@@ -13,22 +13,22 @@ export default {
       /** 引擎显示名与一行说明；`notExecutes` 是「不执行代码」那枚小徽标 */
       wasm: {
         label: '本地 WASM 沙箱',
-        hint: '在浏览器里编译运行，代码不出本机；支持 C++ 与 Python，首次需下载本地运行时（C++ 约 50MB / Python 约 24MB）',
-        ready: '本地沙箱可用，首次运行需下载本地运行时（C++ 约 50MB / Python 约 24MB，之后常驻缓存）',
-        noIsolation: '页面没有跨域隔离，SharedArrayBuffer 不可用：确认 dev server 已注入 COOP / COEP 响应头',
+        hint: '在浏览器中编译运行，代码不出本机。首次需下载运行时（C++ 约 50MB / Python 约 24MB）。',
+        ready: '沙箱可用。首次运行需下载运行时（C++ 约 50MB / Python 约 24MB），之后常驻缓存。',
+        noIsolation: '页面缺少跨域隔离，SharedArrayBuffer 不可用；请为 dev server 配置 COOP / COEP 响应头。',
         unavailable: '本地沙箱不可用：{message}',
       },
       native: {
         label: '本机原生编译器',
-        hint: '桌面端专用：直接用本机已装好的编译器运行，不下载任何运行时；支持 C++（clang++ / g++）与 Python',
+        hint: '桌面端专用：用本机已装的编译器运行，无需下载运行时；支持 C++ 与 Python。',
         ready: '本机编译链可用（C++ 与 Python）',
         cppUnavailable: 'C++ 编译器不可用：{message}{hint}',
-        cppHintMac: '（macOS 可执行 xcode-select --install 装命令行工具）',
-        cppHintWindows: '（Windows 可装 LLVM 或 MSYS2，也可以装 MinGW-w64；装完确认它在 PATH 里）',
+        cppHintMac: '（macOS 可运行 xcode-select --install）',
+        cppHintWindows: '（Windows 可装 LLVM、MSYS2 或 MinGW-w64，并确保在 PATH 中）',
         cppHintOther: '',
         pythonUnavailable: 'Python 解释器不可用：{message}{hint}',
         pythonHintMac: '',
-        pythonHintWindows: '（Windows 可装 python.org 版；应用商店那个 python 别名不算）',
+        pythonHintWindows: '（Windows 请用 python.org 版本，应用商店别名无效）',
         pythonHintOther: '',
         unavailable: '本机运行失败：{message}',
         unsupportedLanguage: '原生引擎不支持该语言：{language}',
@@ -44,7 +44,7 @@ export default {
       },
       judge0: {
         label: 'Judge0',
-        hint: '填自建地址（https://ce.judge0.com 这类公共沙箱会吞掉标准输入，只适合试跑）',
+        hint: '填自建地址；公共沙箱（如 https://ce.judge0.com）会吞掉标准输入，仅供试跑。',
         internal: 'Judge0 内部错误',
         statusCode: '状态码 {code}',
         available: '服务可用，{ms}ms',
@@ -53,7 +53,7 @@ export default {
       },
       echo: {
         label: '自检（不执行代码）',
-        hint: '把标准输入原样回显成输出，仅用于联调界面与状态流转',
+        hint: '回显标准输入，仅用于联调界面。',
         ready: '内置引擎，无需服务',
       },
       /** 引擎卡片上的小徽标：该引擎不真正执行代码 */
@@ -72,24 +72,24 @@ export default {
       groupNote: '在浏览器里直接编译运行，代码不出本机。',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 8 + libc++，约 50MB，只下一次',
+        idleHint: 'clang 8 + libc++，约 50MB，仅下载一次',
         downloadTitle: '下载 clang 工具链',
         uninstallHint:
-          '将从本机删除已缓存的 clang 工具链（约 50MB，另含编译加速用的预编译头）。下次运行 C++ 代码时需要重新下载。',
+          '删除本机 clang 工具链（约 50MB，含预编译头）；下次运行 C++ 需重新下载。',
       },
       python: {
         title: 'Python 3',
-        idleHint: 'CPython 3.11 + 标准库，约 24MB，只下一次',
+        idleHint: 'CPython 3.11 + 标准库，约 24MB，仅下载一次',
         downloadTitle: '下载 Python 运行时',
         uninstallHint:
-          '将从本机删除已缓存的 Python 运行时（解释器 + 标准库，约 24MB）。下次运行 Python 代码时需要重新下载。',
+          '删除本机 Python 运行时（约 24MB）；下次运行 Python 需重新下载。',
       },
       markdown: {
         title: 'Markdown / LaTeX',
-        idleHint: '题解预览与公式渲染（katex + marked，约 0.6MB），只下一次',
+        idleHint: '题解预览与公式渲染（katex + marked，约 0.6MB），仅下载一次',
         downloadTitle: '下载题解渲染器',
         uninstallHint:
-          '将从本机删除已缓存的题解渲染器（公式排版与字形，约 0.6MB）。下次预览题解时需要重新下载。',
+          '删除本机题解渲染器（约 0.6MB）；下次预览题解需重新下载。',
         downloading: '正在下载题解渲染器…',
         progress: '正在下载题解渲染器（{done}/{total}）…',
       },
@@ -113,22 +113,22 @@ export default {
       autoPreload: {
         label: '预下载本地运行环境',
         switchTitle:
-          '预下载 {title}：应用下次启动、浏览器空闲时自动把它下到本机（本机已有就跳过）',
-        note: '打开后，该运行环境会在应用下次启动、浏览器空闲时自动下载，本机已有则跳过。这几个开关是偏好，会跟着账号同步到其它设备。',
+          '预下载 {title}：下次启动且浏览器空闲时自动下载（本机已有则跳过）',
+        note: '该运行环境会在下次启动、浏览器空闲时自动下载；本机已有则跳过。开关随账号同步。',
       },
     },
 
     /** 沙箱的实时阶段播报（设置页下载那一行会显示） */
     stage: {
-      toolchain: '正在获取本地工具链（编译器 + 系统头文件，约 50MB，只下一次）…',
+      toolchain: '正在获取本地工具链（约 50MB，仅下一次）…',
       compile: '正在编译…',
       run: '正在运行…',
-      pythonRuntime: '正在获取 Python 运行时（解释器 + 标准库，约 24MB，只下一次）…',
+      pythonRuntime: '正在获取 Python 运行时（约 24MB，仅下一次）…',
     },
 
     error: {
       /** 沙箱与工具链 */
-      noDecompressionStream: '当前浏览器不支持 DecompressionStream，无法解包本地工具链',
+      noDecompressionStream: '浏览器不支持 DecompressionStream，无法解包工具链',
       downloadFailed: '{label} 下载失败（HTTP {status}）',
       sysrootFailed: '系统头文件下载失败（HTTP {status}）',
       pythonLibFailed: 'Python 标准库下载失败（HTTP {status}）',
@@ -136,13 +136,12 @@ export default {
       linkFailed: '链接失败',
       pchFailed: '预编译头生成失败（clang 退出码 {code}）',
       programExitCode: '程序退出码 {code}',
-      compileTimeout:
-        '本地编译超过 {seconds} s 没有返回，已中断（正常编译只要几百毫秒，超时多半是这段代码触发了工具链的极端情况）。',
-      prepareTimeout: '本地运行环境准备超过 {seconds} s 没有返回，已中断，请检查网络后重试。',
+      compileTimeout: '本地编译超过 {seconds} 秒未返回，已中断。',
+      prepareTimeout: '运行环境准备超过 {seconds} 秒未返回，已中断，请检查网络后重试。',
 
       /** 远端评测服务 */
       noResponse: '服务无响应',
-      pistonConnect: '无法连接评测服务 {base}/execute。用设置里的「评测」改成自建 Piston 地址即可。',
+      pistonConnect: '无法连接评测服务 {base}/execute；请在「设置 › 评测」填入自建 Piston 地址。',
       judge0Connect: '无法连接评测服务 {base}。{hint}',
       pistonCompileFailed: '编译失败',
       pistonExitCode: '退出码 {code}',
@@ -174,15 +173,15 @@ export default {
       workspaceOutsideRoot: '该路径不在当前工作区内',
       workspaceBinary: '这是二进制文件，编辑器无法打开',
       workspaceTooLarge: '文件太大，编辑器无法打开',
-      workspaceSidecarBroken: '工作区元数据已损坏，本次按空白打开：题目链接、难度与样例可能丢失',
+      workspaceSidecarBroken: '工作区元数据损坏，已按空白打开；题目链接、难度与样例可能丢失',
 
       /** 题目导入 */
       importEmpty: '题目数据为空',
 
       /** 打包导出。两条都是 zip 格式本身的硬上限（65535 个条目 / 4GB），
        *  正常用不到 —— 兜底给一句人话，别把 `error.zipTooLarge` 这种 key 露给用户 */
-      zipTooManyEntries: '要打包的条目超过 {max} 个（zip 格式的上限），请分几次导出',
-      zipTooLarge: '打包后超过 4GB（zip 格式的上限），请分几次导出',
+      zipTooManyEntries: '条目超过 {max} 个（zip 上限），请分批导出',
+      zipTooLarge: '打包后超过 4GB（zip 上限），请分批导出',
     },
   },
 
@@ -190,27 +189,27 @@ export default {
     engine: {
       wasm: {
         label: 'Local WASM sandbox',
-        hint: 'Compiles and runs in your browser; your code never leaves this machine. Supports C++ and Python — the first run downloads the local runtime (C++ ≈ 50MB / Python ≈ 24MB).',
+        hint: 'Runs in your browser; your code stays on this machine. The first run downloads the runtime (C++ ≈ 50MB / Python ≈ 24MB).',
         ready:
-          'The local sandbox is available. The first run downloads the local runtime (C++ ≈ 50MB / Python ≈ 24MB), which is cached afterwards.',
+          'Sandbox available. The first run downloads the runtime (C++ ≈ 50MB / Python ≈ 24MB), then it is cached.',
         noIsolation:
-          'This page is not cross-origin isolated, so SharedArrayBuffer is unavailable. Check that your dev server sends the COOP / COEP response headers.',
+          'The page is not cross-origin isolated, so SharedArrayBuffer is unavailable. Configure COOP / COEP headers on the dev server.',
         unavailable: 'Local sandbox unavailable: {message}',
       },
       native: {
         label: 'Native compiler (desktop)',
-        hint: 'Desktop only: runs your code with the compilers already installed on this machine — no runtime download. Supports C++ (clang++ / g++) and Python.',
+        hint: 'Desktop only: uses the compilers already on this machine — no runtime download. Supports C++ and Python.',
         ready: 'The native toolchain is available (C++ and Python)',
         cppUnavailable: 'The C++ compiler is unavailable: {message}{hint}',
         cppHintMac:
-          ' (on macOS, run xcode-select --install to install the command line tools)',
+          ' (on macOS, run xcode-select --install)',
         cppHintWindows:
-          ' (on Windows, install LLVM or MSYS2 — or MinGW-w64 — and make sure it is on PATH)',
+          ' (on Windows, install LLVM, MSYS2 or MinGW-w64 and put it on PATH)',
         cppHintOther: '',
         pythonUnavailable: 'The Python interpreter is unavailable: {message}{hint}',
         pythonHintMac: '',
         pythonHintWindows:
-          ' (on Windows, install Python from python.org; the Microsoft Store python alias does not count)',
+          ' (use the python.org build on Windows; the Store alias doesn’t count)',
         pythonHintOther: '',
         unavailable: 'Native run failed: {message}',
         unsupportedLanguage: 'The native engine does not support this language: {language}',
@@ -226,7 +225,7 @@ export default {
       },
       judge0: {
         label: 'Judge0',
-        hint: 'Enter your own self-hosted address (public sandboxes such as https://ce.judge0.com swallow stdin and are only good for a quick try)',
+        hint: 'Use a self-hosted address; public sandboxes such as https://ce.judge0.com swallow stdin and are for quick tests only.',
         internal: 'Judge0 internal error',
         statusCode: 'Status {code}',
         available: 'Service is up, {ms}ms',
@@ -235,7 +234,7 @@ export default {
       },
       echo: {
         label: 'Self-test (does not run code)',
-        hint: 'Echoes the standard input back as output; for exercising the UI and state flow only',
+        hint: 'Echoes stdin as stdout; for UI testing only',
         ready: 'Built-in engine, no service needed',
       },
       notExecutes: 'Does not run code',
@@ -250,24 +249,24 @@ export default {
       groupNote: 'Compile and run right inside your browser. Your code never leaves this machine.',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 8 + libc++, about 50MB, downloaded once',
+        idleHint: 'clang 8 + libc++, ~50MB, downloaded once',
         downloadTitle: 'Download the clang toolchain',
         uninstallHint:
-          'Deletes the cached clang toolchain from this device (about 50MB, plus the precompiled header used to speed up compilation). It will be downloaded again the next time you run C++ code.',
+          'Deletes the cached clang toolchain (~50MB, including the precompiled header); it will be downloaded again on the next C++ run.',
       },
       python: {
         title: 'Python 3',
-        idleHint: 'CPython 3.11 + standard library, about 24MB, downloaded once',
+        idleHint: 'CPython 3.11 + standard library, ~24MB, downloaded once',
         downloadTitle: 'Download the Python runtime',
         uninstallHint:
-          'Deletes the cached Python runtime from this device (interpreter + standard library, about 24MB). It will be downloaded again the next time you run Python code.',
+          'Deletes the cached Python runtime (~24MB); it will be downloaded again on the next Python run.',
       },
       markdown: {
         title: 'Markdown / LaTeX',
-        idleHint: 'Editorial preview and math rendering (katex + marked, about 0.6MB), downloaded once',
+        idleHint: 'Editorial preview and math rendering (katex + marked, ~0.6MB), downloaded once',
         downloadTitle: 'Download the editorial renderer',
         uninstallHint:
-          'Deletes the cached editorial renderer from this device (math layout and glyphs, about 0.6MB). It will be downloaded again the next time you preview an editorial.',
+          'Deletes the cached editorial renderer (~0.6MB); it will be downloaded again on the next preview.',
         downloading: 'Downloading the editorial renderer…',
         progress: 'Downloading the editorial renderer ({done}/{total})…',
       },
@@ -288,21 +287,21 @@ export default {
       autoPreload: {
         label: 'Preload local runtimes',
         switchTitle:
-          'Preload {title}: download it automatically in the background the next time the app starts (skipped when this device already has it)',
-        note: 'Once on, the runtime is downloaded automatically in the background the next time the app starts — skipped when this device already has it. These switches are preferences, so they sync with your account.',
+          'Preload {title}: download it in the background on the next start (skipped if already present)',
+        note: 'Downloads the runtime in the background on the next start if it is missing. These switches sync with your account.',
       },
     },
 
     stage: {
-      toolchain: 'Fetching the local toolchain (compiler + system headers, about 50MB, downloaded once)…',
+      toolchain: 'Fetching the local toolchain (~50MB, once)…',
       compile: 'Compiling…',
       run: 'Running…',
-      pythonRuntime: 'Fetching the Python runtime (interpreter + standard library, about 24MB, downloaded once)…',
+      pythonRuntime: 'Fetching the Python runtime (~24MB, once)…',
     },
 
     error: {
       noDecompressionStream:
-        'This browser does not support DecompressionStream, so the local toolchain cannot be unpacked',
+        'This browser lacks DecompressionStream, so the toolchain cannot be unpacked',
       downloadFailed: 'Failed to download {label} (HTTP {status})',
       sysrootFailed: 'Failed to download the system headers (HTTP {status})',
       pythonLibFailed: 'Failed to download the Python standard library (HTTP {status})',
@@ -311,13 +310,13 @@ export default {
       pchFailed: 'Failed to build the precompiled header (clang exited with {code})',
       programExitCode: 'Program exited with {code}',
       compileTimeout:
-        'Local compilation did not return within {seconds} s and was interrupted. Normal compilations take a few hundred milliseconds — a timeout usually means this code hit an extreme case in the toolchain.',
+        'Local compilation did not return within {seconds} s and was interrupted.',
       prepareTimeout:
-        'Preparing the local runtime did not return within {seconds} s and was interrupted. Check your network and try again.',
+        'Runtime preparation did not return within {seconds} s. Check your network and retry.',
 
       noResponse: 'No response from the service',
       pistonConnect:
-        'Cannot reach the judge service at {base}/execute. Point Settings › Judge › Service URL at a self-hosted Piston to fix this.',
+        'Cannot reach {base}/execute. Set a self-hosted Piston under Settings › Judge.',
       judge0Connect: 'Cannot reach the judge service at {base}. {hint}',
       pistonCompileFailed: 'Compilation failed',
       pistonExitCode: 'Exited with {code}',
@@ -349,14 +348,14 @@ export default {
       workspaceBinary: 'This is a binary file; the editor cannot open it',
       workspaceTooLarge: 'This file is too large for the editor to open',
       workspaceSidecarBroken:
-        'The workspace metadata is corrupted; it was opened empty — problem links, difficulty and samples may be lost',
+        'Workspace metadata is corrupted; opened empty — problem links, difficulty and samples may be lost',
 
       importEmpty: 'The problem data is empty',
 
       /** Both are hard limits of the zip format (65 535 entries / 4 GB); unreachable in
        *  practice — here only so the raw `error.zipTooLarge` key never reaches the user. */
-      zipTooManyEntries: 'More than {max} entries to pack (the zip format limit) — export in a few batches',
-      zipTooLarge: 'The archive would exceed 4 GB (the zip format limit) — export in a few batches',
+      zipTooManyEntries: 'More than {max} entries (zip limit) — export in batches',
+      zipTooLarge: 'The archive would exceed 4GB (zip limit) — export in batches',
     },
   },
 }

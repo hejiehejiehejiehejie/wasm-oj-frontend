@@ -11,7 +11,10 @@
       <!-- 抬头：标题 + 状态（状态放这里，底下就只剩一颗按钮） -->
       <header class="cf-cell cf-cell--span cf-bar">
         <span class="cf-bar__title">{{ t('cf.button.label') }}</span>
-        <span class="cf-status" :class="{ 'is-error': !!error }">{{ statusText }}</span>
+        <span class="cf-status" :class="{ 'is-error': !!error }">
+          <LoadingSpinner v-if="picking" :size="10" />
+          <span class="cf-status__text">{{ statusText }}</span>
+        </span>
       </header>
 
       <label class="cf-cell cf-cell--label">{{ t('cf.picker.fields.rating') }}</label>
@@ -136,19 +139,25 @@
             @input="onHandleInput"
             @blur="onHandleBlur"
           />
-          <span v-if="handleText" class="cf-status" :class="`is-${handleState}`">{{ handleText }}</span>
+          <span v-if="handleText" class="cf-status" :class="`is-${handleState}`">
+            <LoadingSpinner v-if="handleState === 'checking'" :size="10" />
+            <span class="cf-status__text">{{ handleText }}</span>
+          </span>
         </div>
       </template>
 
       <div class="cf-cell cf-cell--span cf-foot">
         <button type="button" class="cf-exec" :disabled="picking" @click="run">
-          {{
-            picking
-              ? t('cf.picker.picking')
-              : results.length
-                ? t('cf.picker.action.again')
-                : t('cf.picker.action.pick')
-          }}
+          <LoadingSpinner v-if="picking" :size="11" />
+          <span>
+            {{
+              picking
+                ? t('cf.picker.picking')
+                : results.length
+                  ? t('cf.picker.action.again')
+                  : t('cf.picker.action.pick')
+            }}
+          </span>
         </button>
       </div>
     </div>
@@ -160,10 +169,12 @@
         <button
           type="button"
           class="cf-head-btn"
+          :class="{ 'cf-head-btn--busy': importingAll }"
           :disabled="importingAll || allImported"
           @click="importAll"
         >
-          {{ importingAll ? t('cf.picker.result.importing') : t('cf.picker.result.importAll') }}
+          <LoadingSpinner v-if="importingAll" :size="10" />
+          <span>{{ importingAll ? t('cf.picker.result.importing') : t('cf.picker.result.importAll') }}</span>
         </button>
       </div>
       <ul class="cf-results__list">
@@ -187,7 +198,8 @@
             :disabled="importState(problem) !== 'import'"
             @click="importOne(problem)"
           >
-            {{ t(`cf.picker.result.${importState(problem)}`) }}
+            <LoadingSpinner v-if="importState(problem) === 'importing'" :size="9" />
+            <span>{{ t(`cf.picker.result.${importState(problem)}`) }}</span>
           </button>
           <a
             class="cf-result__link"
@@ -229,6 +241,7 @@
 import { computed, onBeforeUnmount, watch } from 'vue'
 
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { COUNT_MAX, COUNT_MIN, RATING_PRESETS } from '../cf/pick.js'
 import { useCfPicker } from '../composables/useCfPicker.js'

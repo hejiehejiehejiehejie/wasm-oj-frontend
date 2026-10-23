@@ -123,6 +123,11 @@ export function useEditorMenu({ editor, host }) {
   const { bindings } = useShortcutManager()
   /** 「复制还是保存」那一次询问是否开着（codeImageAsk 开着时才可能为真） */
   const ask = ref(false)
+  /**
+   * 「生成图片」正在画那张 PNG。只覆盖**渲染**这一段：问句弹窗摆出来时图已经好了，
+   * 立刻熄掉 —— 之后点复制 / 保存都是即时动作，不该再顶着一个「进行中」。
+   */
+  const exporting = ref(false)
   /** 询问的兑现口：弹窗一答就 resolve，见 askImageAction */
   let askResolve = null
 
@@ -171,14 +176,14 @@ export function useEditorMenu({ editor, host }) {
       { id: 'paste', label: t('app.editorMenu.paste'), shortcut: SHORTCUT.paste },
       { id: 'selectAll', label: t('app.editorMenu.selectAll'), shortcut: SHORTCUT.selectAll },
       { id: 'sep-image', divider: true },
-      // 生成图片：无选区时置灰（与剪切 / 复制同口径 —— 没有选中的代码就没有可导出的东西）。
+      // 生成图片：**没有选区也能点** —— 那时导出的是整个文件（2026-10-23 用户口径），
+      // 与剪切 / 复制不同：那两项没有选中的文字就真的没有东西可操作。
       // 走自己的实现，不是 Monaco action：Monaco 没有这条命令。
       // 键位不在 SHORTCUT 里 —— 它是站内动作，从绑定表现读（用户可改绑，绑空了就显示空）。
       {
         id: 'exportImage',
         label: t('app.editorMenu.exportImage'),
         shortcut: formatCombo(bindings.value['export-image']),
-        disabled: !hasSelection,
       },
       { id: 'sep-cmd', divider: true },
       {
@@ -212,7 +217,8 @@ export function useEditorMenu({ editor, host }) {
   }
 
   /**
-   * 「生成图片」：选区 → PNG → **复制还是保存由用户当场定**（设置项 codeImageAsk，默认问）。
+   * 「生成图片」：选区 → PNG，**没有选区就整篇**（2026-10-23 用户口径）；复制还是保存由用户当场定
+   * （设置项 codeImageAsk，默认问）。
    *
    * 顺序是「**先渲染、再问**」：图已经画好了，弹窗上点哪一边都是立刻兑现，不用再等一次渲染；
    * 取消则是真的什么都没发生（图丢掉，不发通知）。
@@ -223,16 +229,19 @@ export function useEditorMenu({ editor, host }) {
    * 两条结果各发一条通知 —— 这条链路没有别的可见反馈，用户看不到图，只能靠通知知道成了没有。
    * 失败发常驻 error 通知：那是需要人来看一眼的情形。
    */
-  async function exportSelectionImage() {
+  async function exportEditorImage() {
     const instance = editor.value
     const model = instance?.getModel()
-    const selection = instance?.getSelection()
-    if (!model || !selection || selection.isEmpty()) return
-    const code = model.getValueInRange(selection)
+    if (!model) return
+    const selection = instance.getSelection()
+    const hasSelection = Boolean(selection && !selection.isEmpty())
+    const code = hasSelection ? model.getValueInRange(selection) : model.getValue()
+    // 空文件（或整篇都是空白）没有可画的东西：静默收手，与改版前「无选区」同一种处理
     if (!code.trim()) return
     try {
       // .md 文件按「题解预览」的排版出图（Markdown 结构 + KaTeX 公式），其余文件照旧画代码图。
       // 渲染器没下载时**回落**到代码图，入口不因此失败（用户 2026-10-21 定的口径）。
+      exporting.value = true
       let canvas = null
       if (model.getLanguageId() === 'markdown') {
         try {
@@ -261,14 +270,15 @@ export function useEditorMenu({ editor, host }) {
           // 彩色括号跟编辑器同一个开关（编辑器在 .md 下也会自己关掉，这里同口径）
           bracketColorize:
             editorSettings.value.bracketPairColorization && model.getLanguageId() !== 'markdown',
-          // 行号从选区所在的那一行起算（选区在文件中间时编号才对得上）
-          startLine: selection.startLineNumber,
+          // 行号从选区所在的那一行起算（选区在文件中间时编号才对得上）；整篇导出从第 1 行起
+          startLine: hasSelection ? selection.startLineNumber : 1,
           // 制表符的宽度取当前文件真正生效的那一份（model 级选项，可能被「按内容猜缩进」改过），
           // 图里的缩进才和编辑器里看到的一致
           tabSize: model.getOptions().tabSize,
           fontFamily: fontInfo?.fontFamily,
         })
       }
+      exporting.value = false
       const action = editorSettings.value.codeImageAsk
         ? await askImageAction()
         : editorSettings.value.codeImageAction
@@ -316,6 +326,7 @@ export function useEditorMenu({ editor, host }) {
         duration: 3000,
       })
     } catch {
+      exporting.value = false
       notify({
         type: 'error',
         title: t('notifications.image.failedTitle'),
@@ -366,7 +377,7 @@ export function useEditorMenu({ editor, host }) {
     const instance = editor.value
     closeMenu()
     if (id === 'exportImage') {
-      exportSelectionImage()
+      exportEditorImage()
       return
     }
     if (!instance || !ACTIONS[id]) return
@@ -602,8 +613,16 @@ export function useEditorMenu({ editor, host }) {
     el.removeEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
   })
 
-  // exportSelectionImage 也出栈：给 EditorPane 的 defineExpose 用，让 ⌘ / Ctrl+P 那条
+  // exportEditorImage 也出栈：给 EditorPane 的 defineExpose 用，让 ⌘ / Ctrl+P 那条
   // 全局快捷键能落到同一份实现上（App.vue 的 SHORTCUT_HANDLERS 里调它）。
   // ask / answerImageAction 是那一次「复制还是保存」的状态与兑现口，弹窗画在 EditorPane 里。
-  return { menu, closeMenu, onMenuSelect, exportSelectionImage, ask, answerImageAction }
+  return {
+    menu,
+    closeMenu,
+    onMenuSelect,
+    exportEditorImage,
+    exporting,
+    ask,
+    answerImageAction,
+  }
 }

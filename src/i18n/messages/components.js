@@ -15,7 +15,7 @@ export default {
         title: '组件',
         codeforces: 'Codeforces',
         tools: '工具',
-        empty: '还没有已安装的组件，可在「设置 › 应用 › 组件」里安装。',
+        empty: '尚无组件，可在「设置 › 应用 › 组件」中安装。',
       },
       /**
        * 折叠图标栏（ActivityBar）的右键菜单。只在「非窄屏 + 鼠标」下弹（触屏没有右键）。
@@ -37,7 +37,7 @@ export default {
         title: 'Components',
         codeforces: 'Codeforces',
         tools: 'Tools',
-        empty: 'No components installed yet — install them in Settings › App › Components.',
+        empty: 'No components installed — add them in Settings › App › Components.',
       },
       bar: {
         menuLabel: 'Activity bar menu',

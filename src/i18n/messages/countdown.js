@@ -11,7 +11,7 @@ export default {
       title: '倒计时',
       pause: '暂停',
       resume: '继续',
-      cancel: '中止倒计时',
+      cancel: '停止倒计时',
       reset: '重新设置',
       lock: '锁定（隐藏外框）',
       unlock: '解锁（恢复外框与操作）',
@@ -34,13 +34,13 @@ export default {
       },
       /** 设置 › 应用 › 组件 里那一行（与 cf.module.* 同形：标题复用 countdown.title） */
       module: {
-        installedHint: '悬浮在页面上的计时卡，可拖动、缩放、锁定，入口在侧栏「组件 › 工具」里',
-        idleHint: '悬浮计时卡，装好后入口出现在侧栏「组件 › 工具」里',
+        installedHint: '悬浮计时卡，可拖动、缩放、锁定；入口在「组件 › 工具」。',
+        idleHint: '悬浮计时卡；装好后入口在「组件 › 工具」。',
         install: '安装',
         uninstallActionTitle: '卸载「{title}」',
         uninstallTitle: '卸载「{title}」？',
         uninstallHint:
-          '会关闭悬浮卡、清掉正在进行的计时，并从侧栏「组件 › 工具」里收起入口；位置与尺寸保留，点这一行的「安装」随时装回来。',
+          '关闭悬浮卡并清除计时，入口从「组件 › 工具」移除；位置与尺寸保留，可随时重新安装。',
       },
     },
   },
@@ -72,13 +72,13 @@ export default {
       },
       module: {
         installedHint:
-          'A floating timer card you can drag, resize and lock; open it from Components › Tools in the sidebar',
-        idleHint: 'A floating timer card; once installed it shows up under Components › Tools',
+          'A floating timer card you can drag, resize and lock; open it from Components › Tools.',
+        idleHint: 'A floating timer card; once installed, open it from Components › Tools.',
         install: 'Install',
         uninstallActionTitle: 'Uninstall "{title}"',
         uninstallTitle: 'Uninstall "{title}"?',
         uninstallHint:
-          'Closes the floating card, discards the running timer and removes the entry from Components › Tools. Its position and size are kept — use "Install" on this row to bring it back.',
+          'Closes the card, discards the timer and removes it from Components › Tools; position and size are kept.',
       },
     },
   },

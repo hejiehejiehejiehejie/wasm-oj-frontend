@@ -1,6 +1,7 @@
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { mountConfetti, unmountConfetti } from '../services/confetti.js'
@@ -159,7 +160,10 @@ const elapsedText = computed(() => {
          具体是 WA 还是 TLE 由各张卡片的徽标说明，这里不堆长句 -->
     <Teleport defer :disabled="!isActivePanel" to="#sidebar-context">
       <div class="panel__heading">
-        <span class="verdict" :data-tone="verdict.tone">{{ verdict.text }}</span>
+        <span class="verdict" :data-tone="verdict.tone">
+          <LoadingSpinner v-if="counts.running" :size="9" />
+          <span>{{ verdict.text }}</span>
+        </span>
         <span
           v-if="elapsedText"
           class="elapsed"
@@ -183,15 +187,20 @@ const elapsedText = computed(() => {
         <!-- 空态就这一行：跑不了的原因不在这里解释（那行字在页脚），这一栏越干净越好。
              抓样那三条提示仍然照旧（它们说的是「样例为什么还没到手」，与能不能运行无关）。 -->
         <p v-if="notice" class="empty__notice" :data-tone="notice.tone">
-          <!-- 带题目链接的形状：before + <a> + after 三段拼成一句（另两段是纯文本，见 props 说明） -->
-          <template v-if="notice.url">
-            {{ notice.before
-            }}<a class="empty__link" :href="notice.url" target="_blank" rel="noopener noreferrer">{{
-              notice.linkText
-            }}</a
-            >{{ notice.after }}
-          </template>
-          <template v-else>{{ notice.text }}</template>
+          <!-- 抓取在途（tone = info）时把等待画在这一行里：空态期间没有别的东西可看，
+               转起来才知道它还在动 -->
+          <LoadingSpinner v-if="notice.tone === 'info'" :size="11" />
+          <span>
+            <!-- 带题目链接的形状：before + <a> + after 三段拼成一句（另两段是纯文本，见 props 说明） -->
+            <template v-if="notice.url">
+              {{ notice.before
+              }}<a class="empty__link" :href="notice.url" target="_blank" rel="noopener noreferrer">{{
+                notice.linkText
+              }}</a
+              >{{ notice.after }}
+            </template>
+            <template v-else>{{ notice.text }}</template>
+          </span>
         </p>
       </li>
 
@@ -308,6 +317,9 @@ const elapsedText = computed(() => {
 }
 
 .verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 1px 8px;
   /* 圆角矩形 6px，与卡片上那颗判定码徽标（TestCaseCard 的 .badge）同一形状语言；
      2026-10-23 由胶囊（999px）改过来（用户：「所有显示评测结果的胶囊都改成圆角矩形」）。
@@ -423,6 +435,10 @@ const elapsedText = computed(() => {
 
 /* 自动抓取样例那一路的提示：见模板里的说明 */
 .empty__notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   margin: 0;
   font-size: 12px;
   line-height: 1.6;

@@ -13,6 +13,7 @@ import { t } from '../i18n/index.js'
 import { renderMarkdown } from '../services/mdRenderer.js'
 import { preload } from '../services/wasmRuntime.js'
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 const props = defineProps({
   source: { type: String, default: '' },
@@ -180,7 +181,10 @@ defineExpose({ syncScroll })
   <div class="md-preview">
     <div v-if="!ready" class="md-preview__gate">
       <AppIcon name="markdown" :size="26" class="md-preview__gate-icon" />
-      <p class="md-preview__gate-title">{{ t(`app.md.preview.state.${status}`) }}</p>
+      <p class="md-preview__gate-title">
+        <LoadingSpinner v-if="status === 'pending'" :size="12" />
+        <span>{{ t(`app.md.preview.state.${status}`) }}</span>
+      </p>
       <p v-if="status === 'missing'" class="md-preview__gate-hint">
         {{ t('app.md.preview.missingHint') }}
       </p>
@@ -192,7 +196,8 @@ defineExpose({ syncScroll })
         :disabled="status === 'downloading'"
         @click="download"
       >
-        <AppIcon :name="status === 'failed' ? 'reset' : 'download'" :size="13" />
+        <LoadingSpinner v-if="status === 'downloading'" :size="12" />
+        <AppIcon v-else :name="status === 'failed' ? 'reset' : 'download'" :size="13" />
         <span>{{ status === 'downloading' ? progress : status === 'failed' ? t('app.retry') : t('app.md.preview.download') }}</span>
       </button>
     </div>
@@ -242,6 +247,9 @@ defineExpose({ syncScroll })
 }
 
 .md-preview__gate-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin: 4px 0 0;
   font-size: 13.5px;
   color: var(--text);

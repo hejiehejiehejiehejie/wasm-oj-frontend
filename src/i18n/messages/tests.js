@@ -18,8 +18,8 @@ export default {
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
          * 页脚那行说明与它们的 title。「没打开文件」与「打开的不是代码」分开写。
          */
-        runBlocked: '非代码文件不参与评测，无法运行',
-        runBlockedNoFile: '没有打开的文件，无法运行',
+        runBlocked: '非代码文件无法运行',
+        runBlockedNoFile: '没有打开的文件',
       },
 
       empty: {
@@ -50,9 +50,9 @@ export default {
          * 与两步做法：原因 → 后果 → 怎么办，两句读完。
          */
         awaitingNoExtension:
-          '未检测到浏览器插件，打开题目页也不会自动抓取样例。安装或重新加载插件后再刷新本页。',
+          '未检测到浏览器插件，打开题目页不会自动抓取样例。安装或重载插件后刷新本页。',
         fetching: '正在从题目页自动抓取样例…',
-        fetchFailed: '自动抓取样例没成功，重新打开题目页可以再试一次',
+        fetchFailed: '抓取样例失败，重新打开题目页可重试',
       },
 
       /**
@@ -74,7 +74,7 @@ export default {
       },
 
       /** 页头耗时的 title，{time} 形如 120ms */
-      elapsedTitle: '最慢用例耗时 {time}（只计运行段，不含编译）',
+      elapsedTitle: '最慢用例 {time}（不含编译）',
 
       /**
        * 「一键提交到 Codeforces」（2026-10-23 加）。
@@ -89,34 +89,48 @@ export default {
         submittedUnknown: '已提交，结果请到 Codeforces 查看',
         failedTitle: '提交失败',
 
+        /* 判定通知的细节行（2026-10-23 加）：数字来自官方 API 的 Submission。
+           AC 报一共过了几个测试点；挂掉的报是第几个测试点（passedTestCount + 1） */
+        detailPassed: '通过 {n} 个测试点',
+        detailFailedOn: '测试点 {n}',
+
         /* 确认弹窗（2026-10-23 加）：提交会在 Codeforces 上留一条真实记录、删不掉，
            所以点按钮 / 按快捷键都先停在这里，点「确认提交」才发 */
-        confirmTitle: '确认提交到 Codeforces？',
-        confirmDesc: '即将提交 {name}。这会在 Codeforces 上生成一条真实的提交记录，无法撤回。',
+        confirmTitle: '提交到 Codeforces？',
+        confirmDesc: '提交 {name} 会在 Codeforces 生成真实记录，无法撤回。',
         confirmAction: '确认提交',
         targetChanged: '当前文件已切换，这次提交没有发出',
 
-        blockedDesktop: '桌面端没有浏览器插件，暂不支持一键提交',
-        blockedNoFile: '没有打开的文件，无法提交',
-        blockedNoProblem: '这个文件没有关联题目，无法提交',
-        blockedOj: '目前只支持提交到 Codeforces',
-        blockedLanguage: '只有 C++ / Python 文件能提交',
-        blockedChecking: '正在检测浏览器插件…',
-        blockedExtension: '需要浏览器插件 CC for Web（含提交能力）才能提交',
+        /* 同一份源码重复提交（2026-10-23 加）：CF 会原样刷回提交页并提示
+           「You have submitted exactly the same code before」，不生成提交记录 */
+        duplicateTitle: '这份代码已经提交过',
+        duplicateDesc:
+          '「{name}」与上次提交的代码相同，Codeforces 会拒收。修改后再交，或仍然提交。',
+        duplicateAction: '仍然提交',
+        duplicateRejected: '与上次提交相同，Codeforces 拒收',
+        busy: '正在运行或提交，请稍后再试',
+
+        blockedDesktop: '桌面端不支持一键提交',
+        blockedNoFile: '没有打开的文件',
+        blockedNoProblem: '文件未关联题目',
+        blockedOj: '只支持提交到 Codeforces',
+        blockedLanguage: '仅支持 C++ / Python 文件',
+        blockedChecking: '正在检测插件…',
+        blockedExtension: '需要含提交能力的 CC for Web 插件',
 
         reason: {
-          unsupported: '浏览器插件版本太旧，不支持提交',
-          unsupportedUrl: '这个题目地址认不出来，无法提交',
-          timeout: '等 Codeforces 回应超时',
-          notLoggedIn: '浏览器没有登录 Codeforces',
-          challenge: 'Codeforces 正在人机验证，请在打开的页面里完成后重试',
-          problemMissing: '提交页里找不到这道题（比赛可能未开放提交）',
-          languageMissing: '提交页里找不到对应的编译器',
-          rejected: 'Codeforces 拒绝了这次提交',
+          unsupported: '插件版本过旧，不支持提交',
+          unsupportedUrl: '无法识别题目地址',
+          timeout: 'Codeforces 回应超时',
+          notLoggedIn: '浏览器未登录 Codeforces',
+          challenge: 'Codeforces 需要人机验证，请完成后再重试',
+          problemMissing: '提交页找不到这道题（可能未开放提交）',
+          languageMissing: '提交页找不到对应编译器',
+          rejected: 'Codeforces 拒收（重复提交或比赛未开放）',
           noTab: '打不开 Codeforces 提交页',
-          page: '提交页认不出来（站点可能改版了）',
-          empty: '文件内容是空的，无法提交',
-          unknown: '提交没有成功',
+          page: '提交页无法识别（站点可能已改版）',
+          empty: '文件为空',
+          unknown: '提交未成功',
         },
 
         verdict: {
@@ -137,13 +151,13 @@ export default {
         expand: '展开该用例',
         collapse: '折叠该用例',
         runOne: '仅运行该用例',
-        staleTitle: '代码或输入已改动，下面的结论来自上一次运行',
+        staleTitle: '代码或输入已改动，结论来自上次运行',
         staleLabel: '结果待刷新',
         timingTitle: '程序运行耗时（不含编译）',
         remove: '删除该用例',
         copyOutput: '复制实际输出',
         /** 实际输出标签行上的第二个按钮：把 stdout 誊进期望输出（结论已过期的标记由写入那条路带上） */
-        useActual: '把实际输出写入期望输出',
+        useActual: '实际输出写入期望',
         notRun: '尚未运行',
 
         /**
@@ -161,7 +175,7 @@ export default {
         inputPlaceholder: '输入',
         expectedPlaceholder: '期望输出',
 
-        copyFull: '复制完整内容（全选后 Ctrl+C 同样有效）',
+        copyFull: '复制完整内容（也可全选后 Ctrl+C）',
         copyFullShort: '复制全部',
         /**
          * 说明行：{n} 已格式化（带千分位）。框里只剩一个 `……`，具体的数落在这里。
@@ -177,12 +191,12 @@ export default {
       outcome: {
         compileFailed: '编译未通过',
         timeout: '运行超时 (TLE)',
-        memoryExceeded: '运行内存超过当前上限 (MLE)',
+        memoryExceeded: '内存超限 (MLE)',
         runtimeError: '运行期出错',
         serviceUnreachable: '评测服务不可达',
         failed: '评测失败（{outcome}）',
         /** {engine} 是引擎显示名 */
-        unsupportedLanguage: '{engine} 引擎当前不支持这个语言，换一个引擎或改用 C++ / Python',
+        unsupportedLanguage: '{engine} 引擎不支持该语言，请换引擎或改用 C++ / Python',
       },
     },
   },
@@ -193,8 +207,8 @@ export default {
         addCase: 'Add test case',
         runAll: 'Run all test cases',
         /** 见 zh-CN 那侧的说明 */
-        runBlocked: 'Non-code files aren’t judged, so they can’t be run',
-        runBlockedNoFile: 'No file is open, so there is nothing to run',
+        runBlocked: 'Non-code files can’t be run',
+        runBlockedNoFile: 'No file is open',
       },
 
       empty: {
@@ -205,9 +219,9 @@ export default {
         awaitingFetchAfter: ' and the browser extension will fetch the samples',
         /** 同 zh-CN：没检测到插件时的替代句（2026-10-06 收紧，与中文同结构） */
         awaitingNoExtension:
-          'No browser extension was detected, so opening the problem page will not fetch any samples. Install or reload the extension, then refresh this page.',
+          'No browser extension detected, so samples won’t be fetched. Install or reload it, then refresh.',
         fetching: 'Fetching samples from the problem page…',
-        fetchFailed: 'Could not fetch the samples automatically. Open the problem page again to retry',
+        fetchFailed: 'Could not fetch samples — reopen the problem page to retry',
       },
 
       /** 同 zh-CN：*Short 三条是窄侧栏用的（见 zh-CN 那侧说明） */
@@ -222,7 +236,7 @@ export default {
         partialShort: '{passed}/{total}',
       },
 
-      elapsedTitle: 'Slowest case took {time} (run phase only, excludes compilation)',
+      elapsedTitle: 'Slowest case: {time} (run phase only)',
 
       /** 同 zh-CN：一键提交的按钮 / 闸门 / 失败原因 / 判定码说明（2026-10-23 加） */
       submit: {
@@ -233,34 +247,46 @@ export default {
         submittedUnknown: 'Submitted — check Codeforces for the result',
         failedTitle: 'Submission failed',
 
+        /* 同 zh-CN：判定通知的细节行（数字来自官方 API） */
+        detailPassed: { one: '{n} test passed', other: '{n} tests passed' },
+        detailFailedOn: 'test {n}',
+
         /* 同 zh-CN：提交前的确认弹窗（2026-10-23 加） */
         confirmTitle: 'Submit to Codeforces?',
         confirmDesc:
-          'About to submit {name}. This creates a real submission on Codeforces and cannot be undone.',
+          'Submitting {name} creates a real, irreversible Codeforces submission.',
         confirmAction: 'Submit',
-        targetChanged: 'The active file changed, so nothing was submitted',
+        targetChanged: 'The active file changed — nothing was submitted',
 
-        blockedDesktop: 'One-click submit needs the browser extension and is not available in the desktop app',
-        blockedNoFile: 'No file is open, so there is nothing to submit',
-        blockedNoProblem: 'This file is not linked to a problem',
-        blockedOj: 'Only Codeforces submissions are supported for now',
+        /* 同 zh-CN：同一份源码重复提交 */
+        duplicateTitle: 'This code was already submitted',
+        duplicateDesc:
+          '“{name}” is identical to the last submission, so Codeforces will reject it. Edit it, or submit anyway.',
+        duplicateAction: 'Submit anyway',
+        duplicateRejected: 'Identical to the previous submission — rejected by Codeforces',
+        busy: 'A run or submission is in progress — try again shortly',
+
+        blockedDesktop: 'One-click submit is unavailable in the desktop app',
+        blockedNoFile: 'No file is open',
+        blockedNoProblem: 'This file isn’t linked to a problem',
+        blockedOj: 'Only Codeforces is supported',
         blockedLanguage: 'Only C++ / Python files can be submitted',
-        blockedChecking: 'Detecting the browser extension…',
-        blockedExtension: 'The CC for Web browser extension (with submit support) is required',
+        blockedChecking: 'Detecting the extension…',
+        blockedExtension: 'Requires the CC for Web extension with submit support',
 
         reason: {
-          unsupported: 'The browser extension is too old to submit',
-          unsupportedUrl: 'This problem URL isn’t recognised',
+          unsupported: 'The extension is too old to submit',
+          unsupportedUrl: 'Problem URL not recognised',
           timeout: 'Codeforces did not answer in time',
-          notLoggedIn: 'This browser is not signed in to Codeforces',
-          challenge: 'Codeforces is checking your browser — finish the verification in the opened page and try again',
-          problemMissing: 'The problem isn’t available on the submit page (submission may be closed)',
-          languageMissing: 'The matching compiler isn’t available on the submit page',
-          rejected: 'Codeforces rejected the submission',
+          notLoggedIn: 'Not signed in to Codeforces',
+          challenge: 'Codeforces needs a browser check — finish it in the opened page, then retry',
+          problemMissing: 'Problem not found on the submit page (submission may be closed)',
+          languageMissing: 'Compiler not found on the submit page',
+          rejected: 'Rejected by Codeforces (duplicate code or submission not open yet)',
           noTab: 'Could not open the Codeforces submit page',
-          page: 'The submit page isn’t recognised (the site may have changed)',
-          empty: 'The file is empty, so there is nothing to submit',
-          unknown: 'The submission did not go through',
+          page: 'Submit page not recognised — the site may have changed',
+          empty: 'The file is empty',
+          unknown: 'Submission failed',
         },
 
         verdict: {
@@ -280,13 +306,13 @@ export default {
         expand: 'Expand this case',
         collapse: 'Collapse this case',
         runOne: 'Run this case only',
-        staleTitle: 'Code or input changed; the result below is from the previous run',
+        staleTitle: 'Code or input changed; result is from the previous run',
         staleLabel: 'Result stale',
         timingTitle: 'Program run time (excludes compilation)',
         remove: 'Delete this case',
         copyOutput: 'Copy actual output',
         /** 同中文：实际输出那一行左侧那颗按钮（写入期望输出） */
-        useActual: 'Write the actual output into Expected',
+        useActual: 'Write actual output to Expected',
         notRun: 'Not run yet',
 
         // 与 zh-CN 那栏严格对应：三个小标题都是写死的英文（`input` / `Expected` / `Actual`），
@@ -294,7 +320,7 @@ export default {
         inputPlaceholder: 'input',
         expectedPlaceholder: 'Expected output',
 
-        copyFull: 'Copy the full content (Ctrl+C after Select All works too)',
+        copyFull: 'Copy full content (or Select All + Ctrl+C)',
         copyFullShort: 'Copy all',
         /** 同中文：只有真截断（框尾有 `……`）时才显示这一行，纯溢出态不显示 */
         omitted: '{n} characters not shown',
@@ -308,7 +334,7 @@ export default {
         serviceUnreachable: 'Judge service unreachable',
         failed: 'Judging failed ({outcome})',
         unsupportedLanguage:
-          'The {engine} engine does not support this language; switch to another engine or use C++ / Python',
+          'The {engine} engine doesn’t support this language; use another engine or C++ / Python',
       },
     },
   },

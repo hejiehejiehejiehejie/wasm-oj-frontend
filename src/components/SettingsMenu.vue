@@ -29,6 +29,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
@@ -186,6 +187,23 @@ const cloudPendingConfirm = ref(null)
  * 收成数组（与下面取 `.settings-menu__sub` 那条同一个坑），`.focus()` 遂报「不是函数」。
  */
 const cloudField = ref(null)
+
+/**
+ * 这次云端等待是从哪颗按钮起的：只让被点的那颗转圈，其余照常灰着。
+ * 判据是本组件自己记的动作名，不拿全局的 `cloudBusy` 去点亮一整排 ——
+ * 那一排同时灰着的时候，用户看不出到底哪件事在跑。
+ */
+const cloudPending = ref('')
+
+async function runCloud(action, fn) {
+  if (cloudPending.value) return
+  cloudPending.value = action
+  try {
+    await fn()
+  } finally {
+    cloudPending.value = ''
+  }
+}
 
 function focusCloudField() {
   const el = Array.isArray(cloudField.value) ? cloudField.value[0] : cloudField.value
@@ -748,17 +766,19 @@ function optionLabel(option) {
                     type="button"
                     class="settings-menu__action settings-menu__action--primary"
                     :disabled="cloudBusy"
-                    @click="uploadCloud"
+                    @click="runCloud('upload', uploadCloud)"
                   >
-                    {{ t('settings.cloud.upload') }}
+                    <LoadingSpinner v-if="cloudPending === 'upload'" :size="11" />
+                    <span>{{ t('settings.cloud.upload') }}</span>
                   </button>
                   <button
                     type="button"
                     class="settings-menu__action"
                     :disabled="cloudBusy"
-                    @click="downloadCloud"
+                    @click="runCloud('download', downloadCloud)"
                   >
-                    {{ t('settings.cloud.download') }}
+                    <LoadingSpinner v-if="cloudPending === 'download'" :size="11" />
+                    <span>{{ t('settings.cloud.download') }}</span>
                   </button>
                   <button
                     type="button"
@@ -786,25 +806,31 @@ function optionLabel(option) {
                   autocapitalize="off"
                   :aria-label="t('settings.cloud.handle.label')"
                   :placeholder="t('settings.menu.cloudHandlePlaceholder')"
-                  @keydown.enter.prevent="cloudBound ? runCloudImport() : loginCloud()"
+                  @keydown.enter.prevent="
+                    cloudBound
+                      ? runCloud('import', runCloudImport)
+                      : runCloud('login', loginCloud)
+                  "
                 />
                 <button
                   type="button"
                   class="settings-menu__action"
                   :class="{ 'settings-menu__action--primary': cloudBound }"
                   :disabled="cloudBusy"
-                  @click="runCloudImport"
+                  @click="runCloud('import', runCloudImport)"
                 >
-                  {{ t('settings.cloud.import') }}
+                  <LoadingSpinner v-if="cloudPending === 'import'" :size="11" />
+                  <span>{{ t('settings.cloud.import') }}</span>
                 </button>
                 <button
                   v-if="!cloudBound"
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
-                  @click="loginCloud"
+                  @click="runCloud('login', loginCloud)"
                 >
-                  {{ t('settings.cloud.login') }}
+                  <LoadingSpinner v-if="cloudPending === 'login'" :size="11" />
+                  <span>{{ t('settings.cloud.login') }}</span>
                 </button>
               </div>
             </template>
@@ -849,7 +875,8 @@ function optionLabel(option) {
                   :title="cloudFillTitle"
                   @click="fillCloudCode"
                 >
-                  <AppIcon name="codeforces" :size="12" />
+                  <LoadingSpinner v-if="cloudFilling" :size="11" />
+                  <AppIcon v-else name="codeforces" :size="12" />
                   <span>{{ cloudFillLabel }}</span>
                 </button>
                 <span
@@ -887,18 +914,20 @@ function optionLabel(option) {
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
-                  @click="refreshCloudCode"
+                  @click="runCloud('refresh', refreshCloudCode)"
                 >
-                  {{ t('settings.cloud.refreshCode') }}
+                  <LoadingSpinner v-if="cloudPending === 'refresh'" :size="11" />
+                  <span>{{ t('settings.cloud.refreshCode') }}</span>
                 </button>
                 <button
                   v-else
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
-                  @click="confirmCloudCode"
+                  @click="runCloud('verify', confirmCloudCode)"
                 >
-                  {{ cloudVerifyLabel }}
+                  <LoadingSpinner v-if="cloudPending === 'verify'" :size="11" />
+                  <span>{{ cloudVerifyLabel }}</span>
                 </button>
               </div>
             </template>
@@ -918,9 +947,10 @@ function optionLabel(option) {
                   type="button"
                   class="settings-menu__action settings-menu__action--primary"
                   :disabled="cloudBusy"
-                  @click="confirmPending"
+                  @click="runCloud('confirm', confirmPending)"
                 >
-                  {{ cloudConfirmLabel }}
+                  <LoadingSpinner v-if="cloudPending === 'confirm'" :size="11" />
+                  <span>{{ cloudConfirmLabel }}</span>
                 </button>
               </div>
             </template>
@@ -1227,6 +1257,10 @@ function optionLabel(option) {
 /* 按钮与设置面板那颗 .download-button 同一种语言（描边次要 / 实心 accent 主要），
    只是整体跟着菜单缩一号 */
 .settings-menu__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(5px * var(--menu-scale));
   height: calc(26px * var(--menu-scale));
   padding: 0 calc(10px * var(--menu-scale));
   border: 1px solid var(--border);

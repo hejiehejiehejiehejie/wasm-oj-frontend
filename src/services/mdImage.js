@@ -1,5 +1,5 @@
 /**
- * mdImage —— 把 .md 文件里的选区**按题解预览的排版**渲染成一张 PNG。
+ * mdImage —— 把 .md 文件里的选区（没有选区时是整篇）**按题解预览的排版**渲染成一张 PNG。
  *
  * 与 codeImage.js 的分工：那边画的是「代码」（等宽字体、行号、Monaco 着色），
  * 这边画的是「文档」（Markdown 结构 + KaTeX 公式）。调用方（useEditorMenu 的「生成图片」）
@@ -558,7 +558,7 @@ function themeBackground() {
 }
 
 /**
- * 把一段 Markdown（通常是编辑器选区）渲染成 canvas。
+ * 把一段 Markdown（编辑器选区，或没有选区时的整篇）渲染成 canvas。
  *
  * 渲染器未下载时抛 `code === 'MD_RUNTIME_MISSING'`（由 mdRuntime.loadMdRenderer 抛出），
  * 调用方据此回落 codeImage —— 这里不自己兜底，免得两套画法在本模块里缠在一起。

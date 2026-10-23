@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue'
 import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
 import HotkeyRecorder from './HotkeyRecorder.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
@@ -741,6 +742,8 @@ const visibleSections = computed(() =>
 const workspaceMode = ref(getWorkspaceMode())
 const workspaceRoot = ref(getWorkspaceRoot())
 const workspaceBusy = ref(false)
+/** 这次等待来自哪颗按钮：只让点下去的那颗转圈，同一排的另一颗保持静止 */
+const workspaceAction = ref('')
 const workspaceError = ref('')
 
 const workspaceIsFolder = computed(() => workspaceMode.value === MODE_FOLDER)
@@ -749,6 +752,7 @@ const workspaceIsFolder = computed(() => workspaceMode.value === MODE_FOLDER)
 async function chooseWorkspaceFolder() {
   if (workspaceBusy.value) return
   workspaceBusy.value = true
+  workspaceAction.value = 'choose'
   workspaceError.value = ''
   try {
     const picked = await invoke('workspace_choose')
@@ -758,17 +762,26 @@ async function chooseWorkspaceFolder() {
     workspaceError.value = t('settings.workspace.chooseFailed', {
       message: error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error ?? ''),
     })
+  } finally {
+    // 成功分支会 reload，走不到这里；取消选择器与失败都得把按钮放开
     workspaceBusy.value = false
+    workspaceAction.value = ''
   }
-  // 成功分支不会走到这里：switchWorkspace 会 reload 掉整个页面
 }
 
 /** 切回虚拟工作区 */
 async function useVirtualWorkspace() {
   if (workspaceBusy.value || !workspaceIsFolder.value) return
   workspaceBusy.value = true
+  workspaceAction.value = 'virtual'
   workspaceError.value = ''
-  await switchWorkspace(MODE_VIRTUAL)
+  try {
+    await switchWorkspace(MODE_VIRTUAL)
+  } finally {
+    // 成功会 reload；走到这里说明没切成功，别把按钮永远留在「切换中」
+    workspaceBusy.value = false
+    workspaceAction.value = ''
+  }
 }
 
 // ------------------------------------------------------------ 浏览器插件
@@ -1119,9 +1132,12 @@ async function downloadRuntime(entry) {
 const pendingUninstall = shallowRef(null)
 /** 卸载确认弹窗里的「卸载」按钮：弹窗打开时把焦点送进去 */
 const uninstallBtn = ref(null)
+/** 正在清缓存的目标 id：确认之后弹窗就收了，这一行得自己转圈，别让人对着
+ *  一颗还能再点的「卸载」等（删 76MB 缓存不是一瞬间的事）。 */
+const uninstallingId = ref('')
 
 function requestUninstall(entry) {
-  if (downloadingAny.value || entry.state.value !== 'ready') return
+  if (downloadingAny.value || uninstallingId.value || entry.state.value !== 'ready') return
   pendingUninstall.value = entry
 }
 
@@ -1143,26 +1159,32 @@ async function confirmUninstall() {
     uninstallCountdown()
     return
   }
-  // 抽题组件不是 RUNTIMES 里那一套：资产在 IndexedDB 里、状态机在 cfRuntime，
-  // 所以只有「清本机」交给服务层，界面状态与那两个开关各自归位
-  if (entry.id === CF_UNINSTALL_TARGET.id) {
-    await uninstallCfPicker()
-    cfElapsedMs.value = 0
-    cfFailureReason.value = ''
-    // 同下面的预下载：「卸载」是在说「这东西别留在本机」，而「默认安装」是在说
-    // 「自动把它下回来」，两个意图直接冲突。留着开关的话，下次打开站点
-    // ensureCfPickerInstalled() 又把它装回来，这次卸载等于没卸。
-    if (cfAutoInstall.value) cfAutoInstall.value = false
-    return
+  if (uninstallingId.value) return
+  uninstallingId.value = entry.id
+  try {
+    // 抽题组件不是 RUNTIMES 里那一套：资产在 IndexedDB 里、状态机在 cfRuntime，
+    // 所以只有「清本机」交给服务层，界面状态与那两个开关各自归位
+    if (entry.id === CF_UNINSTALL_TARGET.id) {
+      await uninstallCfPicker()
+      cfElapsedMs.value = 0
+      cfFailureReason.value = ''
+      // 同下面的预下载：「卸载」是在说「这东西别留在本机」，而「默认安装」是在说
+      // 「自动把它下回来」，两个意图直接冲突。留着开关的话，下次打开站点
+      // ensureCfPickerInstalled() 又把它装回来，这次卸载等于没卸。
+      if (cfAutoInstall.value) cfAutoInstall.value = false
+      return
+    }
+    await uninstallRuntime(entry.id)
+    entry.state.value = 'idle'
+    entry.elapsedMs.value = 0
+    entry.failureReason.value = ''
+    entry.readyFlagRef.value = false
+    // 顺手取消预下载：「卸载」是在说「这东西别留在本机」，而预下载是在说「自动把它下回来」，
+    // 两个意图直接冲突。留着勾选的话，用户下次打开页面就会发现刚删掉的 50MB 又回来了。
+    if (isAutoPreload(entry.id)) toggleAutoPreload(entry.id)
+  } finally {
+    uninstallingId.value = ''
   }
-  await uninstallRuntime(entry.id)
-  entry.state.value = 'idle'
-  entry.elapsedMs.value = 0
-  entry.failureReason.value = ''
-  entry.readyFlagRef.value = false
-  // 顺手取消预下载：「卸载」是在说「这东西别留在本机」，而预下载是在说「自动把它下回来」，
-  // 两个意图直接冲突。留着勾选的话，用户下次打开页面就会发现刚删掉的 50MB 又回来了。
-  if (isAutoPreload(entry.id)) toggleAutoPreload(entry.id)
 }
 
 // 弹窗一出现就把焦点放到「卸载」上：Enter 确认、Esc 取消都能纯键盘走完
@@ -1265,7 +1287,7 @@ async function downloadCf() {
 // 卸载入口：与运行时的 requestUninstall 同形 —— 下载中不给点（会和在途的写入打架），
 // 没装就没有可卸的。真卸载见 confirmUninstall。
 function requestCfUninstall() {
-  if (cfBusy.value || !cfReady.value) return
+  if (cfBusy.value || uninstallingId.value || !cfReady.value) return
   pendingUninstall.value = CF_UNINSTALL_TARGET
 }
 
@@ -1525,6 +1547,23 @@ const cloudFillTitle = computed(() =>
 )
 
 /**
+ * 云端按钮各自的等待：只让点下去的那颗转圈。
+ * 全局的 `cloudBusy` 只知道「有事在跑」，分不出是哪一件；等待指示要贴着被点的按钮，
+ * 所以在这里记一份动作名（与齿轮菜单里那份同名同用，互不影响）。
+ */
+const cloudPending = ref('')
+
+async function runCloud(action, fn) {
+  if (cloudPending.value) return
+  cloudPending.value = action
+  try {
+    await fn()
+  } finally {
+    cloudPending.value = ''
+  }
+}
+
+/**
  * 用户名输入框的回车。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
  * 组字期间敲下去会把半截拼音直接拿去登录 —— 和全局快捷键同一条规矩（见 App.vue 的 onKeydown）：
  * 组字中一律不当成提交。keyCode 229 是部分输入法在组字时不报 isComposing 的补漏。
@@ -1532,7 +1571,7 @@ const cloudFillTitle = computed(() =>
 function onCloudHandleEnter(event) {
   if (event.isComposing || event.keyCode === 229) return
   event.preventDefault()
-  loginCloud()
+  runCloud('login', loginCloud)
 }
 
 // 「上传本机设置」「下载到本机」「解绑」三个动作都在 `services/cloudSession.js`
@@ -1769,7 +1808,8 @@ watch(pendingUnbind, (open) => {
               :title="t('settings.workspace.chooseTitle')"
               @click="chooseWorkspaceFolder"
             >
-              <AppIcon name="folder" :size="13" />
+              <LoadingSpinner v-if="workspaceAction === 'choose'" :size="12" />
+              <AppIcon v-else name="folder" :size="13" />
               <span>{{ workspaceBusy ? t('settings.workspace.switching') : t('settings.workspace.choose') }}</span>
             </button>
           </span>
@@ -1789,7 +1829,8 @@ watch(pendingUnbind, (open) => {
               :title="t('settings.workspace.backTitle')"
               @click="useVirtualWorkspace"
             >
-              <AppIcon name="reset" :size="13" />
+              <LoadingSpinner v-if="workspaceAction === 'virtual'" :size="12" />
+              <AppIcon v-else name="reset" :size="13" />
               <span>{{ t('settings.workspace.back') }}</span>
             </button>
           </span>
@@ -2226,11 +2267,12 @@ watch(pendingUnbind, (open) => {
                 v-if="entry.state.value === 'ready'"
                 type="button"
                 class="download-button is-uninstall"
-                :disabled="downloadingAny"
+                :disabled="downloadingAny || !!uninstallingId"
                 :title="t('runtime.uninstallActionTitle', { title: t(entry.titleKey) })"
                 @click="requestUninstall(entry)"
               >
-                <AppIcon name="trash" :size="13" />
+                <LoadingSpinner v-if="uninstallingId === entry.id" :size="12" />
+                <AppIcon v-else name="trash" :size="13" />
                 <span>{{ t('runtime.uninstall') }}</span>
               </button>
             </div>
@@ -2276,11 +2318,12 @@ watch(pendingUnbind, (open) => {
                 v-if="cfReady"
                 type="button"
                 class="download-button is-uninstall"
-                :disabled="cfBusy"
+                :disabled="cfBusy || !!uninstallingId"
                 :title="t('cf.module.uninstallActionTitle', { title: t('cf.module.title') })"
                 @click="requestCfUninstall"
               >
-                <AppIcon name="trash" :size="13" />
+                <LoadingSpinner v-if="uninstallingId === CF_UNINSTALL_TARGET.id" :size="12" />
+                <AppIcon v-else name="trash" :size="13" />
                 <span>{{ t('runtime.uninstall') }}</span>
               </button>
             </div>
@@ -2661,7 +2704,8 @@ watch(pendingUnbind, (open) => {
                 :title="cloudFillTitle"
                 @click="fillCloudCode"
               >
-                <AppIcon name="codeforces" :size="13" />
+                <LoadingSpinner v-if="cloudFilling" :size="12" />
+                <AppIcon v-else name="codeforces" :size="13" />
                 <span>{{ cloudFillLabel }}</span>
               </button>
             </div>
@@ -2694,17 +2738,19 @@ watch(pendingUnbind, (open) => {
                 class="download-button"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.importTitle')"
-                @click="importCloudByHandle"
+                @click="runCloud('import', importCloudByHandle)"
               >
-                {{ t('settings.cloud.import') }}
+                <LoadingSpinner v-if="cloudPending === 'import'" :size="12" />
+                <span>{{ t('settings.cloud.import') }}</span>
               </button>
               <button
                 type="button"
                 class="download-button cloud-primary"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.loginTitle')"
-                @click="loginCloud"
+                @click="runCloud('login', loginCloud)"
               >
+                <LoadingSpinner v-if="cloudPending === 'login'" :size="12" />
                 <span>{{ t('settings.cloud.login') }}</span>
               </button>
             </span>
@@ -2727,9 +2773,10 @@ watch(pendingUnbind, (open) => {
                 class="download-button"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.downloadTitle')"
-                @click="downloadCloud"
+                @click="runCloud('download', downloadCloud)"
               >
-                <AppIcon name="download" :size="13" />
+                <LoadingSpinner v-if="cloudPending === 'download'" :size="12" />
+                <AppIcon v-else name="download" :size="13" />
                 <span>{{ t('settings.cloud.download') }}</span>
               </button>
               <!-- 「上传」本机有设备令牌就直接写；令牌失效或被服务端吊销才会退回取码验证（见 uploadCloud） -->
@@ -2738,9 +2785,10 @@ watch(pendingUnbind, (open) => {
                 class="download-button"
                 :disabled="cloudBusy"
                 :title="t('settings.cloud.uploadTitle')"
-                @click="uploadCloud"
+                @click="runCloud('upload', uploadCloud)"
               >
-                <AppIcon name="cloud" :size="13" />
+                <LoadingSpinner v-if="cloudPending === 'upload'" :size="12" />
+                <AppIcon v-else name="cloud" :size="13" />
                 <span>{{ t('settings.cloud.upload') }}</span>
               </button>
               <button
@@ -2782,18 +2830,20 @@ watch(pendingUnbind, (open) => {
             type="button"
             class="download-button cloud-primary"
             :disabled="cloudBusy"
-            @click="refreshCloudCode"
+            @click="runCloud('refresh', refreshCloudCode)"
           >
-            {{ t('settings.cloud.refreshCode') }}
+            <LoadingSpinner v-if="cloudPending === 'refresh'" :size="12" />
+            <span>{{ t('settings.cloud.refreshCode') }}</span>
           </button>
           <button
             v-else
             type="button"
             class="download-button cloud-primary"
             :disabled="cloudBusy"
-            @click="confirmCloudCode"
+            @click="runCloud('verify', confirmCloudCode)"
           >
-            <AppIcon name="check" :size="13" />
+            <LoadingSpinner v-if="cloudPending === 'verify'" :size="12" />
+            <AppIcon v-else name="check" :size="13" />
             <span>
               {{
                 cloudCodeMode === 'upload'
@@ -2972,9 +3022,10 @@ watch(pendingUnbind, (open) => {
               type="button"
               class="confirm__btn confirm__btn--danger"
               :disabled="cloudBusy"
-              @click="confirmCloudApply"
+              @click="runCloud('apply', confirmCloudApply)"
             >
-              {{ t('settings.cloud.applyConfirm') }}
+              <LoadingSpinner v-if="cloudPending === 'apply'" :size="12" />
+              <span>{{ t('settings.cloud.applyConfirm') }}</span>
             </button>
           </div>
         </div>
@@ -4028,6 +4079,10 @@ a.download-button {
 }
 
 .confirm__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 5px 14px;
   border: 1px solid var(--border);
   border-radius: 6px;
