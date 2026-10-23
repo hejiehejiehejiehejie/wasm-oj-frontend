@@ -102,21 +102,21 @@ function segments(text) {
 .help-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 2px 18px 16px;
+  gap: 18px;
+  padding: 2px 18px 18px;
 }
 
 /* 置顶的站点提示：左侧一道主色竖条 + 淡底，一眼能与下面的问答卡片区分开
    —— 它不是一条帮助内容，说的是站点本身。地址会很长，允许在任意处断行 */
 .help-notice {
   margin: 0;
-  padding: 8px 11px;
-  border: 1px solid var(--border-soft);
-  border-left: 3px solid var(--accent);
-  border-radius: 7px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
   background: var(--bg-panel);
-  font-size: 11.5px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.65;
   color: var(--text-dim);
 }
 
@@ -132,9 +132,9 @@ function segments(text) {
 
 .help-group__title {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
   color: var(--text-dim);
 }
 
@@ -149,34 +149,35 @@ function segments(text) {
 
 /* 每条功能一张卡：名称 / 作用 / 操作要点，三层信息靠字号与颜色拉开层次 */
 .help-item {
-  padding: 9px 11px;
-  border: 1px solid var(--border-soft);
-  border-radius: 7px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
   background: var(--bg-panel);
 }
 
 /* 小标题一律是疑问句（见 GROUPS 的体例说明） */
 .help-item__name {
-  margin: 0 0 3px;
-  font-size: 12.5px;
-  font-weight: 600;
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--text);
 }
 
 .help-item__role {
   margin: 0;
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 1.6;
   color: var(--text-dim);
 }
 
 /* 操作步骤：必须是有序列表（1. 2. 3.） */
 .help-item__steps,
 .help-item__points {
-  margin: 6px 0 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--text-faint);
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-dim);
 }
 
 .help-item__steps {
@@ -195,32 +196,32 @@ function segments(text) {
 }
 
 .help-item .is-bold {
-  font-weight: 700;
-  color: var(--text-dim);
+  font-weight: 600;
+  color: var(--text);
 }
 
 /* 口径表：判定码、性能实测这类「多列短值」。窄宽度下整张表自己横向滚，
    不挤压所在的设置分组（同 guide.html 的 .table-wrap 思路）。 */
 .help-table-wrap {
-  margin-top: 7px;
+  margin-top: 8px;
   overflow-x: auto;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-hairline);
   border-radius: 6px;
 }
 
 .help-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.5;
-  color: var(--text-faint);
+  color: var(--text-dim);
 }
 
 .help-table th,
 .help-table td {
-  padding: 4px 7px;
+  padding: 6px 8px;
   text-align: left;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .help-table th {
@@ -243,7 +244,7 @@ function segments(text) {
 /* 指向根目录 guide.html：设置里只放精简版，完整版是那一页 */
 .guide-link {
   align-self: flex-start;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--accent);
   text-decoration: none;
 }

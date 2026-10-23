@@ -1768,6 +1768,10 @@ watch(pendingUnbind, (open) => {
         </button>
       </nav>
 
+      <!-- 设置正文：卡片都挂在这一层里（宽面板时它才是目录右边那一栏）。
+           危险区域要能与主体卡片并排成两张卡，所以不能把卡片直接放在 inner 下。 -->
+      <div class="settings-content">
+
       <!-- 工作区（仅桌面端）：显示当前工作区，提供「打开本机文件夹」与「切回虚拟工作区」。
            切换会重新加载界面（见 services/vfs/workspaceMode.js），所以这里不做热切换。 -->
       <section v-if="activeSection === 'workspace'" class="setting-group">
@@ -2401,8 +2405,8 @@ watch(pendingUnbind, (open) => {
       <!-- 浏览器插件：网页版独有的抓题链路（桌面端的 webview 装不了扩展，抓题用的
            postMessage 桥也不接，见 HANDOFF 第 14 节第 6 条），所以整栏在桌面端的导航里
            就不出现 —— 见 visibleSections。
-           原本挤在「应用」栏里，2026-10-11 按内容独立成一栏；版式与其他栏一致，
-           不再围卡片外框，小标题也回到分组大标题那一档。 -->
+           原本挤在「应用」栏里，2026-10-11 按内容独立成一栏；2026-10-24 设置页统一成
+           「一栏一张卡」，卡片外框由 .setting-group 给。 -->
       <section v-else-if="activeSection === 'extension'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.extension') }}</p>
         <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
@@ -2613,8 +2617,10 @@ watch(pendingUnbind, (open) => {
       </section>
 
       <!-- 云端同步：把偏好类设置存到 Cloudflare Worker 背后的 KV 里，身份用 Codeforces handle 证明。
-           三态互斥：验证码面板开着（取过码、还没验证通过）→ 未绑定 → 已绑定。 -->
-      <section v-else-if="activeSection === 'cloud'" class="setting-group">
+           三态互斥：验证码面板开着（取过码、还没验证通过）→ 未绑定 → 已绑定。
+           已绑定时的「解绑」另起一张危险区域卡（见页尾），所以这一栏是 template 包着两张卡。 -->
+      <template v-else-if="activeSection === 'cloud'">
+      <section class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.cloud') }}</p>
         <p class="setting-group__note">{{ t('settings.cloud.groupNote') }}</p>
 
@@ -2757,7 +2763,8 @@ watch(pendingUnbind, (open) => {
           </div>
         </template>
 
-        <!-- 已绑定：下载 / 重新上传 / 解绑。用户名与云端更新时间都在这一行里 -->
+        <!-- 已绑定：下载 / 重新上传。用户名与云端更新时间都在这一行里。
+             「解绑」不在这张卡里 —— 它是这一栏唯一的不可逆操作，挪到页尾的危险区域。 -->
         <template v-else>
           <div class="setting-row setting-row--action cloud-account">
             <span class="setting-row__main">
@@ -2790,16 +2797,6 @@ watch(pendingUnbind, (open) => {
                 <LoadingSpinner v-if="cloudPending === 'upload'" :size="12" />
                 <AppIcon v-else name="cloud" :size="13" />
                 <span>{{ t('settings.cloud.upload') }}</span>
-              </button>
-              <button
-                type="button"
-                class="download-button is-uninstall"
-                :disabled="cloudBusy"
-                :title="t('settings.cloud.unbindTitle')"
-                @click="requestUnbind"
-              >
-                <AppIcon name="trash" :size="13" />
-                <span>{{ t('settings.cloud.unbind') }}</span>
               </button>
             </span>
           </div>
@@ -2916,10 +2913,38 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__note">{{ t('cf.module.autoInstall.note') }}</p>
       </section>
 
+      <!-- 危险区域（2026-10-24 按设置页规范加）：只收「一旦点了就得重新走一遍证明」的操作。
+           解绑只断本机与这个用户名的关联、云端配置保留（见 confirmUnbind），但重新绑回来要再走
+           取码 → 改 Last name，所以它够格待在这里；下载 / 上传这类可重复操作留在上面的主卡。 -->
+      <section v-if="cloudAccount.handle" class="danger-zone" :aria-label="t('settings.cloud.unbindTitle')">
+        <div class="setting-row setting-row--action">
+          <span class="setting-row__main">
+            <span class="setting-row__label">{{ t('settings.cloud.unbindTitle') }}</span>
+            <span class="setting-row__hint">
+              {{ t('settings.cloud.unbindConfirmDesc', { handle: cloudAccount.handle }) }}
+            </span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              type="button"
+              class="download-button is-danger"
+              :disabled="cloudBusy"
+              :title="t('settings.cloud.unbindTitle')"
+              @click="requestUnbind"
+            >
+              <AppIcon name="trash" :size="13" />
+              <span>{{ t('settings.cloud.unbind') }}</span>
+            </button>
+          </span>
+        </div>
+      </section>
+      </template>
+
       <section v-else-if="activeSection === 'help'" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.help') }}</p>
         <HelpPanel />
       </section>
+      </div>
     </div>
 
     <!-- 卸载确认：自绘弹窗，与文件树删除确认同款（不用 window.confirm，见 FileExplorer.requestDelete）。
@@ -3092,10 +3117,18 @@ watch(pendingUnbind, (open) => {
   max-width: 880px;
 }
 
+/* 设置正文：卡片纵向摞起来。宽面板时它才是目录右边那一栏（见容器查询），
+   危险区域与主体卡片是它的两个子项，不会跑进目录那一列。 */
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .settings-nav {
   display: flex;
   flex-direction: row;
-  gap: 4px;
+  gap: 3px;
   flex: 0 0 auto;
   max-width: 100%;
   overflow-x: auto;
@@ -3107,34 +3140,43 @@ watch(pendingUnbind, (open) => {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
-  height: 28px;
+  height: 30px;
   padding: 0 10px;
   border-radius: 6px;
   color: var(--text-dim);
-  font-size: 12.5px;
+  font-size: 13px;
   text-align: left;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .settings-nav__item:hover {
-  background: var(--bg-control-hover);
+  background: var(--bg-hover);
   color: var(--text);
 }
 
 .settings-nav__item--active {
   background: var(--bg-control);
   color: var(--text);
+  font-weight: 500;
 }
 
 .settings-nav__label {
   white-space: nowrap;
 }
 
-/* 同一时刻只渲染一组设置（v-if / v-else-if），所以两栏时它自己就是右栏那一格。 */
+/* 一栏 = 一组设置，不再包一层大卡片（2026-10-24「沉浸式」布局）：
+   设置行直接落在编辑区底色上，靠分类标题、上下留白和行间那条 5% 白细线分区。
+   无边、无底、无圆角 —— 大面积亮色块在暗色主题里会压住内容，克制到只剩排版。 */
 .setting-group {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  margin: 14px 0 0;
+}
+
+/* 最后一块内容离底部留一口气（通常是设置组，云端页则是危险区域） */
+.settings-content > :last-child {
+  margin-bottom: 32px;
 }
 
 /* 编辑区够宽时升级成「左栏目录 + 右栏内容」两栏：目录 sticky 跟着滚动，
@@ -3145,7 +3187,7 @@ watch(pendingUnbind, (open) => {
   .settings-view__inner {
     flex-direction: row;
     align-items: flex-start;
-    gap: 10px;
+    gap: 16px;
   }
 
   .settings-nav {
@@ -3164,7 +3206,7 @@ watch(pendingUnbind, (open) => {
     height: 32px;
   }
 
-  .setting-group {
+  .settings-content {
     flex: 1 1 auto;
     max-width: 640px;
   }
@@ -3172,35 +3214,34 @@ watch(pendingUnbind, (open) => {
 
 .setting-group__title {
   margin: 0;
-  padding: 12px 18px 6px;
-  font-size: 11.5px;
-  letter-spacing: 0.2px;
-  color: var(--text-faint);
-}
-
-/* 组内的小标题：把「运行时限」与「评测引擎」在同一个「评测」分组里分开 */
-.setting-subtitle {
-  margin: 6px 0 0;
-  padding: 16px 18px 6px;
-  font-size: 11px;
+  padding: 0 18px 4px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
   color: var(--text-dim);
-  border-top: 1px solid var(--border-soft);
 }
 
-/* 编辑器分组里的第一小节紧跟在分组标题下面，不用再画一条分隔线 */
+/* 组内的小标题：把「运行时限」与「评测引擎」在同一个「评测」分组里分开。
+   规范 3 要求用留白而不是实线分割：这里撤掉原来那条 border-top，只留更宽的上边距。 */
+.setting-subtitle {
+  margin: 0;
+  padding: 22px 18px 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+/* 编辑器分组里的第一小节紧跟在分组标题下面，不用再留一大段 */
 .setting-subtitle--first {
-  margin-top: 0;
-  padding-top: 6px;
-  border-top: none;
+  padding-top: 8px;
 }
 
 .setting-group__note {
-  margin: 0 18px 8px;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--text-faint);
+  margin: 0 18px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
 }
 
 /* 写扩展配置失败的提示：排版与说明一致，只换警示色 */
@@ -3208,38 +3249,46 @@ watch(pendingUnbind, (open) => {
   color: var(--warn);
 }
 
-/* 设置行：不画边框，靠内边距与悬浮底色划分边界（几十行都描边会像 Excel 表格）。
-   文字走三级灰度：标题 --text / 描述 --text-dim / 键名 --text-faint 等宽。
-   行的版式由控件类型决定（见下面三个修饰类）。 */
+/* 设置行：直接排在页面底色上，行与行之间只留一条 5% 白的分割线，
+   悬浮时铺一层极浅的抬起色（相当于卡片底色），不抢控件本身。
+   文字走三级灰度：标题 --text / 描述 --text-dim / 键名 --text-faint 等宽。 */
 .setting-row {
   position: relative;
   display: flex;
-  gap: 16px;
-  padding: 10px 18px 12px;
-  border-radius: 4px;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 14px 18px;
+  border-radius: 0;
   transition: background-color 0.15s ease;
 }
 
 .setting-row:hover {
-  background: var(--bg-hover);
+  background: var(--bg-panel);
+}
+
+/* 相邻行之间的分割线：只画在行与行直接相接的地方，标题 / 说明后面不画 */
+.setting-row + .setting-row,
+.setting-rows .setting-row + .setting-row,
+.runtime-row + .runtime-row {
+  border-top: 1px solid var(--border-divider);
 }
 
 /* 「已改动」指示线：只有当前值偏离默认值时才出现，小圆角贴在行左侧 */
 .setting-row.is-modified::before {
   content: '';
   position: absolute;
-  left: 4px;
-  top: 12px;
-  bottom: 14px;
-  width: 3px;
-  border-radius: 2px;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
   background: var(--accent);
 }
 
 .setting-row__main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -3247,12 +3296,17 @@ watch(pendingUnbind, (open) => {
 .setting-row__head {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 8px;
+  row-gap: 2px;
+  min-width: 0;
 }
 
-/* 第一级：主标题 —— 这是什么 */
+/* 第一级：主标题 —— 这是什么。14px / Medium，与描述拉开一档纯度 */
 .setting-row__label {
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--text);
 }
 
@@ -3261,12 +3315,14 @@ watch(pendingUnbind, (open) => {
   font-family: var(--mono-font);
   font-size: 11px;
   color: var(--text-faint);
+  /* 设置项的内部键名是不可断的长词（bracketPairColorization），窄面板下必须允许断 */
+  overflow-wrap: anywhere;
 }
 
-/* 第二级：描述 —— 有什么用 */
+/* 第二级：描述 —— 有什么用。比标题低一档字号与灰度 */
 .setting-row__hint {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--text-dim);
 }
 
@@ -3285,12 +3341,17 @@ watch(pendingUnbind, (open) => {
   max-width: 100%;
 }
 
-/* 输入框 / 下拉：文本在上、控件独立成行落在左下，避免控件把标签挤窄。
-   不写 align-items，让文本块默认 stretch 撑满，长描述才能在窄面板里换行。 */
+/* 输入框 / 下拉：规范 1 的「左文右操作」——文字在左、控件贴行尾。
+   控件本身不折行；描述再长也只撑左边那一栏。 */
 .setting-row--select,
 .setting-row--number {
-  flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+}
+
+/* 30px 高的控件与 20px 的标题行视觉居中对齐（只挪控件，不挪描述） */
+.setting-row--select .setting-row__control,
+.setting-row--number .setting-row__control {
+  margin-top: -4px;
 }
 
 /* 开关：标签在左、开关孤立地靠右上 */
@@ -3300,14 +3361,14 @@ watch(pendingUnbind, (open) => {
 }
 
 .setting-row--switch .setting-row__control {
-  margin-top: 1px;
+  margin-top: 0;
 }
 
 /* 动作行（按钮 / 录制框 / 链接）：标签在左、控件在右并垂直居中 */
 .setting-row--action {
   align-items: center;
   justify-content: space-between;
-  min-height: 46px;
+  min-height: 52px;
 }
 
 .select {
@@ -3315,22 +3376,23 @@ watch(pendingUnbind, (open) => {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .select select {
   appearance: none;
-  min-width: 128px;
-  padding: 6px 28px 6px 10px;
-  border-radius: 5px;
-  background: var(--bg-control);
+  min-width: 150px;
+  padding: 6px 30px 6px 11px;
+  border-radius: 6px;
+  background: var(--bg-input);
   border: 1px solid var(--border);
   font-size: 12.5px;
   color: var(--text);
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .select select:hover {
-  background: var(--bg-control-hover);
+  background: var(--bg-control);
 }
 
 .select__chevron {
@@ -3341,20 +3403,31 @@ watch(pendingUnbind, (open) => {
 }
 
 .number-input {
-  width: 76px;
-  padding: 6px 8px;
-  border-radius: 5px;
-  background: var(--bg-control);
+  width: 84px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--bg-input);
   border: 1px solid var(--border);
   font-size: 12.5px;
   color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* 规范 5：输入 / 下拉获焦时只提亮边框 + 一圈淡光晕，不要浏览器默认的粗蓝圈 */
+.select select:focus-visible,
+.number-input:focus-visible,
+.text-input:focus-visible,
+.setting-textarea:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .switch {
   flex: 0 0 auto;
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 38px;
+  height: 22px;
   border-radius: 999px;
   background: var(--bg-control);
   border: 1px solid var(--border);
@@ -3365,16 +3438,17 @@ watch(pendingUnbind, (open) => {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: var(--text-dim);
   transition: transform 0.18s ease, background-color 0.18s ease;
 }
 
+/* 规范 4：关闭态是一块融进卡片的暗灰轨道；打开态走品牌色（--accent），不用高饱和绿 */
 .switch.is-on {
-  background: var(--run-green);
-  border-color: transparent;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .switch.is-on .switch__thumb {
@@ -3383,7 +3457,7 @@ watch(pendingUnbind, (open) => {
 }
 
 /* ---------- 本地运行环境 ---------- */
-/* 运行环境那一组行：容器只是一列，不围外框（2026-10-11 去卡片化，与同栏其他行一致） */
+/* 运行环境那一组行：容器只是一列，外框已经由整栏那张卡给过了 */
 .runtime-list {
   display: flex;
   flex-direction: column;
@@ -3396,17 +3470,18 @@ watch(pendingUnbind, (open) => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin: 0 18px 14px;
 }
 
-/* 一行：图标方块 + 标题 / 状态 + 行尾按钮。内边距与 .setting-row 对齐，好让图标方块
-   和同栏其他行的文字落在同一条左边线上 */
+/* 一行：图标方块 + 标题 / 状态 + 行尾按钮。左右内边距与 .setting-row 对齐，
+   好让图标方块和同栏其他行的文字落在同一条左边线上 */
 .runtime-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 60px;
-  padding: 10px 18px 12px;
-  border-radius: 4px;
+  gap: 12px;
+  min-height: 62px;
+  padding: 12px 18px;
+  border-radius: 0;
   transition: background-color 0.15s ease;
 }
 
@@ -3419,10 +3494,10 @@ watch(pendingUnbind, (open) => {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-hairline);
   color: var(--text-dim);
   background: var(--bg-control);
 }
@@ -3449,13 +3524,16 @@ watch(pendingUnbind, (open) => {
 .runtime-row__text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   flex: 1 1 auto;
   min-width: 0;
 }
 
 .runtime-row__title {
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text);
 }
 
 /* 状态点并到说明文字前面：说明可能很长会换行，所以点不参与收缩 */
@@ -3463,9 +3541,9 @@ watch(pendingUnbind, (open) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
 }
 
 /* 行尾的操作区：未装/下载中/失败时是「下载（重试）」一颗，就绪后换成「卸载」一颗，
@@ -3483,15 +3561,16 @@ watch(pendingUnbind, (open) => {
   justify-content: center;
   gap: 5px;
   flex: 0 0 auto;
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-control);
   color: var(--text);
-  font-size: 12px;
+  font-size: 12.5px;
   white-space: nowrap;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .download-button:hover:not(:disabled) {
@@ -3508,12 +3587,14 @@ watch(pendingUnbind, (open) => {
    故覆写 flex-direction；「恢复默认」靠 margin-left: auto 推到行右端。 */
 .setting-row--template {
   flex-direction: column;
-  gap: 8px;
+  align-items: stretch;
+  gap: 10px;
 }
 
 /* head 默认 align-items: baseline，和 28px 高的按钮对不齐，这里改成居中对齐 */
 .setting-row--template .setting-row__head {
   align-items: center;
+  row-gap: 6px;
 }
 
 .setting-row__restore {
@@ -3532,10 +3613,10 @@ watch(pendingUnbind, (open) => {
 .setting-textarea {
   display: block;
   width: 100%;
-  height: 200px;
-  padding: 8px 9px;
-  border-radius: 5px;
-  border: 1px solid var(--border-soft);
+  height: 220px;
+  padding: 10px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
   background: var(--bg-input);
   color: var(--text);
   font-family: var(--mono-font);
@@ -3546,11 +3627,7 @@ watch(pendingUnbind, (open) => {
   overflow: auto;
   resize: vertical;
   tab-size: 4;
-}
-
-.setting-textarea:focus {
-  outline: none;
-  border-color: var(--focus);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .download-button.is-failed {
@@ -3559,16 +3636,28 @@ watch(pendingUnbind, (open) => {
   background: transparent;
 }
 
-/* 卸载：中性描边，悬停才转成危险色（就绪那一行现在只剩它一颗，不必再和谁抢注意力） */
-.download-button.is-uninstall {
-  color: var(--text-dim);
+/* 卸载 / 解绑：危险动作直接用「红字 + 透明底 + 淡红描边」（规范 6），
+   不再等悬停才变色 —— 用户在点之前就该看出这是不可逆的那一类。
+   is-danger 只是语义别名，解绑按钮用它，样式与卸载完全同源。 */
+.download-button.is-uninstall,
+.download-button.is-danger {
+  color: var(--danger-text);
+  border-color: var(--danger-border);
   background: transparent;
 }
 
-.download-button.is-uninstall:hover:not(:disabled) {
+.download-button.is-uninstall:hover:not(:disabled),
+.download-button.is-danger:hover:not(:disabled) {
   color: var(--danger-text);
   border-color: var(--danger-text);
   background: var(--danger-bg);
+}
+
+.download-button.is-uninstall:disabled,
+.download-button.is-danger:disabled {
+  color: var(--text-faint);
+  border-color: var(--border);
+  background: transparent;
 }
 
 .is-spinning {
@@ -3587,10 +3676,10 @@ a.download-button {
 .shortcut-key {
   display: inline-flex;
   align-items: center;
-  height: 28px;
+  height: 30px;
   padding: 0 11px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--bg-input);
   color: var(--text);
   font-family: var(--ui-font);
@@ -3617,20 +3706,16 @@ a.download-button {
   min-width: 0;
   width: 168px;
   padding: 6px 10px;
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   font-size: 12.5px;
   color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .text-input::placeholder {
   color: var(--text-faint);
-}
-
-.text-input:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -1px;
 }
 
 /* 一行里并排放两个以上控件（输入框 + 按钮、三颗按钮）：可折行，窄面板下不让标签被挤没 */
@@ -3643,8 +3728,8 @@ a.download-button {
 }
 
 /* 登录 / 绑定那一行是这一栏的主操作，但默认的 setting-row 与下面的「预下载」各项长得一模一样，
-   排在第一个也照样被读成一串平级选项。所以给它一个卡片：浅色底 + 边框 + 左侧 accent 竖条，
-   拉开与平铺行的层次。深浅两套主题都只用既有变量，不新增颜色。
+   排在第一个也照样被读成一串平级选项。所以给它一块内嵌的小卡片：只比页面亮一档，
+   细描边，不再用左侧 accent 竖条那种装饰。深浅两套主题都只用既有变量，不新增颜色。
 
    版式是**纵向两段**（2026-10-23 重排）：上面「用户名 + 已绑定 + 云端最近更新」吃满整宽，
    下面一排按钮自己占一行。原先已绑定那张卡沿用 .setting-row--action 的「标签在左、控件在右」，
@@ -3655,23 +3740,26 @@ a.download-button {
    ⚠️ 别退回 --action 的两端对齐：卡片是竖着长的，按钮要跟着文字靠左才落在同一条轴线上
    （`justify-content` 也得显式写 flex-start —— --action 给的 space-between 在纵向会把两段推开）。 */
 .cloud-account {
-  margin: 4px 12px 2px;
-  padding: 12px 14px;
-  /* 用 --bg-card 而不是 --bg-raised：浅色主题下 --bg-raised 与面板底色同为纯白，
-     卡片会整块消失。描边用 --border（比 --border-soft 明显），两套主题都框得住 */
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-card);
+  margin: 4px 18px 14px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+  background: var(--bg-panel);
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  gap: 8px;
+  gap: 10px;
 }
 
 /* 卡片里的按钮组：右对齐是「标签在左」那套的产物，纵向排下来跟着文字靠左；
    宽度不够时照旧折行（flex-wrap 来自 .cloud-field），不再回头挤上面的文字 */
 .cloud-account .cloud-field {
   justify-content: flex-start;
+}
+
+/* 内嵌卡片自己负责层次，别再叠行悬停的底色 */
+.cloud-account:hover {
+  background: var(--bg-panel);
 }
 
 /* 「he-jie 已绑定」这一行：允许的是**整块**掉到下一行，不是逐字换行。
@@ -3690,21 +3778,10 @@ a.download-button {
   white-space: nowrap;
 }
 
-/* 左侧强调条：用伪元素而不是 border-left，免得把上面那条 border 挤得左右不均 */
-.cloud-account::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  border-radius: 6px 0 0 6px;
-  background: var(--accent);
-}
-
-/* 卡片自己就是被强调的那一块，再叠 hover 底色只会显得脏 */
-.cloud-account:hover {
-  background: var(--bg-card);
+/* .setting-row--select 给控件留的负上边距在这里不适用：卡片已经改成纵向，
+   输入框与按钮同属第二段，跟着正常文档流走 */
+.cloud-account .setting-row__control {
+  margin-top: 0;
 }
 
 /* 卡片里的输入框吃满剩余宽度：168px 的固定宽度在宽面板下会在卡片中间留一大片空白，
@@ -3742,11 +3819,11 @@ a.download-button {
 .cloud-flow {
   display: flex;
   flex-direction: column;
-  /* 下边 8：卡片与下面那排按钮之间留一口气（按钮行自己 margin-top 是 0，见 .cloud-footer） */
-  margin: 4px 18px 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: 7px;
+  /* 下边 14：卡片与下面那排按钮之间留一口气（按钮行自己 margin-top 是 0，见 .cloud-footer） */
+  margin: 4px 18px 14px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
   background: var(--bg-panel);
 }
 
@@ -3759,7 +3836,7 @@ a.download-button {
 }
 
 .cloud-flow__label {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-faint);
 }
 
@@ -3781,8 +3858,8 @@ a.download-button {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
-  margin: 4px 0 0;
-  font-size: 11px;
+  margin: 6px 0 0;
+  font-size: 11.5px;
   color: var(--text-faint);
 }
 
@@ -3805,17 +3882,17 @@ a.download-button {
   color: var(--text-faint);
 }
 
-/* 卡片内部的两段（步骤 / 代填）各用一条细线分开，代替原先的两段大间距 */
+/* 卡片内部的两段（步骤 / 代填）各用一条极细的线分开，代替原先的两段大间距 */
 .cloud-flow__block {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-soft);
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-faint);
 }
 
 /* 「接下来」—— 只是一个引导词，压到最小 */
 .cloud-flow__sub {
   margin: 0 0 6px;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-faint);
 }
 
@@ -3823,12 +3900,12 @@ a.download-button {
    编号与文字用 grid 对齐，换行后第二行仍与文字左缘齐平 */
 .cloud-flow__steps {
   display: grid;
-  gap: 6px;
+  gap: 7px;
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--text-dim);
 }
 
@@ -3847,7 +3924,7 @@ a.download-button {
   height: 16px;
   margin-top: 1px;
   border-radius: 50%;
-  background: var(--bg-hover);
+  background: var(--bg-control);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
@@ -3876,7 +3953,7 @@ a.download-button {
 .cloud-flow__status {
   flex: 1 1 160px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
 }
 
@@ -3891,18 +3968,18 @@ a.download-button {
   color: var(--warn);
 }
 
-/* 卡片里空间有限：与原先码卡里那颗「复制」同尺寸（24px / 0 8px），免得把码压小；
-   代填按钮多一个字、给 26px 与稍宽的内边距 */
+/* 卡片里空间有限：复制按钮比行内主按钮矮一档，免得把码压小；
+   代填按钮多一个字、给 28px 与稍宽的内边距 */
 .cloud-flow__copy {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 11.5px;
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12px;
 }
 
 .cloud-flow__fill {
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* 复制成功：转绿 + 对勾，两秒后 codeCopied 自己复位（与「应用」栏那颗同一套手感） */
@@ -3930,6 +4007,141 @@ a.download-button {
   color: var(--ok);
 }
 
+/* ---------- 危险区域（规范 6） ----------
+   不可逆操作单独成卡：红描边（--danger-border）、透明底、标题走危险色；
+   按钮本体复用 .download-button.is-danger 的「红字 + 透明底」。 */
+.danger-zone {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* 左右 18 与云端账号卡对齐：红框不贴内容列（=面板）边缘，边框内再留 14 呼吸 */
+  margin: 28px 18px 0;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: transparent;
+  overflow: hidden;
+}
+
+/* 危险区里只有一条动作，行不再画分割线，也不吃悬浮底色（整张卡已经够醒目） */
+.danger-zone .setting-row {
+  padding: 14px;
+}
+
+.danger-zone .setting-row:hover {
+  background: transparent;
+}
+
+/* 窄面板（手机、或桌面端侧栏展开后的编辑区）：两栏并排放不下，整行退回上下排。
+   规范 1 的「左文右操作」只在有横向余量时成立 —— 硬撑两栏会让中文标题一字一行。
+   阈值用 rem：跟着界面缩放一起变。 */
+@container settings (max-width: 26rem) {
+  .setting-row,
+  .setting-row--switch,
+  .setting-row--select,
+  .setting-row--number,
+  .setting-row--action {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .setting-row__control,
+  .setting-row--select .setting-row__control,
+  .setting-row--number .setting-row__control,
+  .setting-row--switch .setting-row__control {
+    margin-top: 0;
+    align-self: stretch;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  /* 开关是唯一不需要占满一行的控件：放在文字下方、靠左即可 */
+  .setting-row--switch .setting-row__control {
+    align-self: flex-start;
+  }
+
+  .select,
+  .select select,
+  .number-input {
+    width: 100%;
+  }
+
+  /* 150px 的下限在 130px 级的正文宽度里会把控件顶出卡片 */
+  .select select {
+    min-width: 0;
+  }
+
+  /* 运行环境行：图标 + 文字排一行，下载 / 卸载按钮落到第二行，别把标题挤成竖排 */
+  .runtime-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'icon text'
+      'actions actions';
+    align-items: start;
+    row-gap: 10px;
+  }
+
+  .runtime-row__icon {
+    grid-area: icon;
+  }
+
+  .runtime-row__text {
+    grid-area: text;
+  }
+
+  .runtime-row__actions {
+    grid-area: actions;
+    justify-self: start;
+  }
+}
+
+/* 极窄（约 360px 以下）：卡片自己也把左右留白收一档，
+   否则「卡片外边距 + 行内边距」两层 18px 会把正文压到一百像素出头。 */
+@container settings (max-width: 22.5rem) {
+  .danger-zone {
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+
+  .danger-zone .setting-row {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .setting-group__title,
+  .setting-subtitle {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .setting-group__note,
+  .notif-demo {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+
+  .setting-row,
+  .runtime-row {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .cloud-account,
+  .cloud-flow {
+    margin-left: 10px;
+    margin-right: 10px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .cloud-flow__code {
+    font-size: 18px;
+    letter-spacing: 0.05em;
+  }
+}
+
 @keyframes settings-spin {
   to {
     transform: rotate(360deg);
@@ -3937,19 +4149,20 @@ a.download-button {
 }
 
 /* ---------------------------------------------------------------- 应用 / 浏览器插件两栏的行容器
-   这两栏原是一套「卡片化」版式（描边卡片、卡片吞掉小标题、参考稿尺寸的开关），
-   2026-10-11 与其他栏统一：不围外框、小标题回到 setting-subtitle 那一档、开关回到默认尺寸。
-   留下来的三样是这两栏自己的信息特征，不算另一套风格 —— 状态胶囊、运行环境行的图标方块、
+   这两栏原是一套单独的「卡片化」版式，2026-10-11 曾与其他栏一起压平成无框行；
+   2026-10-24 设置页统一按新规范重做后，外框已经由整栏那张卡负责，行容器本身仍然只负责竖排。
+   留下来的三样是这两栏自己的信息特征：状态胶囊、运行环境行的图标方块、
    「下载 / 卸载」按钮的实心与警示态。
 
    作用域提醒：.download-button / .switch 评测栏与云端栏也在用，所以这里只加 is-* 修饰类，
    不碰基类。 */
 
-/* 一组成组的行：只是把行竖着摞起来，不围外框 —— 行的边界交给悬浮底色，与「评测」
-   「云端同步」那些直接平铺的行同一套手感（原来围在这里的卡片外框已去掉） */
+/* 一组成组的行：把行竖着摞起来，组与组之间靠 setting-subtitle 的留白分开；
+   行与行之间的淡分割线见上面 .setting-row + .setting-row */
 .setting-rows {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 /* 状态短标签：圆点 + 一句话。比旁边那颗按钮弱一档，只说明状态、不承担点击 */
@@ -3959,10 +4172,10 @@ a.download-button {
   gap: 6px;
   flex: 0 0 auto;
   padding: 2px 8px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-faint);
   border-radius: 6px;
   background: var(--bg-input);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;
 }

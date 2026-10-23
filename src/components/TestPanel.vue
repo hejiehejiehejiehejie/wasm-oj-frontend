@@ -20,8 +20,9 @@ useOverlayScrollbar(listEl)
 
 // 庆祝纸屑层（2026-10-23 加）：canvas 铺满这块面板，尺寸 / 颜色 / 摆法全在
 // services/confetti.js 里，这里只负责「挂上 / 摘掉」这一对。
-// 触发方是 App 的 celebrateIfAllPassed（整轮跑完全过时调一次），不是这里 watch props.cases ——
-// 用例回写会在运行途中整批换掉卡片对象，watch 拿到的「上一份 status」经常已经丢了。
+// 触发方是 App（整轮 ▶ 全过走 celebrateIfAllPassed，逐张 ▶ 刚好凑齐全过走 runOne），
+// 不是这里 watch props.cases —— 用例回写会在运行途中整批换掉卡片对象，
+// watch 拿到的「上一份 status」经常已经丢了。
 const confettiEl = ref(null)
 onMounted(() => mountConfetti(confettiEl.value))
 onBeforeUnmount(unmountConfetti)
@@ -242,16 +243,20 @@ const elapsedText = computed(() => {
            （见 showSubmit 与 App 里那段说明）。 -->
       <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
       <div class="panel__foot-row">
+        <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
+             图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
+             文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
+             「▶ 运行全部」仍有富余（见样式里那条宽高账）。 -->
         <button
           class="run-inline"
           :disabled="running || !cases.length || Boolean(runBlocked)"
           :title="runBlocked || t('tests.panel.runAll')"
           @click="emit('run-all')"
         >
-          <AppIcon name="play" :size="13" />
+          <AppIcon name="play" :size="14" />
+          <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
         </button>
-        <!-- 一键提交（2026-10-23 加）：与 ▶ 同高、纯图标，标题说明动作。
-             只用图标是为了窄侧栏（下限 158px）不折行 —— 与 ▶ 的口径一致。
+        <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠右，与主条同高。
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
              一起收掉，页脚不留占位（原因走快捷键那条通知）。 -->
         <button
@@ -488,15 +493,18 @@ const elapsedText = computed(() => {
   height: 32px;
   border-radius: 6px;
   font-size: 12.5px;
-  color: var(--info-soft-text);
-  background: var(--info-soft-bg);
-  border: 1px solid var(--info-soft-border);
-  transition: background-color 0.16s ease, border-color 0.16s ease;
+  /* 参考稿那种「Add New」框（2026-10-23，用户要求）：整宽、无底色、一圈极细虚线，
+     「+ 添加测试样例」居中 —— 它读起来是列表末尾预留的一行空位，而不是又一颗彩色按钮。
+     文字退到 --text-dim：虚线已经交代了「这里能加东西」，不必再靠颜色喊。 */
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px dashed var(--border-hairline);
+  transition: border-color 0.16s ease, color 0.16s ease;
 }
 
 .add:hover:not(:disabled) {
-  background: var(--info-soft-bg-hover);
-  border-color: var(--info-soft-border-hover);
+  color: var(--text);
+  border-color: var(--border);
 }
 
 /* 三颗按钮的禁用态必须是同一档（2026-10-06）：原先 .add 是 0.5、.run-inline 是 0.45，
@@ -512,7 +520,9 @@ const elapsedText = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 12px;
+  /* 左右 8px = .cases 的横向内边距：主操作条与列表里的卡片 / 「添加测试样例」同宽，
+     页脚不再比上面窄 4px（2026-10-24） */
+  padding: 10px 8px;
   /* 底色与面板同色（--bg-editor，即整页地面），照侧边栏页头那套「透明条」的做法（2026-10-23）：
      页脚不再是一块比正文亮一档的色斑，而是同一条地面的末段，剩下的按钮直接浮在上面。
      与正文的分界改由一条发丝线承担 —— 但它只在**还有内容压在下面**时才描出来
@@ -544,20 +554,34 @@ const elapsedText = computed(() => {
 }
 
 .run-inline {
+  /* 主操作条（2026-10-24 改）：从 32px 的线框图标改成整条图文按钮。
+     `flex: 1 1 auto` 让它吃掉这一排的剩余宽度 —— 提交按钮不出现时就是通栏；
+     出现时它也让出 36 + 8px 给提交那颗，而不是缩成一颗小图标。
+     宽高账：侧栏下限 158px 时页脚内容宽 142，主条 = 142 - 36 - 8 = 98px，
+     内容「14(图标) + 7(间距) + 50(四个 12.5px 汉字)」= 71px，再加左右 24px 内边距 = 95px，
+     刚好放得下（英文 Run all 更短）。所以这颗字不用藏，title 只用来交代完整动作。 */
+  flex: 1 1 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 14px;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
   border-radius: 6px;
   font-size: 12.5px;
-  color: var(--text-on-accent);
-  background: var(--run-green);
+  /* 低饱和度主操作（2026-10-24 选定）：不描边、不做实底，只铺一层 --ok 的 12% 微光面
+     （浅色主题见 base.css 的 8%）。面积与位置承担「这是这一栏的主按钮」，
+     颜色只负责「跑」这个动作的身份；悬停把同一块面加深一档，不换色。 */
+  color: var(--ok);
+  background: var(--ok-face);
+  border: 1px solid transparent;
+  white-space: nowrap;
   transition: background-color 0.16s ease;
 }
 
 .run-inline:hover:not(:disabled) {
-  background: var(--run-green-hover);
+  background: var(--ok-face-hover);
 }
 
 .run-inline:disabled {
@@ -565,22 +589,31 @@ const elapsedText = computed(() => {
   cursor: default;
 }
 
-/* 一键提交：与 ▶ 同高同圆角，用 --accent 而不是运行那颗绿 ——
-   「跑」和「交」是两件事，颜色分开才不用读 title 就知道点的是哪颗。
+/* 一键提交：与主条同高同圆角（36px / 6px），仍然是纯图标 + 发丝线 ——
+   它是这一排的次要动作，不能和「运行全部」抢视觉权重。
+   用 --accent 而不是运行那颗绿：「跑」和「交」是两件事，颜色分开才不用读 title 就知道点的是哪颗。
    禁用态与另外两颗同一档 0.45（见 .add 那条注释）。 */
 .submit-inline {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  height: 32px;
-  padding: 0 14px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   border-radius: 6px;
-  color: var(--text-on-accent);
-  background: var(--accent);
-  transition: background-color 0.16s ease;
+  /* 与 .run-inline 同一种低对比语汇（2026-10-23），蓝色只留在图标上；
+     取 --accent-hover 而不是更亮的 --accent-strong —— 「跑」与「交」仍靠色相区分，
+     但这一排不再有实心色块抢视线。 */
+  color: var(--accent-hover);
+  background: transparent;
+  border: 1px solid var(--border-hairline);
+  transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .submit-inline:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--bg-hover);
+  border-color: var(--border);
 }
 
 .submit-inline:disabled {

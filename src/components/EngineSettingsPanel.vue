@@ -122,38 +122,40 @@ function applyBase() {
 .engine-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 2px 18px 14px;
+  gap: 14px;
+  padding: 4px 18px 18px;
 }
 
 .engine-list {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border-soft);
-  border-radius: 7px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
   overflow: hidden;
 }
 
 .engine {
   display: block;
   width: 100%;
-  padding: 9px 12px;
+  padding: 11px 14px;
   text-align: left;
   border-left: 3px solid transparent;
   transition: background-color 0.15s ease;
 }
 
 .engine + .engine {
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border-faint);
 }
 
 .engine:hover {
-  background: var(--bg-hover);
+  background: var(--bg-panel);
 }
 
+/* 设置页不再有外层大卡（2026-10-24），选中项也跟着只抬一档亮度；
+   真正区分它的是左侧那根 accent 竖线，而不是一整块高对比底色 */
 .engine.is-active {
-  background: var(--bg-control);
-  border-left-color: var(--focus);
+  background: var(--bg-panel);
+  border-left-color: var(--accent);
 }
 
 .engine__head {
@@ -166,13 +168,15 @@ function applyBase() {
 .engine__label {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .engine__badge {
   flex: 0 0 auto;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 4px;
   font-size: 10.5px;
   color: var(--text-dim);
   background: var(--case-chip-bg);
@@ -181,9 +185,9 @@ function applyBase() {
 .engine__hint {
   display: block;
   margin-top: 3px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
 }
 
 .engine-field {
@@ -194,26 +198,34 @@ function applyBase() {
 
 .engine-field__label {
   flex: 0 0 auto;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .engine-field__input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 6px 8px;
-  border-radius: 5px;
+  padding: 7px 9px;
+  border-radius: 6px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   color: var(--text);
   font-family: var(--mono-font);
   font-size: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.engine-field__input:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .engine-note {
   margin: 0;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
 }
 
 .engine-probe {
@@ -226,7 +238,7 @@ function applyBase() {
   flex: 1 1 auto;
   min-width: 0;
   padding-top: 5px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--text-dim);
   overflow-wrap: anywhere;
@@ -246,13 +258,13 @@ function applyBase() {
   justify-content: center;
   gap: 5px;
   flex: 0 0 auto;
-  height: 28px;
-  padding: 0 11px;
-  border-radius: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-control);
   color: var(--text);
-  font-size: 12px;
+  font-size: 12.5px;
   white-space: nowrap;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
@@ -274,5 +286,32 @@ function applyBase() {
 
 .engine-button--solid:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+
+/* 窄面板：引擎地址那一行与服务地址输入并排放不下，整组退回上下排 */
+@container settings (max-width: 26rem) {
+  .engine-panel {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .engine-field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .engine-field__input {
+    width: 100%;
+  }
+
+  .engine-field .engine-button {
+    align-self: flex-start;
+  }
+
+  .engine-probe {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

@@ -238,6 +238,15 @@ const outputText = computed(() => {
   return [actualOutput, detail].filter((part) => part && part.trim()).join('\n')
 })
 
+// 「没跑过」与「跑了但没输出」必须是两种长相：前者整块 ACTUAL 不渲染（空框里写
+// 「尚未运行」既像输出为空、又白占一块地方）；后者在框里明说「输出为空」。
+// 运行中即使还没有本轮输出也留着框 —— 收掉会让卡片在点运行的一瞬间塌一截，
+// 正是 App.vue 的 resetCase 里那条「不清上一轮输出」修掉的闪烁。
+const showActual = computed(() => props.testCase.status !== 'idle')
+const actualPlaceholder = computed(() =>
+  props.testCase.status === 'running' ? t('tests.card.running') : t('tests.card.emptyOutput'),
+)
+
 // 实际输出也是同一套：超长就只显示开头一段 + 省略行。它天生只读（是个 <pre>），
 // 所以不用像上面两个输入框那样维护「可编辑段」的边界，现算就行。
 const outputView = computed(() => {
@@ -477,7 +486,7 @@ function onLongCopy(event, full) {
           </div>
         </div>
 
-        <div class="field">
+        <div v-if="showActual" class="field">
           <span class="field__label field__label--row">
             <span>Actual</span>
             <!-- 两个动作包一层：这一行是 space-between，三个孩子会有一个被摊到正中间 -->
@@ -509,7 +518,7 @@ function onLongCopy(event, full) {
             :class="{ 'is-empty': !outputView.text, 'is-truncated': outputView.long }"
             tabindex="0"
             @copy="onLongCopy($event, outputText)"
-            >{{ outputView.text || t('tests.card.notRun') }}</pre
+            >{{ outputView.text || actualPlaceholder }}</pre
           >
           <div v-if="outputView.long" class="ionote">
             <span class="ionote__text">
@@ -951,8 +960,10 @@ function onLongCopy(event, full) {
   min-height: 76px;
   padding: 8px 9px;
   border-radius: 5px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-soft);
+  /* 只描边、不填底（2026-10-23）：用户要求用极细、极低对比的线勾勒 Input / Expected 的外框，
+     而不是拿实色块去填背景 —— 框与卡片于是成为同一块面，边界只剩这圈发丝线。 */
+  background: transparent;
+  border: 1px solid var(--border-hairline);
   font-family: var(--mono-font);
   font-size: 13.5px;
   line-height: 1.55;
@@ -1026,8 +1037,9 @@ function onLongCopy(event, full) {
   overflow: auto;
   padding: 8px 9px;
   border-radius: 5px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-soft);
+  /* 同 .ta：发丝线勾边、不填底，Actual 与上面两个框才像同一组读数窗（2026-10-23） */
+  background: transparent;
+  border: 1px solid var(--border-hairline);
   font-family: var(--mono-font);
   font-size: 13.5px;
   line-height: 1.55;

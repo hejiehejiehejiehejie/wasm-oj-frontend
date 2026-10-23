@@ -226,4 +226,30 @@ function onKeydown(event) {
   color: var(--text-faint);
   font-size: 11px;
 }
+
+/* 设置面板窄到两栏放不下时，124px 的录制框下限会把整行顶出卡片。
+   让录制框跟着控制列收窄；组合键本身仍不折行，放不下就省略。 */
+@container settings (max-width: 26rem) {
+  .hotkey-field {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .hotkey-field__row {
+    width: 100%;
+  }
+
+  .hotkey {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .hotkey-error {
+    max-width: 100%;
+    text-align: left;
+  }
+}
 </style>

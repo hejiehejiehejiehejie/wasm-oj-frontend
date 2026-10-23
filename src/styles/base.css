@@ -81,6 +81,14 @@
      会比展开时亮一档、跳出来。与 --border-soft 的差距保持「看得见是张卡、
      看不出是一条线」的量级。 */
   --border-faint: #26262a;
+  /* 设置页「沉浸式」布局的行分割线（2026-10-24）：行直接落在编辑区底色上，
+     不需要卡片边框那么强的存在感，只留一条 5% 白的分隔。 */
+  --border-divider: rgba(255, 255, 255, 0.05);
+  /* 极低对比的发丝线，2026-10-23 加：评测面板用它勾勒 Input / Expected / Actual 三个框、
+     「添加测试样例」那条虚线，以及页脚两颗幽灵按钮 —— 用户要求「用极细、对比度极低的
+     颜色（如 rgba(255,255,255,0.1)）来勾勒外框，而不是用实色块去填充背景」。
+     ⚠️ 别拿它替 --border-soft：那支是常规控件描边，这支只负责「几乎看不见、只交代边界」。 */
+  --border-hairline: rgba(255, 255, 255, 0.1);
 
   /* 文件树的目录范围线：刻意比 --border-soft 更淡，常显也不扎眼 */
   --tree-guide: rgba(255, 255, 255, 0.10);
@@ -108,6 +116,9 @@
   --accent-strong: #1f6feb;
   --accent-deep: #0e4f8b;
   --focus: #007acc;
+  /* 输入控件获焦时的淡光晕（2026-10-24 设置页统一）：边框转 --focus，这圈只垫在下面，
+     不再让浏览器默认的粗蓝圈出场。两套主题各按自己的亮度给透明度。 */
+  --focus-ring: rgba(0, 122, 204, 0.28);
 
   --run-green: #2f8f5b;
   --run-green-hover: #3aa76c;
@@ -119,10 +130,16 @@
   --info: #4fc1ff;
   --warn: #c9a45c;
   --ok-soft: #c6e6c8;
+  /* 「运行全部」主按钮的微光底（2026-10-24）：低透明度 --ok 当一块玻璃面，
+     靠面积而不是饱和度撑主操作的权重；悬停同色加深一档，不换色 */
+  --ok-face: rgba(137, 209, 133, 0.12);
+  --ok-face-hover: rgba(137, 209, 133, 0.2);
   --fail-soft: #f0d7cf;
   --danger-bg: #6d3a3a;
   --danger-bg-hover: #854545;
   --danger-text: #f0d7cf;
+  /* 危险区域卡片的细描边与危险按钮的描边：比 --danger-text 更沉，压在深色卡片上不刺眼 */
+  --danger-border: rgba(248, 113, 113, 0.3);
 
   /* 评测服务 chip 这类浅底提示块 */
   --info-soft-bg: #2d3a45;
@@ -296,6 +313,10 @@
   --border-soft: #e4e4e4;
   /* 与深色主题同义（见上）：折叠态图标栏的卡片描边，比 --border-soft 淡一档 */
   --border-faint: #eeeeee;
+  /* 见深色那支的说明：白底上 5% 的黑几乎看不见，取 6% 保住「能看见但不抢戏」 */
+  --border-divider: rgba(0, 0, 0, 0.06);
+  /* 见深色那支的说明：白底上用同一档对比（0.10 的黑），压在 #f3f3f3 上约 #dbdbdb */
+  --border-hairline: rgba(0, 0, 0, 0.1);
 
   /* 文件树的目录范围线：浅色下同等的「看得见但不抢戏」 */
   --tree-guide: rgba(0, 0, 0, 0.12);
@@ -317,6 +338,8 @@
   --accent-strong: #2d7dd2;
   --accent-deep: #1b5fa8;
   --focus: #0078d4;
+  /* 见深色那支的说明：白底上光晕再淡一档，只负责圈出焦点，不糊成一圈蓝边 */
+  --focus-ring: rgba(0, 120, 212, 0.2);
 
   --run-green: #2f8f5b;
   --run-green-hover: #37a367;
@@ -327,10 +350,15 @@
   --info: #0b6fb8;
   --warn: #8a6116;
   --ok-soft: #1c6b32;
+  /* 见深色那支的说明：白底上同样面积的绿会显得更重，透明度压到 0.08 / 0.14 */
+  --ok-face: rgba(23, 128, 61, 0.08);
+  --ok-face-hover: rgba(23, 128, 61, 0.14);
   --fail-soft: #a02a22;
   --danger-bg: #f6dcd9;
   --danger-bg-hover: #eec7c3;
   --danger-text: #a02a22;
+  /* 见深色那支的说明：白底上用同一支暗红压一圈，透明度更低 */
+  --danger-border: rgba(160, 42, 34, 0.24);
 
   --info-soft-bg: #e3f0fb;
   --info-soft-border: #b7d7ef;

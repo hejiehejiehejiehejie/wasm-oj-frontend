@@ -14,6 +14,8 @@ export default {
         ariaLabel: 'unnamed 评测面板',
         addCase: '添加测试样例',
         runAll: '运行全部测试用例',
+        /** 页脚主按钮上的可见文字（2026-10-24 加）：`runAll` 那条继续当 title 用，这条要短到窄侧栏也放得下 */
+        runAllLabel: '运行全部',
         /**
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
          * 页脚那行说明与它们的 title。「没打开文件」与「打开的不是代码」分开写。
@@ -158,7 +160,8 @@ export default {
         copyOutput: '复制实际输出',
         /** 实际输出标签行上的第二个按钮：把 stdout 誊进期望输出（结论已过期的标记由写入那条路带上） */
         useActual: '实际输出写入期望',
-        notRun: '尚未运行',
+        /** 跑过但 stdout 与诊断都为空时框里的字；「没跑过」不显示整个 ACTUAL 块 */
+        emptyOutput: '输出为空',
 
         /**
          * ⚠️ 这张表里没有**输入框 / 期望输出 / 实际输出的小标题**：它们是 `TestCaseCard.vue`
@@ -206,6 +209,8 @@ export default {
         ariaLabel: 'unnamed judge panel',
         addCase: 'Add test case',
         runAll: 'Run all test cases',
+        /** visible label on the footer's primary button (2026-10-24); `runAll` stays the title */
+        runAllLabel: 'Run all',
         /** 见 zh-CN 那侧的说明 */
         runBlocked: 'Non-code files can’t be run',
         runBlockedNoFile: 'No file is open',
@@ -311,9 +316,9 @@ export default {
         timingTitle: 'Program run time (excludes compilation)',
         remove: 'Delete this case',
         copyOutput: 'Copy actual output',
-        /** 同中文：实际输出那一行左侧那颗按钮（写入期望输出） */
+        /** 同中文：实际输出写入期望（跑完但输出为空时显示 emptyOutput） */
         useActual: 'Write actual output to Expected',
-        notRun: 'Not run yet',
+        emptyOutput: 'No output',
 
         // 与 zh-CN 那栏严格对应：三个小标题都是写死的英文（`input` / `Expected` / `Actual`），
         // 见 zh-CN 那侧的注释；只有两个框的占位提示走这张表。

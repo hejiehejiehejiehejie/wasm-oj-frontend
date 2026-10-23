@@ -4,7 +4,8 @@ import confetti from 'canvas-confetti'
  * 「全部样例通过」的庆祝纸屑（2026-10-23 加，同日改过三次口径）
  *
  * 一次评测**每一张样例都 AC** 时，在侧栏的样例面板里落一片彩色纸屑。现行口径：
- * · **只有全部样例通过才放**，任一 WA / TLE / RE / MLE / CE 都不放；**单卡 ▶** 也不单独放 ——
+ * · **只有全部样例通过才放**，任一 WA / TLE / RE / MLE / CE 都不放；**单卡 ▶** 只有
+ *   在它把整组用例凑成全过的那一次才放（跑之前已经全过就不再放）——
  *   纸屑是「这一份提交过了」的奖励，不是「有结果了」的通知。
  * · **范围是侧栏那块样例面板**（canvas 由 `TestPanel.vue` 摆在 `.panel` 里、盖满整块面板），
  *   不是整页也不是单个卡片：这一栏就是「评测页」，庆祝落在这一栏。
@@ -100,7 +101,8 @@ function drawBurst(x, count, colors) {
 }
 
 /**
- * 一次评测**全部样例 AC** 时调一次（闸门在 App.vue 的 celebrateIfAllPassed）。
+ * 一组用例全部 AC 时调一次（App.vue 的 celebrateIfAllPassed / runOne 的凑齐判断）。
+ * 面板不可见时这里量到 0×0，自己跳过。
  */
 export function celebrateAllPassed() {
   if (!fire || !canvasEl) return

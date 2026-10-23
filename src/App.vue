@@ -831,24 +831,32 @@ function applyPatch(target, patch, index) {
 }
 
 /**
+ * 这一组用例是不是「全过且结论新鲜」。
+ *
+ * status 之外还看 stale：改过代码之后，上一轮的 AC 已经不作数了（见下面那条
+ * dirty → stale 的 watch），拿它凑「全过」会庆祝一份并没有真正验证过的代码。
+ */
+function isAllAccepted(list) {
+  return Boolean(list?.length) && list.every((item) => item.status === 'passed' && !item.stale)
+}
+
+/**
  * 「全部样例都通过」才放的庆祝纸屑（services/confetti.js，2026-10-23 加；同日从
  * 「每张 AC 放一次」改成「整份提交全过才放一次」）。纸屑落在**样例面板整块**里
  * （`.panel__confetti`，见 TestPanel.vue），不是整页：这一栏就是「评测页」，庆祝落在这里。
  *
- * 判据只有一条：**手上这一组用例全部 `passed`**。所以它必须等整轮跑完再判，
+ * 判据只有一条：**手上这一组用例全部 `passed` 且不 stale**。所以它必须等整轮跑完再判，
  * 不能挂在 applyPatch 里逐张看 —— 逐张看只会得到「这一张过了」，那正是要改掉的旧行为。
  *
- * 只有 `runAll`（页脚 ▶ / ⌘·Ctrl+Enter）调它，**单卡 ▶ 不调**：单卡那条路是「我就看这一张」，
- * 把它也算成「全部样例都通过」的话，在一份早已全过的卷子上重跑任意一张都会再放一次纸屑。
- * 单卡跑完想让整份庆祝，去按页脚那颗 ▶ —— 那才是「整份提交」的语义。
+ * `runAll`（页脚 ▶ / ⌘·Ctrl+Enter）在这里调；逐张的 ▶ 走 `runOne` 里的
+ * 「这一跑刚好凑齐全过」判断（2026-10-24 补：用户用逐张 ▶ 跑齐全过时也期望庆祝）。
  *
  * 中断（abort）的那次不庆祝：那种「全过」只是没跑完的假象。
  * 开关在 设置 › 评测（`cp.editorSettings.celebration`，默认开）。
  */
 function celebrateIfAllPassed(list) {
-  if (!list?.length) return
   if (!editorSettings.value.celebration) return
-  if (!list.every((item) => item.status === 'passed')) return
+  if (!isAllAccepted(list)) return
   celebrateAllPassed()
 }
 
@@ -1281,6 +1289,10 @@ async function runOne(target) {
   // 与 runAll 同一套通知纪律：单跑也是「一次运行」，先收旧的常驻 CE，跑完发新的一条
   const entryPath = activeNode.value?.path
   if (entryPath) clearRunNotify(entryPath)
+  // 逐张 ▶ 也可能把整组凑成全过（用户的实际用法）：先记下跑之前的样子，
+  // 只有「这一跑刚好凑齐」才庆祝 —— 已经全过时重跑任意一张不再放，避免重复庆祝。
+  const queue = [...testCases.value]
+  const wasAccepted = isAllAccepted(queue)
   // 与 runAll 同一套清场口径（含「不清上一轮输出」那条），见 resetCase
   resetCase(target)
   try {
@@ -1298,7 +1310,13 @@ async function runOne(target) {
       onCase: applyPatch,
     })
     if (target.status === 'running') target.status = 'idle'
-    if (!controller.signal.aborted) notifyRunOutcome({ path: entryPath, cases: [target] })
+    if (!controller.signal.aborted) {
+      notifyRunOutcome({ path: entryPath, cases: [target] })
+      // 中途切了文件就不放：庆祝的落点是「此刻这份文件的样例栏」。
+      if (!wasAccepted && activeNode.value?.path === entryPath && isAllAccepted(queue)) {
+        if (editorSettings.value.celebration) celebrateAllPassed()
+      }
+    }
   } finally {
     running.value = false
   }
