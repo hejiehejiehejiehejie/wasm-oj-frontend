@@ -808,10 +808,16 @@ function beginDrag(event) {
 }
 
 // ------------------------------------------------------------------ 运行逻辑
+/**
+ * 运行开始时的清场。**actualOutput / detail 刻意不清**（2026-10-23 改）：
+ * 清掉的话 ACTUAL 会先跳回占位语「尚未运行」，上一轮输出高于框的最小高度时整张卡片
+ * 先塌一截、新结果回来再长回去 —— 用户报的「点运行，侧边栏卡片闪一下」就是这个。
+ * 上一轮的输出留着，等新补丁（applyPatch）落下来整份替换；运行中的身份由徽标
+ * 「运行中」与圆点的涟漪交代，旧输出不会被误读成这一轮的结果。
+ * verdict / durationMs 仍然要清：它们没有「留旧值」这个选项，留着就是假判定。
+ */
 function resetCase(item) {
   item.status = 'running'
-  item.actualOutput = ''
-  item.detail = ''
   item.verdict = ''
   item.durationMs = null
   item.stale = false
@@ -1047,8 +1053,16 @@ async function runAll() {
     onCase: applyPatch,
   })
 
-  // 中途中断时，未跑到的卡片回到待运行，不留假的“运行中”
-  for (const item of testCases.value) if (item.status === 'running') item.status = 'idle'
+  // 中途中断时，未跑到的卡片回到待运行，不留假的“运行中”。
+  // 它们这一轮根本没有产出，上一轮的输出也不再是「这次的结果」——
+  // 复位时留下的那一份在这里一并清掉，退回占位语（与引擎给的 cancelled 补丁同口径：
+  // 那种卡片已经被补丁清过了，不会走到这个分支）。
+  for (const item of testCases.value) {
+    if (item.status !== 'running') continue
+    item.status = 'idle'
+    item.actualOutput = ''
+    item.detail = ''
+  }
 
   // 结果通知在状态归位后发。**必须用 queue 而不是 testCases.value**：用例回写
   // （flushCasesWrite → updateFileConfig → rebuildTree）会在运行途中把卡片对象
@@ -1071,11 +1085,8 @@ async function runOne(target) {
   // 与 runAll 同一套通知纪律：单跑也是「一次运行」，先收旧的常驻 CE，跑完发新的一条
   const entryPath = activeNode.value?.path
   if (entryPath) clearRunNotify(entryPath)
-  target.status = 'running'
-  target.actualOutput = ''
-  target.detail = ''
-  target.verdict = ''
-  target.durationMs = null
+  // 与 runAll 同一套清场口径（含「不清上一轮输出」那条），见 resetCase
+  resetCase(target)
   try {
     await saveAll()
     await runCases({

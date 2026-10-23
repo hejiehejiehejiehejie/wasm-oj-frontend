@@ -497,7 +497,7 @@ function onLongCopy(event, full) {
               <button
                 class="icon-btn"
                 :title="t('tests.card.copyOutput')"
-                :disabled="!outputText"
+                :disabled="locked || !outputText"
                 @click="copyOutput"
               >
                 <AppIcon name="copy" :size="12" />
