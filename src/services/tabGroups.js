@@ -90,14 +90,6 @@ export function membersOf(gid) {
   return stripOrder.filter((id) => tabGroups.memberOf[id] === gid)
 }
 
-/** 这张页签是不是它所在组的第一个成员（芯片渲染在组前，靠它决定插不插） */
-export function isRunStart(tabId) {
-  const g = groupOf(tabId)
-  if (!g) return false
-  const at = stripOrder.indexOf(tabId)
-  return groupOf(stripOrder[at - 1])?.id !== g.id
-}
-
 /** 取一个用得最少的颜色（都用过就按色板顺序回落） */
 function pickColor() {
   const counts = new Map(GROUP_COLORS.map((c) => [c, 0]))

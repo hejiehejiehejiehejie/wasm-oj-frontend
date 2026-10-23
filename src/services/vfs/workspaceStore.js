@@ -336,8 +336,6 @@ export const activeLanguage = computed(() => {
   return null
 })
 
-export const dirtyCount = computed(() => modelManager.dirtyIds.size)
-
 // ------------------------------------------------------------ Actions
 
 /**

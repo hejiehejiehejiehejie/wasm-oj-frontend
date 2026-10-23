@@ -165,11 +165,3 @@ export function cfContestProblems(spec) {
 export function cfClear() {
   return request({ type: 'clear' })
 }
-
-/** 关掉 Worker（卸载组件 / 页面卸载）。在途请求一律失败，避免留下悬挂的 await */
-export function disposeCfClient() {
-  if (!worker) return
-  worker.terminate()
-  worker = null
-  failAll(Object.assign(new Error('Codeforces worker disposed'), { code: 'DISPOSED' }))
-}

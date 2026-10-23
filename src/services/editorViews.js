@@ -141,10 +141,6 @@ export function activateCfPickerTab() {
   show('cfPicker')
 }
 
-export function deactivateCfPickerTab() {
-  state.cfPicker.active = false
-}
-
 // ------------------------------------------------- Codeforces 比赛
 // 与抽题同一套口径：show() 负责互斥（三个视图铺在同一层），关只归页签上的 × 管。
 
@@ -160,10 +156,6 @@ export function closeCfContestTab() {
 
 export function activateCfContestTab() {
   show('cfContest')
-}
-
-export function deactivateCfContestTab() {
-  state.cfContest.active = false
 }
 
 // 「活跃文件变了」就等于用户想看代码：点资源管理器、点文件页签、会话恢复都走 activeId，

@@ -259,12 +259,6 @@ watch(
   { immediate: true },
 )
 
-const totals = computed(() => {
-  const tally = { passed: 0, failed: 0, error: 0, running: 0 }
-  for (const item of testCases.value) if (tally[item.status] !== undefined) tally[item.status] += 1
-  return tally
-})
-
 const workspace = ref(null)
 const editorPane = ref(null)
 // 资源管理器：F2 / Delete 两条快捷键要落进它里面去执行（见 SHORTCUT_TREE_HANDLERS）。

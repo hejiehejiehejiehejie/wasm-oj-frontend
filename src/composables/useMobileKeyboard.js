@@ -40,9 +40,6 @@ const KEYBOARD_MIN = 100
 const SHORT_VIEWPORT = 480
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
-// 焦点是不是还在编辑器里（Monaco 的输入面，Chrome 是 .native-edit-context、其余是
-// 隐藏的 textarea.inputarea，两者都在 .monaco-editor 里面）
-const isInEditor = (node) => node instanceof Element && Boolean(node.closest('.monaco-editor'))
 // 普通输入框。刻意**不含 textarea**：测试样例的 `.ta` 走既有口径「轻点别处 → 焦点不动」
 // （见 HANDOFF 触摸屏那节），只有 `input` 这一层在落手时清焦点。
 const isInputBox = (node) => node instanceof Element && Boolean(node.closest('input'))

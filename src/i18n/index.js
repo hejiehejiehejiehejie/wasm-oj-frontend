@@ -158,11 +158,6 @@ export function t(key, params) {
   return interpolate(message, params)
 }
 
-/** 组件里的惯用入口；不想解构时也可以直接 import { t } */
-export function useI18n() {
-  return { t, locale, setLocale, LOCALES }
-}
-
 /**
  * 取**整棵子树**而不是一条文案。
  *

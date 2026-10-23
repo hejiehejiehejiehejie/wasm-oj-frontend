@@ -67,11 +67,8 @@ import { MEMORY_LIMIT_OPTIONS, TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
-  forgetActiveProfile,
   markCloudEntryHandled,
   pendingCloudHandle,
-  writeActiveProfile,
-  writeCloudEntryPath,
 } from '../services/cloudEntry.js'
 import {
   adoptCloud,
@@ -80,7 +77,6 @@ import {
   clearCloudFeedback,
   cloudAccount,
   cloudFailure,
-  cloudToken,
   code as cloudCode,
   codeMode as cloudCodeMode,
   codeCountdown as cloudCodeCountdown,
@@ -98,10 +94,6 @@ import {
   handleInput as cloudHandleInput,
   loginCloud,
   notice as cloudNotice,
-  pendingHandle as cloudPendingHandle,
-  remoteProfile as cloudRemoteProfile,
-  remoteUpdatedAt as cloudRemoteUpdatedAt,
-  requestCloudCode,
   refreshCloudCode,
   splitLinkText,
   unbindCloud,

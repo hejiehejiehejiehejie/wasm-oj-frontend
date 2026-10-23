@@ -190,16 +190,6 @@ export async function exportSingleFile(node) {
   return { name: node.name }
 }
 
-/**
- * 打包成 zip 的字节（桌面端落盘用，不触发下载）。
- * @param {object[]} nodes
- * @returns {Promise<{ blob: Blob, files: number, skipped: number }>}
- */
-export async function packZip(nodes) {
-  const { entries, files, skipped } = await collectExport(nodes)
-  return { blob: await buildZip(entries), files, skipped }
-}
-
 /** 桌面壳才做得到「写进我选的那个目录」 */
 export const CAN_EXPORT_TO_DISK = IS_DESKTOP
 
