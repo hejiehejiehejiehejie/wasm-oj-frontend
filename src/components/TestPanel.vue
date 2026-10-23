@@ -179,7 +179,9 @@ const elapsedText = computed(() => {
   /* 作为统一侧边栏「评测样例」页签里的 flex 子项撑满内容区（与 FileExplorer 的 .explorer 同款） */
   flex: 1 1 auto;
   min-height: 0;
-  background: var(--bg-panel);
+  /* 与统一侧边栏同色（--bg-editor，即整页底色）：这个面板盖在 .sidebar 上，
+     两边不同值的话切页签就能看出「底板被换了一档」（2026-10-23）。 */
+  background: var(--bg-editor);
 }
 
 /* 页头本身已上提到 Sidebar 的共享页头（.sidebar__head，2026-10-11）：折行、

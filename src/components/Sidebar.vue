@@ -236,7 +236,10 @@ defineExpose({
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-panel);
+  /* 与整页底色同一个变量（--bg-editor）：侧栏是「页面地面」上的一块，不另起一层色。
+     2026-10-23 用户要求「无论折叠还是展开都与页面底色相同」—— 折叠态那条图标栏见
+     ActivityBar 的 .activity-bar，两处必须同值，别只改一处。 */
+  background: var(--bg-editor);
 }
 
 /* ---------------------------------------------------------------- 页头

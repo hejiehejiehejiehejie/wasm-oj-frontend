@@ -362,9 +362,12 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
 </template>
 
 <style scoped>
-/* 与两块 .pane 同一种卡片外观（圆角 / 面板底色），只是收窄成 48px 一竖条。
+/* 收起侧栏之后在场的那一条：圆角 48px 竖条，**底色与整页底色相同**。
+   底色本是与 .pane 同值的 --bg-panel（29 档），2026-10-23 用户要求「折叠 / 展开都与
+   页面底色一致」—— 改成 --bg-editor 之后它不再是一块比地面亮一档的「卡」，
+   读起来就是地面本身让出了一列图标（展开态的 .sidebar 同一支变量，见 Sidebar.vue）。
    **不描边**（2026-10-22 用户要求去掉外面那一圈细线）：折叠态下它与编辑器卡片之间
-   还隔着一条 4px 空隙，底色已经够把它读成一条独立的栏；再描一圈 1px 反而像第三块卡片。
+   还隔着一条 4px 空隙；再描一圈 1px 反而像第三块卡片。
    ⚠️ 边框一去掉，内容盒就从 46px 变成 48px，下面 .activity-bar__item 的左边距要跟着
    从 3px 改成 4px，方块才继续在栏内水平居中（`box-sizing: border-box` 是全局的）。
    宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。 */
@@ -381,7 +384,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   padding: 4px 0;
   overflow: hidden;
   border-radius: 10px;
-  background: var(--bg-panel);
+  background: var(--bg-editor);
 }
 
 /* 展开态不写规则：这一栏的在场与否由 App 的 v-show 决定（判据与 is-collapsed 同源），

@@ -346,6 +346,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 两色**都不能省略**：省略背景则退回透明，省略边框则退回注册表默认 `#282828`，又变回灰框。
   - **只铺正文，不铺行号栏**（2026-10-11 同日）：行号栏那块底色由 Monaco 的 `renderLineHighlight` 决定 —— `'all'` = 正文 + 行号栏，`'line'` = 只正文（源码依据：`currentLineHighlight.js` 的 `_shouldRenderInMargin()`）。`editorOptions.js` 的默认值已由 `'all'` 改成 `'line'`，并抬 `EDITOR_SETTINGS_VERSION` 到 **6** 做一次性改写（见第 6 节）——不改写的话存档里的 `'all'` 会盖住新默认，老用户刷新看不到变化。行号文字本身的「当前行提亮」与这个选项**无关**（`active-line-number` 只看光标行），所以改完行号仍比别行亮。设置面板四档全留，想要连行号栏一起铺底色的仍可选「全部」。
   - ⚠️ **这条改写当天抬了两次版本号（5 → 6），第一次没生效**：当时把「版本号抬到 5」和「加改写分支」分成了两次编辑落地，中间那段窗口里 dev server 的 HMR 重载过一次页面 —— 那次读盘时版本号已是 5、改写分支还不存在，于是把 `{ renderLineHighlight: 'all', version: 5 }` 原样写回存档；此后 `< 6` 之前的老判定永远不成立，这条改写对该存档彻底失效（症状：用户怎么刷新，行号栏都还在染色）。**动 `EDITOR_SETTINGS_VERSION` 时必须和它对应的迁移分支在同一次编辑里落地，别分两步。**
+- **侧边栏无论折叠还是展开，底色都与整页底色同色**（2026-10-23 用户要求：「无论折叠还是展开的底色都改为与网站整个页面的底色相同」）。四处一律 `--bg-editor`，改一处必须四处一起改：
+  - `.pane--tests`（`App.vue`，覆盖 `.pane` 给的 `--bg-panel`）/ `.sidebar`（`Sidebar.vue`）/ `.panel`（`TestPanel.vue` 的评测面板 —— 它盖在 `.sidebar` 上，两边不同值的话切一次页签就能看出「底板被换了一档」）/ `.activity-bar`（`ActivityBar.vue`，折叠态那条 48px 图标栏）。
+  - 编辑器那半张卡仍是 `--bg-panel` + 1px `--border-soft`：卡片语言只落在编辑器一侧，侧边栏读起来是「地面让出来的一块」，与编辑器之间只靠那 4px 留白分开。
+  - 探针实测（1400×900，两套主题 × 展开资源管理器 / 展开评测 / 折叠三种）：`.pane--tests`、`.sidebar`、`.panel`、`.activity-bar` 与 `html`、`body`、`.workspace` **全部同色** —— 深色 `rgb(28,28,28)`、浅色 `rgb(243,243,243)`；`.pane--editor` 仍是 `rgb(29,29,30)` / `rgb(244,244,244)`。
+  - 页头 / 页脚那几条仍是 `--bg-panel-head`（评测面板页脚 `.panel__foot` 靠这层色差交代「这里是页脚」，见 `TestPanel.vue` 2026-10-06 那条注释）—— 它们不是底色，别顺手一起改。
+
 - 变量分组（`src/styles/base.css`）：
 
 | 分组 | 变量 |
