@@ -111,16 +111,21 @@ async function action(id) {
 </template>
 
 <style scoped>
-/* 与右键菜单同一族观感：颜色走 --menu-* 令牌，圆角 / 阴影 / 展开动画同款；
-   宽度比菜单宽一档（要装下色点一排）。 */
+/* 与右键菜单同一族观感，且**同尺寸**（2026-10-23 用户要求）：
+   尺寸与 ContextMenu 共用同一个 --menu-scale，宽度直接取菜单那 220px 模板宽 × 同一系数，
+   字号 / 内边距 / 条目行高 / 圆角全跟着 0.92 走，并排看不出两套尺子。
+   色点行是这里独有的内容：8 个点 × 16.56 + 7 个间距，按 8px×0.92 排会超出 202.4 的版心
+   （178.3），所以间距单独收到 6px×0.92，其余一律不手调。 */
 .tab-group-card {
+  /* 与 ContextMenu.vue 的 .context-menu 同一个值 */
+  --menu-scale: 0.92;
   position: fixed;
   z-index: 120;
-  width: 264px;
-  padding: 12px 12px 6px;
+  width: calc(220px * var(--menu-scale));
+  padding: calc(12px * var(--menu-scale)) calc(12px * var(--menu-scale)) calc(6px * var(--menu-scale));
   background: var(--menu-bg);
   border: 1px solid var(--menu-border);
-  border-radius: 10px;
+  border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
   visibility: hidden;
   transform-origin: top left;
@@ -142,13 +147,13 @@ async function action(id) {
 .tab-group-card__name {
   width: 100%;
   box-sizing: border-box;
-  padding: 7px 10px;
+  padding: calc(7px * var(--menu-scale)) calc(10px * var(--menu-scale));
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--menu-scale));
   color: var(--text);
   font-family: var(--font-sans, system-ui);
-  font-size: 13px;
+  font-size: calc(13px * var(--menu-scale));
   outline: none;
 }
 
@@ -159,14 +164,14 @@ async function action(id) {
 .tab-group-card__colors {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 2px;
+  gap: calc(6px * var(--menu-scale));
+  padding: calc(10px * var(--menu-scale)) calc(2px * var(--menu-scale));
 }
 
-/* 色点：18px 圆。选中的那枚外圈一个环（outline，不占布局） */
+/* 色点：18px 圆（随 --menu-scale 缩）。选中的那枚外圈一个环（outline，不占布局） */
 .tab-group-card__color {
-  width: 18px;
-  height: 18px;
+  width: calc(18px * var(--menu-scale));
+  height: calc(18px * var(--menu-scale));
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -185,21 +190,23 @@ async function action(id) {
 }
 
 .tab-group-card__items {
-  margin: 0 -12px -6px;
-  padding: 6px 0;
+  margin: 0 calc(-12px * var(--menu-scale)) calc(-6px * var(--menu-scale));
+  padding: calc(6px * var(--menu-scale)) 0;
   border-top: 1px solid var(--menu-separator);
 }
 
+/* 条目与右键菜单的条目同一套尺子：6px 20px × 0.92、字号 13px × 0.92，
+   行高交给字体天然行盒（菜单那边也是），所以条目高度正好都是 28px。 */
 .tab-group-card__item {
   display: block;
   width: 100%;
-  padding: 7px 20px;
+  padding: calc(6px * var(--menu-scale)) calc(20px * var(--menu-scale));
   background: transparent;
   border: none;
   border-radius: 0;
   color: var(--menu-text);
   font-family: var(--font-sans, system-ui);
-  font-size: calc(13px * var(--menu-scale, 1));
+  font-size: calc(13px * var(--menu-scale));
   line-height: normal;
   text-align: left;
   cursor: pointer;
@@ -213,7 +220,7 @@ async function action(id) {
 
 .tab-group-card__divider {
   height: 1px;
-  margin: 6px 10px;
+  margin: calc(6px * var(--menu-scale)) calc(10px * var(--menu-scale));
   background: var(--menu-separator);
 }
 </style>
