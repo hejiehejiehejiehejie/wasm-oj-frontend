@@ -136,6 +136,7 @@ const REASON_KEYS = {
   unsupported: 'tests.submit.reason.unsupported',
   timeout: 'tests.submit.reason.timeout',
   'not-logged-in': 'tests.submit.reason.notLoggedIn',
+  challenge: 'tests.submit.reason.challenge',
   'problem-missing': 'tests.submit.reason.problemMissing',
   'language-missing': 'tests.submit.reason.languageMissing',
   rejected: 'tests.submit.reason.rejected',

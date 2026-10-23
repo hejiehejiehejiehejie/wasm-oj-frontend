@@ -1185,7 +1185,7 @@ Activity 的窗口管，得由 `services/systemBars.js` 经 Rust / JNI 送过去
 | `src/fillCode.ts` | **代填验证码脚本**（2026-10-11 加）：只注入 `https://codeforces.com/settings/social*`（清单常量 `FILL_CODE_SITE_PATTERNS` 在 `scripts/build/extension.ts`，同时进 `host_permissions` —— Social 页不在任何 parser 的路径里，不单独声明权限 `tabs.query` / `executeScript` 都会失败）。只做一件事：把码写进 Last name → 先 `sendResponse` 再提交（**顺序不能反**，页面一跳转消息通道就没了）。**不读 cookie、不回传页面内容**，只回 `not-logged-in` / `handle-mismatch` / `page` 三个原因；登录的是别人时什么都不写 |
 | `src/cfIdentity.ts` | **「这个浏览器在 Codeforces 上登的是谁」的唯一判据**（2026-10-11 加）：`currentHandle()` 读页头那个 `/profile/<handle>` 链接（公开可见的 DOM，不是 cookie）、`hasLoginForm()` 把「没登录」与「改版了」分开、`isCodeforcesSite()` 只认正牌 codeforces.com（镜像是另一套会话）。`fillCode.ts` 与 `autoParse.ts` **必须共用这一份** —— 各留一份必然走偏，用户会看到「提示说已登录、点下去却说没登录」。⚠️ 这个值只够驱动界面提示，**不能当身份凭据**（伪造一个扩展就能冒充任意 handle），见 13.1 的硬边界 |
 | `src/autoParse.ts` | **自动抓样例**（上游行为，2026-10-11 加了一条捎带）：注入面是整个来源站点域（Codeforces 那条是 `https://codeforces.com/*`，**不只有题目页**），所以用户开任意 CF 页面它都在场 —— 顺手读一次 `cfIdentity` 报给后台（`ReportCfIdentity`，fire-and-forget），站点取码时就能提前说清代填能不能成。**不发任何请求、不开标签页、不读 cookie**；只在正牌 codeforces.com 上做，回报失败只影响「预检那一行」，绝不影响抓题本身 |
-| `src/submitCode.ts` | **一键提交的页面侧**（2026-10-23 加）：只注入提交页与 `/my` 页（清单常量 `SUBMIT_SITE_PATTERNS` 在 `scripts/build/extension.ts`，同时进 `host_permissions`）。两种消息：`SubmitCode` = 在提交页里选题目 / 选编译器（按**显示名**挑最后一个 `GNU G++`，退而求其次任意 C++；Python 挑最后一个非 PyPy 的）→ 写 `textarea[name=sourceFile]` → **先回执再点提交**（页面一跳转消息通道就没了，见 `SUBMIT_DELAY = 50`）；`ReadSubmission` = 在 `/my` 页上读某条提交的当前判定（空 id = 读第一行），读不到就自己 `fetch` 同一地址（`credentials: 'same-origin'`、`cache: 'no-store'`）再解析。**不读 cookie、不回传页面内容**，只回原因枚举与判定码 |
+| `src/submitCode.ts` | **一键提交的页面侧**（2026-10-23 加）：只注入提交页与 `/my` 页（清单常量 `SUBMIT_SITE_PATTERNS` 在 `scripts/build/extension.ts`，同时进 `host_permissions`）。两种消息：`SubmitCode` = 在提交页里选题目 / 选编译器（按**显示名**挑最后一个 `GNU G++`，退而求其次任意 C++；Python 挑最后一个非 PyPy 的）→ 写 `textarea[name=sourceFile]` → **先回执再点提交**（页面一跳转消息通道就没了，见 `SUBMIT_DELAY = 50`）；`ReadSubmission` = 在 `/my` 页上读某条提交的当前判定（空 id = 读第一行），读不到就自己 `fetch` 同一地址（`credentials: 'same-origin'`、`cache: 'no-store'`）再解析。**不读 cookie、不回传页面内容**，只回原因枚举（`not-logged-in` / `challenge` / `problem-missing` / `language-missing` / `page` / `empty`；其中 `challenge` 是 Cloudflare 验证页，2026-10-23 按真实 CF 的标记补的）与判定码 |
 
 **站点侧**两个 composable + 一个服务：`useCompanionBridge.js`（收消息）→ `useCompanionImport.js`（订阅 + 兜异常）→ `services/vfs/problemImport.js`（落盘）。`App.vue` 里只有一句 `useCompanionImport({ setTestCases, onImported })`。
 
@@ -1636,7 +1636,7 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 ⚠️ 别为了「省高度」把这行改回两端对齐：这张卡是竖着长的，按钮必须跟文字同一条左轴线；
 真要并排，三颗按钮加起来 294px，容器得 ≥ 380 才放得下，而设置视图在窄编辑器里远远到不了。
 
-### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0）
+### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.1）
 
 **为什么必须走扩展**：站点自己提交不了 —— 提交页要 CSRF token，跨源也读不到用户的登录 cookie。扩展本来就注入在 codeforces.com、本来就带着登录态，与代填验证码是同一条信任边界：源码由网页显式递过去，扩展只把它写进表单，**不读 cookie、不回传页面内容**，回给网页的只有原因枚举、提交号与判定码。
 
@@ -1655,7 +1655,7 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 **四处刻意如此**：
 
 1. **按钮显示与否 ≠ 能不能交**：判据只看「活跃文件有没有 `meta.url`」。洛谷题、题解文件也显示，置灰并在页脚那行说清原因（「只支持 Codeforces」）—— 按钮凭空消失比置灰更难理解。置灰的按钮**收不到鼠标事件**，所以原因必须写成看得见的字，不能只塞 `title`（与 `.run-blocked` 共用一行，两条原因同时存在时优先说「不能运行」）。
-2. **永远新开标签页，不挪用户的**：用户可能正开着一份填了一半的提交页；拿它跳转会当场毁掉草稿。失败时关掉自己开的那个；**只有 `not-logged-in` 例外** —— 把那个标签页亮出来并保留，用户就地登录后重试（关掉等于把「去哪儿登录」这个唯一线索也收走）。
+2. **永远新开标签页，不挪用户的**：用户可能正开着一份填了一半的提交页；拿它跳转会当场毁掉草稿。失败时关掉自己开的那个；**`not-logged-in` / `challenge` / `page` 例外** —— 把那个标签页亮出来并保留：登录页用户就地登录后重试，人机验证页与「找不到表单」的页面就是唯一的现场（关掉等于把证据也收走）。其余原因（题目没了 / 编译器没了）都是确定结论，关掉别堆标签页。
 3. **编译器按显示名挑、不写死 `programTypeId`**：同一道题在不同比赛里可用的编译器会变。取最后一个 `GNU G++`、退而求其次任意 C++；Python 取最后一个非 PyPy 的。挑不到就回 `language-missing`，不猜。
 4. **判定映射宁保守**：`Pretests passed` 算 `ac`；空 / `In queue` / `Running` / `Testing` 都算 `testing`（中转态不弹通知）；认不出的折成 `other`。站点只拿判定码决定通知颜色与文案，**不拿它做任何放行判断** —— 与 `cp-cf-check` 那条硬边界同理。
 
@@ -1667,7 +1667,26 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 - **B 用假桥扮一个带 `submit-code` 的扩展**：按钮变亮（`--accent`），在编辑器里**敲一段不存盘**再点它 —— 扩展收到的是这 24 个字符（与输入一字不差）、`language: 'cpp'`、题目地址与提交页推导一致，信封 `source` 仍是 `'cp-page'`；点击瞬间按钮进 `.is-submitting` 且禁用、弹常驻「提交中…」；回执后换成「已提交到 Codeforces / 提交 #123456789」；`cp-submit-status` 推 `ac` 后换成「#123456789 通过」。两套主题都截了图，`pageerror` 为 0。
 - `npm run verify` 仍是既有基线（A/E/G/H 红、B/C/D/F 绿），`npm run build` 通过。
 
-**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记一笔）。
+**2.67.1 当日补丁**（2026-10-23，用户在自己 Chrome 里实报「提交页认不出来（站点可能改版了）」）：三处都改了。
+
+1. **新建标签页的空白页竞态**：`browser.tabs.create` 之后、导航真正开始之前，标签页就可能报 `status === 'complete'`，那会儿 `tab.url` 还是 `about:blank`。旧的 `waitForTabComplete` 只看 status，于是立刻去问内容脚本 —— 空白页上没人应答，最后折成 `page`。现在要 `status === 'complete'` **且** `isRealDocument(tab.url)`（http / https）才算加载完成。
+2. **失败现场不再收走**：`page` / `challenge` 与 `not-logged-in` 一样保留并激活那个标签页（见上面第 2 条）。
+3. **人机验证不再被误报成「站点改版」**：真实 codeforces.com 在干净浏览器里会先落到 Cloudflare 托管验证页（标题「请稍候…」、`cf-chl-widget-*` 输入框、`window._cf_chl_opt`），它既没有登录表单也没有提交表单，原先只能折成 `page`。现在新增原因 `challenge`（跨仓契约，站点文案「Codeforces 正在人机验证，请在打开的页面里完成后重试」）。判据只在**找不到提交表单**时才看，且不拿 `challenge-platform` 脚本单独作数 —— 普通 CF 页面也可能挂那条脚本。
+
+清单（`host_permissions` 190 / `content_scripts` 4）与 API `permissions` 未变，第三方组件未变。
+
+**端到端实测**（2026-10-23 晚，真扩展 + 真站点 dev server + headless Chrome；`codeforces.com` 由本机 CONNECT 代理喂一个「已登录」的假提交页，主机名与同源都保持真实；探针跑完即删）：
+
+| 场景 | 结果 |
+| --- | --- |
+| 完整提交（假 CF 已登录） | 站点点 ↑ → 扩展打开 `https://codeforces.com/contest/1/submit` → 表单 POST 里 `submittedProblemIndex=A`、`programTypeId=89`（列表里最后一个 `GNU G++`）、源码与编辑器正文一致（浏览器按表单规则把换行统一成 CRLF，归一化后 82/82 字符全等）→ 跳 `/my` → 读出提交号 123456789 → 通知依次为「提交中…」→「已提交到 Codeforces / 提交 #123456789」→「#123456789 通过」；终态后扩展自己开的标签页被关掉 |
+| 提交页没有表单 | 通知「提交失败 / 提交页认不出来（站点可能改版了）」；扩展开的 `https://codeforces.com/contest/2/submit` **保留且在前台**（`visibilityState = visible`） |
+| Cloudflare 验证页 | 通知「提交失败 / Codeforces 正在人机验证，请在打开的页面里完成后重试」；验证页保留且在前台 |
+| 真实 codeforces.com（未登录的干净环境） | 落到 CF 的 Cloudflare 托管验证页，返回 `challenge` 而不是 `page`；那一页被亮出来，用户能直接看到「正在进行安全验证」 |
+
+**尚未验证的**：真实账号下的一次提交 —— 那需要用户的 Codeforces 登录态（扩展刻意不读 cookie，探针也不碰它）。上面这条链路已经覆盖了除「CF 真实表单字段 / 判定文案」之外的全部环节；这两处若改版，分别会以 `problem-missing` / `language-missing` 或 `other` 的形式暴露。
+
+**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.1）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记两笔）。
 
 **还不做什么**：其余 OJ 的提交页各是另一套形态（洛谷要 token、牛客 / LeetCode 是接口），首版只认 Codeforces；**不自动提交**（不发源码、不后台跑，只认用户那一次显式动作）；不替用户选题目 —— 题目由地址里的 contest + index 唯一确定，扩展只是把它在提交页的下拉框里选中。
 

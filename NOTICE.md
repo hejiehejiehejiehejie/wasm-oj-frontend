@@ -16,6 +16,8 @@
 
 > 最后核对：**2026-10-23**（新增一条**运行时**依赖 `canvas-confetti` 1.9.4（ISC）—— 一次评测全部样例通过时、在样例面板里飘落的彩带，随主包分发；画面落在样例面板自己那块 canvas 上、跑在主线程（**不用它的 worker 模式**）。版本与许可由 `node_modules/canvas-confetti/package.json` 实读，不是照写。依赖条数按同日 `package-lock.json` 重核：`lockfileVersion: 3`，共 **108** 个包 —— **32** 条生产、**76** 条开发；下面 2026-09-30 那条记的 94 / 30 / 64 是那天的读数，此后陆续加了 `@tauri-apps/api` 等，**以本条为准**）。
 >
+> 此前核对：**2026-10-23**（换扩展包 → `cc-for-web-2.67.1.zip`。当日补丁，修一键提交的三处：① 新建标签页在导航真正开始前就可能报 `complete`（那会儿还是 `about:blank`），扩展因此过早去问内容脚本、页面没应答，最终误报「提交页认不出来」—— 现在要等落在真文档（http / https）上才算加载完成；② 页面上找不到提交表单时**保留并亮出那一页**（和未登录一样），留着改版 / 重定向的现场；③ 把 Cloudflare 人机验证页从「认不出来」里分出来，单报 `challenge` —— 判据取自验证页自己的标记（`cf-chl-widget-*`、`window._cf_chl_opt`、标题里的「请稍候 / Just a moment」），站点会提示用户去打开的页面里完成验证。清单与 API `permissions` 一条未动，包内第三方组件的版本与许可**未变**）。
+>
 > 此前核对：**2026-10-23**（换扩展包 → `cc-for-web-2.67.0.zip`。本次是**一键提交到 Codeforces**：新增 `submit-code` 能力与 `cp-submit` / `cp-submit-result` / `cp-submit-status` 三条跨仓消息 —— 用户在本站样例面板点那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定、逐次推回本站。信任边界与验证码代填一致：只往提交框里写源码、不读 cookie、不回传页面内容，且只在用户显式点按时发生一次。清单随之变化：`host_permissions` 184 → 190、`content_scripts` 3 → 4（多出的一条注入 Codeforces 的 `contest` / `gym` / `group` 提交页与「我的提交」页），API `permissions` 一条未新增。属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
 >
 > 此前核对：**2026-10-11**（换扩展包 → `cc-for-web-2.66.4.zip`。本次两项行为改动，都是云同步登录的便利：① **验证码代填** —— 用户在本站点那颗按钮时，扩展去 Codeforces 的 Social 设置页把本站取到的码写进 Last name 并提交（只写这一格，不读 cookie、不读凭据）；② **登录态预检** —— 扩展在本地比对本浏览器登录的 handle 与用户填的是否一致，只回 `match` / `mismatch` / `not-logged-in` / `unknown` 四个枚举、**绝不回用户名**。清单随之变化：`host_permissions` 183 → 184、`content_scripts` 2 → 3（多出的一条只注入 `https://codeforces.com/settings/social*`），API `permissions` 一条未新增。属于行为/清单改动而非依赖变动，包内第三方组件的版本与许可**未变**）。
@@ -94,7 +96,7 @@
 
 ## 四、浏览器扩展 CC for Web
 
-安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.67.0**；2026-10-23 换版，行为改动是**一键提交到 Codeforces** —— 用户点样例面板页脚那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定推回本站（只写提交框、不读 cookie、不回传页面内容，且只在用户显式点按时发生；`host_permissions` 也因此 184 → 190、`content_scripts` 3 → 4）；包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
+安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.67.1**；2026-10-23 换版（当日补丁修掉新建标签页的空白页竞态，找不到提交表单时保留那一页，并把 Cloudflare 人机验证页单报为 `challenge`），行为改动是**一键提交到 Codeforces** —— 用户点样例面板页脚那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定推回本站（只写提交框、不读 cookie、不回传页面内容，且只在用户显式点按时发生；`host_permissions` 也因此 184 → 190、`content_scripts` 3 → 4）；包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
 
 | 组件 | 版本 | 许可 | 说明 |
 | --- | --- | --- | --- |
