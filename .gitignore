@@ -26,6 +26,10 @@ npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# 本机 CPH 插件的工作区产物（仓库根被当成 CPH 工作区时生成）
+.cph/
+/*.cpp
+
 # 协作工具的工作目录（交接笔记 / 每日日志），是本地资料不是站点内容，别跟着产物一起发出去
 .workbuddy/
 
