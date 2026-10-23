@@ -16,6 +16,7 @@
  *
  * 【自动弹一次的记录】`cp.installGuides`（本文件唯一读写），存**已自动弹过的引导 id 数组**。
  * 四条各记各的：见过「可以装应用」不等于见过「插件有新版」，所以状态变了仍会再提示一次。
+ * 例外是 `ext-update`：它不落这份记录，每次打开 / 刷新页面只要插件还旧就再弹一次。
  * 手动触发（设置里那颗「安装引导」按钮）**不看这份记录** —— 那是用户点名要看。
  *
  * 【`app-manual` 只有「引擎没有可用的一键入口」那半自动弹】2026-10-12 用户反馈那条警告
@@ -144,6 +145,12 @@ export const installUnavailable = computed(
 
 /** 已自动弹过的引导 id（内存镜像 + 落 `cp.installGuides`） */
 const shown = new Set(readShown())
+
+/**
+ * 「插件有新版」不进 `cp.installGuides`：用户要求每次打开 / 刷新都提醒，直到换上新版
+ * （2026-10-24）。只在本次页面生命周期内记一笔，免得 `watch(canInstall)` 补跑时再弹一条。
+ */
+let updateShownThisLoad = false
 
 function readShown() {
   if (typeof window === 'undefined') return []
@@ -313,10 +320,12 @@ function available(id) {
  */
 export function runAutoGuides() {
   for (const id of ['app-install', 'app-manual', 'ext-install', 'ext-update']) {
-    if (shown.has(id) || !available(id)) continue
+    const seen = id === 'ext-update' ? updateShownThisLoad : shown.has(id)
+    if (seen || !available(id)) continue
     if (id.startsWith('app')) show(TAG_APP, appGuide())
     else show(TAG_EXTENSION, extensionGuide())
-    rememberShown(id)
+    if (id === 'ext-update') updateShownThisLoad = true
+    else rememberShown(id)
   }
 }
 
