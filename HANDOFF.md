@@ -1645,13 +1645,13 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 ⚠️ 别为了「省高度」把这行改回两端对齐：这张卡是竖着长的，按钮必须跟文字同一条左轴线；
 真要并排，三颗按钮加起来 294px，容器得 ≥ 380 才放得下，而设置视图在窄编辑器里远远到不了。
 
-### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.3）
+### 13.12 一键提交到 Codeforces（2026-10-23 加；扩展 2.67.0 → 2.67.4）
 
 **为什么必须走扩展**：站点自己提交不了 —— 提交页要 CSRF token，跨源也读不到用户的登录 cookie。扩展本来就注入在 codeforces.com、本来就带着登录态，与代填验证码是同一条信任边界：源码由网页显式递过去，扩展只把它写进表单，**不读 cookie、不回传页面内容**，回给网页的只有原因枚举、提交号与判定码。
 
 **数据流**（一次点击一整条）：
 
-点击页脚那颗 ↑ / 按 `Mod+Shift+Enter` → `App.submitActiveFile` → `services/ojSubmit.js` 的 `submitActiveSolution` 取**编辑器里的当前正文**（`peekActiveContent()`，不要求先存盘）→ `useCompanionBridge` 发 `cp-submit` → 扩展后台 `submitOnCodeforces` 开一个**不激活**的新标签页 → 等加载 → `submitCode.ts` 在提交页里选题目 / 选编译器 / 写入源码 → **先回执再点提交** → 后台等页面跳到 `/my` → 读出这一条的 `data-submission-id` → 回 `cp-submit-result` → 后台每 2s 读一次判定，变化就广播 `cp-submit-status` → 站点换通知；扩展看到终态后收掉自己开的那个标签页（站点侧等待上限 5 分钟，扩展侧 2 分钟）。
+点击页脚那颗 ↑ / 按 `Mod+Shift+Enter` → `App.submitActiveFile` → `services/ojSubmit.js` 的 `submitActiveSolution` 取**编辑器里的当前正文**（`peekActiveContent()`，不要求先存盘）→ `useCompanionBridge` 发 `cp-submit` → 扩展后台 `submitOnCodeforces` 开一个**不激活**的新标签页 → 等加载 → `submitCode.ts` 在提交页里选题目 / 选编译器 / 写入源码 → **先回执再点提交** → 后台等页面跳到 `/my` → 读出这一条的 `data-submission-id` → 回 `cp-submit-result` → 后台每 2s 读一次判定，变化就广播 `cp-submit-status` → 站点换通知；扩展看到终态后 **AC 收掉**自己开的那个标签页，**非 AC 留着**并导航到这一条的提交详情页、亮到前台（站点侧等待上限 5 分钟，扩展侧 2 分钟）。
 
 **站点侧三块**：
 
@@ -1664,7 +1664,7 @@ main 586。超长用户名 `a_very_long_codeforces_handle`（197px）在 280 下
 **四处刻意如此**：
 
 1. **按钮显示与否 ≠ 能不能交**：判据只看「活跃文件有没有 `meta.url`」。洛谷题、题解文件也显示，置灰并在页脚那行说清原因（「只支持 Codeforces」）—— 按钮凭空消失比置灰更难理解。置灰的按钮**收不到鼠标事件**，所以原因必须写成看得见的字，不能只塞 `title`（与 `.run-blocked` 共用一行，两条原因同时存在时优先说「不能运行」）。
-2. **永远新开标签页，不挪用户的**：用户可能正开着一份填了一半的提交页；拿它跳转会当场毁掉草稿。失败时关掉自己开的那个；**`not-logged-in` / `challenge` / `page` 例外** —— 把那个标签页亮出来并保留：登录页用户就地登录后重试，人机验证页与「找不到表单」的页面就是唯一的现场（关掉等于把证据也收走）。其余原因（题目没了 / 编译器没了）都是确定结论，关掉别堆标签页。
+2. **永远新开标签页，不挪用户的**：用户可能正开着一份填了一半的提交页；拿它跳转会当场毁掉草稿。失败时关掉自己开的那个；**`not-logged-in` / `challenge` / `page` 例外** —— 把那个标签页亮出来并保留：登录页用户就地登录后重试，人机验证页与「找不到表单」的页面就是唯一的现场（关掉等于把证据也收走）。其余原因（题目没了 / 编译器没了）都是确定结论，关掉别堆标签页。判定收尾同理：**AC 收掉，非 AC 保留并导航到详情页**（2026-10-24，2.67.4）。
 3. **编译器按显示名挑、不写死 `programTypeId`**：同一道题在不同比赛里可用的编译器会变。取最后一个 `GNU G++`、退而求其次任意 C++；Python 取最后一个非 PyPy 的。挑不到就回 `language-missing`，不猜。
 4. **判定映射宁保守**：`Pretests passed` 算 `ac`；空 / `In queue` / `Running` / `Testing` 都算 `testing`（中转态不弹通知）；认不出的折成 `other`。站点只拿判定码决定通知颜色与文案，**不拿它做任何放行判断** —— 与 `cp-cf-check` 那条硬边界同理。
 
@@ -1728,7 +1728,11 @@ $("select[name=submittedProblemIndex]").bind('change', updateSubmitButtonState);
 
 修法：`submitCode.ts` 新增 `enableSubmit(select)`（就是派发那个 `change`），`selectProblem` 的两个分支都调它；选编译器之后也补一次 `change`（同样是页面脚本在监听）。随后在一个**全新的**提交页上按扩展的顺序走一遍（选 A → change → 选 91 → change → 写源码 253 字符 → 50 ms 后点按钮）→ 302 到 `/contest/1832/my` → `#395709826` **Accepted**（46 ms，C++23 GCC 14-64）。
 
-**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1 / 2.67.2 / 2.67.3）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.3）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记三笔）。
+**2.67.4 当日改版**（2026-10-24，用户口径：「样例为非 AC 需要看网页具体是怎么出错了，所以不要关」）：终态收尾按判定分两路 —— **AC 照旧收掉**扩展自己开的标签页；**非 AC（wa / tle / mle / re / ce / other）保留**，并把这一页从 `/my` 直接导航到 `https://codeforces.com/{base}/submission/{id}`、`active: true` 亮到前台。留在 `/my` 列表上还得再点一次才到得了现场，而失败测试点、编译错误原文、RE 输出都只在详情页上。总超时（2 分钟仍无终态）也走非 AC 这一路：留着并跳到详情页，让用户自己看卡在哪。`SubmitTarget` 因此多带一个 `base`（`contest/2276` / `gym/100001` / `group/123/contest/456`），详情页地址由它拼。
+
+**端到端实测**（2026-10-24，dev 构建真扩展 + 最小目标页 + 本机 CONNECT 代理扮 codeforces.com，探针跑完即删）：AC → 判定 `ac` 后标签页被关（只剩 `about:blank` 与目标页）；WA → `wa` 后标签页保留在 `/contest/1/submission/123456789`、`visibilityState=visible`、5 秒后仍在；CE → 与 WA 同。三场景 20 条断言全绿。同一个探针里踩到一条**探针自身**的坑：`waitForFunction` 默认按 rAF 轮询，CF 页被激活后目标页转入后台、rAF 被节流，等终态永远等不到（判定其实早已推送）——改成 `polling: 100` 即可。
+
+**改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1 / 2.67.2 / 2.67.3 / 2.67.4）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.4）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记三笔）。
 
 **还不做什么**：其余 OJ 的提交页各是另一套形态（洛谷要 token、牛客 / LeetCode 是接口），首版只认 Codeforces；**不自动提交**（不发源码、不后台跑，只认用户那一次显式动作）；不替用户选题目 —— 题目由地址里的 contest + index 唯一确定，扩展只是把它在提交页的下拉框里选中。
 

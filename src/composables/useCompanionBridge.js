@@ -63,7 +63,8 @@ import { IS_DESKTOP } from '../services/platform.js'
  * 同一条信任边界：**源码由网页显式递过去，扩展只把它写进提交表单**，不读 cookie、不回传
  * 页面内容。`cp-submit-result` 只说明「提交这半步成没成 + submissionId」，之后由扩展在
  * 那个标签页里盯着 `/my` 页，verdict 每变一次发一条 `cp-submit-status`（`testing` 之后
- * 才有终态），终了就收掉自己开的标签页。同样受 `capabilities` 的 `submit-code` 保护。
+ * 才有终态）：AC 收掉自己开的标签页，非 AC 留着并导航到提交详情页（用户要看的失败现场）。
+ * 同样受 `capabilities` 的 `submit-code` 保护。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
