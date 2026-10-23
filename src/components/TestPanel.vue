@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
@@ -36,6 +36,53 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all'])
+
+// 页脚上沿那条「还有下文」线（2026-10-23 加；判据同日按用户口径翻过一面）：
+// 页脚底色已改成与面板同色（--bg-editor，即整页地面），不再靠色差与列表分开，
+// 于是改由一条发丝线交代边界。
+//
+// ⚠️ **判据与页头（Sidebar.syncHeadScrolled）正好相反，别顺手抄那一条**：
+//   页头在顶上：scrollTop > 0 才画（内容从页头底下穿过去了）。
+//   页脚在底下：**没滚到底才画** —— 还有内容压在这条线后面，才需要把它描出来；
+//   滚到最底 / 一屏装得下 / 空列表，都没有「下文」，线就不该出现（用户 2026-10-23 纠正）。
+//   −1 是亚像素余量：缩放后 scrollHeight 常带小数，差 0.5px 时「已到底」会被读成
+//   「还有下文」，那条线就永远擦不掉。
+// ⚠️ 别改成「恒定描边」：列表装得下时，那条线会把一块空白切成两截。
+// ⚠️ 这条 border 常时也在（透明），只是为了显示 / 隐藏时页脚高度不抖 1px。
+const moreBelow = ref(false)
+function syncFootEdge() {
+  const el = listEl.value
+  if (!el) {
+    moreBelow.value = false
+    return
+  }
+  moreBelow.value = el.scrollTop + el.clientHeight < el.scrollHeight - 1
+}
+
+let listObserver = null
+
+onMounted(() => {
+  const el = listEl.value
+  if (!el) return
+  el.addEventListener('scroll', syncFootEdge, { passive: true })
+  // 面板在两个页签间用 v-show 切（不是 v-if）：藏起来时 clientHeight 是 0、判据算不出东西，
+  // 切成「评测样例」那一刻盒子从 0 变高，ResizeObserver 会补发这次重算 ——
+  // 光靠 scroll 事件的话，进面板后只要不动滚轮，线就一直缺着。
+  listObserver = new ResizeObserver(syncFootEdge)
+  listObserver.observe(el)
+  syncFootEdge()
+})
+
+onBeforeUnmount(() => {
+  listEl.value?.removeEventListener('scroll', syncFootEdge)
+  listObserver?.disconnect()
+  listObserver = null
+})
+
+// 增删用例（以及改动输入让卡片长高 / 变矮）改的是内容高度，没人滚 —— 补一次重算。
+// 卡片自己的折叠态在子组件里，这里看不到：那种情形最多在「收起后刚好不再溢出」时
+// 多留一条线，滚一下就自愈，不值得为它再挂一个 MutationObserver。
+watch(() => props.cases, () => nextTick(syncFootEdge), { deep: true })
 
 const counts = computed(() => {
   // stale 是附加维度：卡片状态仍是 passed/failed/error，但代码或输入已改动、结论过期
@@ -140,7 +187,7 @@ const elapsedText = computed(() => {
       />
     </ul>
 
-    <footer class="panel__foot">
+    <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
       <!-- 置灰的按钮在浏览器里收不到鼠标事件，title 也就悬不出来 ——
            所以「为什么不能运行」必须写成一行看得见的字，不能只塞进 title -->
       <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
@@ -198,7 +245,12 @@ const elapsedText = computed(() => {
 
 .verdict {
   padding: 1px 8px;
-  border-radius: 999px;
+  /* 圆角矩形 6px，与卡片上那颗判定码徽标（TestCaseCard 的 .badge）同一形状语言；
+     2026-10-23 由胶囊（999px）改过来（用户：「所有显示评测结果的胶囊都改成圆角矩形」）。
+     6px 是全站最多的圆角值，也是本面板两颗按钮 .add / .run-inline 的圆角。
+     ⚠️ 别改成 10px：这枚才 ~17px 高，10 + 10 超过高度，浏览器会按比例把四个角夹小，
+     又回到半圆胶囊的样子。 */
+  border-radius: 6px;
   font-size: 11px;
   color: var(--text-dim);
   background: var(--case-chip-bg);
@@ -365,9 +417,21 @@ const elapsedText = computed(() => {
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  /* 不再画上边那条发丝线（2026-10-06）：页脚底色本来就是 --bg-panel-head，与正文的
-     --bg-panel 不同，这层色差已经把「这里是页脚」说清楚了，再描一条线是重复的分隔。 */
-  background: var(--bg-panel-head);
+  /* 底色与面板同色（--bg-editor，即整页地面），照侧边栏页头那套「透明条」的做法（2026-10-23）：
+     页脚不再是一块比正文亮一档的色斑，而是同一条地面的末段，两颗按钮直接浮在上面。
+     与正文的分界改由一条发丝线承担 —— 但它只在**还有内容压在下面**时才描出来
+     （.is-more-below，判据在 script 的 syncFootEdge，与页头同一套显影语汇）。
+     那条 border 常时也在、只是透明：显示 / 隐藏时不改盒高，页脚才不抖 1px。 */
+  background: transparent;
+  border-top: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+/* 列表没滚到底：页脚上沿浮出发丝线，交代「下面还有用例」。
+   颜色与 Sidebar 页头那条滚动线同值（--border-soft），全站只有一种「滚动边界」的语汇。
+   ⚠️ 判据与页头**相反**（页头是离了顶才画，页脚是没到底才画）—— 见 script 里那段说明 */
+.panel__foot.is-more-below {
+  border-top-color: var(--border-soft);
 }
 
 .panel__foot-row {

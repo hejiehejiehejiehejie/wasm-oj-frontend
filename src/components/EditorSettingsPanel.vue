@@ -3577,7 +3577,16 @@ a.download-button {
 
 /* 登录 / 绑定那一行是这一栏的主操作，但默认的 setting-row 与下面的「预下载」各项长得一模一样，
    排在第一个也照样被读成一串平级选项。所以给它一个卡片：浅色底 + 边框 + 左侧 accent 竖条，
-   拉开与平铺行的层次。深浅两套主题都只用既有变量，不新增颜色。 */
+   拉开与平铺行的层次。深浅两套主题都只用既有变量，不新增颜色。
+
+   版式是**纵向两段**（2026-10-23 重排）：上面「用户名 + 已绑定 + 云端最近更新」吃满整宽，
+   下面一排按钮自己占一行。原先已绑定那张卡沿用 .setting-row--action 的「标签在左、控件在右」，
+   而三颗按钮（下载到本机 / 上传本机设置 / 解绑）自身就要 294px —— 编辑器窄到 300px 上下时
+   （用户 2026-10-23 的截图），flex 先把 __main 压成 0px，于是用户名断成 he- / jie、
+   「已绑定」竖排三行、「云端最近更新：…」竖着排了十几行。改成纵向后信息块不再与按钮抢宽度，
+   窄了只往下长，宽了也不会在中间空出一大片。
+   ⚠️ 别退回 --action 的两端对齐：卡片是竖着长的，按钮要跟着文字靠左才落在同一条轴线上
+   （`justify-content` 也得显式写 flex-start —— --action 给的 space-between 在纵向会把两段推开）。 */
 .cloud-account {
   margin: 4px 12px 2px;
   padding: 12px 14px;
@@ -3586,6 +3595,32 @@ a.download-button {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-card);
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 8px;
+}
+
+/* 卡片里的按钮组：右对齐是「标签在左」那套的产物，纵向排下来跟着文字靠左；
+   宽度不够时照旧折行（flex-wrap 来自 .cloud-field），不再回头挤上面的文字 */
+.cloud-account .cloud-field {
+  justify-content: flex-start;
+}
+
+/* 「he-jie 已绑定」这一行：允许的是**整块**掉到下一行，不是逐字换行。
+   掐掉两者内部的换行（否则 he-jie 会断在连字符上、已绑定会被拆成三行），
+   用户名过长时用省略号收尾，别把卡片撑破。 */
+.cloud-account .setting-row__head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.cloud-account .setting-row__label,
+.cloud-account .setting-row__key {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 左侧强调条：用伪元素而不是 border-left，免得把上面那条 border 挤得左右不均 */

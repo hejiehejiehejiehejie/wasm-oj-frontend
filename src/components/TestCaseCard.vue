@@ -533,8 +533,11 @@ function onLongCopy(event, full) {
      状态色也不再由卡片承担：改由头栏那颗 .card__dot 显示（见下）。 */
   border: 0;
   border-radius: 8px;
-  /* 与面板同色（--bg-panel），不再用 --bg-card：色差就是这一档造成的 */
-  background: var(--bg-panel);
+  /* 与所在面板同色，不再用 --bg-card：色差就是这一档造成的。
+     2026-10-23 由 --bg-panel 改成 --bg-editor：面板（.pane--tests / .panel）在同一天被要求
+     与整页地面同色，卡片若还留着面板那一档就成了列表里唯一亮着的一块。卡片本来就要
+     「与面板同色」，跟着面板换同一支变量即可 —— 两者相等时这条依旧成立。 */
+  background: var(--bg-editor);
   overflow: hidden;
   /* 只剩透明度还在过渡（.is-stale 的降透明度）；底色不再变，那条过渡已无对象 */
   transition: opacity 0.18s ease;
@@ -648,9 +651,14 @@ function onLongCopy(event, full) {
   /* 参考稿那颗胶囊：实心淡底 + 同色字，**不描边** —— 形状完全靠底色撑起来。
      少了原来那条 0.4 的描边，底色就得自己重一档（0.13 → 0.18），否则会显得没边没沿。
      字重与字距也是照抄参考稿：600 + 0.05em，判定码那种两个大写字母最吃这一套。
-     左右 padding 从 7 加到 8：里面只剩文字了，得靠自己把胶囊撑出形状。 */
+     左右 padding 从 7 加到 8：里面只剩文字了，得靠自己把胶囊撑出形状。
+     2026-10-23 由胶囊（999px）改成**圆角矩形 6px**（用户要求「形状改为圆角矩形，
+     R 角用项目里常用的那个」）：6px 是全站出现最多的圆角值，也是同一块面板里
+     `.add` / `.run-inline` 两颗按钮的圆角，判定码与按钮因此同属一套形状语言。
+     ⚠️ 别改回 10px（编辑器卡那档）：这枚徽标连内边距才 ~17px 高，10 + 10 > 高度，
+     浏览器会按比例把四个角一起夹小（CSS 规定相邻两角之和不得超边），又变回半圆胶囊。 */
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
