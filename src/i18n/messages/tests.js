@@ -13,8 +13,15 @@ export default {
       panel: {
         ariaLabel: 'unnamed 评测面板',
         addCase: '添加测试样例',
+        /** 页脚「添加测试样例」的原生 title（2026-10-24 凌晨加快捷键）：动作名 + 绑定表里的组合键，
+            口径与 `runAllTip` 同一套 */
+        addCaseTip: '添加测试样例（{key}）',
         runAll: '运行全部测试用例',
-        /** 页脚主按钮上的可见文字（2026-10-24 加）：`runAll` 那条继续当 title 用，这条要短到窄侧栏也放得下 */
+        /** 页脚主按钮的原生 title（2026-10-24 凌晨加快捷键）：动作名 + 绑定表里的组合键，
+            括号写法中英各一套（全角 / 半角），别在代码里拼字符串 */
+        runAllTip: '运行全部测试用例（{key}）',
+        /** 页脚主按钮上的可见文字（2026-10-24 加）：title 走 `runAllTip`（解绑快捷键时退回 `runAll`），
+            这条要短到窄侧栏也放得下 */
         runAllLabel: '运行全部',
         /**
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
@@ -85,6 +92,9 @@ export default {
        */
       submit: {
         button: '提交到 Codeforces',
+        /** 那颗纯图标按钮的原生 title（2026-10-24 凌晨）：`button` 加上它的快捷键，
+            口径与 `panel.runAllTip` / `panel.addCaseTip` 同一套；解绑时退回 `button` */
+        buttonTip: '提交到 Codeforces（{key}）',
         submitting: '提交中…',
         submittedTitle: '已提交到 Codeforces',
         submittedMessage: '提交 #{id}',
@@ -157,7 +167,9 @@ export default {
         collapse: '折叠该用例',
         runOne: '仅运行该用例',
         staleTitle: '代码或输入已改动，结论来自上次运行',
-        staleLabel: '结果待刷新',
+        staleLabel: '结果待重测',
+        /** 窄容器下的短称（卡片头栏 @container 22.5rem 那一档换用它） */
+        staleLabelShort: '待重测',
         timingTitle: '程序运行耗时（不含编译）',
         remove: '删除该用例',
         copyOutput: '复制实际输出',
@@ -211,8 +223,11 @@ export default {
       panel: {
         ariaLabel: 'unnamed judge panel',
         addCase: 'Add test case',
+        addCaseTip: 'Add test case ({key})',
         runAll: 'Run all test cases',
-        /** visible label on the footer's primary button (2026-10-24); `runAll` stays the title */
+        runAllTip: 'Run all test cases ({key})',
+        /** visible label on the footer's primary button (2026-10-24); the title is `runAllTip`
+            (or `runAll` when the shortcut is unbound) */
         runAllLabel: 'Run all',
         /** 见 zh-CN 那侧的说明 */
         runBlocked: 'Non-code files can’t be run',
@@ -249,6 +264,8 @@ export default {
       /** 同 zh-CN：一键提交的按钮 / 闸门 / 失败原因 / 判定码说明（2026-10-23 加） */
       submit: {
         button: 'Submit to Codeforces',
+        /** same as zh-CN: the icon button's native title = `button` + its shortcut */
+        buttonTip: 'Submit to Codeforces ({key})',
         submitting: 'Submitting…',
         submittedTitle: 'Submitted to Codeforces',
         submittedMessage: 'Submission #{id}',
@@ -316,6 +333,7 @@ export default {
         runOne: 'Run this case only',
         staleTitle: 'Code or input changed; result is from the previous run',
         staleLabel: 'Result stale',
+        staleLabelShort: 'Stale',
         timingTitle: 'Program run time (excludes compilation)',
         remove: 'Delete this case',
         copyOutput: 'Copy actual output',

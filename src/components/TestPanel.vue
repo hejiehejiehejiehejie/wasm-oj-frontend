@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
+import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { mountConfetti, unmountConfetti } from '../services/confetti.js'
 import { t } from '../i18n/index.js'
 
@@ -57,6 +58,33 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit'])
+
+// 页脚主条的原生 title 里带上它的快捷键（2026-10-24 凌晨用户要求「鼠标在运行全部按钮上时，
+// 显示它的快捷键」；口径明确是**原生描述**，不自绘气泡）。组合键走 formatCombo(bindings.run)
+// —— 绑定表是唯一口径，设置里改键这里跟着变；解绑了退回纯动作名。
+// 跑不了时仍填原因（与改前同义）：原生禁用按钮收不到鼠标事件、title 悬不出来，
+// 那行原因由页脚 .run-blocked 那行看得见的字负责。
+const { bindings } = useShortcutManager()
+const runDisabled = computed(
+  () => props.running || !props.cases.length || Boolean(props.runBlocked),
+)
+const runTitle = computed(() => {
+  if (props.runBlocked) return props.runBlocked
+  const combo = formatCombo(bindings.value.run)
+  return combo ? t('tests.panel.runAllTip', { key: combo }) : t('tests.panel.runAll')
+})
+// 「添加测试样例」那颗的 title 同样带上它的快捷键（2026-10-24 凌晨，用户继运行全部之后点名）。
+// 行动 id 是 `new-case`（App.vue 的绑定表）。置灰时原生禁用按钮悬不出 title，不用另写原因分支。
+const addTitle = computed(() => {
+  const combo = formatCombo(bindings.value['new-case'])
+  return combo ? t('tests.panel.addCaseTip', { key: combo }) : t('tests.panel.addCase')
+})
+// 「提交到 Codeforces」那颗同上（2026-10-24 凌晨，用户逐颗点名到第三颗）。
+// 行动 id 是 `submit-solution`；它是纯图标按钮，title 就是它唯一的可见说明，所以更要带全。
+const submitTitle = computed(() => {
+  const combo = formatCombo(bindings.value['submit-solution'])
+  return combo ? t('tests.submit.buttonTip', { key: combo }) : t('tests.submit.button')
+})
 
 // 页脚上沿那条「还有下文」线（2026-10-23 加；判据同日按用户口径翻过一面）：
 // 页脚底色已改成与面板同色（--bg-editor，即整页地面），不再靠色差与列表分开，
@@ -125,7 +153,7 @@ const verdict = computed(() => {
   const total = props.cases.length
   if (!total) return { text: t('tests.verdict.noCases'), tone: 'muted' }
   if (counts.value.running) return { text: t('tests.verdict.running'), tone: 'info' }
-  // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待刷新）
+  // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待重测）
   if (counts.value.stale)
     return {
       text: t(compact.value ? 'tests.verdict.staleShort' : 'tests.verdict.stale', { total }),
@@ -146,7 +174,7 @@ const verdict = computed(() => {
   }
 })
 
-// 有过期结论时，页头耗时同样来自上一轮，跟着藏掉，免得和「结果待刷新」自相矛盾
+// 有过期结论时，页头耗时同样来自上一轮，跟着藏掉，免得和「结果待重测」自相矛盾
 const elapsedText = computed(() => {
   if (!props.elapsed || counts.value.stale) return ''
   return props.elapsed >= 1000 ? `${(props.elapsed / 1000).toFixed(2)}s` : `${props.elapsed}ms`
@@ -227,7 +255,7 @@ const elapsedText = computed(() => {
       <li class="cases__add">
         <button
           class="add"
-          :title="t('tests.panel.addCase')"
+          :title="addTitle"
           :disabled="running || Boolean(runBlocked)"
           @click="emit('add')"
         >
@@ -246,13 +274,14 @@ const elapsedText = computed(() => {
         <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠左，与主条同高。
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
              一起收掉，页脚不留占位（原因走快捷键那条通知）。
-             2026-10-24：与「运行全部」交换左右顺序，提交落在最左。 -->
+             2026-10-24：与「运行全部」交换左右顺序，提交落在最左。
+             2026-10-24 凌晨：原生 title 里也带上它的快捷键（见脚本 submitTitle）。 -->
         <button
           v-if="showSubmit"
           class="submit-inline"
           :class="{ 'is-submitting': submitting }"
           :disabled="running || submitting"
-          :title="t('tests.submit.button')"
+          :title="submitTitle"
           :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
           @click="emit('submit')"
         >
@@ -261,11 +290,13 @@ const elapsedText = computed(() => {
         <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
              图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
              文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
-             「▶ 运行全部」仍有富余（见样式里那条宽高账）。 -->
+             「▶ 运行全部」仍有富余（见样式里那条宽高账）。
+             2026-10-24 凌晨：原生 title 里带上它的快捷键（用户要求「鼠标在运行全部按钮上时，
+             显示它的快捷键」；口径是原生描述，不自绘气泡），组合键走绑定表，见脚本 runTitle。 -->
         <button
           class="run-inline"
-          :disabled="running || !cases.length || Boolean(runBlocked)"
-          :title="runBlocked || t('tests.panel.runAll')"
+          :disabled="runDisabled"
+          :title="runTitle"
           @click="emit('run-all')"
         >
           <AppIcon name="play" :size="14" />
@@ -566,7 +597,8 @@ const elapsedText = computed(() => {
      出现时它也让出 36 + 8px 给提交那颗（提交在最左），主条仍占满其余宽度。
      宽高账：侧栏下限 158px 时页脚内容宽 142，主条 = 142 - 36 - 8 = 98px，
      内容「14(图标) + 7(间距) + 50(四个 12.5px 汉字)」= 71px，再加左右 24px 内边距 = 95px，
-     刚好放得下（英文 Run all 更短）。所以这颗字不用藏，title 只用来交代完整动作。 */
+     刚好放得下（英文 Run all 更短）。所以这颗字不用藏；完整动作名与快捷键走原生 title
+     （见脚本里的 runTitle，2026-10-24 凌晨加快捷键）。 */
   flex: 1 1 auto;
   min-width: 0;
   display: inline-flex;

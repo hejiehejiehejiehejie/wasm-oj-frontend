@@ -397,7 +397,7 @@ function onLongCopy(event, full) {
       <span class="card__title">{{ t('tests.card.title', { n: index + 1 }) }}</span>
       <span class="badge" :data-status="testCase.status">{{ badgeLabel }}</span>
       <!-- 右侧两颗图标共用一套语言（2026-10-24 晚第三次改，用户要求）：都是 32×32 热区、
-           默认无底色，删除在左、运行在右。「结果待刷新」仍贴在徽标右侧，运行耗时紧挨着两颗图标。
+           默认无底色，删除在左、运行在右。「结果待重测」仍贴在徽标右侧，运行耗时紧挨着两颗图标。
            ▶ 用 aria-disabled 而不是原生 disabled：原生禁用会吞掉按钮的鼠标事件，
            runBlocked 那句原因就永远弹不出来。 -->
       <span
@@ -405,7 +405,10 @@ function onLongCopy(event, full) {
         class="stale"
         :title="t('tests.card.staleTitle')"
       >
-        {{ t('tests.card.staleLabel') }}
+        <!-- 窄容器下换短称（见 @container 22.5rem 那条）：全称五个字会把标题挤成「样…」，
+             短称把宽度还给标题；完整解释留在 title 里，最窄一档整条隐藏。 -->
+        <span class="stale__full">{{ t('tests.card.staleLabel') }}</span>
+        <span class="stale__short">{{ t('tests.card.staleLabelShort') }}</span>
       </span>
       <span class="grow"></span>
       <span v-if="timing" class="metric" :title="t('tests.card.timingTitle')">{{ timing }}</span>
@@ -605,7 +608,7 @@ function onLongCopy(event, full) {
 .badge {
   display: inline-flex;
   align-items: center;
-  /* 徽标不参与压缩、也不换行：窄面板下宁可让标题与「结果待刷新」先让位，否则中文会被挤成竖排单字 */
+  /* 徽标不参与压缩、也不换行：窄面板下宁可让标题与「结果待重测」先让位，否则中文会被挤成竖排单字 */
   flex: 0 0 auto;
   white-space: nowrap;
   /* 参考稿那颗胶囊：实心淡底 + 同色字，**不描边** —— 形状完全靠底色撑起来。
@@ -664,6 +667,11 @@ function onLongCopy(event, full) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 短称默认不渲染；窄容器那一档用它替掉全称（见 @container 22.5rem）。 */
+.stale__short {
+  display: none;
 }
 
 .metric {
@@ -1065,12 +1073,12 @@ function onLongCopy(event, full) {
 /* ---------- 窄容器下的降级 ----------
    容器是 TestPanel 里 .cases 的 inline-size（约等于面板宽度 − 16px 内边距 − 滚动条）。
    面板下限放宽到 240px 后（见 App.vue 的 --tests-min-cap），头部一行放不下全部内容：
-   折叠箭头、徽标、运行 / 删除按钮都是 flex: 0 0 auto，标题与「结果待刷新」可以压缩。
+   折叠箭头、徽标、运行 / 删除按钮都是 flex: 0 0 auto，标题与「结果待重测」可以压缩。
    所以按重要性逐级让步，而不是让它们挤在一起。
 
    注意优先级：**每例的运行耗时（.metric）与徽标在任何宽度下都不隐藏** ——
    前者是这一行里唯一「看完会想改代码」的信息；后者是 AC / WA 唯一的判定结论。
-   唯一还能让位的是「结果待刷新」
+   唯一还能让位的是「结果待重测」
    （它还有面板头部的 ?/N AC 徽标与卡片降透明度在提示）。 */
 @container (max-width: 22.5rem) {
   .card__head {
@@ -1085,6 +1093,22 @@ function onLongCopy(event, full) {
      标题才仍从 22px 起（22 + gap + margin-right = 22）。 */
   .card__head .icon-btn--toggle {
     margin-right: -6px;
+  }
+
+  /* 「结果待重测」换短称：全称五个字在这一档会和标题一起截断（实测 110% 缩放、
+     300px 容器下标题只剩「样…」），短称把省下的宽度还给标题；再窄一档整条隐藏。 */
+  .stale__full {
+    display: none;
+  }
+
+  .stale__short {
+    display: inline;
+  }
+
+  /* 短称也放不下时（带运行耗时的最窄一段）先挤它、别挤标题：标题是这张卡的身份，
+     待重测只是提醒，还有面板页头的 ?/N 与卡片降透明度兜着（2026-10-24 实测 270px 容器）。 */
+  .stale {
+    flex-shrink: 4;
   }
 
   /* 正文：左内边距与基础值同为 12px —— 22px 的左轨不能因为面板变窄就断掉；
@@ -1108,8 +1132,18 @@ function onLongCopy(event, full) {
   }
 }
 
-/* 再挤一档：间距收到最小，只让掉「结果待刷新」，把宽度省给运行耗时与徽标。
-   徽标不藏：AC / WA 是这一行唯一的判定结论。 */
+/* 短称也装不下的一档：整条让掉，把宽度还给标题。「结论已过期」仍有面板页头的 ?/N
+   与卡片降透明度在说。阈值按容器**内容盒**算（.cases 有 8px 横向内边距，比外宽小 16px），
+   界线取在实测折点上：276px 内容宽短称还装得下、272px 标题与短称就开始一起折，
+   故 17rem = 272px 起隐藏。 */
+@container (max-width: 17rem) {
+  .stale {
+    display: none;
+  }
+}
+
+/* 再挤一档：间距收到最小，把宽度省给运行耗时与徽标。
+   徽标不藏：AC / WA 是这一行唯一的判定结论。「结果待重测」已在 17rem 那档整条让掉。 */
 @container (max-width: 15.625rem) {
   .card__head {
     gap: 4px;
@@ -1119,10 +1153,6 @@ function onLongCopy(event, full) {
   /* 同上：负外边距跟住 gap，左轨仍是 22px */
   .card__head .icon-btn--toggle {
     margin-right: -4px;
-  }
-
-  .stale {
-    display: none;
   }
 
   /* 提示行同理：说明文字让位给「复制全部」那颗按钮 —— 它才是能点的东西。

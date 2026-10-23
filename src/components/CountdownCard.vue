@@ -611,11 +611,13 @@ onBeforeUnmount(() => {
      深色主题阴影分不出层次，所以在同一支里垫一圈 4% 白的极淡描边（见 base.css） */
   border: 0;
   border-radius: 16px;
-  /* 不借 --toast-bg（0.62 太透，正文会透进来打架），也**不做毛玻璃**：
-     2026-10-21 先抬到 0.94 仍被指「好像没变化」，根因是那 6% 底会被 backdrop-blur
-     糊成一片亮斑，压着代码时照样像玻璃。要盯着读秒的卡就直接给不透明底（--cd-bg），
-     锁定态另走 transparent。 */
+  /* 2026-10-24 凌晨用户要求「提高倒计时组件窗口的透明度」，并在「纯半透明」与
+     「半透明 + 背景模糊」里选了后者：底色走 --cd-bg（70% 不透明），背后的代码在这里
+     糊掉再透上来。模糊半径刻意写在组件里而不是 base.css —— 它是这支卡的观感参数，
+     与色值分开调。2026-10-21 那轮「不透明 + 不模糊」的口径已被用户本轮推翻。 */
   background: var(--cd-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--cd-shadow);
   /* 圆角边之外一律不画：环、弧头光点、解锁胶囊再怎么变，都不会漏到边框外面 */
   overflow: hidden;
@@ -634,6 +636,10 @@ onBeforeUnmount(() => {
    头部槽位保留（透明、不可见），否则环会突然长大一圈、和锁定前对不上。 */
 .cd-card.is-locked {
   background: transparent;
+  /* 整卡透明之后模糊也必须一起关：否则只剩环的那块矩形区域仍会把背后的代码糊出来，
+     凭空多出一块磨砂方斑 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: none;
   cursor: default;
   pointer-events: none;
