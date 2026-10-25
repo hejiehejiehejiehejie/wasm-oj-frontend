@@ -407,8 +407,15 @@ function onLongCopy(event, full) {
       </button>
       <!-- 标题：2026-10-24 由单独的数字改成「样例 N」。原来的状态圆点已删 ——
            它和右侧徽标（AC / CE / 运行中）说的是同一件事，两个色块并排纯属噪音。
-           现在头栏从左到右只有：折叠箭头 → 样例 N → 状态徽标 → 删除 → 运行。 -->
-      <span class="card__title">{{ t('tests.card.title', { n: index + 1 }) }}</span>
+           现在头栏从左到右只有：折叠箭头 → 样例 N → 状态徽标 → 删除 → 运行。
+           2026-10-25：标题本身就是第二颗折叠开关（用户要求「点击标题部分也可以折叠」
+           —— 箭头的墨迹只有 8.5px 宽，热区太小）。外观保持纯文字，只加了 pointer 光标。 -->
+      <button
+        type="button"
+        class="card__title"
+        :title="t(isCollapsed ? 'tests.card.expand' : 'tests.card.collapse')"
+        @click="toggleCollapse"
+      >{{ t('tests.card.title', { n: index + 1 }) }}</button>
       <span class="badge" :data-status="testCase.status">{{ badgeLabel }}</span>
       <!-- 右侧两颗图标共用一套语言（2026-10-24 晚第三次改，用户要求）：都是 32×32 热区、
            默认无底色，删除在左、运行在右。「结果待重测」仍贴在徽标右侧，运行耗时紧挨着两颗图标。
@@ -599,7 +606,25 @@ function onLongCopy(event, full) {
 .card__title {
   /* 标题现在是文字（样例 N），比原来的单个数字宽：窄面板下允许它省略，
      别把右侧的运行耗时与状态徽标顶出卡片（更窄的一档见文件末尾的容器查询）。
-     2026-10-24 晚：字号 13 → 13.5、字重 650 → 700，作为整块样例唯一的强锚点。 */
+     2026-10-24 晚：字号 13 → 13.5、字重 650 → 700，作为整块样例唯一的强锚点。
+     2026-10-25：span → button（点击标题也能折叠）。button 不继承字体、自带边框
+     底色与居中排版，四样都要清掉，样式才和原来的 span 一致 —— font: inherit
+     写在最前，下面的显式字号字重照旧生效。不加悬停底色：与折叠箭头同一条口径
+     （见 .icon-btn--toggle 那条注释），头栏上不出现第二块随鼠标亮起的区域。 */
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* 热区与折叠箭头的那颗 22×22 按钮对齐（2026-10-25）：高度同 22px、同一行里都由
+     align-items: center 居中，两块热区上下齐平；水平方向上箭头的 -8px 右外边距
+     （见 .icon-btn--toggle）把它的盒子右缘压到 22px，标题恰好从 22px 起 ——
+     两块热区肩并肩、中间没有缝。line-height 22 让文字在盒内垂直居中，
+     视觉位置与原来「文字块被行居中」完全一致；文本布局不变，省略号照旧工作。 */
+  height: 22px;
+  line-height: 22px;
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -829,6 +854,15 @@ function onLongCopy(event, full) {
    必须写在这里：与 .icon-btn:hover:not(:disabled) 同权重，靠后面这条覆盖掉。 */
 .icon-btn--toggle:hover:not(:disabled) {
   background: transparent;
+}
+
+/* 悬停标题时箭头同样高亮（2026-10-25）：标题已是第二颗折叠开关（见 .card__title），
+   指针落在两块热区的任意一处，箭头都要给出同一份反馈 —— 颜色 --text-dim → --text，
+   与直接悬停按钮完全一致；底色两处都保持透明。:has() 在这文件里已有先例
+   （.card__head:has(:focus-visible)）。箭头自己的 color transition（.icon-btn 上那条）
+   照常生效，所以高亮是渐变不是瞬跳。 */
+.card__head:has(.card__title:hover) .icon-btn--toggle {
+  color: var(--text);
 }
 
 /* 折叠箭头的旋转挂在 svg 上，**不挂在按钮上**（2026-10-06）：
