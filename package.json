@@ -7,20 +7,28 @@
     "node": "22.x"
   },
   "scripts": {
-    "predev": "npm run md:runtime",
+    "predev": "npm run md:runtime && npm run wasi:clock-patch",
     "dev": "vite",
-    "prebuild": "npm run notice && npm run md:runtime",
+    "prebuild": "npm run notice && npm run md:runtime && npm run wasi:clock-patch",
     "build": "vite build",
     "build:tauri": "npm run build && node scripts/strip-wasm-assets.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "verify": "node scripts/verify-ui.mjs",
+    "preverify:judge": "npm run wasi:clock-patch",
+    "verify:judge": "node scripts/verify-judge.mjs",
     "screenshots:store": "node scripts/generate-store-screenshots.mjs",
     "notice": "node scripts/render-notice.mjs",
     "notice:check": "node scripts/render-notice.mjs --check",
     "wasm:opt": "node scripts/optimize-wasm.mjs",
+    "wasi:clock-patch": "node scripts/patch-wasi-clock.mjs",
+    "wasi:clock-check": "node scripts/patch-wasi-clock.mjs --check",
     "md:runtime": "node scripts/prepare-md-runtime.mjs",
-    "android:toolchain": "node scripts/prepare-android-toolchain.mjs"
+    "android:toolchain": "node scripts/prepare-android-toolchain.mjs",
+    "wasm:core:fetch": "node scripts/wasm-core/fetch.mjs",
+    "wasm:core:build": "node scripts/wasm-core/build.mjs",
+    "wasm:core:pack": "node scripts/wasm-core/pack-sysroot.mjs",
+    "wasm:core:verify": "node scripts/wasm-core/verify.mjs"
   },
   "dependencies": {
     "@runno/wasi": "0.10.0",

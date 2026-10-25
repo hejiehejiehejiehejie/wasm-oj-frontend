@@ -95,6 +95,8 @@ export const nativeEngine = {
   labelKey: 'engine.native.label',
   hintKey: 'engine.native.hint',
   executesCode: true,
+  // 本机进程不设内存上限：超了可能表现为 RE 或直接 AC，不会判 MLE（规范 §8）
+  enforcesMemoryLimit: false,
   defaultBase: 'local',
   // 只在 Tauri 桌面壳里可用：网页版没有 IPC，选了也只会拿到 unreachable
   platforms: ['desktop'],

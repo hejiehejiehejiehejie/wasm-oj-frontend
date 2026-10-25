@@ -62,18 +62,23 @@
 
 ## 二、自托管运行时（`public/` 下，都只在用户点过「下载」之后才进浏览器）
 
-两处共同点：都是**上游的产物被原样收进本仓库**（本站没有改动；`public/md/` 那份由 `scripts/prepare-md-runtime.mjs` 从 `node_modules` 抄出来），并且都**不在 Service Worker 的预缓存清单里** —— 没点过下载的用户，外壳里一份都没有。所以上游的版权声明随文件一并分发；完整许可文本在对应上游仓库里。
+两处共同点：资产都来自上游，按上游许可随文件一并分发（`public/md/` 那份由 `scripts/prepare-md-runtime.mjs` 从 `node_modules` 抄出来；C++ 工具链由 `scripts/wasm-core/` 从 LLVM 23.1.0 源码编出，**没有改动上游代码**），并且都**不在 Service Worker 的预缓存清单里** —— 没点过下载的用户，外壳里一份都没有。
 
-### 2.1 本地沙箱工具链（`public/wasm/`，约 76MB）
+### 2.1 本地沙箱工具链（`public/wasm/`，现役档约 23MB）
+
+站点当前只加载 `23.1.0/` 这一档。三件资产都是 `.br`：brotli 是**传输编码**，由浏览器网络栈按 `Content-Encoding: br` 透明解压，所以文件名带着 `.br` 也没关系。`8.0.1/`（约 50MB）仍留在仓库里，只作**部署回退**用 —— 没有任何代码会选它（口径见 `HANDOFF.md` §22.4）。
 
 | 组件 | 版本 | 许可 | 落点与用途 |
 | --- | --- | --- | --- |
-| [LLVM / clang](https://github.com/llvm/llvm-project) | 8.0.1 | Apache-2.0 WITH LLVM-exception | `public/wasm/8.0.1/clang.wasm`（31.2MB）—— 本地编译 C++。预编译产物出自 [binji/wasm-clang](https://github.com/binji/wasm-clang)，经 runno 的 `langs/` 分发 |
-| [LLVM lld](https://github.com/llvm/llvm-project)（wasm-ld） | 与上同世代 | Apache-2.0 WITH LLVM-exception | `public/wasm/8.0.1/wasm-ld.wasm`（19.5MB）—— 链接 |
-| [wasi-libc](https://github.com/WebAssembly/wasi-libc) | 随上述 wasi-sysroot | Apache-2.0 WITH LLVM-exception | `clang-fs.tar.gz` 里的 `libc.a`、`libm.a`、`libpthread.a`、`libdl.a`、`librt.a`、`libutil.a`、`libxnet.a`、`libcrypt.a`、`libresolv.a`、`libwasi-emulated-mman.a`、`crt1.o` —— C 标准库与启动代码 |
-| [libc++ / libc++abi](https://github.com/llvm/llvm-project) | 同上 | MIT（University of Illinois / NCSA 系） | 同上 tar 里的 `libc++.a`、`libc++abi.a` —— C++ 标准库（`<vector>` / `<string>` 这些） |
-| [compiler-rt](https://github.com/llvm/llvm-project) | 同上 | Apache-2.0 WITH LLVM-exception | 同上 tar 里的 `libclang_rt.builtins-wasm32.a` —— 编译器运行时内建函数 |
+| [LLVM / clang](https://github.com/llvm/llvm-project) | 23.1.0 | Apache-2.0 WITH LLVM-exception | `public/wasm/23.1.0/clang.wasm.br`（13.6MB）—— 本地编译 C++。由 `scripts/wasm-core/build.mjs` 从 `llvmorg-23.1.0` 源码编到 `wasm32-wasip1` |
+| [LLVM lld](https://github.com/llvm/llvm-project)（wasm-ld） | 23.1.0 | Apache-2.0 WITH LLVM-exception | `public/wasm/23.1.0/wasm-ld.wasm.br`（8.1MB）—— 链接。同一份源码编出，运行时加 `-flavor wasm` |
+| [wasi-libc](https://github.com/WebAssembly/wasi-libc) | 取自 wasi-sdk 34.0 | Apache-2.0 WITH LLVM-exception | `sys23-fs.tar.br`（1.54MB，解包 1385 个文件）里的 `sys/lib/wasm32-wasip1/` 下 `libc.a`、`libm.a`、`libpthread.a`、`libdl.a`、`librt.a`、`libutil.a`、`libxnet.a`、`libcrypt.a`、`libresolv.a`、`libwasi-emulated-*.a`、`crt1-command.o` —— C 标准库与启动代码 |
+| [libc++ / libc++abi](https://github.com/llvm/llvm-project) | wasi-sdk 34.0 的 `eh` 变体 | MIT（University of Illinois / NCSA 系） | 同上 tar 里的 `sys/lib/wasm32-wasip1/eh/libc++.a`、`libc++abi.a`、`libunwind.a` —— C++ 标准库（异常版，`try` / `catch` 靠它）；头在 `sys/include/wasm32-wasip1/eh/c++/v1` |
+| [compiler-rt](https://github.com/llvm/llvm-project) | 随上述 LLVM 23 | Apache-2.0 WITH LLVM-exception | 同上 tar 里的 `sys/lib/clang/23/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a` —— 编译器运行时内建函数 |
 | [CPython](https://github.com/python/cpython) | 3.11.3 | PSF License | `public/wasm/python-3.11.3/python.wasm` + `python-fs.tar.gz` —— 本地跑 Python。wasm32-wasi 构建，标准库在 `usr/local/lib/python311.zip`；构建同样取自 runno 的 `langs/` |
+
+- **sysroot 是子集，不是整份**：从 wasi-sdk 34 的全量 sysroot（约 416MB）按「浏览器里编 C++20 竞赛代码」裁到 1.54MB。裁剪口径写在 `scripts/wasm-core/pack-sysroot.mjs` 的文件头：丢掉 `noeh` 与 `__cxx03`、另外三个 target 的头、全部 `.so`、以及绝大多数 clang intrinsic 头，归档一律 `llvm-strip --strip-debug`。改裁剪清单时那份文件头就是要一起改的唯一说明。
+- **回退档 `8.0.1/`**：clang 8.0.1、wasm-ld 8.0.1 与 `clang-fs.tar.gz`（合计约 50MB），预编译产物出自 [binji/wasm-clang](https://github.com/binji/wasm-clang)，经 runno 的 `langs/` 分发，许可同上。只在「线上出问题、把部署整档退回上一版」时才会被加载 —— 站点自己不会挑它。
 
 ### 2.2 题解渲染运行时（`public/md/`，约 578KB）
 
@@ -153,12 +158,13 @@ cat package.json
 # 2) 全部依赖的版本与许可证（区分生产 / 开发）
 node -e "const l=require('./package-lock.json');for(const [k,v] of Object.entries(l.packages))if(k)console.log((v.dev?'dev ':'prd ')+k.replace('node_modules/','')+' '+v.version+' '+(v.license||'?'))"
 
-# 3) 工具链版本（实测串，不是靠目录名猜）
-LC_ALL=C grep -a -o -E "clang version [0-9][0-9a-zA-Z. ()-]*" public/wasm/8.0.1/clang.wasm | sort -u
+# 3) 工具链版本（实测串，不是靠目录名猜。产物是 brotli，先解压再找）
+node -e "const z=require('node:zlib'),fs=require('node:fs');const s=z.brotliDecompressSync(fs.readFileSync('public/wasm/23.1.0/clang.wasm.br')).toString('latin1');console.log([...new Set(s.match(/LLVM[0-9][^\x00]{0,10}/g)||[])])"
+#    → [ 'LLVM23.1.0' ]；版本钉子在 scripts/wasm-core/versions.json（含源码 tar 的 sha256）
 LC_ALL=C grep -a -o -E "3\.11\.[0-9]+" public/wasm/python-3.11.3/python.wasm | sort -u
 
 # 4) sysroot 里到底有哪些库（确认 wasi-libc / libc++ / compiler-rt 的落点）
-tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep "sys/lib/"
+node -e "process.stdout.write(require('node:zlib').brotliDecompressSync(require('node:fs').readFileSync('public/wasm/23.1.0/sys23-fs.tar.br')))" | tar tf - | grep "sys/lib/"
 
 # 5) 产物里是否真的带上了某个依赖（注意：katex / marked 走的是按需下载，主包里搜不到库本身）
 grep -l DOMPurify dist/assets/*.js

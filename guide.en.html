@@ -107,7 +107,7 @@
           </li>
           <li>
             Click <strong>Download</strong> next to <strong>C++</strong> or <strong>Python 3</strong>.
-            Roughly 50MB and 24MB, downloaded once each.
+            Roughly 23MB and 24MB, downloaded once each.
           </li>
           <li>Wait for the button to read <strong>Ready</strong>. The current stage is announced while it downloads.</li>
           <li>
@@ -127,8 +127,11 @@
           <li>Clear your browser data and you will have to download it again.</li>
           <li>Python is not compiled — it runs straight in the interpreter.</li>
           <li>C++ compiles only the file you have open, and local headers are not included.</li>
+          <li>C++ is compiled as C++20, so <code>try</code> / <code>catch</code> work.</li>
+          <li><code>dynamic_cast</code> and <code>typeid</code> are not supported — using them is a compile error.</li>
           <li>Python can import modules from the same folder.</li>
           <li>File reads and writes inside the sandbox stay in memory. They are never written back to your workspace.</li>
+          <li>The browser must support the new standard for wasm exceptions and SIMD; without it C++ is unavailable and Python still works.</li>
         </ul>
 
         <h2 id="engines">3. Which judge engine should I pick?</h2>
@@ -179,9 +182,9 @@
 
         <h2 id="perf">4. How fast is it in the browser?</h2>
         <p>There is no single scaling factor.</p>
-        <p>These are measurements: Apple M5, headless Chrome.</p>
+        <p>These are measurements: Apple M5, headless Chrome (2026-10-25).</p>
         <p>Both sides run with <code>-O2</code>.</p>
-        <p>The sandbox uses clang 8.0.1; the native column uses the system clang.</p>
+        <p>The sandbox uses clang 23.1.0 (C++20); the native column uses the system clang.</p>
         <p>The sandbox column is the run phase — the same thing the card timing measures.</p>
         <div class="table-wrap">
           <table>
@@ -196,44 +199,44 @@
             <tbody>
               <tr>
                 <td>Pure compute, 5×10⁷ rounds of xorshift</td>
-                <td>132 ms</td>
-                <td>74.4 ms</td>
-                <td>1.77×</td>
+                <td>87 ms</td>
+                <td>76 ms</td>
+                <td>1.14×</td>
               </tr>
               <tr>
                 <td>Sequential access, 8×10⁶ ints</td>
-                <td>26 ms</td>
-                <td>7.4 ms</td>
-                <td>3.51×</td>
+                <td>8 ms</td>
+                <td>4.0 ms</td>
+                <td>2.0×</td>
               </tr>
               <tr>
                 <td>Sorting 500k numbers</td>
-                <td>60 ms</td>
-                <td>11.8 ms</td>
-                <td>5.08×</td>
+                <td>12 ms</td>
+                <td>7.5 ms</td>
+                <td>1.60×</td>
               </tr>
               <tr>
                 <td>Sorting 2M numbers</td>
-                <td>247 ms</td>
-                <td>36.7 ms</td>
-                <td>6.73×</td>
+                <td>41 ms</td>
+                <td>33 ms</td>
+                <td>1.25×</td>
               </tr>
             </tbody>
           </table>
         </div>
         <ul>
-          <li>The ratio climbs with memory density, from about 1.8× to about 6.7×.</li>
+          <li>The ratio is about 1.1× to 2.0× — far smaller than with the old clang 8.0.1 kernel.</li>
           <li>The more a workload leans on memory bandwidth, the more it slows down.</li>
-          <li>The ratio cannot be extrapolated. Do not use 5× to guess at other code.</li>
-          <li>Five samples spread over ≤3 ms, and the output matched native byte for byte. This is not noise.</li>
-          <li>Both columns include startup cost: process launch on the native side, WASI instantiation in the sandbox.</li>
-          <li>The shorter the run, the more those two constants flatten the ratio.</li>
+          <li>The ratio cannot be extrapolated. Do not use the numbers here to guess at other code.</li>
+          <li>Median of 10–15 samples; the output matched native byte for byte.</li>
+          <li>The sandbox column runs from <code>_start</code> to exit; process startup (about 2.6 ms) is subtracted from the native column.</li>
+          <li>Sequential access and sorting 500k take only a dozen milliseconds — close to the measurement floor, so those two ratios are indicative only.</li>
           <li>On a different machine, both the absolute times and the ratios change.</li>
         </ul>
         <h3>Why doesn't the empty-program comparison count?</h3>
         <p>The empty-program comparison is an illusion.</p>
-        <p>That 4.4 ms on the native side is all process startup.</p>
-        <p>The 3.0 ms in the sandbox is WASI instantiation.</p>
+        <p>That 2.6 ms on the native side is all process startup.</p>
+        <p>The sandbox side comes in under 1 ms — the bottom of what the timer can resolve.</p>
         <p>Neither number contains any computation, so comparing them means nothing.</p>
         <p>For a real comparison, look only at the rows that actually compute.</p>
 
@@ -464,7 +467,7 @@
         <p>Switch to Piston or Judge0 and your code is sent to the URL you entered.</p>
 
         <h3>Do I need to be online?</h3>
-        <p>Only the first time, to download the runtime — about 50MB.</p>
+        <p>Only the first time, to download the runtime — about 23MB for C++.</p>
         <p>After that it stays in the cache and works with no network.</p>
         <p>Clear your browser data and you will have to download it again.</p>
 
@@ -472,6 +475,11 @@
         <p>The local sandbox supports C++ and Python 3.</p>
         <p>For anything else, switch to Piston or Judge0.</p>
         <p>What you get depends on the service you connect to.</p>
+
+        <h3>Which browsers are supported?</h3>
+        <p>C++ needs the new standard for wasm exceptions and SIMD: Chrome 137+, Firefox 131+, Safari 18.4+.</p>
+        <p>Without it C++ is unavailable, and the card says which capability is missing.</p>
+        <p>Python 3 is unaffected.</p>
 
         <h3>Does the editor autocomplete?</h3>
         <p>Yes — but only for the three languages it knows: C, C++ and Python (<code>.c</code>, <code>.cpp</code>, <code>.py</code>). Start typing a prefix and the suggestion box appears on its own: arrow keys move through the list, <kbd>Tab</kbd> accepts the highlighted entry and <kbd>Esc</kbd> dismisses it.</p>
@@ -540,12 +548,12 @@
               <tr>
                 <td>runno (<code>@runno/wasi</code>)</td>
                 <td>MIT</td>
-                <td>The WASI runtime behind the local sandbox: starts the instance, feeds it input, and interrupts it on a timeout (TLE)</td>
+                <td>The WASI runtime behind Python 3: starts the instance, feeds it input, and interrupts it on a timeout (TLE). C++ uses this site's own WASI host</td>
               </tr>
               <tr>
                 <td>LLVM / clang and lld</td>
                 <td>Apache-2.0 WITH LLVM-exception</td>
-                <td>The compiler and linker that build C++ locally (wasm build, 8.0.1)</td>
+                <td>The compiler and linker that build C++ locally (wasm build, LLVM 23.1.0)</td>
               </tr>
               <tr>
                 <td>wasi-libc</td>
@@ -584,9 +592,10 @@
           <li>The interface uses only the system fonts on your device — no self-hosted or third-party web fonts. The code area additionally bundles three open-source monospace fonts (JetBrains Mono / Fira Code / Cascadia Code), <strong>downloaded only when you pick one</strong> under Settings › Editor › Font, again with no third-party service involved.</li>
           <li>The app icon and the share image are made for this site.</li>
           <li>
-            The C++ toolchain and the Python interpreter in the table above are <strong>upstream prebuilt artefacts</strong>
-            (from binji's wasm-clang and the official CPython builds respectively, distributed through runno's project).
-            This site only serves them from its own server and has not modified them.
+            The C++ toolchain is <strong>built by this site from upstream sources</strong> (LLVM 23.1.0, with the runtime
+            taken from wasi-sdk 34); the build scripts live in <code>scripts/wasm-core/</code> and no upstream code is
+            modified. The Python interpreter is still the official CPython build, distributed through runno's project and
+            served as-is from this site's own server.
           </li>
           <li>
             Piston (MIT) and Judge0 (GPL-3.0) are external judge services this site <strong>talks to</strong>. Their code is not

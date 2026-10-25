@@ -137,7 +137,7 @@
 
         <h3>需要联网吗？</h3>
         <p>
-          第一次用本地沙箱要先下载运行时：C++ 工具链（clang + libc++）约 50MB，Python 运行时约 24MB，
+          第一次用本地沙箱要先下载运行时：C++ 工具链（clang 23 + libc++，C++20）约 23MB，Python 运行时约 24MB，
           只下一次，之后常驻浏览器缓存；下载过之后即可离线使用。清除了浏览器数据就要重新下载。
         </p>
 
@@ -145,6 +145,11 @@
         <p>
           本地 WASM 沙箱支持 C++ 与 Python 3（Python 由 CPython 解释器直接执行，不需要编译）；
           其它语言请切到 Piston 或 Judge0 远端评测服务。
+        </p>
+        <p>
+          C++ 按 C++20 编译，<code>try</code> / <code>catch</code> 可用；<code>dynamic_cast</code> 与
+          <code>typeid</code> 不支持，写了会编译报错。C++ 还需要支持新标准 wasm 异常与 SIMD 的浏览器
+          （Chrome 137+、Firefox 131+、Safari 18.4+），不满足时 C++ 不可用，Python 不受影响。
         </p>
 
         <h3>为什么第一次运行明显更慢？</h3>
@@ -155,8 +160,8 @@
 
         <h3>在浏览器里跑，会比本机慢多少？</h3>
         <p>
-          没有统一的缩放系数。同一台机器上实测，纯计算约慢 1.8 倍，排序 200 万个数约慢 6.7 倍——
-          倍率跟着访存密度走，不能外推。
+          没有统一的缩放系数。同一台机器上实测，纯计算约慢 1.1 倍，排序 200 万个数约慢 1.3 倍——
+          倍率跟着用例走，不能外推。
         </p>
 
         <p>
@@ -200,7 +205,7 @@
 
           <h4>Do I need to be online?</h4>
           <p>
-            The first local run has to download the runtime: the C++ toolchain (clang + libc++) is about 50MB and the
+            The first local run has to download the runtime: the C++ toolchain (clang 23 + libc++, C++20) is about 23MB and the
             Python runtime about 24MB. Each is downloaded once and then stays in the browser cache, so offline use works
             from then on. Clearing your browser data means downloading again.
           </p>
@@ -209,6 +214,12 @@
           <p>
             The local WASM sandbox supports C++ and Python 3 (Python runs straight in the CPython interpreter and is not
             compiled). For other languages, switch to a remote Piston or Judge0 judge service.
+          </p>
+          <p>
+            C++ is compiled as C++20, so <code>try</code> / <code>catch</code> work; <code>dynamic_cast</code> and
+            <code>typeid</code> are not supported and using them is a compile error. C++ also needs a browser with the
+            new standard for wasm exceptions and SIMD (Chrome 137+, Firefox 131+, Safari 18.4+); without it C++ is
+            unavailable and Python is unaffected.
           </p>
 
           <h4>Why is the first run so much slower?</h4>
@@ -220,8 +231,8 @@
 
           <h4>How much slower is the browser than native?</h4>
           <p>
-            There is no single scaling factor. Measured on the same machine, pure computation is about 1.8× slower and
-            sorting 2 million numbers about 6.7× slower — the ratio follows memory density and cannot be extrapolated.
+            There is no single scaling factor. Measured on the same machine, pure computation is about 1.1× slower and
+            sorting 2 million numbers about 1.3× slower — the ratio varies per case and cannot be extrapolated.
           </p>
 
           <p>

@@ -17,6 +17,8 @@ export const wasmEngine = {
   labelKey: 'engine.wasm.label',
   hintKey: 'engine.wasm.hint',
   executesCode: true,
+  // 链接期 --max-memory 封顶线性内存；分配是否真的失败由 sbrk 探针计数（判定规范 §5.2）
+  enforcesMemoryLimit: true,
   // 内置引擎没有服务地址，按注册表约定固定填 'local'
   defaultBase: 'local',
   // 只在网页版出现：桌面壳里没有 COOP/COEP（SharedArrayBuffer 起不来）也没有 Cache Storage，
@@ -77,21 +79,19 @@ export const wasmEngine = {
       return { outcome: 'compile-error', stdout, stderr: stderr || t('error.compileFailed'), durationMs }
     }
     if (!message.ok) {
-      // MLE 判据（实测 2026-10-12，探针系列）：开 --max-memory 后，真实超内存的程序在
-      // 第一次触碰超出上限的地址时 OOB trap → 退出码 134、stderr 为空。判据刻意收窄：
-      // 只有「开了上限 + 134 + stderr 全空」才判 MLE。
+      // MLE 的第一证据是**分配真的失败过**：链接期塞进去的探针接管了 sbrk，每次
+      // memory.grow 失败记一笔，宿主补丁在 trap 之后把计数带回来（message.sbrkFailures）。
+      // 只有「开了上限 + 退出码 134 + 失败次数 > 0」才判 MLE；空指针写入、运行期除零、
+      // abort()、栈溢出同样折成 134，但分配从未失败 → RE（判定规范 §2.1 / §5.2 / §8）。
       //
-      // 已知边界（探针实测）：
-      // - 用户自己 abort() 也是 134 + 空 stderr → 会误判成 MLE；
-      // - 「分配了但从不读写」的退化程序（vector(n) 只打印 size()）在 -O2 下零填充被
-      //   死存储消除、分配失败的 abort 分支被 libc++abi 的 unreachable 语义吞掉，
-      //   会假成功退出 0 → 判 AC。真实 OJ 的 RSS 口径下这类程序也不算超内存，可接受；
-      //   常量下标的读写同理（store-to-load 转发 + 死存储删除，探针实测）——运行期
-      //   下标的循环转发不掉，必 trap，所以真实形态的竞赛程序都会正确落进 MLE；
-      // - C 程序检查 malloc 返回 0 后自行退出的 → 退出码 1 → 判 RE。
-      // 要精确就得读峰值内存（worker 注入记 grow，二期）。
-      if (memoryLimitBytes > 0 && message.exitCode === 134 && !stderr) {
-        return { outcome: 'mle', stdout, stderr: '', durationMs }
+      // 补丁不在（拿到了 null）时退回旧的「134 + 空 stderr」启发式：那是已知会误判的
+      // 兜底，不能因为拿不到证据就把真正的 MLE 全判成 RE。
+      if (memoryLimitBytes > 0 && message.exitCode === 134) {
+        if (typeof message.sbrkFailures === 'number') {
+          if (message.sbrkFailures > 0) return { outcome: 'mle', stdout, stderr: '', durationMs }
+        } else if (!stderr) {
+          return { outcome: 'mle', stdout, stderr: '', durationMs }
+        }
       }
       return {
         outcome: 'runtime-error',

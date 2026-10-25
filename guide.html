@@ -106,7 +106,7 @@
           </li>
           <li data-page-node-id="OXuCOefxq40uZFA50vY9JX">
             给 <strong data-page-node-id="h17nsobcGZvJunNApAD14S">C++</strong> 或 <strong data-page-node-id="gcQNKmsoeC9HsuouB0FuKb">Python 3</strong> 点<strong data-page-node-id="Jr2E6rDsXPkRE0m52ZRNpu">下载</strong>。
-            分别约 50MB 与 24MB，只下一次。
+            分别约 23MB 与 24MB，只下一次。
           </li>
           <li data-page-node-id="81WJlrpAxAoNmakr956miF">等按钮变成<strong data-page-node-id="iMxCk1l7ibXJVanwc2niRF">已就绪</strong>。下载期间会播报当前阶段。</li>
           <li data-page-node-id="pTv5Cq6lphkiF6CVhrQw2i">
@@ -126,8 +126,11 @@
           <li data-page-node-id="zptTCMP45m2ujx8K86stM5">清掉浏览器数据后要重新下载。</li>
           <li data-page-node-id="Vn8HaeMYmvLKQJANqV7KKn">Python 不编译，直接解释执行。</li>
           <li data-page-node-id="3FTUhxddRrjlQMmmEaWZ3G">C++ 只编译当前打开的这个文件，本地头文件不会被包含。</li>
+          <li>C++ 按 C++20 编译，<code>try</code> / <code>catch</code> 可用。</li>
+          <li><code>dynamic_cast</code> 与 <code>typeid</code> 不支持，写了会编译报错。</li>
           <li data-page-node-id="kUOsNTaVz2ZrIHS06ZZFIl">Python 能 import 同目录的模块。</li>
           <li data-page-node-id="Iu0WzexWZD2FaBppquwEhb">沙箱里的文件读写都在内存里，不会写回工作区。</li>
+          <li>浏览器要支持新标准 wasm 异常与 SIMD；不满足时 C++ 不可用，Python 照常。</li>
         </ul>
 
         <h2 id="engines" data-page-node-id="y3rVLHNL2PDqIYETjeqmiT">3. 评测引擎怎么选？</h2>
@@ -178,9 +181,9 @@
 
         <h2 id="perf" data-page-node-id="3J783aWslkkkBcT2YfoAG6">4. 在浏览器里跑有多快？</h2>
         <p data-page-node-id="FobDnXhZ8sYJ6L0QXPkTBz">没有统一的缩放系数。</p>
-        <p data-page-node-id="zoLVxaNh7AVIW3B7aERHGg">下面是实测数据：Apple M5，无头 Chrome。</p>
+        <p data-page-node-id="zoLVxaNh7AVIW3B7aERHGg">下面是实测数据：Apple M5，无头 Chrome（2026-10-25）。</p>
         <p data-page-node-id="KIW28JGzMtwDjx7GA6iMeu">两侧都开 <code data-page-node-id="UR31QQHTdC1T0ln6TfGmON">-O2</code>。</p>
-        <p data-page-node-id="wKohVV7gI8gAnAVuMEJEO3">沙箱是 clang 8.0.1，本机是 clang。</p>
+        <p data-page-node-id="wKohVV7gI8gAnAVuMEJEO3">沙箱是 clang 23.1.0（C++20），本机是 clang。</p>
         <p data-page-node-id="x3Miex4MPVE13YfFUQ16jM">沙箱那一列取运行段，与卡片上的耗时同口径。</p>
         <div class="table-wrap" data-page-node-id="Vfl57YRctUf7zq0NugQuC7">
           <table data-page-node-id="5WW6mImIsswy3DYknGTFr9">
@@ -195,44 +198,44 @@
             <tbody data-page-node-id="W14ZpJo1qNCKCK81fcS8OH">
               <tr data-page-node-id="4Gj0Y3J5uXC9jstKueJOae">
                 <td data-page-node-id="X6phOEdDCGaztgyiIlfKwu">纯计算 5×10⁷ 轮 xorshift</td>
-                <td data-page-node-id="QajMOuXs7GUk0lptrRhp00">132 ms</td>
-                <td data-page-node-id="2JKSZ3ySsvAdSLJnoVrj7k">74.4 ms</td>
-                <td data-page-node-id="BMuwDDWM0IPRiOXiEPEvNi">1.77×</td>
+                <td data-page-node-id="QajMOuXs7GUk0lptrRhp00">87 ms</td>
+                <td data-page-node-id="2JKSZ3ySsvAdSLJnoVrj7k">76 ms</td>
+                <td data-page-node-id="BMuwDDWM0IPRiOXiEPEvNi">1.14×</td>
               </tr>
               <tr data-page-node-id="E5pDbN7GLbfXX5gIU0x3jp">
                 <td data-page-node-id="IUGKZ1ecDcrq7i3o79KaeV">顺序访存 8×10⁶ 个 int</td>
-                <td data-page-node-id="JROX1Hxo16QRMM4u9fma9S">26 ms</td>
-                <td data-page-node-id="IteISakANIsZ2Hjhi1cPbJ">7.4 ms</td>
-                <td data-page-node-id="3czVj4bVo0jtBy0Sa2onD6">3.51×</td>
+                <td data-page-node-id="JROX1Hxo16QRMM4u9fma9S">8 ms</td>
+                <td data-page-node-id="IteISakANIsZ2Hjhi1cPbJ">4.0 ms</td>
+                <td data-page-node-id="3czVj4bVo0jtBy0Sa2onD6">2.0×</td>
               </tr>
               <tr data-page-node-id="n2LEqt3Xf2JUDzZXi9s8q9">
                 <td data-page-node-id="xQSGRjysOLk84Al2JJ6CuD">排序 50 万个数</td>
-                <td data-page-node-id="Oza7vz60eNaS0rhfaxFP7L">60 ms</td>
-                <td data-page-node-id="l12GiHDlsMiCnDl4V3C4br">11.8 ms</td>
-                <td data-page-node-id="F6xEmOJcDOKHZXSzzAx1eO">5.08×</td>
+                <td data-page-node-id="Oza7vz60eNaS0rhfaxFP7L">12 ms</td>
+                <td data-page-node-id="l12GiHDlsMiCnDl4V3C4br">7.5 ms</td>
+                <td data-page-node-id="F6xEmOJcDOKHZXSzzAx1eO">1.60×</td>
               </tr>
               <tr data-page-node-id="Id7zpwOer75CAV69tEHhtT">
                 <td data-page-node-id="wqNkNubqVQkWjVdzYJG8C4">排序 200 万个数</td>
-                <td data-page-node-id="fiRv5DoUBPOFVEBPS6pSaP">247 ms</td>
-                <td data-page-node-id="tkMoGHKWAPdp14I8voJ1oC">36.7 ms</td>
-                <td data-page-node-id="MKPg607JgtuVaDwMEqqSII">6.73×</td>
+                <td data-page-node-id="fiRv5DoUBPOFVEBPS6pSaP">41 ms</td>
+                <td data-page-node-id="tkMoGHKWAPdp14I8voJ1oC">33 ms</td>
+                <td data-page-node-id="MKPg607JgtuVaDwMEqqSII">1.25×</td>
               </tr>
             </tbody>
           </table>
         </div>
         <ul data-page-node-id="n01irZbWPIw0joyealcNey">
-          <li data-page-node-id="fTuUxvfGrooxSXHV3IByCv">倍率随访存密度涨，从约 1.8× 到约 6.7×。</li>
+          <li data-page-node-id="fTuUxvfGrooxSXHV3IByCv">倍率约 1.1× 到 2.0×，比旧内核（clang 8.0.1）小得多。</li>
           <li data-page-node-id="6BN1jSDwA9OqYtQhfi0jzH">越吃内存带宽，慢得越多。</li>
-          <li data-page-node-id="I6uf9V7wfWbT9cIGChnO6P">倍率不能外推，别拿 5× 去估别的代码。</li>
-          <li data-page-node-id="KDNDTKALA4PqD7NilzZ0lD">5 次采样极差 ≤3 ms，输出与本机逐字一致，不是噪声。</li>
-          <li data-page-node-id="gAtVQvuTU9en5RJMbwQqCK">两列都含启动开销：本机是进程启动，沙箱是 WASI 实例化。</li>
-          <li data-page-node-id="OVV8SN5MJlNwZuGsTa6DRW">耗时越短的用例，倍率越会被这两个常数拉平。</li>
+          <li data-page-node-id="I6uf9V7wfWbT9cIGChnO6P">倍率不能外推，别拿表中的数字去估别的代码。</li>
+          <li data-page-node-id="KDNDTKALA4PqD7NilzZ0lD">取 10–15 次采样的中位数，输出与本机逐字一致。</li>
+          <li data-page-node-id="gAtVQvuTU9en5RJMbwQqCK">沙箱一列是 <code>_start</code> 到退出；本机一列已扣掉进程启动（约 2.6 ms）。</li>
+          <li data-page-node-id="OVV8SN5MJlNwZuGsTa6DRW">顺序访存与排序 50 万只有十几毫秒，已接近测量下限，这两个比值仅供参考。</li>
           <li data-page-node-id="l1XCTYRByt4wYHA57KCedj">换一台设备，绝对值与倍率都会变。</li>
         </ul>
         <h3 data-page-node-id="GttfZQrBgz0YY5yDtoK2xr">空程序那个对照为什么不算数？</h3>
         <p data-page-node-id="F2Qtn792k1HG3bMAF1K3lR">空程序的对照是假象。</p>
-        <p data-page-node-id="Rpcpo6JvgKMO4koxLCAbDy">本机那 4.4 ms 全是进程启动开销。</p>
-        <p data-page-node-id="eOF9xU08DjQpUf2iIL9JEw">沙箱那 3.0 ms 是 WASI 实例化。</p>
+        <p data-page-node-id="Rpcpo6JvgKMO4koxLCAbDy">本机那 2.6 ms 全是进程启动开销。</p>
+        <p data-page-node-id="eOF9xU08DjQpUf2iIL9JEw">沙箱那边不到 1 ms，已经落到计时下限。</p>
         <p data-page-node-id="DVPPD4Bar0WE0QnGmZOmRW">两个数都不含计算，比了也没意义。</p>
         <p data-page-node-id="wAjdXJpoGsIVBKG7u8pqAl">要对照，就只看真在算的那几行。</p>
 
@@ -448,7 +451,7 @@
         <p data-page-node-id="zj5H7xowbj6IEfiGc43OAF">切到 Piston 或 Judge0 时，代码会发到你填的地址。</p>
 
         <h3 data-page-node-id="a0JEwH5hALshG2bOj6hejb">需要联网吗？</h3>
-        <p data-page-node-id="xXbyatZJBE9RB9kZ01m3Ci">第一次要下运行时，约 50MB。</p>
+        <p data-page-node-id="xXbyatZJBE9RB9kZ01m3Ci">第一次要下运行时，C++ 约 23MB。</p>
         <p data-page-node-id="NnDi7wt5EzXYg22AbcoexT">下过之后常驻缓存，可以断网用。</p>
         <p data-page-node-id="Cd1imhFEAfJtfOs08jOy8b">清了浏览器数据就要重下一次。</p>
 
@@ -456,6 +459,11 @@
         <p data-page-node-id="91pggFHmLQ7mB5Cxqef06L">本地沙箱支持 C++ 与 Python 3。</p>
         <p data-page-node-id="AdWjTAUbH0R3164MXyvUCw">其它语言请切到 Piston 或 Judge0。</p>
         <p data-page-node-id="EHMn2sGP3SHTV1HDVeuX5v">支持范围取决于你所连的那台服务。</p>
+
+        <h3>对浏览器有什么要求？</h3>
+        <p>C++ 要浏览器支持新标准 wasm 异常与 SIMD：Chrome 137+、Firefox 131+、Safari 18.4+。</p>
+        <p>不满足时 C++ 不可用，卡片上会写明缺哪一项能力。</p>
+        <p>Python 3 不受影响。</p>
 
         <h3>编辑器有自动补全吗？</h3>
         <p>有，但只给 C / C++ / Python 三种语言的代码文件（<code>.c</code>、<code>.cpp</code>、<code>.py</code>）。打几个字母候选框会自动弹出：方向键翻动，<kbd>Tab</kbd> 采用当前那条，<kbd>Esc</kbd> 关掉。</p>
@@ -524,12 +532,12 @@
               <tr data-page-node-id="Ok1x248a8TjvrqesPrHGRS">
                 <td data-page-node-id="EwcxhQfGqKTPUOftR2szXz">runno（<code data-page-node-id="lYO6X8mjGrycgU2lZrxDMC">@runno/wasi</code>）</td>
                 <td data-page-node-id="COwFiNSujN1xczdjs7INOJ">MIT</td>
-                <td data-page-node-id="KKApfumlirW2EsUL1H37nh">本地沙箱的 WASI 运行时：起实例、喂输入，以及超时（TLE）时把它中断掉</td>
+                <td data-page-node-id="KKApfumlirW2EsUL1H37nh">Python 3 的 WASI 运行时：起实例、喂输入，以及超时（TLE）时把它中断掉。C++ 走本站自写的 WASI 宿主</td>
               </tr>
               <tr data-page-node-id="u3IH9MUc1UoGHneWHUtnD5">
                 <td data-page-node-id="tF1VxaqFdTjCuUuwGEvVa3">LLVM / clang 与 lld</td>
                 <td data-page-node-id="sitGBW6omF1es0rKHYretI">Apache-2.0 WITH LLVM-exception</td>
-                <td data-page-node-id="AQMXe2SsgtxZTsR1sQFKi1">本地编译 C++ 的编译器与链接器（wasm 版，8.0.1）</td>
+                <td data-page-node-id="AQMXe2SsgtxZTsR1sQFKi1">本地编译 C++ 的编译器与链接器（wasm 版，LLVM 23.1.0）</td>
               </tr>
               <tr data-page-node-id="vh6Q481rLxdSSSL1Z3z7Xc">
                 <td data-page-node-id="kEdjjG2HjM6uf8pMhh2NWN">wasi-libc</td>
@@ -568,8 +576,9 @@
           <li data-page-node-id="pQBIKMxaDXcUKpb8HvC9e1">界面全部使用你设备上的系统字体，没有自托管或第三方的网络字体；代码区另内置三款开源等宽字体（JetBrains Mono / Fira Code / Cascadia Code），<strong>只在你于「设置 › 编辑器 › 字体」里选中时才下载</strong>，同样不依赖任何第三方服务。</li>
           <li data-page-node-id="9Rg108dJt40xf5uEH6RtY9">应用图标与分享图是本站自制。</li>
           <li data-page-node-id="zopfXO8sVNNcgvLkC3Os6E">
-            上表里的 C++ 工具链与 Python 解释器都是<strong data-page-node-id="0Miu1UtrDY4CV03YF8rOAE">上游现成的预编译产物</strong>（分别出自 binji 的 wasm-clang 与
-            CPython 官方构建，经 runno 的项目分发），本站只是把它们放到自己服务器上供下载，没有改动。
+            C++ 工具链是本站用 <strong data-page-node-id="0Miu1UtrDY4CV03YF8rOAE">上游源码自行编译</strong>的（LLVM 23.1.0，
+            运行库取自 wasi-sdk 34），构建脚本在仓库的 <code>scripts/wasm-core/</code>，没有改动上游代码；Python 解释器仍是
+            CPython 官方构建，经 runno 的项目分发，原样放在自己服务器上。
           </li>
           <li data-page-node-id="tkwm9a53dGERnHRmzLdxxB">
             Piston（MIT）与 Judge0（GPL-3.0）是本站<strong data-page-node-id="udchPR9B2hQC0Hu60tPaCy">对接</strong>的外部评测服务，它们的代码不在本站里，

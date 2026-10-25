@@ -93,6 +93,10 @@ import {
   problemUrlOf,
   todayISO,
 } from '../services/problemMeta.js'
+import { CHECKERS, DEFAULT_CHECKER_ID } from '../services/checkers.js'
+
+/** 弹窗里的比对方式选项：默认逐行用「留空」表示，其余几种按题开启 */
+const CHECKER_OPTIONS = CHECKERS.filter((checker) => checker.id !== DEFAULT_CHECKER_ID)
 
 const rootEl = ref(null)
 
@@ -909,6 +913,8 @@ function beginEditMeta(node) {
     difficulty: saved.difficulty ?? '',
     date: saved.date || todayISO(),
     timeLimit: saved.timeLimit ? String(saved.timeLimit / 1000) : '',
+    // 空 = 默认逐行；其余几种是显式配置（normalizeMeta 只认注册表里的 id）
+    checker: saved.checker ?? '',
   }
   metaError.value = ''
   metaTarget.value = node
@@ -1440,6 +1446,18 @@ defineExpose({
             />
           </label>
 
+          <!-- 输出比对方式（2026-10-25 加）：留空 = 默认逐行，其余几种按题开启。
+               只影响 exit 0 之后的 AC / WA 判定，不改变 TLE / MLE / RE 的口径。 -->
+          <label class="meta__field">
+            <span class="meta__label">{{ t('explorer.meta.checker') }}</span>
+            <select v-model="metaForm.checker" class="meta__input">
+              <option value="">{{ t('explorer.meta.checkerDefault') }}</option>
+              <option v-for="item in CHECKER_OPTIONS" :key="item.id" :value="item.id">
+                {{ t(item.labelKey) }}
+              </option>
+            </select>
+          </label>
+
           <p v-if="metaError" class="meta__error">{{ metaError }}</p>
 
           <div class="meta__actions">
@@ -1604,6 +1622,9 @@ defineExpose({
 
 .meta__card {
   width: min(360px, 100%);
+  /* 六项字段在矮屏（手机横屏 / 小窗口）会顶破视口：卡片自己滚，遮罩不动 */
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   padding: 14px;
   border: 1px solid var(--border-soft);
   border-radius: 10px;

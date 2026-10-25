@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -43,11 +45,60 @@ function precacheManifest() {
   }
 }
 
+/**
+ * 产出 `/retain-manifest.json` —— **这一版还要留哪些缓存条目**，给 Service Worker 的
+ * activate 回收用（见 sw.js 的 pruneStaleShellArtifacts）。
+ *
+ * 与 precache-manifest 分成两份、而不是合成一份：
+ * - precache-manifest 是「install 时该预下载什么」，只装 rollup 产物（`/assets/`）；
+ *   fonts 与扩展包**故意不预缓存**（第 1 节硬约束：它们靠文件名带版本轮换），塞进去
+ *   等于每次装 SW 都白拉几百 KB。
+ * - retain-manifest 是「桶里哪些条目还有消费者」，所以要多扫 `public/` 下那两类
+ *   按文件名带版本的静态资产 —— 构建期读目录，就是它们此刻的版本。
+ *
+ * 判据一句话：**桶里的条目，其 URL 只有当这一版仍然部署着它时才有意义**。带内容哈希的
+ * 产物看 bundle；带文件版本号的静态资产看目录。将来再加一类「会变但没有哈希」的资产，
+ * 要么补进扫描列表、要么补进 sw.js 的 SHELL_VERSIONED_PREFIXES，两处是配套的。
+ */
+function retainManifest() {
+  const PUBLIC_DIR = fileURLToPath(new URL('./public', import.meta.url))
+  const listPublic = (dir, ext) => {
+    try {
+      return readdirSync(join(PUBLIC_DIR, dir))
+        .filter((name) => name.endsWith(ext))
+        .sort()
+        .map((name) => `/${dir}/${name}`)
+    } catch {
+      // 目录不在（裁剪过的产物 / 本地清理过）就是没有这一类，别让整次构建挂掉
+      return []
+    }
+  }
+
+  return {
+    name: 'cp-retain-manifest',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const shell = [
+        ...Object.keys(bundle)
+          .filter((name) => name.startsWith('assets/'))
+          .map((name) => `/${name}`),
+        ...listPublic('fonts', '.woff2'),
+        ...listPublic('extension', '.zip'),
+      ].sort()
+      this.emitFile({
+        type: 'asset',
+        fileName: 'retain-manifest.json',
+        source: JSON.stringify({ shell }),
+      })
+    },
+  }
+}
+
 // Service Worker 是 classic worker，不能用 import 读 services/storageNames.js，
 // 所以它那份桶名常量由下面这个插件在构建期拼进源码。模板是 src/sw.js（不是产物）。
 const SW_TEMPLATE = fileURLToPath(new URL('./src/sw.js', import.meta.url))
 
-function renderServiceWorker() {
+function renderServiceWorker(buildId = 'dev') {
   const declared = Object.entries(SERVICE_WORKER_CONSTANTS)
     .map(([name, value]) => `const ${name} = ${JSON.stringify(value)}`)
     .join('\n')
@@ -56,6 +107,10 @@ function renderServiceWorker() {
     '// 以下常量由 vite.config.js 的 cp-service-worker 插件生成，唯一出处是',
     '// src/services/storageNames.js 的 SERVICE_WORKER_CONSTANTS —— 不要手改这一块，',
     '// 改了会在下次构建时被覆盖（SW 是 classic worker，没法直接 import 那个模块）。',
+    '//',
+    `// 构建指纹 ${buildId}`,
+    '// 它唯一的用途是让浏览器判定 sw.js 已更新：脚本字节不变时浏览器不会重新',
+    '// install / activate，activate 里那趟「清掉上一版外壳产物」也就不会跑。',
     '// ---------------------------------------------------------------------------',
   ].join('\n')
   // 模板每次现读：dev 下每次请求都走这里，改了 src/sw.js 不必重启开发服务器
@@ -78,8 +133,14 @@ function renderServiceWorker() {
 function serviceWorker() {
   return {
     name: 'cp-service-worker',
-    generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'sw.js', source: renderServiceWorker() })
+    generateBundle(_options, bundle) {
+      // 指纹取「本次产物的文件名集合」：构建产物带内容哈希，任何一次真改动都会换掉
+      // 至少一个文件名，于是 sw.js 的字节也跟着变、浏览器才会去装这份新 SW
+      const buildId = createHash('sha1')
+        .update(Object.keys(bundle).sort().join('\n'))
+        .digest('hex')
+        .slice(0, 12)
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source: renderServiceWorker(buildId) })
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
@@ -93,8 +154,43 @@ function serviceWorker() {
   }
 }
 
+/**
+ * 23.1.0 的三件资产是**预压 brotli** 的（`clang.wasm.br` / `wasm-ld.wasm.br` /
+ * `sys23-fs.tar.br`）：Vercel 自己的 br 档位比本机 q11 弱 ~1.38×，所以自己压、用
+ * `Content-Encoding: br` 让浏览器透明解压。
+ *
+ * 浏览器只认响应头，不认扩展名 —— 少了这个中间件，dev/preview 会把 `.br` 当
+ * `application/octet-stream` 原样吐出去，`instantiateStreaming` 立刻报 magic word 错，
+ * sysroot 解包则变成空文件系统。线上由 vercel.json 的 headers 做同一件事。
+ */
+function wasmBrotliAssets() {
+  const serve = (req, res, next) => {
+    const path = (req.url ?? '').split('?')[0]
+    if (!/^\/wasm\/[^/]+\/[^/]+\.br$/.test(path) || path.includes('..')) return next()
+    try {
+      const bytes = readFileSync(join(process.cwd(), 'public', path))
+      res.setHeader('Content-Encoding', 'br')
+      res.setHeader('Content-Type', path.endsWith('.wasm.br') ? 'application/wasm' : 'application/x-tar')
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      res.setHeader('Content-Length', bytes.length)
+      res.end(bytes)
+    } catch {
+      next()
+    }
+  }
+  return {
+    name: 'cp-wasm-brotli-assets',
+    configureServer(server) {
+      server.middlewares.use(serve)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(serve)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [vue(), precacheManifest(), serviceWorker()],
+  plugins: [vue(), precacheManifest(), retainManifest(), serviceWorker(), wasmBrotliAssets()],
   css: {
     // 全局 UI 缩放的「止血防线」：把 CSS 里的 px 转成 rem，缩放时只改根字号即可。
     // 但转换只发生在 CSS 声明上，JS 内联样式 / JS 常量 / @media·@container 断点都不受影响，

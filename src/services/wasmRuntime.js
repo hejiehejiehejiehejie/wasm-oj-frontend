@@ -15,8 +15,8 @@
  * 用定时器而不是固定间隔轮询，是因为 TLE 的判定精度不能受轮询间隔拖累。
  * - download 是网络，慢是正常的，给一个宽松的上限；
  * - compile 正常情况下只要几百毫秒，超时基本可以断定卡死；
- * - run 段用调用方给的时限（界面上的全局时限），到点即 TLE：
- *   回一条 type 'timeout'，由引擎翻译成 outcome 'timeout'，卡片显示成 TLE。
+ * - run 段用调用方给的时限（界面上的全局时限）：到点不立刻杀，留
+ *   `max(100ms, 5%)` 的宽限；是否 TLE 按**程序自己的结束时刻**与时限比较（§4.2）。
  */
 import {
   generatePch,
@@ -30,6 +30,7 @@ import {
   unloadRuntime,
 } from './runnoSandbox.js'
 import { preloadMdRuntime, probeMdRuntime, uninstallMdRuntime } from './mdRuntime.js'
+import { supportsCppToolchain } from './wasmFeatures.js'
 import { t } from '../i18n/index.js'
 import { vfsToRunnoFs } from './vfs/runnoFs.js'
 
@@ -39,7 +40,7 @@ import { vfsToRunnoFs } from './vfs/runnoFs.js'
 // 留 500ms 覆盖慢机器上的冷启动，代价是 TLE 最多晚 0.5s 报出来。
 const PYTHON_STARTUP_ALLOWANCE_MS = 500
 
-// 约 50MB 裸文件（走 Vercel 边缘压缩，实际传输量小得多），正常几秒到十几秒；
+// 约 23MB 传输（三件预压 br；裸文件约 131MB），正常几秒到十几秒；
 // 3 分钟还没回来基本可以断定网络有问题
 const DOWNLOAD_TIMEOUT_MS = 3 * 60 * 1000
 // 编译 + 链接一个竞赛程序通常 1 s 以内，60 s 还没回来是卡死而不是慢
@@ -87,7 +88,10 @@ function timeoutMessage(entry) {
   return t('error.prepareTimeout', { seconds })
 }
 
-/** 杀掉当前 WASI 实例。工具链是常驻内存的缓存，不受影响。 */
+/**
+ * 杀掉当前 WASI 实例。C++ 是常驻宿主 worker，terminate 后下一次 `loadToolchain` 会重建；
+ * Python 仍是 runno 的单次实例，工具链缓存不受影响。
+ */
 function killHost(entry) {
   const host = entry.host
   if (!host) return
@@ -101,16 +105,22 @@ function killHost(entry) {
 /**
  * 给当前阶段上弦：每个阶段一条独立定时器，进入新阶段就重新计一次。
  * 到点只做一件事——杀掉当前的 WASI 实例；剩下的交给 runCpp 抛错、runCase 翻译。
+ *
+ * run 段不在 T 到点就杀，而是等 `T + max(100ms, 5%)`（判定规范 §4.2）：主线程被
+ * 事件循环 / GC 卡一下时，worker 里其实已经跑完的程序不该被误杀。**判定阈值不变**
+ * —— 到底算不算 TLE 由 runCase 拿程序自己的结束时刻（runMs）与 T 比较，这里的宽限
+ * 只决定「什么时候动手」。
  */
 function armTimer(entry) {
   clearTimeout(entry.timer)
   entry.timer = 0
   const limit = entry.stage === 'run' ? entry.runLimit : STAGE_TIMEOUTS[entry.stage]
   if (!limit) return
+  const delay = entry.stage === 'run' ? limit + Math.max(100, Math.round(limit * 0.05)) : limit
   entry.timer = setTimeout(() => {
     entry.timedOut = true
     killHost(entry)
-  }, limit)
+  }, delay)
 }
 
 /** 起一个可被看门狗 / signal 中断的任务上下文 */
@@ -188,7 +198,7 @@ let pchWarmupStarted = false
  * 后台静默生成 STL 预编译头（见 runnoSandbox.generatePch）。
  *
  * 触发时机不是「首屏」，而是「工具链已经在内存里」之后：首屏时 toolchain 还是 null，
- * 放在那里要么空转、要么被迫替用户拉起 50MB 下载，两条都和「不影响首屏」矛盾。
+ * 放在那里要么空转、要么被迫替用户拉起 23MB 下载，两条都和「不影响首屏」矛盾。
  * 所以由 runCase / preload 在工具链就绪后调一次，再等系统空闲才真正开工。
  *
  * 为什么必须排进同一条串行队列：生成时要把 ~9MB 的 sysroot 整体克隆进 worker，
@@ -216,8 +226,8 @@ export function warmupPch() {
  * 编译并运行一段代码 —— 沙箱调度器，按语言分流到两条并列的管线：
  * - cpp：clang 编译 + wasm-ld 链接 + 跑产物（见 runnoSandbox.runCpp），有 compile / run 两段；
  * - python：不编译，解释器直接执行入口文件（见 runnoSandbox.runPython），只有 run 一段。
- * 两条线共用同一个 WASI 宿主、同一套 stdout / stderr 拦截和同一个看门狗，所以
- * 超时强杀（TLE）、取消、阶段播报在两种语言下的行为完全一致。
+ * cpp 走自写常驻宿主（services/wasi/），python 仍走 runno；两条线共用 stdout / stderr
+ * 拦截与同一个看门狗，所以超时强杀（TLE）、取消、阶段播报在两种语言下行为一致。
  *
  * @param {{ language?: string, entryPath?: string, code: string, stdin?: string, signal?: AbortSignal, timeLimitMs?: number, memoryLimitBytes?: number }} options
  *   language   'cpp' | 'python'，缺省按 cpp（保持既有调用方不改也能跑）
@@ -251,8 +261,20 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
             onHost: entry.onHost,
           })
       if (entry.cancelled) return { type: 'cancelled' }
+      // 程序自己跑完了，但结束时刻晚于时限 → TLE（判定规范 §4.2）。用宿主补丁记的
+      // runMs（_start 的起止墙钟），而不是消息处理时刻；补丁不在（null）时不做这一步，
+      // 仍然只靠看门狗。阈值取 entry.runLimit：C++ 就是 timeLimitMs，Python 额外含着
+      // 启动余量（PYTHON_STARTUP_ALLOWANCE_MS），与看门狗同一口径。
+      if (typeof result.runMs === 'number' && result.runMs > entry.runLimit) {
+        return {
+          type: 'timeout',
+          stdout: result.stdout ?? '',
+          stderr: result.stderr ?? '',
+          durationMs: result.runMs,
+        }
+      }
       // 编译这步真走完了（成功或编译错误都算），说明工具链已在内存里 —— 趁空闲把 PCH 备好给下一批用。
-      // PCH 是 C++ 专属的，跑 Python 不该去拉那 50MB 工具链。
+      // PCH 是 C++ 专属的，跑 Python 不该去拉那 23MB 工具链。
       if (!isPython) warmupPch()
       return { type: 'result', ...result }
     } catch (error) {
@@ -302,6 +324,9 @@ export async function probeRuntime(language) {
   // markdown 渲染器的资产在 Cache Storage 里，判据与工具链不同，交给它自己的模块
   if (language === 'markdown') return probeMdRuntime()
   if (language !== 'cpp' && language !== 'python') return false
+  // 浏览器缺 wasm 异常 / SIMD 时，C++ 那三件资产**装了也跑不起来**：别让设置页显示
+  // 「已下载」、也别让预取白下 23 MiB。判据同 runnoSandbox.loadToolchain 的前置检查。
+  if (language === 'cpp' && !supportsCppToolchain()) return false
   if (language === 'python' ? isPythonRuntimeReady() : isToolchainReady()) return true
   const urls = runtimeAssetURLs(language)
   if (!urls.length) return false
@@ -334,7 +359,7 @@ async function isAssetCached(url) {
  * 先跑一次代码才能看到红线；后者直接放弃，等用户自己点运行。
  *
  * 判据做成两级：先 `probeRuntime` 探缓存（不触网），再 `preload*`。因为探针通过
- * 之后 fetch 一定命中缓存；反过来直接 preload，缓存缺失时就会真的下 50MB。
+ * 之后 fetch 一定命中缓存；反过来直接 preload，缓存缺失时就会真的下 23MB。
  *
  * @param {'cpp' | 'python'} language
  * @returns {Promise<boolean>} true = 现在已在内存里

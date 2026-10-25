@@ -97,6 +97,9 @@ export default {
         date: '日期',
         timeLimit: '时限（秒）',
         timeLimitPlaceholder: '留空用默认',
+        /** 输出比对方式（2026-10-25 加）：空 = 默认逐行，其余几种按题开启 */
+        checker: '输出比对',
+        checkerDefault: '默认（逐行）',
       },
 
       /** 文件树上那行 title 的多行提示，前缀 */
@@ -105,6 +108,7 @@ export default {
         difficulty: '难度：{value}',
         timeLimit: '时限：{value}s',
         date: '日期：{value}',
+        checker: '输出比对：{value}',
       },
     },
 
@@ -202,6 +206,9 @@ export default {
         date: 'Date',
         timeLimit: 'Time limit (s)',
         timeLimitPlaceholder: 'Blank uses the default',
+        /** 同 zh-CN：输出比对方式，空 = 默认逐行 */
+        checker: 'Output check',
+        checkerDefault: 'Default (line by line)',
       },
 
       tooltip: {
@@ -209,6 +216,7 @@ export default {
         difficulty: 'Difficulty: {value}',
         timeLimit: 'Time limit: {value}s',
         date: 'Date: {value}',
+        checker: 'Output check: {value}',
       },
     },
 

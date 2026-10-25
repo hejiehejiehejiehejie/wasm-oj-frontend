@@ -71,12 +71,16 @@ async function languageIdFor({ base, languageId, signal }) {
 // 超限被 SIGKILL（退出码 137），返回的 memory 恰好等于上限、status 落在 NZEC 类。
 // 所以「上报内存 ≥ 上限」且没被判超时/编译错误时，即可判 MLE。自建部署不支持
 // memory_limit 时不会杀进程，memory 也到不了上限，自然退回 RE —— 不误伤。
+//
+// exit 0（status 3 = Accepted）时 stderr 只是诊断，必须忽略（判定规范 §2.1）：
+// 有选手会在程序里往 cerr 打调试信息，那不该判 RE。这与 wasm / native 同一口径。
 function classify({ stdout, stderr, compileOutput, statusId, description, durationMs, memoryBytes, limitBytes }) {
   if (statusId === 5 || /timeout/i.test(description ?? '')) {
     return { outcome: 'timeout', stdout, stderr, durationMs }
   }
   if (compileOutput) {
-    return { outcome: 'compile-error', stdout, stderr: compileOutput, durationMs }
+    // 编译失败时程序根本没跑：Judge0 的 time 含编译段，不能当运行耗时
+    return { outcome: 'compile-error', stdout, stderr: compileOutput, durationMs: null }
   }
   if (statusId === 4) {
     return {
@@ -84,13 +88,16 @@ function classify({ stdout, stderr, compileOutput, statusId, description, durati
       stdout,
       stderr: '',
       detail: description || t('engine.judge0.internal'),
-      durationMs,
+      durationMs: null,
     }
   }
   if (limitBytes > 0 && memoryBytes !== null && memoryBytes >= limitBytes) {
     return { outcome: 'mle', stdout, stderr: '', durationMs }
   }
-  if (stderr || (statusId !== null && statusId !== 3)) {
+  if (statusId === 3) {
+    return { outcome: 'ok', stdout, stderr: '', durationMs }
+  }
+  if (stderr || statusId !== null) {
     return {
       outcome: 'runtime-error',
       stdout,
@@ -101,11 +108,24 @@ function classify({ stdout, stderr, compileOutput, statusId, description, durati
   return { outcome: 'ok', stdout, stderr: '', durationMs }
 }
 
+/**
+ * Judge0 的 `time` 是**运行段 CPU 秒数**（可能是字符串）。缺失 / 非法给 null ——
+ * 绝不拿 HTTP 往返顶替：那个数会把「服务快」显示成「程序快」（规范 §4.2）。
+ */
+function runTimeMs(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null
+  if (typeof value === 'string' && !value.trim()) return null
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null
+}
+
 export const judge0Engine = {
   id: 'judge0',
   labelKey: 'engine.judge0.label',
   hintKey: 'engine.judge0.hint',
   executesCode: true,
+  // 透传 memory_limit（KB）；支持的部署会在超限时杀进程，见 classify 的 MLE 判据
+  enforcesMemoryLimit: true,
   defaultBase: 'https://ce.judge0.com',
 
   supports(languageId) {
@@ -121,7 +141,13 @@ export const judge0Engine = {
       signal,
     })
     if (result.outcome === 'ok' && result.stdout.trim() === '1') {
-      return { ok: true, message: t('engine.judge0.available', { ms: result.durationMs }) }
+      return {
+        ok: true,
+        message:
+          result.durationMs === null
+            ? t('engine.judge0.availableNoTime')
+            : t('engine.judge0.available', { ms: result.durationMs }),
+      }
     }
     if (result.outcome === 'unreachable') {
       return { ok: false, message: t('engine.judge0.unreachable', { base: trimBase(base) }) }
@@ -158,7 +184,7 @@ export const judge0Engine = {
         stdout: '',
         stderr: '',
         detail: t('error.judge0Connect', { base: trimBase(base), hint: t('engine.judge0.hint') }),
-        durationMs: response.durationMs,
+        durationMs: null,
       }
     }
     if (!response.ok) {
@@ -167,7 +193,7 @@ export const judge0Engine = {
         stdout: '',
         stderr: '',
         detail: pickReason(response.text, response.status),
-        durationMs: response.durationMs,
+        durationMs: null,
       }
     }
 
@@ -179,7 +205,7 @@ export const judge0Engine = {
       compileOutput: fromBase64(data.compile_output).trim(),
       statusId: typeof status.id === 'number' ? status.id : null,
       description: status.description ?? data.message ?? '',
-      durationMs: response.durationMs,
+      durationMs: runTimeMs(data.time),
       // Judge0 的 memory 单位是 KB，换回字节再比
       memoryBytes: typeof data.memory === 'number' ? data.memory * 1024 : null,
       limitBytes: memoryLimitBytes,

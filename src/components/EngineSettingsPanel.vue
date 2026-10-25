@@ -35,6 +35,13 @@ watch(
 // 内置引擎（本地沙箱 / 自检）没有服务地址，按注册表约定 defaultBase 是 'local'
 const localEngine = computed(() => props.judge.base === 'local')
 
+// 当前引擎不兑现内存上限时，在说明区明示「不会判 MLE」（判定规范 §8 的承诺矩阵）。
+// 不执行代码的引擎（echo）不提示：它本来就不判任何结果。
+const memoryLimitGap = computed(() => {
+  const current = choices.find((item) => item.id === props.judge.id)
+  return Boolean(current?.executesCode && !current.enforcesMemoryLimit)
+})
+
 const probeTone = computed(() => {
   if (props.connection.state === 'ok') return 'is-ok'
   if (props.connection.state === 'bad') return 'is-bad'
@@ -86,6 +93,9 @@ function applyBase() {
         <span class="engine__hint">{{ t(item.hintKey) }}</span>
       </button>
     </div>
+
+    <!-- 承诺矩阵（判定规范 §8）：native / piston 不设内存上限，别让界面的内存设置看起来生效 -->
+    <p v-if="memoryLimitGap" class="engine-note">{{ t('engine.noMemoryLimit') }}</p>
 
     <div v-if="!localEngine" class="engine-field">
       <span class="engine-field__label">{{ t('engine.baseLabel') }}</span>

@@ -114,9 +114,36 @@ async function downloadMdRuntime(onStatus, signal) {
     onStatus?.({ stage: 'download', message: t('runtime.markdown.progress', { done, total }) })
   }
 
+  await pruneStaleMdAssets(cache, fresh.assets)
+
   // 内存里的旧清单作废：新下载的可能换了版本（文件数不同）
   manifest = fresh
   writeReadyFlag(true)
+}
+
+/**
+ * 换代清扫：删掉桶里**不在当前清单上**的条目（上一代多出来的字体等）。
+ *
+ * 【为什么这里必须自己清，不能指望「换版本 = 换 URL」】
+ * `/wasm/<版本>/` 那条论据在渲染器上不成立 —— katex 升版后文件仍叫 `/md/katex.min.js`，
+ * 路径里没有版本号，`assets.json` 才是唯一知道版本的地方（它带着 `katex` / `marked` 字段）。
+ * 于是升版后：同名文件被这次 `cache.put` 覆盖、**不会**留垃圾，但被删掉的旧字体没人扫，
+ * 桶在 activate 的 keep 白名单里又永不过期 —— 那些条目会一直躺着。
+ *
+ * 【为什么放在最后】
+ * 下载失败时不执行，旧的那份（哪怕多几个字体）还能用；总比先清空再失败、渲染器直接坏掉好。
+ *
+ * @param {Cache} cache
+ * @param {string[]} assets 当前清单里的资产路径
+ */
+async function pruneStaleMdAssets(cache, assets) {
+  try {
+    const wanted = new Set([MANIFEST_URL, ...assets])
+    const stale = (await cache.keys()).filter((request) => !wanted.has(new URL(request.url).pathname))
+    await Promise.all(stale.map((request) => cache.delete(request)))
+  } catch {
+    /* 清不掉只是占点空间，不该让一次成功的下载变成失败 */
+  }
 }
 
 /**

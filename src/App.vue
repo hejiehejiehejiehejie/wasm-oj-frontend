@@ -21,6 +21,7 @@ import { contentElementAt } from './composables/contentHit.js'
 import { flush, initAutoSave } from './services/autoSave.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { MEMORY_LIMIT_DEFAULT_BYTES, TIME_LIMIT_DEFAULT_MS, runCases } from './services/runner.js'
+import { DEFAULT_CHECKER_ID } from './services/checkers.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
 import { prepareNativeToolchain } from './services/nativeToolchain.js'
 import { requestPersistence } from './services/storageQuota.js'
@@ -106,6 +107,9 @@ const effectiveMemoryLimitBytes = computed(() => {
   const mb = activeNode.value?.config?.memoryLimit
   return typeof mb === 'number' && mb > 0 ? mb * 1024 * 1024 : memoryLimitBytes.value
 })
+// 输出比对方式：题目 meta 里显式选了就用它，否则全局默认逐行（见 services/checkers.js）。
+// 与时限同构 —— 也按题覆盖，普通文件永远走默认。
+const effectiveChecker = computed(() => activeNode.value?.meta?.checker || DEFAULT_CHECKER_ID)
 
 // 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）连同「写一次根字号」
 // 都搬到了 services/shellSettings.js（模块被 import 时就落地，早于首帧渲染）。
@@ -1253,6 +1257,7 @@ async function runAll() {
     code: snapshot,
     timeLimitMs: effectiveTimeLimitMs.value,
     memoryLimitBytes: effectiveMemoryLimitBytes.value,
+    checker: effectiveChecker.value,
     signal: abortController.signal,
     onCase: applyPatch,
   })
@@ -1308,6 +1313,7 @@ async function runOne(target) {
       code: peekActiveContent() ?? '',
       timeLimitMs: effectiveTimeLimitMs.value,
       memoryLimitBytes: effectiveMemoryLimitBytes.value,
+      checker: effectiveChecker.value,
       signal: controller.signal,
       onCase: applyPatch,
     })

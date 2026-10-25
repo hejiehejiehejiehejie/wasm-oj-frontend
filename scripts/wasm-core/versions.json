@@ -1,0 +1,33 @@
+{
+  "_comment": "WASM 内核（clang.wasm / wasm-ld.wasm）构建的全部版本钉子。升级只改这一处。dir 是包解开后的顶层目录名。",
+  "llvm": {
+    "version": "23.1.0",
+    "source": {
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.0/llvm-project-23.1.0.src.tar.xz",
+      "sha256": "ab1f0e3ec52448c33e8782eaf0422504b87c7b016b22514653ee0d8fcee479ff",
+      "dir": "llvm-project-23.1.0.src"
+    }
+  },
+  "wasiSdk": {
+    "version": "34.0",
+    "assets": {
+      "darwin-arm64": {
+        "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-arm64-macos.tar.gz",
+        "sha256": "9c59398106b417f8f14913380fdf0097a8cc0ff4af9eb3ce0065a859e88d49e9",
+        "dir": "wasi-sdk-34.0-arm64-macos"
+      },
+      "darwin-x64": {
+        "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-macos.tar.gz",
+        "dir": "wasi-sdk-34.0-x86_64-macos"
+      },
+      "linux-x64": {
+        "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz",
+        "dir": "wasi-sdk-34.0-x86_64-linux"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-arm64-linux.tar.gz",
+        "dir": "wasi-sdk-34.0-arm64-linux"
+      }
+    }
+  }
+}

@@ -1,12 +1,14 @@
 /**
- * runno 的 C++ 沙箱流水线 —— 在浏览器里用 wasm 版 clang 8 + wasm-ld 编译并运行 C++。
+ * C++ 沙箱流水线 —— 在浏览器里用 wasm 版 clang 23.1.0 + wasm-ld 编译并运行 C++。
  *
- * 为什么从 Wasmer 换成 runno（https://github.com/taybenlor/runno）：
- * @wasmer/sdk 的 clang 包（约 100MB）只要实例化到 libc++ 头（<vector> / <string>）就会在
- * cc1 的代码生成阶段永久卡死，而且 WASIX 实例没有 cancel API，只能 terminate 整个 Worker。
- * runno 走的是另一条路：binji 的 wasm-clang + 一份 sysroot tar.gz（裸文件约 52MB，
- * 自托管在 public/wasm/ 下，走 Vercel 的压缩传输），
- * 且它的 WASIWorkerHost 提供 kill()，卡死和死循环终于能真正中断。
+ * **阶段 4（2026-10-25）起，C++ 的 compile / link / run / syntax 全部走自写 WASI 宿主**
+ * （`services/wasi/host.js` + `wasi.worker.js` + `client.js`）：worker 里常驻 clang / wasm-ld
+ * 模块与 1385 条 sysroot，只换 argv 与源码；不再每次 run 重新实例化 + 整份 clone。
+ * 本文件保留 runno 的 `WASIWorkerHost` 只服务 Python（解释器那条线没有要修的问题），
+ * 以及 C++ 的编译缓存、PCH、语法诊断和工具链资产清单。
+ *
+ * 历史：之前 C++ 也走 runno（binji 的 clang 8），它的 stdin 是 8 KiB SAB 槽 + setTimeout
+ * 轮询（实测 1.6 MB/s），stdout 还要逐块跨线程 postMessage —— 阶段 4 把这两条拿回来。
  *
  * 这里只做流水线：准备工具链 → clang 编译 → wasm-ld 链接 → 跑产物。
  * 「编译 + 链接」的结果按源码原文缓存一份：判题是成批跑用例的，同一份代码
@@ -26,30 +28,41 @@ import { WASIWorkerHost } from '@runno/wasi'
 import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
 import { TOOLCHAIN_CACHE } from './storageNames.js'
+import { WasiWorkerHost } from './wasi/client.js'
+import { detectWasmFeatures } from './wasmFeatures.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
 import { fsEntry as wasiFile } from './vfs/runnoFs.js'
 
-// 工具链自托管在 public/wasm/<版本>/（原来是 runno.dev 的 CDN）。
-// 裸文件体积：clang.wasm 31.2MB、wasm-ld.wasm 19.5MB、clang-fs.tar.gz 1.8MB；
-// 仓库里放裸文件即可（Vercel 边缘会压缩传输），不要自己塞 .br —— 会被二次压缩。
+// 工具链自托管在 public/wasm/<版本>/。23.1.0 起三件资产都是**预压 brotli**：
+// clang.wasm.br / wasm-ld.wasm.br / sys23-fs.tar.br，靠响应的 Content-Encoding: br
+// 让浏览器透明解压（dev 由 vite.config.js 的 cp-wasm-brotli-assets 补头，线上由 vercel.json）。
 // 路径带版本号，升级工具链时换目录名，immutable 缓存自然失效。
 //
 // 必须是**绝对地址**：runno 把 worker 源码做成 blob: URL 再 new Worker，
 // 而 blob: 是非层级 scheme，在它里面解析 '/wasm/…' 这种相对路径会抛 Invalid URL。
 // 工具链目录版本号。它有两个用途：拼资源地址，以及当 PCH 存档 id 的一部分
 //（升级工具链 = 换目录名 = 旧 PCH 自然作废），所以只能有一处定义。
-const TOOLCHAIN_VERSION = '8.0.1'
+const TOOLCHAIN_VERSION = '23.1.0'
 const ASSETS = `${location.origin}${import.meta.env.BASE_URL}wasm/${TOOLCHAIN_VERSION}`
-const CLANG_URL = `${ASSETS}/clang.wasm`
-const LINKER_URL = `${ASSETS}/wasm-ld.wasm`
-const SYSROOT_URL = `${ASSETS}/clang-fs.tar.gz`
+const CLANG_URL = `${ASSETS}/clang.wasm.br`
+const LINKER_URL = `${ASSETS}/wasm-ld.wasm.br`
+const SYSROOT_URL = `${ASSETS}/sys23-fs.tar.br`
+// 客户端稳态只留当前档（规划 §5 第 6 项）。**不要在这里列举「要清哪一代」**：
+// 换代只换目录名，而 `cp-toolchain*` 在 SW 的 keep 白名单里，没有任何人会替我们回收
+// 桶里旧目录的条目 —— 写死一张旧 URL 表，就等于写了「只回收这特定的一代」。
+// 「该留哪些」一律由当前资产地址推出来（见 pruneLegacyToolchainCache / purgeRuntimeCache）。
+const WASM_PATH_SEGMENT = '/wasm/'
 
 const SOURCE_PATH = '/program.cpp'
 const OBJECT_PATH = '/program.o'
 const BINARY_PATH = '/program.wasm'
-// 万能头就放在 sysroot 的 include 目录里，clang 的 -internal-isystem /sys/include 能直接搜到
-const UNIVERSAL_HEADER_PATH = '/sys/include/bits/stdc++.h'
+// 内存证据探针（见 OOM_PROBE_SOURCE）：每次链接都带上，用来把「分配真的失败过」
+// 和「其它任何 134」分开。
+const OOM_PROBE_PATH = '/oj_oom_probe.cpp'
+const OOM_OBJECT_PATH = '/oj_oom_probe.o'
+// 23.1.0 的头布局：顶层没有通用头层，万能头必须落到 target 目录里
+const UNIVERSAL_HEADER_PATH = '/sys/include/wasm32-wasip1/bits/stdc++.h'
 
 // PCH 的源码与产物都放根目录：根目录是 WASI 的初始工作目录（fd 3），
 // 不要指望自己建目录 —— runno 的 path_create_directory 是残缺实现（只会塞一个 .runno 文件）
@@ -65,28 +78,63 @@ const PCH_PATH = '/stdc++.h.pch'
  * （libc++ 头在 -fno-exceptions 下生成的 AST 是不一样的）。
  * -O0 同理不要动：-emit-pch 只做解析 + 序列化、不做代码生成，改成 -O0 省不下时间，
  * 却会改变 __OPTIMIZE__ 这类预定义宏。
+ *
+ * 两处与 clang 8 不同、**别再改回去**：
+ * 1) clang 23 的 cc1 不认 `-fmessage-length`，也不认驱动层 `-fwasm-exceptions`
+ *    与 `-msimd128`；异常要写六项展开式，SIMD 要写 `-target-feature +simd128`。
+ * 2) 2026-10-25 拍板：`-std=c++20`、SIMD 开、RTTI 关。三条都是语言 / 目标选项，
+ *    全部进 PCH 签名 —— 改任一条，PCH_CACHE_VERSION 必须 +1。
  */
 const FRONTEND_ARGS = [
+  // 新内核没有内置 host triple（wasm32-wasip1 交叉编出来的 cc1），不显式给会报
+  // `error: unknown target triple 'unknown'`
+  '-triple',
+  'wasm32-unknown-wasip1',
   '-isysroot',
   '/sys',
   '-internal-isystem',
-  '/sys/include/c++/v1',
+  '/sys/include/wasm32-wasip1/eh/c++/v1',
   '-internal-isystem',
-  '/sys/include',
+  '/sys/include/wasm32-wasip1',
   '-internal-isystem',
-  '/sys/lib/clang/8.0.1/include',
+  '/sys/lib/clang/23/include',
+  '-resource-dir',
+  '/sys/lib/clang/23',
   '-ferror-limit',
   '4',
-  '-fmessage-length',
-  '80',
-  // `-w`（2026-10-18 加）：卡片只该显示「为什么编译不过」，编译器警告整类关掉。
-  // 它属于语言选项、会写进 PCH 签名，所以**必须**放在这份公共参数里 —— PCH 生成与
-  // 用户编译共用同一组才不会互拒；`PCH_CACHE_VERSION` 同时 +1，老存档自然取不到。
+  // 自写宿主的 fd 2 是 CHARACTER_DEVICE，clang 23 会把它当 tty、默认开彩色诊断；
+  // 卡片是纯文本渲染，必须显式关掉（runno 宿主下默认没有颜色，所以之前没暴露）。
+  '-fno-color-diagnostics',
+  // `-w`：卡片只该显示「为什么编译不过」，编译器警告整类关掉。属于语言选项。
   '-w',
-  // 不要开 -fcolor-diagnostics：诊断信息会带上 ANSI 颜色码，而测试卡片是纯文本渲染
-  // clang 8 的 cc1 默认只到 gnu++14，竞赛代码要 c++17（结构化绑定、if 初始化等）
-  '-std=c++17',
+  '-std=c++20',
   '-O2',
+  // 与 CF / AtCoder 对齐（判定规范 §6）：让用户代码里的 `#ifdef ONLINE_JUDGE` 生效。
+  '-DONLINE_JUDGE',
+  // wasm 异常：cc1 的展开式，缺一不可（缺 +exception-handling 会在后端崩）。
+  // ⚠ 必须是**新标准（exnref）**，不能停在 legacy：wasi-sdk 34 的 `eh` libc++ 是用
+  // `try_table` / `throw_ref` 编的（`llvm-objdump` 实测），两边混用会让 V8 在实例化时
+  // 直接拒绝："module uses a mix of legacy and new exception handling instructions"。
+  // `-wasm-use-legacy-eh` 在 LLVM 23 里默认 true，必须显式关掉；新标准还要求
+  // multivalue + reference-types（driver 的 `-fwasm-exceptions` 就是展开成这一组）。
+  '-fexceptions',
+  '-fcxx-exceptions',
+  '-exception-model=wasm',
+  '-target-feature',
+  '+exception-handling',
+  '-target-feature',
+  '+multivalue',
+  '-target-feature',
+  '+reference-types',
+  '-mllvm',
+  '-wasm-enable-eh',
+  '-mllvm',
+  '-wasm-use-legacy-eh=false',
+  // 2026-10-25 拍板：SIMD 开、RTTI 关。`-fno-rtti` 会让 dynamic_cast / typeid 变 CE，
+  // 这是用户可见差异（guide / 使用手册要写明），不是顺手加的优化。
+  '-target-feature',
+  '+simd128',
+  '-fno-rtti',
 ]
 
 /**
@@ -128,37 +176,76 @@ const PCH_ARGS = [
 ]
 
 const LINKER_ARGS = [
-  '--no-threads',
+  // runno 传进来的 argv[0] 是 wasm-ld，但还是显式写 flavor：新 wasm-ld 的两段式
+  // 与旧 lld 不同，少这条会按 argv[0] 猜。
+  '-flavor',
+  'wasm',
   '--export-dynamic',
-  '-z',
-  'stack-size=1048576',
-  '-L/sys/lib/wasm32-wasi',
-  '-L/sys/lib/clang/8.0.1/lib/wasi',
-  '/sys/lib/wasm32-wasi/crt1.o',
+  '-L/sys/lib/wasm32-wasip1',
+  '-L/sys/lib/wasm32-wasip1/eh',
+  // 名字不是 crt1.o；少了它 _start 未定义
+  '/sys/lib/wasm32-wasip1/crt1-command.o',
   OBJECT_PATH,
+  // 自定义 sbrk + 导出 __oj_sbrk_get()：让宿主能读到 memory.grow 失败次数（判定规范 §5.2）。
+  // 它必须排在 -lc **之前**，而且得是普通 .o（不是归档）：先定义 sbrk 的符号，
+  // libc.a 里的 sbrk.o 就不会被拉进来 —— wasm-ld 不支持 --wrap，这是唯一可行的替换方式。
+  OOM_OBJECT_PATH,
+  // musl 的 stdio 把 long double 的格式化 / 扫描编成了 abort，真实现装在
+  // libc-printscan-long-double.a 里；它必须排在 `-lc` 之前才不会被 stub 抢走。
+  // （libc++ 20 已经修好 `cout << long double`，这条现在主要保 printf/scanf 的 %Lf。）
+  '-lc-printscan-long-double',
   '-lc',
   '-lc++',
   '-lc++abi',
-  '/sys/lib/clang/8.0.1/lib/wasi/libclang_rt.builtins-wasm32.a',
+  // 开异常后 libc++abi 依赖 unwinder；必须排在 ++abi 之后
+  '-lunwind',
+  // 名字少了 -wasm32，别再写回 libclang_rt.builtins-wasm32.a
+  '/sys/lib/clang/23/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a',
+  // 显式导出（--export-dynamic 也会带上它，但这条保证「宿主补丁找不到就退回旧判据」不会
+  // 因为链接口默认值变化而悄悄发生）
+  '--export=__oj_sbrk_get',
   '-o',
   BINARY_PATH,
 ]
 
+// 栈大小公式的版本号。栈尺寸由内存上限推导（stackSizeBytes），并直接烙进链接产物，
+// 所以编译缓存键必须带上它：改公式而不改版本，就会复用按旧栈编出来的二进制。
+const STACK_POLICY_VERSION = 1
+const PAGE_BYTES = 64 * 1024
+const MIB = 1024 * 1024
+
 /**
- * 链接时把 wasm 线性内存封顶（--max-memory，老旗标，clang 8 的 wasm-ld 支持）。
+ * 栈大小（字节），判定规范 §5.3：
+ *
+ *   stack = min(64 MiB, max(8 MiB, memoryLimitBytes / 4), memoryLimitBytes / 2)
+ *
+ * 向下取整到 64 KiB 页。WASM 的栈在线性内存内部、也计入 `--max-memory`，所以不能
+ * 把 CF 的 256 MiB 直接抄过来：上限 256 MiB 时给 64 MiB 栈，堆还剩约 192 MiB。
+ * 没给上限（0）时退回 Linux 的默认 8 MiB —— 此时没有 --max-memory，栈再大也只是
+ * 挤占堆的起始地址。
+ */
+function stackSizeBytes(memoryLimitBytes) {
+  if (!(memoryLimitBytes > 0)) return 8 * MIB
+  const cap = Math.min(64 * MIB, Math.max(8 * MIB, memoryLimitBytes / 4), memoryLimitBytes / 2)
+  return Math.max(PAGE_BYTES, Math.floor(cap / PAGE_BYTES) * PAGE_BYTES)
+}
+
+/**
+ * 链接参数：栈按内存上限推导（§5.3），再把线性内存封顶（--max-memory）。
+ *
  * 一处改动同时做到两件事：保护宿主（以前一个吃 1.9GB 的程序能真吃掉浏览器 1.9GB，
- * 天花板是 wasm-ld 默认的 ~2GB）+ 给 MLE 一个确定的天花板 —— 分配失败时 libc++ 在
- * -fno-exceptions 下走 terminate → abort → SIGABRT（实测退出码 134），上层据此判 MLE。
+ * 天花板是 wasm-ld 默认的 ~2GB）+ 给 MLE 一个确定的天花板。
+ * MLE 的第一证据不是这里的极限值，而是探针记下的 memory.grow 失败次数（见 OOM_PROBE_SOURCE）。
  * @param {number} memoryLimitBytes 界面的内存上限；不给就不加旗标，行为退回从前
  */
 function linkerArgs(memoryLimitBytes) {
-  if (!memoryLimitBytes || memoryLimitBytes <= 0) return LINKER_ARGS
+  const args = [...LINKER_ARGS, '-z', `stack-size=${stackSizeBytes(memoryLimitBytes)}`]
+  if (!memoryLimitBytes || memoryLimitBytes <= 0) return args
   // wasm 线性内存按 64KiB 页对齐，上限必须是页大小的整数倍。
   // 必须写成单 token `--max-memory=<值>`：lld 系不接受空格分隔（verify 抓过：拆成两个
   // 参数直接 wasm-ld: error: unknown argument: --max-memory）
-  const pageBytes = 64 * 1024
-  const pages = Math.ceil(memoryLimitBytes / pageBytes)
-  return [...LINKER_ARGS, `--max-memory=${pages * pageBytes}`]
+  const pages = Math.ceil(memoryLimitBytes / PAGE_BYTES)
+  return [...args, `--max-memory=${pages * PAGE_BYTES}`]
 }
 
 // clang 带的是 libc++，没有 GCC 的 <bits/stdc++.h>，自己补一个同名头进去。
@@ -218,6 +305,54 @@ const UNIVERSAL_HEADER = `#ifndef OJ_SANDBOX_BITS_STDCXX_H
  */
 const PCH_SOURCE_TEXT = UNIVERSAL_HEADER
 
+/**
+ * 内存证据探针（判定规范 §5.2）。
+ *
+ * 要解决的问题：worker 把**任何** WebAssembly.RuntimeError 都折成退出码 134、且不保留
+ * trap 原因，于是「分配真的顶到 --max-memory」和空指针写入 / 运行期除零 / abort()
+ * 在宿主看来长得一模一样。这里在链接期塞一个普通 .o，用它自己的 sbrk 顶掉 libc.a 里
+ * 那份（先定义符号，归档成员就不会被拉进来），每次 `memory.grow` 失败就记一笔；
+ * 宿主补丁（scripts/patch-wasi-clock.mjs）在 trap/resume 之后调 `__oj_sbrk_get()`
+ * 把计数带回来 —— 它大于 0 才是 MLE。
+ *
+ * 语义必须与 wasi-libc 保持一致（探针反汇编核对过 sbrk.o）：
+ *   - 增量不是 64 KiB 页的整数倍、或为负 → abort；
+ *   - 成功返回**旧**页号 << 16（旧 brk），失败返回 (void*)-1。
+ * 唯一差异是不写 errno：clang 8 的 wasm 后端在这套 sysroot 上给 TLS 变量 errno 选不出
+ * 指令（Cannot select: i32 = GlobalTLSAddress<i32* @errno>），而 dlmalloc 只认
+ * MORECORE 的 -1 返回值、并不读 errno，所以这一条不影响分配语义。
+ *
+ * 探针只编一次（几毫秒级），产物常驻内存；用户程序看到的仍然是完整 libc。
+ */
+const OOM_PROBE_SOURCE = `#include <stddef.h>
+extern "C" void abort(void);
+static int __oj_sbrk_failures = 0;
+extern "C" int __oj_sbrk_get(void) { return __oj_sbrk_failures; }
+extern "C" void* sbrk(long inc) {
+  if (inc < 0 || (inc & 65535) != 0) abort();
+  size_t pages = (size_t)inc >> 16;
+  size_t got = __builtin_wasm_memory_grow(0, pages);
+  if (got == (size_t)-1) {
+    __oj_sbrk_failures += 1;
+    return (void*)-1;
+  }
+  return (void*)(got << 16);
+}
+`
+
+/** 探针的 cc1 参数：与用户代码同一套语言 / 目标选项，但不加载 PCH（它用不到 STL） */
+const OOM_PROBE_ARGS = [
+  '-cc1',
+  '-emit-obj',
+  '-disable-free',
+  ...FRONTEND_ARGS,
+  '-o',
+  OOM_OBJECT_PATH,
+  '-x',
+  'c++',
+  OOM_PROBE_PATH,
+]
+
 /** 浏览器原生 gzip 解压，省掉 pako 依赖 */
 async function gunzip(bytes) {
   if (typeof DecompressionStream !== 'function') {
@@ -234,16 +369,23 @@ function readField(buffer, start, length) {
 }
 
 /**
- * 解 sysroot：必须先看魔数，不能无条件 gunzip。
+ * 解 sysroot。
  *
- * 因为静态服务器看到 .gz 扩展名会给响应补上 Content-Encoding: gzip（Vite dev / preview 都这样），
- * 浏览器于是透明解压掉一层，fetch 拿回来的已经是裸 tar。这时再 gunzip 会解不动，
- * 且 Chrome 只把 DecompressionStream 的失败报成一句 "Failed to fetch"，极难定位。
- * 所以按魔数判断：1f 8b 是真 gzip 流，否则当作已解压好的 tar。
+ * 23.1.0 的包是 `.tar.br`：浏览器按响应的 `Content-Encoding: br` 透明解压，fetch 拿到的
+ * 应该已经是裸 tar。这里做一次防御 —— ustar 头在 offset 257，不是 tar 就说明响应头丢了
+ * （浏览器拿到的是 brotli 字节），报一句能定位的错；否则 untar 会静默返回空文件系统，
+ * 症状是「所有头文件都找不到」，很难往响应头想。
+ *
+ * 旧 8.0.1 的 `.tar.gz` 分支保留：双档并存期间它仍是回退档，且静态服务器看到 `.gz`
+ * 扩展名会补 `Content-Encoding: gzip`，fetch 回来也已经是裸 tar（所以先看魔数再 gunzip）。
  */
 async function unpackSysroot(bytes) {
   const gzipped = bytes[0] === 0x1f && bytes[1] === 0x8b
-  return untar(gzipped ? await gunzip(bytes) : bytes)
+  const tar = gzipped ? await gunzip(bytes) : bytes
+  if (tar.length < 512 || readField(tar, 257, 5) !== 'ustar') {
+    throw new Error(t('error.sysrootNotTar'))
+  }
+  return untar(tar)
 }
 
 /** 极简 ustar 解析：只取普通文件（目录条目跳过），足够解 runno 的 sysroot */
@@ -280,10 +422,13 @@ function untar(buffer) {
 }
 
 /**
- * 工具链只取一次：两个 wasm 二进制的字节写进 HTTP 缓存（响应带 immutable，
- * 之后编译阶段的 fetch 直接命中缓存），sysroot 解包成 WASI 文件系统
- * （416 个文件，约 8.7MB）常驻内存。重复评测既不用重下这 50MB，
- * 也不用像以前那样在内存里常驻两份 blob。
+ * C++ 工具链 = 一颗常驻的 `WasiWorkerHost`（阶段 4，2026-10-25）。
+ *
+ * 它第一次 init 时在 worker 里把 sysroot 解成 MemoryFs、把 clang / wasm-ld 编成
+ * `WebAssembly.Module`，之后 compile / link / run / syntax 都复用这一份。阶段 2 那
+ * 13–17 s 的根因（每次 run 重新实例化 73 MB + clone 1385 条 sysroot）就消在这里。
+ *
+ * Python 仍走 runno 的 `WASIWorkerHost`（`pythonRuntime`），两边互不影响。
  */
 let toolchain = null
 let toolchainPromise = null
@@ -325,7 +470,7 @@ function notifyRuntimeReady(language) {
  * 只有传同源 HTTP 地址、响应又是 application/wasm，浏览器才可能把已编译的模块
  * 放进代码缓存；blob: URL 不参与 HTTP 缓存，每次都是全量重编译。
  *
- * 为什么要先读一遍：不读的话，31MB 的下载会发生在 runno 的 worker 里，
+ * 为什么要先读一遍：不读的话，73MB 的下载会发生在 runno 的 worker 里，
  * 也就是挤进 compile 阶段那 60 秒的看门狗预算（慢网首次编译必然误判超时）；
  * 读一遍把下载留在本阶段的 3 分钟预算里。必须整份读完，否则响应不会入缓存。
  */
@@ -336,20 +481,45 @@ async function warmCache(url, label) {
 }
 
 function loadToolchain(onStatus) {
+  if (toolchain?.host?.alive) return Promise.resolve(toolchain)
+  if (toolchain && !toolchain.host?.alive) {
+    toolchain = null
+    toolchainPromise = null
+  }
   if (!toolchainPromise) {
     toolchainPromise = (async () => {
+      // 先判浏览器能力，再谈下载。缺 wasm 异常的引擎能编能链，只在**跑产物**那一步
+      // 实例化失败，报的是引擎内部措辞 —— 用户会以为是自己代码写错了。这里提前拦住，
+      // 说清差哪一项（探测口径见 services/wasmFeatures.js）。
+      const features = detectWasmFeatures()
+      if (!features.ok) {
+        throw new Error(t('error.wasmUnsupported', { missing: features.missing.join(', ') }))
+      }
       onStatus('download', t('stage.toolchain'))
-      const [sysroot] = await Promise.all([
-        (async () => {
-          const response = await fetch(SYSROOT_URL)
-          if (!response.ok) throw new Error(t('error.sysrootFailed', { status: response.status }))
-          return unpackSysroot(new Uint8Array(await response.arrayBuffer()))
-        })(),
-        warmCache(CLANG_URL, 'clang'),
-        warmCache(LINKER_URL, 'wasm-ld'),
-      ])
-      toolchain = { clangURL: CLANG_URL, linkerURL: LINKER_URL, sysroot: sysroot.fs }
+      const host = new WasiWorkerHost({
+        clangURL: CLANG_URL,
+        linkerURL: LINKER_URL,
+        sysrootURL: SYSROOT_URL,
+        universalHeaderPath: UNIVERSAL_HEADER_PATH,
+        universalHeader: UNIVERSAL_HEADER,
+        pchSource: PCH_SOURCE_TEXT,
+        oomProbe: {
+          args: OOM_PROBE_ARGS,
+          source: OOM_PROBE_SOURCE,
+          sourcePath: OOM_PROBE_PATH,
+          outputPath: OOM_OBJECT_PATH,
+        },
+      })
+      try {
+        const preloaded = await host.preload()
+        if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
+      } catch (error) {
+        host.dispose()
+        throw error
+      }
+      toolchain = { host }
       notifyRuntimeReady('cpp')
+      void pruneLegacyToolchainCache()
       return toolchain
     })()
     // 失败时把缓存的 promise 清掉，下次点「下载」能重试
@@ -453,7 +623,18 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
     // 剩下的块全被丢掉 —— 而且不报错。（踩过：并行调用的写法实测每次都只进 8188 字节。）
     void pushStdinInChunks(host, stdin ?? '', () => done).then(() => host.pushEOF())
     const result = await host.start()
-    return { exitCode: result.exitCode, fs: result.fs ?? {}, stdout, stderr }
+    return {
+      exitCode: result.exitCode,
+      fs: result.fs ?? {},
+      stdout,
+      stderr,
+      // 以下四项来自宿主补丁（scripts/patch-wasi-clock.mjs）。补丁不在时全是 undefined，
+      // 上层据此退回旧判据 —— 不能把「拿不到证据」当成「没有失败」。
+      trap: result.trap ?? '',
+      runMs: typeof result.runMs === 'number' ? result.runMs : null,
+      memoryBytes: typeof result.memoryBytes === 'number' ? result.memoryBytes : null,
+      sbrkFailures: typeof result.sbrkFailures === 'number' ? result.sbrkFailures : null,
+    }
   } catch (error) {
     // 被 kill()（超时 / 取消）时 start() 会抛，而此刻已经收到的输出只活在这两个闭包变量里，
     // 挂到错误上带出去：TLE 的卡片靠它显示程序跑到哪一步。
@@ -478,35 +659,63 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
  * clang + wasm-ld。缓存命中时连工具链都不用碰，第 2..N 个用例只付运行开销。
  * 为什么只留一份：用例总是成批跑的，而代码一改缓存必然失效，多留几个槽位没有收益。
  * 为什么键里要有内存上限：上限编在 --max-memory 里、直接烙进产物，改上限必须重链接。
- * @type {{ code: string, memoryLimitBytes: number, outcome: { ok: true, binary: object } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
+ * 为什么键里还要有 STACK_POLICY_VERSION：栈大小由内存上限推导（§5.3），同样烙进产物。
+ * @type {{ code: string, memoryLimitBytes: number, stackPolicy: number, outcome: { ok: true, binary: object } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
  */
 let compileCache = null
+
+/** 探针 .o 的字节：编译一次后常驻内存，后续所有链接直接复用 */
+let oomProbeObject = null
+
+async function loadOomProbe(tool) {
+  if (oomProbeObject) return oomProbeObject
+  const compiled = await tool.host.compile({
+    args: OOM_PROBE_ARGS,
+    source: OOM_PROBE_SOURCE,
+    sourcePath: OOM_PROBE_PATH,
+    outputPath: OOM_OBJECT_PATH,
+  })
+  if (!compiled.object) {
+    throw new Error(compiled.stderr || t('error.oomProbeFailed', { code: compiled.exitCode }))
+  }
+  oomProbeObject = compiled.object
+  return oomProbeObject
+}
 
 /**
  * clang 编译 + wasm-ld 链接，产出可执行的 wasm 二进制。
  * 结果分成「拿到二进制」和「编译/链接失败」两种，两种都可缓存（同一份代码结论必然相同）。
  */
-async function compileAndLink(code, memoryLimitBytes, onStatus, onHost) {
+async function compileAndLink(code, memoryLimitBytes, onStatus) {
   const tool = await loadToolchain(onStatus)
   const pch = await loadPchBytes()
 
   onStatus('compile', t('stage.compile'))
-  const baseFs = {
-    ...tool.sysroot,
-    [UNIVERSAL_HEADER_PATH]: wasiFile(UNIVERSAL_HEADER_PATH, UNIVERSAL_HEADER),
-    [SOURCE_PATH]: wasiFile(SOURCE_PATH, code),
-  }
+  // 探针只编一次；放在 compile 阶段里做，第一次点的用户会多等几十毫秒
+  const oomProbe = await loadOomProbe(tool)
 
-  let compiled = await runClang(tool, baseFs, pch, onHost)
-  if (pch && !compiled.fs[OBJECT_PATH] && PCH_ERROR_RE.test(compiled.stderr)) {
+  let compiled = await tool.host.compile({
+    args: clangArgs(pch ? PCH_PATH : null),
+    source: code,
+    sourcePath: SOURCE_PATH,
+    outputPath: OBJECT_PATH,
+    pch,
+  })
+  if (pch && !compiled.object && PCH_ERROR_RE.test(compiled.stderr)) {
     // 是 PCH 本身加载不了（clang 会在加载时校验语言选项和头文件搜索路径，对不上就 fatal），
     // 不是用户代码写错了。绝不能因为一个缓存文件让用户的代码编不过 ——
     // 判废、退回普通编译重试一次，这一次的结果才是用户看到的。
     await discardPch()
-    compiled = await runClang(tool, baseFs, null, onHost)
+    compiled = await tool.host.compile({
+      args: clangArgs(null),
+      source: code,
+      sourcePath: SOURCE_PATH,
+      outputPath: OBJECT_PATH,
+      pch: null,
+    })
   }
 
-  if (!compiled.fs[OBJECT_PATH]) {
+  if (!compiled.object) {
     return {
       ok: false,
       exitCode: compiled.exitCode,
@@ -515,19 +724,17 @@ async function compileAndLink(code, memoryLimitBytes, onStatus, onHost) {
     }
   }
 
-  // 链接只需要 .o 和运行库。PCH 是给 clang 用的，留着它就会被整体克隆进 wasm-ld
-  // （7MB 白搬一趟），先摘掉
-  delete compiled.fs[PCH_PATH]
-
-  const linked = await runWasi(tool.linkerURL, {
-    name: 'wasm-ld',
+  // 探针不进用户那次编译（省一趟），只在链接时补进来；baseFs 是 worker 里常驻的，
+  // 这里不复制整棵 sysroot。
+  const linked = await tool.host.link({
     args: linkerArgs(memoryLimitBytes),
-    fs: compiled.fs,
-    onHost,
+    object: compiled.object,
+    objectPath: OBJECT_PATH,
+    outputPath: BINARY_PATH,
+    extraFiles: { [OOM_OBJECT_PATH]: oomProbe },
   })
 
-  const binary = linked.fs[BINARY_PATH]
-  if (!binary) {
+  if (!linked.binary) {
     // 链接失败在语义上还是「这段代码编译不过」，跟原来的 clang driver 表现一致
     return {
       ok: false,
@@ -537,31 +744,12 @@ async function compileAndLink(code, memoryLimitBytes, onStatus, onHost) {
     }
   }
 
-  return { ok: true, binary }
-}
-
-/** 跑一次 clang；带 PCH 时把 PCH 和它的原始头一起挂进 MemFS */
-function runClang(tool, baseFs, pch, onHost) {
-  const fs = pch
-    ? {
-        ...baseFs,
-        // PCH 里记着自己的原始来源是 /stdc++.h，把它一并挂上：
-        // 让 clang 在加载 PCH 时既能看到原始头、也免得因缺文件报错
-        [PCH_SOURCE_PATH]: wasiFile(PCH_SOURCE_PATH, PCH_SOURCE_TEXT),
-        [PCH_PATH]: wasiFile(PCH_PATH, pch, 'binary'),
-      }
-    : baseFs
-  return runWasi(tool.clangURL, {
-    name: 'clang',
-    args: clangArgs(pch ? PCH_PATH : null),
-    fs,
-    onHost,
-  })
+  return { ok: true, binary: { content: linked.binary } }
 }
 
 /**
  * 编译并运行一段 C++。
- * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null }>}
+ * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null, runMs: number | null, memoryBytes: number | null, sbrkFailures: number | null, trap: string }>}
  * 工具链本身出问题（下载失败、浏览器不支持等）会抛异常，由上层翻译成 failure。
  *
  * durationMs 只计**运行段**，与用例时限同口径。编译刻意不算进去：它是整批用例
@@ -571,42 +759,55 @@ function runClang(tool, baseFs, pch, onHost) {
  */
 export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () => {}, onHost = () => {} }) {
   const source = String(code ?? '')
-
-  if (compileCache?.code !== source || compileCache.memoryLimitBytes !== (memoryLimitBytes || 0)) {
-    compileCache = {
-      code: source,
-      memoryLimitBytes: memoryLimitBytes || 0,
-      outcome: await compileAndLink(source, memoryLimitBytes, onStatus, onHost),
-    }
-  }
-  const outcome = compileCache.outcome
-
-  if (!outcome.ok) {
-    return {
-      stage: 'compile',
-      ok: false,
-      exitCode: outcome.exitCode,
-      stdout: outcome.stdout,
-      stderr: outcome.stderr,
-      durationMs: null,
-    }
-  }
-
-  onStatus('run', t('stage.run'))
-  const binaryURL = URL.createObjectURL(new Blob([outcome.binary.content], { type: 'application/wasm' }))
-  const runStartedAt = performance.now()
+  const tool = await loadToolchain(onStatus)
+  // 看门狗拿的是常驻宿主：超时 kill() 会 terminate worker，下一次 loadToolchain 重建
+  onHost(tool.host)
   try {
-    const ran = await runWasi(binaryURL, { name: 'program', args: [], fs: {}, stdin, onHost })
+    if (
+      compileCache?.code !== source ||
+      compileCache.memoryLimitBytes !== (memoryLimitBytes || 0) ||
+      compileCache.stackPolicy !== STACK_POLICY_VERSION ||
+      compileCache.toolchain !== TOOLCHAIN_VERSION
+    ) {
+      compileCache = {
+        code: source,
+        memoryLimitBytes: memoryLimitBytes || 0,
+        stackPolicy: STACK_POLICY_VERSION,
+        toolchain: TOOLCHAIN_VERSION,
+        outcome: await compileAndLink(source, memoryLimitBytes, onStatus),
+      }
+    }
+    const outcome = compileCache.outcome
+
+    if (!outcome.ok) {
+      return {
+        stage: 'compile',
+        ok: false,
+        exitCode: outcome.exitCode,
+        stdout: outcome.stdout,
+        stderr: outcome.stderr,
+        durationMs: null,
+      }
+    }
+
+    onStatus('run', t('stage.run'))
+    const runStartedAt = performance.now()
+    const ran = await tool.host.run({ binary: outcome.binary.content, stdin })
     return {
       stage: 'run',
-      ok: ran.exitCode === 0,
+      ok: ran.exitCode === 0 && !ran.trap,
       exitCode: ran.exitCode,
       stdout: ran.stdout,
       stderr: ran.stderr,
-      durationMs: Math.round(performance.now() - runStartedAt),
+      // 宿主自己记的 _start 起止；缺了才退回宿主侧粗计时
+      durationMs: ran.runMs ?? Math.round(performance.now() - runStartedAt),
+      runMs: ran.runMs,
+      memoryBytes: ran.memoryBytes,
+      sbrkFailures: ran.sbrkFailures,
+      trap: ran.trap,
     }
   } finally {
-    URL.revokeObjectURL(binaryURL)
+    onHost(null)
   }
 }
 
@@ -686,6 +887,69 @@ export function runtimeAssetURLs(language) {
 }
 
 /**
+ * 后台预取：只把资产读进 Cache Storage / HTTP 缓存，**不** init 宿主、不 untar。
+ *
+ * `preloadToolchain()` 会建 worker、解 1385 条 sysroot，常驻 ~27 MiB；后台预取不该让
+ * 每个访客都为没用到的语言付内存。这里只 fetch + 丢弃 body，首次点▶再走完整 init。
+ */
+export async function prefetchRuntimeAssets(language = 'cpp') {
+  const urls = runtimeAssetURLs(language)
+  if (!urls.length) return false
+  for (const url of urls) {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(t('error.downloadFailed', { label: url, status: response.status }))
+    await response.arrayBuffer()
+  }
+  if (language === 'cpp') void pruneLegacyToolchainCache()
+  return true
+}
+
+/** 当前各语言资产的目录前缀（带尾斜杠）。换工具链目录名 / 换 CPython 版本时自动跟着变。 */
+function currentAssetPrefixes() {
+  return [`${ASSETS}/`, `${PYTHON_ASSETS}/`]
+}
+
+/**
+ * 按判据清 `cp-toolchain*` 桶里的条目。
+ *
+ * 判据拿的是**条目自己的 URL**（`cache.keys()`），不是一张预先写死的 URL 清单 ——
+ * 这样才删得到「仓库里早已没有的上一代目录」。桶名按前缀全扫、不只认当前那一个：
+ * 这名字改过好几代（`cph-toolchain-v3` → `cp-toolchain-v3` → `cp-toolchain`），
+ * 而 SW 的搬运要等 activate 才跑，页面先动手时旧桶还在。
+ * @param {(url: string) => boolean} isStale
+ */
+async function deleteToolchainEntries(isStale) {
+  if (typeof caches === 'undefined') return
+  try {
+    const names = (await caches.keys()).filter((name) => name.startsWith(TOOLCHAIN_CACHE))
+    await Promise.all(
+      names.map(async (name) => {
+        const cache = await caches.open(name)
+        const requests = await cache.keys()
+        const stale = requests.filter((request) => isStale(request.url))
+        await Promise.all(stale.map((request) => cache.delete(request)))
+      }),
+    )
+  } catch {
+    /* 隐私模式 / 配额：清不掉不阻断调用方 */
+  }
+}
+
+/**
+ * 清掉**不属于当前版本**的 `/wasm/` 条目（上一代 clang、被换掉的 CPython、8.0.1 那三件……）。
+ *
+ * 换代只改目录名、`cp-toolchain*` 又是永久保留的桶，除这里之外没有任何代码会回收旧目录。
+ * 判据安全的前提有两条：当前版本的条目必然以当前前缀开头；没下完的条目根本不在桶里。
+ * 只承诺 Cache Storage —— HTTP 缓存浏览器不给 JS 清除接口。
+ */
+export async function pruneLegacyToolchainCache() {
+  const keep = currentAssetPrefixes()
+  await deleteToolchainEntries(
+    (url) => url.includes(WASM_PATH_SEGMENT) && !keep.some((prefix) => url.startsWith(prefix)),
+  )
+}
+
+/**
  * 卸载某个本地运行时：清掉持久层里的资产，并丢掉内存里已加载的那份，
  * 让下一次运行 / 下载都退回「从零开始」。设置页的「本地运行环境」卸载按钮走这里。
  *
@@ -707,10 +971,12 @@ export async function unloadRuntime(language) {
     pythonRuntimePromise = null
     return
   }
+  toolchain?.host?.dispose()
   toolchain = null
   toolchainPromise = null
   // 编译产物是纯内存缓存，依附工具链存在，一起丢
   compileCache = null
+  oomProbeObject = null
   // PCH（十几 MB）存在 IndexedDB 里，不在 /wasm/ 缓存清单内，单独清
   pchBytes = null
   pchPromise = null
@@ -720,26 +986,24 @@ export async function unloadRuntime(language) {
 /**
  * 从所有工具链缓存里删掉该语言的资产条目。
  *
- * 按**前缀**全扫、不只认当前那一个桶名：这名字改过好几代
+ * 删的是这一语言的**所有代**，不只是当前那三个 URL：换代只换目录名，旧目录的条目
+ * 一直留在桶里，只按当前 URL 删的话「卸载」之后那几十 MB 仍然谁也回收不了
+ * （`cp-toolchain*` 在 SW 的 keep 白名单里）。所以判据是「属于 /wasm/ 但不属于
+ * **另一个语言**的当前前缀」—— 卸 C++ 不误伤 Python，反之亦然。
+ *
+ * 桶名按前缀全扫、不只认当前那一个：这名字改过好几代
  * （`cph-toolchain-v3` → `cp-toolchain-v3` → `cp-toolchain`），而 SW 的搬运要等
  * activate 才跑；页面先动手的话旧桶还在，只删新桶会留下那份残留 ——
  * 后果正是坑 23 那条「卸了像没卸」（探针一扫到残留就把资产判回已就绪）。
- * 桶名现在刻意不带版本尾缀，所以当前名字本身就是这张前缀。
  */
 async function purgeRuntimeCache(language) {
-  const urls = runtimeAssetURLs(language)
-  if (!urls.length || typeof caches === 'undefined') return
-  try {
-    const names = (await caches.keys()).filter((name) => name.startsWith(TOOLCHAIN_CACHE))
-    await Promise.all(
-      names.map(async (name) => {
-        const cache = await caches.open(name)
-        await Promise.all(urls.map((url) => cache.delete(url)))
-      }),
-    )
-  } catch {
-    /* 删不掉（隐私模式等）不阻断卸载：内存那份已经丢了，探针也不会再把它判成已装 */
-  }
+  // 未知语言不碰桶（沿用原判据：没有资产清单就没有卸载目标）
+  if (!runtimeAssetURLs(language).length) return
+  // 留的是**另一个语言**：卸载只该带走自己这一边的所有代
+  const keepOther = [language === 'python' ? `${ASSETS}/` : `${PYTHON_ASSETS}/`]
+  await deleteToolchainEntries(
+    (url) => url.includes(WASM_PATH_SEGMENT) && !keepOther.some((prefix) => url.startsWith(prefix)),
+  )
 }
 
 /**
@@ -786,7 +1050,11 @@ export async function runPython({
     exitCode: ran.exitCode,
     stdout: ran.stdout,
     stderr: ran.stderr,
-    durationMs: Math.round(performance.now() - startedAt),
+    durationMs: ran.runMs ?? Math.round(performance.now() - startedAt),
+    runMs: ran.runMs,
+    memoryBytes: ran.memoryBytes,
+    sbrkFailures: ran.sbrkFailures,
+    trap: ran.trap,
   }
 }
 
@@ -800,7 +1068,13 @@ export async function runPython({
 // 文件系统照旧走 runno 那一套 —— clang 用 path_open(O_CREAT) 建文件、写完
 // 由 WASIDrive.sync() 落到 result.fs，我们从 result.fs[PCH_PATH].content 取二进制。
 
-/** PCH 在本机不可用（生成时 OOM / cc1 卡死，或加载时被判不匹配）后写下的永久标记 */
+/**
+ * PCH 在本机不可用（生成时 OOM / cc1 卡死，或加载时被判不匹配）后写下的标记。
+ *
+ * **值里带存档版本**（`PCH_CACHE_VERSION`）：这台机器在旧内核下扛不住，不代表新内核下也
+ * 扛不住 —— 而工具链换代换的正是生成 PCH 的那套 clang 与头文件。裸 `'true'`（v5 及更早）
+ * 与旧版本号一律**认作过期**，于是换代后自动再试一次，不需要写任何迁移代码。
+ */
 const PCH_UNSUPPORTED_KEY = 'cp.pchUnsupported'
 
 // 给足预算：老机器解析整份万能头（30 个头）+ 序列化 AST 可能要几十秒，但超过这个时间
@@ -811,7 +1085,12 @@ const PCH_TIMEOUT_MS = 3 * 60 * 1000
 // v2：编译参数加了 `-w`（语言选项变了，v1 的存档加载会被 clang 拒掉 —— 2026-10-18）
 // v3：PCH 从「5 个头的微型版」换成整份 bits/stdc++.h（体积 6.9→8.6MB，检查快 2.4 倍 —— 2026-10-19）
 //     内容指纹本来也会变，版本号只是让「旧存档作废」这件事一眼可见
-const PCH_CACHE_VERSION = 3
+// v4：编译参数加了 `-DONLINE_JUDGE`（2026-10-25，与 CF / AtCoder 对齐，判定规范 §6）
+// v5：换 23.1.0 内核 —— `-std=c++20` / wasm 异常六项 / `+simd128` / `-fno-rtti`，
+//     头布局也从 `/sys/include` 换到 `/sys/include/wasm32-wasip1`（2026-10-25，阶段 2）
+// v6：阶段 4 自写宿主把 PCH 源头的 mtime 固定成常量（否则刷新后从 IndexedDB
+//     取回的 PCH 会报 `/stdc++.h has been modified`）—— 2026-10-25
+const PCH_CACHE_VERSION = 6
 
 /**
  * 「这次编译失败是 PCH 的锅」的识别特征。
@@ -822,9 +1101,14 @@ const PCH_CACHE_VERSION = 3
  */
 const PCH_ERROR_RE = /stdc\+\+\.h\.pch|precompiled header/i
 
+/** 标记值：`v6` 这种形态，跟 PCH_CACHE_VERSION 一起变（改存档版本 = 允许重试一次） */
+function pchUnsupportedToken() {
+  return `v${PCH_CACHE_VERSION}`
+}
+
 function isPchUnsupported() {
   try {
-    return window.localStorage.getItem(PCH_UNSUPPORTED_KEY) === 'true'
+    return window.localStorage.getItem(PCH_UNSUPPORTED_KEY) === pchUnsupportedToken()
   } catch {
     // 隐私模式下读不到 localStorage：当作没标记，让这一次去试
     return false
@@ -833,15 +1117,15 @@ function isPchUnsupported() {
 
 function markPchUnsupported() {
   try {
-    window.localStorage.setItem(PCH_UNSUPPORTED_KEY, 'true')
+    window.localStorage.setItem(PCH_UNSUPPORTED_KEY, pchUnsupportedToken())
   } catch {
     /* 写不进去也无害，最坏结果是下次刷新再试一遍 */
   }
 }
 
-/** 工具链是否已在内存里（PCH 不该为了自己把那 50MB 拉起来） */
+/** 工具链是否已在内存里（PCH 不该为了自己把那 23MiB 拉起来） */
 export function isToolchainReady() {
-  return toolchain !== null
+  return Boolean(toolchain?.host?.alive)
 }
 
 /** FNV-1a：只给头文件内容取个指纹用，不是安全哈希 */
@@ -917,36 +1201,26 @@ export function generatePch() {
     if (isPchUnsupported()) return null
 
     const tool = await loadToolchain(() => {})
+    const host = tool.host
     let timer = 0
     try {
-      const compiled = await runWasi(tool.clangURL, {
-        name: 'clang',
+      timer = setTimeout(() => {
+        try {
+          host.kill()
+        } catch {
+          /* 已经跑完或被杀过 */
+        }
+      }, PCH_TIMEOUT_MS)
+      const compiled = await host.compile({
         args: PCH_ARGS,
-        // 只多塞一个 /stdc++.h；sysroot 原样复用，头文件搜索路径由 FRONTEND_ARGS 保证一致
-        fs: {
-          ...tool.sysroot,
-          [PCH_SOURCE_PATH]: wasiFile(PCH_SOURCE_PATH, PCH_SOURCE_TEXT),
-        },
-        // 这条流水线不在 wasmRuntime 的任务体系里，没人替它收尸：
-        // 自己挂一个看门狗，卡死就 kill() 掉这个 WASI 实例（工具链缓存不受影响）
-        onHost: (host) => {
-          clearTimeout(timer)
-          if (!host) return
-          timer = setTimeout(() => {
-            try {
-              host.kill()
-            } catch {
-              /* 已经跑完或被杀过 */
-            }
-          }, PCH_TIMEOUT_MS)
-        },
+        source: PCH_SOURCE_TEXT,
+        sourcePath: PCH_SOURCE_PATH,
+        outputPath: PCH_PATH,
       })
-
-      const file = compiled.fs[PCH_PATH]
-      if (!file) {
+      if (!compiled.object) {
         throw new Error(compiled.stderr || t('error.pchFailed', { code: compiled.exitCode }))
       }
-      const bytes = new Uint8Array(file.content)
+      const bytes = compiled.object
       // 先落内存再落库：存档失败（配额不足 / 隐私模式）不该影响本会话，
       // 内存里这份照样能用，只是下次刷新要重新生成
       pchBytes = bytes
@@ -965,7 +1239,7 @@ export function generatePch() {
  * 语法检查的命令行：只做前端（解析 + 语义），不产生 .o、不链接。
  *
  * 和编译**共用 FRONTEND_ARGS** 是硬要求：诊断必须按用户真正编译时那套
- * `-std=c++17` / `-isysroot /sys` / libc++ 头路径去判，否则会出现
+ * `-std=c++20` / `-isysroot /sys` / libc++ 头路径去判，否则会出现
  * 「编辑器说没问题、运行却编译不过」这种最招人烦的分歧。
  * -w 也在里面，所以这里只出 error —— 与判题卡片上看到的完全一致。
  */
@@ -1004,42 +1278,29 @@ const SYNTAX_TIMEOUT_MS = 15000
  * @returns {Promise<{ exitCode: number, stderr: string } | null>}
  */
 export async function checkCppSyntax(code, { onHost } = {}) {
-  if (!toolchain) return null
+  if (!toolchain?.host?.alive) return null
+  const host = toolchain.host
   const pch = await loadPchBytes()
-  const fs = {
-    ...toolchain.sysroot,
-    [UNIVERSAL_HEADER_PATH]: wasiFile(UNIVERSAL_HEADER_PATH, UNIVERSAL_HEADER),
-    [SOURCE_PATH]: wasiFile(SOURCE_PATH, code),
-  }
-  // PCH 与它的原始头必须成对挂上：clang 加载 PCH 时会去核对最初的头文件
-  if (pch) {
-    fs[PCH_SOURCE_PATH] = wasiFile(PCH_SOURCE_PATH, PCH_SOURCE_TEXT)
-    fs[PCH_PATH] = wasiFile(PCH_PATH, pch, 'binary')
-  }
-
   let timer = 0
+  onHost?.(host)
   try {
-    const result = await runWasi(toolchain.clangURL, {
-      name: 'clang',
+    timer = setTimeout(() => {
+      try {
+        host.kill()
+      } catch {
+        /* 已经跑完或被杀过 */
+      }
+    }, SYNTAX_TIMEOUT_MS)
+    const result = await host.syntax({
       args: syntaxArgs(pch ? PCH_PATH : null),
-      fs,
-      onHost: (host) => {
-        clearTimeout(timer)
-        if (host) {
-          timer = setTimeout(() => {
-            try {
-              host.kill()
-            } catch {
-              /* 已经跑完或被杀过 */
-            }
-          }, SYNTAX_TIMEOUT_MS)
-        }
-        onHost?.(host)
-      },
+      source: code,
+      sourcePath: SOURCE_PATH,
+      pch,
     })
     return { exitCode: result.exitCode, stderr: result.stderr }
   } finally {
     clearTimeout(timer)
+    onHost?.(null)
   }
 }
 

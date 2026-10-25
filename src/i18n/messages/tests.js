@@ -86,6 +86,17 @@ export default {
       elapsedTitle: '最慢用例 {time}（不含编译）',
 
       /**
+       * 输出比对方式（2026-10-25 加）。默认逐行；其余三种只能在题目信息弹窗里按题开启，
+       * 不对全局生效 —— 判定规范 §7.2 的约定。hint 供弹窗与后续的说明处复用。
+       */
+      checker: {
+        lines: '逐行比对',
+        tokens: '忽略空白',
+        float: '浮点容差',
+        unordered: '忽略行序',
+      },
+
+      /**
        * 「一键提交到 Codeforces」（2026-10-23 加）。
        * 按钮文案与三条闸门说的是同一件事：能不能交、为什么不能交。
        * verdict 里翻的是判定码的含义，判定码本身（AC / WA …）当标题用，不翻。
@@ -260,6 +271,14 @@ export default {
       },
 
       elapsedTitle: 'Slowest case: {time} (run phase only)',
+
+      /** 同 zh-CN：输出比对方式，默认逐行，其余按题开启 */
+      checker: {
+        lines: 'Line by line',
+        tokens: 'Ignore whitespace',
+        float: 'Numeric tolerance',
+        unordered: 'Ignore line order',
+      },
 
       /** 同 zh-CN：一键提交的按钮 / 闸门 / 失败原因 / 判定码说明（2026-10-23 加） */
       submit: {

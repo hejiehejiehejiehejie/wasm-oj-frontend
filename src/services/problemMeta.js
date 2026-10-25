@@ -11,6 +11,7 @@
  */
 
 import { t } from '../i18n/index.js'
+import { DEFAULT_CHECKER_ID, checkerLabelKey, isCheckerId } from './checkers.js'
 
 /**
  * 全部支持的 OJ。**id 持久化进 VFS 节点，不许随意改字面量**。
@@ -101,9 +102,10 @@ export function difficultyLabel(oj, difficulty) {
   return found ? labelOf(found) : ''
 }
 
-/** 全空的初始值（对话框绑定用）。timeLimit 为 0 = 未设置，单位毫秒 */
+/** 全空的初始值（对话框绑定用）。timeLimit 为 0 = 未设置，单位毫秒；
+ *  checker 为空 = 用默认逐行比对（见 services/checkers.js） */
 export function emptyMeta() {
-  return { url: '', oj: '', difficulty: '', date: '', timeLimit: 0 }
+  return { url: '', oj: '', difficulty: '', date: '', timeLimit: 0, checker: '' }
 }
 
 /** 本地时区的今天，形如 2026-09-28 */
@@ -156,7 +158,7 @@ const TIME_LIMIT_MAX_MS = 60000
  * 逐键校验一份来路不明的元数据，丢弃越界 / 未知值。
  * 全空时返回 null —— 调用方据此把节点上的 meta 整个删掉，而不是留一个空壳。
  * @param {unknown} raw
- * @returns {{ url: string, oj: string, difficulty: string, date: string, timeLimit: number } | null}
+ * @returns {{ url: string, oj: string, difficulty: string, date: string, timeLimit: number, checker: string } | null}
  */
 export function normalizeMeta(raw) {
   if (!raw || typeof raw !== 'object') return null
@@ -168,9 +170,15 @@ export function normalizeMeta(raw) {
   const date = DATE_PATTERN.test(rawDate) ? rawDate : ''
   const difficulty = normalizeDifficulty(oj, source.difficulty)
   const timeLimit = normalizeTimeLimit(source.timeLimit)
+  // 默认值不落盘：checker 为空就表示「逐行」，存一个 'lines' 只是噪音。
+  // 非法 id 同样退空 —— 比对器注册表里没有的值不能把一次评测拖进未知状态。
+  const checker =
+    isCheckerId(source.checker) && source.checker !== DEFAULT_CHECKER_ID
+      ? String(source.checker)
+      : ''
 
-  if (!url && !oj && !date && !difficulty && !timeLimit) return null
-  return { url, oj, difficulty, date, timeLimit }
+  if (!url && !oj && !date && !difficulty && !timeLimit && !checker) return null
+  return { url, oj, difficulty, date, timeLimit, checker }
 }
 
 /**
@@ -210,7 +218,7 @@ export function normalizeDifficulty(oj, value) {
 /**
  * 元数据 → 文件树行的 title 文案（多行）。没有任何内容时返回 ''，
  * 调用方据此不设 title，避免弹出一个空提示。
- * @param {{ url?: string, oj?: string, difficulty?: string, date?: string, timeLimit?: number } | null | undefined} meta
+ * @param {{ url?: string, oj?: string, difficulty?: string, date?: string, timeLimit?: number, checker?: string } | null | undefined} meta
  * @returns {string}
  */
 export function formatMetaTooltip(meta) {
@@ -220,6 +228,10 @@ export function formatMetaTooltip(meta) {
   if (oj) lines.push(t('explorer.tooltip.oj', { value: labelOf(oj) }))
   const difficulty = difficultyLabel(meta.oj, meta.difficulty)
   if (difficulty) lines.push(t('explorer.tooltip.difficulty', { value: difficulty }))
+  const checkerKey = checkerLabelKey(meta.checker)
+  if (checkerKey) {
+    lines.push(t('explorer.tooltip.checker', { value: t(checkerKey) }))
+  }
   if (meta.timeLimit && meta.timeLimit > 0) {
     lines.push(t('explorer.tooltip.timeLimit', { value: meta.timeLimit / 1000 }))
   }

@@ -1,4 +1,4 @@
-import { compareOutput } from './compare.js'
+import { DEFAULT_CHECKER_ID, checkOutput } from './checkers.js'
 import { t } from '../i18n/index.js'
 
 /**
@@ -29,9 +29,14 @@ function failed(detail, durationMs = null, extra = {}) {
 }
 
 /**
+ * 跑一个用例并给出卡片补丁。
+ *
+ * checker 是输出比对方式（services/checkers.js 的 id）。空 / 未知一律按默认逐行，
+ * 只在 exit 0 之后参与 AC / WA 判定，不影响 TLE / MLE / RE。
+ *
  * @returns {Promise<CasePatch>}
  */
-export async function evaluateCase({ engine, base, languageId, entryPath, code, testCase, timeLimitMs, memoryLimitBytes, signal }) {
+export async function evaluateCase({ engine, base, languageId, entryPath, code, testCase, timeLimitMs, memoryLimitBytes, checker = DEFAULT_CHECKER_ID, signal }) {
   if (engine?.supports && !engine.supports(languageId)) {
     return failed(LANGUAGE_UNSUPPORTED(engine))
   }
@@ -53,7 +58,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
       return { status: 'idle', verdict: '', actualOutput: '', detail: '', durationMs: null }
 
     case 'ok': {
-      const match = compareOutput(result.stdout, testCase.expectedOutput)
+      const match = checkOutput(result.stdout, testCase.expectedOutput, checker)
       return {
         status: match ? 'passed' : 'failed',
         verdict: match ? 'AC' : 'WA',
@@ -114,7 +119,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
  * 小并发跑完一批用例，逐个回调补丁，界面可以实时看到卡片变色。
  * 回调签名固定为 (testCase, patch, index)。
  */
-export async function runCases({ engine, base, languageId, entryPath, code, cases, timeLimitMs, memoryLimitBytes, signal, concurrency = 2, onCase }) {
+export async function runCases({ engine, base, languageId, entryPath, code, cases, timeLimitMs, memoryLimitBytes, checker, signal, concurrency = 2, onCase }) {
   const queue = cases.map((testCase, index) => ({ testCase, index }))
 
   const workers = Array.from({ length: Math.max(1, Math.min(concurrency, queue.length)) }, async () => {
@@ -122,7 +127,7 @@ export async function runCases({ engine, base, languageId, entryPath, code, case
       if (signal?.aborted) return
       const next = queue.shift()
       if (!next) return
-      const patch = await evaluateCase({ engine, base, languageId, entryPath, code, testCase: next.testCase, timeLimitMs, memoryLimitBytes, signal })
+      const patch = await evaluateCase({ engine, base, languageId, entryPath, code, testCase: next.testCase, timeLimitMs, memoryLimitBytes, checker, signal })
       onCase?.(next.testCase, patch, next.index)
     }
   })

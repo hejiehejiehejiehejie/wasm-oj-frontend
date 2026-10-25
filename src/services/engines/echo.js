@@ -12,6 +12,7 @@ export const echoEngine = {
   labelKey: 'engine.echo.label',
   hintKey: 'engine.echo.hint',
   executesCode: false,
+  enforcesMemoryLimit: false,
   defaultBase: 'local',
 
   supports() {

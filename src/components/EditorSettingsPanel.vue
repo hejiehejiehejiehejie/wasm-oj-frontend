@@ -1049,7 +1049,7 @@ const runtimeEntries = RUNTIMES.map(createRuntimeState)
  * 存的是运行时 id 的数组而不是三个布尔：加一个语言只要进 RUNTIMES 与白名单即可，
  * 而且 array 本身就是云同步里 cp.autoPreload 的形状。
  */
-const autoPreload = usePersistentRef(AUTO_PRELOAD_KEY, [])
+const autoPreload = usePersistentRef(AUTO_PRELOAD_KEY, ['cpp'])
 
 function isAutoPreload(id) {
   return autoPreload.value.includes(id)

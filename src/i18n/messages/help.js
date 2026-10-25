@@ -29,7 +29,7 @@ export default {
               role: '编译与运行都在本机完成。',
               steps: [
                 '打开**设置** › **本地运行环境**',
-                '给 **C++** 或 **Python 3** 点**下载**（约 50MB / 24MB，只下一次）',
+                '给 **C++** 或 **Python 3** 点**下载**（约 23MB / 24MB，只下一次）',
                 '等按钮变成**已就绪**',
                 '确认**评测**引擎是**本地 WASM 沙箱**（默认，无需填地址）',
                 '按 ⌘/Ctrl + Enter，或点**评测样例**页脚的 ▶',
@@ -37,6 +37,7 @@ export default {
               notes: [
                 '运行前侧边栏会自动展开并切到**评测样例**',
                 'Python 直接解释执行；C++ 只编译当前文件，不包含本地头文件',
+                'C++ 按 **C++20** 编译；`dynamic_cast` 与 `typeid` 不支持，写了会编译报错',
                 'Python 可 import 同目录的模块',
                 '沙箱内的文件读写只在内存中，不写回工作区',
                 '运行时只下一次，刷新命中缓存；清除浏览器数据需重下',
@@ -70,23 +71,23 @@ export default {
           items: [
             {
               name: '在浏览器里跑有多快？',
-              role: '没有统一倍率，随访存密度上升。',
+              role: '没有统一倍率，随用例变化。',
               table: {
                 head: ['用例', '沙箱', '本机', '倍率'],
                 rows: [
-                  ['纯计算 5×10⁷ 轮', '132 ms', '74.4 ms', '1.77×'],
-                  ['顺序访存 8×10⁶ int', '26 ms', '7.4 ms', '3.51×'],
-                  ['排序 50 万', '60 ms', '11.8 ms', '5.08×'],
-                  ['排序 200 万', '247 ms', '36.7 ms', '6.73×'],
+                  ['纯计算 5×10⁷ 轮', '87 ms', '76 ms', '1.14×'],
+                  ['顺序访存 8×10⁶ int', '8 ms', '4.0 ms', '2.0×'],
+                  ['排序 50 万', '12 ms', '7.5 ms', '1.60×'],
+                  ['排序 200 万', '41 ms', '33 ms', '1.25×'],
                 ],
               },
               notes: [
-                '实测：Apple M5 + 无头 Chrome，两侧均开 **-O2**',
+                '实测：Apple M5 + 无头 Chrome，两侧均开 **-O2**（2026-10-25）',
                 '沙箱一列取运行段，与卡片耗时同口径',
-                '倍率约 1.8× 至 6.7×，不可外推',
-                '5 次采样极差 ≤3 ms，输出与本机逐字一致',
-                '两列均含启动开销，短用例倍率会被拉平',
-                '空程序对照是假象：本机 4.4 ms 为进程启动，沙箱 3.0 ms 为 WASI 实例化',
+                '倍率约 1.1× 至 2.0×，不可外推',
+                '取 10–15 次采样中位数，输出与本机逐字一致',
+                '本机一列已扣掉进程启动（约 2.6 ms）',
+                '空程序对照是假象：本机 2.6 ms 为进程启动，沙箱不到 1 ms',
                 '换设备后绝对值与倍率都会变',
               ],
             },
@@ -98,6 +99,15 @@ export default {
                 '后台会在空闲时生成 STL 预编译头，不阻塞操作',
                 '预编译头仅覆盖 5 个常用标准库头；生成失败不影响编译',
                 '速度受本机性能影响，不承诺固定倍率',
+              ],
+            },
+            {
+              name: '对浏览器有什么要求？',
+              role: 'C++ 要新标准 wasm 异常与 SIMD。',
+              notes: [
+                'C++：**Chrome 137+**、**Firefox 131+**、**Safari 18.4+**',
+                '不满足时 C++ 不可用，卡片会写明缺哪一项能力',
+                'Python 3 不受影响',
               ],
             },
             {
@@ -257,7 +267,7 @@ export default {
               role: 'Compiling and running both happen on this device.',
               steps: [
                 'Open **Settings** › **Local runtime**',
-                'Click **Download** next to **C++** or **Python 3** (about 50MB / 24MB, once)',
+                'Click **Download** next to **C++** or **Python 3** (about 23MB / 24MB, once)',
                 'Wait for the button to read **Ready**',
                 'Make sure the **Judge** engine is **Local WASM sandbox** (default, no URL needed)',
                 'Press ⌘/Ctrl + Enter, or click ▶ in the **Test cases** footer',
@@ -265,6 +275,7 @@ export default {
               notes: [
                 'The sidebar expands and switches to **Test cases** before a run',
                 'Python runs directly in the interpreter; C++ compiles only the open file, without local headers',
+                'C++ is compiled as **C++20**; `dynamic_cast` and `typeid` are unsupported and a compile error',
                 'Python can import modules from the same folder',
                 'File reads and writes in the sandbox stay in memory and never touch the workspace',
                 'The runtime downloads once and is cached; clearing browser data means downloading again',
@@ -298,23 +309,23 @@ export default {
           items: [
             {
               name: 'How fast is it in the browser?',
-              role: 'No single multiplier — the ratio grows with memory density.',
+              role: 'No single multiplier — the ratio varies per case.',
               table: {
                 head: ['Case', 'Sandbox', 'Native', 'Ratio'],
                 rows: [
-                  ['Pure compute, 5×10⁷ iterations', '132 ms', '74.4 ms', '1.77×'],
-                  ['Sequential access, 8×10⁶ ints', '26 ms', '7.4 ms', '3.51×'],
-                  ['Sorting 500k', '60 ms', '11.8 ms', '5.08×'],
-                  ['Sorting 2M', '247 ms', '36.7 ms', '6.73×'],
+                  ['Pure compute, 5×10⁷ iterations', '87 ms', '76 ms', '1.14×'],
+                  ['Sequential access, 8×10⁶ ints', '8 ms', '4.0 ms', '2.0×'],
+                  ['Sorting 500k', '12 ms', '7.5 ms', '1.60×'],
+                  ['Sorting 2M', '41 ms', '33 ms', '1.25×'],
                 ],
               },
               notes: [
-                'Measured on an Apple M5 with headless Chrome, **-O2** on both sides',
+                'Measured on an Apple M5 with headless Chrome, **-O2** on both sides (2026-10-25)',
                 'The sandbox column is the run phase, the same measure as card timing',
-                'The ratio ranges from about 1.8× to 6.7× and cannot be extrapolated',
-                'Five samples spread over ≤3 ms; output matched native byte for byte',
-                'Both columns include startup cost, flattening short runs',
-                'The empty-program comparison is an illusion: 4.4 ms native is process startup, 3.0 ms in the sandbox is WASI instantiation',
+                'The ratio ranges from about 1.1× to 2.0× and cannot be extrapolated',
+                'Median of 10–15 samples; output matched native byte for byte',
+                'Process startup (about 2.6 ms) is subtracted from the native column',
+                'The empty-program comparison is an illusion: 2.6 ms native is process startup, the sandbox comes in under 1 ms',
                 'Changing the machine changes both times and ratios',
               ],
             },
@@ -326,6 +337,15 @@ export default {
                 'A precompiled STL header is built in the background during idle time, without blocking you',
                 'It covers only the 5 most common standard library headers; a failed build does not affect compilation',
                 'Speed depends on your machine, so no fixed ratio is promised',
+              ],
+            },
+            {
+              name: 'Which browsers are supported?',
+              role: 'C++ needs the new standard for wasm exceptions and SIMD.',
+              notes: [
+                'C++: **Chrome 137+**, **Firefox 131+**, **Safari 18.4+**',
+                'Without it C++ is unavailable, and the card names the missing capability',
+                'Python 3 is unaffected',
               ],
             },
             {

@@ -23,6 +23,8 @@ import { IS_DESKTOP } from '../platform.js'
  * @property {string} labelKey             设置面板中的名称（i18n key，**不是算好的字符串**）
  * @property {string} hintKey              设置面板中的一行说明（i18n key）
  * @property {boolean} executesCode        false 时界面要标出"不执行代码"
+ * @property {boolean} [enforcesMemoryLimit]  是否会因内存上限判 MLE；**不写 = 不兑现**。
+ *   界面据此在引擎说明里明示「该引擎不判 MLE」（判定规范 §8 的承诺矩阵）。
  * @property {'web'|'desktop'} [platforms]  限定只在哪些平台出现；不写表示两端都可用
  * @property {string} defaultBase          默认服务地址；内置引擎填 'local'
  * @property {(languageId: string) => boolean} [supports]
@@ -72,13 +74,16 @@ export function getEngine(id) {
  * 只列本平台可用的引擎：另一端的引擎选了也跑不起来，露出来只会误导。
  */
 export function engineChoices() {
-  return ENGINES.filter(runsHere).map(({ id, labelKey, hintKey, executesCode, defaultBase }) => ({
-    id,
-    labelKey,
-    hintKey,
-    executesCode,
-    defaultBase,
-  }))
+  return ENGINES.filter(runsHere).map(
+    ({ id, labelKey, hintKey, executesCode, enforcesMemoryLimit, defaultBase }) => ({
+      id,
+      labelKey,
+      hintKey,
+      executesCode,
+      enforcesMemoryLimit: enforcesMemoryLimit === true,
+      defaultBase,
+    }),
+  )
 }
 
 /** 每个引擎各存一个地址，切引擎时不用重新填。同样只列本平台可用的。 */

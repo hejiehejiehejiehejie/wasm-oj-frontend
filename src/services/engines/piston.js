@@ -26,12 +26,28 @@ async function executeOnce({ base, languageId, code, stdin, signal, runTimeout }
   })
 }
 
+/**
+ * Piston 在 run 里可能给 wall_time / cpu_time（秒）。有就用，缺了给 null ——
+ * 绝不拿 HTTP 往返冒充运行耗时（判定规范 §4.2）。
+ */
+function runTimeMs(run) {
+  const seconds =
+    typeof run.wall_time === 'number'
+      ? run.wall_time
+      : typeof run.cpu_time === 'number'
+        ? run.cpu_time
+        : null
+  return seconds === null ? null : Math.round(seconds * 1000)
+}
+
 export const pistonEngine = {
   id: 'piston',
   labelKey: 'engine.piston.label',
   hintKey: 'engine.piston.hint',
   executesIntialized: true,
   executesCode: true,
+  // Piston 的 /execute 没有内存上限参数，不会判 MLE（规范 §8）
+  enforcesMemoryLimit: false,
   defaultBase: 'http://localhost:2000',
 
   supports(languageId) {
@@ -76,7 +92,7 @@ export const pistonEngine = {
         stdout: '',
         stderr: '',
         detail: t('error.pistonConnect', { base: trimBase(base) }),
-        durationMs: response.durationMs,
+        durationMs: null,
       }
     }
     if (!response.ok) {
@@ -85,7 +101,7 @@ export const pistonEngine = {
         stdout: '',
         stderr: '',
         detail: pickReason(response.text, response.status),
-        durationMs: response.durationMs,
+        durationMs: null,
       }
     }
 
@@ -94,26 +110,30 @@ export const pistonEngine = {
     const compileOutput = (compile.output ?? '').trim()
     const stdout = run.stdout ?? ''
     const stderr = (run.stderr ?? '').trim()
+    const durationMs = runTimeMs(run)
 
     if ((typeof compile.code === 'number' && compile.code !== 0) || (compileOutput && !stdout && !stderr)) {
       return {
         outcome: 'compile-error',
         stdout,
         stderr: compileOutput || t('error.pistonCompileFailed'),
-        durationMs: response.durationMs,
+        // 编译失败时程序没跑，run 里的时间没有意义
+        durationMs: null,
       }
     }
     if (run.signal === 'SIGKILL' || run.signal === 'SIGXCPU' || run.code === 137) {
-      return { outcome: 'timeout', stdout, stderr, durationMs: response.durationMs }
+      return { outcome: 'timeout', stdout, stderr, durationMs }
     }
-    if ((typeof run.code === 'number' && run.code !== 0) || stderr) {
+    // exit 0 时 stderr 只是诊断，按 stdout 判（与 wasm / native 同一口径，规范 §2.1）。
+    // 只有拿不到退出码、又确实有 stderr 时，才按 RE 处理。
+    if (typeof run.code === 'number' ? run.code !== 0 : Boolean(stderr)) {
       return {
         outcome: 'runtime-error',
         stdout,
         stderr: stderr || t('error.pistonExitCode', { code: run.code }),
-        durationMs: response.durationMs,
+        durationMs,
       }
     }
-    return { outcome: 'ok', stdout, stderr: '', durationMs: response.durationMs }
+    return { outcome: 'ok', stdout, stderr: '', durationMs }
   },
 }

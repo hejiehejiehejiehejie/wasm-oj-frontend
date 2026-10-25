@@ -13,8 +13,8 @@ export default {
       /** 引擎显示名与一行说明；`notExecutes` 是「不执行代码」那枚小徽标 */
       wasm: {
         label: '本地 WASM 沙箱',
-        hint: '在浏览器中编译运行，代码不出本机。首次需下载运行时（C++ 约 50MB / Python 约 24MB）。',
-        ready: '沙箱可用。首次运行需下载运行时（C++ 约 50MB / Python 约 24MB），之后常驻缓存。',
+        hint: '在浏览器中编译运行，代码不出本机。首次需下载运行时（C++ 约 23MB / Python 约 24MB）。',
+        ready: '沙箱可用。首次运行需下载运行时（C++ 约 23MB / Python 约 24MB），之后常驻缓存。',
         noIsolation: '页面缺少跨域隔离，SharedArrayBuffer 不可用；请为 dev server 配置 COOP / COEP 响应头。',
         unavailable: '本地沙箱不可用：{message}',
       },
@@ -40,6 +40,7 @@ export default {
         cancelled: '已取消',
         unreachable: '连不上 {base}（{text}）',
         available: '服务可用，{ms}ms',
+        availableNoTime: '服务可用',
         notPiston: '响应格式不是 Piston',
       },
       judge0: {
@@ -48,6 +49,8 @@ export default {
         internal: 'Judge0 内部错误',
         statusCode: '状态码 {code}',
         available: '服务可用，{ms}ms',
+        /** 服务端没给运行时间（返回里缺 time）：只说「可用」，别编一个数 */
+        availableNoTime: '服务可用',
         unreachable: '连不上 {base}',
         returned: '返回 {outcome}',
       },
@@ -58,6 +61,8 @@ export default {
       },
       /** 引擎卡片上的小徽标：该引擎不真正执行代码 */
       notExecutes: '不执行代码',
+      /** 不兑现内存上限的引擎（native / piston）在说明区补的一句（判定规范 §8） */
+      noMemoryLimit: '该引擎不兑现内存上限，不会判 MLE。',
       /** 服务地址输入框的标签与保存按钮 */
       baseLabel: '服务地址',
       localNoBase: '该引擎在本机运行，不需要服务地址。',
@@ -72,10 +77,10 @@ export default {
       groupNote: '在浏览器里直接编译运行，代码不出本机。',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 8 + libc++，约 50MB，仅下载一次',
+        idleHint: 'clang 23 + libc++（C++20），约 23MB，仅下载一次',
         downloadTitle: '下载 clang 工具链',
         uninstallHint:
-          '删除本机 clang 工具链（约 50MB，含预编译头）；下次运行 C++ 需重新下载。',
+          '删除本机 clang 工具链（约 23MB，含预编译头）；下次运行 C++ 需重新下载。',
       },
       python: {
         title: 'Python 3',
@@ -120,7 +125,7 @@ export default {
 
     /** 沙箱的实时阶段播报（设置页下载那一行会显示） */
     stage: {
-      toolchain: '正在获取本地工具链（约 50MB，仅下一次）…',
+      toolchain: '正在获取本地工具链（约 23MB，仅下一次）…',
       compile: '正在编译…',
       run: '正在运行…',
       pythonRuntime: '正在获取 Python 运行时（约 24MB，仅下一次）…',
@@ -128,13 +133,17 @@ export default {
 
     error: {
       /** 沙箱与工具链 */
+      wasmUnsupported:
+        '当前浏览器缺少 {missing}，C++ 工具链（clang 23）跑不起来。请改用 Chrome 137+ / Firefox 131+ / Safari 18.4+。',
       noDecompressionStream: '浏览器不支持 DecompressionStream，无法解包工具链',
       downloadFailed: '{label} 下载失败（HTTP {status}）',
       sysrootFailed: '系统头文件下载失败（HTTP {status}）',
+      sysrootNotTar: '系统头文件没有按 tar 解出来（多半是 Content-Encoding: br 没生效）',
       pythonLibFailed: 'Python 标准库下载失败（HTTP {status}）',
       compileFailed: '编译未通过',
       linkFailed: '链接失败',
       pchFailed: '预编译头生成失败（clang 退出码 {code}）',
+      oomProbeFailed: '内存探针编译失败（clang 退出码 {code}）',
       programExitCode: '程序退出码 {code}',
       compileTimeout: '本地编译超过 {seconds} 秒未返回，已中断。',
       prepareTimeout: '运行环境准备超过 {seconds} 秒未返回，已中断，请检查网络后重试。',
@@ -189,9 +198,9 @@ export default {
     engine: {
       wasm: {
         label: 'Local WASM sandbox',
-        hint: 'Runs in your browser; your code stays on this machine. The first run downloads the runtime (C++ ≈ 50MB / Python ≈ 24MB).',
+        hint: 'Runs in your browser; your code stays on this machine. The first run downloads the runtime (C++ ≈ 23MB / Python ≈ 24MB).',
         ready:
-          'Sandbox available. The first run downloads the runtime (C++ ≈ 50MB / Python ≈ 24MB), then it is cached.',
+          'Sandbox available. The first run downloads the runtime (C++ ≈ 23MB / Python ≈ 24MB), then it is cached.',
         noIsolation:
           'The page is not cross-origin isolated, so SharedArrayBuffer is unavailable. Configure COOP / COEP headers on the dev server.',
         unavailable: 'Local sandbox unavailable: {message}',
@@ -229,6 +238,8 @@ export default {
         internal: 'Judge0 internal error',
         statusCode: 'Status {code}',
         available: 'Service is up, {ms}ms',
+        /** 同 zh-CN：服务端没给运行时间时只说「可用」 */
+        availableNoTime: 'Service is up',
         unreachable: 'Cannot reach {base}',
         returned: 'Returned {outcome}',
       },
@@ -238,6 +249,8 @@ export default {
         ready: 'Built-in engine, no service needed',
       },
       notExecutes: 'Does not run code',
+      /** 同 zh-CN：不兑现内存上限的引擎提示 */
+      noMemoryLimit: 'This engine does not enforce the memory limit and never reports MLE.',
       baseLabel: 'Service URL',
       localNoBase: 'This engine runs on this machine and needs no service URL.',
       selfTest: 'Test connection',
@@ -249,10 +262,10 @@ export default {
       groupNote: 'Compile and run right inside your browser. Your code never leaves this machine.',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 8 + libc++, ~50MB, downloaded once',
+        idleHint: 'clang 23 + libc++ (C++20), ~23MB, downloaded once',
         downloadTitle: 'Download the clang toolchain',
         uninstallHint:
-          'Deletes the cached clang toolchain (~50MB, including the precompiled header); it will be downloaded again on the next C++ run.',
+          'Deletes the cached clang toolchain (~23MB, including the precompiled header); it will be downloaded again on the next C++ run.',
       },
       python: {
         title: 'Python 3',
@@ -293,21 +306,25 @@ export default {
     },
 
     stage: {
-      toolchain: 'Fetching the local toolchain (~50MB, once)…',
+      toolchain: 'Fetching the local toolchain (~23MB, once)…',
       compile: 'Compiling…',
       run: 'Running…',
       pythonRuntime: 'Fetching the Python runtime (~24MB, once)…',
     },
 
     error: {
+      wasmUnsupported:
+        'This browser is missing {missing}, so the C++ toolchain (clang 23) cannot run. Use Chrome 137+ / Firefox 131+ / Safari 18.4+.',
       noDecompressionStream:
         'This browser lacks DecompressionStream, so the toolchain cannot be unpacked',
       downloadFailed: 'Failed to download {label} (HTTP {status})',
       sysrootFailed: 'Failed to download the system headers (HTTP {status})',
+      sysrootNotTar: 'System headers did not arrive as a tar archive (Content-Encoding: br probably missing)',
       pythonLibFailed: 'Failed to download the Python standard library (HTTP {status})',
       compileFailed: 'Compilation failed',
       linkFailed: 'Linking failed',
       pchFailed: 'Failed to build the precompiled header (clang exited with {code})',
+      oomProbeFailed: 'Failed to build the memory probe (clang exited with {code})',
       programExitCode: 'Program exited with {code}',
       compileTimeout:
         'Local compilation did not return within {seconds} s and was interrupted.',

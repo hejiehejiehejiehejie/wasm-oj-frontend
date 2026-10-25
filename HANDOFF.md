@@ -35,7 +35,7 @@
 | 触屏上的可拖目标必须声明 `touch-action` | 各自保住本容器的滚动方向：页签栏的页签 `pan-x`、文件树的行 `pan-y`、分隔条 `none`（它不需要滚动）。**绝不能图省事写 `none`** —— 手指按在它上面就再也滚不动那个容器了。`pointerdown` 里的 `preventDefault()` 挡不住这件事（按规范它只抑制兼容的 `mousedown` / `mouseup`）：手势归属是浏览器在 `touchstart` / `pointerdown` 那一刻定下的，之后改 `touch-action` 无效。配套的还有 `user-select: none` 一族与「`contextmenu` 从 `pointerdown` 就接管」—— 这三件套缺一件都**只在真机上现形**，无头探针全绿什么也说明不了（见坑 30） |
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑）。**例外**：服务层的模块级单例（如 `services/shellSettings.js`）**不能**用它 —— 那份靠 `onMounted` 落首值，组件之外不执行（见第 5 节坑 36） |
-| SW 改了**外壳**策略就升 `SHELL_VERSION` | `src/services/storageNames.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v5`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**工具链桶名是硬编码的 `cp-toolchain`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 52MB + CPython 24MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下 76MB。要换代工具链时才手动改那一行 |
+| SW 改了**外壳**策略就升 `SHELL_VERSION` | `src/services/storageNames.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v6`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**2026-10-25 起有个例外**：同桶内「URL 带版本」的条目已由 `sw.js` 的 `pruneStaleShellArtifacts()` 按 `/retain-manifest.json` 自动回收，所以只是扩回收范围、不改「桶里该留什么」时不必升；升版本留给「vN 桶里已有新判据够不着的残骸、要一次清空」那种情况（v5 → v6 就是）。**工具链桶名是硬编码的 `cp-toolchain`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 24MB + CPython 25MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下几十 MB。要换代工具链时才手动改那一行 |
 | **禁止胶囊形控件** | 按钮 / 芯片 / 徽标 / 提示条一律**圆角矩形**，`border-radius` 必须**小于高度的一半**（2026-10-24 用户口径：「不要出现胶囊形的东西，都改为圆角矩形，并且保持圆角一致」）。同一排 / 同一组控件取同一档：常规控件 **10px**（输入框 / 按钮 / 预设芯片），高度 < 24px 的小徽标 **6px**（判定码与 verdict 那两枚，见第 4 节），26px 的紧凑图标按钮沿用组件既有的小圆角（如倒计时头栏的 7px）；**同一排里不许混用两种半径**。**别把 10px 套到 17–20px 高的元素上**——相邻两角之和超过边长时浏览器会按比例夹小，又变回半圆。存量 `999px` 还剩三处，逐组件迁完为止：滚动条滑块（`base.css` 的 `.oscroll-thumb`）、设置页开关轨道（`EditorSettingsPanel.vue`）、拖拽放大镜（`EditorPane.vue`）；倒计时卡已于 2026-10-24 迁完（预设 / 解锁按钮 10px）。状态点、环形进度这类**纯几何元素**不在此列 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物、**不在**构建清单里，也**不能进** `sw.js` 的 `STATIC_ASSETS`——图标内容会变（白底改透明圆角那次就变过）而路径里没有内容哈希，进了那个列表就等于拿装机那一刻的图永久盖住新图（2026-10-15 踩过，见第 9 节）。改图标要连带递增 `index.html` 里两条 `rel="icon"` 的 `?v=` |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
@@ -78,6 +78,8 @@ NOTICE.md                       # 第三方开源组件清单（致谢 + 许可�
 notice.html / notice.en.html    # **生成物，别手改**：上面两份源文件各自生成的静态页（中 / 英各一页），页头互链 + 三行 hreflang（x-default 指中文页），与两版 guide 同一套类名与主题脚本；两页都不进 SW 预缓存（见第 12 节）
 docs/使用手册.md                # 面向新用户的说明：回答三个问题——「如何在本地运行 C++」「如何切换侧边栏面板 / 展开折叠侧边栏」「如何写题解（Markdown / LaTeX）」，与 src/i18n/messages/help.js 内容同源（**精简版**，且只有中文；完整版是 guide.html / guide.en.html）
 docs/云端同步服务.md            # ★ 云端同步的后端（Cloudflare Worker `cf-config-api`）的**唯一在仓库记录**：拓扑 / Worker Route、身份验证模型（Codeforces handle 的 Last name）、五个接口的实测契约与错误原文、KV 键与 TTL、实测确认的行为（验证成功即删码 / 取新码作废旧码）、前端 `SYNC_KEYS` 白名单与登录语义，以及方案 A（设备令牌）的四处服务端补丁 + 前端令牌接线（`cp.cloudToken`、「上传本机设置」有令牌时直打 `/api/save`、401 自动退回取码）+ 部署自测命令。**Worker 源码不在本仓库**（也没有 wrangler 工程），所以改它之前先读这份文件、改完回来更新它
+docs/新内核规划.md                # **只在「换内核」这件事上**的施工规划（2026-10-24 立）：`scripts/wasm-core/` 的实况进度、外部建议的逐项裁决（已实现 / 已过时 / 与 §18 实测冲突）、阶段 0–6 与每阶段的出口判据、换内核必须一起动的 9 条下游、待拍板 8 条。**不放基准数字**（第 18 节）、**不定判定语义**（`docs/评测判定规范.md`）。做完一个阶段就把那一节从这份里删掉、结论进本文件
+docs/评测判定规范.md              # 评测判定的**规范性**口径：什么算 AC / WA / CE / TLE / MLE / RE / ERR、判定优先级（TLE > MLE > RE）、时间与内存口径（对齐 DOMjudge / Isolate / AtCoder / CF / USACO 的一手依据）、编译参数基线、输出比对规则、各引擎兑现矩阵、20 行验收矩阵、与现行实现的差距（§10，含「栈只有 1 MiB」与「`abort()` 误判 MLE」两条 P0）。换内核后哪些条目要重量，见 `docs/新内核规划.md` 阶段 3
 src/
   main.js                       # 挂载 + 生产构建里注册 Service Worker
   sw.js                         # Service Worker 的**源码模板**（不是产物）：预缓存外壳（工具链与题解渲染器都不预缓存、改为按需落缓存），导航网络优先（见第 9 节）。桶名常量不在本文件里——SW 是 classic worker、没法 import，所以由 vite.config.js 的 `cp-service-worker` 插件把 services/storageNames.js 的 `SERVICE_WORKER_CONSTANTS` 生成一段 `const …` 前置进来，产物落 `dist/sw.js`（URL 与原来的 `public/sw.js` 完全一致）。**`public/` 下已经没有这个文件**，dev 下由同一个插件的中间件现场拼出来
@@ -783,7 +785,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 | `cp.localRuntime.clangReady` / `cp.localRuntime.pythonReady` | C++ / Python 本地运行时是否已拉取。**只作首帧播种，不是权威判据**：权威判据是 `wasmRuntime.probeRuntime()`（内存已加载 → SW Cache Storage → HTTP 缓存 `only-if-cached` 探针，全程不触网）；**探的时机只有一个**——`EditorSettingsPanel` 的 `watch(() => props.active)` 在切到设置视图时调一次 `reconcile()`（页面加载、任务状态推进时都**不**探：`only-if-cached` 未命中会在控制台记一条 `ERR_CACHE_MISS`，页面一加载就探等于白刷一屏红字）。标记过期（缓存被清）或缺失（直接跑代码落了缓存）都会在那一刻被正回来 | `EditorSettingsPanel.vue`（本地运行环境分组；下载走 `wasmRuntime.preload(language)`） |
 | `cp.localRuntime.markdownReady` | **题解渲染器**（katex + marked）是否已拉取。与上面两条同一个键前缀、同一套「首帧播种 + 探针校正」的口径（权威判据是 `probeMdRuntime()` 的 Cache Storage 探针）。它在**设置面板那一行**与**预览面板的「下载渲染器」**之间共用，否则从预览下的那一次，下次打开设置会先闪一下「未下载」 | `services/mdRuntime.js`（`MD_READY_FLAG_KEY`） |
 | `cp.mdView` | 题解的**视图模式**：`{ mode, fullscreen }`（`edit` / `split` / `preview` + 是否全屏）。**刻意不走 `usePersistentRef`**：App 在 setup 期（首帧之前）就得知道该不该把侧栏收起来。旧存档是一个字符串（`'fullscreen'` 等），读盘时换算，认不出来一律回默认 `edit` | `services/mdView.js`（**不是**组件；模块级单例体例与 `editorViews.js` 一致——原 `settingsTab.js` 已并入它，区别是这份要跨会话记住） |
-| `cp.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的永久开关；有它就不再生成、编译也不再挂 PCH | `runnoSandbox.js` |
+| `cp.pchUnsupported` | 本机被判定扛不住 PCH（生成时 OOM / cc1 卡死，或 PCH 加载校验失败）后写下的开关；值等于当前 `PCH_CACHE_VERSION`（`v6` 这种形态）时不再生成、编译也不再挂 PCH。**值带版本号**：换代或改生成参数后旧标记自动失效、重试一次（裸 `'true'` 是 v5 及更早的写法，现在认作过期） | `runnoSandbox.js` |
 | `cp.shortcuts` | 全局快捷键：动作 id → 组合键串（`{"run":"Mod+Enter", …}`，内部写法见第 5 节坑 22）。另有一次性迁移标记 `cp.shortcuts.mac-enter`（2026-10-20：mac 上重命名默认 F2 → Enter 的那次迁移，见第 13.4 节；先落盘再打标记，之后用户显式绑回 F2 不再被覆盖）。**刻意不走 `usePersistentRef`**——那个 composable 靠 `onMounted` 播种首次写入、必须挂在组件上，而这份状态要在任何组件挂载之前就能被读到（App 的全局 keydown 与 EditorPane 的状态栏提示都要用），所以 `useShortcutManager.js` 里直接读写 localStorage。读盘以默认值打底再套已存键：以后新增动作时老用户自动拿到它的默认键，已删动作与手改坏的值自然丢掉 | `composables/useShortcutManager.js` |
 | `cp.fileTemplates` | 模板功能的**用户覆盖表**：`{ [语言]: 文本 }`，只存改过的语言（`''` 是合法覆盖 ＝ 新建时留空）。内置三份在 `services/templates.js` 的 `BUILTIN_TEMPLATES`（cpp / python / markdown），取用户值一律 `overrides[id] ?? builtin`、判型一律 `typeof === 'string'`，**绝不能用 `||`**（空串会被当成「没改」）。**刻意不走 `usePersistentRef`**——要在任何组件挂载之前被读到（新建文件时取模板），所以 `services/fileTemplates.js` 自己读写 localStorage，并在**模块加载时先 persist 一次**让键恒存（空表 `{}`）：`applyProfile` 只写云端存在的键，键缺席就会让「下载干净配置」清不掉别机的自定义。**在白名单里**（跟人走） | `services/fileTemplates.js`（`FILE_TEMPLATES_KEY` / `templateForPath`） |
 | `cp.fileTemplates.enabled` | 模板功能的**总开关**（`'1'` / `'0'`，默认开）。与覆盖表**刻意分成两个键**：覆盖表是「内容」、开关是「偏好」，合成一个键就会逼出「关掉时得清空覆盖」这种毁用户东西的做法。读盘只认显式的 `'0'` 为关（缺省 / 存档损坏 / 隐私模式一律按开），同样**模块加载即落盘**让键恒存，理由与上一行一致。闸门只设在 `templateForPath()` 一处（新建文件与抓题都走它）。**在白名单里** | `services/fileTemplates.js`（`FILE_TEMPLATES_ENABLED_KEY` / `setTemplatesEnabled` / `templatesEnabled`） |
@@ -817,6 +819,8 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
   - **abort() / throw 类**（`vector::at` 越界 → terminate）：134 + 空 stderr → 被 MLE 判据接走，判 **MLE**（已知误判边界）；
   - **野指针 / 小幅越界**：wasm 线性内存偏移 0 合法可读、越界不出上限不 trap → 读垃圾值正常退出 → **WA**（原理见上一版结论：trap 从根上不会发生）。
   结论：本地 wasm 的 RE 只有「非零退出」一族可靠；要 SIGSEGV / 除零语义的 RE 只有 native 进程（judge0 一类远端）能给。**栈溢出落 ERR 的粗糙点已修（2026-10-12）**：`wasmRuntime.js` 的 failure 现按 `entry.stage` 分流——运行段异常标 `'run'`（`engines/wasm.js` 判 RE，stderr 透传 worker 消息当 detail），prepare/compile 段仍标 `'infra'` 走「服务不可达」。
+- **`long double` 的能力边界（2026-10-24 实测，23 段程序真跑）**：上游 musl 把 long double 的格式化 / 扫描编成了 abort，所以过去凡是走 stdio 的 `long double` 都会**响亮地崩**（134 + 那句「Support for formatting long double values is currently disabled」）。现在 `LINKER_ARGS` 里把 `libc-printscan-long-double` 排在 `-lc` **之前**（wasm-ld LLVM 8 不认 `--start-group`，只能靠归档先后），于是 **`printf` / `scanf` / `sprintf` / `sscanf` / `strtold` 与 `cin >> long double` 全部正确**（`%.20Lf` 给 `3.14159265358979000000`），`put_money` 也跟着活了过来（它内部要格式化一个 long double）。**但 `cout << long double` 仍是错的**（实测 `2.5L` 打出 `2.98619e-4947`、`fixed` 下打 `0.000000`）：那条路走的是 `libc++.a` 里**预编译**的 `num_put::do_put(long double)`，它交给 `snprintf` 的格式串不带 `L`，改不动（要换 libc++ 或改二进制）。也就是说这一族从「响亮地崩」变成了「安静地错」——**给用户写题解 / 提示时按「`long double` 请用 `printf` 输出」这条口径**。同批实测的其它边界：`chrono::steady_clock` 曾**只有 1ms 粒度、而且其实是墙上时钟**（2026-10-24 复核：早前「差值恒 0」的说法是错的，那只是被测工作量不足 1ms）—— **同日已由下一颗时钟补丁修好**；`try` / `throw`、`std::regex`、`to_chars` / `from_chars`、`std::complex`、`std::thread` / `this_thread`、`random_device`、`filesystem::current_path` **全是编译错误**（`__config` 里自带 `#define _LIBCPP_CXX03_LANG`，且异常没开 —— 与前面「沙箱刻意没开 `-fno-exceptions`」那句对照，实测异常确实关着）；`wcout` / `wcin` / `wprintf`、`__int128`（含转 `long long` 后输出）、`%a`、`powl` 正常。链接期改动**不进 `FRONTEND_ARGS`**，所以 PCH 签名不受影响、不需要重生成。
+- **沙箱时钟（2026-10-24 修，`scripts/patch-wasi-clock.mjs`）**：`@runno/wasi` 0.10.0（已是最新版）的 `clock_time_get` 四种 clock id 一律回 `new Date()`（毫秒级**墙上**钟）、`clock_res_get` 一律回 1e6 ns，于是 `chrono::steady_clock` 只有 1ms 粒度且跟着系统时钟跳（`CLOCK_REALTIME` 与 `CLOCK_MONOTONIC` 读出同一个 `tv_sec`）。补丁在装完依赖后把 `node_modules/@runno/wasi/dist/main.js` 里那**两处实现整段替换**：REALTIME = `Date.now()`（口径没动），MONOTONIC 与两个 CPU 时钟 = `performance.timeOrigin + performance.now()`，`clock_getres` 相应报 1ms / 1µs。四条不可略的实现口径：① **只能改源码** —— 真正跑用户程序的是 `dist/main.js` 里**内联的那份 worker 源码**（单引号转义字符串 + `new Blob`）：`WASIWorkerHost` 的 context 选项碰不到 WASI 方法、`debug` 钩子原样返回 errno、Blob 在模块加载时就造好（运行时换 `URL.createObjectURL` 来不及），而实例化走 `this.clock_time_get.bind(this)`，所以**事后覆盖 prototype 无效**（那是第一版写法，已弃）；② **必须连带删 `node_modules/.vite/deps`** —— Vite 预打包的缓存键是 lockfile + 配置哈希，**不含 node_modules 里的文件内容**，只改源码的话 dev 照旧跑旧那份；`vite build` 走 Rollup 直读源码，不受这一步影响；③ 单调钟把「取整毫秒的 `timeOrigin`」与「换纳秒的 `now()`」**分开算再相加**，直接把两个数量级差很多的浮点数相加会掉进 ~0.5µs 的量化台阶；④ 锚点对不上就非零退出、绝不静默放过（上游一改形状必须当场响），`npm run wasi:clock-check` 是给 CI 用的那一份，`predev` / `prebuild` 都挂了幂等的 `wasi:clock-patch`。实测（dev + 真工具链，18/18 绿）：`clock_getres(MONOTONIC)=1000`、`(REALTIME)=1000000`；同一毫秒内 `MONO` 带出亚毫秒位（`…965000`）而 `RT` 恒 `…000000`；6 段 2M 次累加的 `steady_clock` 微秒读数 mod 1000 = `605/850/720/655/710/760`（**改前恒 0**）；Python 侧 `time.perf_counter_ns()` 同步拿到亚毫秒（`delta` 的 mod 1e6 = 770000），`time_ns()` 仍毫秒对齐。**有效粒度是 5µs 而非 1µs** —— 相邻两次 `now()` 的差实测 0 或 5，那是跨域隔离（`vite.config.js` 的 COOP/COEP）下 `performance.now()` 的量化台阶，`clock_getres` 报 1µs 属于「不比真实情况差」（真 Linux 报 1ns）。CPU 时钟浏览器给不了真 CPU 时间，退化到单调钟是各家浏览器 WASI 运行时的通行做法。同一批复测：`npm run verify` 基线不变（A/E/G/H 红、B/C/D/F 绿），`-w`、MLE 判据、long double stdio 三条没被带坏。
 - **耗时口径（2026-09 改过，别改回去）**：卡片数字 = `runCpp` 里只包住 `runWasi` 的那一段（Python 同理，是 `runPython` 里只包住 `runWasi` 的那一段），编译时间不计入。原先取的是 `runCase()` 入口到结束的墙钟，于是第一个用例含编译、命中编译缓存的后续用例只含运行，**同一份代码下第一个卡片能比其余大好几倍**（修前 3 个用例是「数百 ms + 9ms + 12ms」，修后 10/11/7ms），很容易被误读成「程序在第一个用例上特别慢」。面板页头那个 `elapsed` 现在也是同一口径：取当轮所有卡片耗时的**最大值**（`App.vue` 里是 computed，单独跑一个用例也会跟着更新），标题写明「最慢用例耗时」。TLE 消息里的 `durationMs` 与卡片同口径（`wasmRuntime.js` 在进入 `run` 段时重置 `stageStartedAt`）。
 - 判定词表：引擎 outcome 是 `ok / compile-error / runtime-error / timeout / mle / unreachable / cancelled`（见 `src/services/runner.js`、`src/services/engines/index.js`）；`runner.js` 再把它翻译成卡片徽标上的 **verdict 判定码**：`ok` + 比对一致 → `AC`，`ok` + 不一致 → `WA`，`compile-error` → `CE`，`timeout` → `TLE`，`mle` → `MLE`，`runtime-error` → `RE`，`unreachable` 等基础设施失败 → `ERR`。徽标颜色仍按 `status`（passed 绿 / failed 红 / error 琥珀，MLE 落在 error 琥珀档，无新颜色变量）。`compare.js` 只返回布尔，**不再**产出「输出多 N 行 / 第 N 行不匹配」这类 hint 文案（2026-09-18 起，卡片头部不再显示它）。
 - 判题流程：先编译运行出实际输出，再与期望输出比对（`src/services/compare.js`）。
@@ -829,7 +833,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
   - PCH 源码就是**整份 `bits/stdc++.h`**（`PCH_SOURCE_TEXT = UNIVERSAL_HEADER`，连 include guard 都一样）：用户代码里那句 `#include <bits/stdc++.h>` 命中同名 guard 直接整段跳过。**别再退回「只覆盖 5 个头」的微型版**——2026-10-19 实测同一份 85 行题解：5 个头 `.pch` 6.9MB / 检查 104–127ms，30 个头 `.pch` 8.6MB / 检查 42–44ms。多 1.7MB 换掉约 60ms，剩下的 25 个头（尤其是 `<sstream>` / `<deque>` / `<unordered_map>`）比前 5 个还贵。三种形态里「PCH 与万能头同 guard」最快；异 guard 只多约 5ms（多展开 30 行被各自 guard 挡掉的 `#include`）。
   - 语义上要清楚：`-include-pch` 是**隐式前缀 include**，等于每个 TU 自动带上一整份万能头。所以「少写了 `#include <vector>` 也能过」是这条加速的固有副作用（PCH 只覆盖 5 个头时同样如此），别把它当成 bug 去修。
   - PCH 生成与用户编译必须**逐字共用** `FRONTEND_ARGS`（`-std=c++17 -O2`、三个 `-internal-isystem` 路径等）：PCH 文件签名里含语言/目标选项和头文件搜索路径，参数对不上 clang 加载时直接 fatal，还可能混进语义不一致的 libc++ AST。生成走 cc1 直连：`-cc1 -emit-pch -x c++-header`（我们从来没有 driver，别写成 `clang -x c++-header ... -emit-pch`）。
-  - 生成只走后台：`wasmRuntime.warmupPch()` 在「首次编译成功」或「手点下载成功」后，经 `requestIdleCallback` 排进**同一条串行队列**（不能并行——sysroot + PCH 克隆会让内存翻倍，老机器正是要避开这个）。生成带 3 分钟看门狗，失败（OOM / 卡死）写 `cp.pchUnsupported=true` 且**以后任何路径都不再重试**。
+  - 生成只走后台：`wasmRuntime.warmupPch()` 在「首次编译成功」或「手点下载成功」后，经 `requestIdleCallback` 排进**同一条串行队列**（不能并行——sysroot + PCH 克隆会让内存翻倍，老机器正是要避开这个）。生成带 3 分钟看门狗，失败（OOM / 卡死）写 `cp.pchUnsupported=<当前版本记号，如 v6>` 且**同一代内核里任何路径都不再重试**（换代后自动重试一次，见 §22.8）。
   - `generatePch()` 先查 IndexedDB 存档，命中是毫秒级返回且**不会**拉起工具链；编译路径的 `loadPchBytes()` 只读存档、**绝不触发生成**——没备好就平滑走普通编译。带 PCH 时把 `/stdc++.h`（源码）和 `/stdc++.h.pch`（二进制）一起挂进 MemFS，参数追加 `-include-pch`，链接前把 `.pch` 从 fs 摘掉（免得 8.6MB 白克隆给 wasm-ld）。
   - 判废条件必须窄：只有「带了 PCH、没产出 `.o`、且 stderr 命中 `/stdc\+\+\.h\.pch|precompiled header/i`」才判废（删存档 + 置标记 + 普通编译重试一次）。用户自己代码写错同样没有 `.o`，放宽条件会让每次编译错误都白编一遍并永久关掉加速。
   - 实测（2026-09，本机 headless Chrome）：生成约 510–580ms；公平 A/B 下编译+运行 937ms → 730ms，真实 UI 每题 601ms → 354ms，输出逐字一致。数字含 WASI 启动 + sysroot 克隆 + 链接固定开销，老机器上 STL 解析占比更高，绝对收益更大，别在文案里承诺固定倍率。**2026-10-19 补测（Node + 站内同一份 clang 8 + sysroot，85 行线段树题解）**：无 PCH 407–445ms、v2 微型版 104–127ms、v3 全量版 42–44ms；4 行小程序 105ms → 42ms，说明**固定成本已降到「实例化 + 反序列化 PCH」这一档，与代码规模基本无关**。另测 `-fno-validate-pch` 只省 2–5ms（且会让过期 PCH 静默产出错诊断，**不采纳**）；`-disable-free` 在噪声内（**不采纳**）。
@@ -848,7 +852,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 - **代码区的字体是自托管的（2026-10-02 加）**：界面（代码区以外）仍然只用系统字体；代码区另内置三款等宽字体（JetBrains Mono / Fira Code / Cascadia Code，latin 子集、合计 149KB），**只在下拉里选中时才下载**，不依赖任何第三方服务。写文案时别写成「界面全面自带字体」——「默认」档与其余 4 项仍是系统字体；另外「字体连写」只对**带连字的字体**有效：这三款有，系统内置的 SF Mono / Menlo / Consolas / Courier New 一款都没有。
 - **编辑器自动补全（2026-10-08 加）**：C / C++ / Python 有一张**静态补全表**——关键字 + 常用标准库（`vector` / `sort` / `printf` / `cin` / `print` / `sorted` …）+ 代码片段（`main` / `fastio` / `fori` / `ifmain` / `readints` …）。表在 `services/monaco/completion.js`，由 `monaco-setup.js` 顶层**副作用导入**注册（模块只求值一次，注册也就一次），**不加设置开关、恒开**。写文案时别写成「IntelliSense / 语言服务」：它**不是**语义分析——不认变量名与类型、没有跳转定义、没有实时报错，只是「表里的候选 + 同文档里出现过的词」，`markdown` 也不在这张表里（散文用不上）。Monaco 内置的高亮 / 括号配对 / 注释 / 自动闭合 / 缩进规则本来就都有，这次没动。补全的**弹法**（快捷建议 / 触发字符 / Tab 接受 / Enter 策略）显式写在 `editorOptions.js` 里，不再依赖 Monaco 各版本的默认值。一条实现纪律：**每条候选都必须给 `insertText`**（表里没写的由 provider 用 `label` 兜底）——漏给的话补全框照样弹，但 Monaco 的内联补全适配层会拿 `undefined` 去调 `.replaceAll`，控制台整片红。文案五处已同步（`guide.html` §11 / `guide.en.html` §11 / `help.js`「抓题与文件」组 / `docs/使用手册.md` §4 / `index.html` noscript 那条 Monaco 特性行）。另一条实现纪律：**`#` 不在 Monaco 的 `wordPattern` 里**，打 `#inc` 时它只认单词 `inc`，默认的替换范围漏掉那个 `#`，采用 `#include <bits/stdc++.h>` 会得到 `##include …`（症状像是「在已有内容后面又贴了一段」）。provider 里把紧贴单词左边的 `#` 一并算进 range（`swallowHash`，**只给 C / C++**——Python 的 `#` 是注释开头，吞了反而错）；顺带过滤也准了，因为 Monaco 是拿 range 里的文本去比 label 的。
 - **补全的三个误触发（2026-10-19 修）**：症状是「明明没想要它却自己弹、Tab 一按就把前面的词换掉」。三个成因各自独立，修法都在 `completion.js` / `editorOptions.js`：① `tabCompletion` 曾写成 `'on'`（Monaco 与 VSCode 的默认都是 `'off'`），补全框关着时按 Tab 会接受「最佳建议」——`retur` + Esc + Tab 直接变 `return`，日常更常见的是「按 Tab 缩进，上一行的词被吞」。现在恒为 `'off'`，Tab 只缩进；② 触发字符（`<` `>` `#` `:`）在光标前**还没有任何前缀**时返回空表。以前 `#include <iostream>` 后面接个 `<` 就会把整表摊开、预选 `abs`，回车正是「`#include <iostream>abs`」的来源；判据是 `context.triggerKind === TriggerCharacter` **且** `getWordUntilPosition().word === ''`，而 `->` / `::` / `.` 仍放行（正则 `/(?:\.|->|::)$/`），手动 Ctrl+Space 一律给全表；③ 预处理指令按 `label.startsWith(typed)` 收窄。`#` 进了 range 之后过滤文本是 `#d` 这种串，而 Monaco 的过滤是模糊匹配——`d` 会在 `#include <bits/stdc++.h>` 的 `stdc` 里命中，于是打 `#d` 只弹这一条、一按就整段替换。现在 `#d` 给空表、`#i` 给唯一那条。⚠️ `v.` 仍然返回整表（12 行可见、`abs` 排第一）：这是「没有语义」的固有结果，不是 bug，别拿它当回归判据。
-- **编辑器内的 C++ 语法诊断（2026-10-19 加，`services/monaco/syntaxDiagnostics.js`）**：停手 300ms 后用**站内那份 clang 8** 跑一次 `-fsyntax-only`，把 stderr 变成 Monaco 标记（owner `clang-syntax`，`source: 'clang'`）。不是常驻语言服务——`@runno/wasi` 是「实例化 → 跑 `_start` → 收结果」的一次性模型（stdin 回调返回 null 即 EOF），装不下 clangd 那种长驻进程；而 clangd.wasm 实测裸文件 **126.5MB**、导入 `env.memory` 声明 **shared / initial 2GiB / max 4GiB**，手机端不可行。四条纪律：① **不主动下工具链**——`isToolchainReady()` 为假就静默跳过（`checkCppSyntax` 返回 null），绝不因为「打开一个 .cpp」偷下 30MB；② **只有最新一枪能落地**：下一枪开始时 kill 掉在跑的实例，序号对不上或期间内容又变了就丢弃结果，绝不清已有标记（清掉等于告诉用户「代码突然对了」）；③ 命令行与真编译**共用 `FRONTEND_ARGS`**（`syntaxArgs` 只把 `-emit-obj` 换成 `-fsyntax-only`），否则会出现「编辑器说没问题、运行却编译不过」；④ 按「内容指纹」缓存结果，切回文件 / 撤销回去直接重放，不重跑。实测（85 行题解）：带 PCH 的 `-fsyntax-only` 155–268ms，完整 `-emit-obj` 690–782ms，所以编辑器里只付前端那一段；防抖是**自适应**的（照 clangd `TUScheduler` 的 `DebouncePolicy{50, 500, 1}`：等待 = 下限 ×（连续重建次数 + 1），上限封顶）：正常档 300→600→900→1200ms，停手超过 `上限 × 1.5`（1.8s）清零回到 300；低配档 1200→2400→3600ms（清零阈值 5.4s）。实测（2026-10-19 晚，真实页面、共享同一份模块实例）：第 1 枪 389ms 出红线、连续第 2 / 3 枪 686 / 988ms，改回合法代码 395ms 清空（旧的固定 800ms 恒为 ~1.0s）。两档的上限也都逐枪量到过（同一台机器、每次检查本身约 430ms 含在读数里）：正常档 732 / 1049 / 1325 / 1614ms（间隔 1.6s，= 300→600→900→1200 的封顶）、低配档 1652 / 2794 / 4043 / 4001ms（间隔 4.2s，= 1200→2400→3600 封顶）；4.2s 这个间隔正落在「旧阈值 2000 会清零、新阈值 5400 不清零」之间，所以它同时是「低配档爬得到 3600」的判据。⚠️ 清零阈值**必须比该档上限大**，否则「等够久让计时器跑完」与「停手清零」是同一个条件，低配档的退避永远攒不到上限（曾出现上限 3600、实际最高只到 2400）。**边界**：桌面壳（Tauri）的 C++ 走系统 `clang++`（`engines/native.js`），没有 wasm 工具链，这条诊断在那边不会生效——要支持得单独加一条 Tauri 命令。桌面端已于 2026-10-19 冻结，这条缺口随桌面端一并归档到 `docs/废案.md` §1.2 第 6 条，别再当待办。**触发时机只有「改内容 / 切文件」两个**，所以「先打开文件、后点运行」时运行时才首次进内存的那一幕，要靠 `runnoSandbox` 的 `onRuntimeReady` 通知补一枪（2026-10-20 加，两语言共用）：否则加载完成后屏幕上不会自动出红线，要等下一次击键——用户会当成「诊断没生效」。反方向也成立：只跑过 Python 时 cpp 运行时不在内存，cpp 文件静默无诊断，等第一次跑 C++ 的瞬间由同一机制自动补上。**「装过一次之后打开文件就该有红线」也走这条路**（2026-10-20）：`wasmRuntime.ensureRuntimeLoaded()` 在运行时不在内存时先探缓存、齐了就静默读进内存（几十到几百毫秒，**零下载**），于是刷新后打开坏文件不跑代码也能出线（实测 562ms）。**只在 SW 控制的页面上探**：那时判据是 `caches.match`，静默；dev 没有 SW，只能靠 `only-if-cached` 探 HTTP 缓存，而未命中时它本身就是一条失败请求（控制台 `ERR_CACHE_MISS` + Network 三行红）——dev 里「先跑一次」是常态，不值得刷屏（与设置页探针同一条取舍）。每语言每会话只试一次。
+- **编辑器内的 C++ 语法诊断（2026-10-19 加，`services/monaco/syntaxDiagnostics.js`）**：停手 300ms 后用**站内那份 clang 23.1.0** 跑一次 `-fsyntax-only`，把 stderr 变成 Monaco 标记（owner `clang-syntax`，`source: 'clang'`）。**阶段 4 之后这一枪改吃常驻 worker**（`checkCppSyntax` → `toolchain.host.syntax()`，不再像 runno 那样每次起新实例；Python 那半仍走 `@runno/wasi`）。不是常驻语言服务——每次检查依然是一次性 job（喂源码 → 进前端 → 出 stderr 就结束），装不下 clangd 那种「读一行 JSON-RPC、算完再等下一行」的长驻进程；而 clangd.wasm 实测裸文件 **126.5MB**、导入 `env.memory` 声明 **shared / initial 2GiB / max 4GiB**，手机端不可行。四条纪律：① **不主动下工具链**——`isToolchainReady()` 为假就静默跳过（`checkCppSyntax` 返回 null），绝不因为「打开一个 .cpp」偷下 23MB；② **只有最新一枪能落地**：下一枪开始时 kill 掉在跑的实例，序号对不上或期间内容又变了就丢弃结果，绝不清已有标记（清掉等于告诉用户「代码突然对了」）。⚠️ 阶段 4 之后 `kill()` 掐的是**整颗常驻 worker**（`Worker.terminate()`，`host.alive` 转假），不再是 runno 时代那种丢掉一个廉价实例：下一次要用就得重新 init（量级见 §21.2 的 674–982ms），判题/编译路径会自己重建，**诊断则在重建前静默跳过**；③ 命令行与真编译**共用 `FRONTEND_ARGS`**（`syntaxArgs` 只把 `-emit-obj` 换成 `-fsyntax-only`），否则会出现「编辑器说没问题、运行却编译不过」；④ 按「内容指纹」缓存结果，切回文件 / 撤销回去直接重放，不重跑。实测（85 行题解，**clang 8 档时期**）：带 PCH 的 `-fsyntax-only` 155–268ms，完整 `-emit-obj` 690–782ms，所以编辑器里只付前端那一段（阶段 4 换内核后只重测过编译与运行，见 §21.2；**这条 `-fsyntax-only` 没有重测**，下面的防抖读数同理，都是老档的数）；防抖是**自适应**的（照 clangd `TUScheduler` 的 `DebouncePolicy{50, 500, 1}`：等待 = 下限 ×（连续重建次数 + 1），上限封顶）：正常档 300→600→900→1200ms，停手超过 `上限 × 1.5`（1.8s）清零回到 300；低配档 1200→2400→3600ms（清零阈值 5.4s）。实测（2026-10-19 晚，真实页面、共享同一份模块实例）：第 1 枪 389ms 出红线、连续第 2 / 3 枪 686 / 988ms，改回合法代码 395ms 清空（旧的固定 800ms 恒为 ~1.0s）。两档的上限也都逐枪量到过（同一台机器、每次检查本身约 430ms 含在读数里）：正常档 732 / 1049 / 1325 / 1614ms（间隔 1.6s，= 300→600→900→1200 的封顶）、低配档 1652 / 2794 / 4043 / 4001ms（间隔 4.2s，= 1200→2400→3600 封顶）；4.2s 这个间隔正落在「旧阈值 2000 会清零、新阈值 5400 不清零」之间，所以它同时是「低配档爬得到 3600」的判据。⚠️ 清零阈值**必须比该档上限大**，否则「等够久让计时器跑完」与「停手清零」是同一个条件，低配档的退避永远攒不到上限（曾出现上限 3600、实际最高只到 2400）。**边界**：桌面壳（Tauri）的 C++ 走系统 `clang++`（`engines/native.js`），没有 wasm 工具链，这条诊断在那边不会生效——要支持得单独加一条 Tauri 命令。桌面端已于 2026-10-19 冻结，这条缺口随桌面端一并归档到 `docs/废案.md` §1.2 第 6 条，别再当待办。**触发时机只有「改内容 / 切文件」两个**，所以「先打开文件、后点运行」时运行时才首次进内存的那一幕，要靠 `runnoSandbox` 的 `onRuntimeReady` 通知补一枪（2026-10-20 加，两语言共用）：否则加载完成后屏幕上不会自动出红线，要等下一次击键——用户会当成「诊断没生效」。反方向也成立：只跑过 Python 时 cpp 运行时不在内存，cpp 文件静默无诊断，等第一次跑 C++ 的瞬间由同一机制自动补上。**「装过一次之后打开文件就该有红线」也走这条路**（2026-10-20）：`wasmRuntime.ensureRuntimeLoaded()` 在运行时不在内存时先探缓存、齐了就静默读进内存（几十到几百毫秒，**零下载**），于是刷新后打开坏文件不跑代码也能出线（实测 562ms）。**只在 SW 控制的页面上探**：那时判据是 `caches.match`，静默；dev 没有 SW，只能靠 `only-if-cached` 探 HTTP 缓存，而未命中时它本身就是一条失败请求（控制台 `ERR_CACHE_MISS` + Network 三行红）——dev 里「先跑一次」是常态，不值得刷屏（与设置页探针同一条取舍）。每语言每会话只试一次。
 - **编辑器内的 Python 语法诊断（2026-10-20 加，与上一条同一套调度）**：用已在场的 python.wasm 跑 `-c` 小脚本，对 `/main.py` 做 `compile()`，把 `SyntaxError` 译成 **clang 同款格式**（`main.py:行:列: error: 消息`）打给 stderr —— 于是 `syntaxDiagnostics.js` 的解析器一份两用，防抖 / 只让最新一枪落地 / 内容指纹缓存 / 低配模式全部原样共用。三条刻意的边界：① **只解析、绝不执行**（`compile()` 编到字节码就停，诊断要是把用户代码跑起来，`while True:` 就是烧 CPU 的死循环——实测顶层 `while True` 与 `print` 副作用都不触发）；② **每枪只报第一条错**——Python 的异常模型决定了 `compile()` 一次只抛一个 SyntaxError，不像 clang 有 `-ferror-limit` 连环报，这是语言口径不是缺陷；③ 运行时就绪判据是 `isPythonRuntimeReady()`（用过 Python 才在内存里），没用过就静默跳过、绝不为诊断下载。能抓的：语法级错（括号 / 冒号 / 缩进 / 非法字符）；**抓不到** `pritn(x)` 这类「语法对但名字不存在」的错——那是 pyflakes 档的活，Python 的 compile 只付语法这一段。实测（dev，headless）：坏代码 698ms 出线、缩进错 412ms、合法代码 985ms 清空；C++ 回归 740ms 出线无相互污染。另：排查时出现过「python 切 cpp 后旧标记残留 300ms」，那是探针手动调 `setModelLanguage` 制造的伪象——真实应用**没有任何 `setModelLanguage` 调用**，model 与语言一一对应、切文件即换 model，标记按 model 挂不跨文件泄漏，不需要清标记逻辑。
 - **语法诊断的红线与列单位（2026-10-20 修，同一条链路）**：症状是 `solve();` 只在 `s` 下面出现一个字符宽的红线，VSCode 里则盖住整个标识符。两层成因：① **clang 的文本诊断只给「起始行列」**，结构化 range 是 clangd 的 JSON 才有，旧代码为「零宽区间看不见」补成 `endColumn: column + 1`，于是每条恒一列宽；现由 `tokenRangeAt` 按最小词法常识扩到整个词——标识符 / 数字 / 字符串字面量各自吃到自己的结尾，运算符 / 括号 / 分号保持单列，**列越界或落在空白上时也保持单列**（硬扩到前一个 token 上必然标错地方）。② 更严重的一层：**clang 的列是字节偏移**，Monaco 的列是 UTF-16 码元，行内有中文时整条红线右移甚至落到行外——实测 `    /* 中文注释 */ int a = ;` 里分号在第 24 列、clang 报 32（四个汉字各多 2 字节），现由 `byteColumnToChar` 换算；**Python 那条不换算**（`SyntaxError.offset` 本来就是字符列，同一行中文实测报 10 而非 14）。刻意**不用 `monaco.editor.tokenize`**：cpp 的 monarch 定义是懒加载的（`loader: () => import('./cpp.js')`），未加载时它把整行当成一个空 token，反而标满一整行。实测（dev，headless，读 marker 区间并回切源码核对）：`solve` 顶格 10:1-6 / 缩进 7:9-14、`int a = ;` 2:13-14 只标分号、中文行 2:24-25、Python `(` 3:12-13。⚠️ `solve()` 只划 `solve`、**不含调用括号**是对齐 clangd 的（clang 对 undeclared identifier 的 range 就是 DeclRefExpr 本身），别把它当没修完。
 - **文件导入 / 导出（2026-10-12 加）：全平台都能导能出，但「写回本机目录」只有桌面端有**。导入文件 / 导入文件夹在**所有平台**都在（用浏览器自己的文件选择器，不碰任何权限）；导出是**恰好一个文件就直下那个文件、多文件或目录就打成一个 zip**。**两条桌面端独有的能力**别在文案里说成通用的：① **「导出到本机文件夹」**（走 Rust 的 `export_*` 命令，前端全无 fs / dialog 权限，见 14.O）；② **「导入整个文件夹」**（`input[webkitdirectory]`，安卓 / iOS 认不出来，移动端只能一个个挑文件）。四条口径：① 导入**只收文本** —— 二进制（含 NUL / 非法 UTF-8，判据同 Rust 的 `looks_binary`）与超过 5MB 的文件**跳过并在提示里报个数**，不报错、不中断；② **用户自己写的文件一个字都不会被覆盖** —— 重名一律排号成 `a-2.cpp`（与抓题导入同口径，见第 5 节坑 39）；③ 导入**保留文件夹结构**（选一个文件夹进来时顶层文件夹名与子目录层级都在）；④ zip 里的相对路径以**选区公共父目录**为根 —— 只选一个目录时，包里就是这个目录本身那一层。⑤ **从系统里拖文件进来**（2026-10-12 加）也是导入的一条入口：整页都是落点，指针压在资源管理器某一行上就落进那个目录（压着文件行 = 它所在的目录，与站内拖拽同口径）、别处一律**根目录**；**拖入期间侧栏自动撑开到最宽、停在资源管理器，让落点高亮有语境 —— 离开窗口或松手（无论导入成败）就原样还原**（原折叠状态 / 原页签 / 原宽度，App.vue 的 `previewDropTargetLayout`，2026-10-13 加，取代了最初的整页提示层 `PageDropOverlay.vue` —— 已删）；目标行 / 整棵树的亮与站内拖拽**同一套**（`FileExplorer` 里合流，树项只认一个信号）；**恰好一个文件时导入后顺手打开它**（拖文件夹或多个文件只导入不开页签，免得一下冒出几十个）；**导入成功弹一条全局通知、写明放到哪儿**（「已导入 N 个文件到 /P」，落根目录写「根目录」—— 侧栏已还原、屏幕上不再有落点痕迹，这句是唯一的交代；走 `notify`，不走资源管理器里的行内横幅，见 `announceImportInline` 的说明）。技术侧入口与上限见第 2 节的 `fileTransfer.js` / `zip.js`，手势与落点判定见 `composables/usePageDrop.js`，坑见第 5 节坑 42。
@@ -863,14 +867,14 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 - Python 专项（动过 `runPython` / 语言路由 / `python-3.11.3/` 目录后必做），同样临时探针、用完即删：手工路径是新建/打开一个 `.py` 文件（面板会自动切到 Python）→ 在设置里切「本地 WASM 沙箱」→ 运行，应看到 AC 且耗时在 100–200ms 量级；再补一条用例验证 `import` 同目录的另一个 `.py`（多文件路径）。自动化时在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `runPython({ code, entryPath, fs })`，注意 `fs` 是「路径 → `{ path, content, mode, timestamps }`」的映射，别直接塞裸字符串。
 - PCH 专项（动过 PCH 段落 / `FRONTEND_ARGS` / PCH 源码后必做），同样临时探针、用完即删：
   1. DevTools → Application → IndexedDB 删 `cp-pch` 库、localStorage 删 `cp.pchUnsupported`，从零开始；
-  2. 在设置里切「本地 WASM 沙箱」，点一次「运行全部」（默认模板是合法 A+B，输出应判定通过），随后 IndexedDB 的 `pch` store 应在约 1 秒内自己出现一条 **9,025,124 字节**、id 前缀 `3:8.0.1:` 的记录（证明后台 `warmupPch()` 真的跑了）；
+  2. 在设置里切「本地 WASM 沙箱」，点一次「运行全部」（默认模板是合法 A+B，输出应判定通过），随后 IndexedDB 的 `pch` store 应在约 1 秒内自己出现一条 id 形如 **`6:23.1.0:<指纹>`** 的记录（第 1 段是 `PCH_CACHE_VERSION`、第 2 段是内核版本。体积随头文件而变，别抄死某个字节数 —— 本文件历史上抄过 clang 8 档的 9,025,124，换代后全部作废）；
   3. 刷新页面再跑一次：编译应吃到存档（UI 每题耗时约从 600ms 降到 350ms 量级），输出与首次逐字一致；
-  4. 降级：把那条记录的 `bytes` 改成任意垃圾字节再刷新运行，用户代码仍应正常通过，同时 `cp.pchUnsupported` 被置成 `true`、坏记录被删。
-  注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cp.pchUnsupported=true`」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。
+  4. 降级：把那条记录的 `bytes` 改成任意垃圾字节再刷新运行，用户代码仍应正常通过，同时 `cp.pchUnsupported` 被置成**当前存档版本号**（`v6` 这种形态）、坏记录被删。
+  注意：直接 `import` 模块做 A/B 时，无 PCH 基线要用「先置 `cp.pchUnsupported` 为当前 token（如 `v6`）」走真实降级分支，不要只是改参数——对比的必须是两条产品代码路径。置成裸 `true` 是不生效的，那正好是「换代后自动重试一次」的判据。
   **另一个探针陷阱（2026-10-19 踩过）**：dev server 会给模块依赖改写上 `?t=<时间戳>`（改过文件之后尤其如此），裸路径 `import('/src/services/runnoSandbox.js')` 拿到的是**另一份模块实例**——工具链、PCH 都装在那份里，而 `syntaxDiagnostics` 依赖的是 `?t=` 那份，于是 `isToolchainReady()` 在调度器眼里永远是假、诊断静默跳过，看起来像「改了没生效」。正确做法是从页面里 `fetch('/src/services/monaco/syntaxDiagnostics.js')` 取出它实际 import 的那个带 `?t=` 的 specifier，再按它 import。
 - PWA / 离线专项（动过 `sw.js` / manifest / 图标 / 预缓存清单后必做），仍然临时探针、用完即删：
   1. `npm run build && npm run preview`（**必须是生产构建**，dev 下不注册 SW），DevTools → Application 应看到 manifest 无报错、Service Worker 已是 `activated`；
-  2. Application → Cache Storage 应只有 `cp-shell-v5`（约 100 条：外壳 + 全部 Monaco 分块 + 该页用到的其它产物；**图标不在里面**，它们走网络 —— 见第 9 节）；`cp-toolchain` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
+  2. Application → Cache Storage 应只有 `cp-shell-v6`（install 后约 19 条：预缓存清单 17 条 + `/` 与 `/index.html`，之后随页面用到字体等再增；2026-10-25 升 v6 之前这里写的是「约 100 条」，那是 Monaco 还没并进主包时的旧数字；**图标不在里面**，它们走网络 —— 见第 9 节）；`cp-toolchain` **install 之后不该存在**——要等真的跑过一次本地沙箱（该语言工具链被请求）才出现，且里面只会有用过的那个语言的文件；
   3. 在设置里切「本地 WASM 沙箱」跑一次「运行全部」，确认判定通过；
   4. DevTools → Network 勾 Offline（或直接拔网线），刷新页面：界面应正常渲染，再跑一次「运行全部」仍应通过——这一步才是真的在验工具链入了缓存，只看第 2 步的条数不够；
   5. 自动化同上一节：临时 puppeteer 脚本里用 `Page.getAppManifest` 拿 manifest 解析错误、用 `page.setOfflineMode(true)` 断网后跑一遍，跑完删脚本。
@@ -973,11 +977,25 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 
 **Service Worker 的三段策略**：
 
-- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建、**且内容永不改**的静态资源 —— 2026-10-15 起缩到只剩 `/` 与 `/index.html`，图标那一组已移出、改走网络放行，见下）合并后一起预缓存进 `cp-shell-v5`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
-- `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。**2026-10-01 起多一步 `migrateLegacyBuckets()`**：按 `storageNames.js` 的 `LEGACY_BUCKETS` 表，把改名前的旧桶**原样搬进新桶**再删旧桶——工具链是随 URL 固定的二进制，不搬的话老用户升一次外壳就得白下 76MB。表里现在是四对（两轮改名的层积）：`cph-toolchain-v3` / `cph-md-runtime-v1`（去 `cph-` 前缀那一轮）与 `cp-toolchain-v3` / `cp-md-runtime-v1`（去版本尾缀那一轮），都指向 `cp-toolchain` / `cp-md-runtime`；**外壳桶 `cph-shell-*` / `cp-shell-v3` 刻意不搬**，它装的是带哈希的构建产物，重新预缓存本来就是升外壳该发生的事。
+- `install`：读构建期产出的 `/precache-manifest.json` 拿全部带哈希的产物名，与 `sw.js` 里手写的 `STATIC_ASSETS`（`public/` 下那些不过构建、**且内容永不改**的静态资源 —— 2026-10-15 起缩到只剩 `/` 与 `/index.html`，图标那一组已移出、改走网络放行，见下）合并后一起预缓存进 `cp-shell-v6`。**语言工具链不预缓存**——install 阶段不拉任何 `/wasm/` 资产，用户用哪个语言、哪个语言才在第一次请求时被 `cacheFirst` 写进 `cp-toolchain`。**逐条 `catch` 容错**：任何一条失败都不能让整次 install 作废（install 失败等于永远装不上），漏掉的之后由 fetch 处理器补。
+- `activate`：删掉名字不在保留名单里的缓存桶，再 `clients.claim()`。**2026-10-01 起多一步 `migrateLegacyBuckets()`**：按 `storageNames.js` 的 `LEGACY_BUCKETS` 表，把改名前的旧桶**原样搬进新桶**再删旧桶——工具链是随 URL 固定的二进制，不搬的话老用户升一次外壳就得白下 76MB。表里现在是四对（两轮改名的层积）：`cph-toolchain-v3` / `cph-md-runtime-v1`（去 `cph-` 前缀那一轮）与 `cp-toolchain-v3` / `cp-md-runtime-v1`（去版本尾缀那一轮），都指向 `cp-toolchain` / `cp-md-runtime`；**外壳桶 `cph-shell-*` / `cp-shell-v3` 刻意不搬**，它装的是带哈希的构建产物，重新预缓存本来就是升外壳该发生的事。**2026-10-25 起再多一步 `pruneStaleShellArtifacts()`**（按 `retain-manifest` 清同桶内「带版本、这一版已没人要」的条目，见下）。
 - `fetch`：只碰同源 GET。**导航网络优先**（重新部署后刷新一次就拿到新外壳，断网才退回缓存的 `index.html`），其余缓存优先。跨域一律放行——判题服务地址是用户填的，SW 插手就会变成 CORS 事故；带 `range` 头的请求也放行，206 塞进 Cache Storage 会抛错；`/api/*`、**`/manifest.webmanifest`（2026-10-14 加）与站点图标那一组（2026-10-15 加）** 也放行，判据见下一条。
 
-**为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cp-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件要**逐个判内容会不会变**：永不变的才手动补进 `STATIC_ASSETS`（2026-10-15 起只剩 `/` 与 `/index.html`），会变的一律别进 —— 站点图标走网络放行、扩展包与字体靠文件名带版本（第 1 节表里那几条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。
+**外壳桶里「按版本换代」的条目必须主动回收（2026-10-25 修，同日扩到字体 / 扩展包）**：`install` 只往桶里**加**，`activate` 的清理是按**整桶**删的 —— 同桶内的旧条目没有任何一条代码会碰。而外壳桶里有一整类「URL 随版本换代」的资产：构建产物带内容哈希（每发一次版多一份 `main-*.js`，**4.3–4.5MB**）、字体文件名带**字体内部版本**、扩展安装包文件名带扩展版本。旧的那份再也没人按它的 URL 取，却一直占着配额。实测（用户线上档案，2026-10-25，当时桶名还是 `cp-shell-v5`）：`cp-shell-v5` **68 条 / 约 170MB**，其中只有 16 条 / 5.2MB 是当前这版，其余全是 10-14 至 10-24 历次发版的残骸；整站 240MB 里 **约 165MB 是这批死文件**（`cp-toolchain` 那 50MB 是干净的）。**回收之后的上限是「外壳 ≈5MB + 当前工具链」**，不是「只剩 5MB」：工具链是这一版仍在用的活数据（C++ 23.1.0 ≈ 24.4MB、Python ≈ 24.6MB，`cp.autoPreload` 缺省预取 C++），拿它跟死文件混在一起说会把 240MB → 5MB 当成全覆盖。
+
+三处配套：
+
+1. **`/retain-manifest.json`（2026-10-25 新增）**：`vite.config.js` 的 `cp-retain-manifest` 插件在 `generateBundle` 时列出**这一版还要留哪些外壳条目** —— `bundle` 里的 `assets/*`（带内容哈希）+ 扫 `public/fonts/*.woff2` + 扫 `public/extension/*.zip`（这两类是「文件名带版本」，构建期读目录就等于当前版本）。**刻意与 `precache-manifest.json` 分成两份**：那份是「install 该预下载什么」，只装 rollup 产物；这份是「桶里哪些条目还有消费者」。将来再加一类「会变、又没哈希」的资产：补进这个插件的扫描列表 + 补进 `sw.js` 的 `SHELL_VERSIONED_PREFIXES`，两处是配套的。
+2. **`src/sw.js` 的 `pruneStaleShellArtifacts()`**（原名 `pruneStaleShellAssets`）在 `activate` 里按那份清单清 `cp-shell-v6`：只删 `/assets/`、`/fonts/`、`/extension/` 这三类前缀下**不在清单里**的条目。判据的根据是「URL 里带版本 ⇒ 旧 URL 永远没人再取」；`/`、`/index.html`、guide / notice / privacy 这些固定 URL 页面由 `networkFirstNavigation` 覆盖写同一个 key，本来不堆；`/<handle>` 那种「一 handle 一个 key」的入口页也不是旧产物，一律不碰。**清单拿不到（网络抖动 / 部署中 / 上一版没这个文件）就整趟放弃** —— 宁可不清理，也不能在清单为空时把当前外壳删光。工具链那半不归它：`cp-toolchain` 里的旧目录由页面侧 `runnoSandbox.pruneLegacyToolchainCache()` 按**当前资产前缀**回收（SW 读不到版本号，而写死一张「要清哪一代」的表又会漏掉下一代）。**已知边界（2026-10-25 记，未处理）**：`/assets/` 里有两个**懒取**的文件 —— `wasi.worker-*.js`（第一次点 ▶ 才取）与 `editor.worker-*.js`（编辑器启动才取），本趟清理会在 activate 当场删掉上一版的它们；而 activate 带 `skipWaiting` + `clients.claim()`，新 SW 会立刻接管**旧标签页** ⇒ 旧标签页再点 ▶ 就按旧 URL 取 worker，Cache Storage 已无、线上也已换成新哈希 → 404，运行直接失败（不清理时它还能吃桶里那份旧的）。窗口是「部署前就开着页面 → 部署后 SW 后台更新 → 再点运行」。修法是保留一代：activate 里 keep = 本次清单 ∪ 上一代清单，上一代存在桶内一个固定 key 下，代价是常驻多 ≈5MB。2026-10-25 这一版没做 —— 而它恰好把 `wasi.worker` 整个换掉（文件名必变），所以发版时这个窗口是实际会命中的，不是理论。
+3. **构建指纹**：`cp-service-worker` 插件往 `sw.js` 头部注入 sha1 前 12 位（取本次 `bundle` 文件名集合）。没有它，发版只要没动 `sw.js` 源码，脚本字节就不变 ⇒ 浏览器不重新 install / activate ⇒ 上面那趟清理永远不跑（与 2026-10-15 图标那条是同一个机制，方向相反）。指纹确定性实测过：同源两次构建 `sw.js` 逐字节一致。
+
+**`SHELL_VERSION` v5 → v6（2026-10-25）**：按硬约束「改外壳缓存内容或策略就升」。这一版**必须**升的理由是 v5 桶里已经攒下的东西里有新判据也认不出来的（`/<handle>` 入口页、10-15 之前那批图标条目、历年 `/assets/` 那 165MB）—— 整桶删一次才是真正的清空；之后改回收判据就不必再升，只要「该留哪些」仍由 `retain-manifest` 驱动、桶里不留判据够不着的东西。
+
+端到端验证（2026-10-25，一次性探针放 `/tmp`、仓库不留）：在 `preview` 上播种 3 条旧产物（三类前缀各一条）+ 当前版本的字体与扩展包 + `/he-jie` 与 `/stale-page.html` + 一个 `cp-shell-v5` 残留桶 + 工具链两条（8.0.1 / 23.1.0），改磁盘上的 `sw.js` 触发一次真实 update —— **11/11 PASS**：三类旧条目全删，当前字体 / 扩展包 / 固定 URL 页面全留，桶里不再有任何「带版本但不在清单里」的条目，`cp-shell-v5` 整桶消失；工具链侧 8.0.1 被页面那趟删掉、23.1.0 保留。**注意清单里那 7 条幽灵键**（guide / notice / privacy 的入口 chunk 被内联进 HTML，磁盘上没有这些文件）：线上 install 对它们 404、逐条 `catch` 兜掉，`vite preview` 却会回落成 `index.html` 200 把它们缓存进去 —— 所以「预缓存条目数」这类断言在 preview 与线上不是同一个数，别拿 preview 的数字当线上数据。PCH 那侧仍由 `/tmp/tlb/storage-prune.mjs` 那轮断言（`readPch` 命中清孤儿 / `writePch` 只留一份）。
+
+**PCH 存档同样只该留一份（2026-10-25 修）**：`PCH_CACHE_VERSION` 是 PCH id 的一部分，升版之后旧存档再也取不到 —— 而 `pchStore.js` 原先只按 id `put`，没有一处会删别的 id。实测用户档案的 IndexedDB 19.6MB ≈ 当前 v4 的 8.6MB + 孤儿 v3 的 8.6MB + VFS/抽题缓存。现在两条路都收口：`writePch()` 在同一个事务里先 `clear()` 再 `put`；`readPch()` 命中时顺手 `pruneOthers(id)`（只有这条路径能在「新版本已存在、不会再写」的情况下发现孤儿）。
+
+**为什么文件名清单要构建期生成**：产物名带内容哈希，没法在 `sw.js` 里硬编码。`vite.config.js` 里那个 `cp-precache-manifest` 插件在 `generateBundle` 时把 `bundle` 的键写成 `precache-manifest.json`，正好绕开引依赖这件事。加产物类型（比如新图）时它会自动跟上，**不用改 `sw.js`**；但 `public/` 下的东西不过 `bundle`，加文件要**逐个判内容会不会变**：永不变的才手动补进 `STATIC_ASSETS`（2026-10-15 起只剩 `/` 与 `/index.html`），会变的一律别进 —— 站点图标走网络放行、扩展包与字体靠文件名带版本（第 1 节表里那几条约束就是这么来的）。反过来，**`public/` 下不是每个文件都该进去**：`public/extension/*.zip` 就刻意不进——它只在用户点「下载」时才需要，而且靠**文件名带版本号**来换代（第 5 节坑 20），塞进 install 预缓存等于每次装 SW 都白拉几百 KB 的旧包。**2026-10-25 起构建期多产出第二份清单 `/retain-manifest.json`**：那份不管「预下载」，只管「桶里哪些条目还有消费者」（见上面「按版本换代的条目必须主动回收」），两者的消费方不同，别合并。
 
 **`/manifest.webmanifest` 只能放行，不进任何缓存（2026-10-14 加，第 4 条判据）**：
 判据一句话 —— **「会变、且没有内容哈希可依赖」的同源 GET，一律别让 SW 碰**（现在就是 `/api/*`、`/manifest.webmanifest`，以及 `/favicon.svg` + `/favicon.ico` + `/icons/*` 这一组）。manifest 原先既在 `STATIC_ASSETS` 里预缓存、又会被 fetch 的 `cacheFirst` 在未命中时写进外壳桶，而那个桶在 `activate` 的白名单里**永不过期** ⇒ 只有 `sw.js` 自身字节变了（install 重跑预缓存）才会顺带刷新它；**发版只改 manifest 的话，它就是被钉死的那份**。
@@ -989,9 +1007,9 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 
 **两个版本号，别混**：
 
-- `storageNames.js` 的 `SHELL_VERSION = 'v5'` —— **只决定外壳桶名**（`cp-shell-v5`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。
+- `storageNames.js` 的 `SHELL_VERSION = 'v6'` —— **只决定外壳桶名**（`cp-shell-v6`）。改外壳缓存策略或 `STATIC_ASSETS` 就升它，`activate` 会把旧外壳桶整个删掉。**2026-10-25 起这条判据有个例外**：同桶内「带版本」的条目已由 `pruneStaleShellArtifacts()` 按 `retain-manifest` 回收（见上），所以只是扩回收范围、不改「桶里该留什么」时**不必**升 —— 升版本只在「vN 桶里已有新判据也够不着的残骸，要一次清空」时才用。v5 → v6 就是这种情况。
 - `storageNames.js` 的 `TOOLCHAIN_CACHE = 'cp-toolchain'` —— **不带版本尾缀，也刻意不跟 `SHELL_VERSION` 走**。2026-09-30 前两个桶共用一个版本号，升一次外壳就把老用户的 clang（52MB）+ CPython（24MB）一起删掉、逼他们重下 76MB；现在工具链桶名固定，它落在 `activate` 的 keep 白名单里，跨外壳升级无损继承，一个字节都不用重下。**不带尾缀还有第二个用处**：这个名字同时被 `purgeRuntimeCache` 当成「所有历代工具链桶」的前缀（见第 5 节坑 23），带尾缀就连老桶都配不上了。换代工具链靠 `public/wasm/<版本>/` 的目录名，**不用再动这一行**。
-- 工具链目录 `public/wasm/8.0.1/`（C++）与 `public/wasm/python-3.11.3/`（Python）—— 目录名就是版本号，换名字即自然失效（URL 变了，浏览器与 SW 都当新资源重新取）。**不用再改 `sw.js`**：工具链已改成按需缓存的，`cacheFirst` 只按 `/wasm/` 前缀分流、不认具体版本目录。
+- 工具链目录 `public/wasm/23.1.0/`（C++）与 `public/wasm/python-3.11.3/`（Python）—— 目录名就是版本号，换名字即自然失效（URL 变了，浏览器与 SW 都当新资源重新取）。`public/wasm/8.0.1/` 仍在仓库里，但**只为回滚留档**（2026-10-25 拍板不做运行时回退），页面一行代码都不会去取它 —— 它留在缓存里的条目由 `pruneLegacyToolchainCache()` 按当前前缀删掉。**换代不用再改 `sw.js`**：`cacheFirst` 只按 `/wasm/` 前缀分流、不认具体版本目录；桶里的旧目录由那个函数回收，而它认的是「当前资产地址」，不是一张写死的旧 URL 表。
 
 **桶名只有一处定义（2026-10-01 收敛）**：`src/services/storageNames.js` 是 `SHELL_CACHE` / `TOOLCHAIN_CACHE` / `MD_CACHE` / `LEGACY_BUCKETS` 与两个 IndexedDB 库名（`VFS_DB_NAME` / `PCH_DB_NAME`）及各自 `LEGACY_*` 的**唯一出处**。页面侧（`mdRuntime.js` / `pchStore.js` / `LocalVFSProvider.js` / `runnoSandbox.js`）直接 `import`；`sw.js` 是 classic worker、没有 `import`，所以走**构建期注入**：
 
@@ -2377,7 +2395,7 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 - **导出**：桌面壳多一条「导出到本机文件夹」（14.O，闸门是 `services/fileTransfer.js` 的 `CAN_EXPORT_TO_DISK`）；网页与安卓只有「恰好一个文件直下 / 其余打 zip」。
 - **工具链**：网页版按需下 52MB（`cp-toolchain`）；安卓壳随包自带（`services/nativeToolchain.js`）；桌面壳用机器上那个编译器。
 - **扩展抓题**：Firefox 已上架 AMO 一键装 / Chrome 手动加载已解压 / Edge 未上架（`EDGE_EXTENSION_URL` 为空）/ Safari 与**所有移动端**一条路都没有（§13.6）。
-- **低配设备的隐性差异**：PCH 预编译头可能 OOM，失败即写死 `cp.pchUnsupported` 不再重试（`services/runnoSandbox.js`）→ 同一份代码在弱机上编译更慢。这是**设备**差异。
+- **低配设备的隐性差异**：PCH 预编译头可能 OOM，失败即写 `cp.pchUnsupported`（值带版本号，同一代内不再重试、换代自动重试一次，见 §22.8；`services/runnoSandbox.js`）→ 同一份代码在弱机上编译更慢。这是**设备**差异。
 
 ### 15.5 「同一类东西、两个口径」的两笔旧账（均已收，2026-10-14 晚）
 
@@ -2478,3 +2496,833 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 - 2026-10-24 复核（同一套无头 Chrome + 自检引擎，两条用例）：① 页脚 ▶ → 0ms 一像素没画、120ms `painted 788`、300ms `2128`，确认「全过就放」本身没坏；② **逐张 ▶ 依次跑** → 第一张跑完 `['passed','idle']` 时 0（正确），第二张跑完 `['passed','passed']` 时**仍为 0** —— 这就是用户报的那个洞，触发点原先只在 `runAll`。补上 `runOne` 的闸门后同一场景：第一张 0、第二张 `+120ms 655` / `+300ms 2096`；接着**已全过后重跑任意一张，等上一片纸屑完全落净再点** → `0 / 0 / 0`，不重复庆祝；③ 模拟 `prefers-reduced-motion: reduce` → 整轮全过也 0（库自己压掉，不是 bug，见上一条）。
 - 2026-10-24 单样例复核（每轮之间等画布清零再点）：① 一条用例连跑三次 → `painted 591 / 538 / 583`，三次都放（修复前第 2、3 次为 0）；② 两条用例回归 → 第一条 0、第二条 568（凑齐放），之后重跑两条均 0（不重复庆祝）。
 
+## 18. 本地沙箱基准（2026-10-24 建立）
+
+用户点名要求：把当前 runno 工具链的**空间占用（网络 + 内存）**与**时间损耗（编译 + 运行）**实测成一份绝对基准，之后任何改进都跟这一节比。所以这里每组成员都写清「怎么量的」——**口径不同的数字不可比，改口径等于没测**。复测方法在最后一小节，探针不留在仓库。
+
+**环境与代码状态（换一样就要整组重测）**
+- 机器：本机 macOS / Apple Silicon；Google Chrome 无头（`--no-sandbox --disable-gpu`，量时间的探针另加 `--enable-precise-memory-info --js-flags=--expose-gc`）；Node 走托管的 22.22.2。
+- 代码：工作树带 2026-10-24 两颗**未提交**补丁 —— `LINKER_ARGS` 里 `libc-printscan-long-double` 排在 `-lc` 之前、`scripts/patch-wasi-clock.mjs` 的沙箱时钟补丁（两条都在 §7）。**时钟补丁必须在位**：否则 C++ 侧自报时间只有 1ms 粒度，这一节的 ms / µs 全体失真。判据是读数带亚毫秒位（例：`read 65536 bytes in 42785 us`）。
+- 探针用 `node_modules/vite/bin/vite.js dev` 直起，**不走 `npm run dev`** → `predev` 不会自动打补丁，换机器要先 `npm run wasi:clock-patch`（并删 `node_modules/.vite/deps`，见 §7 那颗坑）。
+- **两条计时线**（用户指定的分法）：JS 侧 = `performance.now()` 包住整次沙箱调用（含 worker 通信、`instantiateStreaming`、宿主收 stdout）；C++ 侧 = 程序内 `chrono::high_resolution_clock` 自报、写 **stderr**。卡片上那个数（`runCpp` 的 `durationMs`）是第三条：**只算运行段**，与用例时限同口径（§7「耗时口径」那条别改回去）。
+- **三个内存口径**：① `performance.measureUserAgentSpecificMemory()` = 跨 agent 总量，要 crossOriginIsolated（dev 的 COOP/COEP 在 `vite.config.js`），一次约 16–18s；② 页 `performance.memory.usedJSHeapSize`，要 `--enable-precise-memory-info` 才逐字节响应；③ **程序自报 `sbrk(0)`** —— 这是唯一看得见 wasm 线性内存水位的通道，原因见「运行期峰值」。
+- 标准件（用户给的那段，原样使用）：
+  ```cpp
+  #include <iostream> / <vector> / <chrono> / <algorithm>（或 bits/stdc++.h 一份对照）
+  const int N = 2000000; vector<int> v(N);
+  for (int i = 0; i < N; ++i) v[i] = N - i;
+  sort(v.begin(), v.end());
+  cerr << "[C++] sort " << duration_cast<milliseconds>(end - start).count() << " ms\n";
+  ```
+  配套三件：384³ 矩阵乘（`double[384][384]` 三份，自报 matmul ms）、160MB `new`+`memset` 堆用例（自报 alloc ms 与 `sbrk(0)`）、30 万行 `printf` 大输出用例（5,245,485 字节）。Python 侧同规模：`list(range(2000000))` → `reverse()` → `sort()`。
+
+### 18.1 空间 · 网络传输体积
+
+五件资产（`public/wasm/`，全部自托管，来源见 §7 与 `notice` 页）：
+
+| 资产 | 裸文件 | dev 传输 | 线上 Transferred | 线上占比 | 线上编码 |
+| --- | --- | --- | --- | --- | --- |
+| `8.0.1/clang.wasm` | 31,214,472 | 31,214,472（identity） | **10,240,236 (9.77MiB)** | 32.8% | br |
+| `8.0.1/wasm-ld.wasm` | 19,490,094 | 19,490,094（identity） | **6,581,348 (6.28MiB)** | 33.8% | br |
+| `8.0.1/clang-fs.tar.gz` | 1,790,862 | 1,790,862（gzip 透明解压） | **1,790,862** | 100% | identity 透传 |
+| `python-3.11.3/python.wasm` | 20,538,911 | 20,538,911（identity） | **9,658,480 (9.21MiB)** | 47.0% | br |
+| `python-3.11.3/python-fs.tar.gz` | 4,066,590 | 4,066,590（gzip 透明解压） | **4,069,002** | 100% | identity 透传 |
+
+- **合计**：C++ 三件裸 52,495,428 = 50.06MiB → 线上 **18,612,446 = 17.75MiB（35.5%）**；Python 两件裸 24,605,501 = 23.47MiB → 线上 **13,727,482 = 13.09MiB（55.8%）**；五件裸 77,100,929 = 73.53MiB → 线上 **32,339,928 = 30.84MiB（41.9%）**。
+- 线上数怎么来的：全新浏览器上下文（HTTP 缓存 / Cache Storage 皆空 = F12 勾 Disable cache 的第一次访问），同源 `fetch`，取 CDP `Network.loadingFinished.encodedDataLength`。两个 `.tar.gz` 的 Transferred 与裸文件等长（多出的 2,412 B 是响应头与分块框架）—— **Vercel 对已经是 gzip 的文件不再二次压缩**，这是刻意的，见 §10「工具链裸文件直接进仓库」。
+- 首页自身（不含任何工具链）：**3 条 · 1.21MiB**（`/` br、`main-*.js` 1.16MiB、`main-*.css` 0.05MiB、`codicon-*.ttf` 0.07MiB）。dev 完全另一回事：**550 条 · 112.55MiB**（monaco 未压缩的预打包 chunk 单个就 4.36 / 2.26 / 1.69 / 1.67MiB）—— 别拿 dev 的传输量当用户体验。
+- 本机到 Vercel 实测 **1.6–1.8 MiB/s**（逐件 3.2–4.5s）→ 首次下载 C++ 三件约 **12s**、五件约 **21s**。§7/§10 里那句「3.76 MB/s」是旧测量，本轮慢得多，做下载体验决策按本轮数。
+- **离线落点（Cache Storage，装完之后设备上的占用）**：桶 `cp-toolchain` = 5 条 · **73.53MiB**、桶 `cp-shell-v5` = 11 条 · 5.06MiB（**当时**是 v5；2026-10-25 升 v6，桶名随之变、内容不变）。注意 `cp-toolchain` 存的是**解码后**的字节（br 只存在于传输路上），所以「两种语言都用过」的设备占用 ≈ **78.6MiB**；只跑 C++ 的用户只落 50.06MiB（§9：工具链不随 install 预缓存，用哪个语言才下哪个）。dev **不会**写这两个桶（没有 SW），别拿 dev 页面查 Cache Storage。
+- **包里的东西有多重**（`scripts/` 之外的一次性分析，`/tmp/tlb/assets.cjs`）：`clang-fs.tar.gz` 解包 = **416 个文件 / 8,797,774 B (8.4MiB)**（裸 tar 9,138,176），大头是库不是头：`libc++.a` 1722KB、`libc.a` 746KB、`libc++abi.a` 624KB、`libclang_rt.builtins-wasm32.a` 299KB，头文件里最大的是 `random` 221KB / `regex` 217KB / `algorithm` 200KB / `ctre.hpp` 189KB。`python-fs.tar.gz` 解包只有 **3 个文件 / 4,136,455 B**：`python311.zip` 4001KB（标准库走 zipimport）+ `os.py` 39KB（zipimport 加载它有循环依赖，必须是真文件）。
+- ⚠ **同一个 URL 的 Transferred Size 会随 SW 是否已接管而变**：SW 接管后页面侧那条记录 `encodedDataLength = 0`（真实网络算在 SW 自己的请求上，而 CDP 只 attach 页面 session 时看不见）。本轮五件里先发的几件赶在 SW 接管前，才拿到真数。复测要么趁早发，要么把 SW target 也 attach。
+- ⚠ **别把本地 br-11 当线上可达的下限**：本机 `brotli -q 11` 能把 clang.wasm 压到 7,540,088、wasm-ld 到 4,872,917、python 到 7,878,884，而 Vercel 实给 10,240,236 / 6,581,348 / 9,658,480 —— 边缘用的是较轻的 brotli 档。§7 那条 `npm run wasm:opt` 的「gzip 反而变大 0.98%」结论是按 gzip 算的，换成 br 要重算再说。
+
+### 18.2 空间 · 内存
+
+**dev 侧跨 agent 总量（`measureUserAgentSpecificMemory`，单位 MiB）**
+
+`A0 空载 108.51` → `A1 工具链就绪 127.79`（**+19.28**）→ `A2 首次编译运行后 129.13` → `A3 PCH 生成后 136.47`（**+7.35**）→ `A4 Python 运行时也进内存 140.43`（**+3.96**）→ `A5 卸载后 119.40`。
+原始字节：`113,783,728 / 134,000,334 / 135,399,552 / 143,102,887 / 147,253,769 / 125,199,533`。
+- **A1 那 +19.28MiB 是 sysroot**：`loadToolchain()` 把 tar 解成 416 条目的 JS Map 常驻页面（`unpackSysroot`），两个编译器二进制只读进 HTTP 缓存、不驻留（`warmCache` 刻意不转 blob，理由在那段注释里）。
+- **A5 − A0 = +10.89**，而 A1 起才出现的 monaco `editor.worker.js` 条目本身就 10.76–10.78MiB → **工具链净残留 ≈ 0**，`unloadRuntime()` 是干净的（这条是卸载功能的验收依据）。
+- **页 `usedJSHeapSize`**：空载 84.06 → 冷工具链期间峰值 **140.88** → 冷编译+运行期间峰值 111.00（曲线 103,973KiB 平推 → 121,855 → 132,045KiB 两级台阶，分别对应链接产物与宿主收 stdout） → 高负载段（160MB 堆用例）**186.45**。
+- **发货包体小得多**：线上「回访、应用已起来、工具链不在内存」实测跨 agent **23.13MiB**（页 heap 17.36），条目只有 `/` 20.79 + `editor.worker-*.js` 1.46 + 零头。同一个界面在 dev 是 108.51 —— **差 4.7 倍，全是 monaco 未压缩 ESM 的账**。所以下图做内存优化时拿 dev 当基线会把收益夸大一倍；线上「工具链已读进内存 + 刚跑完一次」的实测见 §18.6。
+
+**运行期峰值（用户点名要的 Peak Memory）**
+- ⚠ **`measureUserAgentSpecificMemory` 看不见 runno worker 里的 wasm 线性内存**：按住 160MB 堆时跨 agent 总量 138.16MiB，与只按住 8MB 时 138.25MiB 几乎相同；涨的只有 `(unattributed)`（1.34 → 9.22）。所以**「Peak Memory」必须以程序自报 `sbrk(0)` 为准**，UaMem 只能证明「宿主侧没被吃爆」。
+- 自报水位（同一次运行内的真实线性内存上沿）：起始 **1,179,648 B (1.13MiB)**；2M 排序（数据本身 8MB）后 **9,175,040 B (8.75MiB)** 且**不回落**；160MB 用例 **168,951,808 B (161.13MiB)**（那次上限给到 256MiB）。
+- **只增不减**是 wasm 线性内存的硬性质：`free` / 析构都不会把页还给宿主，所以一次峰值会一路带到 worker 销毁。这也是 `--max-memory` 是唯一的「内存上限」手段的原因。
+- **闸门有效**：`--max-memory=64MiB` 时，程序想 `new` 400×1MiB 只成功 **62** 次、exit 0、运行段 8ms —— MLE 判据正是从这类「分配失败但不 trap」的表现来的（§7 的 MLE 那条）。`memoryLimitBytes` 会烙进链接参数，所以**改上限必须重链接**（`compileCache` 的键里带着它）。
+
+### 18.3 时间 · 加载与编译段（dev，本机 localhost，无网络抖动）
+
+- `preloadToolchain()` **81ms** —— 这**不含网络**：三发 fetch 走已热的 HTTP 缓存 + 解 8.4MiB tar。冷网体积见 §18.1（线上首访 C++ 三件约 12s）。`preloadPythonRuntime()` **26ms**（同口径）。
+- **首次「编译 + 运行」标准件：JS 侧 647.6ms · 运行段 40ms · C++ 自报 32ms** → 编译段 ≈ **600ms**（另一次独立测量 526.2 / 41 / 32 → ≈490ms；取 **490–610ms** 为冷编译区间）。
+- 五份不同代码各自冷编译（每次都是真冷编）：`empty` **504.9** / `hello` 596.7 / `bigout` 592.8 / `sort_bits` 657.0 / `matrix` **714.9** ms → **505–715ms**，与代码量只有弱相关：大头是 clang 首帧 `instantiateStreaming` 与 libc++ 头文件的前端处理，不是用户那几行。
+- **PCH**：`generatePch()` 一次性 **529ms**、产物 **9,025,124 B (8.61MiB)**（落 IndexedDB `cp-pch`）。带 PCH 后冷编译：`sort_iostream` **423.1** / `sort_bits` **427.5** / `matrix` **449.4** ms → **省 230–265ms（约 −35%）**。代价是 +7.35MiB 常驻（A2→A3）。所以「PCH 默认开不开」是一句「每次首编快 0.25s」换「常驻多 7MiB」的取舍，不是纯收益。
+- **命中 `compileCache`（单槽，键 = 源码全文 + `memoryLimitBytes`）后**：同一份代码连跑 5 次 JS 侧 **64.2 / 39.4 / 37.1 / 36.8 / 37.1ms**（第一次含 worker 冷启动，之后稳定在 37±1ms；C++ 自报 46/31/30/29/30ms）。
+- ⚠ **单槽**意味着「同一份代码 + 同一个内存上限」才免编译：切文件、改上限、改一个字都要重付 500–700ms；成批跑用例时只有第一张卡片付（§7「编译刻意不算进 durationMs」那条同因）。
+
+### 18.4 时间 · 运行段与 I/O scaling（dev）
+
+**纯算力**（运行段 = 卡片那个数；C++ 自报是程序内时间，两者之差是沙箱内的启动/退出，**不是**宿主通信）
+
+| 用例 | C++ 自报 | 运行段 | JS 侧总 | 运行段 − C++ |
+| --- | --- | --- | --- | --- |
+| 2M 排序 | 30–32ms | 37–41ms | **36.8–39.4**（命中编译缓存） | **≈6–9ms** |
+| 384³ 矩阵乘 | 55ms | 66–67ms | 448.6 / 449.4（**都带重编**，见 §18.3） | ≈11–12ms |
+| 160MB alloc+memset | 14ms | 22ms | 442.6（带重编） | ≈8ms |
+
+→ **JS 侧总 − 运行段 = 0–1ms**（同一段代码连跑、必命中缓存时；iotime 十次全这样），也就是说宿主↔worker 的通信本身几乎不花钱；上面那 6–12ms 是**运行段之内**的开销 —— crt1 启动、静态初始化、stdout flush、wasm 实例化，都在沙箱里。
+
+**stdin：整段都落在沙箱里**（JS 总 ≈ 运行段，说明慢不在宿主）
+
+| 输入量 | 运行段（两次独立测量） | 程序自报「读干 stdin」 |
+| --- | --- | --- |
+| 0 KiB | 9 / 8ms | 305µs / 265µs |
+| 16 KiB | 25 / 20ms | 15.4 / 12.1ms |
+| 64 KiB | 50 / 49ms | 42.8 / 40.9ms |
+| 256 KiB | 168 / 164ms | 158.3 / 155.8ms |
+| 1 MiB | **643 / 632ms** | 629.9 / 621.5ms |
+| 4 MiB | **2,559 / 2,478ms** | 2,544.8 / 2,465.0ms |
+
+→ **≈0.61ms/KiB ≈ 1.6MB/s**，线性、无拐点，两次测量差 ≤3%（另一次 5MiB 独立实测 3,613ms / 运行段 3,173ms，同一条线上）。成因是 `SharedArrayBuffer` 那个 **8188 字节**的槽位必须分块搬运（`runnoSandbox.js` 的 `STDIN_CHUNK_BYTES`，4MiB 输入要切成约 512 块，每块都有一次宿主↔worker 的往返），不是程序自己慢。
+
+**stdout：沙箱侧快、宿主侧贵**（`iotime2` 那一组，程序自己 `putchar` 并自报 µs）
+
+| 输出量 | 运行段 | 程序自报「putchar」 |
+| --- | --- | --- |
+| 0 KiB | 13ms | 45µs |
+| 16 KiB | 8ms | 305µs |
+| 64 KiB | 9ms | 685µs |
+| 256 KiB | 11ms | 2.05ms |
+| 1 MiB | 21ms | 8.1ms |
+| 4 MiB | **41ms** | 31.0ms |
+
+→ **4MiB 输出只比空输出多花约 30ms**，比 stdin 侧快两个数量级（同尺寸下 stdin 要 2,559ms）。
+- 但**宿主侧收口**另花 **≈270–360ms / 5MB**：`bigout` 30 万行 = 5,245,485 字节，命中编译缓存那一次 JS 431.6ms 而运行段 73ms（差 **358.6ms**）；另一次 JS 322.5 / 运行段 54（差 **268.5ms**）。也就是**大输出的真正成本在把字符串交回页面**（宿主拼接 + 跨线程传），不在沙箱里。
+- 缓存命中后同一段代码连测 10 次（各带 64KiB 输入）：JS **min 49 / 中位 54 / max 55ms**（第一次 807ms 是冷编），其中程序自己读输入就占 39.6–45.1ms → 剩下的 **≈5–10ms** 是运行段内的启动/退出，宿主↔worker 通信只占 **0–1ms**。
+
+### 18.5 Python
+
+- `preloadPythonRuntime()` **26ms**（缓存已热，解 3 个文件的标准库包）。
+- 2M 排序：冷 **229.9ms** / 热 **216.1ms**，**都是运行段口径**（没有编译段，解释器启动 + import + 执行都在同一次 WASI run 里）。这与 §7 那句「解释器冷启动约 190ms」以及 `PYTHON_STARTUP_ALLOWANCE_MS = 500` 的余量对得上 —— 也就是说 Python 那条 1s 时限里，**六成是启动**。
+- Python 运行时进内存只多 **+3.96MiB**（A3→A4），因为标准库是 zipimport、按需用。
+
+### 18.6 线上（发货包体）实跑
+
+**口径与前提**
+- 目标是 `https://www.998244353.best` 的发货产物（与本机 HEAD 同一 commit）。⚠ **线上不含工作树那两颗未提交补丁**（§7 的沙箱时钟、`libc-printscan-long-double`）→ 线上 C++ 自报时间只有 1ms 粒度，ms 级读数不受影响。
+- 走**真实界面**：注入标准件 → 点「添加测试样例」→ 填期望输出 → 点页脚「▶ 运行全部」。一次评测的墙钟取「▶ 进禁用态 → 回可用态」，那就是 `runAll` 的完整生命周期（保存 → 读工具链 → 编译 → 运行 → 收 stdout → 比对 → 回写）。
+- 每次都是全新浏览器上下文（Cache Storage / HTTP 缓存皆空），首访那一段是真首访。
+
+**时间**
+
+| 场景 | 点▶→跑完 | 卡片耗时（运行段） | 期间 /wasm | 页 heap 峰值 |
+| --- | --- | --- | --- | --- |
+| 首访真空缓存、第一次点▶（三次独立实测） | **6,743 / 14,616 / 18,013ms** | — | 三件全 net：clang 9.77MiB(br) + wasm-ld 6.28MiB(br) + clang-fs 1.71MiB(identity) | 86.22MiB |
+| 回访、刷新后第一次点▶（`compileCache` 是页面内存态，刷新即空） | **505ms** | **43ms** | 三件全 sw · Transferred 0 | 136.28MiB |
+| 同一次页面里连点（命中 `compileCache`） | **58 / 84 / 58 / 55ms** | — | 无请求 | 56.87–64.60MiB |
+
+同一支探针改打 dev、**节奏一字不改**（`/tmp/tlb/devrun.mjs`）：首访第一次 1,211ms（本机 localhost，50MiB 传输不吃网络）、连点 **58 / 57 / 63 / 59ms**、页 heap 首跑峰 **249.42MiB**。
+- → **发货包体在运行这条路上没有额外开销**：命中编译缓存的一次，线上 55–84ms vs dev 57–63ms；线上 2M 排序的运行段 **43ms** vs dev 37–41ms（§18.3/18.4）。**dev 侧那套基准可以直接当线上基准用**，不必为线上单开一组数。
+- → **首访用户点第一下要等 7–18 秒**，全部来自那 17.76MiB：§18.1 逐件量到 **1.6–1.8MiB/s**（传输 10–11s），本组最快一次整批 6.7s（≈2.6MiB/s）→ 传输占 **7–11s**，剩下才是解 8.4MiB tar + 首帧 `instantiateStreaming` + 冷编译。三次数差近三倍，全是 Vercel 那条吞吐的抖动，**别拿单次当 SLA**。§10 那句「按语言懒下载」的体感成本就是这个数。
+
+**空间（内存）**
+- 跨 agent UaMem：**23.13MiB**（应用已起、工具链不在内存，§18.2）→ **47.23MiB**（工具链读进内存 + 刚跑过一次），净增 **+24.10MiB**；条目 `/` 44.54 + `editor.worker-*.js` 1.51 + 零头。dev 同场景 108.51 → 127.79（+19.28）——**绝对量线上只有 dev 的三分之一，净增那 20MiB 级两边一致**（那 416 条目 sysroot Map 的账，跟打包方式无关）。
+- 设备占用（`navigator.storage.estimate().usage`，只跑过 C++ 的档案）：**70,000,782 B = 66.75MiB**，其中两桶 Cache Storage 占 55.1MiB（`cp-toolchain` 50.06 + `cp-shell-v5` 5.06 —— 当时是 v5，2026-10-25 起为 `cp-shell-v6`），其余是 VFS / IndexedDB（PCH、设置、通知历史）与 SW 脚本。
+- ⚠ **首访那三发 `/wasm` 不落 `cp-toolchain`**：首访那一跑之后实测桶里只有 **2 条 · 48.36MiB**（clang + wasm-ld），`clang-fs.tar.gz` 那 1.71MiB 要等 SW 接管后的下一次请求才进桶（刷新后三发全部由 SW 供出、Transferred 0）。§18.1 那句「5 条 · 73.53MiB」是探针把五件各连取两次凑出来的**稳定态**，不是首访落点。
+
+⚠ **只有走真实界面才看得见的坑（本轮实测到；只记录，未修、未授权动手）**
+- **「改过东西立刻点▶，这一次的结论不落卡片」**：跑是真跑完了（▶ 禁用 0.85–1.3s、下载/编译/运行都发生），但卡片停在「待运行」、耗时与判定都不出，**dev 与线上同一节奏都复现**（两组探针的卡片列全程 `idle 0/1`）。机制：`runAll` 取完 `queue = [...testCases.value]` 之后，`saveAll()` / 用例回写会重建文件树，`watch(activeNode)` 里 `id === casesNodeId && sameTests(...)` 这条守卫（`src/App.vue:263`）没拦住 → `testCases.value` 被换成 `createCase()` 的一批新对象（`id: ++caseSeq` → `:key` 变 → DOM 卡片重建），`applyPatch` 落在已经脱链的旧引用上。`src/App.vue:1271` 那条注释早承认过同一竞态的另一半（发通知必须读 `queue` 而不是 `testCases.value`），**显示这一半没兜住**。绕法即判据：刷页面（什么都不 dirty）再点▶，立刻正常 —— 线上实测 `WA · 43 ms · 0/1 · 通知「答案错误 1」`，ACTUAL 是程序打出的 `1 2000000`，链路本身没问题。
+- 用例两栏的持久化**没有**问题，别顺着上一条怀疑它：真键盘往两栏打字 → 刷新 → 再点一次▶ → 再刷新两次，`["AAA","1 2000000"]` 一路都在（`/tmp/tlb/casepersist.mjs`）。写回时字段名在 `expectedOutput` 与扩展那套 `output` 之间来回翻（`src/App.vue:195` 读、`src/App.vue:239` 写），口径是对的。探针用原生 setter + 合成 `input` 事件时偶发读不回，那是**探针**没走通 v-model，不是应用丢数据。
+
+### 18.7 由基准排出的改进优先级（排序；①② 的宿主方案已定 B，2026-10-25，见 `docs/新内核规划.md` 阶段 4）
+
+1. **stdin 搬运 1.6MB/s** 是整条链路最贵的一段：1MB 输入就要 643ms，比标准件的全部算力（30ms）贵 20 倍。改法是把块尺寸从 8188 提上去、或直接把输入一次性写进 wasm 内存。
+2. **stdout 宿主收口 ≈270–360ms / 5MB** 与 ① 同一条通道，动一边要一起看。
+3. **冷编译 505–715ms**：PCH 已能砍 35%，但要 +7.35MiB 常驻；再往下只剩「换更快的工具链」或「多 worker 并行编译」，都不小。
+4. **首访网络 30.84MiB**：C++ 那两件 br 后 16.05MiB 是绝对大头，`clang-fs.tar.gz` 只有 1.71MiB —— **精简 sysroot 的收益远小于动两个编译器**，别一上来就朝头文件下手。另：这一条按「改进计算/IO 路径」排在这里，**但如果 metric 换成「首访用户点第一下的等待」，它必须排第一** —— 线上实测那一次是 7–18 秒（§18.6），比 ①②③ 任何一条都贵一个数量级。
+5. **UaMem 看不见 wasm 线性内存**：后续任何「省内存」的验收必须继续用 `sbrk(0)` 自报，否则测不出收益也测不出回归。
+
+### 18.8 复测方法（要可比就照这段走）
+
+- 探针（一次性，用完即删，**仓库里不留**）：`/tmp/tlb/bench.mjs` = 13 段主基准（dev 传输体积 / 空载 / 首次加载 / 首编 / 缓存复用 / 逐份冷编 / PCH / 高负载 / 大输出 / Python / Cache Storage / 网络请求明细 / 卸载回收）；`/tmp/tlb/mempeak.mjs` = 运行期峰值（20ms 采样曲线 + 「按住不放 + 并发量测」）；`/tmp/tlb/iotime.mjs` = stdin/stdout scaling + 缓存命中 10 连跑；`/tmp/tlb/prodnet2.mjs` / `prodnet3.mjs` = 线上逐件 Transferred 与回访内存；`/tmp/tlb/prodrun6.mjs`（连点 5 次取墙钟）/ `prodrun7.mjs`（刷新后干净跑一次取卡片）/ `devrun.mjs`（dev 同节奏对照，改 ORIGIN 与端口即可）/ `casepersist.mjs`（用例两栏持久化）= §18.6 那组。原始输出留在 `/tmp/tlb/*.log`（**这台机器重启即失**，要长期留就抄进当日记忆）。
+- 探针只往 `localStorage` 播种、只 `import('/src/services/runnoSandbox.js')` 拿模块，**不改仓库文件**。dev 里任何人要复现同样三个数，起 `npm run dev` 后在页面控制台执行：
+  ```js
+  const sb = await import('/src/services/runnoSandbox.js')
+  await sb.preloadToolchain()
+  const r = await sb.runCpp({ code, stdin: '', memoryLimitBytes: 256 * 1048576, onStatus: console.log })
+  ```
+  `r.durationMs` = 卡片那个数；C++ 自报的时间在 `r.stderr` 里。JS 侧总耗时要自己在外面包 `performance.now()`（`runCpp` 不含编译段的账）。
+- **量运行期峰值只能「按住不放」**：`window.__hold = sb.runCpp(...)`（**不要 await**）→ 等 5–6s 让程序进到占住内存的位置（用 §7 修好的 `steady_clock` 空转 N 秒）→ 期间发 `measureUserAgentSpecificMemory()` → 最后再 `await window.__hold`。await 在前就没有「运行期」可量。
+- 四条会造出假数字的坑：① **worker 空闲十几秒后第一枪 +7~12ms**（冷启动），要干净的「命中缓存后」数字就连跑几次丢掉第一次；② `npm run build` 在这台机器必挂 safe-delete（清 `dist/` 超 50 文件），要产物用 `npx vite build --outDir /tmp/…`；③ 探针起 dev 要避开 5199 与残留 vite（`--strictPort` 会直接 exit 1）；④ **一个 page 只跑一个场景**，IndexedDB（VFS 与 PCH）跨页共享，第二个场景会撞上上一轮的同名文件。
+- 线上侧另有四条：① SW 接管与否会改变页面侧看到的 Transferred Size（§18.1 那个 ⚠），以及**只刷页面不会把工具链读进内存** —— `ensureRuntimeLoaded` 由「编辑器里内容变了」才触发（`syntaxDiagnostics.js`），空打开一个 .cpp 不触发，量线上内存必须动一次键盘或点一次 ▶。② **别用「等卡片终态」当线上跑完的信号**（§18.6 那条竞态：刚改过东西就点▶，卡片永远停在待运行）——要等的是「▶ 进禁用态 → 回可用态」，`elapsed` / 判定 / 通知都不可信；要看结论就得先刷新让状态干净。③ 首访那三发 `/wasm` 不进 `cp-toolchain`，量「装完之后占多少」要跑两次或刷一次。④ `page.evaluate` 的回调是**在页面里重新编译**的，闭包外的 Node 侧常量一律引用不到（`ORIGIN` 那种写法直接 `ReferenceError`，会把最后一步 UaMem 整发打飞），URL 要在外面拼成字面量传进去。
+
+
+### 18.9 复测：栈 64 MiB + sbrk 探针之后（2026-10-25）
+
+动机：§5.3 的栈策略与 §5.2 的 sbrk 探针都改了链接参数，需要确认「用户程序跑得更慢没有」。口径照 §18.8，dev / 无头 Chrome / 256 MiB 上限 / 编译缓存命中、每项 3 连跑取中位。
+
+⚠ **运行段的数字与 §18.3/§18.4 不再同口径**：那时 `durationMs` 从「进入运行阶段」起算，含 wasm 实例化与宿主收尾；现在 §20.4 改成宿主补丁记的 `_start` 起止（`runMs`）。所以**比速度看「C++ 自报」与「JS 侧总」，运行段只与今天的运行段比**。
+
+| 标准件 | 旧：自报 / 运行段 / JS 总 | 现在：自报 / 运行段 / JS 总 | 判断 |
+|---|---|---|---|
+| 空程序 | — / — / — | — / 1 / 5 ms | 起跑底噪 |
+| 2M 排序 | 30–32 / 37–41 / 36.8–39.4 | **28 / 33–34 / 40** | 持平（自报 −7%，JS +1） |
+| 384³ 矩阵乘 | 55 / 66–67 / — | **57–58 / 60 / 68** | 持平（自报 +4%） |
+| 160 MB alloc+memset | 14 / 22 / — | **17–18 / 19–20 / 23–24** | 自报 +3~4 ms，运行段更低 |
+| stdin 64 KiB（自报） | 42.8 / 40.9 | **41.7** | 持平 |
+| stdin 1 MiB（自报） | 629.9 / 621.5 | **611–613** | 略快 2% |
+| stdin 4 MiB（自报） | 2544.8 / 2465.0 | **2418–2432** | 略快 3–4% |
+| 5.29 MB 输出（JS 总） | 322–431 | **53** | **不可比，见下** |
+| Python 2M 排序（运行段） | 216–230 | **203–206** | 略快 5%，按抖动看 |
+
+- **计算速度没有退化**：自报值全部落在 ±7% 的抖动带里；运行段整体低 5–7 ms，正好是「实例化 + 宿主收尾」被移出计时口径的量，不是程序变快。
+- **内存底噪变了**：栈策略让初始线性内存从 1.13 MiB 变成 **64 MiB**（`hello` 的 `memoryBytes` = 67,239,936 B），160 MB 用例总水位 235,012,096 B（224.1 MiB），仍在上限内。以后 `memoryBytes` 的读数要减掉这 64 MiB 才能和旧数比。
+- **160 MB 用例必须加内存屏障**：只写满再读最后一个字节时，`-O2` 会把整段分配与写入删掉（本次先测出「0 ms / 64 MiB」的假数）；`asm volatile("" : : "r"(p) : "memory")` 之后才回到 17–18 ms / 224 MiB。写这类用例别省这一行。
+- **5 MB 输出的 53 ms 不能当成提速**：旧数 322–431 ms 含页面侧卡片收口，新数走的是 `runCpp` 裸路径，两次测量路径不同；要定论得按 §18.8 同一支探针重测。stdout 捕获代码这两轮没动（宿主补丁只改时钟与结果元数据）。
+- 原始输出：`/tmp/bench-runtime-now.mjs` + `/tmp/bench-alloc.mjs`（一次性，已删）。
+
+## 19. 新内核阶段 0：clang 23 / wasm-ld 编出来并跑通（2026-10-24 深夜）
+
+施工规划在 `docs/新内核规划.md`；这一节只记**已完成的事实、踩过的坑和复跑方式**。底座：LLVM 23.1.0 + wasi-sdk 34.0（arm64 macOS 本机编）。产物在 `tools/wasm-core/out/23.1.0/`（`tools/` 进 `.gitignore`，**不进仓库**），源码/缓存 3.4G、构建目录 1.4G。
+
+### 19.1 产物与体积（与 §18.1 同口径）
+
+| 文件 | raw | gzip -9 | br q9 | br q11 | 现役 8.0.1 对照 |
+|---|---|---|---|---|---|
+| `clang.wasm` | **103.59 MiB** | 24.76 | 18.55 | 16.27 | raw 29.77 / br11 7.19 / 线上 br 9.77 |
+| `wasm-ld.wasm` | **62.58 MiB** | 15.02 | 11.44 | 10.06 | raw 18.59 / br11 4.65 / 线上 br 6.28 |
+| 合计 | **166.17 MiB** | **39.78** | 29.99 | 26.33 | raw 48.36 / br11 11.84 / 线上 br 16.05 |
+
+→ 裸体积 **3.44×**、本地 br11 **2.22×**。当前构建**未做 wasm-opt / strip**，这是阶段 0 的早期数字；预算已拍板接受（§19.11，首访 7–18s 会等比放大，接受）。**别拿 gzip 和线上 br 直接比**（§18.1 那条 ⚠ 同理）。
+
+**`-Oz` 对照**（`--opt`，binaryen 132）：`clang.wasm` 103.59 → **62.32**（gz 20.64 / br11 14.29），`wasm-ld.wasm` 62.58 → **36.04**（gz 12.29 / br11 8.73）；合计裸 166.17 → **98.36**（−41%）、gzip 39.78 → **32.93**（−17%）、br11 26.33 → **23.02**（−13%），对现役 8.0.1 仍是 2.03× 裸 / 1.94× br11。优化后的两颗都复验过整条链：`--version` 正常 → `-cc1` 编 → `wasm-ld -flavor wasm` 链（要显式带 `crt1-command.o` 才有 `_start`）→ 跑出 `before / caught: vector / len=5`。
+
+**但 `-Oz` 是拿编译速度换的**（同一台机器、同一份含 `map/vector/function` 模板的 TU，Node WASI，交替 6 轮）：
+
+| 内核 | 空跑 `--version` | `-cc1` 编译 |
+|---|---|---|
+| 未优化 103.59 MiB | 122 ms | **984 ms** |
+| `-Oz` 62.32 MiB | 101 ms | **1732 ms** |
+
+**编译慢 1.69×**，只有「实例化」因为模块小反而快 17%。压缩收益主要来自重复的字符串与表，所以裸体积 −41% 只换来 br11 −13%。**结论：`-Oz` 不作默认**（用户直接感受到的是编译墙钟）；`-Oz` 已排除（§5 第 4 项），不为体积接受这 1.69×。这些是本机 Node 口径，与 §18 的浏览器数字不可混用，只比相对值。
+
+### 19.2 复跑（一条命令）
+
+```bash
+node scripts/wasm-core/build.mjs          # 增量：编译产物不会重编，改旗标只触发重链
+node scripts/wasm-core/build.mjs --opt    # 可选：wasm-opt -Oz 体积探针
+```
+
+两段式：原生段出 `llvm-tblgen/clang-tblgen/llvm-min-tblgen`，wasm 段用 `scripts/wasm-core/toolchain-wasip1.cmake` 交叉编 clang + lld（`LLVM_ENABLE_THREADS/EH/RTTI/LTO=OFF`、`PARALLEL_LINK_JOBS=1`）。
+
+### 19.3 移植补丁（都在 `scripts/wasm-core/` 里，幂等）
+
+改过 LLVM 源码的只有 3 处（`build.mjs` 的 `patchLlvmWasi`，未命中会告警）：
+
+1. `Unix/Program.inc` 的 `Info.ru_maxrss` 按 `__wasi__` 排除 —— wasi 的 `struct rusage` 只有 `ru_utime/ru_stime`（`__struct_rusage.h` 里就一句 TODO）。
+2. `llvm/include/llvm/Support/Compiler.h` + `clang/include/clang/Support/Compiler.h`：上游写的 wasm 分支是**大写 `__WASM__`**（Emscripten 的宏），clang 定义的是**小写 `__wasm__`**。不改则 `CLANG_ABI` 未定义，生成的 `Attrs.inc` 整片报「未知类型 CLANG_ABI」，clang 侧还没有 LLVM 那边 `#if !defined(LLVM_ABI)` 的兜底。**这是 44 个编译失败点里的绝大多数。**
+
+兼容头（`compat-include/`，只挂内核构建的 `-I`，不进 sysroot）：
+
+- `unistd.h` **必须先 `#include <sys/types.h>`**（wasi 的 unistd.h 自己不拉，缺它连 `<unistd.h>` 都编不过，CMake 的 `check_symbol_exists` 会把 `getpagesize`/`sysconf` 全判成不存在 → `#error Cannot get the page size`）；另补 `fchown`。
+- `signal.h`：`SA_*`、`siginfo_t`、`kill`；`sa_sigaction` 第二参必须是 `siginfo_t*`（写成 `void*` 与 `Signals.inc` 的函数签名对不上）。
+- `sys/wait.h`：`wait4` + `WNOHANG`。
+- `LLVMSupport` 加一个生成源文件 `WASIPortStubs.cpp`：**`posix_madvise` 在 wasi-libc 里只有声明、没有实现**（`libwasi-emulated-mman.a` 里也没有），只能给真符号 —— 宏在 `::posix_madvise(...)` 前会展开成 `::0`。
+
+### 19.4 工具链文件里三个必须记住的点
+
+1. **`CMAKE_EXE_LINKER_FLAGS_INIT` 只播种缓存**：已配置过的构建目录改了工具链文件也不更新 → 看着改了、链接行没变。`CMAKE_EXE_LINKER_FLAGS` 要用 `CACHE ... FORCE`。C/CXX 的 `*_FLAGS_INIT` 同理。
+2. **wasm-ld 默认栈只有 64 KiB**：`--version` 能跑、真编译立刻 `memory access out of bounds`。给 8 MiB（`-Wl,-z,stack-size=8388608`，与 Linux 默认一致）。
+3. **`-lpthreads` 是假阳性**：`CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY` 让所有 `check_library_exists` 都「成功」，LLVM 于是把 `-lpthreads`（带 s）写进每个目标，而 wasi-sdk 只有 `libpthread.a`。加 `-DHAVE_LIBPTHREAD=OFF` 钉死。
+4. 另外补了 `-D_WASI_EMULATED_GETPID -lwasi-emulated-getpid`（`getpid` 是 LLVM 自己用的，不补只有弃用告警）。
+
+### 19.5 跑通口径（本机 Node `node:wasi`，探针在 `/tmp`）
+
+- 冒烟：`clang.wasm --version` → `clang version 23.1.0`。
+- **驱动模式**：`--target=wasm32-wasip1 --sysroot=<wasi-sysroot> -resource-dir=<sdk>/lib/clang/23 -fwasm-exceptions` → 编过；`wasm-ld.wasm -flavor wasm …` 链上 `noeh` 系会用变量带不了异常，**要 `-L …/lib/wasm32-wasip1/eh -lunwind`**；产物跑出 `before / caught: vector`。
+  - 链接还要两样，缺了报的错都很误导：① `lib/wasm32-wasip1/crt1-command.o`，否则 `entry symbol not defined: _start`；② `-L <sdk>/lib/clang/23/lib/wasm32-unknown-wasip1 -lclang_rt.builtins`，否则 `libc++.a(locale.cpp.o): undefined symbol: __multi3`（128 位乘法在 compiler-rt 里，driver 平时替你加）。
+- **站内真正用的 `-cc1` 直调**（必须与站内一致）：`-cc1 -triple wasm32-unknown-wasip1 -O2 -std=c++20 -fexceptions -fcxx-exceptions -exception-model=wasm -target-feature +exception-handling -target-feature +multivalue -target-feature +reference-types -mllvm -wasm-enable-eh -mllvm -wasm-use-legacy-eh=false -target-feature +simd128 -fno-rtti -resource-dir <…> -isysroot <…> -internal-isystem <…>/include/wasm32-wasip1/eh/c++/v1 -internal-isystem <…>/include/wasm32-wasip1 -internal-isystem <…>/lib/clang/23/include`。
+  - `-cc1` 不认 `-fwasm-exceptions` / `-msimd128`（都是驱动旗标）：上面那组就是 `-fwasm-exceptions` 的 **exnref** 展开式。**不能用 legacy**：wasi-sdk 34 的 `eh` libc++ 是 `try_table`/`throw_ref` 编的，混用会被 V8 拒绝（§19.12）。
+  - 缺 `-resource-dir` 时报 `stddef.h file not found`（内置头不随 sysroot 走）。
+- **`lld` 是多合一驱动**：argv[0] 不是 `wasm-ld` 时必须显式 `-flavor wasm`，否则回 `lld is a generic driver`。接线时要决定是「拷成 wasm-ld 名字」还是「宿主传 `-flavor wasm`」—— 现在 `build.mjs` 拷的是 `bin/lld` → `wasm-ld.wasm`，运行时必须走后者。
+- **`--no-threads` 已经不被 LLVM 23 的 wasm-ld 接受**（老 `LINKER_ARGS` 里有）：报 `unknown argument: --no-threads`，接线时直接删。**语言档位 2026-10-25 定为 `-std=c++20`**（上一条 `-std=c++17` 是阶段 0 的探针口径）。
+- 耗时（本机 Node，含进程启动，**只作量级参考**）：cc1 编那段 `t.cpp` 墙钟 0.55s；链接 <0.2s；产物 425KB。**不要拿它当浏览器内数字**，§18 的 423–449ms（带 PCH）是浏览器口径。
+
+### 19.6 阶段 0 的出口判据（已满足）
+
+两颗内核编出来、`-cc1` 直调能编 C++17 + 异常、新 lld 能链、产物能在 WASI 里跑并捕到 `std::out_of_range`。**运行时接线仍是零**（`runnoSandbox.js` 一行没动），下一步是 `docs/新内核规划.md` 阶段 1（sysroot 取子集打包）——动它之前先拍板 §5 的第 1/2/6 项。
+
+### 19.7 标准档位对体积与时间的影响（为 §5 第 2 项量的）
+
+口径：站内那份万能头（`runnoSandbox.js` 的 `UNIVERSAL_HEADER`，30 个头）+ 一份典型题解（线段树 + map/unordered_map/set + iostream），`-O2` + 异常全开，本机 Node `node:wasi`；每项 3 轮交替取中位，进程启动与模块实例化（约 110 ms）计在时间列里。
+
+| | PCH | PCH 构建 | 带 PCH 编译 | .o | 可执行 |
+|---|---|---|---|---|---|
+| `-std=c++17` | 14.38 MiB | 891 ms | 825 ms | 13 KiB | 3.15 MiB |
+| `-std=c++20` | 17.75 MiB | 1068 ms | 857 ms | 13 KiB | 3.15 MiB |
+| `-std=c++23` | 20.67 MiB | 1350 ms | 908 ms | 13 KiB | 3.15 MiB |
+
+- **传输体积三档完全一样**：标准是编译旗标，sysroot 是同一份头文件与 `libc++.a`，下载量一分不多。
+- **差的只有 PCH**：20 比 17 多 2.92 MiB（+16.5%），23 比 17 多 6.29 MiB（+44%）。PCH 落在 IndexedDB（`pchStore.js`），直接吃浏览器配额；构建时间也跟着涨（+52% 从 17 到 23）。
+- **用户产物体积三档一致**：同样的 .o、同样的可执行，标准档位不改变链接进来的代码量——只有真用了 23 新库（`<expected>`/`<print>`/`<mdspan>`）才会多，实测那份用到三样的程序 .o 是 128 KiB、可执行 3.20 MiB（+46 KiB）。
+- 顺带对照：现役 clang 8 的 PCH 是 8.6 MB（`runnoSandbox.js:218`），新内核**哪怕 c++17 也到 14.38 MiB（1.67×）**，c++23 是 2.4× —— 这是换内核必然要吃的缓存/内存增量，与选哪档无关。
+- **2026-10-25 拍板：标准档位选 `c++20`**（覆盖竞赛所需，比 23 少 2.92 MiB PCH、PCH 建得快 26%）。按部署挂载口径（`/sys/...` 短路径 + 精简 sysroot）复测 PCH 是 **17.54 MiB**；与表里 17.75 的差来自头搜索路径与文件管理器缓存的存档内容，线上按 17.5 估。
+- 23 的能力已验：`std::expected` / `std::mdspan` / `std::print` 三样在本 sysroot 下 `-std=c++23` 编、链、跑全通过（输出 `42 4`）；`-std=c++20` 下 `expected`/`mdspan` 报「no member named」——档位是真实可见的能力边界，不是纯标签。
+- **接线提醒**：站内 `FRONTEND_ARGS` 里的 `-fmessage-length 80` 在 clang 23 的 cc1 里**已被删除**（报 `unknown argument`），换内核时要摘掉；`-ferror-limit` 仍可用。
+
+### 19.8 整包体积：内核 + 精简 sysroot（阶段 1 已落地，2026-10-25）
+
+两颗内核默认 `llvm-strip --strip-all`（已固化进 `build.mjs`）；sysroot 由 `scripts/wasm-core/pack-sysroot.mjs`（`npm run wasm:core:pack`）取子集后打包，归档内 `.a`/`.o` 一律 `--strip-debug`。同一条命令把两颗内核也压成 `.br`，分发物料一次出齐（`sys23-fs.tar.br` / `clang.wasm.br` / `wasm-ld.wasm.br`）。
+
+| 组成 | 现役 8.0.1 | 新内核（当前默认产物） |
+|---|---|---|
+| `clang.wasm` raw / br11 | 29.77 / 7.09 | 73.71 / **13.58** |
+| `wasm-ld.wasm` raw / br11 | 18.59 / 4.60 | 41.49 / **8.11** |
+| sysroot 归档（线上实际编码） | 1.71（gz，identity） | **1.54**（br，identity） |
+| sysroot 解包 / 条目 | 9.49 MiB / 416 | **11.67 MiB / 1385** |
+| **首访传输** | **13.40** | **23.23** |
+
+（br11 一律指 `quality=11, lgwin=24, size_hint=原文长度`；默认 lgwin 22 会多出 3–4%，别混用两套数。）
+
+- 上一轮表里的「原样 33.37 / 剥调试段 26.03 / `-Oz` 25.65」是拿手工 28 MiB 子集量的。本轮把 `noeh`、`__cxx03`、clang 内置头（8.27 MiB → 316 KiB）、printscan 变体、全部 `.so` 都裁掉后，sysroot 从 3.56 降到 **gz 2.25 / br 1.54 MiB**。
+- **sysroot 分发改用 brotli**：同一份 tar（15.57 MiB），gz9 2.23 / br11 1.54（−31%）。`pack-sysroot.mjs` 现在直接产出 `sys23-fs.tar.br`，浏览器按 `Content-Encoding: br` 解出来就是 tar 字节，客户端不需要自己解压。⚠ **不能指望 `DecompressionStream`**：Chrome 155 实测只认 `gzip` / `deflate` / `deflate-raw`，`br` 与 `brotli` 两个名字都抛 `Unsupported compression format`（2026-10-25 无头 Chrome 探针）。要自己解就只能带一份 wasm 解码器，不值得。
+- **预压 br 的真正收益是绕开 Vercel 的压缩档位**：§18.1 线上实测现役 clang 传 9.77 MiB，而本机 br11 只有 7.09 —— 线上那份 br 比 q11 差 **~1.38×**。新包若交给 Vercel 自己压，按同比例外推首访 ~32–33 MiB；预压成 `.br` + `Content-Encoding: br` 则把首访钉在 **23.23 MiB**。这条**尚未在 Vercel 上验证**（要 preview 部署看响应头会不会被改写），阶段 5 必测。
+- 预压链路本身已在浏览器里验过（2026-10-25 无头 Chrome 155）：本地服务器给 `clang.wasm.br` 加 `Content-Encoding: br` + `Content-Type: application/wasm`，页面 `fetch` + `WebAssembly.compileStreaming` 直接成功（28 个 import / 180 ms）；**反证**：同一份字节去掉响应头，立刻 `CompileError: expected magic word 00 61 73 6d, found cf ff ff 7f`。所以「部署后响应头丢了」的症状一眼可辨，不会悄悄降级。
+- **Cache Storage 存的是解码后字节**（2026-10-25 探针：1.54 MiB 的 br 响应放进桶，`storage.estimate()` 涨 15.6 MB，且命中响应的头里没有 `Content-Encoding`）。所以新工具链的 `cp-toolchain` 稳定态从 48.36 MiB 变成 **~131 MiB**（115.20 内核 + 15.57 sysroot tar）。配额上仍可行，但 iOS 的 7 天清理策略下这已经是「大头」，别再把 PCH（17.54 MiB，IndexedDB）也算进同一桶的预算。
+- 线上折算：现役线上 17.75 对本地 13.40（≈1.32×）→ **不预压则 ~32–33 MiB（外推）**；预压后与本地一致 23.23（前提是响应头生效）。
+- 常驻：解包 11.67 MiB 按 §18.2 的 2.3× 外推 ≈ **+27 MiB**（重裁前 28 MiB 那份是 +90 量级）——阶段 4 仍要改挂载方式，但压力已从「不可接受」回到「与现役同量级」。
+- `--strip-all` 零运行时代价，已复验：`-cc1` 编译、PCH 生成、`wasm-ld` 链接、产物运行（含 `throw/catch`、`%Lf`、`__int128`）全部通过；代价只是 wasm 崩溃栈只剩 `wasm-function[N]`。`-Oz` 仍不作默认（编译慢 1.69×，只再省 ~0.4 MiB）。
+- **archives 已无可再剥的空间**：上游 `libc++.a` 9.04 MiB → `--strip-debug` 1.52 MiB（已进包）；再 `--strip-all` 只剩 0.85 MiB，但会删掉归档符号索引、链接器直接找不到成员 —— 不可用；`--strip-unneeded` 反而只到 8.62 MiB。`libc++abi.a` / `libc.a` 同理。
+- **C++20 的 PCH 在精简包口径下是 17.54 MiB**（§19.7 的 17.75 是 SDK 全量路径口径），落在 IndexedDB，不进传输。
+
+#### 为什么 runno 那个包明显小（体积账）
+
+| 段 | 旧 clang.wasm | 新 clang.wasm（原样） |
+|---|---|---|
+| code | 24.01 | 66.80 |
+| data | 5.56 | 6.69 |
+| name | ~0 | 26.38 |
+| debug | ~0 | 3.50 |
+
+- **主因是 LLVM 8 → 23**：只算 code 段，clang **2.78×**、lld **2.69×**。这 15 个版本的前端、后端、诊断都在长；旧包没有 C++20 库、没有异常 —— 能力差距就是这部分体积。
+- **次因是旧包本来就没 name / debug 段**：新包原样 166.17 MiB 里，name 43.98 + debug 6.98 = **50.96 MiB**；`--strip-all` 后 115.20 MiB。旧包 48.36 MiB 里几乎没有这类内容。
+- **sysroot 已回到同档**：1.71 / 9.49 / 416 对新 2.25 / 11.67 / 1385。条目多是 libc++ 20 把实现头拆细了（旧 libc++ 8 是 196 个扁平头），字节数只多 2 MiB。
+- 结论：**「小」买的是「旧」**。要 C++20 + 异常，code 段这 2.7× 躲不掉；能免费拿的 50.96 MiB（name/debug）已经拿了。
+
+**阶段现状、未完成清单与新旧方案逐项对比见 `docs/新内核报告.md`（2026-10-25）。**
+
+### 19.9 阶段 3：能力与判定验收（`verify.mjs` 落地，2026-10-25）
+
+> 本节是**首轮**结果（参数里还没有 `+simd128` / `-fno-rtti`）。用户 2026-10-25 拍板后按最终参数复跑、并新增 §9 #22–#24 的结果见 §19.10，**数字以 §19.10 为准**（能力组 13/13、判定组 23/23）。
+
+入口：`npm run wasm:core:verify`（= `node scripts/wasm-core/verify.mjs`）。默认两组都跑，`--group=capability|judge` 可分组；`--case=7,9` 选判定用例、`--case=cap2,cap12` 选能力用例；`--keep` 留临时目录，`--verbose` 打参数与用例注记。
+
+**宿主是 Node 22 的 `node:wasi`（preview1），不是站内 runno。** 它把 `sys23-fs.tar.br` 解到临时目录并 preopen 成 `/sys`，`/work` 放 `.cpp` / `.o` / `.wasm`。这样在阶段 2 接线之前就能验「内核 + 精简 sysroot + 判定语义」，代价是**不能拿它证明 runno 宿主的行为**——接线后要再用 `npm run verify:judge` 走一遍浏览器宿主。cc1 的 exnref 异常参数组与 §19.5 一致，另与站内对齐：`-std=c++20 -O2 -DONLINE_JUDGE`，栈按 §5.3（256 MiB 上限 → 64 MiB），`--max-memory=268435456`，探针 `oom.o` 塞在 `-lc` 前。
+
+**结果（2026-10-25 本机，node v22.22.2）**
+
+| 组 | 结果 |
+|---|---|
+| 能力组 | **12/12 PASS**（拍板参数后的 13/13 见 §19.10） |
+| 判定组（§9，跑 20 条 + #20 跳过） | **20/20 PASS**，0 KNOWN（#22–#24 见 §19.10） |
+
+能力组里值得单独记的三条：
+
+- **`cout << long double` 已经不是问题**：`2.5L` 输出 `2.5`、`printf("%.2Lf")` 输出 `2.50`。§7 / `HANDOFF.md:820` 那条「libc++ 的 `num_put` 只会打 0」是 libc++ 8 的毛病，libc++ 20 已修；用例从「只要求跑完」收紧成硬期望 `2.5 / 2.50`。
+- `std::regex`、`to_chars/from_chars`、`<format>/<ranges>/<span>/<numbers>`、`random_device`、`__int128`、`powl`、`%a` 均按预期。
+- `std::filesystem::current_path()` 在 WASI 下返回 `/`（没有真正的 cwd），用例只要求「编过、跑完」。
+
+判定组与站内 `verify-judge` 的差异（都是换内核带来的语义变化，**接线时要跟着改判分**）：
+
+- **abort / 空指针 / 除零在 Node 宿主里是 `trap`，不是 exit 134**：`unreachable`（#7/#9/#10）、`divide by zero`（#8）、`Maximum call stack size exceeded`（#11）、`memory access out of bounds`（#21）。`verdictOf` 按规范 §8 走「trap 且 `sbrk>0` 才是 MLE，否则 RE」，20 条全对。
+- **#5 的写法必须改**：clang 23 在 `-O2` 下能看出「memset 之后只读回一个恒为 1 的字节」，把 `malloc + memset` 整段删掉（clang 8 不会），循环退化成空转 → TLE。改成 volatile 指针逐页写之后，实测 `trap + sbrk=2 + 240.1 MiB`、11 ms 判 MLE。**以后写 MLE 用例照这个写。**
+- #6 仍是假 AC（`vector(1<<28)` 只打印 size，`sbrk=0`，分配被消除），与规范 §9 的已知偏差一致。
+- 每条程序起始线性内存都是 **64.1 MiB**，即 §5.3 的 64 MiB 栈；#18/#19 的 1 GiB `malloc` 记为 `sbrk=2`。
+
+**验证台自己踩的三个坑（复跑或改脚本前先看）**
+
+- 覆写 `fd_write` 必须把非 1/2 的 fd 原样交回 `wasi.wasiImport.fd_write`（`fd_read` 同理只截 0）。否则 clang 的 `-o` 输出被吞，`.o` 变成 0 字节，`wasm-ld` 报 `unknown file type`。
+- **常驻 worker 不能跨用例复用**：每次 cc1 / 链接都是一颗新 wasm 实例、堆峰值 GB 级，而 Worker 不接受 `--expose-gc`；十几次之后下一次内存增长直接 SIGSEGV（实测 cap11+cap12 连跑必崩，单独跑都过）。现在每条用例跑完 `retireToolWorker()` 重开一颗（重编模块实测 64 ms），并忽略主动退休那颗 worker 的 `exit` 事件。
+- `verdictOf` 必须先看 `timedOut` 再看 `!ok`：看门狗 kill 的 worker 也回 `ok:false`，顺序反了会把 TLE 记成 ERR。
+
+**没覆盖的**：wasm vs native 倍率表（要桌面壳的 `native` 引擎，阶段 3 的剩余项）、浏览器里真跑新内核（阶段 2 之后）。`+simd128` / `-fno-rtti` 的复跑见 §19.10。
+
+### 19.10 阶段 3 复跑：拍板参数 `+simd128` / `-fno-rtti` 与 `new` 失败路径（2026-10-25）
+
+用户 2026-10-25 拍板：`-msimd128` 开、`-fno-rtti` 开、双档并存、一次性换默认；异常开启后的 MLE / RE 按 `评测判定规范.md` 与权威测评机口径执行。本节只记**参数怎么落、实测结果**。
+
+**参数（`scripts/wasm-core/verify.mjs`，与阶段 2 的目标值一致）**
+
+- cc1 追加两条：`-target-feature +simd128` 与 `-fno-rtti`。⚠ **`-msimd128` 是驱动旗标，`-cc1` 直接报 `unknown argument: '-msimd128'`**（实测），必须写 target feature。
+- 链接行不变：不漏 `-lunwind`，也**不加** feature 旗标 —— wasm-ld 按对象里的 `target_features` 带入，`wasm_simd128.h` 用例能编、能链、能跑就是证据。
+- 其余照旧：`-std=c++20 -O2 -w -DONLINE_JUDGE`、exnref 那组 wasm 异常参数（`+multivalue` / `+reference-types` / `-wasm-use-legacy-eh=false`）、`crt1-command.o`、`eh/` 的 `-L`、sbrk 探针、§5.3 栈公式、`--max-memory`。
+
+**结果（本机，node v24.16.0；物料 clang 73.7 MiB / wasm-ld 41.5 MiB / sysroot 1.5 MiB br）**
+
+| 组 | 结果 |
+|---|---|
+| 能力组（新增 `13 simd128`） | **13/13 PASS**；`wasm_i32x4_add` 输出 `11 22 33 44`，编 227 ms / 链 31 ms |
+| 判定组（§9 + #22 / #23 / #24） | **23/23 PASS**，#20 跳过，0 KNOWN / 0 FAIL |
+
+新增三条判定用例（`评测判定规范.md` §9 #22–#24，**仅 23 档**）：
+
+- **#22 `new` 连到底、`bad_alloc` 未捕获 → `MLE`**：trap 是 wasm 异常（`[object WebAssembly.Exception]`），`sbrk=2`、线性内存 240.1 MiB、运 36 ms。旧的 8.0.1 档同一程序会跑到 TLE（`new` 失败只返 NULL）。
+- **#23 同一循环但 `catch (bad_alloc)` 后正常退出 → `AC`**：`exit 0`、`sbrk=2`、240.1 MiB、运 12 ms。判据是「内存上限有没有直接终止进程」——没有，就按程序自身结果判（同 #18 的 `malloc` 返回 NULL 后 AC）。
+- **#24 `dynamic_cast` → `CE`**：`-fno-rtti` 的直接代价，报错 `use of dynamic_cast requires -frtti`；8.0.1 档能编过。
+- `-fno-rtti` 没有破坏异常路径：`try/catch`（#1 / cap01）、`catch (const std::bad_alloc&)`（#23）与 libc++ 的 `type_info` 都正常。
+
+**复跑**
+
+```bash
+npm run wasm:core:verify             # 13 + 23 条；约 1 分钟
+npm run wasm:core:verify -- --case=cap13,22,23,24 --verbose
+```
+
+**仍然没覆盖**：wasm vs native 倍率表（`-O2` / `+simd128` 两档 × 2M 排序 / 384³ 矩阵乘 / 160 MB memset）、浏览器里的 EH + SIMD 探测（Safari 16.4 下限）。证据日志在 `/tmp`，一次性。
+
+### 19.11 体积预算与双档缓存：接受 + 恢复预取 + 稳态单档（2026-10-25 拍板）
+
+用户拍板：首访 **23.23 MiB**（线上若不认 `Content-Encoding: br` 则 ~32–33）与常驻 **~27 MiB** 都接受；**恢复后台预取**；双档并存，但**不要把两套 C++ 工具链同时留在本机**。
+
+**预取（要恢复的行为）**
+
+- 默认对 C++ 生效：`cp.autoPreload` 缺省视为含 `cpp`，显式 `[]` 才是用户关闭；Python / 题解渲染器仍按勾选，不默认拉。
+- 必须等 `navigator.serviceWorker.ready` 且页面已被 controller 接管，再等 idle 才动手 —— 现在 `scheduleAutoPreload()` 只看 idle，首访时 SW 还没接管，那几发 fetch 不进 `cp-toolchain`（§18.6 实测首访桶里只有 2 条）。失败静默、不阻塞首屏，复用 `runtimePreload.js` 的串行队列。
+- 预取只下**当前档**的三件资产，不下另一档。**只下到 Cache Storage，不调用 `preloadToolchain()`**：那条路会 `untar` 成 Map 常驻（实测 +19.28 dev / +24.10 线上），等于让每个访客都为没用到的语言付内存；首次点▶再解包 + 实例化（回访 505 ms 就是这个口径）。
+
+**稳态只留一套**
+
+- **仓库里仍放两份**（旧 8.0.1 约 50 MiB + 新档裸 115.2 MiB、sysroot tar 15.57 MiB；`public/wasm/8.0.1/` 是回退档，这是双档并存的前提）；这一条说的是**客户端存储**：稳态下 `cp-toolchain` 只存当前档，不是两档各存一份。
+- 启动先定档（EH + SIMD 探测，§19.10 / 规划 §5 第 7 项），`TOOLCHAIN_VERSION` 从模块常量变成运行期选档；`runtimeAssetURLs` / `probeRuntime` / `preloadToolchain` / 语法诊断的资产地址全部按当前档。
+- **新档预取成功后才清旧档**；预取失败保留旧档给 runno 回退。清理三处：`cp-toolchain*` 里旧档 URL（沿用 `purgeRuntimeCache` 的「扫所有前缀桶 + 按 URL 删」写法）、PCH 旧 id（`pchStore` 的 `save` 已经先 `clear`，切档时再显式清一次）、`compileCache` 里旧内核的产物（缓存键里加内核档位）。
+- 稳态账：`cp-toolchain` 单档 ≈ 73.71 + 41.49 + 15.57 ≈ **131 MiB 解码后字节**；PCH 17.54 MiB；两档同时留会翻倍，所以这条是硬约束，不是优化。
+- **清不掉 HTTP 缓存**：浏览器没给 JS 接口。SW 控制下以 Cache Storage 为准，旧档字节可能还在 HTTP 缓存里直到浏览器自行淘汰 —— 文档只承诺「Cache Storage 单档」，别承诺「本机一个字节都不剩」。
+
+**代码现状（落地时照这个改）**
+
+| 位置 | 现状 | 要做 |
+|---|---|---|
+| `src/services/runtimePreload.js` | **已完成（2026-10-25）**：缺省 `['cpp']`；等 SW `ready` + controller；`prefetchRuntimeAssets()` 只下不解包；自动化 / `saveData` 跳过；每次先清旧档 | 无（阶段 6 接 active track 后按当前档预取） |
+| `src/services/runnoSandbox.js` | `prefetchRuntimeAssets()` + `pruneLegacyToolchainCache()` 已落地；`TOOLCHAIN_VERSION` 仍写死 `23.1.0` | 阶段 6：运行期选档、`runtimeAssetURLs` 按档、PCH/编译缓存切档清理 |
+| `src/components/EditorSettingsPanel.vue` | `autoPreload` 默认 `['cpp']`，与启动行为一致 | — |
+| `src/services/pchStore.js` | `save` 先 `clear`；`get` 命中才清旧版本；`PCH_CACHE_VERSION` 6 | 阶段 6：切档时显式清旧 PCH |
+| `src/sw.js` / `storageNames.js` | 一个 `cp-toolchain` 桶，`activate` 只保桶名 | 阶段 6：按 URL 删旧档；若要整档清，再考虑分桶与迁移 |
+
+**验收口径**：预取完成时间、就绪后点▶等待、首访立刻点▶等待三条分开量；切档后扫 `caches.keys()` 与各桶条目，确认只剩当前档三件 + 当前 PCH。
+
+### 19.12 阶段 2：前端接线到 23.1.0（dev 已通，生产未发；编译性能待阶段 4）
+
+**已落地（2026-10-25）**
+
+- `public/wasm/23.1.0/` 三件预压资产：`clang.wasm.br` 13.58 MiB / `wasm-ld.wasm.br` 8.11 MiB / `sys23-fs.tar.br` 1.54 MiB。`runnoSandbox.js` 的 `TOOLCHAIN_VERSION`、三个 URL、头路径、cc1 / 链接参数全换。
+- `vite.config.js` 的 `cp-wasm-brotli-assets`：dev / preview 给 `.br` 补 `Content-Encoding: br` + `application/wasm` / `application/x-tar`；`vercel.json` 加了同口径的两条 headers（**preview 部署上是否被 Vercel 改写仍未验**）。
+- `PCH_CACHE_VERSION` 4→5；`compileCache` 键加 `toolchain`；`native.rs` 的 `-std` 升 `c++20`；`unpackSysroot` 加 ustar 校验（响应头丢了会报 `error.sysrootNotTar`，不再静默解出空 fs）。
+- `scripts/patch-wasi-clock.mjs` 新增 `cp-enoent-patch`（见下第 2 条）。
+
+**三个必须记住的事实**
+
+1. **异常必须走新标准 exnref**。wasi-sdk 34 的 `eh` libc++ 是用 `try_table` / `throw_ref` 编的（`llvm-objdump` 实测 vector.cpp.o）；用户代码停在 legacy 会被 V8 在实例化时拒绝：
+   `module uses a mix of legacy and new exception handling instructions`。
+   cc1 的完整展开式（`-fwasm-exceptions` / `-msimd128` 都是 **driver** 旗标，cc1 不认）：
+   `-fexceptions -fcxx-exceptions -exception-model=wasm -target-feature +exception-handling -target-feature +multivalue -target-feature +reference-types -mllvm -wasm-enable-eh -mllvm -wasm-use-legacy-eh=false`；
+   另加 `-triple wasm32-unknown-wasip1`（新 cc1 没有内置 host triple，不给会 `unknown target triple 'unknown'`）。
+2. **runno 把「文件不存在」返回成 `ENOTCAPABLE`**，clang 23 的 `__has_include(<features.h>)` 把它当 fatal error（`cannot open file ... Capabilities insufficient`）。补丁把 drive 的 `path_open` / `pathStat` 缺文件返回改成 `ENOENT`；不改这条，新内核在 runno 里连 `<cstdio>` 都过不去。`npm run wasi:clock-patch --check` 会守这组补丁。
+3. **编译段 13–17 s**（基线 505–715 ms）。分阶段探针：download 1.8 s → compile 13.4 s → run 0.013 s；编译缓存命中后 JS 侧 156 ms、运行 133 ms。慢在 runno 每次 `runWasi` 都新起 worker、重新实例化 73 MB clang / 41 MB wasm-ld，并把整份 **1385 条 sysroot** structured clone 过去 —— **阶段 4 的宿主常驻 + 一次 untar 才能解**。
+
+**验收**
+
+- `npm run verify:judge`：**20/20 PASS、0 KNOWN、0 FAIL**。#5 的用例改成 volatile 逐页写（clang 23 在 -O2 下会把 `malloc+memset` 整段删掉，退化成 TLE —— 与 `scripts/wasm-core/verify.mjs` 的 #5 同一份写法）。
+- PCH 生成成功（**18,372,440 B**），`checkCppSyntax` 可用；SIMD 用例在浏览器跑出 `11 22 33 44`；`throw/catch`、`<format>/<ranges>` 都过。
+- 2M 排序自报：**已排序输入 14–36 ms**、**随机输入 100–135 ms**。§18 的 28–34 ms 不能直接与随机输入比，先别把它当回归。
+- dev / preview 的 `.br` 响应头都实测到 `Content-Encoding: br` + 正确 MIME；生产 bundle 真跑没做（hashed 模块不能在页面里 import `/src/`）。
+
+**留给后续**
+
+- 阶段 6：双档探测与回退（`TOOLCHAIN_VERSION` 现在仍写死 `23.1.0`）、生产部署上验 br 头、guide / NOTICE / 使用手册口径。
+- 阶段 4：**已完成（§19.13）**，首编 13–17 s 的账已收回。
+- 阶段 5：客户端单档缓存与后台预取。
+
+证据：`npm run verify:judge` 的 20/20 输出；`/tmp/stage2-*.mjs` 与 `/tmp/probe1x.mjs` 探针（一次性）。
+
+### 19.13 阶段 4：自写 WASI 宿主接线（2026-10-25，C++ 全链路）
+
+**落地物**
+
+| 文件 | 作用 |
+|---|---|
+| `src/services/wasi/host.js` | WASI preview1 语义 + `MemoryFs`：fd 表、预开 `/`、`path_open`/`fd_read`/`fd_write`/`fd_seek`/`poll_oneoff`/`proc_exit`/`clock`/`random_get`；未实现调用返回 ENOSYS |
+| `src/services/wasi/wasi.worker.js` | 常驻 worker：init 时 fetch 三件 `.br`、untar 1385 条、编译 clang / wasm-ld 两个 `WebAssembly.Module`，并预编 OOM 探针；之后只换 argv / 源码 |
+| `src/services/wasi/client.js` | `WasiWorkerHost`：单队列、消息编号、stdout/stderr 增量、`kill()` = `worker.terminate()` |
+| `src/services/wasi/tar.js` | 极简 ustar 解析（`ustar` 魔数校验） |
+
+`runnoSandbox.js` 的 C++ 路径全换：`compileAndLink` / `loadOomProbe` / `generatePch` / `checkCppSyntax` / `runCpp` 都走 `tool.host`；runno 的 `WASIWorkerHost` 只剩 Python。`PCH_CACHE_VERSION` 6。
+
+**实测（dev，无头 Chrome 155）**
+
+| 指标 | 基线 | 现在 |
+|---|---|---|
+| `preloadToolchain()`（init + 探针预编） | 81 ms（热 HTTP 缓存） | **655 ms**（一次性） |
+| 首编（已 preload） | 505–715 ms | **855–1234 ms**（1.2–1.7×，视机器抖动；含第一次 lld 冷启动） |
+| 之后不同代码冷编 | 505–715 ms | **502–608 ms** |
+| 2M 随机排序自报 / 运行段 | 28–34 / 37–41 ms | **36–40 / 37–43 ms** |
+| stdin 1 MiB / 4 MiB 墙钟 | 1 MiB ≈ 643 ms | **2–4 ms / 5–8 ms** |
+| 5 MB 输出宿主收口 | 270–360 ms | **62–80 ms**（`runMs` 22–29 ms） |
+| `verify:judge` | 20/20 | **20/20 PASS** |
+
+**三个宿主坑（都已在代码里修，别再踩）**
+
+1. **目录的 `rights_inheriting` 要带文件权限**。wasi-libc 的 `open()` 拿目录的 inheriting 拼 `path_open` 的 `rights_base`；`fd_fdstat_get` 只回 `DIR_RIGHTS` 时，clang 写 `.o` 的 `path_open` 不带 `FD_WRITE`，`fd_write` 直接 `EBADF`，报 `unable to open output file '/program.o'`。`host.js` 的目录分支已改成 `DIR_RIGHTS | FILE_RIGHTS`。
+2. **PCH 源头的 mtime 必须固定**。`MemoryFs` 默认 `Date.now()`，PCH 生成与加载两次写 `/stdc++.h` 的 mtime 不同，会报 `/stdc++.h has been modified since the precompiled header was built`。worker 用常量 `1_700_000_000_000`。
+3. **自写宿主的 fd 2 是 CHARACTER_DEVICE**，clang 23 会默认开彩色诊断；`FRONTEND_ARGS` 显式加 `-fno-color-diagnostics`（否则 CE 卡片会出现 ANSI 码）。
+
+**其它口径**
+
+- `kill()` 直接 terminate worker；下一次 `loadToolchain` 看到 `host.alive === false` 会重建并重新 init（TLE 用例 #4 之后 #5 仍 20/20，说明重建路径可用）。
+- `generatePch` / `checkCppSyntax` 与运行共用同一颗 worker，client 内部串行队列；不会互相覆盖 pending。
+- 2M 随机排序这次回到 37–43 ms，说明阶段 2 那 100–135 ms 是 runno worker 环境的账，不是代码生成。
+- **未做**：生产 bundle 真跑（`npx vite build` 已出 `wasi.worker-*.js`，没在 preview 上点过）；页面净增内存的 UaMem 复测；双档（阶段 6）。阶段 5 的预取见 §19.14。
+
+### 19.14 阶段 5：后台预取 + 客户端单档（2026-10-25，本地 preview 已验）
+
+**已落地**
+
+- `runtimePreload.js`：
+  - `cp.autoPreload` **缺省视为 `['cpp']`**（键不存在才用缺省；显式 `[]` 才是用户关闭），`EditorSettingsPanel` 的默认值同步成 `['cpp']`。
+  - 等 `navigator.serviceWorker.ready` + `controllerchange` 后再 idle 动手；`navigator.webdriver`（自动化探针）与 `navigator.connection.saveData` 直接跳过。
+  - 预取走新增的 `prefetchRuntimeAssets()`：**只 fetch 三件并丢弃 body**，不 init 宿主、不 untar —— 不会让每个访客为没用到的语言付 ~27 MiB 常驻。
+- `runnoSandbox.js`：`prefetchRuntimeAssets()` + `pruneLegacyToolchainCache()`；`loadToolchain` 初始化完成后也会清一次旧档。
+- 旧档清理：每次 `runAutoPreload()` 先删 `cp-toolchain*` 里的 `/wasm/8.0.1/{clang.wasm,wasm-ld.wasm,clang-fs.tar.gz}`，所以当前档已缓存时也不会把 8.0.1 留在桶里。HTTP 缓存没有 JS 接口，只能承诺 Cache Storage 单档。
+
+**本地 `vite preview` 实测（生产 bundle + SW）**
+
+- 首访 SW 还没 controller；刷新一次后 controller = true，`scheduleAutoPreload` 在 idle 后把三件 **23.1.0** 写进 `cp-toolchain`。
+- 手工往桶里播种 8.0.1 三件后刷新：预取跑完只剩三件 23.1.0，旧档被删干净。
+- `.br` 响应头在 preview 上仍是 `Content-Encoding: br` + `application/wasm` / `application/x-tar`。
+
+**还没做**
+
+- **Vercel preview 上的 `Content-Encoding: br`**：本地中间件对，Vercel 会不会改写仍未验。
+- **限速下的三条时间**（预取完成 / 就绪后点▶ / 首访立刻点▶）与首访三次独立实测。
+- **PCH 不预取**：后台预取只下资产，首次点▶仍要 0.5–1.2 s 编译；PCH 只有在 `preload()` 手动下载或首次运行后的 `warmupPch()` 才生成。
+- 双档 active track 的动态预取（阶段 6）。
+
+## 20. 判定接口：比对器插件 / 每题覆盖 / 引擎口径统一（2026-10-25）
+
+依据是 `docs/评测判定规范.md`（§6 / §7.2 / §8 / §9）。这一节只记「落到哪、为什么这么落、验到了什么」。
+
+### 20.1 比对器注册表 `src/services/checkers.js`（新文件）
+
+- 四个 id：`lines`（默认，原 `compare.js` 口径一行不动）、`tokens`（按空白切词）、`float`（词元一致 + `1e-6` 混合容差）、`unordered`（行多重集）。`checkOutput(actual, expected, id)` 是唯一入口；**未知 id / 空 / `lines` 一律退回逐行**，不报错、不放宽。
+- 比对只发生在引擎给 `ok`（exit 0）之后，TLE / MLE / RE 不经过它（`runner.js` 的 `evaluateCase`）。
+- 显示名走 i18n key（`tests.checker.*`），数据表里不存中文；`FileExplorer.vue` 消费时才 `t()`。
+- **按题覆盖**：`meta.checker`（`problemMeta.normalizeMeta` 白名单，`lines` 与空串不落盘）。资源管理器右键「题目信息」里新增「输出比对」下拉，默认项是「默认（逐行）」；题目信息 tooltip 多一行 `输出比对：<名>`。`App.vue` 用 `effectiveChecker`（`meta.checker || 'lines'`）传给 `runCases`，`runAll` / `runOne` 两条路都接。
+- 另外修了题目信息弹窗的高度：多一个字段后 `.meta__card` 加 `max-height: calc(100dvh - 32px); overflow-y: auto`，矮屏不会顶出视口。
+
+### 20.2 引擎口径（都按规范 §2.1 / §4.2 / §8）
+
+- `judge0`：`statusId === 3`（Accepted）时**忽略 stderr**（选手往 cerr 打调试不算 RE）；`durationMs` 取服务端 `time`（CPU 秒，字符串），编译失败 / 拒绝 / 不可达一律 `null`，不再拿 HTTP 往返顶替；health 在拿不到时间时显示「服务可用」而不是空耗时。
+- `piston`：exit 0 时忽略 stderr；`durationMs` 取 `wall_time`，缺失退 `cpu_time`，都没有就 `null`；编译失败 / 拒绝 / 不可达 `null`。
+- 内存披露：引擎注册表新增 `enforcesMemoryLimit`（wasm=true、judge0=true、native/piston/echo=false），`EngineSettingsPanel` 对「跑代码但不兑现」的引擎显示一行「该引擎不兑现内存上限，不会判 MLE。」（`engine.noMemoryLimit`），不把界面上的内存设置静默吞掉。
+- `-DONLINE_JUDGE`：网页端放进 `runnoSandbox.js` 的 `FRONTEND_ARGS`（**属于语言选项、会写进 PCH 签名**，所以 `PCH_CACHE_VERSION` 3 → 4），桌面端 `native.rs` 编译参数同步加一条 —— 跨端契约，两处必须一起动。
+
+### 20.3 自动验收 `scripts/verify-judge.mjs`（`npm run verify:judge`）
+
+- 起真实 dev server + 无头 Chrome（`--no-sandbox --disable-gpu`、`protocolTimeout: 900000`），先验 `crossOriginIsolated` 与 wasm health，再在页面里 `import('/src/services/runner.js')` 直接调 `evaluateCase`（真工具链、真看门狗），逐条跑 §9 的 19 条（#20 无 OLE，跳过）+ 12 条比对器语义。带 `knownActual` 的行只要求「等于已知值」，别的值才算回归。
+- **2026-10-25 实测：PASS 16 / KNOWN 3 / FAIL 0**；耗时 1 s / 内存 256 MiB。证据：`/tmp/verify-judge2.log`（一次性）。
+- 三条 KNOWN 都是同一件事：runno 把 `WebAssembly.RuntimeError` 折成 134 且**不保留 trap 原因**，于是「开上限 + 134 + 空 stderr」把空指针写入（#7）、运行期除零（#8）、`abort()`（#9）全判成 MLE。规范 §5.2 / §10 P0 已把这条记成「134 启发式」，精确口径要沿 `scripts/patch-wasi-clock.mjs` 那条路再补一个宿主补丁（trap 时带回 `memory.buffer.byteLength`），本轮没做。**已被 §20.4 收掉：三条现在都判 RE，验收 20/20 PASS。**
+- 写用例时踩到的两个编译器事实（**以后写验收用例别再踩**）：
+  - **`malloc` 的判空会被 `-O2` 整个删掉**：clang 把 `malloc` 当已知库函数、默认返回非空，`if (!p)` 连同分配一起消失（host clang 21 与站内 clang 8 都实测；裸声明 `void *malloc(unsigned long)` 也一样）。#18/#19 的指针必须写 `volatile`，才是真的在测「拿到 NULL 怎么走」。
+  - **常量被除数的 `/` 会被改写成不陷阱的 select**：`1 / z`（即使 `z` 是 volatile 的 0）实测得 `0`、exit 0；只有两个操作数都来自运行期，才落成真的 `i32.div_s` → trap。§9 #8 因此改成两个 volatile 操作数。
+- 回归口径：`npm run verify` 仍守界面流程，本轮实测 **A/E/G/H 红、B/C/D/F 绿**，与 2026-10-24 时钟补丁那批复测同一基线。A 的原因与判定无关：侧栏页头现在多了第三颗可见页签「组件」，脚本里 A 仍钉死「胶囊 + 设置」两颗；E/G/H 本来就是红的。`npm run verify:judge` 守判定语义，两者互不替代。`npx vite build --outDir /tmp/bishe-build-judge2` 已过（不走 `npm run build`：它会在 safe-delete 的 50 文件阈值上挂掉）。
+
+### 20.4 判定口径对齐：栈策略 / MLE 证据链 / TLE 宽限（2026-10-25，验收 20/20）
+
+依据 `docs/评测判定规范.md` §4.2 / §5.2 / §5.3，把三处「文档写了、实现没跟上」补齐。约定一直没变：`durationMs` 只表示运行段，MLE 必须有内存证据，TLE 用程序结束时刻而不是消息时刻。
+
+**栈（§5.3）**
+- `runnoSandbox.stackSizeBytes(memoryLimitBytes)`：`min(64 MiB, max(8 MiB, limit/4), limit/2)`，向下取整到 64 KiB；`linkerArgs()` 里用 `-z stack-size=` 传给 wasm-ld。64 MiB 上限 → 16 MiB 栈，128 → 32，256 及以上 → 64。
+- 不采用「`--max-memory = 上限 + 栈`」：栈在线性内存内，必须从总上限里划，语义才与 DOMjudge / Isolate 的「总内存含栈」一致。
+- 栈大小随上限变，因此编译缓存键多一位 `stackPolicy: STACK_POLICY_VERSION`（当前 1）。键是 `(code, memoryLimitBytes, stackPolicy)`，任一项变都重链接。
+
+**MLE 证据链（§5.2）**
+- 链接期塞一段探针（`OOM_PROBE_SOURCE`）：自定义 `sbrk` 顶掉 `libc.a:sbrk.o`，每次 `memory.grow` 失败给 `__oj_sbrk_failures` +1，并导出 `__oj_sbrk_get()` 供宿主读。探针 `.o` 每个会话只编一次、常驻内存。
+- 宿主补丁（`scripts/patch-wasi-clock.mjs` 的 `RESULT_REPLACEMENTS`）在 `_start` 返回 / trap 之后统一调 `__cpr(exitCode, trap, startTime)`，带回 `{ trap, runMs, memoryBytes, sbrkFailures }`。补丁带 `cp-result-patch` 标记、幂等，`preverify:judge` 会自动跑一遍。
+- `engines/wasm.js`：只有 `134 + sbrkFailures > 0` 判 `mle`；计数拿不到时才退回旧的「134 + stderr 空」启发式（宁可把真 MLE 认出来，也不留死角）。空指针、除零、`abort()`、栈溢出都是 134 但计数为 0 → `RE`。
+- 探针与 wasi-libc 的 `sbrk` 语义一致（增量须非负且 64 KiB 对齐，否则 `abort`；成功返回旧页号 `<< 16`，失败 `(void*)-1`）。唯一差异是不写 `errno`：clang 8 的 wasm 后端给 TLS 变量选不出指令，而 dlmalloc 只认返回值。
+
+**TLE 宽限（§4.2）**
+- 看门狗在 `T + max(100 ms, 5% × T)` 才 kill；判定用 `_start` 起止墙钟 `runMs` 与 `T` 比较 —— 程序先自己结束了、但 `runMs > T` 也判 TLE。`durationMs` 就是 `runMs`（1 s 时限下实测 1101 ms 被杀）。
+- Python 的 `runMs` 含解释器启动，`runCase` 给它加 `PYTHON_STARTUP_ALLOWANCE_MS`（500）后才与 `T` 比。
+
+**验收**
+- `npm run verify:judge`：**20/20 PASS、0 KNOWN、0 FAIL**（#20 无 OLE，跳过）。#7/#8/#9 从 MLE 翻回 RE，#5 是真正的分配失败 MLE（16 ms），#21（成功分配后越界写）是 RE。证据：`/tmp/verify-judge-3.log`。
+- #5 起初写成 `new char[16 MiB]` 死循环，实测判成 TLE。原因是**这套内核异常是关的**（wasm32-wasi 默认 `-fno-exceptions`）：`operator new` 失败只静默返回空指针，而 WASM 线性内存的 0 地址合法，`memset(nullptr, …)` 不 trap，循环就一直跑。改成 `malloc` + 判空后 `abort()` 才是「分配失败 → 134」。
+- 写用例的结论：**在这套内核里，MLE 用例必须用 `malloc` + 显式终止**；`new` 那种「等 `bad_alloc`」的写法在这里不存在（已记进规范 §5.2 已知边界 / §10 P2）。
+- ⚠️ 跑验收时**不要改仓库文件**：Vite 会整页热刷，正在跑的 `page.evaluate` 直接抛 `Execution context was destroyed`，看起来像用例崩了（本轮踩过一次，单独探针复现 #4 是正常的 TLE 1101 ms）。
+- 界面回归 `npm run verify` 仍是 **A/E/G/H 红、B/C/D/F 绿**，与 §20.3 同一基线（E 的红是 `collapsedBeforeRun=false`：单击分隔条没折叠，与判定无关）。说明新增的探针链接与栈调整没有改变正常编译 / 运行流程。
+- 本轮未提交、未 push。
+
+---
+
+## 21. 新内核阶段 4：自写 WASI 宿主（2026-10-25）
+
+C++ 的 compile / link / run / syntax 四条路全部换成**常驻 worker 里的自写宿主**（`src/services/wasi/`：`host.js` 是同步 WASI preview1 实现，`wasi.worker.js` 负责常驻模块与 sysroot，`client.js` 是主线程侧的薄封装，`tar.js` 解 `.tar.br`）。Python 仍走 runno，一个字没动。
+
+为什么换：阶段 2 的 13–17 s 首编不是内核慢，而是 runno 的模型决定的 —— 每次 run 新建 worker、重新实例化 73 MB clang / 41 MB wasm-ld、把 1385 条 sysroot 整份 clone 过去；stdin 还是 8 KiB SAB 槽 + `setTimeout(0)` 轮询（实测 1.6 MB/s）。
+
+### 21.1 结构（改之前先认清这四条边界）
+
+- **同步执行是刻意的**：`runWasiModule()` 全同步，阻塞的只是 worker。主线程看门狗照旧用 `worker.terminate()` 打断死循环，代价是下次要重新 init（`loadToolchain()` 检测到 `host.alive === false` 会重建）。
+- **两个模块名同时注册**：新内核只认 `wasi_snapshot_preview1`，8.0.1 认 `wasi_unstable`，同一张函数表挂两个名字，换档不用改宿主。
+- **未实现的调用返回 `ENOSYS`**，不抛异常：用户程序没用过的调用不该炸掉整个 worker。
+- **sysroot 的 mtime 必须钉死**（见 21.3 第 1 条），这是 PCH 能不能跨会话工作的全部前提。
+
+### 21.2 验收读数（dev / localhost / 无头 Chrome，2026-10-25；基线见 §18）
+
+| 指标 | 旧 8.0.1 + runno（§18） | 阶段 2（23.1.0 + runno） | 现在（阶段 4） |
+| --- | --- | --- | --- |
+| 工具链进内存 | 81 ms（缓存已热） | 13–17 s（每次 run 重建） | **674 / 772 / 982 ms**（首访含 23 MiB 下载 + 模块编译 + 解 1385 条） |
+| 首编（含 V8 懒编译 clang 模块） | — | 13–17 s | **0.55–1.6 s**（方差大，取决于页面是否已静置） |
+| 稳态冷编（无 PCH） | 505–715 ms | — | **216–262 ms** |
+| 带 PCH 冷编 | 423–449 ms | — | **75–122 ms**（跨刷新修好后 84–103 ms） |
+| PCH 生成 | 529 ms / 8.61 MiB | 18.37 MB | **622–679 ms / 17.52 MiB** |
+| 命中编译缓存（同代码连跑） | 37–41 ms | — | **16 / 43 ms**（2M 排序，不读输入） |
+| stdin 1 MiB | 632–643 ms（1.6 MB/s） | — | **1 ms** |
+| stdin 4 MiB | 2,478–2,559 ms | — | **5 ms**（≈838 MB/s） |
+| stdout 4 MiB | 运行段 41 ms + 宿主收口见下 | — | 运行段 **6 ms** / 墙钟 **8 ms** |
+| 4.8 MB 输出（30 万行） | 运行段 73 ms + **收口 268–358 ms** | — | 运行段 244 ms / 墙钟 250 ms → **收口 ≈6 ms** |
+| 384³ 矩阵乘 | 运行段 66–67 ms | — | 运行段 **16 / 35 ms** |
+| 2M 排序（内存内） | 运行段 37–41 ms | — | 运行段 41 / 46 ms |
+| 判定矩阵 | — | 20/20 | **20/20 PASS**（改动前后各跑一轮） |
+
+- stdin 的分块往返彻底消失：宿主把 stdin 一次读进内存，`fd_read` 同步按 iov 拷。4 MiB 只花 5 ms，**比基线快三个数量级**，规划里「≥ 20 MB/s」的目标不再是瓶颈。
+- stdout 的收口从 268–358 ms 降到约 6 ms，靠的是「worker 内直接拼字符串、只在 ≥64 KiB 时回传一次」，而不是每块跨线程 postMessage。
+- 算力没有退化（矩阵反而快一倍：LLVM 23 的 `-O2` + SIMD 对这类循环更强）。**别拿 scanf 重读的程序比较**：2M 整数读入本身要 45–55 ms，`cin`（`sync_with_stdio(false)`）更是 379–411 ms —— 那是 libc++ 20 的 iostream，不是宿主。
+- 常驻内存这次**没测出可用结论**：`measureUserAgentSpecificMemory` 在 A0→A1→A2 之间来回摆（125.6 → 181.2 → 140.5 MB），把尚未回收的 23 MiB 响应也算进去。整份 sysroot 仍然是「全份常驻」，只是从页面搬进了 worker —— 规划 §3.5 那条「不再整份常驻」**仍未做到**。
+
+### 21.3 两个必须记住的坑（都修在 2026-10-25）
+
+**1. 跨会话 PCH 从来不生效，而且会把自己永久关掉。**
+
+症状：刷新页面后每次编译都是 216–262 ms 档，PCH 像是不存在。实测抓到 clang 的原话：
+
+```
+fatal error: file '/sys/include/wasm32-wasip1/eh/c++/v1/__memory/allocator.h'
+has been modified since the precompiled header '/stdc++.h.pch' was built
+note: mtime changed from expected 1792903218 to 1792903221
+```
+
+根因：`MemoryFs` 给每个节点取 `Date.now()` 当 mtime，所以**每次 init 解出来的 sysroot 头 mtime 都不同**；PCH 里记着建它那一刻的 mtime，加载时逐个核对 → 必挂。修法：`MemoryFs` 支持 `sourceMtime`（只作用于初始平表），sysroot 统一钉 `SYSROOT_MTIME = 1.7e12`。
+
+放大器：`compileAndLink()` 见到 `PCH_ERROR_RE` 会 `discardPch()` —— 清内存、**删 IndexedDB 存档**、打上 `cp.pchUnsupported`。于是「这台机器不再用 PCH」被永久记住，谁也不会再看见那条 fatal。**以后凡是「优化悄悄没生效」，先怀疑这套判废标记。**
+
+修后实测（同一份代码，刷新后连跑 5 次）：**84 / 94 / 89 / 103 ms，5/5 都带 PCH**（拦 `Worker.postMessage` 核对过 `-include-pch /stdc++.h.pch` 确实在）。
+
+**2. `compile` 分支不装 PCH，只有 `syntax` 装。**
+
+`client.compile({ pch })` 会把字节送进 worker，但 worker 里原来只写了 `if (type === 'syntax') installPch(message.pch)`。刷新后 `loadPchBytes()` 从 IndexedDB 取回 PCH、送进 worker、被忽略 —— 不报错、不变慢得可疑，只是白送 18 MB 过一遍结构化克隆。修法：`if (message.pch) installPch(message.pch)`（`compile` 与 `syntax` 共用）。2026-10-25 之前，跨刷新 PCH 这条路**完全没通过**，只在同一会话内（`generatePch()` 把 `.pch` 写进共享 fs）才碰巧可用 —— 所以「PCH 有效」在单元测试里看不出来。
+
+**附带**：`run` 段现在按产物字节指纹（FNV-1a）留一份 `WebAssembly.Module`，一批用例不再每个都 `compile` 一遍。53 KB 产物一次只要 1–3 ms，**收益很小**，别当成性能手段。
+
+### 21.4 仍未做
+
+- 阶段 6：**双档探测没接**。`TOOLCHAIN_VERSION` 还是写死的 `23.1.0`，`public/wasm/8.0.1/` 在仓库里但没有任何代码会选它。缺 wasm EH / SIMD 的特性探测，也缺「探测不到就回退 8.0.1」。这是 Safari < 16.4 与老 Firefox 会直接编译失败的地方。
+- 阶段 3 两项：**wasm vs native 倍率表**（要桌面壳 `native` 引擎）与**浏览器里的 EH + SIMD 真机探测**，目前无基线。
+- 阶段 5 剩部署侧：preview 上验 `Content-Encoding: br` 有没有被 Vercel 改写；限速条件下的首访实测。
+- 文档侧（guide / `help.js` / `docs/使用手册.md` / `NOTICE.md` 第二节 / `index.html` noscript）仍按 C++17 写，要改成 **C++20 / clang 23 / `dynamic_cast`·`typeid` 不可用 / Safari 16.4**。
+
+### 21.5 复跑
+
+```bash
+npm run verify:judge     # 判定矩阵 20/20（改宿主后先跑这条）
+npx vite build --outDir /tmp/x   # 只验编译，别用 npm run build（沙箱守卫会拦 dist/）
+```
+
+探针放 `/tmp`，口径照 §18.4 / §18.8；本次那几支（首编分档、stdin/stdout scaling、跨刷新 PCH）跑完即删，仓库里不留。
+
+---
+
+## 22. 新内核阶段 6：浏览器能力探测与闸门（2026-10-25）
+
+23 档工具链不是「慢一点也能跑」的那种降级：它要 **wasm 新标准异常（exnref / `try_table`）+ SIMD + multivalue + reference-types**。
+缺任一项时，用户代码**能编、能链**，只在「跑产物」那一步实例化失败，报出来是引擎内部措辞
+（`invalid value type` / `unknown opcode`），卡片上看起来像「你的代码写错了」。这一节做的就是把这个失败
+提前成一句人话。
+
+### 22.1 探测物是四段手写字节码（不新增资产、不过 SW）
+
+`src/services/wasmFeatures.js`，每段 15–22 字节，判据只有 `WebAssembly.validate`：同步、零网络、几微秒，结果在页面生命周期内缓存。
+
+| 特性 id | 探测物 | 关键字节 |
+| --- | --- | --- |
+| `wasm-exceptions` | `(module (type (func)) (func (try_table (catch_all 0))))` | `1f`（**try_table**）+ `40`（空 blocktype）+ `02 00`（catch_all → label 0） |
+| `simd128` | `(module (type (func (param v128))))` | 值类型 `7b` |
+| `multivalue` | `(module (type (func (result i32 i32))))` | 返回值个数 `02` |
+| `reference-types` | `(module (type (func (param externref))))` | 值类型 `6f` |
+
+**必须是 `try_table`(0x1f) 而不是 legacy `try`(0x06)**：wasi-sdk 34 的 `eh` libc++ 用新标准编的，两代混用会让 V8 拒绝整个模块。
+每段的段结构都写进了源码注释，改之前对照 wasm 规范读一遍 —— 探测物写错的后果是**所有人**被误判成老浏览器。
+
+### 22.2 闸门三处（少一处就会白下 23 MiB 或给出误导结论）
+
+- `runnoSandbox.loadToolchain()`：探测不过就抛 `error.wasmUnsupported`（带缺失项与版本要求），**在下载之前**；
+- `wasmRuntime.probeRuntime('cpp')`：直接返回 false —— 设置页不会把它显示成「已下载」；
+- `runtimePreload.js`：跳过 C++ 预取。
+
+文案在 `i18n/messages/engines.js` 的 `error.wasmUnsupported`（中英各一份），最终由 `engines/wasm.js` 的
+`engine.wasm.unavailable` 包成「本地运行环境不可用：…」。
+
+### 22.3 实测（2026-10-25，探针放 /tmp、跑完即删）
+
+| 环境 | 结果 |
+| --- | --- |
+| Node 22.22.2（V8 12.4） | 四项全 true；三项**反证**全 false（legacy `try`(0x06)、截断 2 字节、catch 种类写成 0x19） |
+| 无头 Chrome 155 | 同上，`detectWasmFeatures()` 两次调用返回同一个对象（记忆化生效） |
+| 模拟老浏览器（开机前 `WebAssembly.validate = () => false`） | `missing` 四项俱全；`preloadToolchain()` **1 ms** 抛中文提示、**未触网**；`probeRuntime('cpp')` = false |
+| `npm run verify:judge` | **20/20 PASS**（10 s，改动前后各一轮） |
+| `npx vite build --outDir /tmp/x` | 1.12 s，无错 |
+
+### 22.4 口径：**不做运行时 8.0.1 回退**（用户 2026-10-25 拍板）
+
+阶段 4 已经把 clang 8 + runno 那条 C++ 管线整体换掉了；要真跑 8.0.1 就得把它搬回来（约 600 行、且判定口径与
+23 档不同 —— 同一份代码可能一端 CE 一端 AC）。所以定的是：
+
+- 探测失败 → **明确告知 + C++ 不可用**（Python 不受影响，它不需要 EH/SIMD）；
+- **回滚 = 重新部署上一版**（`public/wasm/8.0.1/` 留在仓库里就是为这条路准备的，目录名不同、SW 的 immutable 缓存天然失效）；
+- 不引入 `wasm23` 自选档、不做两周灰度（§5 第 8 项不变）。
+
+顺带：`strip-wasm-assets.mjs` 删的是整个 `dist/wasm/` 目录，与档位无关，**不需要跟着改**；
+SW 也不必再「按档分桶」—— 客户端只有一档。
+
+### 22.5 用户可见文案（2026-10-25 已完成）
+
+原来四处都还写着「clang 8 / C++17」，已全部改成 **C++20 / clang 23.1.0 / 无 RTTI（`dynamic_cast`·`typeid` 是 CE）**：
+
+- **两版 guide**（`guide.html` / `guide.en.html`）：§2 注意事项加三条（C++20 有异常、`dynamic_cast`/`typeid` 不可用、
+  浏览器要新标准 EH + SIMD），新增 FAQ「对浏览器有什么要求？」；§4 脚注与致谢表改 23.1.0，并把「上游现成预编译产物」
+  改成「C++ 工具链由本站从 LLVM 23.1.0 源码编出，Python 仍是 runno 分发的官方构建」；runno 那行注明 C++ 已走自写宿主。
+- **`help.js`**（中英）：下载体积 50MB→23MB、加 C++20/RTTI 说明、新增「对浏览器有什么要求？」条目。
+- **`docs/使用手册.md`**：设置页那行实际文案本来就是 `clang 23 + libc++（C++20），约 23MB`（`engines.js` 早改过），
+  手册一直没跟上；连同代码块示意图与注意事项一起补齐。
+- **`NOTICE.md` / `NOTICE.en.md` 第二节**：改 23.1.0 与 wasi-sdk 34 的落点（`sys23-fs.tar.br` 里 1385 个文件、
+  `eh/` 版 libc++、`sys/lib/clang/23/.../libclang_rt.builtins.a`），`8.0.1/` 降级为「只作部署回退、没有代码会选它」；
+  核对命令一并换成先 `brotliDecompressSync` 再找（产物是 `.br`，`grep -a` 直接扫扫不到）。`npm run notice` 已重生成。
+- **`index.html` 的 noscript**：体积、语言段（补 C++20/RTTI/浏览器要求）、性能段三处，中英各一份。
+
+**两处顺手纠正的事实错误（都不是单纯换词）**：
+
+1. **浏览器下限原来说反了**。`engines.js` 的 `error.wasmUnsupported` 写的是「Safari 16.4+ / Chrome 123+ / Firefox 121+」，
+   那是 **legacy EH + SIMD** 的年代。我们的产物是**新标准 EH**（`try_table`/`exnref`：`FRONTEND_ARGS` 里显式
+   `-mllvm -wasm-use-legacy-eh=false`，因为 wasi-sdk 34 的 `eh` libc++ 就是 `try_table` 编的），探测物测的也是 `try_table`。
+   按 MDN 的 `try_table` / `catch_all_ref` 兼容表，真实下限是 **Chrome 137+ / Firefox 131+ / Safari 18.4+**（2026-10-25 核对）。
+   那句提示已改正，四份文案与之对齐。**旧值不是「保守」，是错的**：Safari 16.4 的用户会被告知「换个浏览器」而不是「升级浏览器」。
+2. **性能表整张重测**。旧表（2026-09-29）是 clang 8 档测的，标着 clang 23 就是假数据；而 `guide` 的脚注、`help.js`、
+   `index.html` 三处引的是同一张表。基准程序当年放 `/tmp/wasmbench/`（已删），按同样的用例名与规模重写后重测
+   （Apple M5 / 无头 Chrome / 两侧 `-O2`，沙箱取 `runCpp().runMs`，本机取 10–15 次中位数**再扣掉 2.55 ms 进程启动**）：
+
+   | 用例 | 旧表（clang 8） | 现在（clang 23） | 本机 | 倍率 |
+   | --- | --- | --- | --- | --- |
+   | 纯计算 5×10⁷ 轮 xorshift | 132 ms / 1.77× | **87 ms** | 76 ms | **1.14×** |
+   | 顺序访存 8×10⁶ int | 26 ms / 3.51× | **8 ms** | 4.0 ms | **2.0×** |
+   | 排序 50 万 | 60 ms / 5.08× | **12 ms** | 7.5 ms | **1.60×** |
+   | 排序 200 万 | 247 ms / 6.73× | **41 ms** | 33 ms | **1.25×** |
+
+   倍率从「1.8–6.7×」降到「1.1–2.0×」。**别把旧口径照抄回来**：旧表两列都含启动开销（沙箱那列其实不含，只有本机含），
+   所以「排序 50 万」一度算出 5.08×；新表把本机的进程启动扣掉，两边同口径。短用例（顺序访存、排序 50 万）
+   只有十几毫秒，已接近计时下限，那两个比值只当参考 —— 文案里已写明。
+
+### 22.6 换代回收：`/wasm/` 缓存清理改成版本无关（2026-10-25）
+
+先看这笔账（两条语言都装才有意义）：C++ 23.1.0 = 14.24 + 8.51 + 1.61 ≈ **24.4 MB**；Python = 20.54 + 4.07 ≈ **24.6 MB**；合计 ≈ **49 MB**。
+`cp-toolchain` 在 SW 的 activate keep 白名单里，**永久保留** —— 换代只改目录名，桶里旧目录的条目**没有任何一条代码会回收**，几十 MB 就那么搁着。
+
+原实现两处都把「当前那一代」写死了：
+
+- `pruneLegacyToolchainCache()` 只删 `LEGACY_ASSET_URLS`（8.0.1 那三件）—— 换到第三代之后，谁也删不到；
+- `purgeRuntimeCache()`（设置页「卸载」）只删 `runtimeAssetURLs(lang)` 指向的**当前** URL —— 换代之后点卸载，旧版本那几十 MB 还在。
+
+**修法（`src/services/runnoSandbox.js`）：判据从「列举要删的」翻成「推出要留的」。**
+
+- `currentAssetPrefixes()` 由 `ASSETS` / `PYTHON_ASSETS` 推出当前目录前缀，换代自动跟着变；
+- `deleteToolchainEntries(isStale)` 用 `cache.keys()` 读**条目自己的 URL** 再筛 —— 这是能删到「仓库里早已没有的目录」的唯一办法；
+- 启动清理 = 删掉所有 `/wasm/` 里不匹配任一当前前缀的条目；
+- 卸载 = 删掉所有 `/wasm/` 里不匹配**另一个语言**当前前缀的条目（卸 C++ 不误伤 Python，反之亦然）；
+- `LEGACY_TOOLCHAIN_VERSION` / `LEGACY_ASSETS` / `LEGACY_ASSET_URLS` 整组退役。
+
+判据安全的前提只有两条：当前版本的条目必然以当前前缀开头；没下完的条目根本不在桶里。只承诺 Cache Storage（HTTP 缓存浏览器不给 JS 接口）。
+**别把这件事放进 SW**：SW 不认版本号，还得再注入一份。
+
+**实测**（无头 Chrome，桶里种 10 条：当前 C++ 3 + 当前 Python 2 + 8.0.1 三件 + `python-3.11.2/python.wasm` + `/md/marked.js`；探针在 `/tmp`，跑完即删）：
+
+| 操作 | 结果 |
+| --- | --- |
+| `pruneLegacyToolchainCache()` | 剩当前 C++ 3 + 当前 Python 2 + `/md/` 1；8.0.1 三件与 python-3.11.2 全清 |
+| `unloadRuntime('cpp')` | 剩当前 Python 2 + `/md/` 1（8.0.1 三件一并清掉 —— 旧实现会漏） |
+| `unloadRuntime('python')` | 剩当前 C++ 3 + `/md/` 1（python-3.11.2 一并清掉） |
+
+非 `/wasm/` 条目三次都没被动过。`npm run verify:judge` **20/20 PASS**，`npx vite build` 通过。
+
+### 22.7 仍未做（只剩已冻结的壳线）
+
+- 阶段 6 ②（桌面壳是否同步 `-fno-rtti`）与 ③（Android 头裁剪清单并排）：桌面线与 Android 线都已冻结，
+  未办事项归档在 `docs/废案.md` §1，不在这里重复。
+- `docs/评测判定规范.md` 里还留着「接线前站点仍跑 8.0.1 档」这类前置说明与 8.0.1 对照行（内部文档，本轮不动）。
+
+### 22.8 换代回收补完：PCH 判废标记版本化 + 渲染器桶清扫（2026-10-25）
+
+§22.6 收的是 `/wasm/` 那 49 MB。同一次盘点里还漏了两个「换代后不归零」的状态，本轮补上。
+判据是一致的：**让「换代」这件事自己把旧的否定结论作废，不写迁移代码。**
+
+**① `cp.pchUnsupported` 从裸 `'true'` 改成带版本号的记号**
+
+原来写死 `'true'`、读的时候只认 `'true'` —— 于是一台在旧内核下生成 PCH 失败（OOM / cc1 卡死 /
+加载校验失败）的机器，**换内核之后仍然被判「扛不住」**，永远不再试。而换代换的恰恰是生成 PCH 的
+那套 clang 与头文件，旧结论对新内核没有意义。
+
+改法（`runnoSandbox.js`）：值写成 `v${PCH_CACHE_VERSION}`（当前 `v6`），读的时候用同一个 token 比。
+- 裸 `'true'`（v5 及更早）与任何旧版本号都不等于当前 token → **认作过期**，换代后自动重试一次；
+- 重试若还是失败，`markPchUnsupported()` 再写一次当前 token，又变回「同一代内不再重试」；
+- `PCH_CACHE_VERSION` 本来就会因为「改生成参数 / 换内核 / 改存档结构」+1，所以这两个开关天然同步，
+  不需要第二套版本号（与 §22.6「别引入第二套版本号」同一条纪律）；
+- `storageMigration` 把 `cph.pchUnsupported` 原值搬过来也没事 —— 搬过来的旧值同样被认作过期。
+
+代价是一次重试（最坏情况：老机器再花几十秒撞一次看门狗）。这条**值得**：不重试的代价是
+「换了内核仍然永久无加速」，而且是静默的 —— 用户只会觉得「这网站编译慢」，没人会去翻 localStorage。
+
+**② `cp-md-runtime`（katex + marked）换代清扫**
+
+`storageNames.js` 里那条「渲染器的资产路径本身带版本，换版本 = 换 URL = 旧缓存自然失效」**是错的**：
+katex 升版后文件仍叫 `/md/katex.min.js`、`/md/fonts/KaTeX_*.woff2`，版本只写在 `/md/assets.json`
+的 `katex` / `marked` 字段里；而 `assets.json` 走 SW 的 cacheFirst，桶又在 activate 的 keep 白名单里。
+
+后果分两半，轻重不同：
+- **同名的会被覆盖**：重新下载时 `cache.put` 落到同一 URL，所以不会无限涨；
+- **改名/删掉的旧文件没人扫**：katex 换掉某个字体、或多出来的旧字体，会一直躺在桶里（量级几百 KB，
+  不是 49 MB，但同样是「换代后回收不到」）。
+
+改法（`mdRuntime.js` 的 `downloadMdRuntime` → 新增 `pruneStaleMdAssets`）：拿到新清单、把 23 个资产
+重新 `put` 完之后，用 `cache.keys()` 逐条读 URL，删掉**不在当前清单上**的条目。
+- 放在**下载成功之后**：中途失败时旧的那份（哪怕多几个字体）还能用，比「先清空再失败、渲染器直接坏掉」好；
+- 失败静默（`catch`）：清不掉只是占空间，不该把一次成功的下载变成失败；
+- `mdRuntime.js` 与 `storageNames.js` 里那两句错论据一并改掉了，别再拿「路径带版本」解释渲染器。
+
+**剩下的一个已知缺口（本轮不修，写在这里免得下次又当成新发现）**：已下载的用户**不会自己发现**版本变了 ——
+`probeMdRuntime()` 读的是桶里那份旧 `assets.json`，它当然说「已就绪」，注入的还是旧 katex。
+要修就得让清单能触网比版本（破「探针不触网」这条既有约束），或者给清单 URL 带上版本（要动
+`prepare-md-runtime.mjs` 与 SW 的 fetch 分桶）。当前口径：**换渲染器版本时提示重下一次，或让 SW
+的 `SHELL_VERSION` 单独升一版**——`uninstallMdRuntime()` 会按前缀删桶，是最干净的兜底。
+
+**验证**：`npx vite build --outDir /tmp/xxx` 通过；`npm run verify:judge` **20/20 PASS**。
+两项行为都用无头 Chrome 探针复核（dev server 临时端口 5197，探针在 `/tmp`、跑完即删）：
+
+| 场景 | 读数 |
+| --- | --- |
+| `cp.pchUnsupported='true'`（v5 及更早）→ `generatePch()` | **认作过期**：真的去拉工具链（3 发 `/wasm/23.1.0/` 请求，首个 `sys23-fs.tar.br`）并生成 **18,372,448 字节**的 PCH |
+| `cp.pchUnsupported='v6'`（当前 token）→ `generatePch()` | 3 秒内返回 `null`、**0 发** `/wasm/` 请求（`pchPromise` 直接短路，没触网） |
+| 渲染器桶种 26 条（当前清单 23 + 清单本身 + 两条上一代残留）→ `preloadMdRuntime()` | 剩 **24 条**：两条残留全清、当前资产一条不少、清单还在，`probeMdRuntime()` 仍为 `true`，耗时 220ms |
+
+PCH 那个 18,372,448 是 23.1.0 档的实测值，**只在本次有效** —— 以后动了 `PCH_SOURCE_TEXT` 或内核版本就会变，
+本文件不打算再把它钉成断言（clang 8 档那个 9,025,124 就是这么过期的）。

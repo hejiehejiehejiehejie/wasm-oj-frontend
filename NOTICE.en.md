@@ -62,18 +62,23 @@ The rest of the 32 "production dependencies" in `package-lock.json` (`@vue/compi
 
 ## 2. Self-hosted runtimes (under `public/`, none of them reaches the browser until the user clicks "download")
 
-What the two have in common: both are **upstream artifacts taken into this repository as-is** (this site changed nothing; the copy under `public/md/` is produced by `scripts/prepare-md-runtime.mjs` from `node_modules`), and neither is **in the Service Worker precache manifest** —— a user who never clicked download has not a single byte of them in the shell. The upstream notices are therefore distributed along with the files; the full licence texts live in the corresponding upstream repositories.
+What the two have in common: both come from upstream and are distributed with their upstream notices (the copy under `public/md/` is produced by `scripts/prepare-md-runtime.mjs` from `node_modules`; the C++ toolchain is built by `scripts/wasm-core/` from the LLVM 23.1.0 sources, with **no upstream code modified**), and neither is **in the Service Worker precache manifest** —— a user who never clicked download has not a single byte of them in the shell.
 
-### 2.1 Local sandbox toolchain (`public/wasm/`, about 76MB)
+### 2.1 Local sandbox toolchain (`public/wasm/`, the live build is about 23MB)
+
+The site loads only the `23.1.0/` build today. All three artifacts are `.br`: brotli is a **transfer encoding**, decoded transparently by the browser's network stack via `Content-Encoding: br`, which is why the file names keep the `.br` suffix. `8.0.1/` (about 50MB) stays in the repository as a **deployment rollback** only —— no code selects it (see `HANDOFF.md` §22.4).
 
 | Component | Version | Licence | Where it lands and what it is for |
 | --- | --- | --- | --- |
-| [LLVM / clang](https://github.com/llvm/llvm-project) | 8.0.1 | Apache-2.0 WITH LLVM-exception | `public/wasm/8.0.1/clang.wasm` (31.2MB) —— compiling C++ locally. The prebuilt artifact comes from [binji/wasm-clang](https://github.com/binji/wasm-clang), distributed via runno's `langs/` |
-| [LLVM lld](https://github.com/llvm/llvm-project) (wasm-ld) | same generation as above | Apache-2.0 WITH LLVM-exception | `public/wasm/8.0.1/wasm-ld.wasm` (19.5MB) —— linking |
-| [wasi-libc](https://github.com/WebAssembly/wasi-libc) | with the wasi-sysroot above | Apache-2.0 WITH LLVM-exception | `libc.a`, `libm.a`, `libpthread.a`, `libdl.a`, `librt.a`, `libutil.a`, `libxnet.a`, `libcrypt.a`, `libresolv.a`, `libwasi-emulated-mman.a`, `crt1.o` inside `clang-fs.tar.gz` —— the C standard library and startup code |
-| [libc++ / libc++abi](https://github.com/llvm/llvm-project) | same as above | MIT (University of Illinois / NCSA family) | `libc++.a`, `libc++abi.a` in the same tar —— the C++ standard library (the likes of `<vector>` / `<string>`) |
-| [compiler-rt](https://github.com/llvm/llvm-project) | same as above | Apache-2.0 WITH LLVM-exception | `libclang_rt.builtins-wasm32.a` in the same tar —— compiler runtime builtins |
+| [LLVM / clang](https://github.com/llvm/llvm-project) | 23.1.0 | Apache-2.0 WITH LLVM-exception | `public/wasm/23.1.0/clang.wasm.br` (13.6MB) —— compiling C++ locally. Built by `scripts/wasm-core/build.mjs` from the `llvmorg-23.1.0` sources for `wasm32-wasip1` |
+| [LLVM lld](https://github.com/llvm/llvm-project) (wasm-ld) | 23.1.0 | Apache-2.0 WITH LLVM-exception | `public/wasm/23.1.0/wasm-ld.wasm.br` (8.1MB) —— linking. Built from the same sources; run it with `-flavor wasm` |
+| [wasi-libc](https://github.com/WebAssembly/wasi-libc) | taken from wasi-sdk 34.0 | Apache-2.0 WITH LLVM-exception | `libc.a`, `libm.a`, `libpthread.a`, `libdl.a`, `librt.a`, `libutil.a`, `libxnet.a`, `libcrypt.a`, `libresolv.a`, `libwasi-emulated-*.a` and `crt1-command.o` under `sys/lib/wasm32-wasip1/` inside `sys23-fs.tar.br` (1.54MB, 1385 files unpacked) —— the C standard library and startup code |
+| [libc++ / libc++abi](https://github.com/llvm/llvm-project) | the `eh` variant of wasi-sdk 34.0 | MIT (University of Illinois / NCSA family) | `sys/lib/wasm32-wasip1/eh/libc++.a`, `libc++abi.a`, `libunwind.a` in the same tar —— the C++ standard library (the exception-enabled build that makes `try` / `catch` work); headers under `sys/include/wasm32-wasip1/eh/c++/v1` |
+| [compiler-rt](https://github.com/llvm/llvm-project) | with LLVM 23 above | Apache-2.0 WITH LLVM-exception | `sys/lib/clang/23/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a` in the same tar —— compiler runtime builtins |
 | [CPython](https://github.com/python/cpython) | 3.11.3 | PSF License | `public/wasm/python-3.11.3/python.wasm` + `python-fs.tar.gz` —— running Python locally. A wasm32-wasi build with the standard library in `usr/local/lib/python311.zip`; the build likewise comes from runno's `langs/` |
+
+- **The sysroot is a subset, not the whole thing**: trimmed from the full wasi-sdk 34 sysroot (about 416MB) down to 1.54MB for "C++20 contest code, compiled in a browser". The trimming rules are documented at the top of `scripts/wasm-core/pack-sysroot.mjs`: `noeh` and `__cxx03` dropped, the headers of the other three targets dropped, every `.so` dropped, most clang intrinsic headers dropped, and all archives run through `llvm-strip --strip-debug`. Change the trimming list and that header is the one place to update with it.
+- **Rollback build `8.0.1/`**: clang 8.0.1, wasm-ld 8.0.1 and `clang-fs.tar.gz` (about 50MB together). The prebuilt artifacts come from [binji/wasm-clang](https://github.com/binji/wasm-clang), distributed via runno's `langs/`, under the same licences. It is loaded only when a deployment is rolled back to the previous version —— the site itself never picks it.
 
 ### 2.2 Notes rendering runtime (`public/md/`, about 578KB)
 
@@ -153,12 +158,13 @@ cat package.json
 # 2) versions and licences of every dependency (production / development split)
 node -e "const l=require('./package-lock.json');for(const [k,v] of Object.entries(l.packages))if(k)console.log((v.dev?'dev ':'prd ')+k.replace('node_modules/','')+' '+v.version+' '+(v.license||'?'))"
 
-# 3) toolchain versions (strings measured from the artifacts, not guessed from directory names)
-LC_ALL=C grep -a -o -E "clang version [0-9][0-9a-zA-Z. ()-]*" public/wasm/8.0.1/clang.wasm | sort -u
+# 3) toolchain versions (strings measured from the artifacts, not guessed from directory names. They are brotli, so decompress first)
+node -e "const z=require('node:zlib'),fs=require('node:fs');const s=z.brotliDecompressSync(fs.readFileSync('public/wasm/23.1.0/clang.wasm.br')).toString('latin1');console.log([...new Set(s.match(/LLVM[0-9][^\x00]{0,10}/g)||[])])"
+#    → [ 'LLVM23.1.0' ]; the version pins live in scripts/wasm-core/versions.json (with the source tarball's sha256)
 LC_ALL=C grep -a -o -E "3\.11\.[0-9]+" public/wasm/python-3.11.3/python.wasm | sort -u
 
 # 4) which libraries the sysroot actually contains (to confirm where wasi-libc / libc++ / compiler-rt landed)
-tar tzf public/wasm/8.0.1/clang-fs.tar.gz | grep "sys/lib/"
+node -e "process.stdout.write(require('node:zlib').brotliDecompressSync(require('node:fs').readFileSync('public/wasm/23.1.0/sys23-fs.tar.br')))" | tar tf - | grep "sys/lib/"
 
 # 5) whether a dependency really made it into the build (NB: katex / marked take the on-demand route, so the library itself is not searchable in the main bundle)
 grep -l DOMPurify dist/assets/*.js

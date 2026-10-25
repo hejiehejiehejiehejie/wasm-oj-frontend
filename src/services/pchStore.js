@@ -86,7 +86,11 @@ export async function readPch(id) {
   const record = await withStore('readonly', (store) => store.get(id))
   const bytes = record?.bytes
   // 存进去是 Uint8Array，取回来是结构化克隆的结果；不认的形状一律当没有
-  return bytes instanceof Uint8Array && bytes.byteLength > 0 ? bytes : null
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null
+  // 命中时顺手清掉别的版本：id 里带着 PCH_CACHE_VERSION，换版之后旧存档再也取不到，
+  // 只有这一趟能发现它还在（2026-10-25 实测 IndexedDB 19.6MB = 两版 PCH 各 8.6MB）
+  void pruneOthers(id)
+  return bytes
 }
 
 /**
@@ -96,8 +100,35 @@ export async function readPch(id) {
  */
 export async function writePch(id, bytes) {
   const record = { id, bytes, size: bytes.byteLength, createdAt: Date.now() }
-  const result = await withStore('readwrite', (store) => store.put(record))
+  const result = await withStore('readwrite', (store) => {
+    // 这个库只放 PCH，而 PCH 一辈子只该有一份：先清再写，与 put 同一个事务，
+    // 换版留下的旧 id 不会跟着新存档一起留到下一次升级
+    store.clear()
+    return store.put(record)
+  })
   return result !== null
+}
+
+/**
+ * 只留 keepId 这一份存档。
+ * 游标删除而不是「读 keys 再逐个删」：一次事务扫完，少一轮往返；
+ * 失败一律静默 —— 这只是回收空间，不该影响编译。
+ */
+async function pruneOthers(keepId) {
+  const db = await openDb()
+  if (!db) return
+  try {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const cursorRequest = tx.objectStore(STORE_NAME).openCursor()
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result
+      if (!cursor) return
+      if (cursor.key !== keepId) cursor.delete()
+      cursor.continue()
+    }
+  } catch {
+    /* 删不掉就留着，不影响本次编译 */
+  }
 }
 
 /** 判废：删掉存档（带 PCH 却编译不通过时用） */
