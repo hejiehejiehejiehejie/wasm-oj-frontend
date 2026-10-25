@@ -30,7 +30,6 @@ import {
   anyViewOpen,
   cfContestTab,
   cfPickerTab,
-  deactivateViews,
   settingsTab,
   viewActive,
 } from '../services/editorViews.js'
@@ -177,13 +176,12 @@ const isDropTarget = computed(() => dropZone.value !== null && activeDropZone.va
 /**
  * 打开一个文件并把它固定成常开页签（已经开着就切过去，没开就新开一个）。
  *
- * 合成视图要主动让位 —— editorViews 只在 workspace.activeId **变化**时自动收回，
- * 而拖进来的文件如果本来就是当前活跃文件，activeId 压根不变（EditorTabs 的 activate 同理）。
+ * 合成视图的让位不用在这里管：`openFile()` 在两条成功路径上都会调 `codeViewIntent.show`，
+ * 与 activeId 有没有变化无关（原先这里手写了一次 `deactivateViews()`，2026-10-25 收口到那边后删掉）。
  *
  * @param {string} id 节点 id
  */
 async function openNodeById(id) {
-  deactivateViews()
   try {
     await openFile(id, null)
   } catch {

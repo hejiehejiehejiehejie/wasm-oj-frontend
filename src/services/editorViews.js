@@ -17,7 +17,7 @@
  * 也不会遮住工作区。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { workspace } from './vfs/workspaceStore.js'
+import { codeViewIntent, workspace } from './vfs/workspaceStore.js'
 
 /** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 tabStrip.stripOrder） */
 export const EDITOR_VIEW_IDS = ['settings', 'cfPicker', 'cfContest']
@@ -169,3 +169,11 @@ watch(
     if (id) deactivateViews()
   },
 )
+
+// 上面那条 watch 有个够不着的角：**同一个文件再点一次**时 activeId 前后相同、watch 不触发，
+// 而屏幕上完全可能是设置 / 抽题页（文件树焦点停在那文件上、编辑器却是视图）。所以真正的收口
+// 点是 `workspaceStore.openFile()` ——「打开某个文件」这个意图本身，与 activeId 变不变无关。
+// 那边不能反向 import 本模块（成环），于是在这里把 deactivateViews 注册进去。
+// 两条路都留着：这条管「点开文件」的所有入口（树行单击 / 拖入 / 以后新加的），
+// watch 管「不经 openFile 也要切回代码」的那些（会话恢复、关掉最后一个代码页签后的回退）。
+codeViewIntent.show = deactivateViews

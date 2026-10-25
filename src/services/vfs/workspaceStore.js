@@ -339,6 +339,20 @@ export const activeLanguage = computed(() => {
 // ------------------------------------------------------------ Actions
 
 /**
+ * 「用户要看的是一份代码」的注入点：`openFile()` 在两条成功路径上都会调它，把编辑区里的合成
+ * 视图（设置 / 抽题 / 比赛）让开。由 `services/editorViews.js` 在模块加载时注册成
+ * `deactivateViews` —— 那边 import 本模块，本模块不能反向 import（成环），所以做成注入。
+ *
+ * 【为什么不能只靠 editorViews 里那条 `watch(activeId)`】那条只在 activeId **变化**时触发。
+ * 而「文件树焦点停在一个文件上、屏幕上却是设置页」这种状态里，activeId 早就是那个文件了：
+ * 再点一次它，赋值前后是同一个值 → watch 不触发 → 点完还是设置页（2026-10-25 用户报的）。
+ * 所以判据不能是「活跃文件变了」，得是「用户表达了看代码的意图」，openFile 正是那个收口点。
+ *
+ * @type {{show: (() => void)|null}}
+ */
+export const codeViewIntent = { show: null }
+
+/**
  * 打开文件：已打开则只切活跃；否则建 model + retain + 加入 tab。
  *
  * `preview` 是「单击文件树」专用的预览语义：第一个文件占住预览槽，再点一个就把上一个
@@ -353,6 +367,9 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   if (workspace.openTabIds.includes(id)) {
     // 已开着的文件被再次单击：只切活跃，**不动预览槽**（VS Code 亦然 —— 预览页签不会
     // 因为你顺手点了另一个已打开的文件就消失）
+    // 这一支 activeId 很可能**没变**（屏幕上盖着设置页时它早就是这个文件了），所以视图
+    // 让位得在这里显式做一次（判据见上面 codeViewIntent）。
+    codeViewIntent.show?.()
     workspace.activeId = id
     revealId(id)
     return
@@ -360,6 +377,10 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   // nodeIndex 由事件异步重建，刚写完的文件可能还没进索引：用调用方给的节点兜底
   const node = nodeIndex.get(id) ?? (nodeHint?.id === id ? nodeHint : null)
   if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path: id }))
+  // 视图让位放在校验之后：id 不存在时不能顺手把用户正看着的设置页收掉。
+  // 这一支 activeId 一定会变（下面那次赋值），editorViews 的 watch 也会兜一次 ——
+  // 两条路都走得到，重复调用是无害的（只改视图的 active 标志）。
+  codeViewIntent.show?.()
   // 顶替上一个预览页签：走 closeTab 才顺带 release model（refs 归零即 dispose）
   if (preview && workspace.previewTabId && workspace.previewTabId !== id) {
     closeTab(workspace.previewTabId)
