@@ -461,9 +461,10 @@
         <p data-page-node-id="EHMn2sGP3SHTV1HDVeuX5v">支持范围取决于你所连的那台服务。</p>
 
         <h3>对浏览器有什么要求？</h3>
-        <p>C++ 要浏览器支持新标准 wasm 异常与 SIMD：Chrome 137+、Firefox 131+、Safari 18.4+。</p>
-        <p>不满足时 C++ 不可用，卡片上会写明缺哪一项能力。</p>
-        <p>Python 3 不受影响。</p>
+        <p>本地 C++ 要浏览器支持新标准 wasm 异常与 SIMD：Chrome 137+、Firefox 131+、Safari 18.4+。</p>
+        <p>不满足时不会白下工具链，也不会跑到一半才报错：运行前就写明缺哪一项。</p>
+        <p>本地 C++ 停用后，切 Piston / Judge0 仍能编译运行 C++。</p>
+        <p>Python 3 走本地沙箱，不受影响。</p>
 
         <h3>编辑器有自动补全吗？</h3>
         <p>有，但只给 C / C++ / Python 三种语言的代码文件（<code>.c</code>、<code>.cpp</code>、<code>.py</code>）。打几个字母候选框会自动弹出：方向键翻动，<kbd>Tab</kbd> 采用当前那条，<kbd>Esc</kbd> 关掉。</p>

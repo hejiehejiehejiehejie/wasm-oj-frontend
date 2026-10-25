@@ -477,9 +477,10 @@
         <p>What you get depends on the service you connect to.</p>
 
         <h3>Which browsers are supported?</h3>
-        <p>C++ needs the new standard for wasm exceptions and SIMD: Chrome 137+, Firefox 131+, Safari 18.4+.</p>
-        <p>Without it C++ is unavailable, and the card says which capability is missing.</p>
-        <p>Python 3 is unaffected.</p>
+        <p>Local C++ needs the browser to support the new standard for wasm exceptions and SIMD: Chrome 137+, Firefox 131+, Safari 18.4+.</p>
+        <p>If one is missing, nothing is downloaded and the card names it before the run starts — not halfway through.</p>
+        <p>With local C++ off, Piston / Judge0 can still compile and run C++.</p>
+        <p>Python 3 runs in the local sandbox and is unaffected.</p>
 
         <h3>Does the editor autocomplete?</h3>
         <p>Yes — but only for the three languages it knows: C, C++ and Python (<code>.c</code>, <code>.cpp</code>, <code>.py</code>). Start typing a prefix and the suggestion box appears on its own: arrow keys move through the list, <kbd>Tab</kbd> accepts the highlighted entry and <kbd>Esc</kbd> dismisses it.</p>

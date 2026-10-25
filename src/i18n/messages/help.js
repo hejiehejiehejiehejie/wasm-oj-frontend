@@ -103,11 +103,12 @@ export default {
             },
             {
               name: '对浏览器有什么要求？',
-              role: 'C++ 要新标准 wasm 异常与 SIMD。',
+              role: '本地 C++ 要新标准 wasm 异常与 SIMD。',
               notes: [
                 'C++：**Chrome 137+**、**Firefox 131+**、**Safari 18.4+**',
-                '不满足时 C++ 不可用，卡片会写明缺哪一项能力',
-                'Python 3 不受影响',
+                '不满足时不会白下工具链，也不会跑到一半才报错：运行前就写明缺哪一项',
+                '本地 C++ 停用后，切 **Piston** / **Judge0** 仍能编译运行 C++',
+                'Python 3 走本地沙箱，不受影响',
               ],
             },
             {
@@ -341,11 +342,12 @@ export default {
             },
             {
               name: 'Which browsers are supported?',
-              role: 'C++ needs the new standard for wasm exceptions and SIMD.',
+              role: 'Local C++ needs the new standard for wasm exceptions and SIMD.',
               notes: [
                 'C++: **Chrome 137+**, **Firefox 131+**, **Safari 18.4+**',
-                'Without it C++ is unavailable, and the card names the missing capability',
-                'Python 3 is unaffected',
+                'If one is missing, nothing is downloaded and the card names it before the run starts',
+                'With local C++ off, **Piston** / **Judge0** can still compile and run C++',
+                'Python 3 runs in the local sandbox and is unaffected',
               ],
             },
             {
