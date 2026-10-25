@@ -4,6 +4,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { captureCloudHandleFromPath } from './services/cloudEntry.js'
 import { ensureCfPickerInstalled } from './services/cfRuntime.js'
+import { countdown, installCountdown, readCountdownAutoInstall } from './services/countdown.js'
 import { IS_WEB } from './services/platform.js'
 import './styles/base.css'
 
@@ -31,6 +32,11 @@ createApp(App).mount('#app')
 // 随机抽题是默认安装的组件：打开站点时若无题库就静默预取一次（失败不打扰，下次再试）。
 // 刻意放在 mount 之后：首帧渲染不该等一个 2MB 的网络请求
 void ensureCfPickerInstalled()
+
+// 倒计时同理（2026-10-25 起它也有了「默认安装」开关）：内置组件没有资产要下，
+// 「装」就是让入口回来。开关关掉、又确实卸过的人不该每次启动都被装回去 ——
+// 设置里卸载时会把开关一并关掉（见 EditorSettingsPanel 的 confirmUninstall）。
+if (readCountdownAutoInstall() && !countdown.installed) installCountdown()
 
 // Service Worker 只在网页版的生产构建里注册：
 // - dev server 的模块是即时编译的，把它们缓存下来只会让改完代码看到旧页面；

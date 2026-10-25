@@ -23,7 +23,7 @@
 import { IS_WEB } from './platform.js'
 
 /**
- * 参与云同步的键（15 个）。**只有这里列出来的键会离开这台设备。**
+ * 参与云同步的键（18 个）。**只有这里列出来的键会离开这台设备。**
  *
  * 刻意不同步的键，以及理由：
  * - `cp.judgeBases`：可能是自建判题服务器的地址，而云端的配置是公开可读的
@@ -34,6 +34,9 @@ import { IS_WEB } from './platform.js'
  *   同步过去只会让新设备显示一个假的「已就绪」；
  * - `cp.cfPicker.ready`：同理，是「这台设备的库里有没有题库」的事实。
  *   而 `cp.cfPicker.autoInstall`（在白名单里）是「要不要自动装」的偏好，才值得跟人走。
+ * - `cp.countdown`：整个状态桶都不同步 —— 里面既有 `installed`（事实），也有卡片的位置与
+ *   尺寸（跟的是这台设备的屏幕，见 HANDOFF §16）。只有 `cp.countdown.autoInstall` 这条
+ *   「要不要自动装」的偏好进白名单，与上面那条同一口径。
  */
 export const SYNC_KEYS = [
   'cp.editorSettings', // 编辑器偏好（含主题）
@@ -50,7 +53,10 @@ export const SYNC_KEYS = [
   'cp.memoryLimitBytes', // 全局内存上限（判 MLE 用）
   'cp.engine', // 评测引擎
   'cp.autoPreload', // 「启动时预下载」勾选的运行时 id（见 runtimePreload.js）
-  'cp.cfPicker.autoInstall', // 抽题组件「默认安装」开关（见 cfRuntime.js）
+  'cp.cfPicker.autoInstall', // 抽题 / 比赛组件「默认安装」开关（见 cfRuntime.js）
+  // 倒计时组件「默认安装」开关（见 countdown.js）。与上面同档：偏好进白名单；
+  // `cp.countdown` 里那个 installed 是「这台设备装没装」，连同窗口位置尺寸一起留在本机。
+  'cp.countdown.autoInstall',
   // 模板功能的**用户覆盖表**（`{ [语言]: 文本 }`，只存改过的语言）。空表 `{}` 也存 ——
   // applyProfile 只写云端存在的键，键若缺席，「下载一份干净配置」就清不掉另一台设备的自定义
   // （见 services/fileTemplates.js 的「持久化时机」）

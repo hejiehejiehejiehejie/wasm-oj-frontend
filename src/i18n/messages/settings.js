@@ -276,9 +276,9 @@ export default {
         restore: { label: '恢复默认', hint: '把所有快捷键还原成初始设置', title: '恢复默认快捷键' },
 
         /** 整组的说明 */
-        note: '点右侧输入框后按下组合键即可改绑；Delete 清除绑定，Esc 取消录制。与浏览器或其它功能冲突时会拒绝并说明原因。资源管理器那三条（重命名 / 删除 / 全选）是固定键位，不可改绑。',
+        note: '点右侧输入框后按下组合键即可改绑；Delete 清除绑定，Esc 取消录制。与浏览器或其它功能冲突时会拒绝并说明原因。',
 
-        /** 固定键位徽标（资源管理器那三条）的悬浮提示 */
+        /** 固定键位徽标的悬浮提示（那三条固定动作已不在本列表展示，徽标分支保留待用） */
         fixedKey: '固定键位，不可改绑',
 
         /** 录制框自身的状态文案 */
@@ -872,9 +872,9 @@ export default {
           title: 'Restore default shortcuts',
         },
 
-        note: 'Click the field on the right, then press a key combination to rebind. Delete clears a binding, Esc cancels recording. Conflicting combinations are rejected with an explanation. The three explorer shortcuts (rename / delete / select all) are fixed and cannot be rebound.',
+        note: 'Click the field on the right, then press a key combination to rebind. Delete clears a binding, Esc cancels recording. Conflicting combinations are rejected with an explanation.',
 
-        /** 固定键位徽标（资源管理器那三条）的悬浮提示 */
+        /** 固定键位徽标的悬浮提示（那三条固定动作已不在本列表展示，徽标分支保留待用） */
         fixedKey: 'Fixed shortcut — cannot be rebound',
 
         recorder: {

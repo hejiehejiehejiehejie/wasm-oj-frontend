@@ -49,12 +49,17 @@ export const IS_MAC =
  *
  * `aliases`（可选）= 额外认得、但不进绑定表、也不在界面上当当前键位显示的键（见 aliasesOf）。
  *
- * `fixed`（可选）= 键位**写死**：不参与录制 / 清除，读盘时一律以默认表为准，设置里只做只读展示。
+ * `fixed`（可选）= 键位**写死**：不参与录制 / 清除，读盘时一律以默认表为准。
  * 目前只有资源管理器那三条（重命名 / 删除 / 全选）。判据（2026-10-25 用户口径「这几个设置
  * 没有意义，应该固定死」）：它们不是本应用自造的命令，而是文件树的通用约定，而且前两条是
  * 裸键（F2·Enter / Delete），本来就只靠作用域闸门区分；改绑只会让 ⌘A / Delete / F2 这些肌肉
  * 记忆失效，也让 hint 里那句平台说明与界面上显示的键位互相打架。**别拿它去「锁」可配置的
  * 动作** —— 加这一条等于让用户永远失去改绑能力，要有跟上面同级的理由。
+ *
+ * `hideInSettings`（可选）= **不进设置面板的快捷键列表**（条目本身还在，绑定、执行、冲突检测
+ * 一切照旧）。目前也只有那三条 `fixed` 的资源管理动作：写死之后面板上只剩一行不可点的只读
+ * 徽标、hint 里还得解释「为什么改不了」，纯噪声（2026-10-25 用户口径「删去设置页面快捷键的
+ * 这几项」）。判据是「这条动作在面板里有没有可操作的东西」—— 有录制框的照列，没有的不列。
  */
 export const SHORTCUT_ACTIONS = [
   { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
@@ -94,7 +99,8 @@ export const SHORTCUT_ACTIONS = [
   // 下面三条（2026-10-10 加前两条、2026-10-12 加全选）与上面那些不是一回事：它们
   // **不跟着焦点走遍全站**，只作用于「资源管理器里当前有焦点的那些行」。执行入口不在
   // SHORTCUT_HANDLERS 里，而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
-  // 另外（2026-10-25）三条全是 `fixed`：键位写死、只读展示，理由见文件头的 `fixed` 那段。
+  // 另外（2026-10-25）三条全是 `fixed`：键位写死、不再展示在设置面板里（`hideInSettings`），
+  // 理由分别见文件头的 `fixed` / `hideInSettings` 两段。
   {
     /**
      * 重命名（2026-10-20 起按平台分岔）：**Windows / Linux 仍是 F2，macOS 是 Enter**。
@@ -113,6 +119,7 @@ export const SHORTCUT_ACTIONS = [
     aliases: IS_MAC ? ['F2'] : [],
     bareCodes: IS_MAC ? ['Enter'] : [],
     fixed: true,
+    hideInSettings: true,
   },
   {
     id: 'delete-node',
@@ -123,6 +130,7 @@ export const SHORTCUT_ACTIONS = [
     // 只点名这一个键，别写成「所有非字母键」。
     bareCodes: ['Delete'],
     fixed: true,
+    hideInSettings: true,
   },
   {
     /**
@@ -135,6 +143,7 @@ export const SHORTCUT_ACTIONS = [
     hintKey: 'settings.shortcut.selectAllNodes.hint',
     default: 'Mod+KeyA',
     fixed: true,
+    hideInSettings: true,
   },
 ]
 

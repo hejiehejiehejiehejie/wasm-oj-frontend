@@ -146,7 +146,10 @@ watch(ready, (shown) => {
   padding: calc(10px * var(--menu-scale));
   background: var(--menu-bg);
   border: 1px solid var(--menu-border);
-  border-radius: calc(14px * var(--menu-scale));
+  /* 圆角是本文件里「尺寸一律挂 --menu-scale」那条纪律的唯一例外（2026-10-25 用户指定
+     「组件弹窗的圆角改为 10px」，原值 calc(14px * 0.92) ≈ 12.88px）：用户要的是**量出来
+     10px**，所以这里不乘系数（乘了 0.92 只有 9.2px）。其余尺寸照旧跟着 --menu-scale 缩放。 */
+  border-radius: 10px;
   box-shadow: var(--menu-shadow);
   visibility: hidden;
   transform-origin: top right;

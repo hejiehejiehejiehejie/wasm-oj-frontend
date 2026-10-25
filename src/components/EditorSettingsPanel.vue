@@ -35,8 +35,6 @@ import {
   noApiVariant,
 } from '../services/installGuides.js'
 import { settingsSectionEntry } from '../services/editorViews.js'
-// 通知系统（2026-10-12）：目前唯一的消费点是下面「应用」节里的演示入口
-import { dismissAllNotifications, notify } from '../services/notifications.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
   CAN_USE_LOCAL_FOLDER,
@@ -62,7 +60,12 @@ import {
 } from '../services/cfRuntime.js'
 // 悬浮倒计时卡也是「组件」组里的一行（2026-10-21）：它没有资产要下，装 / 卸只是
 // 把入口收起来，判据与侧栏「组件 › 工具」读的是同一个 `countdown.installed`
-import { countdown, installCountdown, uninstallCountdown } from '../services/countdown.js'
+import {
+  COUNTDOWN_AUTO_INSTALL_KEY,
+  countdown,
+  installCountdown,
+  uninstallCountdown,
+} from '../services/countdown.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { MEMORY_LIMIT_OPTIONS, TIME_LIMIT_OPTIONS } from '../services/runner.js'
 import {
@@ -525,48 +528,6 @@ const appearanceRows = computed(() => APPEARANCE_ROWS.filter((row) => row.when?.
 // 一次会话里切来切去能记住上次看的那一类，关掉页签再打开也不丢。
 // 初值是「外观」（2026-10-11 起）：原先有个排在最前的「常用设置」分类，只是把外观 / 编辑器
 // 里的高频项再摆一份、共用同一份偏好，现已删掉，默认落点顺势交给紧随其后的「外观」。
-// ---------------------------------------------------------------- 通知演示
-// 「应用」节里那组演示按钮（模板见 activeSection === 'app' 末尾）。系统暂不接业务事件，
-// 这里手动造四种类型各一条：时长与原型（ide_notification_system.html）一致 ——
-// info 3s / success 5s / warning 10s / error 常驻。将来接业务后，这一块连同词条
-// （messages/notifications.js 的 demo 组）按约定一起删。
-const DEMO_DURATIONS = { info: 3000, success: 5000, warning: 10000, error: 0 }
-
-function fireDemo(type) {
-  notify({
-    type,
-    title: t(`notifications.demo.${type}Title`),
-    message: t(`notifications.demo.${type}Body`),
-    duration: DEMO_DURATIONS[type] ?? 0,
-  })
-}
-
-function clearDemos() {
-  dismissAllNotifications()
-}
-
-/** 操作按钮演示：撤销会真的「做一件事」—— 再发一条成功通知（回调里 notify 的链式用法）；忽略没给回调，点了只是关掉 */
-function fireDemoActions() {
-  notify({
-    type: 'info',
-    title: t('notifications.demo.actionTitle'),
-    message: t('notifications.demo.actionBody'),
-    actions: [
-      {
-        label: t('notifications.demo.undo'),
-        run: () =>
-          notify({
-            type: 'success',
-            title: t('notifications.demo.undoneTitle'),
-            message: t('notifications.demo.undoneBody'),
-            duration: 3000,
-          }),
-      },
-      { label: t('notifications.demo.ignore') },
-    ],
-  })
-}
-
 const SECTIONS = [
   // 工作区只在桌面端可见（打开本机文件夹是 Tauri 壳独有的能力），见下面 visibleSections
   { id: 'workspace', titleKey: 'settings.section.workspace', icon: 'folder' },
@@ -624,8 +585,18 @@ const activeSection = ref('appearance')
 
 // 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
 // 录制、冲突红字、阻止绑定都收在 HotkeyRecorder 内部（它要一边录一边校验）。
-// `bindings` 只给写死的动作（`fixed`，资源管理器那三条）出只读徽标用。
+// `bindings` 只给写死的动作（`fixed`）出只读徽标用 —— 三条 `fixed` 动作现在都带
+// `hideInSettings`、不出现在这个列表里，所以眼下没有渲染点；留着这一支是为了将来
+// 真有「写死但仍要露个键位」的动作时不用再回来改模板。
 const { bindings, resetAll } = useShortcutManager()
+
+// 面板只列「能改」的动作：资源管理器那三条（重命名 / 删除 / 全选）键位写死、面板里没有可点的
+// 控件，只留一行只读徽标纯属噪声（2026-10-25 用户口径「删去设置页面快捷键的这几项」）。
+// 它们**仍然在 SHORTCUT_ACTIONS 与 bindings 里** —— 执行、冲突检测、文件树右键菜单右列的键位
+// 都读那份表，别顺手把它们从数据里删掉。
+const settingsShortcutActions = computed(() =>
+  SHORTCUT_ACTIONS.filter((action) => !action.hideInSettings),
+)
 
 // 桌面端（Tauri）关掉的那几块 —— PWA 安装入口、本地运行环境下载、浏览器扩展 ——
 // 在这里一次性读出来给模板用（判定见 services/platform.js）。
@@ -1158,6 +1129,9 @@ async function confirmUninstall() {
   // 倒计时同样不是 RUNTIMES 那一套：没有资产可删，卸的是入口与计时现场
   if (entry.id === COUNTDOWN_UNINSTALL_TARGET.id) {
     uninstallCountdown()
+    // 与抽题那一支同一个理由：「卸载」是在说「别留在这台设备」，「默认安装」是在说
+    // 「每次启动装回来」，两个意图直接冲突。留着开关的话下次打开站点它又被装回去。
+    if (countdownAutoInstall.value) countdownAutoInstall.value = false
     return
   }
   if (uninstallingId.value) return
@@ -1250,6 +1224,12 @@ const cfHint = computed(() => {
   return t('cf.module.idleHint')
 })
 
+// 抽题组件那一行拆出来的「比赛」行（2026-10-25）：它与上一行共用同一份题库，
+// 所以没有自己的下载 / 卸载，提示只说「现在能不能用、去哪一行装」。
+const cfContestHint = computed(() =>
+  cfReady.value ? t('cf.module.contestSharedHint') : t('cf.module.contestIdleHint'),
+)
+
 // 同 buttonLabel：就绪态按钮不画
 const cfButtonLabel = computed(() => {
   if (cfBusy.value) return t('runtime.button.downloading')
@@ -1313,6 +1293,21 @@ const countdownHint = computed(() =>
 function requestCountdownUninstall() {
   if (!countdownInstalled.value) return
   pendingUninstall.value = COUNTDOWN_UNINSTALL_TARGET
+}
+
+/**
+ * 倒计时的「默认安装」开关（2026-10-25）。与 cfAutoInstall 同形：这里是**唯一的写入口**，
+ * 启动时由 main.js 调 readCountdownAutoInstall() 读同一个键执行；两处共用
+ * COUNTDOWN_AUTO_INSTALL_KEY，不各写一份字面量。
+ * 缺省 true —— 这个组件本来就默认装着，新增这个开关不该改变任何人的现状。
+ */
+const countdownAutoInstall = usePersistentRef(COUNTDOWN_AUTO_INSTALL_KEY, true)
+
+function toggleCountdownAutoInstall() {
+  countdownAutoInstall.value = !countdownAutoInstall.value
+  // 从关到开、而本机确实卸过：立刻装回来（入口就在下一秒的「组件 › 工具」里），
+  // 不必等下次启动 —— 与抽题那颗「开了就补装」同形。
+  if (countdownAutoInstall.value && !countdown.installed) installCountdown()
 }
 
 /**
@@ -2036,7 +2031,7 @@ watch(pendingUnbind, (open) => {
         </p>
 
         <div
-          v-for="action in SHORTCUT_ACTIONS"
+          v-for="action in settingsShortcutActions"
           :key="action.id"
           class="setting-row setting-row--action"
         >
@@ -2047,7 +2042,9 @@ watch(pendingUnbind, (open) => {
             <span v-if="action.hintKey" class="setting-row__hint">{{ t(action.hintKey) }}</span>
           </span>
           <span class="setting-row__control">
-            <!-- 写死的键位（`fixed`）：只读徽标，不给录制框也不给清除钮 -->
+            <!-- 写死的键位（`fixed`）：只读徽标，不给录制框也不给清除钮。
+                 目前没有走到这里的数据 —— 三条 `fixed` 都带 `hideInSettings`（整行不画），
+                 留着这一支是为了「以后有写死但仍要露键位的动作」时不必回来改模板。 -->
             <kbd
               v-if="action.fixed"
               class="shortcut-key is-fixed"
@@ -2296,13 +2293,13 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__note">{{ t('cf.module.groupNote') }}</p>
 
         <div class="runtime-list">
-          <!-- 抽题组件：默认安装的组件（下载 = 预取 Codeforces 题库，启动时自动进行）。
-               与上面三个共用 .runtime-list / .runtime-row 的外观，但状态机在 services/cfRuntime.js 里 ——
-               下载完侧栏才亮出那颗按钮，所以「已下载」这件事必须与侧栏同源。 -->
+          <!-- 抽题组件（2026-10-25 拆成两行）：组件菜单里「随机抽题」与「比赛」是两格，
+               设置这边也照着列 —— 但它们在磁盘上是**一份资产**（同一份题库、同一个 cfReady），
+               所以装 / 卸只放在随机抽题这一行，比赛那一行只报状态，别造出两颗做同一件事的按钮。 -->
           <div class="runtime-row">
             <span class="runtime-row__icon is-codeforces"><AppIcon name="codeforces" :size="17" /></span>
             <span class="runtime-row__text">
-              <span class="runtime-row__title">{{ t('cf.module.title') }}</span>
+              <span class="runtime-row__title">{{ t('cf.menu.picker') }}</span>
               <span class="runtime-row__hint">
                 <span class="app-dot" :class="cfDotClass"></span>
                 <span v-if="cfHint">{{ cfHint }}</span>
@@ -2342,10 +2339,28 @@ watch(pendingUnbind, (open) => {
             </div>
           </div>
 
+          <!-- 比赛：状态跟着上面那一行走（同一个 cfReady / 同一颗状态点），没有自己的按钮 ——
+               装 / 卸都会连带另一行，藏在这里再放一颗只会让人以为能分开卸。 -->
+          <div class="runtime-row">
+            <span class="runtime-row__icon is-codeforces"><AppIcon name="flag" :size="17" /></span>
+            <span class="runtime-row__text">
+              <span class="runtime-row__title">{{ t('cf.menu.contest') }}</span>
+              <span class="runtime-row__hint">
+                <span class="app-dot" :class="cfDotClass"></span>
+                <span>{{ cfContestHint }}</span>
+              </span>
+            </span>
+          </div>
+
           <!-- 倒计时（2026-10-21 加）：内置组件，没有要下的资产 —— 装 / 卸只是让侧栏
                「组件 › 工具」里那一格出现或消失。判据与那边读同一个 countdown.installed。 -->
           <div class="runtime-row">
-            <span class="runtime-row__icon"><AppIcon name="timer" :size="17" /></span>
+            <!-- 图标用 clock 而不是 timer（2026-10-25 用户指定）：栏上那一格、页签、
+                 齿轮菜单一律是 clock，这一行是最后一处 timer；`timer` 那条图标本身仍留着，
+                 别顺手删（它还在 AppIcon 的表里供别处使用）。
+                 `is-countdown` 只做上色：本地运行环境那三行与上面抽题 / 比赛两行都是蓝色系，
+                 这一行留在基础的 --text-dim 会读成「未安装」（2026-10-25 用户要求与上方几个一致）。 -->
+            <span class="runtime-row__icon is-countdown"><AppIcon name="clock" :size="17" /></span>
             <span class="runtime-row__text">
               <span class="runtime-row__title">{{ t('countdown.title') }}</span>
               <span class="runtime-row__hint">
@@ -2375,38 +2390,6 @@ watch(pendingUnbind, (open) => {
               </button>
             </div>
           </div>
-        </div>
-
-        <!-- 通知演示（2026-10-12 加）：通知系统已上线但暂未接业务事件，这组按钮是
-             唯一的触发口。形态借用 download-button，不再另造一套按钮样式。 -->
-        <p class="setting-subtitle">{{ t('notifications.demo.label') }}</p>
-        <p class="setting-group__note">{{ t('notifications.demo.note') }}</p>
-
-        <div class="notif-demo">
-          <button class="download-button" :title="t('notifications.demo.infoBody')" @click="fireDemo('info')">
-            <AppIcon name="info" :size="13" />
-            <span>{{ t('notifications.demo.info') }}</span>
-          </button>
-          <button class="download-button" :title="t('notifications.demo.successBody')" @click="fireDemo('success')">
-            <AppIcon name="check" :size="13" />
-            <span>{{ t('notifications.demo.success') }}</span>
-          </button>
-          <button class="download-button" :title="t('notifications.demo.warningBody')" @click="fireDemo('warning')">
-            <AppIcon name="alert" :size="13" />
-            <span>{{ t('notifications.demo.warning') }}</span>
-          </button>
-          <button class="download-button" :title="t('notifications.demo.errorBody')" @click="fireDemo('error')">
-            <AppIcon name="error" :size="13" />
-            <span>{{ t('notifications.demo.error') }}</span>
-          </button>
-          <button class="download-button" :title="t('notifications.demo.actionBody')" @click="fireDemoActions">
-            <AppIcon name="check" :size="13" />
-            <span>{{ t('notifications.demo.action') }}</span>
-          </button>
-          <button class="download-button" :title="t('notifications.close')" @click="clearDemos">
-            <AppIcon name="trash" :size="13" />
-            <span>{{ t('notifications.demo.clear') }}</span>
-          </button>
         </div>
 
       </section>
@@ -2896,12 +2879,17 @@ watch(pendingUnbind, (open) => {
         </template>
 
         <!-- 「默认安装」开关：与上面那组预下载同为**偏好**，所以也归在云同步这边、
-             跟着账号走；抽题组件本机的安装状态在「应用」一栏的组件行里。 -->
+             跟着账号走；本机的安装状态在「应用」一栏的组件行里。
+             2026-10-25 起与「应用 › 组件」一一对应成三行（随机抽题 / 比赛 / 倒计时）——
+             前两行在磁盘上是同一份题库，所以两个开关读写的也是同一个键，会一起动。
+             **三行之间不留说明段落**（2026-10-25 用户要求去掉「比赛」下面那段）：说明一旦插在
+             行与行中间，`.setting-row + .setting-row` 那条分割线就因为不再是相邻兄弟而消失，
+             而且三行本来就是一个整齐的开关组，注释放进 tooltip 与分组末尾就够了。 -->
         <p class="setting-subtitle">{{ t('cf.module.autoInstall.label') }}</p>
         <div class="setting-row setting-row--switch">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('cf.module.title') }}</span>
+              <span class="setting-row__label">{{ t('cf.menu.picker') }}</span>
             </span>
           </span>
           <span class="setting-row__control">
@@ -2911,15 +2899,57 @@ watch(pendingUnbind, (open) => {
               :class="{ 'is-on': cfAutoInstall }"
               role="switch"
               :aria-checked="cfAutoInstall"
-              :aria-label="t('cf.module.autoInstall.switchTitle')"
-              :title="t('cf.module.autoInstall.switchTitle')"
+              :aria-label="t('cf.module.autoInstall.pickerSwitchTitle')"
+              :title="t('cf.module.autoInstall.pickerSwitchTitle')"
               @click="toggleCfAutoInstall"
             >
               <span class="switch__thumb"></span>
             </button>
           </span>
         </div>
-        <p class="setting-group__note">{{ t('cf.module.autoInstall.note') }}</p>
+        <div class="setting-row setting-row--switch">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('cf.menu.contest') }}</span>
+            </span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              type="button"
+              class="switch"
+              :class="{ 'is-on': cfAutoInstall }"
+              role="switch"
+              :aria-checked="cfAutoInstall"
+              :aria-label="t('cf.module.autoInstall.contestSwitchTitle')"
+              :title="t('cf.module.autoInstall.contestSwitchTitle')"
+              @click="toggleCfAutoInstall"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+        </div>
+        <div class="setting-row setting-row--switch">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('countdown.title') }}</span>
+            </span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              type="button"
+              class="switch"
+              :class="{ 'is-on': countdownAutoInstall }"
+              role="switch"
+              :aria-checked="countdownAutoInstall"
+              :aria-label="t('countdown.module.autoInstall.switchTitle')"
+              :title="t('countdown.module.autoInstall.switchTitle')"
+              @click="toggleCountdownAutoInstall"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+        </div>
+        <p class="setting-group__note">{{ t('countdown.module.autoInstall.note') }}</p>
       </section>
 
       <!-- 危险区域（2026-10-24 按设置页规范加）：只收「一旦点了就得重新走一遍证明」的操作。
@@ -3473,15 +3503,6 @@ watch(pendingUnbind, (open) => {
   min-width: 0;
 }
 
-/* 通知演示那排按钮（「应用」节末尾）：按钮本体走 .download-button，这里只管排布 ——
-   一排放不下就换行，不与上面那种「行尾对齐」的控制列混用 */
-.notif-demo {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 18px 14px;
-}
-
 /* 一行：图标方块 + 标题 / 状态 + 行尾按钮。左右内边距与 .setting-row 对齐，
    好让图标方块和同栏其他行的文字落在同一条左边线上 */
 .runtime-row {
@@ -3524,10 +3545,16 @@ watch(pendingUnbind, (open) => {
   color: var(--icon-markdown);
 }
 
-/* 抽题组件那一行：它是品牌标志（不是语言），页头与页签里仍走 currentColor，
-   所以这个类只加在设置页这一行上 */
+/* 抽题与比赛两行：它们是同一个品牌（不是语言），页头与页签里仍走 currentColor，
+   所以这个类只加在设置页这两行上 */
 .runtime-row__icon.is-codeforces {
   color: var(--icon-codeforces);
+}
+
+/* 倒计时那一行（2026-10-25）：它没有品牌色，但这一组图标都在同一条蓝色线上 ——
+   留着基础类的 --text-dim 会显得像「未安装 / 禁用」。取与相邻那枚同一支蓝（见 base.css） */
+.runtime-row__icon.is-countdown {
+  color: var(--icon-countdown);
 }
 
 .runtime-row__text {
@@ -3700,8 +3727,9 @@ a.download-button {
   color: var(--text-faint);
 }
 
-/* 快捷键分组里那三个写死的键位（`fixed`）：跟同一列的录制框对齐（.hotkey 是 28px /
-   圆角 5 / 最小 124px）；.shortcut-key 本身的 30px 是配「组件」分组那些 30px 按钮的 */
+/* 快捷键分组里的只读键位徽标（`fixed`）：跟同一列的录制框对齐（.hotkey 是 28px /
+   圆角 5 / 最小 124px）；.shortcut-key 本身的 30px 是配「组件」分组那些 30px 按钮的。
+   当前没有渲染对象（三条 `fixed` 都 `hideInSettings`），规则连同那一支模板一起留着待用 */
 .shortcut-key.is-fixed {
   justify-content: center;
   min-width: 124px;
@@ -4134,8 +4162,7 @@ a.download-button {
     padding-right: 12px;
   }
 
-  .setting-group__note,
-  .notif-demo {
+  .setting-group__note {
     margin-left: 12px;
     margin-right: 12px;
   }

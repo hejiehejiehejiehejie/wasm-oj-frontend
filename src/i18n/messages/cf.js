@@ -15,21 +15,25 @@ export default {
         /** 设置 › 应用 里的分区标题 */
         group: '组件',
         groupNote:
-          '随机抽题、比赛与倒计时默认安装（题库约 2MB）；此处显示安装状态，失败可重试。「默认安装」开关在云同步。',
+          '随机抽题、比赛与倒计时默认安装；此处显示本机状态，失败可重试。比赛与随机抽题共用同一份题库（约 2MB），装 / 卸都在「随机抽题」那一行。「默认安装」开关在云同步。',
         title: 'Codeforces',
-        idleHint: '按难度与标签抽题、按链接看比赛；题库约 2MB，仅下载一次',
+        idleHint: '按难度与标签抽题；题库约 2MB，仅下载一次',
         downloadTitle: '下载 / 重试 Codeforces 题库',
+        /** 「比赛」那一行没有自己的装 / 卸（题库与抽题共用），只报状态 */
+        contestSharedHint: '与「随机抽题」共用同一份题库；已就绪，贴链接即可看比赛',
+        contestIdleHint: '与「随机抽题」共用同一份题库；装好上一行后可用',
         /** 卸载：与运行环境那三行共用同一颗确认弹窗，所以要的也是这两个 key
             （action 那版不带问号，是行内按钮的 tooltip） */
         uninstallActionTitle: '卸载「{title}」',
         uninstallTitle: '卸载「{title}」？',
         uninstallHint:
           '删除本机题库（约 2MB）并关闭抽题与比赛页签，同时关掉「默认安装」；可随时重新下载。',
-        /** 设置 › 云同步 里的「默认安装」开关（跟在「预下载」一组，同为云同步的偏好） */
+        /** 设置 › 云同步 里的「默认安装」开关（跟在「预下载」一组，同为云同步的偏好）。
+            2026-10-25 起按「应用 › 组件」的三行拆成三枚：前两枚是同一个键（题库共用）。 */
         autoInstall: {
           label: '默认安装',
-          switchTitle: '打开站点时自动安装 Codeforces 组件',
-          note: '每次打开站点检查题库，缺失时自动下载（约 2MB）。',
+          pickerSwitchTitle: '打开站点时自动安装「随机抽题」的题库',
+          contestSwitchTitle: '「比赛」与「随机抽题」共用同一份题库，这枚开关与上面那颗同步',
         },
         downloading: '正在获取 Codeforces 题库…',
         /** Worker 推的阶段码 → 文案 */
@@ -164,21 +168,23 @@ export default {
       module: {
         group: 'Components',
         groupNote:
-          'Random problems, contests and the countdown install by default (~2MB); failures can be retried. “Install by default” lives under Cloud sync.',
+          'Random problem, Contest and Countdown install by default; this list shows local state and lets you retry failures. Contest shares one problem bank (~2MB) with Random problem, so both install and uninstall happen on the “Random problem” row. “Install by default” lives under Cloud sync.',
         title: 'Codeforces',
-        idleHint:
-          'Random problems by difficulty and tags, plus contest tracking by link. ~2MB, downloaded once.',
+        idleHint: 'Random problems by difficulty and tags; the problem bank (~2MB) is downloaded once',
         downloadTitle: 'Download / retry the Codeforces problemset',
+        /** 「比赛」那一行没有自己的装 / 卸（题库与抽题共用），只报状态 */
+        contestSharedHint: 'Shares the problem bank with “Random problem”; it is ready — paste a link to follow a contest',
+        contestIdleHint: 'Shares the problem bank with “Random problem”; available once the row above is installed',
         /** 同 zh-CN：卸载走运行环境那颗共用弹窗，要的也是这两个 key */
         uninstallActionTitle: 'Uninstall "{title}"',
         uninstallTitle: 'Uninstall "{title}"?',
         uninstallHint:
           'Deletes the cached problemset (~2MB), closes the picker and contest tabs, and turns off “install by default”. You can download it again at any time.',
-        /** 同 zh-CN：云同步栏里的「默认安装」开关 */
+        /** 同 zh-CN：云同步栏里的「默认安装」开关，2026-10-25 拆成按组件三枚 */
         autoInstall: {
           label: 'Install by default',
-          switchTitle: 'Install the Codeforces component when the site opens',
-          note: 'Every visit checks for the problemset and downloads it (~2MB) if missing.',
+          pickerSwitchTitle: 'Install the problem bank for “Random problem” when the site opens',
+          contestSwitchTitle: '“Contest” shares the same bank as “Random problem”, so this switch mirrors the one above',
         },
         downloading: 'Fetching the Codeforces problemset…',
         stage: {

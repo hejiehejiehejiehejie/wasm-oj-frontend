@@ -41,6 +41,11 @@ export default {
         uninstallTitle: '卸载「{title}」？',
         uninstallHint:
           '关闭悬浮卡并清除计时，入口从「组件 › 工具」移除；位置与尺寸保留，可随时重新安装。',
+        /** 设置 › 云同步 › 默认安装 里那一枚（2026-10-25 加，与抽题那两枚并列） */
+        autoInstall: {
+          switchTitle: '打开站点时自动启用「倒计时」组件',
+          note: '内置组件，没有需要下载的内容；每次打开站点时把它放回「组件 › 工具」。',
+        },
       },
     },
   },
@@ -79,6 +84,10 @@ export default {
         uninstallTitle: 'Uninstall "{title}"?',
         uninstallHint:
           'Closes the card, discards the timer and removes it from Components › Tools; position and size are kept.',
+        autoInstall: {
+          switchTitle: 'Enable the Countdown component when the site opens',
+          note: 'A built-in component with nothing to download; each visit puts it back under Components › Tools.',
+        },
       },
     },
   },

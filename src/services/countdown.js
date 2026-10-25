@@ -114,6 +114,28 @@ function load() {
 
 export const countdown = reactive(load())
 
+/**
+ * 「默认安装」开关的落盘键（2026-10-25 加）。
+ *
+ * 与 cfRuntime 的 `cp.cfPicker.autoInstall` 同一档：它是**偏好**（要不要自动装），
+ * 所以进 `cloudProfile.js` 的同步白名单；上面 `COUNTDOWN_KEY` 里的 `installed` 才是
+ * 「这台设备此刻装没装」的事实，不进。写法也照 cfRuntime：键就定义在服务这里、
+ * 由本模块导出，设置面板不另写一份字面量。
+ */
+export const COUNTDOWN_AUTO_INSTALL_KEY = 'cp.countdown.autoInstall'
+
+/**
+ * 读「默认安装」开关。坏值 / 缺省一律按 `true`：这个组件一直是默认装着的
+ * （老存档里根本没有这个键），把「没有键」读成 false 会等于悄悄卸载了它。
+ */
+export function readCountdownAutoInstall() {
+  try {
+    return JSON.parse(window.localStorage.getItem(COUNTDOWN_AUTO_INSTALL_KEY)) !== false
+  } catch {
+    return true
+  }
+}
+
 /** 计时的心跳；与状态分开，以免每 200ms 触发一次落盘 */
 export const countdownNow = ref(Date.now())
 
