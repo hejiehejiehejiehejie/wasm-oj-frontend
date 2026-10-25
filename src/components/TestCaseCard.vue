@@ -265,10 +265,24 @@ const outputView = computed(() => {
   return { long: true, text: `${body}${MARKER_SEED}`, hidden: fmt(text.length - body.length) }
 })
 
+/**
+ * 耗时文案。三档，分界点是 10ms 而不是 1ms：
+ *
+ *   `≥ 1s`   → `1.23 s`
+ *   `< 10ms` → 一位小数（`0.4 ms`）。沙箱换代后只计 `_start()`，`cout` 一行这种程序
+ *              常在半毫秒以内，取整会把它们全显示成 `0 ms`，看起来像根本没运行。
+ *   `其余`   → 整数毫秒（`123 ms`）。这一段一位小数没有信息量，反而拉长卡片。
+ *
+ * 后端已经只保留到 0.1ms（`wasi/host.js` 的 `runMs`），这里只负责摘掉尾零。
+ */
 const timing = computed(() => {
   const { durationMs } = props.testCase
   if (durationMs === null || durationMs === undefined) return ''
-  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(2)} s` : `${durationMs} ms`
+  const ms = Math.round(durationMs * 10) / 10
+  if (ms < 10) return `${ms.toFixed(1)} ms`
+  // 进位到 1000 的边界（999.6）也要切秒，否则会显示成 `1000 ms`
+  const whole = Math.round(ms)
+  return whole >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${whole} ms`
 })
 
 /**

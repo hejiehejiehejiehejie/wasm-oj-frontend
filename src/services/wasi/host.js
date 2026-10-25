@@ -1111,7 +1111,10 @@ export function runWasiModule(module, options = {}) {
     exitCode,
     stdout,
     stderr,
-    runMs: Math.round(runMs),
+    // 保留到 0.1ms，**不取整**：这一代只计 `_start()`，`cout` 一行这种程序真的跑不到
+    // 1ms，取整会把它们全显示成 `0 ms`，看起来像没运行。TLE 判定吃的是同一个值
+    // （wasmRuntime 拿它与用例时限比），保留小数只会更准，不会更松。
+    runMs: Math.round(runMs * 10) / 10,
     memoryBytes: state.memory.buffer.byteLength,
     sbrkFailures,
     trap,
