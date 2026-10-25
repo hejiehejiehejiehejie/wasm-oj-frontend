@@ -145,6 +145,21 @@ export default {
       pchFailed: '预编译头生成失败（clang 退出码 {code}）',
       oomProbeFailed: '内存探针编译失败（clang 退出码 {code}）',
       programExitCode: '程序退出码 {code}',
+      // wasm trap 的「人话 + 原文」：括号里保留 V8 的原文，方便用户拿它去搜
+      // （中文部分是归类，不是翻译——同一个 trap 在不同浏览器上措辞可能不同，所以按正则归）
+      trapOutOfBounds: '内存访问越界（{raw}）',
+      trapUnreachable: '执行到不可达指令，程序已被中止（{raw}）',
+      trapDivideByZero: '整数除以零（{raw}）',
+      trapRemainderByZero: '整数取模除零（{raw}）',
+      trapIntegerOverflow: '整数溢出（{raw}）',
+      trapInvalidConversion: '非法的整数转换（{raw}）',
+      trapTableIndex: '函数表索引越界（{raw}）',
+      trapNullFunction: '调用了空函数指针（{raw}）',
+      trapStackOverflow: '调用栈溢出（{raw}）',
+      // C++ 未捕获异常（throw / vector::at 越界 / std::stoi 抛 invalid_argument）。
+      // 宿主只能拿到 `Exception: [object WebAssembly.Exception]` 这一串，拿不到 what()，
+      // 所以不套 {raw}（那串字面对用户没有信息量）。2026-10-25 加。
+      trapUncaught: '未捕获的 C++ 异常，程序已被中止',
       compileTimeout: '本地编译超过 {seconds} 秒未返回，已中断。',
       prepareTimeout: '运行环境准备超过 {seconds} 秒未返回，已中断，请检查网络后重试。',
 
@@ -326,6 +341,19 @@ export default {
       pchFailed: 'Failed to build the precompiled header (clang exited with {code})',
       oomProbeFailed: 'Failed to build the memory probe (clang exited with {code})',
       programExitCode: 'Program exited with {code}',
+      // 英文侧不再把原文放进括号：英文原文本身就是这句话，套上去只会变成
+      // "Memory access out of bounds (memory access out of bounds)"（2026-10-25 实测撞到）
+      trapOutOfBounds: 'Memory access out of bounds',
+      trapUnreachable: 'Program aborted: hit an unreachable instruction',
+      trapDivideByZero: 'Integer division by zero',
+      trapRemainderByZero: 'Integer remainder by zero',
+      trapIntegerOverflow: 'Integer overflow',
+      trapInvalidConversion: 'Invalid conversion to integer',
+      trapTableIndex: 'Function table index out of bounds',
+      trapNullFunction: 'Called a null function pointer',
+      trapStackOverflow: 'Call stack overflow',
+      /** 见 zh-CN：未捕获的 C++ 异常，正文里不带那串 `[object WebAssembly.Exception]` */
+      trapUncaught: 'Uncaught C++ exception — the program was aborted',
       compileTimeout:
         'Local compilation did not return within {seconds} s and was interrupted.',
       prepareTimeout:

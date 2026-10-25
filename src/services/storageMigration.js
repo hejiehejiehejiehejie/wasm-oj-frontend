@@ -1,5 +1,8 @@
 /**
- * localStorage 键名前缀迁移：cph.* -> cp.*
+ * 启动期的 localStorage 迁移。两件事：
+ *
+ * ① 键名前缀迁移：cph.* -> cp.*
+ * ② 一次性默认值升级：`cp.timeLimitMs` 从 1000 → 2000（见 `bumpTimeLimitDefault`）
  *
  * 【为什么必须是 main.js 的第一个 import】
  * i18n/index.js、composables/useShortcutManager.js、services/mdView.js 在**模块求值阶段**
@@ -60,4 +63,36 @@ export function migrateStorageKeys(storage = window.localStorage) {
   }
 }
 
+/**
+ * `cp.timeLimitMs` 的默认值从 1 s 改成 2 s（2026-10-25）。标记写过就不再动它。
+ *
+ * 为什么要这一步：`usePersistentRef` 在**挂载时就写一次**，所以凡是打开过本站的浏览器，
+ * localStorage 里都躺着一条显式的 `1000` —— 只改 `runner.js` 的常量，老用户（包括开发者
+ * 自己）看到的仍然是 1 s，等于没改。这里只认「恰好等于老默认 1000」的那一种，
+ * 手选过 2 / 5 / 10 s 的一律不动；标记落地后再手动调回 1 s 也不会被反复顶回去。
+ *
+ * 数字**刻意写死**，不 import `runner.js`：那条链会拉起 i18n，而 i18n 在模块求值阶段
+ * 就要读键（见文件头），本模块必须排在它前面。
+ */
+const TIME_LIMIT_FLAG = 'cp.timeLimitDefault2s'
+const TIME_LIMIT_KEY = 'cp.timeLimitMs'
+const TIME_LIMIT_OLD_DEFAULT_MS = 1000
+const TIME_LIMIT_NEW_DEFAULT_MS = 2000
+
+export function bumpTimeLimitDefault(storage = window.localStorage) {
+  try {
+    if (storage.getItem(TIME_LIMIT_FLAG)) return false
+    const raw = storage.getItem(TIME_LIMIT_KEY)
+    if (raw !== null && Number(JSON.parse(raw)) === TIME_LIMIT_OLD_DEFAULT_MS) {
+      storage.setItem(TIME_LIMIT_KEY, JSON.stringify(TIME_LIMIT_NEW_DEFAULT_MS))
+    }
+    storage.setItem(TIME_LIMIT_FLAG, '1')
+    return true
+  } catch {
+    // 隐私模式 / 值不是 JSON：跳过，别挡住启动
+    return false
+  }
+}
+
 migrateStorageKeys()
+bumpTimeLimitDefault()

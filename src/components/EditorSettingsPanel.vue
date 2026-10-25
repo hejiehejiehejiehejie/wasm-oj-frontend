@@ -624,7 +624,8 @@ const activeSection = ref('appearance')
 
 // 站点内快捷键：绑定表与冲突规则都在 useShortcutManager 里，这里只做界面。
 // 录制、冲突红字、阻止绑定都收在 HotkeyRecorder 内部（它要一边录一边校验）。
-const { resetAll } = useShortcutManager()
+// `bindings` 只给写死的动作（`fixed`，资源管理器那三条）出只读徽标用。
+const { bindings, resetAll } = useShortcutManager()
 
 // 桌面端（Tauri）关掉的那几块 —— PWA 安装入口、本地运行环境下载、浏览器扩展 ——
 // 在这里一次性读出来给模板用（判定见 services/platform.js）。
@@ -2046,7 +2047,15 @@ watch(pendingUnbind, (open) => {
             <span v-if="action.hintKey" class="setting-row__hint">{{ t(action.hintKey) }}</span>
           </span>
           <span class="setting-row__control">
-            <HotkeyRecorder :action-id="action.id" />
+            <!-- 写死的键位（`fixed`）：只读徽标，不给录制框也不给清除钮 -->
+            <kbd
+              v-if="action.fixed"
+              class="shortcut-key is-fixed"
+              :title="t('settings.shortcut.fixedKey')"
+            >
+              {{ formatCombo(bindings[action.id]) }}
+            </kbd>
+            <HotkeyRecorder v-else :action-id="action.id" />
           </span>
         </div>
 
@@ -3689,6 +3698,15 @@ a.download-button {
 
 .shortcut-key.is-empty {
   color: var(--text-faint);
+}
+
+/* 快捷键分组里那三个写死的键位（`fixed`）：跟同一列的录制框对齐（.hotkey 是 28px /
+   圆角 5 / 最小 124px）；.shortcut-key 本身的 30px 是配「组件」分组那些 30px 按钮的 */
+.shortcut-key.is-fixed {
+  justify-content: center;
+  min-width: 124px;
+  height: 28px;
+  border-radius: 5px;
 }
 
 .setting-code {

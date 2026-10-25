@@ -57,6 +57,26 @@ const WASM_PATH_SEGMENT = '/wasm/'
 const SOURCE_PATH = '/program.cpp'
 const OBJECT_PATH = '/program.o'
 const BINARY_PATH = '/program.wasm'
+
+/**
+ * 把编译器诊断里的沙箱内路径换回用户的实际文件名（只改**显示文本**）。
+ *
+ * 用户代码永远写进 `/program.cpp` 再编，于是 clang 的每条诊断都长这样：
+ * `/program.cpp:2:21: error: expected expression` —— 而用户的文件叫 `main.cpp`，
+ * 行号对得上的那个路径在界面上根本不存在，看着像别人的报错（2026-10-25 用户问到这里）。
+ *
+ * 不动编译用的路径是有意的：真把源码写进 entryPath，遇到 `/a/b/c.cpp` 这类带目录的名字
+ * 还得先建目录，而宿主那边 mkdir 是残缺实现（见上面 PCH 那段的说明）。
+ *
+ * @param {string} text 编译器 stderr / 失败原因
+ * @param {string} [entryPath] 用户文件的 VFS 路径，如 `/main.cpp`
+ */
+export function withSourceName(text, entryPath) {
+  const raw = String(text ?? '')
+  const name = typeof entryPath === 'string' ? entryPath.trim() : ''
+  if (!raw || !name || name === SOURCE_PATH) return raw
+  return raw.split(SOURCE_PATH).join(name)
+}
 // 内存证据探针（见 OOM_PROBE_SOURCE）：每次链接都带上，用来把「分配真的失败过」
 // 和「其它任何 134」分开。
 const OOM_PROBE_PATH = '/oj_oom_probe.cpp'

@@ -15,7 +15,7 @@ const LANGUAGE_UNSUPPORTED = (engine) =>
 
 // 全局时限（毫秒），只计程序运行段，不含编译。
 // 本地沙箱靠它 kill 掉跑不完的程序（TLE），远端引擎各自换算成自己的参数。
-export const TIME_LIMIT_DEFAULT_MS = 1000
+export const TIME_LIMIT_DEFAULT_MS = 2000
 export const TIME_LIMIT_OPTIONS = [1000, 2000, 5000, 10000]
 
 // 全局内存上限（字节），与运行时限同口径：所有用例统一，超了判 MLE。
@@ -26,6 +26,25 @@ export const MEMORY_LIMIT_OPTIONS = [64, 128, 256, 512, 1024].map((mb) => mb * 1
 
 function failed(detail, durationMs = null, extra = {}) {
   return { status: 'error', verdict: 'ERR', actualOutput: '', detail, durationMs, ...extra }
+}
+
+/**
+ * 卡片上「时限 / 上限」的写法，与设置页同一套口径（`EditorSettingsPanel` 的
+ * `memoryLimitLabel` 给的是 `256 MB`，时限选项是 `1 / 2 / 5 / 10 s`）。
+ *
+ * 为什么要显示它们（2026-10-25 用户问「TLE / MLE 输出什么」）：原来只有一句
+ * 「运行超时 (TLE)」/「内存超限 (MLE)」，而这两个上限都是可改的全局设置、还能被
+ * 每道题覆盖 —— 不写数字，用户没法判断「是我程序慢，还是我把时限调低了」。
+ * 拿不到值（自检等路径没传）时返回空串，调用方退回不带数字的老文案。
+ */
+function timeLimitLabel(ms) {
+  if (typeof ms !== 'number' || !(ms > 0)) return ''
+  return ms % 1000 === 0 ? `${ms / 1000} s` : `${Math.round(ms)} ms`
+}
+
+function memoryLimitLabel(bytes) {
+  if (typeof bytes !== 'number' || !(bytes > 0)) return ''
+  return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
 /**
@@ -77,23 +96,27 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         durationMs,
       }
 
-    case 'timeout':
+    case 'timeout': {
+      const limit = timeLimitLabel(timeLimitMs)
       return {
         status: 'error',
         verdict: 'TLE',
         actualOutput: result.stdout ?? '',
-        detail: t('tests.outcome.timeout'),
+        detail: limit ? t('tests.outcome.timeout', { limit }) : t('tests.outcome.timeoutPlain'),
         durationMs,
       }
+    }
 
-    case 'mle':
+    case 'mle': {
+      const limit = memoryLimitLabel(memoryLimitBytes)
       return {
         status: 'error',
         verdict: 'MLE',
         actualOutput: result.stdout ?? '',
-        detail: t('tests.outcome.memoryExceeded'),
+        detail: limit ? t('tests.outcome.memoryExceeded', { limit }) : t('tests.outcome.memoryExceededPlain'),
         durationMs,
       }
+    }
 
     case 'runtime-error':
       return {

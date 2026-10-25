@@ -5,7 +5,9 @@
  *   1. 第一次 init 时把 sysroot 解成 MemoryFs、把 clang / wasm-ld 编成
  *      `WebAssembly.Module`，之后**常驻**（不再每次 run 重新实例化 + 整份 clone）；
  *   2. 按消息跑 compile / link / run / syntax，输出只回传结果与产物字节；
- *   3. stdout / stderr 按 64 KiB 回传，主线程被 terminate 时至少保留已经吐出来的部分。
+ *   3. stdout / stderr 按 64 KiB 回传；**另有一份逐字节镜像**写进主线程开的
+ *      SharedArrayBuffer（见 stdoutMirror.js），terminate 之后主线程靠它取回
+ *      已经打印出来的部分 —— 消息那条路只够「通常够用」，TLE 必丢尾巴。
  *
  * 同步执行是刻意的：`runWasiModule` 是同步的，阻塞的只是这个 worker；
  * 主线程的看门狗用 `worker.terminate()` 就能打断死循环，代价是下次要重新 init。
@@ -13,6 +15,7 @@
 
 import { MemoryFs, runWasiModule } from './host.js'
 import { untarFiles } from './tar.js'
+import { wrapMirror } from './stdoutMirror.js'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -239,12 +242,15 @@ async function main(message) {
       return { exitCode: 134, stdout: '', stderr: '', trap: `compile: ${String(error)}`, runMs: 0, memoryBytes: 0, sbrkFailures: null }
     }
     const stdin = message.stdin instanceof Uint8Array ? message.stdin : encoder.encode(message.stdin ?? '')
+    // 主线程开的镜像：它在 terminate 之后仍可读，是本条路径上「TLE 不丢输出」的唯一保证。
+    const outMirror = message.stdoutSAB ? wrapMirror(message.stdoutSAB) : null
     let out = ''
     let err = ''
     const result = runWasiModule(module, {
       args: ['program', ...(message.args ?? [])],
       fs: new MemoryFs({}, []),
       stdin,
+      outMirror,
       onStdout: (chunk) => {
         out += chunk
         if (out.length >= 64 * 1024) { post({ type: 'stdout', text: out }); out = '' }

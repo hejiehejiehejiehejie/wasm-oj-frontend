@@ -48,6 +48,13 @@ export const IS_MAC =
  * 会被全局吃掉。
  *
  * `aliases`（可选）= 额外认得、但不进绑定表、也不在界面上当当前键位显示的键（见 aliasesOf）。
+ *
+ * `fixed`（可选）= 键位**写死**：不参与录制 / 清除，读盘时一律以默认表为准，设置里只做只读展示。
+ * 目前只有资源管理器那三条（重命名 / 删除 / 全选）。判据（2026-10-25 用户口径「这几个设置
+ * 没有意义，应该固定死」）：它们不是本应用自造的命令，而是文件树的通用约定，而且前两条是
+ * 裸键（F2·Enter / Delete），本来就只靠作用域闸门区分；改绑只会让 ⌘A / Delete / F2 这些肌肉
+ * 记忆失效，也让 hint 里那句平台说明与界面上显示的键位互相打架。**别拿它去「锁」可配置的
+ * 动作** —— 加这一条等于让用户永远失去改绑能力，要有跟上面同级的理由。
  */
 export const SHORTCUT_ACTIONS = [
   { id: 'run', labelKey: 'settings.shortcut.run.label', hintKey: 'settings.shortcut.run.hint', default: 'Mod+Enter' },
@@ -87,6 +94,7 @@ export const SHORTCUT_ACTIONS = [
   // 下面三条（2026-10-10 加前两条、2026-10-12 加全选）与上面那些不是一回事：它们
   // **不跟着焦点走遍全站**，只作用于「资源管理器里当前有焦点的那些行」。执行入口不在
   // SHORTCUT_HANDLERS 里，而是在 App.vue 的 SHORTCUT_TREE_HANDLERS —— 那边先过一道作用域闸门再动手。
+  // 另外（2026-10-25）三条全是 `fixed`：键位写死、只读展示，理由见文件头的 `fixed` 那段。
   {
     /**
      * 重命名（2026-10-20 起按平台分岔）：**Windows / Linux 仍是 F2，macOS 是 Enter**。
@@ -104,6 +112,7 @@ export const SHORTCUT_ACTIONS = [
     default: IS_MAC ? 'Enter' : 'F2',
     aliases: IS_MAC ? ['F2'] : [],
     bareCodes: IS_MAC ? ['Enter'] : [],
+    fixed: true,
   },
   {
     id: 'delete-node',
@@ -113,6 +122,7 @@ export const SHORTCUT_ACTIONS = [
     // Delete 不是功能键，SAFE_BARE_CODES 不放行；这里是它唯一的开口。范围越窄越好：
     // 只点名这一个键，别写成「所有非字母键」。
     bareCodes: ['Delete'],
+    fixed: true,
   },
   {
     /**
@@ -124,6 +134,7 @@ export const SHORTCUT_ACTIONS = [
     labelKey: 'settings.shortcut.selectAllNodes.label',
     hintKey: 'settings.shortcut.selectAllNodes.hint',
     default: 'Mod+KeyA',
+    fixed: true,
   },
 ]
 
@@ -239,15 +250,18 @@ function defaultBindings() {
 }
 
 /**
- * macOS 上「重命名」的老默认键位迁移的一次性标记（2026-10-20）。
+ * macOS 上「重命名」那次迁移（2026-10-20）用过的标记键。
  *
- * 为什么需要迁移：`readBindings` 的口径是「盘里存的值一律优先」，而老用户的盘里躺着
- * `rename-node: 'F2'`。不迁的话，mac 用户升级之后按回车照样改不了名 —— 等于没改。
- *
- * 为什么非要一个标记键：光看「值是 F2」分不清它是「从没动过的默认」还是「用户自己
- * 特意绑回 F2」。迁过一次就记下，此后用户再绑 F2 就是他自己的选择，不再被覆盖。
+ * 迁移本身已经**没有必要**了：2026-10-25 起 `rename-node` 是 `fixed`，读盘时一律用默认值，
+ * 老盘里躺着 `F2` 也影响不到 mac 的回车改名（F2 仍是这个动作的别名键）。这个常量现在只
+ * 剩下「把它从 localStorage 里清掉」一个用途 —— 无主的键不该在用户盘里留着。
  */
-const RENAME_MIGRATION_KEY = 'cp.shortcuts.mac-enter'
+const LEGACY_RENAME_MIGRATION_KEY = 'cp.shortcuts.mac-enter'
+
+/** 键位写死的动作：读盘跳过它，写盘也谢绝 */
+function isFixedAction(actionId) {
+  return Boolean(SHORTCUT_ACTIONS.find((item) => item.id === actionId)?.fixed)
+}
 
 /**
  * 读盘。以默认值打底再套已存的键，这样以后新增动作时老用户也能拿到它的默认键，
@@ -256,17 +270,12 @@ const RENAME_MIGRATION_KEY = 'cp.shortcuts.mac-enter'
 function readBindings() {
   const map = defaultBindings()
   try {
+    localStorage.removeItem(LEGACY_RENAME_MIGRATION_KEY)
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
     if (!stored || typeof stored !== 'object') return map
-    // 一次性迁移：mac 上的老默认 F2 → 新默认 Enter。**先落盘再打标记** ——
-    // 反过来的话（标记写成功、值没写成）下次启动会读到 F2 却不再迁移，从此卡在旧键位上。
-    // F2 不会因此丢掉：它退成了这个动作的别名键（见 aliasesOf），照样能改名。
-    if (IS_MAC && stored['rename-node'] === 'F2' && !localStorage.getItem(RENAME_MIGRATION_KEY)) {
-      stored['rename-node'] = defaultBindings()['rename-node']
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
-      localStorage.setItem(RENAME_MIGRATION_KEY, '1')
-    }
     for (const action of SHORTCUT_ACTIONS) {
+      // 写死的键位不认盘里的值（老用户存过 F2 也不算数），见文件头的 `fixed`
+      if (action.fixed) continue
       if (typeof stored[action.id] === 'string') map[action.id] = stored[action.id]
     }
   } catch {
@@ -503,6 +512,7 @@ function hasModifier(combo) {
 
 /** @param {string} actionId @param {string} combo */
 export function setBinding(actionId, combo) {
+  if (isFixedAction(actionId)) return false
   if (shortcutConflict(actionId, combo)) return false
   bindings.value = { ...bindings.value, [actionId]: combo }
   return true
@@ -510,6 +520,7 @@ export function setBinding(actionId, combo) {
 
 /** @param {string} actionId */
 export function clearBinding(actionId) {
+  if (isFixedAction(actionId)) return
   bindings.value = { ...bindings.value, [actionId]: '' }
 }
 

@@ -262,11 +262,11 @@ export default {
         },
         renameNode: {
           label: '重命名（文件 / 文件夹）',
-          hint: 'Windows / Linux 按 F2，macOS 按回车；焦点需在资源管理器',
+          hint: '焦点需在资源管理器；macOS 上 F2 同样可用',
         },
         deleteNode: {
           label: '删除（文件 / 文件夹）',
-          hint: '焦点需在资源管理器 · 清除这行请用 × 或 Backspace',
+          hint: '焦点需在资源管理器；有选区时删整个选区',
         },
         selectAllNodes: {
           label: '全选（资源管理器）',
@@ -276,7 +276,10 @@ export default {
         restore: { label: '恢复默认', hint: '把所有快捷键还原成初始设置', title: '恢复默认快捷键' },
 
         /** 整组的说明 */
-        note: '点右侧输入框后按下组合键即可改绑；Delete 清除绑定，Esc 取消录制。与浏览器或其它功能冲突时会拒绝并说明原因。',
+        note: '点右侧输入框后按下组合键即可改绑；Delete 清除绑定，Esc 取消录制。与浏览器或其它功能冲突时会拒绝并说明原因。资源管理器那三条（重命名 / 删除 / 全选）是固定键位，不可改绑。',
+
+        /** 固定键位徽标（资源管理器那三条）的悬浮提示 */
+        fixedKey: '固定键位，不可改绑',
 
         /** 录制框自身的状态文案 */
         recorder: {
@@ -852,11 +855,11 @@ export default {
         },
         renameNode: {
           label: 'Rename (file / folder)',
-          hint: 'F2 on Windows / Linux, Enter on macOS; focus must be in the explorer',
+          hint: 'Focus must be in the explorer; F2 works on macOS too',
         },
         deleteNode: {
           label: 'Delete (file / folder)',
-          hint: 'Focus must be in the explorer · clear this row with × or Backspace',
+          hint: 'Focus must be in the explorer; deletes the whole selection when there is one',
         },
         selectAllNodes: {
           label: 'Select all (explorer)',
@@ -869,7 +872,10 @@ export default {
           title: 'Restore default shortcuts',
         },
 
-        note: 'Click the field on the right, then press a key combination to rebind. Delete clears a binding, Esc cancels recording. Conflicting combinations are rejected with an explanation.',
+        note: 'Click the field on the right, then press a key combination to rebind. Delete clears a binding, Esc cancels recording. Conflicting combinations are rejected with an explanation. The three explorer shortcuts (rename / delete / select all) are fixed and cannot be rebound.',
+
+        /** 固定键位徽标（资源管理器那三条）的悬浮提示 */
+        fixedKey: 'Fixed shortcut — cannot be rebound',
 
         recorder: {
           placeholder: 'Press a key combination…',

@@ -297,7 +297,13 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
       // trap 会从 worker 一路炸到主线程，无 exitCode）——这是**程序**的问题，标 'run'，
       // 引擎按 RE 报；prepare / compile 段的异常才是工具链层面的问题（下载失败、浏览器
       // 缺 API 等）：报 infra，别说成编译错误
-      return { type: 'failure', stage: entry.stage === 'run' ? 'run' : 'infra', message: error?.message || String(error) }
+      return {
+        type: 'failure',
+        stage: entry.stage === 'run' ? 'run' : 'infra',
+        message: error?.message || String(error),
+        // 运行段被搞崩（真栈溢出之类）也算「程序打到一半出事」：镜像里那截照样带回去
+        stdout: error?.partialStdout ?? '',
+      }
     } finally {
       endTask(entry)
     }

@@ -11,7 +11,7 @@
 - HTML 入口：`index.html`（主应用）与四个内容页——`guide.html` / `guide.en.html`（使用指南的**中文版与英文版**，给搜索引擎抓取的静态长文）、`notice.html` / `notice.en.html`（第三方组件清单的中英文版，**生成物**，见第 12 节），各语言两页共用 `src/styles/guide.css`。改文案 / 样式时，`guide.html` 与 `guide.en.html` **两版必须同时改**，再加 `src/i18n/messages/help.js`（应用内「设置 → 帮助」那份内容）、`docs/使用手册.md`、`index.html` 的 `<noscript>`，一共五处要一起看（见第 12 节）。
 - 响应式：**没有顶栏**（2026-09-28 整体删除）。所有入口都在工作区内——侧边栏页头的胶囊开关与设置钮（面板切换 / 设置，可选的还有抽题钮）、设置视图里的「应用」分组（安装到设备）。**运行只剩两个入口**：全局快捷键 `Mod+Enter`、评测样例面板页脚那颗 ▶（曾有的编辑器页签栏运行按钮已于 2026-09-28 删除，见第 3 节）。侧边栏最低宽度随视口收缩（见第 3 节两小节）；工作区两栏始终并排、不堆叠。各档宽度都是实测定出来的，改动后要重量（第 1、3 节）；触屏下分隔条已可拖动，且有「键盘模式」（第 3 节末）。
 - 浏览器插件抓题（2026-09 加）：改造版 Competitive Companion（已更名 **CC for Web**，主色与本站同蓝）解析完题目后，把 JSON 经内容脚本用 `window.postMessage` 投给本站，站点落盘到 `/<年月>/<OJ 标签>/<难度>/<题名>.cpp`（直接挂在工作区根下，无外层 wrapper），题目信息与抓到的样例都挂在代码文件**自己的节点**上（`node.meta` / `node.config`，2026-10-01 起；旧版是同级隐藏的 `.cph/<题名>.json` 文件，已由 `migrate.js` 一次性搬进节点；难度导入时为空，先落「未分类」），树里不另有条目，并把抓到的样例整体替换进评测面板。安装包就在站内分发——设置视图「应用 › 浏览器插件」里有下载按钮（`public/extension/cc-for-web-<版本>.zip`），同一组里还有「投递目标」两个开关，可以直接把「发到本网站 / 发到本地工具」任一关掉（2026-09-30 加，真值写在扩展的 `chrome.storage`，见 13.1）。详见第 13 节。
-- 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位，默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
+- 全局快捷键（2026-09 加）：设置视图「快捷键」分组里可录制 / 清除 / 复位（**例外**：资源管理器里的重命名 / 删除 / 全选 2026-10-25 起键位写死，只做只读展示，见 13.4），默认 `Mod+Enter` = 运行全部用例、`Mod+Shift+KeyE` = 切换侧栏面板（等价于点页头那枚胶囊）；实现要点与坑都在第 13 节。
 - **题解（Markdown / LaTeX，2026-09-30 加）**：`.md` / `.markdown` 走 Monaco 内置的 markdown 分词器，只用于**写题解、不参与判题**（两个运行入口都会给禁用态）。编辑区为此多了一行工具栏（14 项：加粗 / 标题 / 列表 / 链接 / 图片 / 公式 / 表格 / 分割线…）、`N 字 · M 行` 统计、三态视图胶囊（仅编辑 / 双栏 / 仅预览）与一颗全屏按钮，另有 15 条题解专用快捷键（`Mod+\` 轮换视图、`Esc` 退全屏）。预览用的 marked + KaTeX **按需下载**（设置视图「应用 › 本地运行环境」的第三行，缓存桶 `cp-md-runtime`，约 578KB），与 C++ / Python 工具链同一套路数。
 - **界面双语（2026-09-29 加）**：界面文案分**中文 / 英文**两套，语言存在 `cp.uiLocale`，默认**跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`；存档优先于探测）。切换入口在设置视图「外观」组的「界面语言」下拉，**切了当场生效、不重载**。实现是自写的轻量模块（`src/i18n/`，**没有引 vue-i18n**），词条按域拆成六个文件、同一文件里中英两栏并排。翻译范围是「UI + 应用内帮助 + guide.html 整页」三块（**致谢页的双语是 2026-09-30 另外补的**，不走 i18n 机制，而是中英各一份源文件 + 一次生成两页，见第 12 节）；`guide.en.html` 是 `guide.html` 的逐条对照版（见第 12 节）。**最容易踩的一条**：数据表里只能存 key、由模板 / computed 再 `t()`，详见第 5 节坑 28。
 - 技术栈：Vue 3（Composition API + `<script setup>`）+ Vite 8 + **纯原生 CSS**（没有 Tailwind，也没有任何组件库 / UI 库）。
@@ -772,7 +772,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 | `cp.panelVisible` / `cp.panelPosition`（**只有 `panelVisible` 还在 `App.vue`**；`panelPosition` 2026-10-11 起在 `services/shellSettings.js`，模块自己读写 localStorage，理由见第 5 节坑 36） | 统一侧边栏是否展开 / 侧边栏在左还是右（键名是历史沿革，语义已从「测试面板」扩到整栏）。换边统一走 `shellSettings.setPanelPosition()`，`flipPanelPosition()` 是它「目标 = 另一边」的简写（动画只有一份实现）。三处入口：设置面板「外观」的下拉、设置菜单里「侧边栏位置」那个二级子菜单（2026-10-11 从一级开关改来）、快捷键 `toggle-layout`。档位表 `PANEL_POSITIONS` 也在这里导出，面板与菜单共用同一份。**同一份体例下还有 `cp.narrowCollapseSide`**（2026-10-13 加：**窄屏**折叠后图标栏贴在**上边还是下边**，`top` / `bottom`，默认 `bottom`；档位表 `NARROW_COLLAPSE_SIDES`、写入走 `setNarrowCollapseSide()`）。它与 `panelPosition` **正交**：那个管左右（宽屏主轴方向）、这个管上下（窄屏主轴方向），四个组合都成立。两处入口：设置面板「外观」的下拉、设置菜单里「窄屏折叠方向」那个二级（**没有快捷键**）。宽屏改它空转（折叠后是 48px 竖条，没有上下之分），所以这两处入口**只在窄屏出现**（2026-10-13 用户要求：行上挂 `when: () => isNarrowLayout()`，见第 5 节坑 49；那一项最初是「两处都照常摆着」，当天改掉）—— 值本身照旧持久化、照旧在云端同步白名单里 |
 | `cp.sidebarTab` | 侧边栏当前面板（`explorer` / `tests`），认不出来的值一律退回 `explorer`。**没有 `settings`**——设置页签刻意不落盘（见第 5 节坑 7） | `Sidebar.vue`（页头里的 `SidebarSwitcher` 只是消费方，经 provide 拿状态） |
 | `cp.editorShare`（`App.vue:35`） | 两栏比例（%） |
-| `cp.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`） |
+| `cp.timeLimitMs`（`App.vue:40`） | 全局时限（毫秒，只计运行段）。**它只是「题目没带时限时的默认值」**：活跃文件的 `meta.timeLimit` 非 0 时优先用它（`App.vue` 的 `effectiveTimeLimitMs`）。默认 **2000ms**（2026-10-25 从 1000 上调，常量是 `runner.js` 的 `TIME_LIMIT_DEFAULT_MS`，可选项 `1/2/5/10 s`）。**注意 `usePersistentRef` 挂载时就写一次**，所以老浏览器里都躺着一条显式 `1000` —— 只改常量等于没改，`services/storageMigration.js` 的 `bumpTimeLimitDefault()` 负责一次性顶到 2000（只认恰好 1000 的，手选过 2/5/10 s 的不动），标记键 `cp.timeLimitDefault2s` |
 | `cp.uiScale`（2026-10-11 起在 `services/shellSettings.js`，模块自己读写 localStorage，理由见第 5 节坑 36） | 全局界面缩放比例，默认 `DEFAULT_UI_SCALE = 1`（100%；2026-10-01 由 1.1 改来，同时去掉了默认档那枚「（默认）」后缀，档位显示只剩百分比），只认四档 `1` / `1.1` / `1.25` / `1.5`（认不出来退回默认档）。读盘经 `normalizeUiScale()` 校验；`applyUiScale()` 把它写成 `document.documentElement.style.fontSize`（`16 × scale` px），并在 **setup 期**就落地（早于首帧，不会先按 100% 画一帧再跳）。档位表与 `px()` 都在 `composables/useUiScale.js`；设置页「外观」组的「界面缩放」下拉是它的消费方（prop / emit 贯穿 `App → EditorPane → EditorSettingsPanel`）。见第 5 节坑 24 |
 | `cp.selectedNode` | 文件树里**主选中**的那一行（文件 / 目录的节点 id）；`null` = **选中根**（整棵树都不高亮，页头「新建文件 / 文件夹」落在根）。多选（2026-10-12 加）之后它兼任 **Shift 区间选择的锚点**；高亮本身看的是内存态 `workspace.selectedIds`（**刻意不落盘** —— 与 VS Code 一致，跨会话只恢复主选中那一个）。恢复放在 `initWorkspaceStore()` 最后一步、节点消失时由 `rebuildTree()` 从选区里摘掉再顺位回落。**刻意不进云同步白名单**——存的是本机 VFS 节点 uuid，同步到别的设备只会指向不存在的节点。 | `services/vfs/workspaceStore.js`（`SELECTED_KEY` / `selectNode()` / `applySelection()`） |
 | `cp.uiLocale` | 界面语言，取值 `zh-CN` / `en`（`i18n/index.js` 的 `LOCALE_STORAGE_KEY`，**权威定义在那一处**）。**刻意不走 `usePersistentRef`**：界面语言必须在任何组件挂载之前定下来（首帧不能先闪中文再跳成英文），所以 `i18n/index.js` 自己同步读写 localStorage。**没有存档时跟随浏览器**（`navigator.languages` 任一命中 `/^zh\b/i` → `zh-CN`，否则 `en`）——注意「跟随探测」的结果**不写回存档**，「跟随浏览器的默认」与「用户显式选过」是两件事，别在首帧替用户落一个值。设置页「外观」组的「界面语言」下拉是唯一写入方，切了当场生效、不重载 | `src/i18n/index.js`（消费方散布在全仓，读的是 `locale` 这个 ref） |
@@ -1283,13 +1283,19 @@ Activity 的窗口管，得由 `services/systemBars.js` 经 Rust / JNI 送过去
 
 ### 13.4 全局快捷键
 
-- 动作表 `SHORTCUT_ACTIONS`（**9 项**；2026-09-28 多了 `switch-panel`，2026-10-10 多了 `rename-node` / `delete-node`，2026-10-12 多了 `select-all-nodes`）就是全部能力边界，**没登记的动作就是做不到的**（理由见第 7 节）。加动作 = 改这张表 + 在 `App.vue` 的 `SHORTCUT_HANDLERS` 里补一条同 id 的处理函数，两处 id 必须对上。设置视图那个「快捷键」分组是 `v-for` 出来的，加动作不用改 UI。
+- 动作表 `SHORTCUT_ACTIONS`（**11 项**；2026-09-28 多了 `switch-panel`，2026-10-10 多了 `rename-node` / `delete-node`，2026-10-12 多了 `select-all-nodes`，2026-10-23 多了 `submit-solution`，另有 `export-image`；其中后三条是 `fixed`，界面上不出录制框）就是全部能力边界，**没登记的动作就是做不到的**（理由见第 7 节）。加动作 = 改这张表 + 在 `App.vue` 的 `SHORTCUT_HANDLERS` 里补一条同 id 的处理函数，两处 id 必须对上。设置视图那个「快捷键」分组是 `v-for` 出来的（只有 `fixed` 的行要分流成只读徽标），加普通动作不用改 UI。
 - `switch-panel`（默认 `Mod+Shift+KeyE`，label「切换侧栏面板」，2026-09-28 加）等价于点页头那枚胶囊。处理函数是 `App.vue` 的 `switchSidebarPanel()`：先 `if (!panelVisible.value) togglePanel()` 把侧栏捞回来，再 `sidebarRef.value?.switchPanel()`。**翻面只有 `Sidebar.vue` 一处实现**——`switchPanel` 就是它内部 `togglePanel` 直接 expose 出来的，所以滑动动画（`hasSwitched`）、`localStorage` 持久化与点胶囊完全同源；别在 App 里另写一份改 `activeTab` 的逻辑，那样键盘切过去会没动画、还多一份状态。**先捞侧栏是刻意的**：侧栏收起着的时候只翻那个看不见的面板，用户会以为快捷键没生效。
-- `rename-node`（**按平台分岔默认键位**，2026-10-20 用户要求：macOS 上 F2 被系统占成调屏幕亮度、且 Finder / VS Code 都是单按回车改名 —— **mac 默认 `Enter`、Windows / Linux 仍是 `F2`**。老存档里存着的 F2 会在读盘时一次性迁成 `Enter`（标记键 `cp.shortcuts.mac-enter`，先落盘再打标记；迁完后 F2 不丢，退成这个动作的**别名键** `aliases` —— 别名不进绑定表、界面只显示主绑定，但匹配与冲突检测都认它，所以把 F2 绑给别的动作仍会被红字拦下）。Enter 是裸键，`bareCodes` 在 mac 上点名放行）/ `delete-node`（默认 `Delete`）/ `select-all-nodes`（默认 `Mod+KeyA`，2026-10-12 加）**与上面那 7 条不是一回事**（前两条 2026-10-10 加）：它们**作用域受限**，只认「资源树里当前有焦点的那一行」，所以**不要**往 `SHORTCUT_HANDLERS` 里加 —— 加到它下面那张 `SHORTCUT_TREE_HANDLERS`：先过 `treeScopeFrom(event, actionId)` 闸门（焦点在 `[data-panel="explorer"]` 里、且不在任何可编辑元素里；**行上或树的空白处都算**。`rename-node` 另加两道，2026-10-20 —— 它在 mac 上是裸 Enter，误触的代价是「在编辑器里按一下回车，树上的文件被改了名」：① `document.activeElement` 也必须在树里（不能只信 `event.target`，合成事件 / 窗口刚激活那一瞬两者会对不上）；② 落点不在按钮 / 链接上 —— 那类元素自己的 Enter 是「按一下」），再调 `FileExplorer` 经 `defineExpose` 给出的 `startRename(id)` / `requestDelete(id)` / `selectAllNodes(id)`（**三条都收可空的行 id**，null = 焦点在树的空白处；前两条与右键菜单**同源**，不另写一份）。`delete-node` 的删除对象是**整个选区**（那一行不在选区里时才只删它自己）；全选收的是**行 id**（可空）—— 它要的是**这一行所在父文件夹里的全部内容**（`folderContentIds()`：目录**递归展开** —— 选中一个目录 = 连它里面的文件一起选中；折叠目录内部也算，**不是** Shift 扩选用的那套「可见行」，两条口径刻意不同、别顺手统一；2026-10-12 口径改过三次：先「全选可见行」→「全部节点」→ 收窄成「焦点所在文件夹」→ 再补上「目录连带其内容」）。⚠️ 顶层节点的 `parentId` 是字面量 `'root'`，而索引里那份根是 `stat('/')` 的浅拷贝、**没有 children** —— 顺着它取孩子会拿到空数组（⌘A 静默不选任何东西），顶层一律读 `workspace.tree`。
+- `rename-node`（**按平台分岔默认键位**，2026-10-20 用户要求：macOS 上 F2 被系统占成调屏幕亮度、且 Finder / VS Code 都是单按回车改名 —— **mac 默认 `Enter`、Windows / Linux 仍是 `F2`**。**2026-10-25 起这条键位写死**，见本节末那条 `fixed`；`cp.shortcuts.mac-enter` 那个迁移标记键随之作废，读盘时顺手 `removeItem` 掉，别再指望它。F2 仍是这个动作的**别名键** `aliases` —— 别名不进绑定表、界面只显示主绑定，但匹配与冲突检测都认它，所以把 F2 绑给别的动作仍会被红字拦下。Enter 是裸键，`bareCodes` 在 mac 上点名放行）/ `delete-node`（默认 `Delete`）/ `select-all-nodes`（默认 `Mod+KeyA`，2026-10-12 加）**与上面那 8 条不是一回事**（前两条 2026-10-10 加）：它们**作用域受限**，只认「资源树里当前有焦点的那一行」，所以**不要**往 `SHORTCUT_HANDLERS` 里加 —— 加到它下面那张 `SHORTCUT_TREE_HANDLERS`：先过 `treeScopeFrom(event, actionId)` 闸门（焦点在 `[data-panel="explorer"]` 里、且不在任何可编辑元素里；**行上或树的空白处都算**。`rename-node` 另加两道，2026-10-20 —— 它在 mac 上是裸 Enter，误触的代价是「在编辑器里按一下回车，树上的文件被改了名」：① `document.activeElement` 也必须在树里（不能只信 `event.target`，合成事件 / 窗口刚激活那一瞬两者会对不上）；② 落点不在按钮 / 链接上 —— 那类元素自己的 Enter 是「按一下」），再调 `FileExplorer` 经 `defineExpose` 给出的 `startRename(id)` / `requestDelete(id)` / `selectAllNodes(id)`（**三条都收可空的行 id**，null = 焦点在树的空白处；前两条与右键菜单**同源**，不另写一份）。`delete-node` 的删除对象是**整个选区**（那一行不在选区里时才只删它自己）；全选收的是**行 id**（可空）—— 它要的是**这一行所在父文件夹里的全部内容**（`folderContentIds()`：目录**递归展开** —— 选中一个目录 = 连它里面的文件一起选中；折叠目录内部也算，**不是** Shift 扩选用的那套「可见行」，两条口径刻意不同、别顺手统一；2026-10-12 口径改过三次：先「全选可见行」→「全部节点」→ 收窄成「焦点所在文件夹」→ 再补上「目录连带其内容」）。⚠️ 顶层节点的 `parentId` 是字面量 `'root'`，而索引里那份根是 `stat('/')` 的浅拷贝、**没有 children** —— 顺着它取孩子会拿到空数组（⌘A 静默不选任何东西），顶层一律读 `workspace.tree`。
+- **这三条是 `fixed`（2026-10-25 用户口径：「这几个设置没有意义，应该固定死」）**：`SHORTCUT_ACTIONS` 上多了一个 `fixed: true`，语义是**键位写死、只读展示**，四处配合缺一不可 ——
+  - `readBindings()` 跳过它们（老存档里存着 `rename-node: 'F2'` 也不算数，mac 上照样是回车）；
+  - `setBinding()` 返回 false、`clearBinding()` 直接 return（设置界面上根本没有入口，这两道是防「以后有人接别的 UI」）；
+  - 设置面板 `v-for` 里按 `action.fixed` 分流：**渲染只读徽标 `.shortcut-key.is-fixed`（带 title「固定键位，不可改绑」），不渲染 `HotkeyRecorder`** —— 徽标为对齐同列录制框特意压到 28px（`.shortcut-key` 基础的 30px 是配「组件」分组那些 30px 按钮的）；
+  - 冲突检测**不用改**：它们照旧留在 `bindings` 里当「已占用」，别的动作抢 ⌘A / Delete 仍会被红字拦下。
+  判据（写进代码注释了）：这三条不是本应用自造的命令，而是文件树的通用约定、前两条还是裸键，改绑只会让肌肉记忆失效、并让 hint 里的平台说明与界面上的键位互相打架。**别拿 `fixed` 去「锁」可配置的动作**。实测（2026-10-25，dev + 无头 Chrome，深浅两套主题）：徽标 3 个、录制框 8 个、清除钮 8 个，三类控件高 28 / 宽 124 / 右缘 1371 完全一致；`setBinding('rename-node','F8')` = false、`clearBinding('select-all-nodes')` 后仍是 `Mod+KeyA`；`actionForCombo` 对 `Enter` / `F2` / `Delete` / `Mod+KeyA` 仍分别解得 `rename-node` / `rename-node` / `delete-node` / `select-all-nodes`。
     - **⌘·Ctrl+A 另有一条「指针在哪一块」的判据**（2026-10-12 加；重命名 / Delete 没有 —— 2026-10-20 起重命名的隔离走上面那两道 activeElement / 按钮判据）：桌面端点开一个还没打开过的文件行时 `EditorPane` 会把焦点抢进 Monaco（`if (!isTouchPointer()) instance.focus()`），只看 DOM 焦点的话「点文件 → 马上 ⌘A」全选的是代码。`App.vue` 因此挂了一条 `pointermove`（**只记 `pointerType === 'mouse'`**，触摸 / 笔不记账），按键时 `elementFromPoint` 现算：指针在资源管理器里 → 按「焦点在指针底下那一行」算；指针在 `.pane--editor` 里 → 一律放行给编辑器自己的「全选代码」；指针在别处 / 根本没有指针 → 退回 DOM 焦点判据。理由与另外两条同款坑见第 5 节坑 41。⌘/Ctrl+A 在编辑器里是「全选文本」，两边靠这道闸门分开：焦点不在树行上就整条放行。闸门必须拦在 `preventDefault()` 之前（不在树里就整条放行，否则编辑器里按 Delete 会删不掉字符反倒弹删除框）；`Delete` 是**裸键**，靠动作自己的 `bareCodes` 放行、由 `bareAllowedFor()` 判定（录制框共用它，否则这条动作被清掉就再也录不回来）。四条坑与两条实测口径见第 5 节坑 34。
 - 展示：编辑器底部状态栏那枚运行提示读的是 `formatCombo(bindings.run)`，键改了提示跟着变（`EditorPane.vue`）——**别把它写成写死的 `⌘↵`**。同一口径还有两处：文件树右键菜单右列的键位读 `bindings['rename-node']` / `bindings['delete-node']`（`FileExplorer.shortcutOf()`），编辑区右键菜单读 `useEditorMenu.js` 的 `SHORTCUT`。
 - 冲突检测分三类，都在 `shortcutConflict()` 一处：浏览器原生键（`BROWSER_RESERVED`）、没带修饰键又不是功能键 / `Esc` / 该动作 `bareCodes` 里点名的那个裸键、已经绑给别的动作。冲突时录制框**停在录制态显示红字、不写入**，用户可以接着按别的组合，不用重新点一次。
-- `resetAll()` 复位成默认表；单条可用 Delete / Backspace 清除（清成空串 = 未绑定，不是删键）。**例外**：那个键正是该动作自己的合法裸键时（`delete-node` 与 `Delete`）不当清除、当录制收下 —— 想清除它请用 × 或 Backspace。
+- `resetAll()` 复位成默认表；单条可用 Delete / Backspace 清除（清成空串 = 未绑定，不是删键）。两道**边界**：① 上面那三条 `fixed` 清不掉也改不动（界面上是只读徽标，见上一条）；② 某个动作自己的键位正是它 `bareCodes` 里点名的裸键时（历史上只有 `delete-node` 与 `Delete`），录制态不当清除、当录制收下 —— 随着 `delete-node` 变 `fixed`，这条保护现在只剩「`bareAllowedFor` 别删」这一层意义。
 - 原理、坑与「为什么不能改回 `editor.addCommand()`」全在第 5 节坑 21、22。
 
 ### 13.5 改这块时最容易连带踩到的
@@ -1822,7 +1828,7 @@ $("select[name=submittedProblemIndex]").bind('change', updateSubmitButtonState);
 - **返回体**：`RunOutcome { outcome, stdout, stderr, durationMs, detail }`，带 `#[serde(rename_all = "camelCase")]`，与 `src/services/engines/index.js` 里的 `EngineExecution` **同构** —— 第 3 步包引擎时把 `invoke` 的结果原样递回去即可。`detail` 为空时不序列化（避免前端拿到 `null` 而不是 `undefined`）。
 - **口径对齐（逐条）**：
   - 编译参数 `-std=c++17 -O2 -w`，与 `src/services/runnoSandbox.js` 的 `FRONTEND_ARGS` 同值（`-w` 是 2026-10-18 加的，理由见 §7 那条）；沙箱那边刻意没开 `-fno-exceptions`，这里同样不开。
-  - 时限**只计运行段**（从 `spawn` 到进程退出的墙钟），不含编译，默认 1000ms —— 同 `runner.js` 的 `TIME_LIMIT_DEFAULT_MS`。
+  - 时限**只计运行段**（从 `spawn` 到进程退出的墙钟），不含编译，默认 2000ms（2026-10-25 从 1000 上调）—— 同 `runner.js` 的 `TIME_LIMIT_DEFAULT_MS`；Rust 侧 `DEFAULT_TIME_LIMIT_MS = 1000` 只是前端漏传时的兜底，正常路径用不到。
   - 到点 `child.kill()`，记为 `timeout`；非 0 退出码与「被信号杀死」（`code()` 为 `None`）都归 `runtime-error`；退出码 0 记 `ok`。
   - `ok` 时把 `stderr` 清空、`ok` 之外的三种（timeout / runtime-error / compile-error）保留 `stdout`；编译失败 `durationMs` 记 `null`（卡片就不显示耗时）—— 全部照 `src/services/engines/wasm.js` 的处理。
 - **临时目录隔离**：`$TMPDIR/cp-native-<pid>-<自增序号>-<纳秒>`，一次运行独占一个，跑完（含报错路径）`remove_dir_all` 清掉。**三个分量缺一不可**：`runner.js` 的 `concurrency = 2` 会同时跑两次，参考方案里那个固定名 `temp_code.cpp` 会直接互相覆盖。
@@ -2412,6 +2418,7 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 
 **入口与形态**
 - 入口**只剩一处**：**组件菜单 › 工具 › 倒计时**（`ComponentsMenu.vue`）。2026-10-20 原本还有齿轮菜单（Quick Settings）里的「倒计时」那一行，2026-10-21 用户要求「去掉设置菜单中的倒计时」，连同 `settings.menu.openCountdown` 文案与那条 `divider` 一起删干净了 —— 别再往齿轮菜单里加回来。关闭后**不**在角落留重开圆钮：第一次访问不该有常驻浮层，而「关掉」本身就该是干净的。
+- **组件图标 = 圆表盘时钟 `clock`**（2026-10-25 用户要求「换成圆形时钟那个 logo，注意墨迹对齐」）：图标名只在 `services/activityBarPins.js` 一处（组件菜单与折叠图标栏的上簇都从那张表派生），墨迹口径在 `ActivityBar.vue` 的 `ICON_INK`（`clock: { w: 18, h: 18, vb: 24 }`，句柄 `M12 7.5V12l3 2` 不外扩，所以外框就是 r9 正圆的 3..21）。算出来 `size 25.47 / stroke-width 1.79` ⇒ 墨迹 **21×21**、视觉描边仍是 1.9px、墨迹中心正好落在 viewBox 中心（`dx/dy ≈ 0`），与 gear 20.8² / grid 21.2² / cases 21×16.7 同一条基线；既不需要短边拉伸也不需要补视觉重心。**2026-10-22 那轮把倒计时换成 `hourglass` 的理由已经不存在**（当时是 clock 与 timer 两枚圆表盘并排分不出来，而现在比赛那格是 `flag` 旗子），别再按旧理由换回沙漏 —— 真要换，先看 `ICON_INK` 里三枚 clock / timer / hourglass 的外框都还在。
 - 整卡 `Teleport` 到 `body`、`position: fixed`、`z-index: 110`。刻意低于右键菜单 / 设置菜单（120 / 125）与通知 toast（150）—— 浮层是常驻的，菜单和通知是「此刻要你看」的，层级不能反。
 - 卡内分区：头部（状态点 / 标题 / 暂停·继续 / 中止·重设 / 锁定 / 关闭）→ 设置区（时:分:秒 + 5/10/30 分钟与 1 小时四个预设 + 开始）→ 环形读数区 → 右下角缩放手柄。
 - **排版收口（2026-10-20）**：设置区三行同宽 —— 三个输入框 `flex: 1` 均分、四个预设 `grid` 四等分、开始按钮通栏；冒号改成与输入框同高的 `flex` 居中（不再用 `padding-top` 猜基线）；与当前时长一致的那枚预设填亮（`is-on`）。运行态右上四枚动作统一 26px 热区、13px 字形，暂停·中止 与 锁定·关闭 之间加一道 1px 细缝（`.cd-actions__sep`）分组；结束态那颗换成 `reset` 字形，`stop` 的字形从 10×10 放大到 14×14 —— 原来挨着暂停的两条竖线明显偏小，整排看着不齐。
@@ -3065,6 +3072,89 @@ npm run wasm:core:verify -- --case=cap13,22,23,24 --verbose
 - 界面回归 `npm run verify` 仍是 **A/E/G/H 红、B/C/D/F 绿**，与 §20.3 同一基线（E 的红是 `collapsedBeforeRun=false`：单击分隔条没折叠，与判定无关）。说明新增的探针链接与栈调整没有改变正常编译 / 运行流程。
 - 本轮未提交、未 push。
 
+### 20.5 RE 的 detail：trap 的「人话 + 原文」（2026-10-25，用户拍板选 A）
+
+**报障**：RE 的卡片说明永远是「程序退出码 134」，越界、`unreachable`、`abort()`、栈溢出一个样 —— 用户没法判断是哪种错。
+
+**为什么以前只能给 134**：宿主把**任何** wasm trap 都折成 134 且不写 stderr（runno 时代就是这样，自写宿主沿用同一数值），而 `engines/wasm.js` 只看 `stderr`，空了就退回退出码。真正的 trap 原文其实一直在 `message.trap` 里（`RuntimeError: memory access out of bounds` 这种），没人用。
+
+**改法**（`src/services/engines/wasm.js` 的 `describeTrap` + 一张 9 条的正则表）：
+- 优先级：**用户自己的 stderr → trap 人话 → 退出码**。程序自己往 `cerr` 打的东西优先，那是它自己的诊断；trap 只在 stderr 为空时补位；
+- 归类用**正则**而不是精确匹配（同一件事在不同浏览器 / V8 版本上措辞会变：`unreachable` / `unreachable executed`），认不出来就**原样透出**——宁可英文，也别丢真因；
+- 剥掉 `RuntimeError:` / `RangeError:` 这类前缀（栈溢出是 `RangeError: Maximum call stack size exceeded`，前缀不一），只留正文；
+- 文案在 `i18n/messages/engines.js`（中英各 9 条，服务里不许有中文字面量）。**英文侧不套括号** —— 英文原文本身就是这句话，套上去会变成 `Memory access out of bounds (memory access out of bounds)`（实测撞到过一次）；中文侧保留括号里的原文，方便用户拿去搜；
+- 非 trap 的失败不受影响：`return 3` 仍然是「程序退出码 3」，这是诚实的（它不是 trap）。
+
+**实测**（`evaluateCase` 产品路径，无头 Chrome，中英各一遍）：
+
+| 用例 | verdict | detail（zh） | detail（en） |
+| --- | --- | --- | --- |
+| 野指针写 `0x7fff0000` | RE | 内存访问越界（memory access out of bounds） | Memory access out of bounds |
+| `abort()` | RE | 执行到不可达指令，程序已被中止（unreachable） | Program aborted: hit an unreachable instruction |
+| 整数除零（两个 volatile 操作数） | RE | 整数除以零（divide by zero） | Integer division by zero |
+| 无终止递归 | RE | 调用栈溢出（Maximum call stack size exceeded） | Call stack overflow |
+| `fprintf(stderr, …)` 后崩 | RE | **我的诊断信息**（用户 stderr 优先） | 同左 |
+| `return 3` | RE | 程序退出码 3（不是 trap，保持原样） | Program exited with 3 |
+
+`npm run verify:judge` 20/20 PASS、`npx vite build` 通过。
+**回归时注意**：`verify-judge` 的日志会跟着变成新文案（#21 现在打「内存访问越界…」而不是「程序退出码 134」），别把它当成失败。
+
+### 20.6 ACTUAL 框里到底显示什么：七种判定的盘点（2026-10-25）
+
+用户连问「RE / TLE / MLE 时 ACTUAL 输出的是什么」「其他判定有没有同类不明确」。**先记住这条**：
+卡片上那个 `Actual` 框 = **`actualOutput` + `detail` 用换行拼起来**（`TestCaseCard.vue` 的 `outputText`），
+判定码只出现在徽标上。所以「某判定的输出」= 它的 stdout + 这一行 detail，全部由 `runner.js` 写进补丁。
+
+| 判定 | detail 的来源（改前） | 明不明确 |
+| --- | --- | --- |
+| AC / WA | **空字符串** | ⚠️ WA 完全不给「哪里不一样」，四种比对方式（§7.2）也不提示 |
+| CE | 编译器 stderr 原文 | 基本明确，但路径是 `/program.cpp`（见下） |
+| TLE | `运行超时 (TLE)` | ⚠️ 没有时限数字 |
+| MLE | `内存超限 (MLE)` | ⚠️ 没有上限数字 |
+| RE | 用户 stderr → trap 人话 → 退出码（§20.5） | ⚠️ 未捕获异常那条漏了（见下） |
+| ERR | 服务不可达 / 引擎不支持语言 / `评测失败（{outcome}）` | 最后一条会把内部英文枚举名（`rejected`）抖给用户 |
+
+本轮补的三处（2026-10-25，用户选定的三条）：
+
+1. **未捕获的 C++ 异常**（`engines/wasm.js` 的 `TRAP_LABELS` 加第 10 条）
+   `throw std::runtime_error(...)`、`vector::at` 越界、`std::stoi` 抛 `invalid_argument` 全都走这条路，
+   宿主给回来的 trap 文本是 `Exception: [object WebAssembly.Exception]` —— 原来的正则表认不出，**原样透出**，
+   卡片上就是这一串 JS 对象字面量，比「程序退出码 134」还难懂。现在映射成
+   「未捕获的 C++ 异常，程序已被中止」（英文 `Uncaught C++ exception — the program was aborted`）。
+   **文案里刻意不带 `{raw}`**：那串字面对用户没有任何信息量，而 `what()` 拿不到（要模块自己的 tag 才能 `getArg`）。
+2. **TLE / MLE 带上数字**（`runner.js` 的 `timeLimitLabel` / `memoryLimitLabel` + 两条新 i18n）
+   「运行超时 (TLE)：时限 1 s」「内存超限 (MLE)：上限 256 MB」。口径与设置页一致（`256 MB`、`1 s`）。
+   理由：这两个上限都是可改的全局设置、还能被单题覆盖（`config.timeLimit` / `config.memoryLimit`），
+   只写 TLE/MLE 的话分不清「程序真慢」和「时限被调低」。拿不到值时退回 `timeoutPlain` / `memoryExceededPlain`。
+3. **CE 的诊断路径换回真实文件名**（`runnoSandbox.js` 新增导出 `withSourceName`，引擎里两处编译分支调用）
+   用户代码永远写进 `/program.cpp` 再编，于是每条诊断都以 `/program.cpp:2:21:` 开头，而用户的文件叫
+   `main.cpp`。**只改显示文本，不动编译路径** —— 真写进 `entryPath` 的话，`/a/b/c.cpp` 这种还得先建目录，
+   而宿主 mkdir 是残缺实现（见 §21 那段）。`/program.cpp` 是唯一来源，替换在两处编译分支各一行。
+
+**实测**（`evaluateCase` 产品路径，无头 Chrome，中英各一遍）：
+
+| 用例 | verdict | detail（zh） | detail（en） |
+| --- | --- | --- | --- |
+| `int x = ;`（`/main.cpp`） | CE | `/main.cpp:2:21: error: expected expression` | 同左（路径与语言无关） |
+| 同上，`entryPath=/algo/a+b.cpp` | CE | `/algo/a+b.cpp:2:21: ...` | — |
+| `volatile` 死循环，时限 1000ms | TLE | 运行超时 (TLE)：时限 1 s | Time limit exceeded (TLE): 1 s |
+| 同上，时限 5000ms | TLE | 运行超时 (TLE)：时限 5 s | — |
+| `vector` 无界 push_back，上限 64MiB | MLE | 内存超限 (MLE)：上限 64 MB | Memory limit exceeded (MLE): 64 MB |
+| `v.at(5)`（未捕获 `out_of_range`） | RE | 未捕获的 C++ 异常，程序已被中止 | Uncaught C++ exception — the program was aborted |
+| `throw std::runtime_error("boom")` | RE | 同上 | 同上 |
+| `return 3` | RE | 程序退出码 3（不受影响） | — |
+
+`npm run verify:judge` 20/20 PASS、`npx vite build` 通过。
+
+**仍未做**（用户这轮没选，别再当已办）：
+- **Python 语法错误判 RE 不判 CE**：detail 是 `File "/main.py", line 1 / SyntaxError: invalid syntax`，
+  而 C++ 同类错误是 CE。要改得在 Python 分支认「traceback 里只有帧、末行是 SyntaxError / IndentationError」，
+  判据有风险（运行期 `eval` / `import` 触发的 SyntaxError 会误判），用户明确没选这条。
+- **WA 没有任何差异提示**：不开 diff、也不提示「这题用的是浮点容差 / 忽略行序」，字面几乎一样却判 WA 时最费解。
+- `ERR` 分支 `failed()` 硬写 `actualOutput: ''`（piston / judge0 的 `rejected` 可能带着 stdout，被丢了）。
+- MLE 分支把 stderr 清空（用户在 stderr 上打的诊断看不到）；RE 分支是保留的。
+- 取消（`cancelled`）之后卡片直接回「待运行」，看不出「刚被取消」而不是「没跑过」。
+
 ---
 
 ## 21. 新内核阶段 4：自写 WASI 宿主（2026-10-25）
@@ -3142,6 +3232,41 @@ npx vite build --outDir /tmp/x   # 只验编译，别用 npm run build（沙箱�
 ```
 
 探针放 `/tmp`，口径照 §18.4 / §18.8；本次那几支（首编分档、stdin/stdout scaling、跨刷新 PCH）跑完即删，仓库里不留。
+
+### 21.6 TLE 时 stdout 不丢：逐字节镜像（2026-10-25 用户报障后修）
+
+**症状**：一条「打印几行后死循环」的用例判出 TLE，卡片 ACTUAL **空的** —— 程序明明打印过东西。
+
+**根因**（两层，缺一不可）：
+1. `runner.js` 的 TLE 分支本来就写 `actualOutput: result.stdout`，`wasmRuntime` 的 TLE 分支也把 `error.partialStdout` 带回来了 —— 上层是通的；
+2. 但 `wasi.worker.js` 的 run 分支把 stdout **攒到 64 KiB 才 `postMessage` 一次**，末尾那截靠 `runWasiModule` 正常返回后的 `if (out) post(...)` 补发。看门狗掐断走的是 `worker.terminate()`，函数永远不返回 → 尾巴那截（含「不足 64 KiB 的全部输出」）当场蒸发。
+
+实测（无头 Chrome，2026-10-25）：打印 3 行 → TLE 后 ACTUAL 空；打印 128 KiB → 只剩 131072 字节（正好两个整块）。Python 那条线走 runno 的宿主、逐次回传，同样用例**保留**全部输出 —— 所以这是自写宿主独有的坑。
+
+**为什么不是「把攒批粒度调小」**：那只是把丢多少变小，没把「会不会丢」消掉，而且消息条数会涨上千倍。这里要的是「掐断之后仍能读」。
+
+**修法**：`src/services/wasi/stdoutMirror.js`（新文件，零依赖，worker / 主线程共用）+ 三处接线。
+- 主线程 `client.run()` 前开一份 **8 MiB 的 SharedArrayBuffer**（懒分配、同一颗常驻 worker 反复用，开跑前清零），随 run 消息一起过去（SAB 不需要 transfer）；
+- 宿主 `emit()` 在**解码之前**把原始字节 memcpy 进镜像（`appendMirror`）—— 与字符串怎么切无关，`Atomics` 记已写字节数；
+- `terminate()` 之后主线程直接 `readMirror()` 读回，**不依赖任何消息送达**，因此不可能丢；
+- 布局：`control[0]` 已写字节、`control[1]` 溢出位、`bytes` 是本体。**只做前缀、不做环形**：写满即停。TLE 的用户要看的是「程序开头打出了什么」，环形缓冲区会从半行开始，看着像乱码；
+- 容量 8 MiB：判题侧输出上限的几十倍（CF 256 KB / AtCoder 8 MB），超过的部分不保留 —— 一个 1.2 s 的疯打印能打出几百 MB，不封顶会吃光内存。**这条是有意的取舍，不是漏**；
+- `client.partialStdout()` 统一出口：镜像有内容就用镜像，否则退回老的 `this.stdout`（SAB 不可用时的兜底）。
+
+**踩到的坑**：`TextDecoder.decode()` **不接受 SharedArrayBuffer 上的视图**（Encoding 规范里直接抛 TypeError，防撕裂读）。不先拷贝的话 `try/catch` 把错误吞掉，症状是「镜像明明有 21 字节，读出来是空串」——2026-10-25 在这一步上多花了一轮。修法：`decode(new Uint8Array(view.subarray(...)))`，先 copy。
+
+**实测**（`runCase` / `evaluateCase` 产品路径，无头 Chrome，dev 5203/5209）：
+
+| 用例 | 结果 |
+| --- | --- |
+| 打印 3 行后死循环，T=1.2s | TLE，stdout = `line 0 / line 1 / line 2`（21 字节，**齐**） |
+| 打印 1 MiB 后死循环 | TLE，stdout 1048576 / 1048576 字节（**齐**） |
+| 打印 20 MiB 后死循环 | TLE，8388608 字节（封顶 8 MiB，不崩） |
+| 正常跑完（AC 路径，5 MiB 输出） | 5242880 字节不重不漏，`runMs` 3.9–5.5 ms（改动前后同量级） |
+| 卡片层（`evaluateCase`） | `verdict TLE` / `actualOutput "1\n2\n"` / `detail 运行超时 (TLE)` —— ACTUAL 框里两样都有 |
+
+`npm run verify:judge` 20/20 PASS、`npx vite build` 通过（改完复跑）。
+**下次动 run 分支的 stdout 路径时**：消息那条路仍然是 64 KiB 攒批（编译诊断照用），但**运行期的取数只认镜像**，别再指望 `this.stdout` 在 kill 之后有内容。
 
 ---
 

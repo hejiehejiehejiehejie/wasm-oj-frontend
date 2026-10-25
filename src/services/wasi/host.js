@@ -22,6 +22,8 @@
  *   `worker.terminate()` 仍能打断。Node 主线程不允许 Atomics.wait，那里退化为立即到期。
  */
 
+import { appendMirror } from './stdoutMirror.js'
+
 const encoder = new TextEncoder()
 
 const ERRNO = {
@@ -380,6 +382,7 @@ function createState(options) {
     readOnly = DEFAULT_READ_ONLY,
     onStdout,
     onStderr,
+    outMirror,
   } = options
 
   const state = {
@@ -397,6 +400,7 @@ function createState(options) {
     stderrDecoder: new TextDecoder(),
     onStdout,
     onStderr,
+    outMirror,
   }
 
   state.fds.set(0, { kind: 'stdin' })
@@ -519,6 +523,9 @@ function openFd(state, fdEntry, fdPtr) {
 
 function emit(state, kind, bytes) {
   if (bytes.length === 0) return
+  // 镜像要在**解码之前**写：这里拿到的就是程序 write() 的原始字节，与字符串切分无关。
+  // 主线程被 kill() 掐断时只靠它取回「已经打印出来的部分」（布局见 stdoutMirror.js）。
+  if (kind === 'stdout' && state.outMirror) appendMirror(state.outMirror, bytes)
   const decode = kind === 'stdout' ? state.stdoutDecoder : state.stderrDecoder
   const text = decode.decode(bytes, { stream: true })
   if (!text) return
@@ -998,6 +1005,7 @@ function formatTrap(error) {
  *   files?: Record<string, { content?: string | Uint8Array } | string | Uint8Array>,
  *   fs?: MemoryFs, stdin?: string | Uint8Array, readOnly?: string[],
  *   onStdout?: (chunk: string) => void, onStderr?: (chunk: string) => void,
+ *   outMirror?: { control: Int32Array, bytes: Uint8Array },
  * }} options
  * @returns {{
  *   ok: boolean, exitCode: number, stdout: string, stderr: string,

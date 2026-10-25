@@ -8,6 +8,8 @@
  * clone 一份就是阶段 2 那 13–17 s 的来源；这里只在 init 时付一次。
  */
 
+import { createMirror, readMirror, resetMirror } from './stdoutMirror.js'
+
 const DEFAULT_INIT = {
   clangURL: '',
   linkerURL: '',
@@ -27,6 +29,9 @@ export class WasiWorkerHost {
     this.pending = null
     this.stdout = ''
     this.stderr = ''
+    // stdout 的跨线程镜像：TLE 掐断之后靠它取回「已经打印出来的部分」。
+    // 第一次 run 时才分配（8 MiB 的 SAB，别在构造时空占）。
+    this.mirror = null
     // 一次只跑一个 job：运行、语法诊断、PCH 生成共用同一颗常驻 worker，
     // 并发 post 会互相覆盖 pending。排队比开第二颗 worker 便宜得多。
     this.queue = Promise.resolve()
@@ -36,6 +41,32 @@ export class WasiWorkerHost {
 
   get alive() {
     return Boolean(this.worker) && !this.dead
+  }
+
+  /** 懒分配 stdout 镜像；SAB 用不了（没开跨域隔离）时返回 null，退回消息那条路 */
+  ensureMirror() {
+    if (this.mirror) return this.mirror
+    try {
+      this.mirror = createMirror()
+    } catch {
+      this.mirror = null
+    }
+    return this.mirror
+  }
+
+  /**
+   * 被掐断时能拿到的 stdout —— **镜像优先**。
+   *
+   * 为什么不信 `this.stdout`：worker 里的输出是按 64 KiB 攒批 post 的，`terminate()`
+   * 那一刻缓冲区里还剩一截没发出去（2026-10-25 实测：打印 3 行后死循环，3 行全丢；
+   * 打印 128 KiB 才留下两个整块）。镜像逐字节写在共享内存里，没有「消息送达」这个窗口。
+   */
+  partialStdout() {
+    if (this.mirror) {
+      const { text } = readMirror(this.mirror)
+      if (text) return text
+    }
+    return this.stdout
   }
 
   ensureWorker() {
@@ -48,7 +79,7 @@ export class WasiWorkerHost {
     worker.onmessage = (event) => this.onMessage(event.data)
     worker.onerror = (event) => {
       const error = new Error(event?.message || 'C++ WASI worker 崩溃')
-      error.partialStdout = this.stdout
+      error.partialStdout = this.partialStdout()
       error.partialStderr = this.stderr
       this.fail(error)
     }
@@ -75,7 +106,7 @@ export class WasiWorkerHost {
     if (message.type === 'error') {
       const error = new Error(message.error || 'C++ WASI 宿主错误')
       error.stage = message.stage
-      error.partialStdout = this.stdout
+      error.partialStdout = this.partialStdout()
       error.partialStderr = this.stderr
       pending.reject(error)
       return
@@ -121,7 +152,12 @@ export class WasiWorkerHost {
   }
 
   async run({ binary, stdin = '', args = [] }) {
-    return this.start({ type: 'run', binary, stdin, args })
+    const mirror = this.ensureMirror()
+    // 每次开跑前清零：同一份镜像被这颗常驻 worker 反复使用
+    if (mirror) resetMirror(mirror)
+    this.stdout = ''
+    this.stderr = ''
+    return this.start({ type: 'run', binary, stdin, args, stdoutSAB: mirror?.sab })
   }
 
   async syntax({ args, source, sourcePath = '/program.cpp', pch = null }) {
@@ -146,7 +182,7 @@ export class WasiWorkerHost {
       }
     }
     this.fail(Object.assign(new Error('C++ WASI worker 已终止'), {
-      partialStdout: this.stdout,
+      partialStdout: this.partialStdout(),
       partialStderr: this.stderr,
     }))
   }

@@ -216,11 +216,15 @@ export default {
         omitted: '还有 {n} 个字符未显示',
       },
 
-      /** 评测结论的 detail 文案：编排层（services/runner.js）写进卡片的状态补丁 */
+      /** 评测结论的 detail 文案：编排层（services/runner.js）写进卡片的状态补丁。
+       *  TLE / MLE 两条带上限数字（2026-10-25 加）：上限是可改的全局设置、还能被单题覆盖，
+       *  不写数字用户分不清「程序真慢」与「时限被调低了」。`*Plain` 是拿不到值时退回的老文案。 */
       outcome: {
         compileFailed: '编译未通过',
-        timeout: '运行超时 (TLE)',
-        memoryExceeded: '内存超限 (MLE)',
+        timeout: '运行超时 (TLE)：时限 {limit}',
+        timeoutPlain: '运行超时 (TLE)',
+        memoryExceeded: '内存超限 (MLE)：上限 {limit}',
+        memoryExceededPlain: '内存超限 (MLE)',
         runtimeError: '运行期出错',
         serviceUnreachable: '评测服务不可达',
         failed: '评测失败（{outcome}）',
@@ -373,8 +377,10 @@ export default {
 
       outcome: {
         compileFailed: 'Compilation failed',
-        timeout: 'Time limit exceeded (TLE)',
-        memoryExceeded: 'Memory limit exceeded (MLE)',
+        timeout: 'Time limit exceeded (TLE): {limit}',
+        timeoutPlain: 'Time limit exceeded (TLE)',
+        memoryExceeded: 'Memory limit exceeded (MLE): {limit}',
+        memoryExceededPlain: 'Memory limit exceeded (MLE)',
         runtimeError: 'Runtime error',
         serviceUnreachable: 'Judge service unreachable',
         failed: 'Judging failed ({outcome})',
