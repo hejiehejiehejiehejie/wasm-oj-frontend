@@ -51,6 +51,23 @@ function readStored(key, fallback) {
 }
 
 /**
+ * 读一个 JSON **字符串**存档。设备令牌落盘的是字符串（persist 直接 stringify 它），
+ * 不能走上面那份 readStored —— 那里的 `typeof parsed !== 'object'` 守卫会把字符串
+ * 当垃圾退回空值，令牌就会在每次刷新后凭空消失（2026-10-25 修：表现为每次上传都要
+ * 重新取码验证，本会话内正常、重开页面必复发，正是这条守卫的指纹）。
+ */
+function readStoredString(key) {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return ''
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'string' ? parsed : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Codeforces「个人资料 › Social」一页的地址 —— 验证码要填进那页的 Last name。
  * 面板与菜单的说明文字里各有一条指向它的链接，通知上「跳转到网页」那颗按钮也去同一处，
  * 所以收成一份常量，别在三个地方各写一遍字面量。
@@ -109,8 +126,7 @@ watch(cloudAccount, (value) => persist(CLOUD_ACCOUNT_KEY, value), { immediate: t
  * 一遍 Codeforces 的 Last name —— 这就是它存在的唯一理由。与账号一样只留在本机，且**绝不进
  * 同步白名单**：令牌与 handle 一对一，同步过去等于把别的设备的写入权也搬过来。
  */
-const storedToken = readStored(CLOUD_TOKEN_KEY, '')
-export const cloudToken = ref(typeof storedToken === 'string' ? storedToken : '')
+export const cloudToken = ref(readStoredString(CLOUD_TOKEN_KEY))
 watch(cloudToken, (value) => persist(CLOUD_TOKEN_KEY, value), { immediate: true })
 
 // ---------------------------------------------------------------- 一次会话里的临时状态
