@@ -32,19 +32,19 @@ export default {
         paused: '已暂停',
         done: '已结束',
       },
-      /** 设置 › 应用 › 组件 里那一行（与 cf.module.* 同形：标题复用 countdown.title） */
+      /** 设置 › 应用 › 组件 里那一行（与 cf.module.* 同形：标题复用 countdown.title）。
+          已安装时不写字（2026-10-25 删掉 installedHint：状态点已经说了「已安装」） */
       module: {
-        installedHint: '悬浮计时卡，可拖动、缩放、锁定；入口在「组件 › 工具」。',
         idleHint: '悬浮计时卡；装好后入口在「组件 › 工具」。',
         install: '安装',
         uninstallActionTitle: '卸载「{title}」',
         uninstallTitle: '卸载「{title}」？',
         uninstallHint:
           '关闭悬浮卡并清除计时，入口从「组件 › 工具」移除；位置与尺寸保留，可随时重新安装。',
-        /** 设置 › 云同步 › 默认安装 里那一枚（2026-10-25 加，与抽题那两枚并列） */
+        /** 设置 › 云同步 › 默认安装 里那一枚（2026-10-25 加，与抽题那两枚并列）。
+            组级说明在 cf.module.autoInstall.note —— 它覆盖三枚开关，不归倒计时一家 */
         autoInstall: {
           switchTitle: '打开站点时自动启用「倒计时」组件',
-          note: '内置组件，没有需要下载的内容；每次打开站点时把它放回「组件 › 工具」。',
         },
       },
     },
@@ -76,8 +76,6 @@ export default {
         done: 'Finished',
       },
       module: {
-        installedHint:
-          'A floating timer card you can drag, resize and lock; open it from Components › Tools.',
         idleHint: 'A floating timer card; once installed, open it from Components › Tools.',
         install: 'Install',
         uninstallActionTitle: 'Uninstall "{title}"',
@@ -86,7 +84,6 @@ export default {
           'Closes the card, discards the timer and removes it from Components › Tools; position and size are kept.',
         autoInstall: {
           switchTitle: 'Enable the Countdown component when the site opens',
-          note: 'A built-in component with nothing to download; each visit puts it back under Components › Tools.',
         },
       },
     },

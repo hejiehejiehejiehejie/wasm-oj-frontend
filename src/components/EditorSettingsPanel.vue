@@ -1225,10 +1225,10 @@ const cfHint = computed(() => {
 })
 
 // 抽题组件那一行拆出来的「比赛」行（2026-10-25）：它与上一行共用同一份题库，
-// 所以没有自己的下载 / 卸载，提示只说「现在能不能用、去哪一行装」。
-const cfContestHint = computed(() =>
-  cfReady.value ? t('cf.module.contestSharedHint') : t('cf.module.contestIdleHint'),
-)
+// 所以没有自己的下载（下载入口只在上一行），但卸载有 —— 卸的是同一份题库，
+// 两行都点得到。就绪态不写字（2026-10-25 用户口径：「已就绪，贴链接即可看比赛」是废话，
+// 状态点已经说了）—— 只有「还没法用、去哪一行装」值得占一行。
+const cfContestHint = computed(() => (cfReady.value ? '' : t('cf.module.contestIdleHint')))
 
 // 同 buttonLabel：就绪态按钮不画
 const cfButtonLabel = computed(() => {
@@ -1286,8 +1286,9 @@ const countdownInstalled = computed(() => countdown.installed)
 
 const countdownDotClass = computed(() => (countdownInstalled.value ? 'is-ok' : 'is-idle'))
 
+// 已安装时不写字（同 cfContestHint：装好了还有什么可提示的，状态点已经说了）
 const countdownHint = computed(() =>
-  t(countdownInstalled.value ? 'countdown.module.installedHint' : 'countdown.module.idleHint'),
+  countdownInstalled.value ? '' : t('countdown.module.idleHint'),
 )
 
 function requestCountdownUninstall() {
@@ -2294,8 +2295,8 @@ watch(pendingUnbind, (open) => {
 
         <div class="runtime-list">
           <!-- 抽题组件（2026-10-25 拆成两行）：组件菜单里「随机抽题」与「比赛」是两格，
-               设置这边也照着列 —— 但它们在磁盘上是**一份资产**（同一份题库、同一个 cfReady），
-               所以装 / 卸只放在随机抽题这一行，比赛那一行只报状态，别造出两颗做同一件事的按钮。 -->
+               设置这边也照着列 —— 但它们在磁盘上是**一份资产**（同一份题库、同一个 cfReady）：
+               两行各有一颗「卸载」（同一颗确认弹窗、同一个目标），「下载」只留这一行。 -->
           <div class="runtime-row">
             <span class="runtime-row__icon is-codeforces"><AppIcon name="codeforces" :size="17" /></span>
             <span class="runtime-row__text">
@@ -2339,17 +2340,34 @@ watch(pendingUnbind, (open) => {
             </div>
           </div>
 
-          <!-- 比赛：状态跟着上面那一行走（同一个 cfReady / 同一颗状态点），没有自己的按钮 ——
-               装 / 卸都会连带另一行，藏在这里再放一颗只会让人以为能分开卸。 -->
+          <!-- 比赛：状态跟着上面那一行走（同一个 cfReady / 同一颗状态点）。它有自己的「卸载」
+               但没有「下载」—— 题库就一份，卸载对象也是同一份（同一个 CF_UNINSTALL_TARGET、
+               同一颗确认弹窗），所以两行的 × 做的是同一件事；「下载」留在上面那行，
+               免得同一个动作出现两颗按钮。2026-10-25 用户报「比赛没有卸载按钮」后补上。 -->
           <div class="runtime-row">
             <span class="runtime-row__icon is-codeforces"><AppIcon name="flag" :size="17" /></span>
             <span class="runtime-row__text">
               <span class="runtime-row__title">{{ t('cf.menu.contest') }}</span>
               <span class="runtime-row__hint">
                 <span class="app-dot" :class="cfDotClass"></span>
-                <span>{{ cfContestHint }}</span>
+                <span v-if="cfContestHint">{{ cfContestHint }}</span>
               </span>
             </span>
+            <div v-if="cfReady" class="runtime-row__actions">
+              <!-- tooltip 用 cf.module.title 而不是「比赛」：弹窗要卸的是整份题库
+                   （连抽题页签一起关），写成「卸载比赛」会让人以为只关比赛 -->
+              <button
+                type="button"
+                class="download-button is-uninstall"
+                :disabled="cfBusy || !!uninstallingId"
+                :title="t('cf.module.uninstallActionTitle', { title: t('cf.module.title') })"
+                @click="requestCfUninstall"
+              >
+                <LoadingSpinner v-if="uninstallingId === CF_UNINSTALL_TARGET.id" :size="12" />
+                <AppIcon v-else name="trash" :size="13" />
+                <span>{{ t('runtime.uninstall') }}</span>
+              </button>
+            </div>
           </div>
 
           <!-- 倒计时（2026-10-21 加）：内置组件，没有要下的资产 —— 装 / 卸只是让侧栏
@@ -2365,7 +2383,7 @@ watch(pendingUnbind, (open) => {
               <span class="runtime-row__title">{{ t('countdown.title') }}</span>
               <span class="runtime-row__hint">
                 <span class="app-dot" :class="countdownDotClass"></span>
-                <span>{{ countdownHint }}</span>
+                <span v-if="countdownHint">{{ countdownHint }}</span>
               </span>
             </span>
             <div class="runtime-row__actions">
@@ -2949,7 +2967,7 @@ watch(pendingUnbind, (open) => {
             </button>
           </span>
         </div>
-        <p class="setting-group__note">{{ t('countdown.module.autoInstall.note') }}</p>
+        <p class="setting-group__note">{{ t('cf.module.autoInstall.note') }}</p>
       </section>
 
       <!-- 危险区域（2026-10-24 按设置页规范加）：只收「一旦点了就得重新走一遍证明」的操作。

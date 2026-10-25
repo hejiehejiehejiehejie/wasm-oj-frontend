@@ -15,12 +15,12 @@ export default {
         /** 设置 › 应用 里的分区标题 */
         group: '组件',
         groupNote:
-          '随机抽题、比赛与倒计时默认安装；此处显示本机状态，失败可重试。比赛与随机抽题共用同一份题库（约 2MB），装 / 卸都在「随机抽题」那一行。「默认安装」开关在云同步。',
+          '随机抽题、比赛与倒计时默认安装；此处显示本机状态，失败可重试。比赛与随机抽题共用同一份题库（约 2MB），两行的「卸载」卸的是同一份，装则在「随机抽题」那一行。「默认安装」开关在云同步。',
         title: 'Codeforces',
         idleHint: '按难度与标签抽题；题库约 2MB，仅下载一次',
         downloadTitle: '下载 / 重试 Codeforces 题库',
-        /** 「比赛」那一行没有自己的装 / 卸（题库与抽题共用），只报状态 */
-        contestSharedHint: '与「随机抽题」共用同一份题库；已就绪，贴链接即可看比赛',
+        /** 「比赛」那一行没有自己的「下载」（题库与抽题共用），卸载与上一行同一份；
+            就绪态不写字（2026-10-25 删掉 contestSharedHint：状态点已经说了「就绪」） */
         contestIdleHint: '与「随机抽题」共用同一份题库；装好上一行后可用',
         /** 卸载：与运行环境那三行共用同一颗确认弹窗，所以要的也是这两个 key
             （action 那版不带问号，是行内按钮的 tooltip） */
@@ -32,6 +32,9 @@ export default {
             2026-10-25 起按「应用 › 组件」的三行拆成三枚：前两枚是同一个键（题库共用）。 */
         autoInstall: {
           label: '默认安装',
+          /** 组级说明（挂在本组三枚开关后面）：前两枚下载、倒计时不下，必须分开说 ——
+              原来只写倒计时那枚的行为，读起来像整组都「没有需要下载的内容」（2026-10-25 用户指出） */
+          note: '「随机抽题 / 比赛」开着时，打开站点会自动下载题库（约 2MB）；关着就不会。「倒计时」是内置组件，没有需要下载的内容，开着时每次打开站点都会把入口放回「组件 › 工具」。',
           pickerSwitchTitle: '打开站点时自动安装「随机抽题」的题库',
           contestSwitchTitle: '「比赛」与「随机抽题」共用同一份题库，这枚开关与上面那颗同步',
         },
@@ -168,12 +171,11 @@ export default {
       module: {
         group: 'Components',
         groupNote:
-          'Random problem, Contest and Countdown install by default; this list shows local state and lets you retry failures. Contest shares one problem bank (~2MB) with Random problem, so both install and uninstall happen on the “Random problem” row. “Install by default” lives under Cloud sync.',
+          'Random problem, Contest and Countdown install by default; this list shows local state and lets you retry failures. Contest shares one problem bank (~2MB) with Random problem: uninstall on either row removes that same bank, while the download lives on the “Random problem” row. “Install by default” lives under Cloud sync.',
         title: 'Codeforces',
         idleHint: 'Random problems by difficulty and tags; the problem bank (~2MB) is downloaded once',
         downloadTitle: 'Download / retry the Codeforces problemset',
-        /** 「比赛」那一行没有自己的装 / 卸（题库与抽题共用），只报状态 */
-        contestSharedHint: 'Shares the problem bank with “Random problem”; it is ready — paste a link to follow a contest',
+        /** 同 zh-CN：「比赛」那一行没有自己的「下载」，卸载与上一行同一份；就绪态不写字 */
         contestIdleHint: 'Shares the problem bank with “Random problem”; available once the row above is installed',
         /** 同 zh-CN：卸载走运行环境那颗共用弹窗，要的也是这两个 key */
         uninstallActionTitle: 'Uninstall "{title}"',
@@ -183,6 +185,7 @@ export default {
         /** 同 zh-CN：云同步栏里的「默认安装」开关，2026-10-25 拆成按组件三枚 */
         autoInstall: {
           label: 'Install by default',
+          note: 'With “Random problem / Contest” on, opening the site downloads the problem bank (~2MB); off, it does not. Countdown is built in with nothing to download — when on, each visit puts its entry back under Components › Tools.',
           pickerSwitchTitle: 'Install the problem bank for “Random problem” when the site opens',
           contestSwitchTitle: '“Contest” shares the same bank as “Random problem”, so this switch mirrors the one above',
         },
