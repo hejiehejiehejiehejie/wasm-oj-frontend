@@ -604,9 +604,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  /* 内边距比旧版四周各宽 2–4px：设置区的三行控件贴边会显得挤，
-     拉开之后卡片更像一张浮起来的工具，而不是一块塞满按钮的方框 */
-  padding: 14px 16px 12px;
+  /* 顶部收窄（2026-10-26）：页头那行（圆点 + 标题 + 关闭）要贴近窗口顶，
+     14px 的顶 padding 让标题离顶足有 40px。先收到 6px 用户说「太靠上了」，
+     回到 10px 折中。左右与底部保持原值 —— 设置区三行控件贴边会挤，
+     那是当初加宽 padding 的理由，别一起动 */
+  padding: 10px 16px 12px;
   /* 不画实线边框：边界交给 --cd-shadow 的大范围柔影。
      深色主题阴影分不出层次，所以在同一支里垫一圈 4% 白的极淡描边（见 base.css） */
   border: 0;
