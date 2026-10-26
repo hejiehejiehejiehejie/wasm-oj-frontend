@@ -740,6 +740,14 @@ function onLongCopy(event, full) {
   place-items: center;
   width: 22px;
   height: 22px;
+  /* 必须清掉 <button> 默认的 1px 6px 内边距（2026-10-26，用户报「logo 没有在热区中居中」）：
+     它把 22×22 的内容区压成 10×20，而里面的 svg 是 12–14px、比 10px 宽 —— grid 的 auto
+     轨道溢出内容区，默认 justify-content: normal 让轨道从内容区**左缘**起排，墨迹因而相对
+     按钮盒中心右偏（实测 arrow-up 偏 2px、copy 偏 1px）。归零后内容区回到 22×22，轨道居中，
+     墨迹与盒中心重合（实测 dx / dy 全 0）。垂直方向原本就没问题：内容区高 20 装得下 14px。
+     删除 / 运行 / 折叠那三颗原先各自补过 padding: 0，是同一个坑逐个打的补丁；底座收干净后
+     它们那几条保持原样（不删，那里的注释各记着自己的判据）。 */
+  padding: 0;
   border-radius: 4px;
   color: var(--text-dim);
   transition: background-color 0.15s ease, color 0.15s ease;
@@ -849,11 +857,10 @@ function onLongCopy(event, full) {
   /* 箭头自己占住左侧 0..22px 那一格，标题、标签、代码文字统一从 22px 起
      （见 .card__head / .card__body）。-8px 的右外边距把「按钮宽度 + 头栏 gap」
      这笔账压回 22px；少了它标题会被 gap 推到 30px，左侧四行字的起点就散了。
-     内边距仍要归零（2026-10-06）：<button> 默认的 1px 6px 会把 17px 的 svg 顶到
-     内容区左侧，墨迹从 6.75px 偏到 10.25px，箭头看着像掉出了自己的格子。
-     另外两颗图标按钮（arrow-up / copy）不跟着改：它们并排在输出区右上角、右侧没有
-     可对齐的边，2.5px 的偏移看不出来。删除 / 运行那两颗 32px 按钮贴着卡片右缘，偏移会直接显成
-     「图标贴着右边」—— 2026-10-24 已在 --danger / --run 规则里单独补了 padding: 0。 */
+     内边距归零（2026-10-06 先在这一颗上补，2026-10-26 收进 .icon-btn 底座）：<button>
+     默认的 1px 6px 会把 17px 的 svg 顶到内容区左侧，墨迹从 6.75px 偏到 10.25px，箭头
+     看着像掉出了自己的格子。这里保留这条显式声明 —— 它与上面的 margin 一起构成「箭头
+     占住左侧 0..22px 那一格」的完整定位，别因为底座已经有了就删掉。 */
   margin: 0 -8px 0 0;
   padding: 0;
   transition: color 0.15s ease;
