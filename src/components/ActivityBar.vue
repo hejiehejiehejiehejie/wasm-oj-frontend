@@ -3,7 +3,7 @@
  * ActivityBar —— 侧边栏折叠后顶替它的竖向图标栏（仿 VS Code 的 Activity Bar）。
  *
  * 只在折叠时出现：展开时页头里仍是「胶囊 + 齿轮」那一套（见 SidebarSwitcher），
- * 折叠后侧栏整栏 display:none，改由这条 48px 的图标栏承接入口 ——
+ * 折叠后侧栏整栏 display:none，改由这条 44px 的图标栏承接入口 ——
  * 否则用户只能靠分隔条那条隐形热区把侧栏捞回来。
  *
  * 顶部一簇＝侧边栏的两个面板 + 若干「固定到图标栏」的组件格 + 簇尾一格「组件」菜单
@@ -60,7 +60,7 @@ defineEmits(['select'])
 // ------------------------------------------------------------ 图标大小统一
 // 同一套 `size="24"` 下，各枚图标的**字形外接框**差得很远（实测，不含描边）：
 //   codeforces 24 / gear 22 / files 20 / clock 18 / cases 18 / flag 17.5 / grid 16 ——
-// 极差 50%。各拿各的图形画在同一个 24 网格里，并排到一条 48px 栏上就读成「大小不一」
+// 极差 50%。各拿各的图形画在同一个 24 网格里，并排到一条 44px 栏上就读成「大小不一」
 // （2026-10-22 用户提出）。
 //
 // 做法分两步（同一天加的）：
@@ -366,17 +366,18 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
 </template>
 
 <style scoped>
-/* 收起侧栏之后在场的那一条：圆角 48px 竖条，**底色与整页底色相同**。
+/* 收起侧栏之后在场的那一条：圆角 44px 竖条，**底色与整页底色相同**。
    底色本是与 .pane 同值的 --bg-panel（29 档），2026-10-23 用户要求「折叠 / 展开都与
    页面底色一致」—— 改成 --bg-editor 之后它不再是一块比地面亮一档的「卡」，
    读起来就是地面本身让出了一列图标（展开态的 .sidebar 同一支变量，见 Sidebar.vue）。
    **不描边**（2026-10-22 用户要求去掉外面那一圈细线）：折叠态下它与编辑器卡片之间
    还隔着一条 4px 空隙；再描一圈 1px 反而像第三块卡片。
-   ⚠️ 边框一去掉，内容盒就从 46px 变成 48px，下面 .activity-bar__item 的左边距要跟着
-   从 3px 改成 4px，方块才继续在栏内水平居中（`box-sizing: border-box` 是全局的）。
+   ⚠️ 边框一去掉，内容盒就是栏宽，下面 .activity-bar__item 的左边距就是
+   (栏宽 − 方块 40) / 2（`box-sizing: border-box` 是全局的）。2026-10-26 按用户
+   「收窄一点」把栏从 48 收到 44，左边距随之 4 → 2。
    宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。 */
 .activity-bar {
-  flex: 0 0 48px;
+  flex: 0 0 44px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -416,15 +417,15 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 2026-10-11：可点区从「整宽 48×40 长条」改成 40×40 的圆角正方形（用户要求），
-     格子四周的留白因此不再进可点范围。左边距 4px = (栏 48 − 方块 40) / 2 ——
-     栏在 2026-10-22 去掉了那圈 1px 边框，内容盒就是 48px，这 4px 是纯居中量；
-     （带边框那阵子写的是 3px，因为内容盒只有 46px，改边框时这条要一起改。）
+  /* 2026-10-11：可点区从「整宽长条」改成 40×40 的圆角正方形（用户要求），
+     格子四周的留白因此不再进可点范围。左边距 2px = (栏 44 − 方块 40) / 2
+     （2026-10-26 栏从 48 收到 44，这条跟着 4 → 2；再改栏宽必须同时改它，
+     否则方块不再水平居中）。
      仍用固定边距而不是居中对齐：这一栏伸缩时宽度从右边变，固定的左边距让方块
      一直钉在同一列上，不会随容器变窄而横移。半径 10px 与这条栏自己的圆角同值。 */
   width: 40px;
   height: 40px;
-  margin-left: 4px;
+  margin-left: 2px;
   padding: 0;
   border: none;
   border-radius: 10px;

@@ -292,7 +292,7 @@ const running = ref(false)
 const editorPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 1 : 3,
   // 像素直连拖拽期间：编辑器只负责填满剩余空间（面板宽由 tests 的像素 flex-basis 定死），
-  // 其余时刻仍走百分比 basis（含折叠态，图标栏固定 48px 那套逻辑不变）。
+  // 其余时刻仍走百分比 basis（含折叠态，图标栏固定 44px 那套逻辑不变）。
   ...(mdFullscreen.value
     ? {}
     : dragPanelPx.value !== null
@@ -363,13 +363,14 @@ let abortController = null
 // （宽屏 240px、窄屏按内容宽 50%，读 .workspace 的三个 CSS 变量），不在这里再写一份。
 // 拖拽上线就是「编辑器最窄 24%」对应的面板最宽 76%；面板能拖多窄由 CSS min-width 决定。
 const MIN_SHARE = 24
-// 「折叠之后侧栏真正占的宽度」= 那条图标栏（ActivityBar 的 .activity-bar，48px），
+// 「折叠之后侧栏真正占的宽度」= 那条图标栏（ActivityBar 的 .activity-bar，44px；
+// 2026-10-26 按用户「收窄一点」从 48 收来），
 // 也就是**宽屏**折叠态下分隔条停的位置。它**不再直接当折叠判定边界**（2026-10-11 改）：
 // 真正的边界取它与「展开到最窄时分隔条停的位置」的中点，见 measureLimits 的 hingePx。
-// ⚠️ 窄屏例外：那里既不用这条 48px，也不用中点，改用固定的指针容差 NARROW_HINGE_PX（见下）。
-// 48 会被 postcss-pxtorem 转成 rem、跟着全局缩放走（见 ActivityBar.vue 里那条注释），
+// ⚠️ 窄屏例外：那里既不用这条 44px，也不用中点，改用固定的指针容差 NARROW_HINGE_PX（见下）。
+// 44 会被 postcss-pxtorem 转成 rem、跟着全局缩放走（见 ActivityBar.vue 里那条注释），
 // 所以这里只存设计值，实际像素在 measureLimits 里乘 uiScale。
-const ACTIVITY_BAR_PX = 48
+const ACTIVITY_BAR_PX = 44
 
 // 窄屏折叠折点：指针离侧栏那一侧的边缘 **30px** 以内就折叠（2026-10-13 用户第二次改口径）。
 // 上一版窄屏取的是 `minPanelPx / 2`（「最窄宽度的一半」，因为窄屏折叠后图标栏是通栏横条、
@@ -388,7 +389,7 @@ let virtualShare = editorShare.value
 // 量一次工作区，推出拖拽界线
 function measureLimits() {
   const surface = workspace.value
-  if (!surface) return { width: 1, paneSpace: 1, left: 0, contentRight: 1, minPanelPx: 0, maxPanelPx: 1, collapsedPx: 48, hingePx: 24, maxShare: 24, edgeShare: 100 }
+  if (!surface) return { width: 1, paneSpace: 1, left: 0, contentRight: 1, minPanelPx: 0, maxPanelPx: 1, collapsedPx: 44, hingePx: 22, maxShare: 24, edgeShare: 100 }
   // 百分比 flex-basis 是按「内容盒」算的，而 getBoundingClientRect 含外侧留白，
   // 用后者会把鼠标位移折算小了、分隔条跟不满 1:1，所以这里要扣掉 padding。
   const style = getComputedStyle(surface)
@@ -490,8 +491,8 @@ function handoffDrag(expand, limits) {
   if (expand) {
     // 展开：**只**动占比，不提前把像素直连接管（dragPanelPx 保持 null）。
     // 折叠态那一帧的 flex-basis 必须是 0% —— 那是展开动画的起点。这里一旦钉成 minPanelPx，
-    // 面板会在仍挂着 is-collapsed（图标栏还占着 48px、侧栏挤在它右边）时就整块撑到最窄，
-    // 分隔条先跳到「折叠位 + 最窄宽」处，动画收尾图标栏让位时又往回收 48px —— 看着就是
+    // 面板会在仍挂着 is-collapsed（图标栏还占着 44px、侧栏挤在它右边）时就整块撑到最窄，
+    // 分隔条先跳到「折叠位 + 最窄宽」处，动画收尾图标栏让位时又往回收 44px —— 看着就是
     // 「展开那一下出现在别处，动画结束还再跳一次」（2026-10-11 用户报）。
     // 钉子交给翻转后的下一帧：那时 panelVisible 已为真，move 的展开分支会按指针位置把
     // dragPanelPx 夹进 [minPanelPx, maxPanelPx]，动画期间占比与像素都等于最窄宽，不会抖动。
@@ -1945,7 +1946,7 @@ onBeforeUnmount(() => {
 
       <!-- 折叠后顶替侧栏的竖向图标栏（仿 VS Code 的 Activity Bar）：只在侧栏收起时出现，
            装在侧栏那一侧的最外侧（order 见 activityBarStyle）。展开时页头里仍是胶囊 + 齿轮那套，
-           两者不会同时出现，所以入口没有重复。它与 .pane--tests 都参与分屏：固定 48px、
+           两者不会同时出现，所以入口没有重复。它与 .pane--tests 都参与分屏：固定 44px、
            不参与增长（编辑器是唯一 grow 的，剩下的宽度全归它）。
            显隐只认状态：动画交给 View Transitions，它出现在不在都由快照自己比。 -->
       <ActivityBar
@@ -2214,7 +2215,7 @@ onBeforeUnmount(() => {
 /* ------------------------------------------------- 窄屏折叠态：图标栏横过来贴边（2026-10-13）
 
    窄屏展开态的左簇已经沉到侧栏底部（同一个 `is-narrow` 判据，见 Sidebar.vue），折叠态却还留着一竖条
-   48px 的图标栏贴在屏幕左边 —— 两个形态对不上；而且折叠之后唯一剩下的入口是那条「边界线」，
+   44px 的图标栏贴在屏幕左边 —— 两个形态对不上；而且折叠之后唯一剩下的入口是那条「边界线」，
    它在触屏上根本指望不上（线平时 opacity: 0、触屏又没有 hover；那阵子热区正中还有一列
    2px 的三点抓手，而 2px 远小于指尖 —— 三点后来在 2026-10-22 也撤掉了），
    热区左半又正好压在图标栏中部那片没有按钮的空白上（点下去什么都不会发生）——
@@ -2281,7 +2282,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  /* 高度改由内容定：竖排里 flex-basis 是宽度（48px），横排里它成了高度。
+  /* 高度改由内容定：竖排里 flex-basis 是宽度（44px），横排里它成了高度。
      内容高度 = 「40px 方块 + 上下各 4px 内边距」= 48，靠 auto 撑开；写死 48 也刚好，
      但没有余量，字号 / 缩放一变就会被裁掉一像素 */
   flex: 0 0 auto;
