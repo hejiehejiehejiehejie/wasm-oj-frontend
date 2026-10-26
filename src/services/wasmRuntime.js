@@ -244,23 +244,49 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
     if (isPython) entry.runLimit += PYTHON_STARTUP_ALLOWANCE_MS
     try {
       // python 走解释执行：整棵 VFS 拍成 fs 一起塞进去，多文件 import 才有得找
-      const result = isPython
-        ? await runPython({
-            code,
-            entryPath: entryFile,
-            fs: await vfsToRunnoFs({ overrides: { [entryFile]: code }, entryPath: entryFile }),
-            stdin,
-            onStatus: entry.onStatus,
-            onHost: entry.onHost,
-          })
-        : await runCpp({
-            code,
-            stdin,
-            memoryLimitBytes,
-            onStatus: entry.onStatus,
-            onHost: entry.onHost,
-          })
+      const runOnce = async () =>
+        isPython
+          ? runPython({
+              code,
+              entryPath: entryFile,
+              fs: await vfsToRunnoFs({ overrides: { [entryFile]: code }, entryPath: entryFile }),
+              stdin,
+              onStatus: entry.onStatus,
+              onHost: entry.onHost,
+            })
+          : runCpp({
+              code,
+              stdin,
+              memoryLimitBytes,
+              onStatus: entry.onStatus,
+              onHost: entry.onHost,
+            })
+      let result = await runOnce()
       if (entry.cancelled) return { type: 'cancelled' }
+
+      // 首编产物的第一遍是**冷 JIT**：wasm 是分层编译，这份 Module 的函数先跑 V8 的
+      // Liftoff 基线代码，热了之后 TurboFan 才接手，所以整遍比稳态慢 25–40%
+      // （2026-10-26 实测 1M 2.5→1.6、100M 197.6→150.9、300M 602.9→427.6 ms）。
+      // 而一份产物在整批用例里只编一次、Module 也只建一次，于是**这份偏差全压在第一条
+      // 用例上**：同一条时限 175 ms 的用例，首条那一遍超过 175 ms 判了 TLE，后面两条
+      // 163 / 161.5 ms 正常通过 —— 用户看到的就是「第一次运行，第一条样例的运行时间
+      // 凭空多出来，甚至 TLE」。
+      //
+      // 修法：冷的那一遍**整遍不算数**（耗时与输出都丢掉），再跑一遍拿它的数当这条
+      // 用例的结论。三条边界：
+      // - 判据只有「cold 且正常收尾（exit 0、无 trap）」：**不能**再加「首遍没超时」
+      //   —— 首遍恰恰是因为冷 JIT 才超的（175 ms 那条就是这样被判的 TLE），拿它当门槛
+      //   等于把要修的现象留在原地。程序真跑不完时看门狗会在第一遍就掐断（超时走 catch），
+      //   根本到不了这里，所以「多跑一遍」最坏也只是把墙钟翻倍、上界仍是 `时限 + 宽限`；
+      // - 第二遍仍是 cold（说明 worker 被看门狗重建过、Module 缓存也跟着没了）就不再循环，
+      //   退回第一遍的数 —— 只跑两遍，绝不做「跑到不冷为止」的循环；
+      // - 两遍各自重新上弦（runCpp 每遍都会 onStatus('run')），所以看门狗对每一遍都是
+      //   完整的 `时限 + 宽限`，不会因为多跑一遍把时限算成一半。
+      if (!isPython && result.cold && result.ok) {
+        const warmed = await runOnce()
+        if (entry.cancelled) return { type: 'cancelled' }
+        if (!warmed.cold) result = warmed
+      }
       // 程序自己跑完了，但结束时刻晚于时限 → TLE（判定规范 §4.2）。用宿主补丁记的
       // runMs（_start 的起止墙钟），而不是消息处理时刻；补丁不在（null）时不做这一步，
       // 仍然只靠看门狗。阈值取 entry.runLimit：C++ 就是 timeLimitMs，Python 额外含着

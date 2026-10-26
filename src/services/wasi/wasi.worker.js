@@ -116,6 +116,12 @@ function removeFile(path) {
  * 一批用例跑的是**同一个**二进制，编译一次就够。53 KB 的产物一次 `compile` 只要 1–3 ms，
  * 所以这里省下的是「每个用例几毫秒」，不是大头（「命中编译缓存」实测 95–123 ms 里，
  * 大头是程序自己 2M 次 scanf 的 83–90 ms）。保留是因为成本为零，别把它当成性能解药。
+ *
+ * ⚠️ 但它带来一个副作用：**这份 Module 的第一遍执行跑在 V8 的 Liftoff 基线代码上**
+ * （wasm 是分层编译，热函数要等 TurboFan 编译完才切过去），实测同一份程序首遍比稳态慢
+ * **25–40%**（2026-10-26：1M 循环 2.5 → 1.6 ms、100M 197.6 → 150.9 ms、300M 602.9 → 427.6 ms）。
+ * 于是「命中的那个第一个用例」总是偏高、甚至会误判 TLE。判据交给上层：这里如实回报
+ * `cold`（这一遍是不是刚 `compile` 出来的 Module），由 wasmRuntime 决定预热，别在这儿偷偷跑两遍。
  */
 let moduleCache = null
 
@@ -234,12 +240,19 @@ async function main(message) {
   if (type === 'run') {
     const binary = message.binary instanceof Uint8Array ? message.binary : new Uint8Array(message.binary)
     let module
+    // 这一遍是不是这份产物在本 worker 里的**第一次**执行（= Module 刚编出来）：
+    // 首遍跑在 Liftoff 上，比后面几遍慢 25–40%（见上面 moduleCache 那段），
+    // 上层据此决定「不计时地先预热一遍」。
+    let cold = false
     try {
       const key = fingerprint(binary)
-      if (moduleCache?.key !== key) moduleCache = { key, module: await WebAssembly.compile(binary) }
+      if (moduleCache?.key !== key) {
+        moduleCache = { key, module: await WebAssembly.compile(binary) }
+        cold = true
+      }
       module = moduleCache.module
     } catch (error) {
-      return { exitCode: 134, stdout: '', stderr: '', trap: `compile: ${String(error)}`, runMs: 0, memoryBytes: 0, sbrkFailures: null }
+      return { exitCode: 134, stdout: '', stderr: '', trap: `compile: ${String(error)}`, runMs: 0, memoryBytes: 0, sbrkFailures: null, cold: false }
     }
     const stdin = message.stdin instanceof Uint8Array ? message.stdin : encoder.encode(message.stdin ?? '')
     // 主线程开的镜像：它在 terminate 之后仍可读，是本条路径上「TLE 不丢输出」的唯一保证。
@@ -270,6 +283,7 @@ async function main(message) {
       runMs: result.runMs,
       memoryBytes: result.memoryBytes,
       sbrkFailures: result.sbrkFailures,
+      cold,
     }
   }
   throw new Error(`未知消息：${type}`)

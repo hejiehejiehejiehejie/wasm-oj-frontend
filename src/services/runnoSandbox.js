@@ -769,13 +769,17 @@ async function compileAndLink(code, memoryLimitBytes, onStatus) {
 
 /**
  * 编译并运行一段 C++。
- * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null, runMs: number | null, memoryBytes: number | null, sbrkFailures: number | null, trap: string }>}
+ * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null, runMs: number | null, memoryBytes: number | null, sbrkFailures: number | null, trap: string, cold?: boolean }>}
  * 工具链本身出问题（下载失败、浏览器不支持等）会抛异常，由上层翻译成 failure。
  *
  * durationMs 只计**运行段**，与用例时限同口径。编译刻意不算进去：它是整批用例
  * 共享的一次性开销（见上面的单槽缓存），摊到每张卡片上会让第一个用例的数字凭空
  * 高出一截，卡片之间也就没法互相比较了。程序压根没跑起来（编译失败）时给 null，
  * 由卡片显示为空 —— 那种情况下的「耗时」是编译耗时，不是这个数字要表达的东西。
+ *
+ * `cold`：这一遍是不是这份产物第一次执行（`wasi.worker.js` 的 Module 缓存未命中）。
+ * 首遍跑在 V8 的 Liftoff 上、比稳态慢 25–40%，**这个数字本身也是 contaminated 的**
+ * —— 上层（wasmRuntime）据此先不计时地跑一遍再取数，这里只如实回报事实。
  */
 export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () => {}, onHost = () => {} }) {
   const source = String(code ?? '')
@@ -825,6 +829,9 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
       memoryBytes: ran.memoryBytes,
       sbrkFailures: ran.sbrkFailures,
       trap: ran.trap,
+      // 这份产物在本 worker 里的第一次执行（Module 刚 compile 出来）→ 这一遍跑在
+      // Liftoff 上，耗时偏高。上层据此决定预热，见文件头那段注释与 wasmRuntime.runCase。
+      cold: ran.cold === true,
     }
   } finally {
     onHost(null)
