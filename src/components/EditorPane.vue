@@ -1192,8 +1192,8 @@ defineExpose({
   background: var(--probe-bg);
   border: 1px solid var(--probe-border);
   box-shadow: var(--probe-shadow);
+  /* 只写标准属性：成对写前缀会被 Lightning CSS 只留前缀、Chrome 141+ 又不认前缀（见 CountdownCard） */
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   /* 按下即弹出来的一下；松手是直接撤（不做退场）—— 拖完立刻清干净比留个淡出更利索 */
   animation: magnifier-in 120ms ease-out;
 }
@@ -1521,7 +1521,7 @@ defineExpose({
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--toast-bg);
-  -webkit-backdrop-filter: blur(10px);
+  /* 只写标准属性：成对写前缀会被 Lightning CSS 只留前缀、Chrome 141+ 又不认前缀（见 CountdownCard） */
   backdrop-filter: blur(10px);
   box-shadow: var(--toast-shadow);
   color: var(--text-dim);

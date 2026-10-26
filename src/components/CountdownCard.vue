@@ -620,8 +620,12 @@ onBeforeUnmount(() => {
      糊掉再透上来。模糊半径刻意写在组件里而不是 base.css —— 它是这支卡的观感参数，
      与色值分开调。2026-10-21 那轮「不透明 + 不模糊」的口径已被用户本轮推翻。 */
   background: var(--cd-bg);
+  /* 只写标准属性，**不要补 -webkit- 前缀**（2026-10-26）：构建期 Lightning CSS 遇到
+     「标准 + 前缀」成对出现时只保留前缀那条，而 Chrome 141 起已移除
+     `-webkit-backdrop-filter` 别名 —— 线上产物于是整条失效，磨砂没了、
+     卡片看起来比本地「透明」得多。标准属性 Chrome 76+ / Firefox 103+ /
+     Safari 18+ 都认，前缀没有存在的意义。EditorPane / NotificationCenter 同批改。 */
   backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--cd-shadow);
   /* 圆角边之外一律不画：环、弧头光点、解锁胶囊再怎么变，都不会漏到边框外面 */
   overflow: hidden;
@@ -643,7 +647,6 @@ onBeforeUnmount(() => {
   /* 整卡透明之后模糊也必须一起关：否则只剩环的那块矩形区域仍会把背后的代码糊出来，
      凭空多出一块磨砂方斑 */
   backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   box-shadow: none;
   cursor: default;
   pointer-events: none;

@@ -770,6 +770,12 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
     - **实测**（自起 dev server + 探针直调 `wasmRuntime.runCase`，本机 Chrome）：修前每种规模的「新 Module 首遍 / 第二遍」= 1M `2.5/1.6`、5M `10.5/7.7`、20M `40.7/30.7`、100M `197.6/150.9`、300M `602.9/427.6`；修后同一组全是稳态值（`1.6/1.6`、`7.8/7.7`、`30.6/30.1`、`151.2/148.3`、`434.7/435.2`）。时限 175 ms 的三连跑：修前 `TLE / 163 / 161.5`，修后 `150.8 / 150.2 / 150.6`。界面回归（三条 a+b 用例、冷启动）：首条从 `1.9 ms` 变成 `0.0 ms`、三条齐平，阶段总线里能看到 `run` 连着出现两次（2429 → 2434 ms）。边界回归：CE 仍是一次编译 + `durationMs: null`；RE（野指针）不预热、直接 `RE`；死循环在 `时限 800 + 宽限` 处被掐断（`durationMs 901`）、只跑一遍；Python 三条仍是 `60 / 62 / 55 ms`。`npm run verify` 基线不变（B/C/D/F 绿，A/E/G/H 既有红）。
     - **代价与口径**：改代码后的**第一次运行**里，第一条用例的墙钟会多出「一遍程序运行」（最坏 `时限 + 宽限`，会 TLE 的程序不重跑），卡片上的数字与后续用例同档。⚠️ 别把这条修法顺手扩展到 Python：它每条用例本来都冷，加了预热就是每条都白跑一遍 —— 平白把墙钟翻倍。
 
+64. **`backdrop-filter` 与 `-webkit-` 前缀**成对**写，线上就整条失效**（2026-10-26 加，用户报「localhost 和网站上倒计时窗口的透明度不同，网站的高很多」）。四条：
+    - **症状**：dev 下磨砂模糊正常，线上产物里 `backdrop-filter` 计算值是 `none` —— 倒计时卡 / 放大镜 / 通知条的半透明底不再糊背景，背后的代码清晰透上来，看起来「透明度高很多」。实际透明度没变（`--cd-bg` 两边都是 70%），变的是模糊没了。
+    - **真因**：rolldown-vite 的 CSS 压缩（Lightning CSS）遇到「标准 + `-webkit-` 前缀」成对出现时**只保留前缀那条**（线上 `main-*.css` 实测只剩 `-webkit-backdrop-filter:blur(...)`），而 **Chrome 141 起移除了 `-webkit-backdrop-filter` 别名** —— 解析时整条丢弃，CSSOM 里规则里干干净净没有这个属性。dev server 吐未压缩 CSS（标准属性在），所以本地永远复现不出来。
+    - **修法**：源码里**只写标准属性**，一行前缀都不要（Chrome 76+ / Firefox 103+ / Safari 18+ 都认；压缩器会按它自己的 targets 自己补前缀，补回的 `-webkit-` 是给老 Safari 的、Chrome 不认就忽略，无害）。改动四处：`CountdownCard.vue`（卡片 + `is-locked`）、`EditorPane.vue`（放大镜、toast）、`NotificationCenter.vue`（通知条）。改完产物里标准 / 前缀两条并存，`vite preview` 实测计算值 `blur(0.875rem)` 回来了。
+    - **通用判据**：**凡是「本地正常、线上缺一条 CSS 效果」的报障，先 curl 线上那份 `main-*.css` 对着源码查这条属性还在不在** —— 压缩器吞属性是静默的，`getComputedStyle` 在 dev 上永远查不出来。同类高危写法还有：依赖声明顺序的缩写展开（`background` 缩写覆盖前面的 `background-color`）、`@media` 参数被 pxtorem 转换单位（已用 `mediaQuery: false` 关掉，见 vite.config.js）。
+
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
 | key | 内容 | 位置 |
