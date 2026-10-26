@@ -7,7 +7,7 @@ import { t } from '../i18n/index.js'
  *
  * @typedef {'idle'|'running'|'passed'|'failed'|'error'} CaseStatus
  * @typedef {'AC'|'WA'|'CE'|'TLE'|'MLE'|'RE'|'ERR'} Verdict 卡片徽标上的判定码，只有跑完才有
- * @typedef {{status: CaseStatus, verdict: Verdict|'', actualOutput: string, detail: string, durationMs: number|null}} CasePatch
+ * @typedef {{status: CaseStatus, verdict: Verdict|'', actualOutput: string, detail: string, note: string, durationMs: number|null}} CasePatch
  */
 
 const LANGUAGE_UNSUPPORTED = (engine) =>
@@ -25,7 +25,7 @@ export const MEMORY_LIMIT_DEFAULT_BYTES = 256 * 1024 * 1024
 export const MEMORY_LIMIT_OPTIONS = [64, 128, 256, 512, 1024].map((mb) => mb * 1024 * 1024)
 
 function failed(detail, durationMs = null, extra = {}) {
-  return { status: 'error', verdict: 'ERR', actualOutput: '', detail, durationMs, ...extra }
+  return { status: 'error', verdict: 'ERR', actualOutput: '', detail, note: '', durationMs, ...extra }
 }
 
 /**
@@ -74,7 +74,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
 
   switch (result.outcome) {
     case 'cancelled':
-      return { status: 'idle', verdict: '', actualOutput: '', detail: '', durationMs: null }
+      return { status: 'idle', verdict: '', actualOutput: '', detail: '', note: '', durationMs: null }
 
     case 'ok': {
       const match = checkOutput(result.stdout, testCase.expectedOutput, checker)
@@ -83,6 +83,10 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         verdict: match ? 'AC' : 'WA',
         actualOutput: result.stdout,
         detail: '',
+        // 编译期诊断（当前只有「编译期确定的除以零」）单独占一行 `note`，**不进 detail**：
+        // detail 会与 stdout 一起拼成 ACTUAL 的内容，那样「复制输出」会把这句提示也复制走，
+        // 用户粘到别处时凭空多一行中文。判定照旧只看输出比对，AC / WA 不受它影响。
+        note: result.warning ?? '',
         durationMs,
       }
     }
@@ -93,6 +97,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         verdict: 'CE',
         actualOutput: result.stdout ?? '',
         detail: result.stderr || t('tests.outcome.compileFailed'),
+        note: '',
         durationMs,
       }
 
@@ -103,6 +108,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         verdict: 'TLE',
         actualOutput: result.stdout ?? '',
         detail: limit ? t('tests.outcome.timeout', { limit }) : t('tests.outcome.timeoutPlain'),
+        note: '',
         durationMs,
       }
     }
@@ -114,6 +120,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         verdict: 'MLE',
         actualOutput: result.stdout ?? '',
         detail: limit ? t('tests.outcome.memoryExceeded', { limit }) : t('tests.outcome.memoryExceededPlain'),
+        note: '',
         durationMs,
       }
     }
@@ -124,6 +131,7 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         verdict: 'RE',
         actualOutput: result.stdout ?? '',
         detail: result.stderr || t('tests.outcome.runtimeError'),
+        note: '',
         durationMs,
       }
 

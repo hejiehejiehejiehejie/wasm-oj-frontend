@@ -549,13 +549,24 @@ function onLongCopy(event, full) {
               </button>
             </span>
           </span>
-          <pre
-            class="out"
-            :class="{ 'is-empty': !outputView.text, 'is-truncated': outputView.long }"
-            tabindex="0"
-            @copy="onLongCopy($event, outputText)"
-            >{{ outputView.text || actualPlaceholder }}</pre
-          >
+          <!-- 外框（2026-10-26 晚）：系统提示要压在框内第一行，所以背景 / 描边 / 圆角 /
+               截断虚线统一交给这一层，<pre> 退成「只剩内边距与滚动」的内容区。 -->
+          <div class="out-box" :class="{ 'is-truncated': outputView.long }">
+            <!-- 编译期诊断（2026-10-26 加，目前只有「编译期确定的除以零」）。**不参与判定**：
+                 -O2 把 `a / 0` 折成常量，程序照样退出 0，那个 0 本身没有意义，只是看起来像 AC。
+                 它不进 outputText（否则「复制输出」会把提示一起递出去），只占框内顶部一行。 -->
+            <p v-if="testCase.note" class="out-box__note">{{ testCase.note }}</p>
+            <pre
+              class="out"
+              :class="{
+                'is-empty': !outputView.text,
+                'is-hint': !outputView.text && testCase.status !== 'running',
+              }"
+              tabindex="0"
+              @copy="onLongCopy($event, outputText)"
+              >{{ outputView.text || actualPlaceholder }}</pre
+            >
+          </div>
           <div v-if="outputView.long" class="ionote">
             <span class="ionote__text">
               {{ t('tests.card.omitted', { n: outputView.hidden }) }}
@@ -1039,9 +1050,10 @@ function onLongCopy(event, full) {
    —— 拖滚动条就能看到全部，浏览器那根滚动条已经把话说完了，再画虚线是噪音（见脚本里的注释）。
    框本身仍然可以打字，所以不能再整框画虚线 —— 那会被读成「这里不能编辑」。
    改成只把底边换成虚线，边框色必须从 --border-soft 提到 --border：前者在浅色主题下几乎看不见，
-   1px 的虚线一旦没有对比度就完全白做。 */
+   1px 的虚线一旦没有对比度就完全白做。
+   Actual 那块的虚线画在 `.out-box` 上：描边是外框的属性，`<pre>` 只是内容区。 */
 .ta--truncated,
-.out.is-truncated {
+.out-box.is-truncated {
   border-bottom-style: dashed;
   border-bottom-color: var(--border);
 }
@@ -1065,6 +1077,30 @@ function onLongCopy(event, full) {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Actual 的外框：承载底色、描边、圆角与截断虚线，`<pre>` 退成内容区（见模板注释）。 */
+.out-box {
+  border-radius: 6px;
+  background: var(--code-block-bg);
+  border: 1px solid transparent;
+  /* 让 `<pre>` 的滚动条也落在圆角里，不在四个角上露出直角 */
+  overflow: hidden;
+}
+
+/* 框内顶部的系统提示（目前只有编译期诊断：「源码含除以零…输出结果不可预期」）。
+   - 颜色是**专用的一支鹅黄**（`--hint-goose`），不是 `--warn`：2026-10-26 晚用户指定「鹅黄，
+     不要绿」，而 `--warn` 深色是偏褐的金、浅色是偏橄榄的黄褐，压在这里会被读成灰绿。
+     它只服务这一处，也就不跟页签未保存点、通知那批警告色联动。
+   - 字号比正文（13.5px）小一号，且用正文字体而不是等宽：它是「关于这次输出的一句话」，
+     不是输出本身，等宽会读成「这也是程序打印的」。
+   - 必须读完，所以不截断，窄面板下折行。 */
+.out-box__note {
+  margin: 0;
+  padding: 7px 9px 0;
+  color: var(--hint-goose);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .ionote__btn {
@@ -1092,10 +1128,7 @@ function onLongCopy(event, full) {
   max-height: 360px;
   overflow: auto;
   padding: 8px 9px;
-  border-radius: 6px;
-  /* 同 .ta：一块弱底、没有可见描边，Actual 与上面两个输入面才像同一组读数窗 */
-  background: var(--code-block-bg);
-  border: 1px solid transparent;
+  /* 底色 / 描边 / 圆角都在 .out-box 上：外框要能包住框内顶部那行提示 */
   font-family: var(--mono-font);
   font-size: 13.5px;
   line-height: 1.55;
@@ -1103,6 +1136,17 @@ function onLongCopy(event, full) {
   word-break: break-word;
   color: var(--text);
   cursor: text;
+}
+
+/* 外框的 `overflow: hidden` 会把浏览器画在 `<pre>` 外面的默认 outline 裁掉，
+   于是 Tab 到这里就看不出焦点（改动前 `.out` 自己就是框，outline 还在外面看得见）。
+   焦点态改为给外框描边上色，判据与 `.ta:focus` 同一条：用户看到的都是「这块框亮了」。 */
+.out:focus {
+  outline: none;
+}
+
+.out-box:has(.out:focus) {
+  border-color: var(--focus);
 }
 
 .card[data-status='passed'] .out {
@@ -1116,6 +1160,17 @@ function onLongCopy(event, full) {
 
 .out.is-empty {
   color: var(--text-faint);
+}
+
+/* 「输出为空」（跑完了、程序什么也没打印）：同一类系统提示，与框内顶部那行同一套长相。
+   「运行中…」不算 —— 它是状态不是结论，且颜色一变会像已经给出了结果，所以留在 faint。
+   字号小一号是因为它占的是正文的位置却没有正文可读，抢眼会让人以为程序打印了这句话。
+   **两段类名是必要的**：`.card[data-status='passed'] .out` 把整个 `<pre>` 染成判定色
+   （AC 绿 / WA 红），单写 `.out.is-hint` 特异性不够、会被它压成绿的（实测踩到）。
+   写满三个类与它打平，靠「定义在它之后」才赢 —— 这块规则别往上挪。 */
+.out.is-empty.is-hint {
+  color: var(--hint-goose);
+  font-size: 12px;
 }
 
 /* ---------- 窄容器下的降级 ----------

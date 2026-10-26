@@ -168,6 +168,9 @@ function createCase(seed = {}) {
     actualOutput: '',
     status: 'idle',
     detail: '',
+    // 编译期诊断那一行（目前只有「编译期确定的除以零」）。只活在内存里 ——
+    // 用例回写只取 input / expectedOutput 两栏，它不会进 config.tests。
+    note: '',
     verdict: '',
     durationMs: null,
     stale: false,
@@ -1271,6 +1274,7 @@ async function runAll() {
     item.status = 'idle'
     item.actualOutput = ''
     item.detail = ''
+    item.note = ''
   }
 
   // 结果通知在状态归位后发。**必须用 queue 而不是 testCases.value**：用例回写

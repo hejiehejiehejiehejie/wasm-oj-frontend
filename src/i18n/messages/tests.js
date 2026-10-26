@@ -226,6 +226,11 @@ export default {
         memoryExceeded: '内存超限 (MLE)：上限 {limit}',
         memoryExceededPlain: '内存超限 (MLE)',
         runtimeError: '运行期出错',
+        /**
+         * 编译期就能确定的除以零（`a / 0`）。**不改判定**，只在 ACTUAL 框下面多一行提示：
+         * -O2 把它折成常量，程序照样退出 0，那个输出本身没有意义（UB）。
+         */
+        divideByZero: '源码含除以零（编译期已确定），输出结果不可预期',
         serviceUnreachable: '评测服务不可达',
         failed: '评测失败（{outcome}）',
         /** {engine} 是引擎显示名 */
@@ -382,6 +387,7 @@ export default {
         memoryExceeded: 'Memory limit exceeded (MLE): {limit}',
         memoryExceededPlain: 'Memory limit exceeded (MLE)',
         runtimeError: 'Runtime error',
+        divideByZero: 'Source divides by zero at compile time; the output is undefined',
         serviceUnreachable: 'Judge service unreachable',
         failed: 'Judging failed ({outcome})',
         unsupportedLanguage:

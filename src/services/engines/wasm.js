@@ -49,6 +49,21 @@ function describeTrap(trap) {
   return hit ? t(hit[1], { raw }) : raw
 }
 
+/**
+ * 编译期诊断 → 卡片上那行提示。当前**只认一条**：编译期就能确定的除以零。
+ *
+ * 为什么不判死（2026-10-26 用户拍板「只提示不判死」）：`a / 0` 在 -O2 下被折成常量、
+ * wasm 里没有除法指令，程序照样退出 0；而 -O0 的 OJ 会发 `idiv` 收到 SIGFPE 判 RE。
+ * 两种都是 UB 的合法后果，我们按「实际跑出来的」判定，只把这条诊断补在卡片上
+ * （ACTUAL 框内顶部那行淡黄色提示，见 `TestCaseCard.vue` 的 `.out-box__note`），让用户知道结果不可预期。另一层原因：这条警告对**走不到的分支**里的 `10 / 0` 同样会报，
+ * 若据此判 RE，那个在 -O0 的 OJ 上完全正常的程序会被我们误杀。
+ */
+function describeWarnings(diagnostics) {
+  if (!diagnostics) return ''
+  if (/division by zero/i.test(diagnostics)) return t('tests.outcome.divideByZero')
+  return ''
+}
+
 export const wasmEngine = {
   id: 'wasm',
   // 引擎注册表里只放 key：label / hint 是数据，必须在渲染那一刻才求值（见 i18n 调用纪律）
@@ -144,6 +159,8 @@ export const wasmEngine = {
         durationMs,
       }
     }
-    return { outcome: 'ok', stdout, stderr: '', durationMs }
+    // 走到了 exit 0：判定只看程序自己跑出来的东西，编译期警告不参与 —— 它只是卡片上
+    // 多出来的一行说明（见 describeWarnings）。
+    return { outcome: 'ok', stdout, stderr: '', warning: describeWarnings(message.diagnostics), durationMs }
   },
 }

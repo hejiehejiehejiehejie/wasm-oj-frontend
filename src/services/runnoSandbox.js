@@ -125,8 +125,12 @@ const FRONTEND_ARGS = [
   // 自写宿主的 fd 2 是 CHARACTER_DEVICE，clang 23 会把它当 tty、默认开彩色诊断；
   // 卡片是纯文本渲染，必须显式关掉（runno 宿主下默认没有颜色，所以之前没暴露）。
   '-fno-color-diagnostics',
-  // `-w`：卡片只该显示「为什么编译不过」，编译器警告整类关掉。属于语言选项。
-  '-w',
+  // 编译器警告整类关掉：卡片只该显示「为什么编译不过」。
+  // 原来这里写的是 `-w`，2026-10-26 换成等价的 `-Wno-everything` —— 因为 `-w` 是
+  // 「全抑制」位，后面**再写任何 `-Wxxx` 都压不动它**（实测 `-w -Wdivision-by-zero`
+  // 一条都不报）。换成这个之后，用户代码那次编译（见 clangArgs）才能单独把
+  // 除零那一条放开；PCH / 探针 / 语法检查仍然全静音。
+  '-Wno-everything',
   '-std=c++20',
   '-O2',
   // 与 CF / AtCoder 对齐（判定规范 §6）：让用户代码里的 `#ifdef ONLINE_JUDGE` 生效。
@@ -168,6 +172,15 @@ function clangArgs(pchPath) {
     '-emit-obj',
     '-disable-free',
     ...FRONTEND_ARGS,
+    // 唯一放开的警告：**编译期就能确定的除以零**（`a / 0`、`10 / 0`）。
+    //
+    // 为什么单独挑它（2026-10-26 用户问「别的 OJ 里 a/0 会 RE，我们这里输出了 0」）：
+    // -O2 会把常量除法直接折成一个常量，wasm 里连除法指令都不剩，于是运行期输出 0、
+    // 退出码 0 —— 判 AC。而 -O0 的 OJ 真发一条 `idiv`、收到 SIGFPE，判 RE。两边都不是
+    // 「实现定义」之外的什么，只是 UB 的两种后果。**这里不做判定干预**（判死会把
+    // 「走不到的分支里写了 10/0」这种程序也一起打死，而它在 -O0 的 OJ 上是正常的），
+    // 只把这条诊断带回去，由卡片在 ACTUAL 框下面补一行「结果不可预期」。
+    '-Wdivision-by-zero',
     ...(pchPath ? ['-include-pch', pchPath] : []),
     '-o',
     OBJECT_PATH,
@@ -680,7 +693,7 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
  * 为什么只留一份：用例总是成批跑的，而代码一改缓存必然失效，多留几个槽位没有收益。
  * 为什么键里要有内存上限：上限编在 --max-memory 里、直接烙进产物，改上限必须重链接。
  * 为什么键里还要有 STACK_POLICY_VERSION：栈大小由内存上限推导（§5.3），同样烙进产物。
- * @type {{ code: string, memoryLimitBytes: number, stackPolicy: number, outcome: { ok: true, binary: object } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
+ * @type {{ code: string, memoryLimitBytes: number, stackPolicy: number, outcome: { ok: true, binary: object, diagnostics: string } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
  */
 let compileCache = null
 
@@ -764,12 +777,23 @@ async function compileAndLink(code, memoryLimitBytes, onStatus) {
     }
   }
 
-  return { ok: true, binary: { content: linked.binary } }
+  return {
+    ok: true,
+    binary: { content: linked.binary },
+    // 编译成功时 clang 的 stderr 就是警告（`-Wdivision-by-zero` 那一条，别的都关着）。
+    // 以前这里直接丢掉 —— 现在带回去给卡片当提示，判定不受它影响。
+    diagnostics: compiled.stderr || '',
+  }
 }
 
 /**
  * 编译并运行一段 C++。
- * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null, runMs: number | null, memoryBytes: number | null, sbrkFailures: number | null, trap: string, cold?: boolean }>}
+ * @param {string} code
+ * @param {string} stdin
+ * @param {number} memoryLimitBytes
+ * @param {(status: { stage: string, message: string }) => void} onStatus
+ * @param {(host: object | null) => void} onHost
+ * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, diagnostics: string, durationMs: number | null, runMs: number | null, memoryBytes: number | null, sbrkFailures: number | null, trap: string, cold?: boolean }>}
  * 工具链本身出问题（下载失败、浏览器不支持等）会抛异常，由上层翻译成 failure。
  *
  * durationMs 只计**运行段**，与用例时限同口径。编译刻意不算进去：它是整批用例
@@ -810,6 +834,7 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
         exitCode: outcome.exitCode,
         stdout: outcome.stdout,
         stderr: outcome.stderr,
+        diagnostics: '',
         durationMs: null,
       }
     }
@@ -823,6 +848,9 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
       exitCode: ran.exitCode,
       stdout: ran.stdout,
       stderr: ran.stderr,
+      // 编译期警告（当前只有 `-Wdivision-by-zero` 一条）。判定不看它，卡片拿它当提示；
+      // 无论本次运行是 AC 还是 RE 都照样带回去 —— 源码里有除零，这条信息对两种结果都成立。
+      diagnostics: outcome.diagnostics ?? '',
       // 宿主自己记的 _start 起止；缺了才退回宿主侧粗计时
       durationMs: ran.runMs ?? Math.round(performance.now() - runStartedAt),
       runMs: ran.runMs,
