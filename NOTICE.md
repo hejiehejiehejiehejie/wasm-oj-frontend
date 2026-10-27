@@ -14,7 +14,9 @@
 - 站点是公开部署的，产物里带着别人的代码，所以这份清单不是「本地备忘」，是分发义务的一部分。
 - 本文件只列**别人的**项目。本仓库自己目前没有 `LICENSE` 文件（即默认「保留所有权利」），这不影响上面那些第三方许可的义务，但若将来要开源本站代码，需要另做决定。
 
-> 最后核对：**2026-10-26**（换扩展包 → `cc-for-web-2.68.0.zip`。**比赛核心功能**：扩展新增 `contest-schedule` / `contest-register` / `contest-virtual` / `contest-unofficial` 四项能力与 `cp-contest-states` / `cp-register` / `cp-start-virtual` / `cp-unofficial-rank` 四对跨仓消息 —— 读 `/contests` 列表上每一场的报名状态、在用户确认后替其报名或开一场虚拟参赛（只提交这一次表单，绝不自动重放）、以及读好友榜（拿不到时退到合并榜第一页）得出含非正式参赛者的名次。信任边界与其它动作一致：只回状态枚举、原因枚举与名次数字，不读 cookie、不回传页面内容，且只在用户显式点按时发生。清单随之变化：`host_permissions` 190 → 195、`content_scripts` 4 → 5（多出的一条注入 `/contests`、`/contestRegistration` 与三种榜单页），API `permissions` 一条未新增。依赖与包内第三方组件的版本、许可**未变**）。
+> 最后核对：**2026-10-28**（换扩展包 → `cc-for-web-2.68.1.zip`。**装上 / 重载扩展后不再需要刷新页面**：内容脚本只在页面加载那一刻注入，所以页面开在扩展装上之前的那些标签页里没有桥，网站探活永远没人接、界面停在「未检测到」。扩展现在在后台每次启动时（装上、更新、在扩展管理页点「重新加载」都会走到）按 manifest 里桥那一条的 `matches` 查一遍已打开的标签页，给它们补注入一份 `js/bridge.js`；桥自带幂等标记（同一个隔离世界里只注册一次监听），重复注入是空操作。清单**一条未改**（`scripting` 权限与站点 host 权限本来就有），API `permissions`、`host_permissions` 195 条、`content_scripts` 5 条全部不变，依赖与包内第三方组件的版本、许可**未变**）。
+>
+> 此前核对：**2026-10-26**（换扩展包 → `cc-for-web-2.68.0.zip`。**比赛核心功能**：扩展新增 `contest-schedule` / `contest-register` / `contest-virtual` / `contest-unofficial` 四项能力与 `cp-contest-states` / `cp-register` / `cp-start-virtual` / `cp-unofficial-rank` 四对跨仓消息 —— 读 `/contests` 列表上每一场的报名状态、在用户确认后替其报名或开一场虚拟参赛（只提交这一次表单，绝不自动重放）、以及读好友榜（拿不到时退到合并榜第一页）得出含非正式参赛者的名次。信任边界与其它动作一致：只回状态枚举、原因枚举与名次数字，不读 cookie、不回传页面内容，且只在用户显式点按时发生。清单随之变化：`host_permissions` 190 → 195、`content_scripts` 4 → 5（多出的一条注入 `/contests`、`/contestRegistration` 与三种榜单页），API `permissions` 一条未新增。依赖与包内第三方组件的版本、许可**未变**）。
 >
 > 此前核对：**2026-10-24**（换扩展包 → `cc-for-web-2.67.4.zip`。**判定为非 AC 时保留提交页**：扩展以前在判定落定后一律关掉自己开的那个 Codeforces 标签页；现在只有 AC 才关，WA / TLE / MLE / RE / CE 等会把那一页导航到这条提交的详情页并切到前台，方便用户直接看失败测试点与编译错误。依赖、清单与 API `permissions` 均未动，包内第三方组件的版本与许可**未变**）。
 >
@@ -109,7 +111,7 @@
 
 ## 四、浏览器扩展 CC for Web
 
-安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.68.0**；2026-10-26 换版：报名状态、报名 / 虚拟参赛与非正式名次（`host_permissions` 190 → 195、`content_scripts` 4 → 5）；此前 2026-10-24 换版：判定为非 AC 时保留提交页并导航到详情页，只有 AC 才关；再此前 2026-10-23 换版（先修源码框选择器 —— 真页面叫 `source`、`sourceFile` 是文件上传框；再修提交按钮解禁 —— 题目下拉框必须派发 `change`，按钮才会从 `disabled` 变可点；另修新建标签页的空白页竞态、找不到提交表单时保留那一页，并把 Cloudflare 人机验证页单报为 `challenge`），行为改动是**一键提交到 Codeforces** —— 用户点样例面板页脚那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定推回本站（只写提交框、不读 cookie、不回传页面内容，且只在用户显式点按时发生；`host_permissions` 也因此 184 → 190、`content_scripts` 3 → 4）；包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
+安装包由本站分发（`public/extension/cc-for-web-<版本>.zip`，当前 **2.68.1**；2026-10-28 换版：后台每次启动时给已打开的目标网站标签页补注入桥接脚本，装上 / 重载扩展后不必刷新页面（清单一条未改）；此前 2026-10-26 换版：报名状态、报名 / 虚拟参赛与非正式名次（`host_permissions` 190 → 195、`content_scripts` 4 → 5）；此前 2026-10-24 换版：判定为非 AC 时保留提交页并导航到详情页，只有 AC 才关；再此前 2026-10-23 换版（先修源码框选择器 —— 真页面叫 `source`、`sourceFile` 是文件上传框；再修提交按钮解禁 —— 题目下拉框必须派发 `change`，按钮才会从 `disabled` 变可点；另修新建标签页的空白页竞态、找不到提交表单时保留那一页，并把 Cloudflare 人机验证页单报为 `challenge`），行为改动是**一键提交到 Codeforces** —— 用户点样例面板页脚那颗提交按钮（或按快捷键）时，扩展把当前编辑器正文填进 Codeforces 的提交页并点提交，随后在 `/my` 页上轮询判定推回本站（只写提交框、不读 cookie、不回传页面内容，且只在用户显式点按时发生；`host_permissions` 也因此 184 → 190、`content_scripts` 3 → 4）；包里第三方组件的版本与上表一致），源码在另一个仓库（`cph-companion`）。
 
 | 组件 | 版本 | 许可 | 说明 |
 | --- | --- | --- | --- |
