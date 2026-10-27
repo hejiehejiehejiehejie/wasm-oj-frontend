@@ -31,9 +31,10 @@ import { computed, nextTick, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
 import { COUNT_MAX, COUNT_MIN, normalizeHandles, problemKey } from '../cf/pick.js'
+import { cfHandle } from '../cf/myHandle.js'
 import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
-import { closeCfPickerTab } from '../services/editorViews.js'
+import { closeCodeforcesTab } from '../services/editorViews.js'
 import { notify } from '../services/notifications.js'
 import { addTabsToGroup, groupOfId, groupTabs } from '../services/tabGroups.js'
 import { importProblem } from '../services/vfs/problemImport.js'
@@ -48,10 +49,12 @@ const BULK_TAB_LIMIT = 5
 
 /** cfReady 翻回 false（例如浏览器清了 IndexedDB，reconcileCfRuntime 把标记正回来）时页签必须跟着关 —— 否则会留下一张点不开（侧栏按钮已经没了）的空页签 */
 watch(cfReady, (ready) => {
-  if (!ready) closeCfPickerTab()
+  if (!ready) closeCodeforcesTab()
 })
 
-/** 偏好键。统一 `cp.cf.` 前缀，与设置页的 `cp.cfPicker.ready` 同族。 */
+/** 偏好键。统一 `cp.cf.` 前缀，与设置页的 `cp.cfPicker.ready` 同族。
+ *  账号（`cp.cf.handle`）不在这里 —— 它由 cf/myHandle.js 的模块级 ref 统一持有，
+ *  排行榜 / 提交记录的「我」读的是同一份。 */
 const KEY = {
   ratingMin: 'cp.cf.ratingMin',
   ratingMax: 'cp.cf.ratingMax',
@@ -59,7 +62,6 @@ const KEY = {
   count: 'cp.cf.count',
   preferNew: 'cp.cf.preferNew',
   excludeSolved: 'cp.cf.excludeSolved',
-  handle: 'cp.cf.handle',
 }
 
 /**
@@ -92,7 +94,8 @@ export function useCfPicker() {
   const count = usePersistentRef(KEY.count, 1)
   const preferNew = usePersistentRef(KEY.preferNew, true)
   const excludeSolved = usePersistentRef(KEY.excludeSolved, false)
-  const handle = usePersistentRef(KEY.handle, '')
+  // 账号是跨面板共用的（排行榜的「跳到我」、提交记录的「只看我」），见 cf/myHandle.js
+  const handle = cfHandle
 
   /** 抽取中 */
   const picking = ref(false)

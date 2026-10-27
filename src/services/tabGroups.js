@@ -231,26 +231,32 @@ export function isHiddenTab(tabId) {
 }
 
 /**
- * 可见页签寻址（2026-10-20 十四改抽出的公共方法）：折叠组转移焦点与「关闭激活页签」
- * 共用同一套「先向右、兜底向左」的优先级。从 anchorIndex 起（**含**）向右找第一个
- * 可见页签，右侧没有再从 anchorIndex-1 起向左逆序找。
+ * 可见页签寻址（2026-10-20 十四改抽出的公共方法；2026-10-26 加 includeViews）：
+ * 折叠组转移焦点与「关闭激活页签」共用同一套「先向右、兜底向左」的优先级。从 anchorIndex
+ * 起（**含**）向右找第一个可见页签，右侧没有再从 anchorIndex-1 起向左逆序找。
  *
- * 「可见」= 在 stripOrder 里、是文件页签（视图页签是另一条激活轴，不掺和）、还开着
- * （openTabIds 里有 —— 关闭场景 stripOrder 可能要等 watch 才清掉旧 id）、不属于任何
- * 已折叠分组。anchor 的两个调用口径：
+ * 「可见」= 在 stripOrder 里、还开着（openTabIds 里有 —— 关闭场景 stripOrder 可能要等
+ * watch 才清掉旧 id）、不属于任何已折叠分组。**合成视图页签默认不算候选**：关闭页签的焦点
+ * 只能落到文件上（activeId 装不了视图 id，见 workspaceStore.closeTab 的注入约定）。
+ * 折叠组转移焦点要把它算进来（传 includeViews）—— 视图页签就排在组旁边时，它才是「离得
+ * 最近的那一格」，跳过它会跳到更远的文件上、整条只剩视图时还会误判成全折叠。
+ * anchor 的两个调用口径：
  *   · 折叠组：传**组内第一名成员**的下标 —— 向右从它起扫，组内其余成员因已折叠被
  *     跳过，天然等效「从组末之后开始」；向左也从组首左边开始，两向都正确。
  *   · 关闭页签：传**被关页签**的下标（closeTab 里 splice 之后 index 处顶上来的是
  *     原来右邻那张，向右扫描必须含它）。
  * @param {number} anchorIndex stripOrder 里的参照下标
  * @param {string} [excludeId] 额外排除的页签 id（关闭场景传被关的那张，双保险）
+ * @param {boolean} [includeViews] 视图页签算不算候选（折叠组传 true；关闭页签不传）
  * @returns {string|null} 可见页签 id；一个都没有（全部折叠）时 null
  */
-export function findNextVisibleTab(anchorIndex, excludeId) {
+export function findNextVisibleTab(anchorIndex, excludeId, includeViews = false) {
   const open = new Set(workspace.openTabIds)
   const visibleAt = (i) => {
     const id = stripOrder[i]
-    return id && !isViewId(id) && open.has(id) && id !== excludeId && !isHiddenTab(id) ? id : null
+    if (!id || id === excludeId) return null
+    if (isViewId(id)) return includeViews ? id : null
+    return open.has(id) && !isHiddenTab(id) ? id : null
   }
   for (let i = Math.max(0, anchorIndex); i < stripOrder.length; i += 1) {
     const hit = visibleAt(i)

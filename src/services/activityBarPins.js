@@ -21,9 +21,12 @@
 import { computed, ref, watch } from 'vue'
 import { cfReady } from './cfRuntime.js'
 import { countdown, openCountdown } from './countdown.js'
-import { cfContestTab, cfPickerTab, openCfContestTab, openCfPickerTab } from './editorViews.js'
+import { codeforcesTab, openCodeforcesTab } from './editorViews.js'
 
 const STORAGE_KEY = 'cp.activityBarPins'
+
+/** 2026-10-27 抽题 / 比赛合并成一个组件，旧存档里那两个 id 迁到新 id 上 */
+const LEGACY_IDS = { picker: 'codeforces', contest: 'codeforces' }
 
 /**
  * 组件目录 —— **唯一出处**。分组结构照组件菜单的分组（Codeforces / 工具），
@@ -35,22 +38,14 @@ export const COMPONENT_GROUPS = [
     labelKey: 'components.menu.codeforces',
     items: [
       {
-        id: 'picker',
+        id: 'codeforces',
         icon: 'codeforces',
-        labelKey: 'cf.menu.picker',
-        run: openCfPickerTab,
+        labelKey: 'cf.view.title',
+        /** 组件菜单在那格图标上挂一枚「测试」小标签（2026-10-27） */
+        testing: true,
+        run: openCodeforcesTab,
         available: () => cfReady.value,
-        active: () => cfPickerTab.active,
-      },
-      {
-        id: 'contest',
-        // 旗子（2026-10-22 由 clock 换过来）：clock 与倒计时的 timer 都是「圆表盘 + 指针」，
-        // 缩到 20px 墨迹后分不出来。AppIcon 里 clock 保留（别的界面还在用）。
-        icon: 'flag',
-        labelKey: 'cf.menu.contest',
-        run: openCfContestTab,
-        available: () => cfReady.value,
-        active: () => cfContestTab.active,
+        active: () => codeforcesTab.active,
       },
     ],
   },
@@ -114,8 +109,14 @@ function load() {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    // 去重 + 丢掉表里没有的 id（旧存档 / 组件改名）
-    return [...new Set(parsed.filter((id) => BY_ID.has(id)))]
+    // 去重 + 旧 id 迁移 + 丢掉表里没有的 id（旧存档 / 组件改名）
+    return [
+      ...new Set(
+        parsed
+          .map((id) => LEGACY_IDS[id] ?? id)
+          .filter((id) => typeof id === 'string' && BY_ID.has(id)),
+      ),
+    ]
   } catch {
     return []
   }

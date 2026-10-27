@@ -13,8 +13,8 @@ export default {
       /** 引擎显示名与一行说明；`notExecutes` 是「不执行代码」那枚小徽标 */
       wasm: {
         label: '本地 WASM 沙箱',
-        hint: '在浏览器中编译运行，代码不出本机。首次需下载运行时（C++ 约 23MB / Python 约 24MB）。',
-        ready: '沙箱可用。首次运行需下载运行时（C++ 约 23MB / Python 约 24MB），之后常驻缓存。',
+        hint: '在浏览器中编译运行，代码不出本机。首次需下载运行时（C++ 约 31MB / Python 约 24MB）。',
+        ready: '沙箱可用。首次运行需下载运行时（C++ 约 31MB / Python 约 24MB），之后常驻缓存。',
         noIsolation: '页面缺少跨域隔离，SharedArrayBuffer 不可用；请为 dev server 配置 COOP / COEP 响应头。',
         unavailable: '本地沙箱不可用：{message}',
       },
@@ -77,10 +77,10 @@ export default {
       groupNote: '在浏览器里直接编译运行，代码不出本机。',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 23 + libc++（C++20），约 23MB，仅下载一次',
+        idleHint: 'clang 23 + libc++（C++20），约 31MB（含预编译头），仅下载一次',
         downloadTitle: '下载 clang 工具链',
         uninstallHint:
-          '删除本机 clang 工具链（约 23MB，含预编译头）；下次运行 C++ 需重新下载。',
+          '删除本机 clang 工具链（约 31MB，含预编译头）；下次运行 C++ 需重新下载。',
       },
       python: {
         title: 'Python 3',
@@ -213,9 +213,9 @@ export default {
     engine: {
       wasm: {
         label: 'Local WASM sandbox',
-        hint: 'Runs in your browser; your code stays on this machine. The first run downloads the runtime (C++ ≈ 23MB / Python ≈ 24MB).',
+        hint: 'Runs in your browser; your code stays on this machine. The first run downloads the runtime (C++ ≈ 31MB / Python ≈ 24MB).',
         ready:
-          'Sandbox available. The first run downloads the runtime (C++ ≈ 23MB / Python ≈ 24MB), then it is cached.',
+          'Sandbox available. The first run downloads the runtime (C++ ≈ 31MB / Python ≈ 24MB), then it is cached.',
         noIsolation:
           'The page is not cross-origin isolated, so SharedArrayBuffer is unavailable. Configure COOP / COEP headers on the dev server.',
         unavailable: 'Local sandbox unavailable: {message}',
@@ -277,10 +277,10 @@ export default {
       groupNote: 'Compile and run right inside your browser. Your code never leaves this machine.',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 23 + libc++ (C++20), ~23MB, downloaded once',
+        idleHint: 'clang 23 + libc++ (C++20), ~31MB including the precompiled header, downloaded once',
         downloadTitle: 'Download the clang toolchain',
         uninstallHint:
-          'Deletes the cached clang toolchain (~23MB, including the precompiled header); it will be downloaded again on the next C++ run.',
+          'Deletes the cached clang toolchain (~31MB, including the precompiled header); it will be downloaded again on the next C++ run.',
       },
       python: {
         title: 'Python 3',

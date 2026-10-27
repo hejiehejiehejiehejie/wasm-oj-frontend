@@ -17,6 +17,7 @@
  */
 import { activeLanguage, activeNode, peekActiveContent } from './vfs/workspaceStore.js'
 import { canSubmitCode, requestSubmit } from '../composables/useCompanionBridge.js'
+import { cfSubmissionDetail } from './cfClient.js'
 import { IS_DESKTOP } from './platform.js'
 import { t } from '../i18n/index.js'
 
@@ -148,6 +149,11 @@ export function submitActiveSolution({ onVerdict } = {}) {
  * 1.3s，水题 4A 这类老比赛要 8~9s。所以调用方是在**拿到提交号时就开始查**（与评测并行），
  * 判定回来时结果通常已经在了；真拿不到也只是一条通知少点细节。
  *
+ * 【走 Worker 的全局闸门（2026-10-27 改）】这条查询原来在本模块里自己排队（2100ms 闸门），
+ * 而 P0 的榜单 / 提交记录轮询也需要同一个配额。两处各排各的必然撞车，所以取数移到
+ * cfWorker 的 `submissionDetail`，与所有 CF 请求共用一条串行闸门 —— 这里只保留
+ * 「怎么用这个结果」。
+ *
  * 【拿不到就退回去】gym / 群组、比赛进行中的可见性限制、限流（1 次 / 2 秒）、网络问题，
  * 一律返回 null —— 调用方继续用扩展给的判定码，不让一条通知被 API 拖住。
  */
@@ -166,16 +172,6 @@ const API_VERDICTS = {
   COMPILATION_ERROR: 'ce',
 }
 
-/** CF 全局限速 1 次 / 2 秒；本模块自己排队，别和紧接着的下一条提交撞上 */
-const DETAIL_GAP = 2100
-let lastDetailAt = 0
-
-async function waitForDetailSlot() {
-  const wait = lastDetailAt + DETAIL_GAP - Date.now()
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
-  lastDetailAt = Date.now()
-}
-
 /**
  * @param {{url?: string, submissionId?: string}} input
  * @returns {Promise<{verdict: string, passedTestCount: number|null, timeConsumedMillis: number|null, memoryConsumedBytes: number|null, testset: string}|null>}
@@ -188,18 +184,12 @@ export async function fetchSubmissionDetail({ url, submissionId }) {
   const contest = parsed?.contestPath.match(/^\/(contest|gym)\/(\d+)$/)
   if (!contest) return null
 
-  await waitForDetailSlot()
-
   try {
-    const response = await fetch(
-      `https://codeforces.com/api/contest.status?contestId=${contest[2]}&from=1&count=${DETAIL_COUNT}`,
-      { signal: AbortSignal.timeout(12000) },
-    )
-    if (!response.ok) return null
-    const body = await response.json()
-    if (body?.status !== 'OK' || !Array.isArray(body.result)) return null
-
-    const item = body.result.find((entry) => String(entry?.id) === String(submissionId))
+    const { submission: item } = await cfSubmissionDetail({
+      contestId: contest[2],
+      submissionId: String(submissionId),
+      count: DETAIL_COUNT,
+    })
     if (!item) return null
 
     const verdict = API_VERDICTS[item.verdict] ?? ''

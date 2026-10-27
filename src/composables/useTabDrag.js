@@ -2,7 +2,7 @@
  * useTabDrag —— 编辑器页签的拖动排序（鼠标与触屏共用一套 Pointer Events）。
  *
  * 【一条混排的序列，两类页签都能拖】条带上有两类页签：真实文件页签（`workspace.openTabIds`）
- * 与合成视图页签（设置 / 抽题，`editorViews.viewOrder`）。它们**混排在同一条序列里**，
+ * 与合成视图页签（设置 / Codeforces，`editorViews.viewOrder`）。它们**混排在同一条序列里**，
  * 拖动可以跨类换位 —— 文件能插到设置左边，设置也能排到某个 .cpp 前面。
  * 这条统一顺序不在那两份状态里（它们各自装不了对方），而是第三份 UI 状态 `tabStrip.stripOrder`
  * —— 它只管顺序、由自己维持，页签元素统一用 `data-strip-id` 认（两类都带这个属性）。

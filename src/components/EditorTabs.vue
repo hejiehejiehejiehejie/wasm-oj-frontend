@@ -4,7 +4,7 @@
  * - 点击切换活跃标签；中键关闭；× 按钮关闭；双击钉住预览页签。
  * - **拖动页签改顺序**（2026-10-10 加；2026-10-20 十一改改「实时让位」）：按住页签横向拖，
  *   其余页签实时滑出空位（Chrome 原生手感），松手才提交顺序。文件页签与合成视图页签
- *   （设置 / 抽题）**混排在同一条序列里**、可以跨类换位（2026-10-11 起），
+ *   （设置 / Codeforces）**混排在同一条序列里**、可以跨类换位（2026-10-11 起），
  *   顺序归 services/tabStrip.js 的 stripOrder —— 它只管顺序，写回时分发成 openTabIds
  *   （含持久化）与 viewOrder 两份，所以视图 id 仍然进不了 openTabIds（纪律见 tabStrip
  *   与 editorViews 的文件头）。手势与让位判据在 composables/useTabDrag.js，本文件只提供
@@ -51,14 +51,12 @@ import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { openProblemUrl, problemUrlOf } from '../services/problemMeta.js'
 import {
-  activateCfContestTab,
-  activateCfPickerTab,
+  activateCodeforcesTab,
   activateSettingsTab,
-  cfContestTab,
-  cfPickerTab,
-  closeCfContestTab,
-  closeCfPickerTab,
+  activateView,
+  closeCodeforcesTab,
   closeSettingsTab,
+  codeforcesTab,
   deactivateViews,
   settingsTab,
   viewActive,
@@ -160,34 +158,22 @@ function onViewClick(view) {
 }
 
 /**
- * 合成视图页签（设置 / 抽题 / 比赛）的渲染描述。图标 / 文案 / 开关都在这里现取，render 期间执行，
+ * 合成视图页签（设置 / Codeforces）的渲染描述。图标 / 文案 / 开关都在这里现取，render 期间执行，
  * 所以语言切换、视图开关变化都会让它重算。
  * 「谁先开谁靠左」这条规矩已经不是这里的事了 —— 2026-10-11 起条带是一条**混排**序列，
  * 顺序归 services/tabStrip.js 的 stripOrder（文件页签与视图页签可以互相穿插）。
  */
 function viewMeta(id) {
-  if (id === 'cfPicker') {
+  if (id === 'codeforces') {
     return {
       id,
-      key: 'view:cfPicker',
+      key: 'view:codeforces',
       icon: 'codeforces',
-      label: t('cf.button.label'),
+      label: t('cf.view.title'),
       closeLabel: t('cf.tab.close'),
-      active: cfPickerTab.active,
-      activate: activateCfPickerTab,
-      close: closeCfPickerTab,
-    }
-  }
-  if (id === 'cfContest') {
-    return {
-      id,
-      key: 'view:cfContest',
-      icon: 'clock',
-      label: t('cf.contest.title'),
-      closeLabel: t('cf.tab.closeContest'),
-      active: cfContestTab.active,
-      activate: activateCfContestTab,
-      close: closeCfContestTab,
+      active: codeforcesTab.active,
+      activate: activateCodeforcesTab,
+      close: closeCodeforcesTab,
     }
   }
   return {
@@ -588,6 +574,13 @@ function finishGroupAnim(gid, rec) {
  * tabGroups.findNextVisibleTab，anchor 传组内第一名成员的下标 —— 组内其余成员已被折叠
  * 隐藏，右扫天然越过整段组）；焦点不在组内则不动。
  *
+ * **视图页签也是候选（2026-10-26 用户口径「转至离得最近的一个标签页」）**：条带是文件与
+ * 合成视图混排的一条序列，紧挨着组的可能就是设置 / 抽题 / 比赛页签。以前 findNextVisibleTab
+ * 一律跳过视图，于是焦点会越过它落到更远的文件上；整条只剩视图页签时还会误判成「全折叠」
+ * 把焦点清空。视图走它自己的激活轴（activateView），activeId 装不进视图 id —— 所以先把
+ * 被藏起来的那个文件从 activeId 上撤下来（否则关掉视图会露出一张条带里看不见的页签），
+ * 并记进 lastActiveTabId，展开时与全折叠兜底同一条路还回去。
+ *
  * **全折叠兜底（十七改）**：向右向左都找不到可见页签 = 折叠之后条带上一张页签都看不见了。
  * 这时绝不能把焦点留在被藏起来的那张上 —— 否则编辑区还开着那个文件、页签栏里却找不到它
  * （用户报的「状态幽灵化」）。处理：把它记进组的 `lastActiveTabId`（展开时用来恢复），
@@ -601,8 +594,15 @@ function transferFocusOutOfGroup(gid) {
   const members = tabGroups.membersOf(gid)
   if (!members.length) return
   const first = Math.min(...members.map((m) => stripOrder.indexOf(m)))
-  const next = tabGroups.findNextVisibleTab(first, workspace.activeId)
+  const next = tabGroups.findNextVisibleTab(first, workspace.activeId, true)
   if (next) {
+    if (isViewId(next)) {
+      const group = tabGroups.groupOfId(gid)
+      if (group) group.lastActiveTabId = workspace.activeId
+      clearActiveTab()
+      activateView(next)
+      return
+    }
     setActiveTab(next)
     return
   }

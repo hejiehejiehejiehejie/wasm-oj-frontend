@@ -160,6 +160,35 @@ export function contestProblemsUrl(spec) {
   return `${contestUrl(spec)}/problems`
 }
 
+/**
+ * 这条提交在 Codeforces 上的地址。group 的提交也在 /group/<gid>/contest/<cid>/ 下。
+ * @param {{ kind: string, contestId: string, groupId: string }} spec
+ * @param {string|number} submissionId
+ */
+export function submissionUrl(spec, submissionId) {
+  const id = String(submissionId ?? '').trim()
+  if (!spec?.contestId || !/^\d+$/.test(id)) return ''
+  if (spec.kind === 'group') {
+    return `https://codeforces.com/group/${spec.groupId}/contest/${spec.contestId}/submission/${id}`
+  }
+  return `https://codeforces.com/${spec.kind}/${spec.contestId}/submission/${id}`
+}
+
+/**
+ * 开赛时刻 → `MM-DD HH:MM`（本机时区，纯数字），跨年的场次带上年份。
+ * 赛程表里不写「今天 / 明天」这类相对词：面板可能开着好几天，相对词会过期。
+ */
+export function formatStartTime(startTimeSeconds, now = new Date()) {
+  if (typeof startTimeSeconds !== 'number' || !Number.isFinite(startTimeSeconds)) return ''
+  const date = new Date(startTimeSeconds * 1000)
+  const pad = (value) => String(value).padStart(2, '0')
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  return date.getFullYear() === now.getFullYear()
+    ? `${monthDay} ${clock}`
+    : `${date.getFullYear()}-${monthDay} ${clock}`
+}
+
 /** 比赛阶段（CF 的 `phase` 字段）。只列会用到的四种，其余原样透传 */
 export const PHASE = {
   BEFORE: 'BEFORE',

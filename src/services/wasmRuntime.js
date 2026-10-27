@@ -19,7 +19,7 @@
  *   `max(100ms, 5%)` 的宽限；是否 TLE 按**程序自己的结束时刻**与时限比较（§4.2）。
  */
 import {
-  generatePch,
+  ensurePch,
   isPythonRuntimeReady,
   isToolchainReady,
   preloadPythonRuntime,
@@ -31,6 +31,7 @@ import {
 } from './runnoSandbox.js'
 import { preloadMdRuntime, probeMdRuntime, uninstallMdRuntime } from './mdRuntime.js'
 import { supportsCppToolchain } from './wasmFeatures.js'
+import { KILL_REASON } from './wasi/client.js'
 import { t } from '../i18n/index.js'
 import { vfsToRunnoFs } from './vfs/runnoFs.js'
 
@@ -91,12 +92,16 @@ function timeoutMessage(entry) {
 /**
  * 杀掉当前 WASI 实例。C++ 是常驻宿主 worker，terminate 后下一次 `loadToolchain` 会重建；
  * Python 仍是 runno 的单次实例，工具链缓存不受影响。
+ *
+ * 必须带上**原因**（见 wasi/client.js 的 KILL_REASON）：宿主据此决定排队里的用户任务
+ * 是「交接给新 worker」还是「一起收掉」，上层据此决定失败要不要记成永久标记。
+ * @param {'timeout'|'user-cancel'} reason
  */
-function killHost(entry) {
+function killHost(entry, reason) {
   const host = entry.host
-  if (!host) return
+  if (!host || typeof host.kill !== 'function') return
   try {
-    host.kill()
+    host.kill(reason)
   } catch {
     /* 实例还没 start()，没有 worker 可杀 */
   }
@@ -119,7 +124,7 @@ function armTimer(entry) {
   const delay = entry.stage === 'run' ? limit + Math.max(100, Math.round(limit * 0.05)) : limit
   entry.timer = setTimeout(() => {
     entry.timedOut = true
-    killHost(entry)
+    killHost(entry, KILL_REASON.TIMEOUT)
   }, delay)
 }
 
@@ -146,13 +151,14 @@ function beginTask(signal, timeLimitMs) {
   // runnoSandbox 每起一个 WASI 实例就把 host 交上来，卡死或被取消时靠它 kill()
   entry.onHost = (host) => {
     entry.host = host
-    if (host && (entry.cancelled || entry.timedOut)) killHost(entry)
+    if (host && entry.cancelled) killHost(entry, KILL_REASON.USER_CANCEL)
+    else if (host && entry.timedOut) killHost(entry, KILL_REASON.TIMEOUT)
   }
 
   if (signal) {
     entry.onAbort = () => {
       entry.cancelled = true
-      killHost(entry)
+      killHost(entry, KILL_REASON.USER_CANCEL)
     }
     signal.addEventListener('abort', entry.onAbort, { once: true })
     // 任务先结束时要把监听摘掉，否则 signal 会一直攥着这个闭包
@@ -195,30 +201,44 @@ function whenIdle(task) {
 let pchWarmupStarted = false
 
 /**
- * 后台静默生成 STL 预编译头（见 runnoSandbox.generatePch）。
+ * 后台静默备好 STL 预编译头（见 runnoSandbox.ensurePch）：先取服务端预编译好的那份，
+ * 取不到再本机生成。
  *
  * 触发时机不是「首屏」，而是「工具链已经在内存里」之后：首屏时 toolchain 还是 null，
  * 放在那里要么空转、要么被迫替用户拉起 23MB 下载，两条都和「不影响首屏」矛盾。
  * 所以由 runCase / preload 在工具链就绪后调一次，再等系统空闲才真正开工。
  *
- * 为什么必须排进同一条串行队列：生成时要把 ~9MB 的 sysroot 整体克隆进 worker，
- * 出来的 PCH 又有十几 MB，和用户编译并行就是内存翻倍 —— 老机器上正是要避开这个。
- * 排队的次序也天然合适：用户点了运行，编译先跑完，PCH 再补。
+ * **不进 enqueue**（2026-10-27 改）：那条队列是**用户任务的串行队列**，把 PCH 塞进去
+ * 意味着「全部运行」的第 2..N 个用例要等这一份 8MB 的下载和 18MB 的存档写完 ——
+ * 用户点了运行就该立刻跑，不该给预热让路。
+ *
+ * 真正的互斥有两层，都不在这条链路上：
+ * - 下载 / 读存档那条路根本不碰宿主；
+ * - 本机生成要用的那颗 worker 由 `WasiWorkerHost` 自己排队，而且生成是**后台优先级**，
+ *   用户一点运行就把它整颗换掉（见 services/wasi/client.js 的抢占）。
  */
 export function warmupPch() {
   if (pchWarmupStarted) return
   pchWarmupStarted = true
   whenIdle(() => {
-    void enqueue(async () => {
-      // 队列里可能刚被别的任务清过场，开工前再确认一次工具链还在
-      if (!isToolchainReady()) return
-      try {
-        await generatePch()
-      } catch {
-        // 失败（老机器 OOM / cc1 卡死）已在 runnoSandbox 里写成永久标记。
-        // 这是后台任务：不播报、不打扰用户，用例照常走普通编译。
+    void (async () => {
+      // 排队期间可能刚被别的任务清过场（卸载运行时），开工前再确认一次工具链还在
+      if (!isToolchainReady()) {
+        pchWarmupStarted = false
+        return
       }
-    })
+      try {
+        const bytes = await ensurePch()
+        // 没备成（宿主正忙 / 这一轮没轮到）：把「本会话只试一次」的闸放开，
+        // 下一次运行结尾还会来这里 —— 否则一次撞车就等于本会话永远没有 PCH。
+        if (!bytes) pchWarmupStarted = false
+      } catch (error) {
+        // 被外力掐断（用户点运行抢占 / 看门狗）：这一轮不算数，下次再来。
+        // 真·生成失败（老机器 OOM）已在 runnoSandbox 里写成永久标记，不再重试。
+        if (error?.reason) pchWarmupStarted = false
+        // 后台任务：不播报、不打扰用户，用例照常走普通编译。
+      }
+    })()
   })
 }
 

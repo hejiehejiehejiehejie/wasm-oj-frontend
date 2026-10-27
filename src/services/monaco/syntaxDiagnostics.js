@@ -19,10 +19,11 @@
  * 四条纪律：
  * 1. **不主动下载**。运行时不在内存里时先探本机缓存（`ensureRuntimeLoaded`，全程不触网）：
  *    缓存齐了就静默读进内存（几十到几百毫秒），于是**装过一次之后，打开文件就有红线**，
- *    不必先跑一遍；缓存里没有就静默跳过（checkCppSyntax / checkPythonSyntax 返回 null）——
+ *    不必先跑一遍；缓存里没有就静默跳过（checkCppSyntax / checkPythonSyntax 返回
+ *    `{ status: 'unavailable' }`）——
  *    绝不能在「打开一个 .cpp / .py」时偷下几十 MB。
- * 2. **只有最新一枪的结果能落地**。续写会 kill 掉还在跑的实例，序号对不上的一律丢弃 ——
- *    否则慢的那一枪回来会把新代码的标记覆盖成旧代码的。
+ * 2. **只有最新一枪的结果能落地**。序号对不上的一律丢弃，还在跑的那一枪不掐（让它跑完，
+ *    比重建一颗 23MB 的宿主便宜）—— 否则慢的那一枪回来会把新代码的标记覆盖成旧代码的。
  * 3. **判据与真编译共用一份来源**：C++ 的检查参数与真编译共用 FRONTEND_ARGS；
  *    Python 的检查只比真运行少一个「执行」——诊断说没问题、运行时却跑不过，
  *    比没有诊断更糟。
@@ -36,8 +37,9 @@
  */
 import { monaco } from '../../monaco-setup.js'
 import { editorSettings } from '../editorSettings.js'
-import { ensureRuntimeLoaded } from '../wasmRuntime.js'
+import { ensureRuntimeLoaded, subscribeStatus } from '../wasmRuntime.js'
 import {
+  SYNTAX_STATUS,
   checkCppSyntax,
   checkPythonSyntax,
   isPythonRuntimeReady,
@@ -108,8 +110,29 @@ const MESSAGE_LIMIT = 1500
 let latestSeq = 0
 /** 防抖定时器 */
 let timer = 0
-/** 正在跑的实例（用来在下一枪开始时 kill 掉） */
+/** 正在进行或已完成的实例（用来在下一枪开始时 kill 掉） */
 let runningHost = null
+/**
+ * 被「宿主正被占着」挡下来的那一枪：`{ key, text, language }`，沙箱空闲时补跑（见文件末尾
+ * 的 `subscribeStatus`）。只记最新一枪 —— 旧的一定会被新的覆盖。
+ *
+ * 为什么要记：C++ 的检查与运行 / PCH 生成共用一颗常驻宿主，那两位占着时 `checkCppSyntax`
+ * 直接返回 null 让路（不能排队：它自己的 15s 看门狗从发起那刻就上弦，见 services/wasi/client.js
+ * 的 busy）。让路的代价是这次没有结论 —— 不补的话，「打开文件的同一瞬间点运行」这种顺序下，
+ * 那份文件该有的红线要等到用户下次击键才出现，看起来就像诊断对第一个文件失效了。
+ * @type {{ key: string, text: string, language: 'cpp' | 'python' } | null}
+ */
+let deferred = null
+
+/**
+ * 补账的重试次数与间隔。宿主的另一个持有人是 PCH 后台生成，它**不发 idle 事件**
+ * （不经过 wasmRuntime 的任务总线），所以「运行结束 → 立刻补枪」偶尔会正好撞上它、
+ * 又被让路一次。给几次延迟重试兜住这种撞车；次数封顶，免得在长跑 / 长生成期间空转。
+ */
+const DEFERRED_RETRY_MS = 600
+const DEFERRED_RETRY_LIMIT = 4
+let deferredTimer = 0
+let deferredRetries = 0
 /** 每个 model 上一次检查过的「内容指纹」→ 标记，切回文件 / 撤销回去时直接重放，不重跑 */
 const checked = new Map()
 
@@ -132,7 +155,7 @@ function runtimeReady(language) {
   return language === 'python' ? isPythonRuntimeReady() : isToolchainReady()
 }
 
-/** 该语言的一次性检查。返回 null = 这次没有结论（运行时没就绪或 WASI 崩了） */
+/** 该语言的一次性检查。返回带 `status` 的结论（见 runnoSandbox.SYNTAX_STATUS） */
 function runSyntaxCheck(language, text, { onHost }) {
   return language === 'python'
     ? checkPythonSyntax(text, { onHost })
@@ -292,8 +315,13 @@ function applyMarkers(model, markers) {
  */
 async function runCheck(model, language, text) {
   const seq = ++latestSeq
-  // 运行时没就绪：跳过，但**不清**已有标记（清掉等于告诉用户「代码突然对了」）
-  if (!runtimeReady(language)) return
+  // 运行时没就绪：跳过，但**不清**已有标记（清掉等于告诉用户「代码突然对了」）。
+  // 还要把这一语言的补账收掉 —— 运行时都不在（宿主被看门狗收掉、或压根没下载），
+  // 再重试多少次都不会有结论，等 runtimeReady 的通知就够了（文件末尾的订阅）。
+  if (!runtimeReady(language)) {
+    clearDeferred(language)
+    return
+  }
   if (seq !== latestSeq || model.isDisposed()) return
 
   let result = null
@@ -310,14 +338,67 @@ async function runCheck(model, language, text) {
   } finally {
     if (seq === latestSeq) runningHost = null
   }
-  if (!result) return
+  // 没有结论：按具体原因分流，别再一律当成「宿主忙、过一会儿补一枪」
+  const status = result?.status
+  if (!result || status === SYNTAX_STATUS.BUSY) {
+    // busy：宿主正被运行 / PCH 生成占着、checkCppSyntax 让了路 —— 记下来等沙箱空闲补一枪
+    // （见文件末尾的 runDeferred）。只登记最新序号：别人已经排了新一枪的话，那一枪自己会给结论。
+    if (seq === latestSeq) {
+      deferred = { key: model.uri.toString(), text, language }
+      scheduleDeferredRetry()
+    }
+    return
+  }
+  if (status !== SYNTAX_STATUS.SUCCESS) {
+    // unavailable / aborted：宿主没了、或这一枪被外力掐断。
+    // 保留旧标记，但**不再补账**：试多少次都是同一个结果，等下一枪或 runtimeReady。
+    clearDeferred(language)
+    return
+  }
   if (seq !== latestSeq || model.isDisposed()) return
+  // 真拿到结论了：之前记下的「补一枪」请求作废（同一份内容已经有答案）
+  deferred = null
   // 期间内容又变了：这一枪的结论已经过期，等下一枪
   if (model.getValue() !== text) return
 
   const markers = parseDiagnostics(result.stderr, { text, language })
   checked.set(model.uri.toString(), { text, markers })
   applyMarkers(model, markers)
+}
+
+/**
+ * 收掉补账请求与重试定时器。只清当前语言的那一份 —— 另一种语言可能正等着。
+ * @param {'cpp' | 'python'} language
+ */
+function clearDeferred(language) {
+  if (!deferred || deferred.language !== language) return
+  deferred = null
+  clearTimeout(deferredTimer)
+  deferredTimer = 0
+  deferredRetries = 0
+}
+
+/**
+ * 收拾上一枪占着的那颗宿主。
+ *
+ * **不再 kill 正在跑的那一枪**（2026-10-27 改）：结果是按 `latestSeq` 作废的，不需要
+ * 用「掐断」来保证正确性；而 kill 掐的是整颗 worker（运行 / PCH 生成共用），重建要重新
+ * 实例化 76MB 的模块 + 解 1385 条 sysroot —— 老机器上单次检查 1–2s > 防抖 300ms，
+ * 每次击键都杀一遍重建一遍，CPU 翻倍、红线还更迟。让它跑完（最多 15s，宿主自己的表兜底）。
+ *
+ * 真正需要「立刻腾出宿主」的是用户点运行 —— 那件事由宿主的抢占负责
+ * （前台消息会把正在跑的后台活连 worker 一起换掉，见 services/wasi/client.js 的 send），
+ * 这里只需要把**还没派发**的旧枪撤掉。
+ */
+function retireRunningCheck() {
+  const host = runningHost
+  runningHost = null
+  if (!host) return
+  try {
+    host.cancelQueued?.('syntax')
+  } catch {
+    /* 没有这个接口的宿主（旧宿主 / 别的运行时）就什么都不用做 */
+  }
 }
 
 /**
@@ -355,14 +436,10 @@ export function scheduleSyntaxCheck(model, { immediate = false } = {}) {
     timer = 0
     // 一次真重建。切文件那一枪不算「连续编辑」，不计入退避
     if (!immediate) rebuildCount += 1
-    // 上一枪还在跑就先掐掉：它的结论一定比这一枪旧
+    // 上一枪还在跑就先收掉：它的结论一定比这一枪旧。收法见 retireRunningCheck
+    // （撤队列里的旧枪 + 只在「正在跑的确实是语法检查」时才杀宿主）。
     latestSeq += 1
-    try {
-      runningHost?.kill()
-    } catch {
-      /* 已经跑完或被杀过 */
-    }
-    runningHost = null
+    retireRunningCheck()
     runCheck(model, language, text).catch(() => {})
   }, immediate ? 0 : delay)
 }
@@ -378,17 +455,65 @@ onRuntimeReady(() => {
   if (ed) scheduleSyntaxCheck(ed.getModel(), { immediate: true })
 })
 
+/**
+ * 把「运行期间被迫让路的那一枪」补上。
+ *
+ * 只在真有让路记录时才做事，所以平时它是空的。补跑前要重新核对：用户可能已经切了文件、
+ * 或又改了内容 —— 那两种情况都不该拿旧正文去查（切回来会从 `checked` 重放，改字会自己
+ * 触发新一枪）。核对通过就直接跑一次，不走防抖、也不碰退避计数：这是补账，不是用户又
+ * 敲了一下键盘。
+ *
+ * 两个入口：沙箱空闲（一次运行 / 预载收尾，`subscribeStatus` 的 idle）是主路径；
+ * 撞上 PCH 后台生成时那条路没有事件，靠 `scheduleDeferredRetry` 的延迟重试兜住。
+ * 补跑若又被让路，`runCheck` 会把记录重新写回来并再排一次重试，所以这里只负责「试一次」。
+ */
+function runDeferred() {
+  if (!deferred) return
+  const pending = deferred
+  deferred = null
+  const model = monaco.editor.getEditors()[0]?.getModel()
+  if (!model || model.isDisposed()) return
+  if (model.uri.toString() !== pending.key || model.getValue() !== pending.text) return
+  // 同一份内容已经排在防抖队列上了：没必要再跑一次
+  clearTimeout(timer)
+  timer = 0
+  runCheck(model, pending.language, pending.text).catch(() => {})
+}
+
+function scheduleDeferredRetry() {
+  if (deferredTimer || deferredRetries >= DEFERRED_RETRY_LIMIT) return
+  deferredTimer = setTimeout(() => {
+    deferredTimer = 0
+    deferredRetries += 1
+    runDeferred()
+  }, DEFERRED_RETRY_MS)
+}
+
+/**
+ * 沙箱空闲（一次运行 / 预载收尾）时补账。每次运行结束都把重试预算重置一遍——
+ * 那是新一轮「宿主空下来了」的起点。
+ */
+subscribeStatus((status) => {
+  if (status?.stage !== 'idle' || !deferred) return
+  clearTimeout(deferredTimer)
+  deferredTimer = 0
+  deferredRetries = 0
+  runDeferred()
+})
+
 /** 面板卸载时收尾：定时器与在跑的实例都停掉，避免卸载后还有人往销毁的 model 上写标记 */
 export function releaseSyntaxDiagnostics() {
   clearTimeout(timer)
   timer = 0
   latestSeq += 1
-  try {
-    runningHost?.kill()
-  } catch {
-    /* 已经跑完或被杀过 */
-  }
-  runningHost = null
+  // 补账记录与它的重试计时器一起清掉：面板都卸了，下次击键 / 切文件会自己重新安排
+  deferred = null
+  clearTimeout(deferredTimer)
+  deferredTimer = 0
+  deferredRetries = 0
+  // 同上一处：收法见 retireRunningCheck —— 只撤队列里还没派发的旧枪；
+  // 正在跑的那一枪不掐（那颗 worker 运行 / PCH 生成共用，卸载面板不该打断别人）
+  retireRunningCheck()
   checked.clear()
   // 退避状态也归零：下次挂载（换文件、重开面板）从最快那一档开始
   rebuildCount = 0

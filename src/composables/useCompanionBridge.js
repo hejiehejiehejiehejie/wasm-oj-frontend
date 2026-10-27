@@ -19,6 +19,10 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-scrape-contest / cp-scrape-contest-done：网页请扩展**整场**抓样例（见下）
  *   - cp-submit / cp-submit-result：网页请扩展把当前文件提交到 Codeforces（见下）
  *   - cp-submit-status：扩展回报这次提交的评测状态变化（见下）
+ *   - cp-contest-states / cp-contest-states-result：网页读赛程上每一场的报名状态（见下）
+ *   - cp-register / cp-register-result：网页请扩展替用户报名（见下）
+ *   - cp-start-virtual / cp-start-virtual-result：网页请扩展替用户开一场 VP（见下）
+ *   - cp-unofficial-rank / cp-unofficial-rank-result：网页问自己在一场里的非正式名次（见下）
  *
  * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
  * 改了任何一条都必须同步改 cph-companion 并发新版插件，否则新旧两边互相认不出、
@@ -47,6 +51,8 @@ import { IS_DESKTOP } from '../services/platform.js'
  * 地址递过去，扩展在后台开一个不激活的标签页读一遍（整场题面都在那一页里），解析结果仍然
  * **走既有的 cp-task 逐题投递** —— 站点不必为「补样例」再造一条入库路径，扩展也不必另写
  * 一遍解析。它同样受 `capabilities` 的 `contest-batch` 保护，老扩展下那颗按钮不出现。
+ * 投递回来的每一道题必须带着**它自己那一页**的地址，否则按 url 认题的站点会把整场并成一道
+ * —— 扩展侧已改（cph-companion，2026-10-26），旧扩展的「整场页地址」由 `retargetContestTask` 兜底改回来。
  *
  * 【cp-fill-code-saved 是 2026-10-20 加的，把代填串成一条链路】`cp-fill-code-result` 只说明
  * 「字填进输入框了」，而验证要等 Codeforces **把表单提交、服务端读完、页面跳回来**才算数 ——
@@ -65,6 +71,14 @@ import { IS_DESKTOP } from '../services/platform.js'
  * 那个标签页里盯着 `/my` 页，verdict 每变一次发一条 `cp-submit-status`（`testing` 之后
  * 才有终态）：AC 收掉自己开的标签页，非 AC 留着并导航到提交详情页（用户要看的失败现场）。
  * 同样受 `capabilities` 的 `submit-code` 保护。
+ *
+ * 【比赛动作这四对是 2026-10-26 新加的（扩展 2.68.0）】P1 把 CF 比赛页的核心功能搬进站内：
+ * 赛程上直接看每场能不能报名、直接报名、开一场 VP、在榜单上看见自己的非正式名次。
+ * 这四件事站点**都做不到**（跨源、且报名与 VP 必须对着 CF 自己的表单发 POST），所以全交给扩展；
+ * 与上面几条同一条信任边界：**只回枚举与数字，绝不回传 CF 的 cookie 或页面内容**。
+ * 报名与开 VP 是**不可逆动作**，一律先弹站内确认卡片、用户点下去才调一次接口，绝不自动重放；
+ * 四条都受 `capabilities` 保护（contest-schedule / contest-register / contest-virtual /
+ * contest-unofficial），老扩展下这些入口压根不出现，界面与改动前一致。
  *
  * 状态放模块级是刻意的：扩展是否已安装是全局事实，设置面板和 App 应当看到同一份结果，
  * 不该每个组件各探一次（多次探测还会互相覆盖 currentRequestId）。
@@ -193,7 +207,8 @@ let cfCheckSeq = 0
 const pendingCfChecks = new Map()
 
 let contestScrapeSeq = 0
-/** requestId -> { resolve, timer }：等待扩展报「这一场抓完了没有」 */
+/** requestId -> { url, resolve, timer }：等待扩展报「这一场抓完了没有」。
+ *  `url` 是这一趟交给扩展的整场题面页地址，投递回来的题要靠它认领（见 retargetContestTask） */
 const pendingContestScrapes = new Map()
 
 function clearPingTimers() {
@@ -436,6 +451,7 @@ export function requestContestScrape(url) {
     }, CONTEST_SCRAPE_TIMEOUT)
 
     pendingContestScrapes.set(requestId, {
+      url,
       resolve: (result) => {
         window.clearTimeout(timer)
         resolve(result)
@@ -543,6 +559,171 @@ export function requestSubmit({ url, source, language }, onVerdict) {
   })
 }
 
+// ------------------------------------------------------- 比赛动作（2026-10-26 加）
+//
+// 【四件事，一个共同前提】读赛程的报名状态、替用户报名、开一场 VP、读非正式名次 ——
+// 这四件站点自己都做不到：跨源拿不到 CF 的会话，报名与开 VP 更必须对着 CF 自己的表单发 POST。
+// 所以都交给扩展（cph-companion 2.68.0 起，见那边 src/contestActions.ts）。
+//
+// 【只在用户点按时发生】四条 request 都由界面上的按钮触发一次；报名与开 VP 之前还各有一张
+// 确认卡片 —— 它们是不可逆的，确认之后才调接口，绝不自动重放。
+//
+// 【只回枚举与数字】状态枚举、原因枚举、名次数字；认不出的值在这里就被丢掉，
+// 界面只有那几种形态，不该被一个新枚举撬开新分支。
+
+/** 扩展侧回执里的报名状态枚举（跨仓契约，见 cph-companion 的 src/contestActions.ts） */
+const REGISTRATION_STATES = ['open', 'before', 'closed', 'registered', 'count', 'unknown']
+
+/** 等扩展读完比赛列表的上限：开页 + 加载 + 扫一遍表格 */
+const CONTEST_STATES_TIMEOUT = 30000
+/** 等报名 / 开 VP 的上限：开页 + 填表 + 提交后整页跳转（扩展侧每一段各有上限） */
+const CONTEST_ACTION_TIMEOUT = 60000
+/** 等非正式名次的上限：好友榜之外，扩展还可能现拉一次合并榜第一页 */
+const CONTEST_RANK_TIMEOUT = 40000
+
+let contestStatesSeq = 0
+/** requestId -> { resolve, timer }：等待扩展回报名状态表 */
+const pendingContestStates = new Map()
+
+let contestActionSeq = 0
+/** requestId -> { resolve, timer }：等待扩展回「报名 / 开 VP 成没成」 */
+const pendingContestActions = new Map()
+
+let contestRankSeq = 0
+/** requestId -> { resolve, timer }：等待扩展回非正式名次 */
+const pendingContestRanks = new Map()
+
+/**
+ * 扩展能不能读 /contests 列表上的报名状态。老扩展没有这条能力，赛程上就不出现那一列 ——
+ * 与其摆一列永远「—」，不如让整列不存在。
+ */
+export const canReadContestStates = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-schedule'),
+)
+
+/** 能不能替用户报名。没有这条能力就不出现报名按钮（P1 之前只有「在 CF 打开」） */
+export const canRegisterContest = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-register'),
+)
+
+/** 能不能替用户开一场 VP。与报名**分开列**：两条能力互不蕴含，站点不必替扩展猜 */
+export const canStartVirtual = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-virtual'),
+)
+
+/** 能不能读非正式名次。没有这条就退回 P0 的口径：榜单只画官方参赛者 */
+export const canReadUnofficialRank = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-unofficial'),
+)
+
+/**
+ * 读 /contests 列表上每一场的报名状态。
+ *
+ * 返回 `{ ok, reason, states }`，`states` 是 `{ [contestId]: 枚举 }`：
+ * `open` / `before` / `closed` / `registered` / `count` / `unknown`。
+ * 扩展只读列表第一页 —— 没出现在里面的场次没有条目，界面按「—」显示。
+ */
+export function requestContestStates() {
+  return new Promise((resolve) => {
+    if (!canReadContestStates.value) {
+      resolve({ ok: false, reason: 'unsupported', states: {} })
+      return
+    }
+
+    const requestId = `cp-states-${++contestStatesSeq}`
+    const timer = window.setTimeout(() => {
+      pendingContestStates.delete(requestId)
+      resolve({ ok: false, reason: 'timeout', states: {} })
+    }, CONTEST_STATES_TIMEOUT)
+
+    pendingContestStates.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        resolve(result)
+      },
+    })
+
+    window.postMessage(
+      { source: PAGE_SOURCE, type: 'cp-contest-states', requestId },
+      window.location.origin,
+    )
+  })
+}
+
+/**
+ * 替用户报名 / 开一场 VP。
+ *
+ * 这是**两个不可逆动作**，所以合成一个函数、共用一套等待表：调用一次 = 扩展上 CF 提交一次
+ * 表单，没有撤销。界面那边必须先在确认卡片上问一句再调这里（见 CfContestSchedule）。
+ */
+export function requestContestEntry(contestId, kind) {
+  return new Promise((resolve) => {
+    const type = kind === 'virtual' ? 'cp-start-virtual' : 'cp-register'
+    const capability = kind === 'virtual' ? canStartVirtual : canRegisterContest
+
+    if (!capability.value || !contestId) {
+      resolve({ ok: false, reason: 'unsupported' })
+      return
+    }
+
+    const requestId = `cp-entry-${++contestActionSeq}`
+    const timer = window.setTimeout(() => {
+      pendingContestActions.delete(requestId)
+      resolve({ ok: false, reason: 'timeout' })
+    }, CONTEST_ACTION_TIMEOUT)
+
+    pendingContestActions.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        resolve(result)
+      },
+    })
+
+    window.postMessage(
+      { source: PAGE_SOURCE, type, requestId, contestId: String(contestId) },
+      window.location.origin,
+    )
+  })
+}
+
+/**
+ * 读这一场里这些 handle 的非正式名次（含 VP）。
+ *
+ * 返回 `{ ok, reason, source, ranks }`；`ranks` 是 `[{ handle, rank, unofficial }]`。
+ * `source` 说明名次是从哪一页读到的：`friends`（好友榜，一页拿全）或 `page1`
+ * （合并榜第一页兜底，只覆盖第一页）。两者名次口径相同，都是总榜名次。
+ */
+export function requestUnofficialRank(contestId, handles) {
+  return new Promise((resolve) => {
+    const list = Array.isArray(handles)
+      ? handles.filter((handle) => typeof handle === 'string' && handle.trim().length > 0)
+      : []
+
+    if (!canReadUnofficialRank.value || !contestId || list.length === 0) {
+      resolve({ ok: false, reason: 'unsupported', source: '', ranks: [] })
+      return
+    }
+
+    const requestId = `cp-rank-${++contestRankSeq}`
+    const timer = window.setTimeout(() => {
+      pendingContestRanks.delete(requestId)
+      resolve({ ok: false, reason: 'timeout', source: '', ranks: [] })
+    }, CONTEST_RANK_TIMEOUT)
+
+    pendingContestRanks.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        resolve(result)
+      },
+    })
+
+    window.postMessage(
+      { source: PAGE_SOURCE, type: 'cp-unofficial-rank', requestId, contestId: String(contestId), handles: list },
+      window.location.origin,
+    )
+  })
+}
+
 // ------------------------------------------------------- 自动抓取样例
 //
 // 【为什么不存名单】早先的做法是：导入时把「没带样例的题」记成一份名单推给扩展，用户之后
@@ -633,6 +814,40 @@ function answerNeedQuery(data) {
   )
 }
 
+/**
+ * 整场抓取投递回来的题：把地址从「整场题面页」改回**这道题自己那一页**。
+ *
+ * 【为什么必须有这一步】扩展读的是 `/contest/{id}/problems` 这一页，七八道题的题面同在那
+ * 一页里；2.67.4 及以前的扩展把**这一页的地址**当成每道题的 url 一起投回来（2026-10-26 实测，
+ * 三条投递的 url 一模一样）。而站点这边按 url 认题（见 problemImport 的 findByUrl），于是：
+ * 整场被并成同一道题、后一道的样例覆盖前一道；真正该收样例的那七八个文件一个字节都拿不到。
+ * 扩展侧已改（cph-companion，按 `.problemindexholder[problemindex]` 指回各自那一页），
+ * 这里留一条兜底，让还没更新的插件不至于静默写坏工作区。
+ *
+ * 只认「题名以题号打头」这一种（扩展给的 name 就是 `A. Theatre Square` 这种形状）；
+ * 认不出来就原样放行 —— 宁可多出一个文件，也不要猜错题把样例写到别人头上。
+ */
+function retargetContestTask(task) {
+  const url = typeof task?.url === 'string' ? task.url : ''
+  const key = url ? problemUrlKey(url) : ''
+  if (!key) return
+
+  // 只在「有整场抓取正在跑、而且这条投递的地址正是那一趟的整场页」时动手
+  let pageUrl = ''
+  for (const pending of pendingContestScrapes.values()) {
+    if (pending.url && problemUrlKey(pending.url) === key) {
+      pageUrl = pending.url
+      break
+    }
+  }
+  if (!pageUrl) return
+
+  const index = /^([A-Z]\d*)\./.exec(String(task.name ?? '').trim())?.[1]
+  if (!index) return
+
+  task.url = `${pageUrl.split('?')[0].replace(/\/problems$/, '')}/problem/${index}`
+}
+
 function dispatchTask(data) {
   if (typeof data.payload !== 'string') return
 
@@ -648,6 +863,8 @@ function dispatchTask(data) {
   } catch {
     return
   }
+
+  retargetContestTask(task)
 
   // 这道题正等着扩展补样例的话，到这里就算办妥了（handler 里 importProblem 会把它写进文件）
   settleScraping(task)
@@ -774,6 +991,77 @@ function onMessage(event) {
     return
   }
 
+  // 扩展回「比赛列表的报名状态」（cp-contest-states 的回执）：按 requestId 认领。
+  // 认不出的状态值一律丢掉 —— 界面只有那六种形态，不该被一个新枚举撬开第七种
+  if (data.type === 'cp-contest-states-result') {
+    const pending = pendingContestStates.get(data.requestId)
+    if (!pending) return
+
+    pendingContestStates.delete(data.requestId)
+
+    const states = {}
+    if (data.states && typeof data.states === 'object') {
+      for (const [id, state] of Object.entries(data.states)) {
+        if (REGISTRATION_STATES.includes(state)) states[id] = state
+      }
+    }
+
+    pending.resolve({
+      ok: data.ok === true,
+      reason: typeof data.reason === 'string' ? data.reason : '',
+      states,
+    })
+    return
+  }
+
+  // 扩展回「报名 / 开 VP 成没成」：两条消息共用一个等待表，reason 是唯一的信息
+  if (data.type === 'cp-register-result' || data.type === 'cp-start-virtual-result') {
+    const pending = pendingContestActions.get(data.requestId)
+    if (!pending) return
+
+    pendingContestActions.delete(data.requestId)
+    pending.resolve({
+      ok: data.ok === true,
+      reason: typeof data.reason === 'string' ? data.reason : '',
+    })
+    return
+  }
+
+  // 扩展回「非正式名次」：只认形状完整的条目（handle 字符串 + 正数名次），脏的一条都别进界面
+  if (data.type === 'cp-unofficial-rank-result') {
+    const pending = pendingContestRanks.get(data.requestId)
+    if (!pending) return
+
+    pendingContestRanks.delete(data.requestId)
+
+    const ranks = Array.isArray(data.ranks)
+      ? data.ranks
+          .filter(
+            (entry) =>
+              entry &&
+              typeof entry.handle === 'string' &&
+              typeof entry.rank === 'number' &&
+              Number.isFinite(entry.rank) &&
+              entry.rank > 0,
+          )
+          .map((entry) => ({
+            handle: entry.handle,
+            rank: entry.rank,
+            unofficial: entry.unofficial === true,
+          }))
+      : []
+
+    pending.resolve({
+      ok: data.ok === true,
+      reason: typeof data.reason === 'string' ? data.reason : '',
+      // 回包里这一页叫 `rankSource`：`source` 是信封自己的标记（'competitive-companion'），
+      // 同名会被展开覆盖，整条消息会被 onMessage 丢掉（2026-10-27 实测过，名次一直等到超时）
+      source: data.rankSource === 'friends' || data.rankSource === 'page1' ? data.rankSource : '',
+      ranks,
+    })
+    return
+  }
+
   if (data.type !== 'cp-info') return
   // 只认自己那一轮的握手回包（页面里可能有其它脚本也在 postMessage）
   if (data.requestId !== currentRequestId) return
@@ -820,5 +1108,12 @@ export function useCompanionBridge(onTask) {
     checkCfIdentity,
     canSubmitCode,
     requestSubmit,
+    canReadContestStates,
+    canRegisterContest,
+    canStartVirtual,
+    canReadUnofficialRank,
+    requestContestStates,
+    requestContestEntry,
+    requestUnofficialRank,
   }
 }

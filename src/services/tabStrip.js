@@ -18,9 +18,11 @@
  *     这里只同步**增减**、不同步顺序。连顺序一起纠的话，两个 watch 会各推一次、来回抖。
  *   换句话说：**stripOrder 是顺序的权威，两头只提供「有哪些」**。
  *
- * 【新页签落在哪】文件按它在 openTabIds 里的次序贴到「前一位文件页签」的右边 —— 常规打开是
- * 追加在最右，与 openTabIds 一致；预览页签被顶替时（旧的摘掉、新的 push 上来）位置也照样
- * 落在其自然次序处，不会突然跳到别处。视图是「谁先开谁靠左」，开的时候一律追加到最右。
+ * 【新页签落在哪】常规打开（openFile 往 openTabIds 末尾 push）的新文件**一律落在整条条带的
+ * 最右端** —— 排在视图页签右边，而不是「最后一张文件页签」右边（2026-10-26 用户口径：从抽题 /
+ * 比赛载入的题目页签要排在所有页签最后，不能被末尾的组件页签挡住）。openTabIds 中间插进来的
+ * 新文件（目前没有这种入口）仍贴到「前一位文件页签」右边，保证文件子序列与 openTabIds 同序。
+ * 视图是「谁先开谁靠左」，开的时候一律追加到最右。
  *
  * 【不落盘】这份顺序本身不进 localStorage：文件部分的相对顺序由 openTabIds 顺带持久化，
  * 而合成视图本来就不跨会话恢复（刷新后回到代码文件是预期行为）。
@@ -46,12 +48,21 @@ function syncFiles(ids) {
     const id = stripOrder[i]
     if (!isViewId(id) && !ids.includes(id)) stripOrder.splice(i, 1)
   }
-  // 新开的按 openTabIds 的次序，逐个贴到「前一位文件页签」右边（前一位不在条带里就排到末尾）
+  // 新开的按 openTabIds 的次序排：**最后一位直接贴到条带最右端**（越过视图页签），
+  // 其余贴到「前一位文件页签」右边。常规打开（openFile / 预览顶替 / 题目导入）都是 push 到
+  // openTabIds 末尾，于是新页签总在用户眼皮底下的最右边；若照旧按「前一位文件」插，条带
+  // 末尾常站着视图页签（设置 / 抽题 / 比赛），新页签会插到它前面、看着像从中间冒出来。
   let cursor = -1
-  for (const id of ids) {
+  for (let k = 0; k < ids.length; k += 1) {
+    const id = ids[k]
     const at = stripOrder.indexOf(id)
     if (at !== -1) {
       cursor = at
+      continue
+    }
+    if (k === ids.length - 1) {
+      stripOrder.push(id)
+      cursor = stripOrder.length - 1
       continue
     }
     stripOrder.splice(cursor + 1, 0, id)

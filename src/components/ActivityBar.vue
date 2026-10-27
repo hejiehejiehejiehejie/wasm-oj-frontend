@@ -42,7 +42,7 @@ import {
   togglePinnedComponent,
 } from '../services/activityBarPins.js'
 import { countdown } from '../services/countdown.js'
-import { cfContestTab, cfPickerTab, settingsTab } from '../services/editorViews.js'
+import { codeforcesTab, settingsTab } from '../services/editorViews.js'
 import { flipPanelPosition, isNarrowLayout } from '../services/shellSettings.js'
 
 const props = defineProps({
@@ -321,7 +321,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
         ref="compMenuButton"
         type="button"
         class="activity-bar__item activity-bar__item--menu"
-        :class="{ 'is-active': cfPickerTab.active || cfContestTab.active || countdown.open }"
+        :class="{ 'is-active': codeforcesTab.active || countdown.open }"
         :title="t('components.menu.title')"
         :aria-label="t('components.menu.title')"
         aria-haspopup="menu"

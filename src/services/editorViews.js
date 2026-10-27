@@ -1,5 +1,5 @@
 /**
- * editorViews —— 编辑区里的「合成视图」页签状态（设置 / Codeforces 抽题 / 比赛）。
+ * editorViews —— 编辑区里的「合成视图」页签状态（设置 / Codeforces）。
  *
  * 【什么是合成视图】它们长得跟代码文件页签一模一样、排在文件页签之后，但**不是**
  * 真实的 VFS 节点：没有 model、不在文件树里。刻意**不**塞进 workspaceStore / openTabIds：
@@ -20,7 +20,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { codeViewIntent, workspace } from './vfs/workspaceStore.js'
 
 /** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 tabStrip.stripOrder） */
-export const EDITOR_VIEW_IDS = ['settings', 'cfPicker', 'cfContest']
+export const EDITOR_VIEW_IDS = ['settings', 'codeforces']
 
 /**
  * 已打开视图页签的顺序（谁先开谁靠左）。与文件页签「新开的排最后」同一条规矩：
@@ -36,8 +36,7 @@ export const viewOrder = reactive([])
 /** 每个视图两个开关：open=页签在不在页签栏里，active=视图有没有正盖在编辑器上 */
 const state = reactive({
   settings: { open: false, active: false },
-  cfPicker: { open: false, active: false },
-  cfContest: { open: false, active: false },
+  codeforces: { open: false, active: false },
 })
 
 /** 点视图入口 / 点它的页签：亮出这一个，其余一律让开（它们铺在同一层）。
@@ -80,6 +79,16 @@ export function setViewOrder(ids) {
 /** 切回代码视图：只让开，不关页签 */
 export function deactivateViews() {
   for (const view of EDITOR_VIEW_IDS) state[view].active = false
+}
+
+/**
+ * 按 id 打开 / 切到某个合成视图（只走视图自己的激活轴）。
+ * 给「手里只有一个 stripOrder id」的调用方用 —— 目前是折叠分组时把焦点转交给相邻的视图页签
+ * （见 EditorTabs 的 transferFocusOutOfGroup），调用方不必自己拼各视图 activate 的分支。
+ * @param {string} id
+ */
+export function activateView(id) {
+  if (EDITOR_VIEW_IDS.includes(id)) show(id)
 }
 
 /** 此刻有没有合成视图正盖着编辑器（Monaco / 空态 / 状态栏 / 题解工具栏都据此让位） */
@@ -125,37 +134,22 @@ export function deactivateSettingsTab() {
   state.settings.active = false
 }
 
-// ------------------------------------------------- Codeforces 抽题（可选模块）
+// ------------------------------------------------- Codeforces（可选模块）
+// 抽题与比赛 2026-10-27 合并成同一个合成视图：一个页签、一个入口，模式切换在组件内部
+// （先塞到一起，UI 之后再设计）。show() 仍负责与设置互斥。
 
-export const cfPickerTab = state.cfPicker
+export const codeforcesTab = state.codeforces
 
-export function openCfPickerTab() {
-  show('cfPicker')
+export function openCodeforcesTab() {
+  show('codeforces')
 }
 
-export function closeCfPickerTab() {
-  close('cfPicker')
+export function closeCodeforcesTab() {
+  close('codeforces')
 }
 
-export function activateCfPickerTab() {
-  show('cfPicker')
-}
-
-// ------------------------------------------------- Codeforces 比赛
-// 与抽题同一套口径：show() 负责互斥（三个视图铺在同一层），关只归页签上的 × 管。
-
-export const cfContestTab = state.cfContest
-
-export function openCfContestTab() {
-  show('cfContest')
-}
-
-export function closeCfContestTab() {
-  close('cfContest')
-}
-
-export function activateCfContestTab() {
-  show('cfContest')
+export function activateCodeforcesTab() {
+  show('codeforces')
 }
 
 // 「活跃文件变了」就等于用户想看代码：点资源管理器、点文件页签、会话恢复都走 activeId，

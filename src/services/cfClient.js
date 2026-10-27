@@ -161,6 +161,60 @@ export function cfContestProblems(spec) {
   })
 }
 
+/**
+ * 赛程用的比赛列表（非 gym）。resolve `{ contests, fetchedAt }`，条目字段见 cfWorker 的
+ * loadContestList（含 `type`：CF / ICPC / IOI，榜单列形靠它）。
+ * @param {{force?: boolean}} [options] 手动刷新 / 倒计时归零后确认翻面时用 force
+ */
+export function cfContests({ force = false } = {}) {
+  return request({ type: 'contests', force })
+}
+
+/**
+ * 某场比赛的排行榜。resolve `{ contest, problems, rows, fetchedAt }`；
+ * 还没开赛时是 `{ pending: true, rows: [] }` —— 那不是错误。
+ *
+ * 失败时 reject 的 Error.code 与 cfContestProblems 同族（CONTEST_NEEDS_LOGIN / RATE_LIMITED / …）。
+ * @param {{ kind: string, contestId: string, groupId?: string }} spec
+ * @param {{force?: boolean}} [options]
+ */
+export function cfStandings(spec, { force = false } = {}) {
+  return request({
+    type: 'standings',
+    contestId: spec?.contestId,
+    kind: spec?.kind,
+    groupId: spec?.groupId,
+    force,
+  })
+}
+
+/**
+ * 某场比赛的提交记录（最新在前）。resolve `{ rows, fetchedAt }`，rows 是 CF 原始 Submission 对象。
+ *
+ * count 在 Worker 侧收敛到 1..1000：**永远不全量拉**（旧比赛整场 60 万条）。
+ * @param {{ kind: string, contestId: string, groupId?: string }} spec
+ * @param {{handle?: string, count?: number}} [options]
+ */
+export function cfSubmissions(spec, { handle = '', count = 200 } = {}) {
+  return request({
+    type: 'submissions',
+    contestId: spec?.contestId,
+    kind: spec?.kind,
+    groupId: spec?.groupId,
+    handle,
+    count,
+  })
+}
+
+/**
+ * 按提交号取单条提交（提交通知补细节用）。resolve `{ submission }`，找不到时 submission 为 null。
+ * 与其它接口共用 Worker 里那条 1 次 / 2.1 秒的全局闸门 —— 别再在主线程另排队。
+ * @param {{contestId: string, submissionId: string, count?: number}} input
+ */
+export function cfSubmissionDetail({ contestId, submissionId, count = 1000 }) {
+  return request({ type: 'submissionDetail', contestId, submissionId, count })
+}
+
 /** 清空本地缓存（卸载组件） */
 export function cfClear() {
   return request({ type: 'clear' })

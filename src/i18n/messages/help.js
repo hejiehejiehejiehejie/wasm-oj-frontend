@@ -29,7 +29,7 @@ export default {
               role: '编译与运行都在本机完成。',
               steps: [
                 '打开**设置** › **本地运行环境**',
-                '给 **C++** 或 **Python 3** 点**下载**（约 23MB / 24MB，只下一次）',
+                '给 **C++** 或 **Python 3** 点**下载**（约 31MB / 24MB，只下一次）',
                 '等按钮变成**已就绪**',
                 '确认**评测**引擎是**本地 WASM 沙箱**（默认，无需填地址）',
                 '按 ⌘/Ctrl + Enter，或点**评测样例**页脚的 ▶',
@@ -268,7 +268,7 @@ export default {
               role: 'Compiling and running both happen on this device.',
               steps: [
                 'Open **Settings** › **Local runtime**',
-                'Click **Download** next to **C++** or **Python 3** (about 23MB / 24MB, once)',
+                'Click **Download** next to **C++** or **Python 3** (about 31MB / 24MB, once)',
                 'Wait for the button to read **Ready**',
                 'Make sure the **Judge** engine is **Local WASM sandbox** (default, no URL needed)',
                 'Press ⌘/Ctrl + Enter, or click ▶ in the **Test cases** footer',

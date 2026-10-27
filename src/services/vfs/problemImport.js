@@ -3,6 +3,7 @@
  *
  * 落盘约定：一道题 = 一个代码文件，题目元数据与抓取配置都挂在**这个文件节点**上
  *   /<年月>/<OJ 标签>/<难度>/<题目名>.cpp   用户写的题解。只在首次导入时创建，此后正文一个字都不改
+ *   /<年月>/<OJ 标签>/<比赛名>/<题目名>.cpp 比赛导入（调用方给 options.contestName）
  *   同节点的 node.meta   —— 题目元数据（url / oj / difficulty / date / timeLimit）
  *   同节点的 node.config —— 抓取结果原文（含全部测试样例），每次抓取整体覆盖
  *
@@ -10,7 +11,8 @@
  * main.cpp 等平铺。老工作区里存在的 /Problems 由 migrate.js 一次性搬空。
  *
  * 为什么要分「年月 / OJ / 难度」三层：抓来的题攒多了，平铺在一个 OJ 目录下没法看。年月粒度取到月
- * （按天会长出大量只含一个文件的目录）。
+ * （按天会长出大量只含一个文件的目录）。比赛导入的第三层换成**比赛名**（2026-10-26 用户口径）：
+ * 一场比赛就是一个天然的批次，比难度更能说明「这批文件从哪来」；难度仍然写进 meta，不丢。
  *
  * 【难度从哪来】扩展抓来的题难度一律为空（来源站点口径不一，由用户手填），落「未分类」占位；
  * 但像 Codeforces 抽题这种**自带确定 rating** 的来源，调用方把难度作为 `options.difficulty`
@@ -43,7 +45,7 @@ import { OJ_LIST, normalizeDifficulty, normalizeMeta, todayISO } from '../proble
 import { deactivateViews } from '../editorViews.js'
 import { dirname, join, normalize, stem } from './paths.js'
 import { getVFS } from './vfsFactory.js'
-import { openFile } from './workspaceStore.js'
+import { openFile, problemUrlKey } from './workspaceStore.js'
 
 /** 难度为空时的占位目录名（扩展抓的题都属于这一类）；用户手填难度后也不搬动已有文件 */
 const UNCATEGORIZED = '未分类'
@@ -164,6 +166,15 @@ async function ensureDirectory(vfs, dirPath) {
  * 全库按 url 找回已有题目（题目改名、或落盘目录随日期 / 难度变化时靠它认出来）。
  * 返回题目所在目录、名字与**实际代码路径**，调用方复用该目录，不搬文件。
  *
+ * 【比的是 `problemUrlKey` 归一化之后的键，不是字面量】同一道 Codeforces 题有两个都合法
+ * 的写法 —— `/contest/2276/problem/A`（比赛页 / 比赛列表拼出来的）与
+ * `/problemset/problem/2276/A`（题库页、以及扩展在比赛页上顺着链接抓回来时给的）。
+ * 早先这里比字面量，于是同一道题从两条路进来会各落一个文件：老文件里的题解成了孤儿，
+ * 而「比赛抓样例」这种「先按比赛链接落题、再等扩展把样例并回来」的链路更是永远并不上
+ * （样例落在另一个文件上，被当成一道新题）。归一化之后两种写法认成同一道。
+ *
+ * 归一化键为空（url 解析不了）时**不参与匹配**：两个空串相等会把不相干的题并到一起。
+ *
  * 接口里没有 readDirectory，所以仍旧走 getTree 自己往下找；元数据就在节点上，
  * 顺手比对 `node.meta.url` 即可，不必再逐个读文件。
  * 扫全库比原先只扫一个 OJ 目录更贵，等 VFS 补上 readDirectory / 全局 url 索引后再优化。
@@ -172,13 +183,14 @@ async function ensureDirectory(vfs, dirPath) {
  * @returns {Promise<{ dir: string, name: string, codePath: string }|null>}
  */
 async function findByUrl(vfs, url) {
-  if (!url) return null
+  const key = problemUrlKey(url)
+  if (!key) return null
 
   let found = null
   const walk = (nodes) => {
     for (const node of nodes) {
       if (found) return
-      if (node.type === 'file' && node.meta?.url === url) {
+      if (node.type === 'file' && problemUrlKey(node.meta?.url) === key) {
         // name 只用于日志 / 返回值展示，认路径靠 codePath（用户可能把后缀改成了别的）
         found = { dir: dirname(node.path), name: stem(node.name), codePath: node.path }
         return
@@ -213,8 +225,11 @@ async function resolveFreeName(vfs, dir, baseName) {
  * 重复抓取同一道题：正文保留，样例与元数据刷新。
  * @param {Record<string, any>} task 扩展推来的题目 JSON
  * @param {object} [options]
- * @param {string} [options.difficulty] 已知难度（如 CF 的 rating `'1600'`）。给了就按它分目录，
- *   并作为元数据的初值；不给（扩展抓题）则落「未分类」。用户已手填过难度时以用户填的为准
+ * @param {string} [options.difficulty] 已知难度（如 CF 的 rating `'1600'`）。作为元数据的初值；
+ *   没有 contestName 时也决定目录（`/<年月>/<OJ>/<难度>/`）；不给（扩展抓题）则落「未分类」。
+ *   用户已手填过难度时以用户填的为准
+ * @param {string} [options.contestName] 比赛名。给了就让第三层目录变成它
+ *   （`/<年月>/<OJ>/<比赛名>/`），难度只写进 meta、不再参与分层 —— 比赛导入的同一性判据
  * @param {boolean} [options.quiet] 不抢焦点：只落库，不切页签、不展开目录。
  *   整场抓样例（一场七八道连续投递）走这条 —— 否则页签会连着翻七八次，
  *   而且会把用户正看着的抽题面板关掉（`deactivateViews`）
@@ -237,14 +252,26 @@ export async function importProblem(task, options = {}) {
   const difficulty = normalizeDifficulty(ojId, options.difficulty)
 
   // 新题的落点：/<年月>/<OJ>/<难度>（无外层 wrapper，直接与用户自己的文件平铺在根下）。
-  // 没有已知难度时落「未分类」。这个目录只用于**新题** —— 已存在的题按 url 找回原目录复用，不搬动
-  const defaultDir = join(todayMonth(), ojLabel, difficultyDir(difficulty))
+  // 没有已知难度时落「未分类」。比赛导入把第三层换成比赛名（见 options.contestName）。
+  // 这个目录只用于**新题** —— 已存在的题按 url 找回原目录复用，不搬动
+  const contestFolder =
+    typeof options.contestName === 'string' && options.contestName.trim()
+      ? sanitizeName(options.contestName)
+      : ''
+  const defaultDir = join(todayMonth(), ojLabel, contestFolder || difficultyDir(difficulty))
   const candidateCode = codePathOf(defaultDir, baseName)
 
   // 1) 快路径：算出来的新路径上文件名与 url 都对上，就是这道题
+  //    url 比的是归一化键（见 findByUrl 那段）：`/problemset/problem/2276/A` 与
+  //    `/contest/2276/problem/A` 是同一道题，字面量比对会把后者判成新题、另起一个文件
   let target = null
   const candidateNode = await vfs.stat(candidateCode)
-  if (candidateNode?.type === 'file' && candidateNode.meta?.url === url) {
+  const urlKey = problemUrlKey(url)
+  if (
+    candidateNode?.type === 'file' &&
+    (candidateNode.meta?.url === url ||
+      (urlKey !== '' && problemUrlKey(candidateNode.meta?.url) === urlKey))
+  ) {
     target = { dir: defaultDir, name: baseName, codePath: candidateCode }
   }
   // 2) 没对上：可能改了名，也可能落在别的年月 / 难度目录里，全库按 url 找回并复用那个目录

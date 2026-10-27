@@ -28,7 +28,8 @@
     "wasm:core:fetch": "node scripts/wasm-core/fetch.mjs",
     "wasm:core:build": "node scripts/wasm-core/build.mjs",
     "wasm:core:pack": "node scripts/wasm-core/pack-sysroot.mjs",
-    "wasm:core:verify": "node scripts/wasm-core/verify.mjs"
+    "wasm:core:verify": "node scripts/wasm-core/verify.mjs",
+    "pch:build": "node scripts/build-pch.mjs"
   },
   "dependencies": {
     "@runno/wasi": "0.10.0",

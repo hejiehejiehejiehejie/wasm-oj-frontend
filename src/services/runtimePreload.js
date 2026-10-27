@@ -13,7 +13,7 @@
  * 3) 尽力而为：探针说已有就跳过；失败静默，用户真正点▶时照样按需下载。
  */
 import { preload, probeRuntime } from './wasmRuntime.js'
-import { prefetchRuntimeAssets, pruneLegacyToolchainCache } from './runnoSandbox.js'
+import { prefetchPch, prefetchRuntimeAssets, pruneLegacyToolchainCache } from './runnoSandbox.js'
 import { supportsCppToolchain } from './wasmFeatures.js'
 import { IS_DESKTOP } from './platform.js'
 
@@ -52,13 +52,17 @@ export async function runAutoPreload() {
       // 浏览器缺 wasm 异常 / SIMD 时 C++ 那 23 MiB 装了也跑不起来 —— 别替用户下。
       // 用户真去点▶会拿到一句明确的「缺什么 / 要什么版本」，比在这里静默预取到底好。
       if (id === 'cpp' && !supportsCppToolchain()) continue
-      if (await probeRuntime(id)) continue
       if (id === 'markdown') {
+        if (await probeRuntime(id)) continue
         const result = await preload(id)
         if (result.type !== 'ready') return
-      } else {
-        await prefetchRuntimeAssets(id)
+        continue
       }
+      if (!(await probeRuntime(id))) await prefetchRuntimeAssets(id)
+      // 预编译 PCH（约 8MB）单独一份：它不在 `runtimeAssetURLs` 里 —— 那张表同时是
+      // 「工具链是否已下载」的判据，塞进去会让所有老用户被判成「没下过」。所以这里
+      // **不看**上面那条探针结果，老用户也能补齐这一份（SW 命中时几乎没有成本）。
+      if (id === 'cpp') await prefetchPch()
     } catch {
       // 断网 / 配额 / 探测失败：这次没提前下好，别继续把剩下的也试一遍
       return

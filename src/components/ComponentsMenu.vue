@@ -12,8 +12,8 @@
  * - 定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`。
  *
  * 【菜单里有什么】按「类」分组（2026-10-20 用户定的结构）：
- * - Codeforces：随机抽题（CfPickerPanel）与比赛（CfContestPanel）两块合成页签。
- *   整组跟着 `cfReady` 显隐 —— 模块没下载时不该留两颗点了没反应的格子。
+ * - Codeforces：抽题与比赛 2026-10-27 合并成一个页签（CfCodeforcesPanel），这里只剩一格。
+ *   整组跟着 `cfReady` 显隐 —— 模块没下载时不该留一颗点了没反应的格子。
  * - 工具：倒计时（悬浮卡）。它与 Codeforces 的安装态互不相干，所以侧栏那颗「组件」
  *   按钮本身常驻（2026-10-20 之前是 cfReady 为假就整颗不渲染）；而**组内**的格子
  *   跟着各自的安装态走 —— 倒计时在设置里被卸载后，这一组就整组消失（2026-10-21）。
@@ -127,6 +127,9 @@ watch(ready, (shown) => {
           >
             <span class="components-menu__tile" aria-hidden="true">
               <AppIcon :name="item.icon" :size="22" />
+              <!-- 仍在测试中的组件（眼下只有 Codeforces）：图标右上角挂一枚小标签。
+                   aria-hidden 的容器里，读屏只念下面那行组件名，不会把这枚标签当名字。 -->
+              <span v-if="item.testing" class="components-menu__tag">{{ t('cf.module.testing') }}</span>
             </span>
             <span class="components-menu__label">{{ item.label }}</span>
           </button>
@@ -223,6 +226,7 @@ watch(ready, (shown) => {
 /* 圆角方块图标位：应用抽屉里放的是彩色 logo，站内是一色图标，
    所以给方块一层底色把它从背景里托出来 */
 .components-menu__tile {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -231,6 +235,24 @@ watch(ready, (shown) => {
   border-radius: calc(12px * var(--menu-scale));
   background: var(--menu-tile-bg);
   color: var(--menu-text);
+}
+
+/* 「测试」小标签：贴在图标方块右上角，与设置页那枚同语言（2026-10-27）。
+   尺寸也跟 --menu-scale 走 —— 组件菜单里所有尺寸都只从这里缩放（见文件头）。 */
+.components-menu__tag {
+  position: absolute;
+  top: calc(-7px * var(--menu-scale));
+  right: calc(-7px * var(--menu-scale));
+  padding: 0 calc(4px * var(--menu-scale));
+  border: 1px solid var(--menu-border);
+  border-radius: 999px;
+  background: var(--menu-bg);
+  color: var(--menu-text);
+  font-size: calc(10px * var(--menu-scale));
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .components-menu__item:hover .components-menu__tile,

@@ -1224,12 +1224,6 @@ const cfHint = computed(() => {
   return t('cf.module.idleHint')
 })
 
-// 抽题组件那一行拆出来的「比赛」行（2026-10-25）：它与上一行共用同一份题库，
-// 所以没有自己的下载（下载入口只在上一行），但卸载有 —— 卸的是同一份题库，
-// 两行都点得到。就绪态不写字（2026-10-25 用户口径：「已就绪，贴链接即可看比赛」是废话，
-// 状态点已经说了）—— 只有「还没法用、去哪一行装」值得占一行。
-const cfContestHint = computed(() => (cfReady.value ? '' : t('cf.module.contestIdleHint')))
-
 // 同 buttonLabel：就绪态按钮不画
 const cfButtonLabel = computed(() => {
   if (cfBusy.value) return t('runtime.button.downloading')
@@ -2294,13 +2288,17 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__note">{{ t('cf.module.groupNote') }}</p>
 
         <div class="runtime-list">
-          <!-- 抽题组件（2026-10-25 拆成两行）：组件菜单里「随机抽题」与「比赛」是两格，
-               设置这边也照着列 —— 但它们在磁盘上是**一份资产**（同一份题库、同一个 cfReady）：
-               两行各有一颗「卸载」（同一颗确认弹窗、同一个目标），「下载」只留这一行。 -->
+          <!-- Codeforces（2026-10-27 合并）：随机抽题与比赛在组件菜单里已是同一格，
+               磁盘上也是**一份资产**（同一份题库、同一个 cfReady），设置这边同样只留一行 ——
+               「下载」与「卸载」都挂在这一行。
+               图标右上角那枚「测试」小标签：这个组件还在测试中。 -->
           <div class="runtime-row">
-            <span class="runtime-row__icon is-codeforces"><AppIcon name="codeforces" :size="17" /></span>
+            <span class="runtime-row__icon is-codeforces">
+              <AppIcon name="codeforces" :size="17" />
+              <span class="runtime-row__tag">{{ t('cf.module.testing') }}</span>
+            </span>
             <span class="runtime-row__text">
-              <span class="runtime-row__title">{{ t('cf.menu.picker') }}</span>
+              <span class="runtime-row__title">{{ t('cf.view.title') }}</span>
               <span class="runtime-row__hint">
                 <span class="app-dot" :class="cfDotClass"></span>
                 <span v-if="cfHint">{{ cfHint }}</span>
@@ -2327,36 +2325,6 @@ watch(pendingUnbind, (open) => {
                    否则下次启动 ensureCfPickerInstalled() 又把它装回来 -->
               <button
                 v-if="cfReady"
-                type="button"
-                class="download-button is-uninstall"
-                :disabled="cfBusy || !!uninstallingId"
-                :title="t('cf.module.uninstallActionTitle', { title: t('cf.module.title') })"
-                @click="requestCfUninstall"
-              >
-                <LoadingSpinner v-if="uninstallingId === CF_UNINSTALL_TARGET.id" :size="12" />
-                <AppIcon v-else name="trash" :size="13" />
-                <span>{{ t('runtime.uninstall') }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 比赛：状态跟着上面那一行走（同一个 cfReady / 同一颗状态点）。它有自己的「卸载」
-               但没有「下载」—— 题库就一份，卸载对象也是同一份（同一个 CF_UNINSTALL_TARGET、
-               同一颗确认弹窗），所以两行的 × 做的是同一件事；「下载」留在上面那行，
-               免得同一个动作出现两颗按钮。2026-10-25 用户报「比赛没有卸载按钮」后补上。 -->
-          <div class="runtime-row">
-            <span class="runtime-row__icon is-codeforces"><AppIcon name="flag" :size="17" /></span>
-            <span class="runtime-row__text">
-              <span class="runtime-row__title">{{ t('cf.menu.contest') }}</span>
-              <span class="runtime-row__hint">
-                <span class="app-dot" :class="cfDotClass"></span>
-                <span v-if="cfContestHint">{{ cfContestHint }}</span>
-              </span>
-            </span>
-            <div v-if="cfReady" class="runtime-row__actions">
-              <!-- tooltip 用 cf.module.title 而不是「比赛」：弹窗要卸的是整份题库
-                   （连抽题页签一起关），写成「卸载比赛」会让人以为只关比赛 -->
-              <button
                 type="button"
                 class="download-button is-uninstall"
                 :disabled="cfBusy || !!uninstallingId"
@@ -2898,16 +2866,17 @@ watch(pendingUnbind, (open) => {
 
         <!-- 「默认安装」开关：与上面那组预下载同为**偏好**，所以也归在云同步这边、
              跟着账号走；本机的安装状态在「应用」一栏的组件行里。
-             2026-10-25 起与「应用 › 组件」一一对应成三行（随机抽题 / 比赛 / 倒计时）——
-             前两行在磁盘上是同一份题库，所以两个开关读写的也是同一个键，会一起动。
-             **三行之间不留说明段落**（2026-10-25 用户要求去掉「比赛」下面那段）：说明一旦插在
-             行与行中间，`.setting-row + .setting-row` 那条分割线就因为不再是相邻兄弟而消失，
-             而且三行本来就是一个整齐的开关组，注释放进 tooltip 与分组末尾就够了。 -->
+             2026-10-27 起与「应用 › 组件」一一对应成两行（Codeforces / 倒计时）——
+             抽题与比赛在磁盘上是同一份题库，所以这里只有 Codeforces 这一个开关。
+             **两行之间不留说明段落**：说明一旦插在行与行中间，`.setting-row + .setting-row`
+             那条分割线就因为不再是相邻兄弟而消失，而且两行本来就是一个整齐的开关组，
+             注释放进 tooltip 与分组末尾就够了。 -->
         <p class="setting-subtitle">{{ t('cf.module.autoInstall.label') }}</p>
         <div class="setting-row setting-row--switch">
           <span class="setting-row__main">
             <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('cf.menu.picker') }}</span>
+              <span class="setting-row__label">{{ t('cf.view.title') }}</span>
+              <span class="setting-row__tag">{{ t('cf.module.testing') }}</span>
             </span>
           </span>
           <span class="setting-row__control">
@@ -2917,29 +2886,8 @@ watch(pendingUnbind, (open) => {
               :class="{ 'is-on': cfAutoInstall }"
               role="switch"
               :aria-checked="cfAutoInstall"
-              :aria-label="t('cf.module.autoInstall.pickerSwitchTitle')"
-              :title="t('cf.module.autoInstall.pickerSwitchTitle')"
-              @click="toggleCfAutoInstall"
-            >
-              <span class="switch__thumb"></span>
-            </button>
-          </span>
-        </div>
-        <div class="setting-row setting-row--switch">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('cf.menu.contest') }}</span>
-            </span>
-          </span>
-          <span class="setting-row__control">
-            <button
-              type="button"
-              class="switch"
-              :class="{ 'is-on': cfAutoInstall }"
-              role="switch"
-              :aria-checked="cfAutoInstall"
-              :aria-label="t('cf.module.autoInstall.contestSwitchTitle')"
-              :title="t('cf.module.autoInstall.contestSwitchTitle')"
+              :aria-label="t('cf.module.autoInstall.switchTitle')"
+              :title="t('cf.module.autoInstall.switchTitle')"
               @click="toggleCfAutoInstall"
             >
               <span class="switch__thumb"></span>
@@ -3156,6 +3104,12 @@ watch(pendingUnbind, (open) => {
   position: absolute;
   inset: 0;
   overflow-y: auto;
+  /* 滚动条槽位常驻，且左右都留：内容居中（见 .settings-view__inner 的 margin-inline: auto）
+     靠的是「内容盒宽度」，而原生滚动条一出现就从右边挖掉 11px（base.css 的 ::-webkit-scrollbar），
+     内容盒于是变窄、居中的块跟着左移 5.5px。分类之间内容长短不同，滚动条时有时无 ——
+     观感就是「切一栏、内容整体挪一下」。both-edges 让两边对称预留，居中不再受滚动条影响。
+     覆盖式滚动条的环境里它不占位（gutter 为 0），照样是对称的。 */
+  scrollbar-gutter: stable both-edges;
   padding: 4px 0 18px;
   /* 「目录 / 内容」默认单列，编辑区够宽时再升级成两栏。宽度判断交给容器查询：
      设置视图活在编辑区里，它的宽度只是编辑区宽度的一部分，拿视口 media query 当代理是错的。
@@ -3166,12 +3120,16 @@ watch(pendingUnbind, (open) => {
 }
 
 /* 目录 + 内容：默认单列（目录在上、内容在下）。
-   够宽时由文件末尾的 @container settings (min-width: 35rem) 升级成「左栏目录 + 右栏内容」。 */
+   够宽时由文件末尾的 @container settings (min-width: 35rem) 升级成「左栏目录 + 右栏内容」。
+   max-width 只是上限，还要 width: 100% + 横向 auto 边距才居中 ——
+   少了后两条，编辑区比 880px 宽时整块会一直贴在左边（2026-10-27）。 */
 .settings-view__inner {
   display: flex;
   flex-direction: column;
   gap: 0;
+  width: 100%;
   max-width: 880px;
+  margin-inline: auto;
 }
 
 /* 设置正文：卡片纵向摞起来。宽面板时它才是目录右边那一栏（见容器查询），
@@ -3367,6 +3325,22 @@ watch(pendingUnbind, (open) => {
   color: var(--text);
 }
 
+/* 「测试」小标签：与「应用」那张卡图标上的同一枚 —— 那一栏挂在图标角上，
+   云同步这组行没有图标，就挂在标题旁边（2026-10-27）。 */
+.setting-row__tag {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-control);
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 /* 第三级：底层键名 —— 极低频的参考信息，等宽 + 最弱灰度 */
 .setting-row__key {
   font-family: var(--mono-font);
@@ -3539,6 +3513,7 @@ watch(pendingUnbind, (open) => {
 
 /* 图标方块：比行内文字大一号，好认 */
 .runtime-row__icon {
+  position: relative;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
@@ -3548,6 +3523,25 @@ watch(pendingUnbind, (open) => {
   border: 1px solid var(--border-hairline);
   color: var(--text-dim);
   background: var(--bg-control);
+}
+
+/* 「测试」小标签（2026-10-27）：贴在图标方块右上角，标识这一组件仍在测试中。
+   字小、不抢戏，但要让「这个功能和别的不一样」一眼看得出来。 */
+.runtime-row__tag {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* 语言标志用各自的官方色，其它图标仍跟随主题文字色 */

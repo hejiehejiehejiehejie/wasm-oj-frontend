@@ -8,6 +8,11 @@
   position: absolute;
   inset: 0;
   overflow-y: auto;
+  /* 与设置视图同一条道理（见 EditorSettingsPanel 的 .settings-view）：里面的块是居中摆的，
+     而居中吃的是内容盒宽度 —— 原生滚动条一出现就从右边挖掉 11px，整列跟着左移 5.5px。
+     抽题 / 比赛 / 赛程的内容长短不一，滚动条时有时无，观感就是「切一下、内容挪一下」。
+     both-edges 左右对称常驻，居中位置恒定；覆盖式滚动条的环境里它不占位，一样对称。 */
+  scrollbar-gutter: stable both-edges;
   padding: 12px;
 }
 
@@ -18,6 +23,9 @@
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr);
   max-width: 760px;
+  /* 编辑区比 760px 宽时整列居中：max-width 只封上限，没有 auto 边距就一律贴左
+     （2026-10-27，与 .cf-results / .cf-contest__note--block 同一口径） */
+  margin-inline: auto;
   border-top: 1px solid var(--border);
   border-left: 1px solid var(--border);
 }
@@ -80,7 +88,8 @@
    于是线既不缺也不重。抬头也算一格（它是一行的表头，不是浮在框外的标题）。 */
 .cf-results {
   max-width: 760px;
-  margin-top: 12px;
+  /* 横向居中（与 .cf-shell 同一条左边线）：margin-top 保留，左右交给 auto */
+  margin: 12px auto 0;
   border-top: 1px solid var(--border);
   border-left: 1px solid var(--border);
 }
@@ -140,6 +149,29 @@
 
 .cf-foot {
   padding: 0;
+}
+
+/* ---------------- 说明小字 ---------------- */
+/* 面板里那些「注意 / 空态 / 口径」的句子。赛程、榜单、提交、题目四块共用，
+   所以放在公共样式里而不是某一个组件的 scoped 块里。 */
+.cf-contest__note {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+/* 整段说明单独占一行（抬头行里的 note 是并列小字） */
+.cf-contest__note--block {
+  max-width: 760px;
+  /* 顶层那一块（不属于任何 .cf-results 时）也得跟表单一样居中 */
+  margin: 12px auto 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  line-height: 1.5;
+}
+
+.cf-contest__note--block.is-error {
+  color: var(--fail);
 }
 
 .cf-exec {

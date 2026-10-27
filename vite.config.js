@@ -155,9 +155,9 @@ function serviceWorker() {
 }
 
 /**
- * 23.1.0 的三件资产是**预压 brotli** 的（`clang.wasm.br` / `wasm-ld.wasm.br` /
- * `sys23-fs.tar.br`）：Vercel 自己的 br 档位比本机 q11 弱 ~1.38×，所以自己压、用
- * `Content-Encoding: br` 让浏览器透明解压。
+ * 23.1.0 的四件资产是**预压 brotli** 的（`clang.wasm.br` / `wasm-ld.wasm.br` /
+ * `sys23-fs.tar.br` / `pch-*.pch.br`）：Vercel 自己的 br 档位比本机 q11 弱 ~1.38×，
+ * 所以自己压、用 `Content-Encoding: br` 让浏览器透明解压。
  *
  * 浏览器只认响应头，不认扩展名 —— 少了这个中间件，dev/preview 会把 `.br` 当
  * `application/octet-stream` 原样吐出去，`instantiateStreaming` 立刻报 magic word 错，
@@ -170,7 +170,14 @@ function wasmBrotliAssets() {
     try {
       const bytes = readFileSync(join(process.cwd(), 'public', path))
       res.setHeader('Content-Encoding', 'br')
-      res.setHeader('Content-Type', path.endsWith('.wasm.br') ? 'application/wasm' : 'application/x-tar')
+      res.setHeader(
+        'Content-Type',
+        path.endsWith('.wasm.br')
+          ? 'application/wasm'
+          : path.endsWith('.pch.br')
+            ? 'application/octet-stream'
+            : 'application/x-tar',
+      )
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
       res.setHeader('Content-Length', bytes.length)
       res.end(bytes)

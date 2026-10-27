@@ -1878,6 +1878,7 @@ onBeforeUnmount(() => {
           @select-engine="selectEngine"
           @update-base="updateBase"
           @test-connection="testConnection"
+          @submit-active="requestSubmitConfirmation"
         />
         <!-- 全站通知（toast）：锚在编辑区右下角（容器 absolute，含块 = 本栏）。
              不用视口右下角：侧边栏可停靠右侧，浮层会盖在侧栏上。

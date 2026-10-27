@@ -2,9 +2,10 @@
  * useCfContest —— 比赛：贴链接 → 倒计时 → 题目列表 → 导入工作区 → 抓样例。
  *
  * 【它不负责界面】与 useCfPicker 同一分工：页签开关归 editorViews，这里只管数据与过程。
- * 界面是独立组件 CfContestPanel（编辑区里的第三个合成视图 cfContest，2026-10-19 从
- * 抽题面板里拆出来单飞），**只在那一个组件的 setup 里调用本组合式函数** ——
- * 与 useCfPicker 只归 CfPickerPanel 是同一条纪律。
+ * 界面是独立组件 CfContestPanel（2026-10-19 从抽题面板里拆出来单飞；2026-10-27 起它
+ * 挂进合并后的 Codeforces 页签 CfCodeforcesPanel 里，不再自己占一个视图 id），
+ * **只在那一个组件的 setup 里调用本组合式函数** —— 与 useCfPicker 只归 CfPickerPanel 是
+ * 同一条纪律。
  *
  * 【倒计时为什么不累减】浏览器会把后台标签页的定时器节流到 1s 以上（更长时可能几分钟
  * 才触发一次），累减出来的时间必然越走越慢。这里每秒只推进一个 `now`，剩余量由
@@ -21,7 +22,7 @@
  * 「抓样例」把整场交给扩展读一遍（P2，要扩展支持 `contest-batch` 能力）。
  * 两条路最后都落到同一条 cp-task 投递上，由 importProblem 按 url 并进已有的题里。
  */
-import { computed, onBeforeUnmount, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
 import {
@@ -35,8 +36,10 @@ import {
 } from '../cf/contest.js'
 import { cfContest, cfContestProblems } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
-import { closeCfContestTab } from '../services/editorViews.js'
+import { closeCodeforcesTab } from '../services/editorViews.js'
+import { addTabsToGroup, findGroupByName, groupOfId, groupTabs } from '../services/tabGroups.js'
 import { importProblem } from '../services/vfs/problemImport.js'
+import { findProblemByUrl } from '../services/vfs/workspaceStore.js'
 import { canScrapeContest, requestContestScrape } from './useCompanionBridge.js'
 import { usePersistentRef } from './usePersistentRef.js'
 
@@ -255,7 +258,7 @@ export function useCfContest() {
     problems.value = []
     problemsNote.value = null
     contest.value = null
-      error.value = null
+    error.value = null
 
     await loadContest()
     void loadProblems()
@@ -268,18 +271,56 @@ export function useCfContest() {
   const importingUrl = ref('')
   const importingAll = ref(false)
 
+  /**
+   * 本场的页签组（2026-10-26 用户口径：比赛题目导入后归进一个以比赛名命名的组）。
+   *
+   * 与抽题那边的 `batchGroupId` 同一定位：这里只记组 id，建组 / 收编全走 tabGroups 的公开
+   * 入口。不设「至少两道才建组」的门槛 —— 比赛的名字天生是组名，先导一道也该有组。
+   * 刷新 / 换会话后组仍按名字找回（见 trackContestTab），所以这个变量只是本场的快路径。
+   */
+  let contestGroupId = null
+
   /** 换了一场：把上一场的导入账与抓取状态清掉，否则新一场的题会带着旧的对勾与旧的结果 */
   function resetResults() {
     importedUrls.value = new Set()
     importingUrl.value = ''
     importingAll.value = false
+    contestGroupId = null
     resetScrape()
+  }
+
+  /**
+   * 把刚导入的页签收进本场的组：组名 = 比赛名。
+   *
+   * 【为什么要等一次 nextTick】新页签是 openTabIds 的 watch（flush: 'pre'）排进 stripOrder 的，
+   * 而 tabGroups 只收「条带上已有的」页签 —— 不等这次刷新，刚打开的页签会被静默过滤掉
+   * （组建不出来 / 加不进去）。与 useCfPicker 的 trackBatchTab 同一条纪律。
+   *
+   * 同一场再导入（刷新后重新导、或分几次导）先按名字找回已有的组，找不到才新建；
+   * 用户把整组关掉时 groupOfId 查不到，也会另建一个，不把页签塞进不存在的组。
+   * @param {string|undefined} tabId
+   */
+  async function trackContestTab(tabId) {
+    if (!tabId) return
+    await nextTick()
+    const name = title.value.trim()
+    const existing =
+      (contestGroupId && groupOfId(contestGroupId)) ||
+      (name && findGroupByName(name)) ||
+      null
+    if (existing) {
+      contestGroupId = existing.id
+      addTabsToGroup([tabId], existing.id)
+      return
+    }
+    contestGroupId = groupTabs([tabId], name ? { name } : {})
   }
 
   /**
    * 把一道题落进工作区。
    *
-   * 难度按 CF 的 rating 交给 importProblem，与抽题面板一致（它会据此分目录并写进元数据）。
+   * 难度按 CF 的 rating 交给 importProblem，与抽题面板一致（它会写进元数据）；比赛导入的
+   * 落盘目录是 `/<年月>/<OJ>/<比赛名>/`，由 `contestName` 传入。
    * **单题导入仍然抢焦点**（importProblem 末尾 openFile）：用户点的是这一道，跳过去是预期行为。
    * 批量那条路（抓样例前的「先落题」）走 `quiet: true`，见 scrapeSamples。
    *
@@ -293,10 +334,12 @@ export function useCfContest() {
 
     importingUrl.value = target
     try {
-      await importProblem(toRaw(problem.task), {
+      const { node } = await importProblem(toRaw(problem.task), {
         difficulty: problem.rating == null ? '' : String(problem.rating),
+        contestName: title.value,
       })
       importedUrls.value = new Set(importedUrls.value).add(target)
+      await trackContestTab(node?.id)
     } catch (failure) {
       error.value = {
         key: 'cf.contest.errors.importFailed',
@@ -341,8 +384,8 @@ export function useCfContest() {
 
   /**
    * cfReady 翻回 false（设置 › 应用 › 组件里卸载，或浏览器清了 IndexedDB 被
-   * reconcileCfRuntime 正回来）时，比赛页签必须跟着关 —— 否则会留下一张点不开
-   * （侧栏按钮已经没了）的空页签。与 useCfPicker 对抽题页签那条 watch 同一条纪律；
+   * reconcileCfRuntime 正回来）时，Codeforces 页签必须跟着关 —— 否则会留下一张点不开
+   * （侧栏按钮已经没了）的空页签。与 useCfPicker 对同一个合页签那条 watch 同一条纪律；
    * 这里顺带把本场的状态清干净，重装后再打开是一张干净的面板。
    * `specText` 是表单偏好、不属本机资产，留着不动（与抽题表单同口径）。
    *
@@ -352,7 +395,7 @@ export function useCfContest() {
    */
   watch(cfReady, (ready) => {
     if (ready) return
-    closeCfContestTab()
+    closeCodeforcesTab()
     stopTimer()
     contestSeq += 1
     problemsSeq += 1
@@ -396,6 +439,39 @@ export function useCfContest() {
     scrapeError.value = null
   }
 
+  /** 这一道题此刻在工作区里有几组样例（认题走 problemUrlKey 归一化，见 workspaceStore） */
+  function sampleCountOf(url) {
+    const node = findProblemByUrl(url)
+    return Array.isArray(node?.config?.tests) ? node.config.tests.length : 0
+  }
+
+  /**
+   * 等样例真正落进工作区，返回**已经带上样例的题数**。
+   *
+   * 【为什么不直接用扩展报的 count】那是「投递了几条」，不是「落到了几道题上」。两者在
+   * 2026-10-26 之前差得很远：扩展把整场页的地址当成每道题的 url 投回来，站点按 url 认题，
+   * 于是七八条投递全并进同一个文件，而该收样例的那几道题一道都没拿到 —— 界面却报
+   * 「已抓取 7 道」。判据换成「工作区里真有几道题拿到了样例」，谎就撒不出来了。
+   *
+   * 【为什么要等一会儿】扩展那边最后一次投递完 300ms 就报 done，而站点每道题都要走一次
+   * VFS 写入。多数时候早就写完了，慢一档就会少算一两道。所以等到「连续两轮数字不再涨」
+   * 或超时，两个出口都返回此刻的真实值。
+   *
+   * @param {string[]} urls 本场每道题的地址
+   * @param {number} [budgetMs]
+   */
+  async function waitForSamples(urls, budgetMs = 4000) {
+    const deadline = Date.now() + budgetMs
+    let previous = -1
+
+    for (;;) {
+      const count = urls.filter((url) => sampleCountOf(url) > 0).length
+      if (count === urls.length || count === previous || Date.now() >= deadline) return count
+      previous = count
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+  }
+
   /**
    * 把整场样例抓下来。
    *
@@ -415,12 +491,16 @@ export function useCfContest() {
     scrapedCount.value = 0
     scrapeError.value = null
 
+    // 本场的题目地址先钉住：抓完要拿它逐道回查「样例到底落上了没有」
+    const targets = problems.value.map((problem) => problem.task.url)
+
     try {
       for (const problem of problems.value) {
         if (importedUrls.value.has(problem.task.url)) continue
         // toRaw 的理由见 importOne 上面那段（reactive Proxy 进不了 IndexedDB）
         await importProblem(toRaw(problem.task), {
           difficulty: problem.rating == null ? '' : String(problem.rating),
+          contestName: title.value,
           quiet: true,
         })
         if (seq !== scrapeSeq) return
@@ -430,12 +510,17 @@ export function useCfContest() {
       const result = await requestContestScrape(contestProblemsUrl(current))
       if (seq !== scrapeSeq) return
 
-      if (result.ok) {
-        scrapedCount.value = result.count
-      } else {
-        scrapeError.value = SCRAPE_ERROR_KEYS[result.reason]
-          ? { key: SCRAPE_ERROR_KEYS[result.reason] }
-          : { key: 'cf.contest.errors.scrapeFailed', params: { detail: result.reason || '' } }
+      const landed = await waitForSamples(targets)
+      if (seq !== scrapeSeq) return
+
+      scrapedCount.value = landed
+      // 扩展说成了、可工作区一道都没拿到 —— 这才是「抓样例没跑对」的样子，得说清
+      if (landed === 0) {
+        scrapeError.value = result.ok
+          ? { key: 'cf.contest.errors.scrapeEmpty' }
+          : SCRAPE_ERROR_KEYS[result.reason]
+            ? { key: SCRAPE_ERROR_KEYS[result.reason] }
+            : { key: 'cf.contest.errors.scrapeFailed', params: { detail: result.reason || '' } }
       }
     } catch (failure) {
       if (seq === scrapeSeq) {

@@ -28,8 +28,7 @@ import { modelManager } from '../services/monaco/modelManager.js'
 import { releaseSyntaxDiagnostics, scheduleSyntaxCheck } from '../services/monaco/syntaxDiagnostics.js'
 import {
   anyViewOpen,
-  cfContestTab,
-  cfPickerTab,
+  codeforcesTab,
   settingsTab,
   viewActive,
 } from '../services/editorViews.js'
@@ -56,8 +55,7 @@ import {
 } from '../services/vfs/workspaceStore.js'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
-import CfContestPanel from './CfContestPanel.vue'
-import CfPickerPanel from './CfPickerPanel.vue'
+import CfCodeforcesPanel from './CfCodeforcesPanel.vue'
 import ContextMenu from './ContextMenu.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import EditorTabs from './EditorTabs.vue'
@@ -87,6 +85,8 @@ const emit = defineEmits([
   'select-engine',
   'update-base',
   'test-connection',
+  // 比赛面板里的「提交当前文件」：原样转交给 App 那条确认 / 发送流程，不在面板里另起一套
+  'submit-active',
 ])
 
 const host = ref(null)
@@ -860,13 +860,15 @@ defineExpose({
         @scroll="onPreviewScroll"
       />
 
-      <!-- Codeforces 抽题：可选模块的视图，与设置同形态（都是编辑区里的一个合成页签）。
-           v-show 保状态：切走再切回来，表单值与抽到的题目都还在（偏好另有 usePersistentRef 落盘） -->
-      <CfPickerPanel v-show="cfPickerTab.active" />
-
-      <!-- Codeforces 比赛：同一形态的第三个合成页签（入口在侧栏那颗按钮唤出的
-           组件菜单里）。同样 v-show 常挂，切走再切回来那场与题目列表都还在 -->
-      <CfContestPanel v-show="cfContestTab.active" />
+      <!-- Codeforces：抽题 + 比赛合并在一个合成页签里（2026-10-27），内部自己切模式。
+           v-show 保状态：切走再切回来，表单值、抽到的题、那场比赛都还在。
+           active 必须传：子面板是常驻挂载的，只靠 v-show 它看不见「这一页没露出来」，
+           赛程会连报名状态一起在整页启动时就取（扩展会为此开一个 CF 标签页）。 -->
+      <CfCodeforcesPanel
+        v-show="codeforcesTab.active"
+        :active="codeforcesTab.active"
+        @submit-active="emit('submit-active')"
+      />
 
       <!-- 设置视图与 Monaco 同一层，靠 v-show 互斥：切来切去不重建编辑器，
            也不重挂设置组件（它的运行环境探针订阅只建立一次） -->

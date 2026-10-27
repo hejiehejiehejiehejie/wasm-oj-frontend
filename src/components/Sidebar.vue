@@ -23,9 +23,8 @@ import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { uiScale } from '../composables/useUiScale.js'
 import { countdown } from '../services/countdown.js'
 import {
-  cfContestTab,
-  cfPickerTab,
   closeSettingsTab,
+  codeforcesTab,
   openSettingsTab,
   settingsTab,
 } from '../services/editorViews.js'
@@ -104,14 +103,14 @@ const settingsEntry = computed(() => ({
 }))
 
 // 「组件」那颗（2026-10-20 起是这个身份）：点它弹出组件菜单（ComponentsMenu），
-// 菜单里按类分组 —— Codeforces（随机抽题 / 比赛）与工具（倒计时）。
+// 菜单里按类分组 —— Codeforces（抽题 / 比赛合并后的一格）与工具（倒计时）。
 // 按钮不再跟着 cfReady 显隐（过去叫 Codeforces 那颗时是「没下载就不渲染」）：
 // 工具那一类与 Codeforces 装没装无关，卸载了模块照样要有入口。
-// 开着任一组件（两个 CF 页签或倒计时卡）时填亮，与齿轮「填亮＝开着」同一种语言。
+// 开着任一组件（Codeforces 页签或倒计时卡）时填亮，与齿轮「填亮＝开着」同一种语言。
 const componentsEntry = computed(() => ({
   icon: 'grid',
   label: t('components.menu.title'),
-  active: cfPickerTab.active || cfContestTab.active || countdown.open,
+  active: codeforcesTab.active || countdown.open,
 }))
 
 // 「收起侧栏」那颗（2026-10-13 加，只出现在窄屏的底部那条上）：

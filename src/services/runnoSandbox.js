@@ -28,7 +28,7 @@ import { WASIWorkerHost } from '@runno/wasi'
 import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
 import { TOOLCHAIN_CACHE } from './storageNames.js'
-import { WasiWorkerHost } from './wasi/client.js'
+import { HOST_PRIORITY_BACKGROUND, WasiWorkerHost } from './wasi/client.js'
 import { detectWasmFeatures } from './wasmFeatures.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
@@ -700,14 +700,17 @@ let compileCache = null
 /** 探针 .o 的字节：编译一次后常驻内存，后续所有链接直接复用 */
 let oomProbeObject = null
 
-async function loadOomProbe(tool) {
+async function loadOomProbe(tool, onDispatch) {
   if (oomProbeObject) return oomProbeObject
-  const compiled = await tool.host.compile({
-    args: OOM_PROBE_ARGS,
-    source: OOM_PROBE_SOURCE,
-    sourcePath: OOM_PROBE_PATH,
-    outputPath: OOM_OBJECT_PATH,
-  })
+  const compiled = await tool.host.compile(
+    {
+      args: OOM_PROBE_ARGS,
+      source: OOM_PROBE_SOURCE,
+      sourcePath: OOM_PROBE_PATH,
+      outputPath: OOM_OBJECT_PATH,
+    },
+    { onDispatch },
+  )
   if (!compiled.object) {
     throw new Error(compiled.stderr || t('error.oomProbeFailed', { code: compiled.exitCode }))
   }
@@ -723,29 +726,45 @@ async function compileAndLink(code, memoryLimitBytes, onStatus) {
   const tool = await loadToolchain(onStatus)
   const pch = await loadPchBytes()
 
-  onStatus('compile', t('stage.compile'))
-  // 探针只编一次；放在 compile 阶段里做，第一次点的用户会多等几十毫秒
-  const oomProbe = await loadOomProbe(tool)
+  // 「编译阶段」的播报（同时是上层按阶段上弦的看门狗）跟着**消息派发**走，不跟着进入这个
+  // 函数走：从进来到第一条消息真发出去之间，可能还在排队等前面那条任务（运行 / PCH 生成），
+  // 那段时间算进 60 秒的编译预算里就会误判超时 —— 2026-10-27 那次误杀同一类。
+  // 实测口径见 wasi/client.js 文件头：看门狗一律「派发时刻起算」。
+  let compileAnnounced = false
+  const announceCompile = () => {
+    if (compileAnnounced) return
+    compileAnnounced = true
+    onStatus('compile', t('stage.compile'))
+  }
 
-  let compiled = await tool.host.compile({
-    args: clangArgs(pch ? PCH_PATH : null),
-    source: code,
-    sourcePath: SOURCE_PATH,
-    outputPath: OBJECT_PATH,
-    pch,
-  })
+  // 探针只编一次；放在 compile 阶段里做，第一次点的用户会多等几十毫秒
+  const oomProbe = await loadOomProbe(tool, announceCompile)
+
+  let compiled = await tool.host.compile(
+    {
+      args: clangArgs(pch ? PCH_PATH : null),
+      source: code,
+      sourcePath: SOURCE_PATH,
+      outputPath: OBJECT_PATH,
+      pch,
+    },
+    { onDispatch: announceCompile },
+  )
   if (pch && !compiled.object && PCH_ERROR_RE.test(compiled.stderr)) {
     // 是 PCH 本身加载不了（clang 会在加载时校验语言选项和头文件搜索路径，对不上就 fatal），
     // 不是用户代码写错了。绝不能因为一个缓存文件让用户的代码编不过 ——
     // 判废、退回普通编译重试一次，这一次的结果才是用户看到的。
     await discardPch()
-    compiled = await tool.host.compile({
-      args: clangArgs(null),
-      source: code,
-      sourcePath: SOURCE_PATH,
-      outputPath: OBJECT_PATH,
-      pch: null,
-    })
+    compiled = await tool.host.compile(
+      {
+        args: clangArgs(null),
+        source: code,
+        sourcePath: SOURCE_PATH,
+        outputPath: OBJECT_PATH,
+        pch: null,
+      },
+      { onDispatch: announceCompile },
+    )
   }
 
   if (!compiled.object) {
@@ -810,6 +829,11 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
   const tool = await loadToolchain(onStatus)
   // 看门狗拿的是常驻宿主：超时 kill() 会 terminate worker，下一次 loadToolchain 重建
   onHost(tool.host)
+  // 从这里到本次运行收尾，这颗宿主归运行独占。语法诊断看到 busy 就让路，不会拿它自己的
+  // 看门狗把运行正在用的 worker 杀掉（症状见 client.js 的 busy）。用户真点运行去抢
+  // 正在跑的后台活，则由宿主自己的抢占负责（见 wasi/client.js 的 send）。
+  // 用 hold() 而不是布尔：PCH 生成可能同时在收尾，布尔会被先到的那一方抹掉。
+  const releaseHost = tool.host.hold()
   try {
     if (
       compileCache?.code !== source ||
@@ -839,9 +863,18 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
       }
     }
 
-    onStatus('run', t('stage.run'))
-    const runStartedAt = performance.now()
-    const ran = await tool.host.run({ binary: outcome.binary.content, stdin })
+    // run 段的播报与 TLE 看门狗同样跟着**消息派发**走（同 compileAndLink 里那段说明）：
+    // 排队等前面那条任务的时间不是程序跑的，不该吃掉时限。
+    let runStartedAt = performance.now()
+    const ran = await tool.host.run(
+      { binary: outcome.binary.content, stdin },
+      {
+        onDispatch: () => {
+          runStartedAt = performance.now()
+          onStatus('run', t('stage.run'))
+        },
+      },
+    )
     return {
       stage: 'run',
       ok: ran.exitCode === 0 && !ran.trap,
@@ -862,6 +895,7 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
       cold: ran.cold === true,
     }
   } finally {
+    releaseHost()
     onHost(null)
   }
 }
@@ -1032,8 +1066,10 @@ export async function unloadRuntime(language) {
   // 编译产物是纯内存缓存，依附工具链存在，一起丢
   compileCache = null
   oomProbeObject = null
-  // PCH（十几 MB）存在 IndexedDB 里，不在 /wasm/ 缓存清单内，单独清
+  // PCH 有两处落点：IndexedDB 里的存档（十几 MB，不在 /wasm/ 缓存清单内）和
+  // `cp-toolchain` 桶里的预编译资源（`*.pch.br`，由 purgeRuntimeCache 按 /wasm/ 前缀一并带走）。
   pchBytes = null
+  pchOrigin = null
   pchPromise = null
   await deletePch(pchCacheId())
 }
@@ -1132,9 +1168,30 @@ export async function runPython({
  */
 const PCH_UNSUPPORTED_KEY = 'cp.pchUnsupported'
 
+/**
+ * 「这份**预编译好的** PCH 在本机加载不了」的标记，值是资源 id（`pch-6-a41f3b2e`）。
+ *
+ * 与上面那个标记刻意分开，因为后果不一样：`cp.pchUnsupported` 关掉的是**本机生成**，
+ * 而这条只是「别再下这份资源了」—— 本地生成那条路必须继续可用。混成一个键的话，
+ * 一次资源事故就会把本来能靠本地生成拿到加速的机器一起报废。
+ * 按资源 id 记，所以换了 PCH（版本号或头文件内容变了 → 文件名变了）自动重试。
+ */
+const PCH_ASSET_BAD_KEY = 'cp.pchAssetBad'
+
 // 给足预算：老机器解析整份万能头（30 个头）+ 序列化 AST 可能要几十秒，但超过这个时间
 // 基本可以断定是 cc1 卡死（本项目踩过），杀掉并标记不支持。
+// 这张表是**从消息派发出去那一刻**起算的（见 wasi/client.js 的 send），排队时间不算。
 const PCH_TIMEOUT_MS = 3 * 60 * 1000
+
+/**
+ * 「本机生成 PCH 这条编译本身失败了」的错误码。
+ *
+ * 只有这个码才意味着「这台机器生成不了」，才会写 `cp.pchUnsupported`。别把
+ * 宿主被看门狗 / 用户取消 / 前台任务抢占而掐断也算进来 —— 那几类错误带着
+ * `reason`（见 wasi/client.js 的 KILL_REASON），是外力打断，不是这台机器不行。
+ * 误记一次的后果是这一代内核永远没有 PCH，每次编译都慢一截。
+ */
+const PCH_COMPILE_FAILED = 'pch-compile-failed'
 
 // 存档格式版本：改动存档结构（或 PCH 的生成方式）时手动 +1
 // v2：编译参数加了 `-w`（语言选项变了，v1 的存档加载会被 clang 拒掉 —— 2026-10-18）
@@ -1178,6 +1235,38 @@ function markPchUnsupported() {
   }
 }
 
+/**
+ * 撤销「本机扛不住」的标记。
+ *
+ * 什么时候该撤：拿到的是一份**预编译好的** PCH 并且它加载成功。那个标记的两条来源
+ * 都是「本机自己生成 / 自己存档失败」，与「别人生成好的能不能装下」不是一回事
+ * —— 老机器常常生成时 OOM、却完全装得下一份现成的（序列化比反序列化贵得多）。
+ * 不撤的话，这份能用的 PCH 只在本会话的内存里有效，一刷新就被标记挡回去。
+ */
+function clearPchUnsupported() {
+  try {
+    window.localStorage.removeItem(PCH_UNSUPPORTED_KEY)
+  } catch {
+    /* 读不到 localStorage 时本来也没标记 */
+  }
+}
+
+function isPchAssetBad() {
+  try {
+    return window.localStorage.getItem(PCH_ASSET_BAD_KEY) === PCH_ASSET_ID
+  } catch {
+    return false
+  }
+}
+
+function markPchAssetBad() {
+  try {
+    window.localStorage.setItem(PCH_ASSET_BAD_KEY, PCH_ASSET_ID)
+  } catch {
+    /* 同 markPchUnsupported：写不进去最坏是多下一次 */
+  }
+}
+
 /** 工具链是否已在内存里（PCH 不该为了自己把那 23MiB 拉起来） */
 export function isToolchainReady() {
   return Boolean(toolchain?.host?.alive)
@@ -1205,16 +1294,105 @@ function pchCacheId() {
   return `${PCH_CACHE_VERSION}:${TOOLCHAIN_VERSION}:${hashString(PCH_SOURCE_TEXT)}`
 }
 
+/**
+ * 预编译 PCH 的资源 id / 地址（2026-10-27）。
+ *
+ * 文件名里同时带**存档格式版本**和**万能头内容指纹**，把它做成内容寻址：凡是会改变
+ * PCH 字节的东西（clang 版本、sysroot、头文件内容、语言 / 目标选项）一变，网址就变，
+ * SW 的 `cp-toolchain` 桶里那份 immutable 缓存自然失效。少任何一项都会留下
+ * 「资源永远是旧的那份、而运行时不认」的静默降级（见坑表里 SW 外壳桶那一条）。
+ * 构建侧按同一个名字落盘，见 scripts/build-pch.mjs；运行时导出它就是为了两边对得上。
+ */
+const PCH_ASSET_ID = `pch-${PCH_CACHE_VERSION}-${hashString(PCH_SOURCE_TEXT)}`
+const PCH_URL = `${ASSETS}/${PCH_ASSET_ID}.pch.br`
+
+/** `public/` 下的相对路径（构建脚本用，别在别处硬编码这个文件名） */
+export function pchAssetFile() {
+  return `wasm/${TOOLCHAIN_VERSION}/${PCH_ASSET_ID}.pch.br`
+}
+
+/**
+ * 拉取预编译好的 PCH 字节（单飞去重）。
+ *
+ * 启动预取（runtimePreload 的 prefetchPch）与运行后的 warmupPch 可能同时看中这一份；
+ * 不去重的话会把同一个 8.3MB 响应解两遍（br → 18MB），在慢机器上白烧一份内存。
+ * 只去重**在途**请求：settle 之后立刻清空，别让这份 18MB 常驻在一条已完成的 promise 上。
+ * @returns {Promise<Uint8Array | null>} null = 没拿到（404 / 断网 / 已被标记为坏资源）
+ */
+function downloadShippedPch() {
+  if (pchFetchPromise) return pchFetchPromise
+  const run = (async () => {
+    if (isPchAssetBad()) return null
+    try {
+      const response = await fetch(PCH_URL)
+      if (!response.ok) return null
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      return bytes.byteLength ? bytes : null
+    } catch {
+      return null
+    }
+  })()
+  pchFetchPromise = run
+  const clear = () => {
+    if (pchFetchPromise === run) pchFetchPromise = null
+  }
+  run.then(clear, clear)
+  return run
+}
+
+/**
+ * 下载预编译好的 PCH。没占到便宜就返回 null（断网 / 404 / 配额 / 已被标记为坏资源）。
+ *
+ * 为什么敢直接用**别的机器**生成的那份：PCH 的控制块里签着 clang 版本、语言 / 目标选项、
+ * 每个输入头的路径 + 大小 + mtime。这四样两端都一样 —— 同一份 clang.wasm、同一份
+ * sysroot.tar、同一份 UNIVERSAL_HEADER、逐字共用的 FRONTEND_ARGS，而 sysroot 与
+ * `/stdc++.h` 的 mtime 从 2026-10-25 起就钉成了常量（`SYSROOT_MTIME`，见
+ * wasi.worker.js）。也就是说这份字节与「本机生成后写进 IndexedDB 再读回来」逐字节同源，
+ * 那条路本来就在跨会话使用。
+ */
+async function fetchShippedPch() {
+  const bytes = await downloadShippedPch()
+  if (!bytes) return null
+  pchBytes = bytes
+  pchOrigin = 'shipped'
+  // 落存档：编译路径只认 IndexedDB（见 loadPchBytes），不存的话刷新后又要下一次。
+  // **不 await**：内存里已经有这份了，编译不依赖存档；18MB 的 put 可能慢到几百毫秒
+  // （老机器 / 慢盘），让它挡住「运行后的预热」这条链不值得。存不上只是下次还要再下。
+  void writePch(pchCacheId(), bytes).catch(() => {})
+  return bytes
+}
+
+/**
+ * 后台把预编译 PCH 读进缓存（`/wasm/` 前缀 → SW 的 `cp-toolchain` 桶，cache-first）。
+ *
+ * 与 `prefetchRuntimeAssets` 分开两个函数：那个同时是「工具链是否已下载」的判据
+ * （`runtimeAssetURLs`），把 PCH 塞进去会让所有老用户被判成「没下过」。
+ * 可重复调用：SW 命中时几乎没有成本，所以每次启动预取都可以走一遍。
+ */
+export async function prefetchPch() {
+  // 只为了把响应写进 Cache Storage；解出来的字节交给 GC，不留在模块里
+  await downloadShippedPch()
+}
+
+/** @type {Promise<Uint8Array | null> | null} 在途的下载（单飞，见 downloadShippedPch） */
+let pchFetchPromise = null
+
 /** @type {Promise<Uint8Array | null> | null} */
 let pchPromise = null
 /** @type {Uint8Array | null} 本会话已备好的 PCH，避免每次编译都回 IndexedDB 取 */
 let pchBytes = null
+/**
+ * 内存里这份是打哪来的：`'shipped'`（下载的）或 `'local'`（本机生成的）。
+ * 只用于「加载失败该怪谁」—— 见 discardPch。跨会话读回存档时无从得知，按 `null` 处理。
+ * @type {'shipped' | 'local' | null}
+ */
+let pchOrigin = null
 
 /**
  * 编译前取 PCH：先看本会话内存，再问 IndexedDB。
  *
- * 这里**不会**触发生成 —— 生成只走 warmupPch() 那条后台路径。编译路径不能为了它
- * 多等几百毫秒；没备好就照常普通编译，用户只是没享受到加速而已。
+ * 这里**不会**触发生成、也不会发起下载 —— 那两条只走 warmupPch() 那条后台路径。
+ * 编译路径不能为了它多等几百毫秒；没备好就照常普通编译，用户只是没享受到加速而已。
  * @returns {Promise<Uint8Array | null>}
  */
 async function loadPchBytes() {
@@ -1227,21 +1405,38 @@ async function loadPchBytes() {
 /**
  * 判废：带 PCH 却编译不通过时调用。
  * 顺手把 localStorage 标记也打上 —— 免得下一批用例再白跑一次「带 PCH 失败 + 重试」。
+ *
+ * 两种来源后果不同（`pchOrigin`）：
+ * - 本机生成的：就是 `cp.pchUnsupported` 的老语义 —— 这台机器生成 / 存档走不通，别再试；
+ * - 下载来的：只把这个**资源 id** 记成坏的，别再下它，但本地生成那条路留着。
+ *   混成一个标记的话，一次资源事故（比如换了参数忘了升版本）会把本来靠本地生成
+ *   还能拿到加速的机器一起永久报废。
+ * 跨会话读回存档时 origin 是 null（那份是谁写的已经无从得知），按「本机生成」处理。
  */
 async function discardPch() {
+  const origin = pchOrigin
   pchBytes = null
-  markPchUnsupported()
+  pchOrigin = null
   await deletePch(pchCacheId())
+  if (origin === 'shipped') {
+    markPchAssetBad()
+    // 让下一次预热可以直接退回本地生成（预热本会话只跑一次，所以实际生效在下一会话）
+    pchPromise = null
+    return
+  }
+  markPchUnsupported()
 }
 
 /**
- * 后台静默生成 PCH。**不要**在首屏或用户操作路径上直接调，统一走 wasmRuntime 的 warmupPch()。
+ * 后台备好 PCH：**先取预编译好的那份，取不到再本机生成**。
+ * 不要在首屏或用户操作路径上直接调，统一走 wasmRuntime 的 warmupPch()。
  *
- * 返回值：PCH 字节（存档命中时直接给存档，不会重新编译）；已标记不支持时返回 null；失败则抛出。
- * 失败一律按「这台机器扛不住」处理，写 cp.pchUnsupported 且不再重试 —— 在会 OOM 的机器上
- * 重试只是再崩一次。所以这里成功失败都只算一次，pchPromise 也就没必要清。
+ * 返回值：PCH 字节（存档 / 资源 / 生成三选一）；已标记不支持时返回 null；失败则抛出。
+ * 本机生成失败一律按「这台机器扛不住」处理，写 cp.pchUnsupported 且不再重试 ——
+ * 在会 OOM 的机器上重试只是再崩一次。所以这里成功失败都只算一次，pchPromise 也就没必要清
+ * （唯一例外：坏资源那条路会把它清掉，好让下一会话退回生成）。
  */
-export function generatePch() {
+export function ensurePch() {
   if (pchPromise) return pchPromise
 
   pchPromise = (async () => {
@@ -1250,44 +1445,112 @@ export function generatePch() {
     // loadPchBytes() 顺带覆盖了内存缓存和「本机不可用」标记两种情况。
     const cached = await loadPchBytes()
     if (cached) return cached
-    // loadPchBytes() 返回 null 有两种含义：还没存档，或者本机已被判定扛不住。
-    // 后者必须就此打住 ——「失败一次以后不再重试」这条要求落在这一行，
-    // 否则每次刷新都会在一台已知会 OOM 的机器上再试一次，正好是我们要避免的事。
+    // 存档没有（或是被标记挡回去了）→ 先试预编译好的那份。
+    // **放在 isPchUnsupported() 之前**是有意的：那个标记说的是「这台机器生成 / 存档走不通」，
+    // 而下载一份现成的只需要装得下 —— 序列化比反序列化贵得多，老机器常常正好卡在这一步。
+    // 这条顺序就是它们的救兵；反过来先看标记，等于把它们永远留在没有 PCH 的世界里。
+    const shipped = await fetchShippedPch()
+    if (shipped) {
+      clearPchUnsupported()
+      return shipped
+    }
+    // 资源也拿不到：本机已被判定扛不住就必须就此打住 ——「失败一次以后不再重试」这条要求
+    // 落在这一行，否则每次刷新都会在一台已知会 OOM 的机器上再试一次，正好是要避免的事。
     if (isPchUnsupported()) return null
+
+    // 后台活只在工具链已经在内存里时才做本机生成：这条路上一个 await 就可能把 23MB
+    // 的下载拽起来，那是用户点▶时该付的钱，不是预热该付的。
+    if (!isToolchainReady()) return deferPch()
 
     const tool = await loadToolchain(() => {})
     const host = tool.host
-    let timer = 0
+    // 本机生成是**后台活**，不该让用户排它后面：宿主正被运行占着，或队里已经有人等，
+    // 这轮就先算了（下一次运行结尾还会调 warmupPch，那时再开工）。只是 queued 里有活
+    // 也算 —— 那种情况下这条 compile 会排在用户任务后面，白占一次 hold 没意义。
+    if (host.busy || host.activeLabel || host.queued > 0) return deferPch()
+    // 到收尾为止这颗宿主归 PCH 独占。少了这一行，生成期间用户随手改一个字符就能招来
+    // 一次语法检查：它见 busy 是 false 就照常上表，消息排在这次编译后面等 —— 一旦先到点
+    // 就 kill() 掉宿主。现在语法诊断不会再主动 kill（见 syntaxDiagnostics），这层标记
+    // 仍是「PCH 正在写、别来插队」的声明；用户真点运行则由宿主的抢占机制兜住
+    // （前台消息会把这个后台活连 worker 一起换掉，见 wasi/client.js 的 send）。
+    const releaseHost = host.hold()
     try {
-      timer = setTimeout(() => {
-        try {
-          host.kill()
-        } catch {
-          /* 已经跑完或被杀过 */
-        }
-      }, PCH_TIMEOUT_MS)
-      const compiled = await host.compile({
-        args: PCH_ARGS,
-        source: PCH_SOURCE_TEXT,
-        sourcePath: PCH_SOURCE_PATH,
-        outputPath: PCH_PATH,
-      })
+      const compiled = await host.compile(
+        {
+          args: PCH_ARGS,
+          source: PCH_SOURCE_TEXT,
+          sourcePath: PCH_SOURCE_PATH,
+          outputPath: PCH_PATH,
+        },
+        {
+          // 3 分钟是「这台机器生成不完」的上限，从**消息派发**起算：排在用户那次编译后面
+          // 等多久都不作数（见 wasi/client.js 文件头）。后台优先级：用户一动手就让它插队
+          // —— 已派发的那条由宿主自己收掉（抢占），FS 里写了一半的 PCH 随 worker 一起消失。
+          timeoutMs: PCH_TIMEOUT_MS,
+          priority: HOST_PRIORITY_BACKGROUND,
+          label: 'pch',
+        },
+      )
       if (!compiled.object) {
-        throw new Error(compiled.stderr || t('error.pchFailed', { code: compiled.exitCode }))
+        // 只有这一条是「这台机器生成不了」：给错误贴上专属码，catch 只认它。
+        throw Object.assign(
+          new Error(compiled.stderr || t('error.pchFailed', { code: compiled.exitCode })),
+          { code: PCH_COMPILE_FAILED },
+        )
       }
       const bytes = compiled.object
       // 先落内存再落库：存档失败（配额不足 / 隐私模式）不该影响本会话，
-      // 内存里这份照样能用，只是下次刷新要重新生成
+      // 内存里这份照样能用，只是下次刷新要重新生成。18MB 的 put 可能几百毫秒，
+      // 不 await —— 编译只认内存里这份。
       pchBytes = bytes
-      await writePch(pchCacheId(), bytes)
+      pchOrigin = 'local'
+      void writePch(pchCacheId(), bytes).catch(() => {})
       return bytes
     } finally {
-      clearTimeout(timer)
+      releaseHost()
     }
   })()
 
-  pchPromise.catch(markPchUnsupported)
+  // 只有真·生成失败才写永久标记。被看门狗掐断 / 用户取消 / 用户点运行抢占，都不该让
+  // 这台机器在本代内核里永远失去 PCH（见 PCH_COMPILE_FAILED 的说明）。
+  pchPromise.catch((error) => {
+    if (error?.code === PCH_COMPILE_FAILED) {
+      markPchUnsupported()
+      return
+    }
+    // 外力打断：清掉这颗已经 reject 的 promise，让下一次 warmupPch 还能从头再来一次
+    if (error?.reason) pchPromise = null
+  })
   return pchPromise
+}
+
+/**
+ * 「这一轮没轮到」：把缓存的 promise 清掉，返回 null。
+ *
+ * 不清的话 `ensurePch` 会把这次的 null 缓存到本会话结束，下一次 warmupPch 直接拿到
+ * 同一个 null —— 「等空闲了再从头生成」就永远等不到。
+ */
+function deferPch() {
+  pchPromise = null
+  return null
+}
+
+/**
+ * 语法检查的四种结论。
+ *
+ * 用枚举而不是 `null`：null 把「为什么没有结论」丢掉了，调用方只能一律当成「等一下再补」——
+ * 于是宿主已被看门狗收掉时还会空跑四次重试。区分开之后，「等一下就有」（busy）与
+ * 「别等了」（unavailable / aborted）各走各的路。
+ */
+export const SYNTAX_STATUS = {
+  /** 有结论，`exitCode` / `stderr` 是诊断原文 */
+  SUCCESS: 'success',
+  /** 宿主正被运行 / PCH 生成占着：过一会儿再试就可能有结论 */
+  BUSY: 'busy',
+  /** 运行时不在（没下载 / 宿主已死）：在 runtimeReady 之前别等了 */
+  UNAVAILABLE: 'unavailable',
+  /** 这一枪被外力打断（看门狗 / 抢占 / 取消）：保留旧标记，等下一枪 */
+  ABORTED: 'aborted',
 }
 
 /**
@@ -1323,38 +1586,51 @@ const SYNTAX_TIMEOUT_MS = 15000
  * 三条使用前提：
  * 1. **工具链必须已经加载**（`isToolchainReady()`）。这里刻意不主动
  *    `preloadToolchain()`：那等于用户一打开 .cpp 就偷偷下 30MB。谁调谁决定；
- * 2. 每次调用会起一个独立的 WASI worker，调用方要自己管「上一枪还在跑」的取消
- *    （通过 onHost 拿到 host 后 kill()）；
- * 3. 返回值可能为 null（工具链没就绪），调用方按「这次没有结论」处理，
- *    不要清掉已有标记 —— 那会把用户已经看到的红波浪线擦掉。
+ * 2. 用的是**和运行 / PCH 生成共用的那颗常驻宿主**，不是每次新起一个 worker。那两位正占着
+ *    它时（`host.busy`）本函数直接返回 BUSY 让路 —— 那条路上 kill() 杀掉的是别人；
+ * 3. 没有结论时返回带 `status` 的对象（不是 null）：BUSY 可以过一会儿补，UNAVAILABLE /
+ *    ABORTED 就别等了。调用方一律保留上一次的标记 —— 把用户已经看到的红波浪线擦掉更糟。
+ *
+ * 15 秒表交给宿主、**从消息真正派发出去那一刻起算**：这一枪可能排在用户那次编译后面等
+ * （虽然 busy 已经挡掉了大部分），排队时间绝不能算进「这一枪跑了多久」（2026-10-27）。
  *
  * @param {string} code
  * @param {{ onHost?: (host: object | null) => void }} [options]
- * @returns {Promise<{ exitCode: number, stderr: string } | null>}
+ * @returns {Promise<{ status: string, exitCode?: number, stderr?: string }>}
  */
 export async function checkCppSyntax(code, { onHost } = {}) {
-  if (!toolchain?.host?.alive) return null
+  if (!toolchain?.host?.alive) return { status: SYNTAX_STATUS.UNAVAILABLE }
   const host = toolchain.host
+  // 运行或 PCH 生成正占着这颗宿主：让路。**不能**只是「照常排队」—— 那张 15s 表虽然已经从
+  // 派发时刻起算，但排在这一枪前面的如果是几十秒的 PCH 生成，用户的红线就要迟到几十秒。
+  if (host.busy) return { status: SYNTAX_STATUS.BUSY }
   const pch = await loadPchBytes()
-  let timer = 0
+  // loadPchBytes 是 await：期间用户可能刚好点了运行，回来再确认一次
+  if (!host.alive) return { status: SYNTAX_STATUS.UNAVAILABLE }
+  if (host.busy) return { status: SYNTAX_STATUS.BUSY }
   onHost?.(host)
   try {
-    timer = setTimeout(() => {
-      try {
-        host.kill()
-      } catch {
-        /* 已经跑完或被杀过 */
-      }
-    }, SYNTAX_TIMEOUT_MS)
-    const result = await host.syntax({
-      args: syntaxArgs(pch ? PCH_PATH : null),
-      source: code,
-      sourcePath: SOURCE_PATH,
-      pch,
-    })
-    return { exitCode: result.exitCode, stderr: result.stderr }
+    const result = await host.syntax(
+      {
+        args: syntaxArgs(pch ? PCH_PATH : null),
+        source: code,
+        sourcePath: SOURCE_PATH,
+        pch,
+      },
+      {
+        // 后台优先级：用户点运行 / PCH 生成要插队时，这一枪可以让到前面去。
+        // label 是给 cancelQueued 与超时措辞用的（诊断侧撤旧枪只撤自己这一类）。
+        timeoutMs: SYNTAX_TIMEOUT_MS,
+        priority: HOST_PRIORITY_BACKGROUND,
+        label: 'syntax',
+      },
+    )
+    return { status: SYNTAX_STATUS.SUCCESS, exitCode: result.exitCode, stderr: result.stderr }
+  } catch (error) {
+    // 带 reason 的都是「被外力掐断」（看门狗 / 前台抢占 / 取消），不是诊断本身出错
+    if (error?.reason) return { status: SYNTAX_STATUS.ABORTED }
+    throw error
   } finally {
-    clearTimeout(timer)
     onHost?.(null)
   }
 }
@@ -1389,15 +1665,15 @@ const PY_SYNTAX_CHECK_SCRIPT = [
  *
  * 使用前提与 checkCppSyntax 完全一致：运行时必须已加载（`isPythonRuntimeReady()`，
  * 刻意不主动下载 —— 用户没用过 Python 就不该为诊断下 24MB）；每次调用起独立
- * worker，取消由调用方经 onHost 自己管；返回 null 表示「这次没有结论」，
- * 调用方不清已有标记。
+ * worker，取消由调用方经 onHost 自己管；返回带 `status` 的对象而不是 null，
+ * 调用方据 status 决定是补一枪还是收手。
  *
  * @param {string} code
  * @param {{ onHost?: (host: object | null) => void }} [options]
- * @returns {Promise<{ exitCode: number, stderr: string } | null>}
+ * @returns {Promise<{ status: string, exitCode?: number, stderr?: string }>}
  */
 export async function checkPythonSyntax(code, { onHost } = {}) {
-  if (!pythonRuntime) return null
+  if (!pythonRuntime) return { status: SYNTAX_STATUS.UNAVAILABLE }
   const fs = {
     ...pythonRuntime.stdlib,
     '/main.py': wasiFile('/main.py', code),
@@ -1423,7 +1699,11 @@ export async function checkPythonSyntax(code, { onHost } = {}) {
         onHost?.(host)
       },
     })
-    return { exitCode: result.exitCode, stderr: result.stderr }
+    return { status: SYNTAX_STATUS.SUCCESS, exitCode: result.exitCode, stderr: result.stderr }
+  } catch {
+    // 解释器被 15s 表掐断 / 压根没起来：这一枪没有结论，但不是「运行时不可用」——
+    // 下一枪还能照跑，所以保留旧标记、按 aborted 处理。
+    return { status: SYNTAX_STATUS.ABORTED }
   } finally {
     clearTimeout(timer)
   }

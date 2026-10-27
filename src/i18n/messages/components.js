@@ -6,7 +6,7 @@
  * 抬头与类名因此不再属于 cf.js —— 卸载 Codeforces 之后这个菜单还在，
  * 文案不能跟着那个域一起被删。
  *
- * 各类里的条目名仍留在自己的域里：抽题 / 比赛在 `cf.menu.*`，倒计时在 `countdown.title`。
+ * 各类里的条目名仍留在自己的域里：Codeforces 在 `cf.view.title`，倒计时在 `countdown.title`。
  */
 export default {
   'zh-CN': {
@@ -22,7 +22,7 @@ export default {
        * 第一项随当前停靠侧换词：现在在左就写「移到右侧」，说的永远是**点下去会发生什么**，
        * 而不是「现在在哪」—— 后者点一下什么都没变，读起来像坏了。
        * 下面列的是可固定到上簇的组件，条目名直接复用各组件自己的文案键
-       * （`cf.menu.*` / `countdown.title`），这里不重复一份。
+       * （`cf.view.title` / `countdown.title`），这里不重复一份。
        */
       bar: {
         menuLabel: '图标栏菜单',
