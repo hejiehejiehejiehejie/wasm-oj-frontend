@@ -1,232 +1,79 @@
-/* CfPickerPanel / CfContestPanel 共用的「工业引擎控制台」版式。
-   两个组件都用 <style scoped src> 挂这份文件：类名相同、视觉只有一份出处，
-   改任何一行两个面板同时生效。组件各自特有的规则留在它们自己的 <style> 块里。
+/* Codeforces 页（抽题 / 比赛 / 赛程 / 榜单 / 提交）共用的版式。
+   2026-10-28 整体改版：从「工业引擎控制台」（1px 网格、直角、9–10px 小字、实心蓝主按钮）
+   换成本项目现行的语汇 —— 与设置页、评测面板同一套：
+     · 不铺卡片、不画网格，靠留白 + 行间一条 --border-divider 淡线分区；
+     · 常规控件 10px 圆角，小徽标 / 紧凑行内按钮 6px，行悬停面 8px；
+     · 主操作是通栏的低透明度 --accent-face 面，颜色只留在文字与图标上；
+     · 文字三级灰度：正文 --text / 标签 --text-dim / 元数据 --text-faint。
+   两个面板都用 <style scoped src> 挂这份文件：类名相同、视觉只有一份出处。
+   组件各自特有的规则留在它们自己的 <style> 块里。
    颜色一律走设计令牌（本项目有浅色主题，见 base.css），不写死色值。 */
 
-/* 铺满编辑区内容层、自己滚动（与设置视图同款）。控制台不讲留白，边距压到最小 */
+/* 铺满编辑区内容层、自己滚动（与设置视图同款）。
+   scrollbar-gutter：居中列吃的是内容盒宽度，原生滚动条一出现就挖掉 11px，
+   各页内容长短不同、滚条时有时无 —— 观感就是「切一下、整列挪一下」。
+   左右对称常驻后居中位置恒定；覆盖式滚动条环境里它不占位，一样对称。 */
 .cf-view {
   position: absolute;
   inset: 0;
   overflow-y: auto;
-  /* 与设置视图同一条道理（见 EditorSettingsPanel 的 .settings-view）：里面的块是居中摆的，
-     而居中吃的是内容盒宽度 —— 原生滚动条一出现就从右边挖掉 11px，整列跟着左移 5.5px。
-     抽题 / 比赛 / 赛程的内容长短不一，滚动条时有时无，观感就是「切一下、内容挪一下」。
-     both-edges 左右对称常驻，居中位置恒定；覆盖式滚动条的环境里它不占位，一样对称。 */
   scrollbar-gutter: stable both-edges;
-  padding: 12px;
+  padding: 18px 0 36px;
+  /* 窄容器降级由容器查询决定（见文件末尾）：这块面板活在编辑区里，
+     视口宽度不等于它的宽度，拿 media query 当代理会判错。 */
+  container-type: inline-size;
+  container-name: cf;
 }
 
-/* ---------------- 网格 ---------------- */
-/* 线只在「上 + 左」由容器给、其余每格自带上 + 左之外的两条边，
-   于是网格线既不缺也不重（若每格都画四条，相邻两格会叠出 2px） */
-.cf-shell {
-  display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  max-width: 760px;
-  /* 编辑区比 760px 宽时整列居中：max-width 只封上限，没有 auto 边距就一律贴左
-     （2026-10-27，与 .cf-results / .cf-contest__note--block 同一口径） */
-  margin-inline: auto;
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
-}
-
-.cf-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 2px 8px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.cf-cell--span {
-  grid-column: 1 / -1;
-}
-
-.cf-cell--label {
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.cf-cell--value {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 6px;
-  padding: 2px 6px;
-}
-
-/* ---------------- 抬头 / 分区 / 底栏 ---------------- */
-.cf-bar {
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--bg-panel-head);
-}
-
-.cf-bar__title {
-  color: var(--text-dim);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.cf-section {
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-/* ---------------- 结果区 ---------------- */
-/* 与表单同宽（760px）并共用同一条左边线，两块才对得齐。
-   边框照 .cf-shell 的规矩给：容器只负责「上 + 左」，每格自己带「右 + 下」，
-   于是线既不缺也不重。抬头也算一格（它是一行的表头，不是浮在框外的标题）。 */
-.cf-results {
-  max-width: 760px;
-  /* 横向居中（与 .cf-shell 同一条左边线）：margin-top 保留，左右交给 auto */
-  margin: 12px auto 0;
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
-}
-
-/* 抬头：左边标题、右边一撮动作 */
-.cf-results__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 24px;
-  padding: 2px 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel-head);
-}
-
-/* 抬头右侧那一撮：结果小字 + 按钮。用 gap 排 —— space-between 只管首尾，
-   塞进第三件东西时中缝会飘 */
-.cf-results__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cf-head-btn {
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-/* 等待中的抬头按钮：转圈与文字并排。只在这一档改 display ——
-   其余状态保持内联按钮，不为一个等待指示去动所有按钮的排版 */
-.cf-head-btn--busy {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.cf-head-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.cf-head-btn:disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
-
-.cf-foot {
-  padding: 0;
-}
-
-/* ---------------- 说明小字 ---------------- */
-/* 面板里那些「注意 / 空态 / 口径」的句子。赛程、榜单、提交、题目四块共用，
-   所以放在公共样式里而不是某一个组件的 scoped 块里。 */
-.cf-contest__note {
-  flex: none;
-  color: var(--text-faint);
-  font-size: 10px;
-}
-
-/* 整段说明单独占一行（抬头行里的 note 是并列小字） */
-.cf-contest__note--block {
-  max-width: 760px;
-  /* 顶层那一块（不属于任何 .cf-results 时）也得跟表单一样居中 */
-  margin: 12px auto 0;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  line-height: 1.5;
-}
-
-.cf-contest__note--block.is-error {
-  color: var(--fail);
-}
-
-.cf-exec {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+/* 内容列：居中、封顶 840px（表单与列表同一左轨，控件不会飘到很远） */
+.cf-page {
   width: 100%;
-  height: 30px;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-family: var(--ui-font);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  max-width: 840px;
+  margin-inline: auto;
+  padding: 0 20px;
 }
 
-.cf-exec:hover:not(:disabled) {
-  background: var(--accent-hover);
+/* 表格型页面（榜单 / 比赛题目 / 提交）放宽到 1120px：列多，840px 会把题格挤成一条缝。
+   表单型页面（抽题）仍留在 840px，输入行不至于长到要转头读。 */
+.cf-page--wide {
+  max-width: 1120px;
 }
 
-.cf-exec:disabled {
-  background: var(--bg-control);
-  color: var(--text-faint);
-  cursor: default;
-}
-
-/* ---------------- 输入框：直角、等宽、无痕 ---------------- */
+/* ---------------- 输入框 ---------------- */
+/* 无框：一块浅浅的输入面 + 6px 圆角，静止不描边（与按钮 / 页签同一套「留白即边界」）。
+   获焦那一刻才浮出 1px 主色内描边 + 一圈光晕 —— 焦点必须看得见，但静止时不该有线条。
+   与 CountdownCard 的 .cd-dms input 同一套写法。 */
 .cf-input {
-  height: 22px;
-  padding: 0 5px;
-  border: 1px solid var(--border);
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
   background: var(--bg-input);
   color: var(--text);
-  font-family: var(--mono-font);
-  font-size: 11px;
+  font-family: var(--ui-font);
+  font-size: 12.5px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .cf-input::placeholder {
   color: var(--text-faint);
 }
 
+.cf-input:hover {
+  background: var(--bg-control);
+}
+
 .cf-input:focus {
-  border-color: var(--focus);
+  background: var(--bg-control);
   outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus), 0 0 0 3px var(--focus-ring);
 }
 
 .cf-input--num {
-  width: 58px;
+  width: 84px;
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
   text-align: center;
-}
-
-.cf-input--text {
-  width: 190px;
 }
 
 /* 数字框去掉原生上下箭头：step=100 的步进不好用，「常用区间」才是主要入口 */
@@ -236,17 +83,197 @@
   margin: 0;
 }
 
-/* ---------------- 状态 ---------------- */
-/* 状态行可能是「转圈 + 一句话」：外层用 inline-flex 把两者对齐，
-   省略号交给里面的文字 —— 转圈本身不该被截成半个 */
+/* ---------------- 按钮 ---------------- */
+/* 次级动作（刷新 / 载入 / 抓样例 / 只看我 …）：无面、无描边，
+   悬停才浮出一层极淡的底 —— 与评测面板那两颗幽灵按钮同一套。 */
+.cf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--ui-font);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-btn:hover:not(:disabled) {
+  background: var(--icon-hover-bg);
+  color: var(--text);
+}
+
+/* 纯文字动作（刷新一类）：悬停只让字变亮，不铺整块热区 */
+.cf-btn--text:hover:not(:disabled) {
+  background: transparent;
+}
+
+.cf-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* 按下态（只看我 / 分段选中）：低透明度主色面，颜色只落在文字上 */
+.cf-btn.is-on {
+  background: var(--accent-face);
+  color: var(--accent-text);
+}
+
+.cf-btn.is-on:hover:not(:disabled) {
+  background: var(--accent-face-hover);
+  color: var(--accent-text);
+}
+
+/* 行内紧凑按钮（导入 / 报名 / VP）：26px、6px 圆角、幽灵细线 */
+.cf-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--ui-font);
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-mini:hover:not(:disabled) {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.cf-mini:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.cf-mini.is-done {
+  border-color: transparent;
+  color: var(--ok);
+  cursor: default;
+}
+
+/* 纯图标按钮：26×26、6px、padding 归零（字形精确居中，同评测面板口径）。
+   视觉上只有图标，热区仍是整格 —— 悬停的是这一格，不是它旁边的空白。 */
+.cf-icon-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-icon-btn:hover {
+  background: var(--icon-hover-bg);
+  color: var(--accent-text);
+}
+
+/* ---------------- 芯片 / 开关 ---------------- */
+.cf-chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-chip:hover {
+  background: var(--bg-control);
+  color: var(--text);
+}
+
+.cf-chip.is-on {
+  background: var(--accent-face);
+  color: var(--accent-text);
+}
+
+/* ---------------- 页签 / 分段 ---------------- */
+/* 圆角矩形、无描边：静止只读文字，选中铺一层中性控件底（与设置页目录同一支）。
+   不占额外高度：切页签时整行不跳。 */
+.cf-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--ui-font);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-tab:hover {
+  color: var(--text);
+}
+
+.cf-tab.is-on {
+  background: var(--bg-control);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ---------------- 状态 / 说明 ---------------- */
+/* Live 角标：挂在「赛程」页签里，只在有进行中的场次时出现 */
+.cf-live-badge {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--ok-face);
+  color: var(--ok);
+  font-family: var(--mono-font);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+/* 数字原子类：题号 / Rating / 倒计时 / 名次 / 耗时统一等宽 + 定宽数字 */
+.cf-mono {
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 状态行可能是「转圈 + 一句话」：外层 inline-flex 对齐，省略号交给里面的文字 ——
+   转圈本身不该被截成半个 */
 .cf-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
   color: var(--text-faint);
-  font-family: var(--mono-font);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .cf-status__text {
@@ -265,103 +292,297 @@
   color: var(--fail);
 }
 
-/* ---------------- 结果列表 ---------------- */
-/* <ul> 的浏览器默认样式必须显式清掉：本项目没有全局 reset，默认的
-   padding-inline-start: 40px 会把每一行右推 40px（左边一片空白、左边框与行错位断开），
-   margin-block: 1em 会在抬头与框之间撑出一道缝 */
-.cf-results__list {
+/* 面板里那些「注意 / 空态 / 口径」的句子。赛程、榜单、提交、题目四块共用 */
+.cf-note {
+  margin: 10px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cf-note.is-error {
+  color: var(--fail);
+}
+
+/* ---------------- 空白区提示 ---------------- */
+/* 页面还空着时，取数的话不挂在右上角（那里是刷新 / 载入的位置，空页面上只余一条灰字，
+   看着像页面坏了），而是落在内容区：水平居中，垂直压在空白区高度的 38.2%（黄金分割点，
+   视线从控件往下扫时正落在这一行）。
+   .cf-page--fill 让内容列撑满内容层 —— 百分比高度要有一把确定高度的尺子；余下的高度
+   全给 .cf-blank，提示再相对它绝对定位，所以「那一段空白」由版面自己算，不写死 px。 */
+.cf-page--fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.cf-blank {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.cf-blank__hint {
+  position: absolute;
+  top: 38.2%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  /* 命中缓存时取数只有几十毫秒：先按住 0.25s 再淡入，别让这句话闪一下（both 保证按住期间也不画） */
+  animation: cf-blank-in 0.18s ease-out 0.25s both;
+}
+
+@keyframes cf-blank-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---------------- 分区抬头 ---------------- */
+/* 抬头与列表之间不画线：留白 + 一条极淡的行分隔已经够分区（留白即边界） */
+.cf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  margin: 0 0 4px;
+}
+
+/* 页签下面新开的一块（抽题结果 / 本场题目）：与页签之间隔一段留白，不画线 */
+.cf-section {
+  margin-top: 26px;
+}
+
+.cf-head__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-head__meta {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.cf-head__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---------------- 列表 ---------------- */
+/* 浏览器默认的 <ul> 会带 40px 左缩进与 1em 上下外边距：本项目没有全局 reset，
+   不显式清掉的话整列会比抬头右推一大截。 */
+.cf-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* 列宽写死（而不是 auto）：每行各是一个独立的 grid，auto 会让各行的列宽互不相同、
-   整列对不齐。所以低分题（没有 rating）与无标签题的格子也照常占位，只是内容为空。
-   tags 列给 minmax(0, 180px) 而不是死 180px：窗口变窄时它得先让步，
-   否则所有固定列加起来约 400px，比它窄就顶破边框 */
+/* 行悬停面：左右各外扩 10px，圆角 8 —— 文字左缘仍与左边的标签 / 抬头严格对轨 */
+.cf-list__row {
+  position: relative;
+  margin-inline: -10px;
+  padding-inline: 10px;
+  border-radius: 8px;
+  transition: background-color 0.12s ease;
+}
+
+/* 行间分隔线画在一根 1px 的伪元素上，**不用 border-top**：行自己的圆角是给悬停面的，
+   border 会跟着拐弯，线的两端就成了圆的。伪元素不继承圆角，整条始终是直线。 */
+.cf-list > li + li .cf-list__row::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--border-divider);
+}
+
+.cf-list__row:hover {
+  background: var(--bg-hover-soft);
+}
+
+/* 行悬停面与上一条分隔线会叠在一起：悬停时把线让开，观感才是一整块 */
+.cf-list > li + li .cf-list__row:hover::before {
+  opacity: 0;
+}
+
+/* ---------------- 抽到的题 / 本场题目 ---------------- */
+/* 四列：题号+题名 / 标签 / 难度 / 导入。题号与题名同在一格 —— 题号长短不一时，
+   名字也紧跟在它后面，不会被一列固定宽的题号格推出去老远。
+   标签列封顶 190px（长的自己截，悬停读全），剩下的宽度全给题名；
+   再窄到 34rem 以下整列撤掉，见文件末尾。
+   2026-10-29：题名这一格给了**下限** --cf-title-min（用户口径：页面变窄时宁可让知识点
+   标签折叠，也不要题名被挤没）。260px = 题号 48 + 间隙 8 + 题名 204。
+   空间不够时的让位次序就是「标签 → 难度 → 题名」：标签列的 base 是 0（可以被压到没有），
+   难度在 31rem 以下整格撤掉，题名守到最后一档。
+   下限外面还套一层 min(…, 100% - 固定列)：容器真的窄到「题名 + 难度 + 导入」都放不下时，
+   宁可少给题名几 px，也不要整行横向溢出、把右端的导入按钮顶出可视区（那是这一行唯一的动作）。
+   ⚠️ 100% 里已经扣掉固定列与全部 gap（52 + 84 + 3×12 = 172），改列宽 / 间距时要一起改。 */
 .cf-result {
+  --cf-title-min: 260px;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) minmax(0, 180px) 44px 68px 16px;
+  grid-template-columns:
+    minmax(min(var(--cf-title-min), 100% - 172px), 1fr)
+    minmax(0, 190px)
+    52px
+    84px;
   align-items: center;
+  gap: 12px;
+  height: 44px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+/* 题号 + 题名：基线对齐，间距 8px（题名即链接） */
+.cf-result__title {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
-  height: 26px;
-  padding: 0 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
-  font-family: var(--mono-font);
-  font-size: 11px;
+  min-width: 0;
 }
 
 .cf-result__id {
-  color: var(--text-dim);
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  white-space: nowrap;
 }
 
 .cf-result__name {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
+  text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cf-result__name:hover {
+  color: var(--accent-text);
 }
 
 .cf-result__tags {
-  /* grid 项默认 min-width:auto，不减到 0 就会撑住列不肯变窄，窄窗口下顶破边框 */
   min-width: 0;
   overflow: hidden;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 难度：中性小徽标（低分题没有这一枚，格子照常占位） */
 .cf-result__rating {
+  justify-self: start;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--bg-control);
   color: var(--text-dim);
-  font-size: 10px;
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+
+.cf-result__rating:empty {
+  visibility: hidden;
+}
+
+/* 比赛页的题目行：去掉知识点标签与难度之后，只剩「题名 / 通过人数 / 导入」三格。
+   不能沿用上面那条四列网格 —— 导入会落进标签那列（190px 的固定槽），右边空出一段。
+   这里由题名吃掉全部余量，通过人数与动作固定在右端。 */
+.cf-result--slim {
+  grid-template-columns: minmax(0, 1fr) 64px 84px;
+}
+
+/* 通过人数：右对齐的等宽数字；拿不到（旧缓存 / 未开赛）时显示破折号 */
+.cf-result__solved {
+  justify-self: end;
+  color: var(--text-faint);
+  font-size: 11.5px;
 }
 
 /* 导入工作区：这一条结果的唯一动作，导过之后停用并转成「已导入」 */
 .cf-result__import {
-  height: 18px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  font-family: var(--ui-font);
-  font-size: 10px;
-  line-height: 1;
-  cursor: pointer;
-  /* 列宽是固定的，按钮又是 grid 项：文案超出时若不截断会折成两行，把 26px 的行撑高 */
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.cf-result__import:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--text);
+/* ---------------- 窄容器降级 ---------------- */
+/* 编辑区被拖窄 / 手机：结果行先撤列（文字本身仍可悬停读到），抬头收紧间距 */
+@container cf (max-width: 34rem) {
+  .cf-page {
+    padding: 0 14px;
+  }
+
+  .cf-head {
+    margin-top: 20px;
+  }
+
+  .cf-result {
+    /* 刚才那三个数换成这一档的：52 + 78 + 两处 gap 10 = 150 */
+    grid-template-columns: minmax(min(var(--cf-title-min), 100% - 150px), 1fr) 52px 78px;
+    gap: 10px;
+  }
+
+  /* 两列的题目行（比赛页）在窄容器下也保持两列：三列模板会让导入挤进第二列的 52px */
+  .cf-result--slim {
+    grid-template-columns: minmax(0, 1fr) 56px 78px;
+  }
+
+  /* 标签整列撤掉：剩下的宽度全给题名（它才是这一行要读的东西） */
+  .cf-result__tags {
+    display: none;
+  }
 }
 
-/* 导入中：转圈与「导入中」并排。68px 的列宽够放下，居中即可 */
-.cf-result__import.is-importing {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
+/* 再窄：难度也让位（2026-10-29 从 22.5rem 提到 27.5rem）。这一格 52px + 一道 10px 间隙
+   是从题名那儿扣走的 —— 留着它，题名 = 容器 - 178，要拿满 260 得 438px；撤掉之后
+   题名 = 容器 - 144，同样 260 只需 404px。取 27.5rem（440）当分界：一过这条线，
+   题名立刻回到 296 以上，常见题名能整条读完。顺序仍是「标签 → 难度 → 题名」。 */
+@container cf (max-width: 27.5rem) {
+  /* :not(--slim) 是必须的：比赛页那一行是三格（题名 / 通过人数 / 导入），套上下面这份
+     两列模板，导入会换到第二行、被 44px 的行高裁掉（原来那条 22.5rem 规则就带着这个毛病） */
+  .cf-result:not(.cf-result--slim) {
+    /* 只剩导入一列：78 + 一处 10 间隙 —— 88 */
+    grid-template-columns: minmax(min(var(--cf-title-min), 100% - 88px), 1fr) 78px;
+  }
+
+  .cf-result__rating {
+    display: none;
+  }
 }
 
-/* 导入完成：边框收掉（不再是可点的样子），转成完成的绿色 */
-.cf-result__import.is-imported {
-  border-color: transparent;
-  color: var(--ok);
-  cursor: default;
-}
+/* 最后一档（≤20rem）：一行里已经塞不下「题号 + 题名 + 导入」—— 题名独占第一行，
+   导入落到第二行右端，行高改由内容撑。这一档不是理论值：编辑器最窄能拖到工作区的 24%
+   （见 App.vue 的 share 区间）。实测（探针，容器宽 → 题名宽）：386 → 214、330 → 157，
+   再往下就是几十 px 直到 0（186 → 14、146 → 0）—— 那才是「题名被挡住」的现场。
+   换成两行之后同样的容器：186 → 102、146 → 62。 */
+@container cf (max-width: 20rem) {
+  .cf-result:not(.cf-result--slim) {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    padding-block: 8px;
+    row-gap: 6px;
+  }
 
-.cf-result__link {
-  display: inline-flex;
-  color: var(--text-faint);
-}
-
-.cf-result__link:hover {
-  color: var(--accent);
+  /* 导入靠右，右缘仍与上面各行的按钮对齐 */
+  .cf-result__import {
+    justify-self: end;
+  }
 }

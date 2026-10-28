@@ -56,13 +56,22 @@ export default {
       /** 组件菜单里「Codeforces」那一类的抬头与类名在 components.js
           （那个菜单不只装 Codeforces，抬头不能挂在可卸载模块的域里） */
 
-      /** 合并后的 Codeforces 页签（抽题 + 比赛，2026-10-27）：页签标题与内部模式轴 */
+      /** 合并后的 Codeforces 页签（抽题 + 赛程 + 比赛，2026-10-28）：页签标题与内部模式轴 */
       view: {
         title: 'Codeforces',
         mode: {
           picker: '抽题',
+          schedule: '赛程',
           contest: '比赛',
         },
+        /** 抬头右侧的账号胶囊（点开才编辑，三个页面共用这一份） */
+        handle: {
+          label: 'Codeforces 账号',
+          empty: '未设置账号',
+          placeholder: '如 tourist',
+          hint: '抽题排除已通过、榜单「跳到我」、提交「只看我」共用这个账号',
+        },
+        live: 'LIVE',
       },
 
       /** 编辑区里那个 Codeforces 页签 */
@@ -80,8 +89,12 @@ export default {
           unlimited: '不限',
           presets: '常用区间',
           tags: '标签',
-          tagsPlaceholder: '逗号分隔，如 dp, math',
+          tagPresets: '常用标签',
+          tagsExpand: '展开',
+          tagsCollapse: '收起',
           count: '数量',
+          decrease: '减少数量',
+          increase: '增加数量',
         },
         options: {
           preferNew: '优先近期新题',
@@ -92,13 +105,10 @@ export default {
           on: '开',
           off: '关',
         },
+        /** 只剩「不存在」这一条：账号本身在抬头右侧的胶囊里填（三个模式共用），
+            这条文案由抽取前的静默校验点出来，不在表单里常驻显示 */
         handle: {
-          label: '账号',
-          placeholder: 'tourist, hejie',
-          checking: '正在校验…',
-          ok: '账号有效',
           notFound: '账号不存在：{handles}',
-          network: '连不上 Codeforces，先跳过校验',
         },
         action: {
           pick: '开始抽取',
@@ -111,6 +121,8 @@ export default {
           importing: '导入中…',
           imported: '已导入',
           importAll: '全部导入',
+          avg: '平均 {rating}',
+          empty: '抽到的题会列在这里',
         },
         /** 抽到题时那条全局通知的标题（正文复用上面 `result.count`，不另写一句） */
         notif: {
@@ -118,7 +130,7 @@ export default {
         },
         errors: {
           ratingOrder: '难度下限不能大于上限',
-          handleRequired: '排除已通过需先填账号',
+          handleRequired: '排除已通过需要账号：先在右上角设置',
           noMatch: '没有符合条件的题目，请放宽条件',
           worker: '抽题组件未启动，请在设置中重新下载',
           fetch: '拉取 Codeforces 数据失败：{detail}',
@@ -132,25 +144,35 @@ export default {
        */
       contest: {
         title: '比赛',
-        /** 两个模式：赛程（近期比赛 + 报名入口在 P1）/ 比赛（贴链接看题目、榜单、提交） */
-        mode: {
-          schedule: '赛程',
-          contest: '比赛',
-        },
         tabs: {
           problems: '题目',
           standings: '排行榜',
           submissions: '提交',
         },
         fields: {
-          link: '比赛',
+          linkLabel: '比赛链接或 ID',
           linkPlaceholder: '比赛链接或 ID（如 2276）',
+        },
+        problems: {
+          solvedTitle: '通过人数（截至载入时的榜单快照）',
         },
         action: {
           load: '载入',
+          edit: '换一场',
           scrape: '抓样例',
           scraping: '抓取中…',
           submitActive: '提交当前文件',
+          refresh: '刷新',
+          refreshing: '获取中…',
+          /** 「刷新于 20 秒前」：刷新两个字是可点的按钮，这里只给后面那半句 */
+          refreshAt: '于 {age}',
+          /** 距上次刷新的时长（一分钟以上不带秒，一小时以上带零头分钟） */
+          refreshAge: {
+            seconds: '{n} 秒前',
+            minutes: '{n} 分钟前',
+            hours: '{n} 小时前',
+            hoursMinutes: '{h} 小时 {m} 分钟前',
+          },
         },
         status: {
           loading: '正在获取比赛信息…',
@@ -163,10 +185,17 @@ export default {
         },
         /** 赛程：近期比赛 + 倒计时。分组按「此刻」算，不跟 contest.list 的 phase 走 */
         schedule: {
-          title: '赛程',
-          refresh: '刷新',
           refreshing: '获取中…',
           updated: '更新于 {time}',
+          capabilities: '扩展在位：可读报名状态、可报名 / 开 VP',
+          /** 倒计时档位：界面只取最大的几档拼起来（见 useCfSchedule.spanText） */
+          units: {
+            weeks: '{n} 周',
+            days: '{n} 天',
+            hours: '{n} 小时',
+            minutes: '{n} 分钟',
+            seconds: '{n} 秒',
+          },
           empty: '没有取到比赛列表，稍后再试',
           open: '载入 {name}',
           /** 报名 / 开 VP 那一列（2026-10-26 起由扩展读 CF 的报名状态，见 useCfSchedule） */
@@ -213,15 +242,9 @@ export default {
         },
         /** 排行榜：API 只有正式参赛者，VP 不在榜上（精确的 VP 排名是 P1） */
         standings: {
-          title: '排行榜',
-          refresh: '刷新',
-          refreshing: '获取中…',
-          updated: '更新于 {time}',
           loading: '正在获取排行榜…',
           notStarted: '开赛后才有排行榜',
           empty: '这场还没有可显示的榜单',
-          official: '官方榜（不含 VP / 非正式）',
-          count: '{n} 行',
           rank: '名次',
           who: '选手',
           score: '分数',
@@ -258,16 +281,24 @@ export default {
         },
         /** 提交：只取最新一段；更早的提交去 Codeforces 看（完整分页是 P1） */
         submissions: {
-          title: '提交',
-          refresh: '刷新',
-          refreshing: '获取中…',
-          updated: '更新于 {time}',
           loading: '正在获取提交…',
           empty: '这场还没有提交',
-          mineEmpty: '没有我的提交',
+          mineEmpty: '我在这场还没有提交',
+          handleEmpty: '{handle} 在这场还没有提交',
+          filteredEmpty: '没有符合筛选条件的提交',
           onlyMine: '只看我',
           onlyMineHint: '只看我自己账号的提交',
-          needHandle: '先在抽题页填账号，才能只看我',
+          needHandle: '先在 Codeforces 页右上角设置账号，才能只看我',
+          allHandles: '全部选手',
+          handleLabel: '按 handle 筛选',
+          problem: '题目',
+          status: '状态',
+          verdict: {
+            all: '全部',
+            ok: 'AC',
+            fail: '未过',
+            pending: '待判',
+          },
           count: '{n} 条',
           summary: '过 {solved} 题 · AC {accepted} · 未过 {rejected}',
           latest: '只显示最近一段',
@@ -338,8 +369,16 @@ export default {
         title: 'Codeforces',
         mode: {
           picker: 'Pick',
+          schedule: 'Schedule',
           contest: 'Contest',
         },
+        handle: {
+          label: 'Codeforces handle',
+          empty: 'No handle set',
+          placeholder: 'e.g. tourist',
+          hint: 'Shared by “exclude solved” in Pick, “jump to me” in standings and “only me” in submissions',
+        },
+        live: 'LIVE',
       },
 
       tab: {
@@ -355,8 +394,12 @@ export default {
           unlimited: 'Any',
           presets: 'Presets',
           tags: 'Tags',
-          tagsPlaceholder: 'Comma separated, e.g. dp, math',
+          tagPresets: 'Common tags',
+          tagsExpand: 'Expand',
+          tagsCollapse: 'Collapse',
           count: 'Count',
+          decrease: 'Decrease count',
+          increase: 'Increase count',
         },
         options: {
           preferNew: 'Prefer recent problems',
@@ -367,12 +410,7 @@ export default {
           off: 'OFF',
         },
         handle: {
-          label: 'Handles',
-          placeholder: 'tourist, hejie',
-          checking: 'Checking…',
-          ok: 'Handles are valid',
           notFound: 'No such handle: {handles}',
-          network: 'Cannot reach Codeforces; skipping the check',
         },
         action: {
           pick: 'Start picking',
@@ -385,6 +423,8 @@ export default {
           importing: 'Importing…',
           imported: 'Imported',
           importAll: 'Import all',
+          avg: 'Avg {rating}',
+          empty: 'Picked problems will appear here',
         },
         /** 同 zh-CN：正文复用上面 `result.count` */
         notif: {
@@ -392,7 +432,7 @@ export default {
         },
         errors: {
           ratingOrder: 'The minimum difficulty cannot exceed the maximum',
-          handleRequired: 'Skipping solved problems needs a handle',
+          handleRequired: 'Skipping solved problems needs a handle — set it in the top-right',
           noMatch: 'Nothing matched — loosen the filters',
           worker: 'The picker worker isn’t running; download the module again',
           fetch: 'Could not fetch Codeforces data: {detail}',
@@ -403,24 +443,34 @@ export default {
       /** 同 zh-CN：导入按钮那三种状态复用 `picker.result.*` */
       contest: {
         title: 'Contest',
-        mode: {
-          schedule: 'Schedule',
-          contest: 'Contest',
-        },
         tabs: {
           problems: 'Problems',
           standings: 'Standings',
           submissions: 'Submissions',
         },
         fields: {
-          link: 'Contest',
+          linkLabel: 'Contest link or ID',
           linkPlaceholder: 'Contest link or ID (e.g. 2276)',
+        },
+        problems: {
+          solvedTitle: 'Accepted count (standings snapshot at load time)',
         },
         action: {
           load: 'Load',
+          edit: 'Change contest',
           scrape: 'Fetch samples',
           scraping: 'Fetching…',
           submitActive: 'Submit current file',
+          refresh: 'Refresh',
+          refreshing: 'Fetching…',
+          /** 「Refresh 20s ago」：刷新是可点的按钮，这里只给后面那半句 */
+          refreshAt: '{age} ago',
+          refreshAge: {
+            seconds: '{n}s',
+            minutes: '{n}m',
+            hours: '{n}h',
+            hoursMinutes: '{h}h {m}m',
+          },
         },
         status: {
           loading: 'Fetching contest…',
@@ -432,10 +482,16 @@ export default {
           scraped: 'Samples fetched for {n} problems',
         },
         schedule: {
-          title: 'Schedule',
-          refresh: 'Refresh',
           refreshing: 'Fetching…',
           updated: 'Updated {time}',
+          capabilities: 'Extension available: entry states, registration and virtual participation',
+          units: {
+            weeks: '{n}w',
+            days: '{n}d',
+            hours: '{n}h',
+            minutes: '{n}m',
+            seconds: '{n}s',
+          },
           empty: 'Could not load the contest list — try again later',
           open: 'Load {name}',
           register: 'Register',
@@ -480,15 +536,9 @@ export default {
           },
         },
         standings: {
-          title: 'Standings',
-          refresh: 'Refresh',
-          refreshing: 'Fetching…',
-          updated: 'Updated {time}',
           loading: 'Fetching standings…',
           notStarted: 'Standings appear once the contest starts',
           empty: 'No standings to show',
-          official: 'Official standings (no VP / unofficial)',
-          count: '{n} rows',
           rank: 'Rank',
           who: 'Contestant',
           score: 'Score',
@@ -521,16 +571,24 @@ export default {
           next: 'Next',
         },
         submissions: {
-          title: 'Submissions',
-          refresh: 'Refresh',
-          refreshing: 'Fetching…',
-          updated: 'Updated {time}',
           loading: 'Fetching submissions…',
           empty: 'No submissions yet',
-          mineEmpty: 'No submissions from me',
+          mineEmpty: 'You have no submissions in this contest',
+          handleEmpty: '{handle} has no submissions in this contest',
+          filteredEmpty: 'No submissions match the filters',
           onlyMine: 'Only mine',
           onlyMineHint: 'Only submissions from my handle',
-          needHandle: 'Set your handle on the picker tab to filter',
+          needHandle: 'Set your handle in the top-right of the Codeforces page to filter',
+          allHandles: 'All handles',
+          handleLabel: 'Filter by handle',
+          problem: 'Problem',
+          status: 'Verdict',
+          verdict: {
+            all: 'All',
+            ok: 'AC',
+            fail: 'Failed',
+            pending: 'Pending',
+          },
           count: '{n} entries',
           summary: '{solved} solved · {accepted} AC · {rejected} failed',
           latest: 'Latest entries only',

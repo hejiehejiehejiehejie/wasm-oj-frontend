@@ -38,6 +38,7 @@ import {
   problemKey,
 } from './pick.js'
 import { contestProblemUrl } from './contest.js'
+import { normalizeStandings, problemStatistics } from './standings.js'
 import { readRecord, writeRecord, clearRecords } from './cfCache.js'
 
 const CF_API = 'https://codeforces.com/api'
@@ -268,7 +269,7 @@ async function verifyHandle(rawHandle) {
  * `relativeTimeSeconds` 必须留 —— 倒计时靠它自洽（见 contest.js 的 contestRemainingMs），
  * gym 的条目里没有这个字段，落成 null。
  *
- * force=true 绕过 1h 缓存（赛程手动刷新、以及倒计时归零时确认赛程真的翻面用）。
+ * force=true 绕过 1h 缓存（赛程每次打开时的静默刷新、以及倒计时归零时确认赛程真的翻面用）。
  *
  * @returns {Promise<{ list: Array<Record<string, any>>, fetchedAt: number }>}
  */
@@ -463,7 +464,19 @@ async function loadContestProblems(contestId) {
   }
 
   // 空列表不落库：还没开赛的「空」不能把 24h 缓存占住，开赛瞬间就该能取到真清单
-  if (payload.problems.length) await writeRecord(key, payload.problems)
+  if (payload.problems.length) {
+    // 题目表要显示「通过人数」，而 CF 的题目清单里没有这个字段。这里**复用刚刚已经
+    // 拉下来的榜单行**算一遍（normalizeStandings → problemStatistics），不额外发请求；
+    // 数字随题目一起进 24h 缓存 —— 已结束的比赛从此是定值，进行中的是载入时的快照。
+    const stats = problemStatistics(
+      normalizeStandings(payload).rows,
+      payload.problems,
+    )
+    payload.problems.forEach((problem, index) => {
+      problem.solved = stats[index]?.solved ?? 0
+    })
+    await writeRecord(key, payload.problems)
+  }
   return { problems: payload.problems, source: 'standings' }
 }
 

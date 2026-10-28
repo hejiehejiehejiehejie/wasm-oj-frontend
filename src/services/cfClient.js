@@ -164,7 +164,7 @@ export function cfContestProblems(spec) {
 /**
  * 赛程用的比赛列表（非 gym）。resolve `{ contests, fetchedAt }`，条目字段见 cfWorker 的
  * loadContestList（含 `type`：CF / ICPC / IOI，榜单列形靠它）。
- * @param {{force?: boolean}} [options] 手动刷新 / 倒计时归零后确认翻面时用 force
+ * @param {{force?: boolean}} [options] 赛程刷新 / 倒计时归零后确认翻面时用 force
  */
 export function cfContests({ force = false } = {}) {
   return request({ type: 'contests', force })

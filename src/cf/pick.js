@@ -19,6 +19,32 @@ export const RATING_PRESETS = [
   { min: 2300, max: 2400 },
 ]
 
+/**
+ * 常用标签（2026-10-29，标签从「手输逗号串」改成点选）。
+ *
+ * **每一项必须逐字等于 Codeforces 标签原文**（全小写英文）：筛选拿它跟题目的 tags 数组
+ * 逐项比对，`normalizeTags` 只做小写收敛，不做同义词映射 —— 写成 `binary-search`
+ * 或 `Binary Search` 都会一个都匹配不上。
+ *
+ * 只收最常撞见的一批：CF 一共三十多个标签，全铺在 330px 的卡片里会占掉半屏。
+ * 不在列表里的标签并不会失效 —— 旧的手输值照旧生效，并且会以选中态出现在同一片
+ * 芯片里（见 CfPickerPanel 的 tagOptions），点一下就能取消。
+ */
+export const TAG_PRESETS = [
+  'dp',
+  'greedy',
+  'math',
+  'implementation',
+  'brute force',
+  'binary search',
+  'constructive algorithms',
+  'data structures',
+  'graphs',
+  'trees',
+  'strings',
+  'two pointers',
+]
+
 /** 抽取数量的上下限，界面的数字框与这里的夹取要一致 */
 export const COUNT_MIN = 1
 export const COUNT_MAX = 10

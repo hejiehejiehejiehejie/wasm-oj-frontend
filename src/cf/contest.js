@@ -266,3 +266,21 @@ export function formatDuration(ms) {
   const pad = (value) => String(value).padStart(2, '0')
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
 }
+
+/**
+ * 毫秒 → 各档位的整数（周 / 天 / 小时 / 分钟 / 秒），从大到小。
+ *
+ * 【为什么不复用 formatDuration】`HH:MM:SS` 只拆到小时，几百小时的距离要心算才能读成
+ * 「几天」；赛程那一列按周 / 天 / 小时 / 分钟 / 秒说，用户一眼就知道还有多久。
+ * 拼文案（含语言）归调用方，这里只给数字。
+ */
+export function durationParts(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  return {
+    weeks: Math.floor(total / 604800),
+    days: Math.floor((total % 604800) / 86400),
+    hours: Math.floor((total % 86400) / 3600),
+    minutes: Math.floor((total % 3600) / 60),
+    seconds: total % 60,
+  }
+}

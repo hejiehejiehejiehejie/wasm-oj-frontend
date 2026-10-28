@@ -1,5 +1,5 @@
 /**
- * useCfSchedule —— 比赛面板的「赛程」：近期比赛列表 + 每秒重算的倒计时。
+ * useCfSchedule —— Codeforces 页「赛程」模式：近期比赛列表 + 每秒重算的倒计时。
  *
  * 【它是 P0 里唯一默认打开的一页】没有贴链接、没有算题、没有榜单，用户一进比赛面板就该看到
  * 「下一场是什么时候 / 有没有正在进行的」。所以这一页不依赖用户输入，打开即取。
@@ -13,7 +13,8 @@
  * 这里用 `contestStatus(contest, remainingMs)` 按时间推，phase 只作为「已结束」的权威信号。
  *
  * 【不自动轮询列表】非 gym 的 contest.list 只变「有没有新场次」，几分钟一次没有意义；
- * 回访面板时若数据超过 `STALE_MS` 才静默取一次，手动刷新按钮走 force（绕过 1 小时缓存）。
+ * 每次打开这一页静默取一次（超过 `STALE_MS` 时 force 越过 Worker 的 1 小时缓存），
+ * 取回的列表与手上那份没差就不动 DOM —— 没有手动刷新按钮。
  *
  * 【报名状态是另一条路，2026-10-26 加】`contest.list` 里没有「我能不能报名 / 报没报过」这回事
  * —— 那是账号级的，只能读 `/contests` 页面上渲染出来的那几个字。于是由浏览器扩展去读
@@ -28,25 +29,57 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   contestRemainingMs,
   contestStatus,
-  formatDuration,
+  durationParts,
   formatStartTime,
 } from '../cf/contest.js'
 import { t } from '../i18n/index.js'
 import { cfContests } from '../services/cfClient.js'
 import { useCompanionBridge } from './useCompanionBridge.js'
 
-/** 回来时数据超过这个岁数就顺手取一次（Worker 缓存 1 小时，绝大多数情况下不触网） */
+/** 进入中（running）的场次数。模块级只读，供抬头「Live」角标读 —— 不新增请求。 */
+export const cfRunningCount = ref(0)
+
+/** 回来时数据超过这个岁数就 force 取一次（否则走 Worker 缓存，绝大多数情况下不触网） */
 const STALE_MS = 10 * 60 * 1000
 /** 「最近结束」留多少场：够用来回看刚打完的比赛，不让几千条历史灌进 DOM */
 const FINISHED_LIMIT = 12
 /** 报名状态多久算过期。它比列表变得勤（报名开关、报名成功），但读一次要开一页 CF，别太频繁 */
 const STATES_STALE_MS = 3 * 60 * 1000
+/** 倒计时从大到小的档位（键名同时是 `cf.contest.schedule.units.*` 的键） */
+const SPAN_UNITS = ['weeks', 'days', 'hours', 'minutes', 'seconds']
 
 function errorText(failure) {
   const code = failure?.code
   if (code === 'RATE_LIMITED') return t('cf.contest.errors.rateLimited')
   if (code === 'WORKER_ERROR' || code === 'DISPOSED') return t('cf.contest.errors.worker')
   return t('cf.contest.errors.fetch', { detail: failure?.message || '' })
+}
+
+/**
+ * 一场比赛里会改变界面结构的字段。
+ *
+ * 【为什么不比整条】`relativeTimeSeconds` 是**取数那一刻**的剩余量，每次请求都不同；
+ * 拿它比就永远「有变化」，静默刷新等于每次都重排。名字 / 类型 / 阶段 / 时长的变化
+ * 才是列表真的变了。
+ */
+function listKey(contest) {
+  return [
+    contest?.id,
+    contest?.name,
+    contest?.type,
+    contest?.phase,
+    contest?.startTimeSeconds,
+    contest?.durationSeconds,
+  ].join('\u0001')
+}
+
+/** 两份列表内容是否一样（按顺序比；CF 的列表本身顺序稳定） */
+function sameList(left, right) {
+  if (left.length !== right.length) return false
+  for (let index = 0; index < left.length; index += 1) {
+    if (listKey(left[index]) !== listKey(right[index])) return false
+  }
+  return true
 }
 
 /**
@@ -96,7 +129,11 @@ export function useCfSchedule({ active }) {
     loadingPromise = cfContests({ force })
       .then((response) => {
         if (mine !== seq) return
-        contests.value = Array.isArray(response?.contests) ? response.contests : []
+        const next = Array.isArray(response?.contests) ? response.contests : []
+        // 内容没变就不换：`relativeTimeSeconds` 与 `fetchedAt` 是配套的，
+        // 只换其中一样会让倒计时整体偏移；所以「没变」= 两样都不动
+        if (contests.value.length && sameList(next, contests.value)) return
+        contests.value = next
         fetchedAt.value = response?.fetchedAt || Date.now()
         now.value = Date.now()
       })
@@ -121,18 +158,40 @@ export function useCfSchedule({ active }) {
     return contestStatus(contest, remainingOf(contest))
   }
 
+  /** 进行中比赛的进度 0..1（开赛 0、结束 1）。缺时长字段时给 0，进度条不出现 */
+  function progressOf(contest) {
+    const durationMs = (contest?.durationSeconds || 0) * 1000
+    if (!durationMs) return 0
+    const elapsed = durationMs - remainingOf(contest)
+    return Math.max(0, Math.min(1, elapsed / durationMs))
+  }
+
   /** 开赛时刻 `MM-DD HH:MM`；列表里偶尔缺 startTimeSeconds，落空串让列留白 */
   function startText(contest) {
     return formatStartTime(contest?.startTimeSeconds)
   }
 
-  /** 倒计时 / 已进行时长 `HH:MM:SS`。已结束或拿不到时间时为空串 */
-  function clockOf(contest) {
+  /**
+   * 倒计时 / 已进行时长 → 「3 周 6 天 21 小时」。
+   *
+   * 【为什么不再用 HH:MM:SS】几十上百小时的数字要心算，「天 / 周」一眼就读懂。
+   * 【最多三档】从最大的非零档往下取三档：远期只看周 / 天 / 小时，一天以内才带秒
+   * —— 否则「23 小时 59 分钟 59 秒」这一长串每秒都在跳，主信息反而看不清。
+   */
+  function spanText(ms) {
+    const parts = durationParts(ms)
+    const shown = SPAN_UNITS.filter((key) => parts[key] > 0).slice(0, 3)
+    if (!shown.length) return t('cf.contest.schedule.units.seconds', { n: 0 })
+    return shown.map((key) => t(`cf.contest.schedule.units.${key}`, { n: parts[key] })).join(' ')
+  }
+
+  /** 倒计时 / 已进行时长。已结束或拿不到时间时为空串 */
+  function countdownOf(contest) {
     const remaining = remainingOf(contest)
     if (remaining === null) return ''
     const state = statusOf(contest)
-    if (state === 'upcoming') return formatDuration(remaining)
-    if (state === 'running') return formatDuration(-remaining)
+    if (state === 'upcoming') return spanText(remaining)
+    if (state === 'running') return spanText(-remaining)
     return ''
   }
 
@@ -150,6 +209,15 @@ export function useCfSchedule({ active }) {
     sortedByStart.value
       .filter((contest) => statusOf(contest) === 'running')
       .sort((a, b) => a.startTimeSeconds - b.startTimeSeconds),
+  )
+
+  // 抬头那枚 Live 角标与这里共用一份数字；赛程页没打开过时就是 0
+  watch(
+    running,
+    (list) => {
+      cfRunningCount.value = list.length
+    },
+    { immediate: true },
   )
 
   const finished = computed(() =>
@@ -249,10 +317,10 @@ export function useCfSchedule({ active }) {
         return
       }
       startTick()
-      // 首次进入要看见转圈（否则会先闪一下「没有取到比赛列表」的空态）；
-      // 之后回访时静默补取，不打扰已经显示着的那份列表
+      // 每次打开这一页都取一次：首屏要看见转圈（否则会先闪一下「没有取到比赛列表」的空态）；
+      // 之后回访静默取，不打扰已经显示着的那份列表 —— 内容没变就不换（见 load）
       if (!fetchedAt.value) void load()
-      else if (Date.now() - fetchedAt.value > STALE_MS) void load({ silent: true })
+      else void load({ silent: true, force: Date.now() - fetchedAt.value > STALE_MS })
     },
     { immediate: true },
   )
@@ -272,13 +340,6 @@ export function useCfSchedule({ active }) {
     { immediate: true },
   )
 
-  // 手动刷新走 force：Worker 的 contest.list 缓存一小时，不 force 的话按钮按了也没反应。
-  // 报名状态顺手也读一次 —— 用户点刷新，多半就是想看「现在还能不能报」
-  const refresh = () => {
-    void load({ force: true })
-    void loadStates()
-  }
-
   return {
     contests,
     fetchedAt,
@@ -289,11 +350,11 @@ export function useCfSchedule({ active }) {
     finished,
     next,
     load,
-    refresh,
     remainingOf,
     statusOf,
+    progressOf,
     startText,
-    clockOf,
+    countdownOf,
     states,
     statesLoading,
     statesError,

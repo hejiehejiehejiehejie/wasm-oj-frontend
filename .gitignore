@@ -39,5 +39,11 @@ pnpm-debug.log*
 .vscode/
 .trae/
 
+# 本机产物（2026-10-29 加）：backup/cf-ui-* 是改版前的工作区快照（patch + 整份文件副本），
+# .trae-html-share-packages 是协作工具导出的分享包（同一份内容换了几个名字的 zip）。
+# 两者的共同点是「本机用得上、进仓库全是重复和二进制」，所以一律不入库。
+backup/
+.trae-html-share-packages/
+
 # Vite 的 *.local 约定（含 .env.local 之类）
 *.local

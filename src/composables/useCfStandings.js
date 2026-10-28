@@ -33,6 +33,12 @@ export const STANDINGS_PAGE_SIZE = 100
 
 const LIVE_POLL_MS = 10000
 
+/**
+ * 重新打开这一页时，距上次成功取数超过这么久才 force（绕过 Worker 的复用窗口，见文件头）。
+ * 窗口内的重开直接复用 —— 数据本来就是几秒前的，不值得再打一次 CF。
+ */
+const REOPEN_FORCE_MS = 5000
+
 function errorText(failure) {
   const code = failure?.code
   if (code === 'CONTEST_NEEDS_LOGIN') return t('cf.contest.errors.needsLogin')
@@ -121,6 +127,8 @@ export function useCfStandings({ spec, active, live }) {
 
   let seq = 0
   let inFlight = null
+  /** 上次拿到数据的时刻（取响应里的 fetchedAt，含 Worker 命中的复用包），给「重开要不要 force」用 */
+  let lastLoadedAt = 0
 
   /** @param {{silent?: boolean, force?: boolean}} [options] */
   async function load({ silent = false, force = false } = {}) {
@@ -140,6 +148,7 @@ export function useCfStandings({ spec, active, live }) {
         const next = normalizeStandings(response)
         // 还没开赛：响应里没有 contest / rows，但这不是失败，界面据此说「开赛后才有榜单」
         standings.value = next
+        lastLoadedAt = next.fetchedAt || Date.now()
       })
       .catch((failure) => {
         if (mine !== seq) return
@@ -207,7 +216,14 @@ export function useCfStandings({ spec, active, live }) {
   )
 
   // 切进这一子页 / 比赛刚开赛：立刻取一次。开赛那一刻手里那份还是「还没开赛」的空态，
-  // 不补这一次，用户会以为榜单坏了
+  // 不补这一次，用户会以为榜单坏了。
+  //
+  // 【重新打开也要刷新（2026-10-28）】切回排行榜、或从别的页签切回 Codeforces 页签，
+  // active 都会 false → true，这里补一次。手里已经有榜单时走静默：不亮 loading、不闪列表，
+  // 只是把数据与「刷新于 X 前」的那个时刻一起更新 —— 这就是「再次打开就自己刷一下」。
+  // 但 Worker 对同一场榜单有 3s / 60s 的复用窗口（见 cfWorker 的 recentStandings），
+  // 完结场次直接命中缓存就不会真的再取，所以距上次取数超过几秒时要 force 绕过它；
+  // 刚刷过（几秒内）则不 force —— 那份数据本来就是新的，没必要多打一次 CF。
   watch(
     [active, live],
     ([visible, running], previous) => {
@@ -218,7 +234,16 @@ export function useCfStandings({ spec, active, live }) {
         return
       }
       if (!wasVisible || (running && !wasRunning)) {
-        void load({ silent: wasVisible })
+        const hasData = !!standings.value
+        const starting = running && !wasRunning
+        // 刚开赛：手里那份可能还是「还没开赛」的包；Worker 对 pending 包也有 3 秒复用窗口，
+        // 不 force 的话这次补取会原样拿回旧包，界面就一直停在空态
+        const reopening =
+          hasData &&
+          !starting &&
+          !standings.value.pending &&
+          Date.now() - lastLoadedAt >= REOPEN_FORCE_MS
+        void load({ silent: hasData, force: starting || reopening })
         return
       }
       planPoll()

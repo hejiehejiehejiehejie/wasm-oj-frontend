@@ -1,185 +1,238 @@
 <template>
   <!-- 2026-10-27 起与抽题面板一起挂进合并后的 Codeforces 页签（CfCodeforcesPanel），
-       自己不再占视图 id。版式沿用「工业引擎控制台」（共享样式见 src/styles/cf-console.css）。
+       自己不再占视图 id。2026-10-28 改版：赛程升到页头成为第三页，这里只剩
+       这一场比赛的三个子页签（题目 / 排行榜 / 提交）；从赛程点一行 = 让页头切到「比赛」
+       再调 openContest（见 defineExpose）。
+       同日第二版：改「空状态 → 比赛名」两态。没载入时页面只剩一颗大输入框（像搜索引擎
+       首页 —— 页签与列表此时全是无数据的空壳，收起来才干净）；载入成功后这颗盒子升到
+       顶部变成比赛名（链去 CF）+ 铅笔，下方再展开页签与列表。
+       版式与抽题页共用 src/styles/cf-console.css 的语汇（无框、留白、淡线、圆角控件）。
        data-native-focus：与抽题面板同一口径，点输入框 / 按钮时键盘该收掉。 -->
   <div class="cf-view" data-native-focus>
-    <!-- 抬头：标题 + 模式（赛程 / 比赛）。状态与页签跟在下面，只在比赛模式出现 -->
-    <div class="cf-shell">
-      <header class="cf-cell cf-cell--span cf-bar">
-        <span class="cf-bar__title">{{ t('cf.contest.title') }}</span>
-        <span class="cf-contest__modes">
-          <button
-            v-for="item in MODES"
-            :key="item"
-            type="button"
-            class="cf-seg"
-            :class="{ 'is-on': mode === item }"
-            @click="mode = item"
+    <div
+      class="cf-page"
+      :class="{
+        'cf-page--search': searching,
+        'cf-page--fill': !searching && !!blankText,
+        'cf-page--wide': !searching,
+      }"
+    >
+      <!-- 抬头盒子：两种形态共用同一颗 DOM —— 移位靠 FLIP（见 morphHero），
+           形态交替靠 Transition（旧的绝对定位淡出，不撑高）。 -->
+      <div ref="heroEl" class="cf-hero" :class="{ 'cf-hero--search': searching }">
+        <Transition name="cf-swap">
+          <form
+            v-if="searching"
+            key="search"
+            class="cf-search"
+            @submit.prevent="submitSearch"
           >
-            {{ t(`cf.contest.mode.${item}`) }}
-          </button>
-        </span>
-      </header>
+            <input
+              ref="searchInput"
+              v-model="searchText"
+              class="cf-input"
+              type="text"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              :placeholder="t('cf.contest.fields.linkPlaceholder')"
+              :aria-label="t('cf.contest.fields.linkLabel')"
+              :readonly="busy"
+              @keydown.esc="cancelSearch"
+            />
+            <button type="submit" class="cf-search__go" :disabled="busy">
+              <LoadingSpinner v-if="busy" :size="12" />
+              <span>{{ t('cf.contest.action.load') }}</span>
+            </button>
+          </form>
 
-      <template v-if="mode === 'contest'">
-        <label class="cf-cell cf-cell--label">{{ t('cf.contest.fields.link') }}</label>
-        <div class="cf-cell cf-cell--value">
-          <input
-            v-model="specText"
-            class="cf-input cf-input--text"
-            type="text"
-            spellcheck="false"
-            autocapitalize="off"
-            :placeholder="t('cf.contest.fields.linkPlaceholder')"
-            :aria-label="t('cf.contest.fields.link')"
-            @keydown.enter="load"
-          />
-          <button
-            type="button"
-            class="cf-exec cf-exec--inline"
-            :disabled="busy"
-            @click="load"
-          >
-            <LoadingSpinner v-if="busy" :size="11" />
-            <span>{{ busy ? t('cf.contest.status.loading') : t('cf.contest.action.load') }}</span>
-          </button>
-        </div>
+          <!-- 比赛名 = 这一场在 CF 上的入口；铅笔把它换回输入框（再换一场 / 改 ID 重载） -->
+          <div v-else key="title" class="cf-titlebar">
+            <a
+              :href="url"
+              target="_blank"
+              rel="noreferrer"
+              class="cf-contest__name"
+              :title="title"
+            >
+              {{ title }}
+            </a>
+            <span v-if="kindLabel" class="cf-kind cf-mono">{{ kindLabel }}</span>
+            <button
+              type="button"
+              class="cf-icon-btn"
+              :title="t('cf.contest.action.edit')"
+              :aria-label="t('cf.contest.action.edit')"
+              @click="startSearch"
+            >
+              <AppIcon name="edit" :size="13" />
+            </button>
+            <span
+              v-if="statusText && statusText !== blankText"
+              class="cf-status cf-contest__status"
+              :class="{
+                'is-error': !!error,
+                'is-countdown': !error && (status === 'upcoming' || status === 'running'),
+              }"
+            >
+              <LoadingSpinner v-if="loadingContest || loadingProblems" :size="11" />
+              <span class="cf-status__text">{{ statusText }}</span>
+            </span>
+          </div>
+        </Transition>
 
+        <!-- 空状态下没有第二个槽能说「为什么没载入」，错误就落在输入框下面一行 -->
+        <p v-if="searching && error" class="cf-search__error">{{ statusText }}</p>
+      </div>
+
+      <!-- 页签与列表：只在载入之后出现。v-show 保住榜单 / 提交的取数进度与分页 ——
+           铅笔里改个 ID 再回来，不必重取。 -->
+      <div v-show="!searching" class="cf-contest__body">
         <!-- 子页签 + 本页动作。题目页放抓样例 / 全部导入，提交入口只在这一场有可交的文件时出现 -->
-        <div class="cf-cell cf-cell--span cf-contest__toolbar">
-          <nav class="cf-contest__tabs">
+        <nav class="cf-tabs">
+          <div class="cf-tabs__list">
             <button
               v-for="item in TABS"
               :key="item"
               type="button"
-              class="cf-contest__tab"
+              class="cf-tab"
               :class="{ 'is-on': tab === item }"
+              :aria-pressed="tab === item"
               @click="tab = item"
             >
-              {{ t(`cf.contest.tabs.${item}`) }}
+              {{ tabLabel(item) }}
             </button>
-          </nav>
-          <span class="cf-results__actions">
+          </div>
+          <div class="cf-tabs__actions">
             <template v-if="tab === 'problems'">
               <button
                 v-if="scrapeAvailable"
                 type="button"
-                class="cf-head-btn"
-                :class="{ 'cf-head-btn--busy': scraping }"
+                class="cf-btn"
                 :disabled="scraping"
                 @click="scrapeSamples"
               >
-                <LoadingSpinner v-if="scraping" :size="10" />
+                <LoadingSpinner v-if="scraping" :size="11" />
                 <span>{{ scraping ? t('cf.contest.action.scraping') : t('cf.contest.action.scrape') }}</span>
               </button>
               <button
                 type="button"
-                class="cf-head-btn"
-                :class="{ 'cf-head-btn--busy': importingAll }"
+                class="cf-btn"
                 :disabled="importingAll || !problems.length || allImported"
                 @click="importAll"
               >
-                <LoadingSpinner v-if="importingAll" :size="10" />
+                <LoadingSpinner v-if="importingAll" :size="11" />
                 <span>{{ importingAll ? t('cf.picker.result.importing') : t('cf.picker.result.importAll') }}</span>
               </button>
             </template>
             <button
               v-if="canSubmitActive"
               type="button"
-              class="cf-head-btn cf-head-btn--accent"
+              class="cf-btn cf-btn--accent"
               @click="emit('submit-active')"
             >
               {{ t('cf.contest.action.submitActive') }}
             </button>
-          </span>
-        </div>
+            <!-- 刷新落在页签行右端：榜单与提交各自取数，动作统一收在这里。
+                 2026-10-28 第二版：不再是「刷新」按钮 + 旁边一段刷新时间，而是一句
+                 「刷新于 20 秒前」—— 只有「刷新」两个字可点，后面接着上次刷新的相对时刻。
+                 题目是一次载入的结果，没有「刷新」可言，所以那一页不出现 -->
+            <span v-if="refreshTarget" class="cf-tabs__refresh">
+              <button
+                type="button"
+                class="cf-btn cf-btn--text"
+                :disabled="refreshing"
+                @click="refreshTarget.refresh()"
+              >
+                <LoadingSpinner v-if="refreshing" :size="11" />
+                <span>
+                  {{ refreshing ? t('cf.contest.action.refreshing') : t('cf.contest.action.refresh') }}
+                </span>
+              </button>
+              <span v-if="!refreshing && refreshAge" class="cf-tabs__age">
+                {{ t('cf.contest.action.refreshAt', { age: refreshAge }) }}
+              </span>
+            </span>
+          </div>
+        </nav>
 
-        <div
-          v-if="statusText || loadingContest || loadingProblems"
-          class="cf-cell cf-cell--span cf-contest__statusrow"
-        >
-          <span class="cf-status" :class="{ 'is-error': !!error }">
-            <LoadingSpinner v-if="loadingContest || loadingProblems" :size="10" />
-            <span class="cf-status__text">{{ statusText }}</span>
-          </span>
-        </div>
-      </template>
-    </div>
+        <template v-if="tab === 'problems'">
+          <!-- 还没有题目、也没别的可看：这句话落在内容区居中偏上（黄金分割点），
+               别让它在空页面上孤零零挂在右上角 -->
+          <div v-if="blankText" class="cf-blank" role="status">
+            <span class="cf-blank__hint">
+              <LoadingSpinner :size="12" />
+              <span>{{ blankText }}</span>
+            </span>
+          </div>
 
-    <!-- 赛程：打开面板的默认一页。v-show 保状态：切去比赛再回来，列表不重取 -->
-    <CfContestSchedule
-      v-show="mode === 'schedule'"
-      :active="props.active && mode === 'schedule'"
-      @select="openContest"
-    />
+          <!-- 空态说明（还没开赛 / 这场没有题目列表）：只在这一块说，不占状态行 -->
+          <p v-if="problemsNote" class="cf-note">{{ t(problemsNote.key) }}</p>
 
-    <!-- 空态说明（还没开赛 / 这场没有题目列表）：只在这一块说，不占状态行 -->
-    <p
-      v-if="mode === 'contest' && tab === 'problems' && problemsNote"
-      class="cf-contest__note cf-contest__note--block"
-    >
-      {{ t(problemsNote.key) }}
-    </p>
+          <!-- 本场题目。比赛名已经升到页面顶部，这里不再重复一个链接，只留抓样例的进度 -->
+          <section v-if="problems.length" class="cf-section">
+            <div v-if="scrapeNote" class="cf-head cf-contest__scrape">
+              <span class="cf-head__meta">{{ scrapeNote }}</span>
+            </div>
+            <ul class="cf-list">
+              <li v-for="problem in problems" :key="`${problem.contestId}-${problem.index}`">
+                <!-- 比赛页只要「题号 + 题名 + 通过人数 + 导入」：知识点标签与难度是抽题时
+                     用来挑题的，打比赛时用不上（2026-10-28 用户要求去掉）。
+                     通过人数来自载入时顺手算好的榜单快照（cfWorker.loadContestProblems），
+                     不额外发请求 —— 所以这一列是「截至载入时」，不是实时 -->
+                <div class="cf-result cf-result--slim cf-list__row">
+                  <span class="cf-result__title">
+                    <span class="cf-result__id">{{ problem.contestId }}{{ problem.index }}</span>
+                    <a
+                      class="cf-result__name"
+                      :href="problem.task.url"
+                      target="_blank"
+                      rel="noreferrer"
+                      :title="problem.name"
+                    >
+                      {{ problem.name }}
+                    </a>
+                  </span>
+                  <span
+                    class="cf-result__solved cf-mono"
+                    :title="t('cf.contest.problems.solvedTitle')"
+                  >
+                    {{ problem.solved ?? '—' }}
+                  </span>
+                  <button
+                    type="button"
+                    class="cf-mini cf-result__import"
+                    :class="{ 'is-done': importState(problem) === 'imported' }"
+                    :disabled="importState(problem) !== 'import'"
+                    @click="importOne(problem)"
+                  >
+                    <LoadingSpinner v-if="importState(problem) === 'importing'" :size="10" />
+                    <span>{{ t(`cf.picker.result.${importState(problem)}`) }}</span>
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </section>
+        </template>
 
-    <!-- 本场题目：抬头左边是比赛名（链去 Codeforces）、右边是抓样例的进度 -->
-    <section
-      v-if="mode === 'contest' && tab === 'problems' && problems.length"
-      class="cf-results"
-    >
-      <div class="cf-results__head">
-        <a :href="url" target="_blank" rel="noreferrer" class="cf-contest__name">{{ title }}</a>
-        <span v-if="scrapeNote" class="cf-contest__note">{{ scrapeNote }}</span>
+        <!-- 榜单与提交：各自带取数 / 轮询（见 useCfStandings / useCfSubmissions），
+             不在这里重复管 loading。v-show 保状态，切回题目再回来不重取。 -->
+        <CfStandingsTable
+          ref="standingsEl"
+          v-show="tab === 'standings'"
+          :spec="spec"
+          :active="props.active && !searching && tab === 'standings'"
+          :live="live"
+        />
+        <CfSubmissionList
+          ref="submissionsEl"
+          v-show="tab === 'submissions'"
+          :spec="spec"
+          :active="props.active && !searching && tab === 'submissions'"
+          :live="live"
+        />
       </div>
-      <ul class="cf-results__list">
-        <li
-          v-for="problem in problems"
-          :key="`${problem.contestId}-${problem.index}`"
-          class="cf-result"
-        >
-          <span class="cf-result__id">{{ problem.contestId }}{{ problem.index }}</span>
-          <span class="cf-result__name" :title="problem.name">{{ problem.name }}</span>
-          <span class="cf-result__tags" :title="problem.tags.join(', ')">
-            {{ problem.tags.join(' · ') }}
-          </span>
-          <span class="cf-result__rating">{{ problem.rating ?? '' }}</span>
-          <button
-            type="button"
-            class="cf-result__import"
-            :class="`is-${importState(problem)}`"
-            :disabled="importState(problem) !== 'import'"
-            @click="importOne(problem)"
-          >
-            <LoadingSpinner v-if="importState(problem) === 'importing'" :size="9" />
-            <span>{{ t(`cf.picker.result.${importState(problem)}`) }}</span>
-          </button>
-          <a
-            class="cf-result__link"
-            :href="problem.task.url"
-            target="_blank"
-            rel="noreferrer"
-            :title="t('cf.picker.result.open')"
-            :aria-label="t('cf.picker.result.open')"
-          >
-            <AppIcon name="link" :size="12" />
-          </a>
-        </li>
-      </ul>
-    </section>
-
-    <!-- 榜单与提交：各自带取数 / 轮询（见 useCfStandings / useCfSubmissions），
-         不在这里重复管 loading。v-show 保状态，切回题目再回来不重取。 -->
-    <CfStandingsTable
-      v-show="mode === 'contest' && tab === 'standings'"
-      :spec="spec"
-      :active="props.active && mode === 'contest' && tab === 'standings'"
-      :live="live"
-    />
-    <CfSubmissionList
-      v-show="mode === 'contest' && tab === 'submissions'"
-      :spec="spec"
-      :active="props.active && mode === 'contest' && tab === 'submissions'"
-      :live="live"
-    />
+    </div>
   </div>
 </template>
 
@@ -187,13 +240,21 @@
 /**
  * CfContestPanel —— Codeforces 比赛面板。
  *
- * 【三种页面，两个轴】模式轴是「赛程 / 比赛」：赛程打开即取比赛列表（P0 的默认页），
- * 比赛模式才需要贴链接。比赛模式里再分三个子页：题目 / 排行榜 / 提交。
- * 赛程与比赛的另一层关系是**点一行赛程 = 载入这场**（openContest），用户不必手工复制 ID。
+ * 【一条页签，三页】2026-10-28 起不再分「赛程 / 比赛」两层，赛程挪到合成页签的抬头
+ * （见 CfCodeforcesPanel 的三个模式），这里只剩 题目 / 排行榜 / 提交。赛程里点一行 =
+ * 由抬头转调这里的 openContest（expose 出去的）：填链接并载入这场，用户不必手工复制 ID。
+ *
+ * 【两态：空状态 → 比赛名】没载入时没有一栏是有数据的（题目 / 榜单 / 提交都空着），
+ * 摆着页签只是干扰，所以整块收起来，只留一颗大输入框落在内容区黄金分割点。载入成功
+ * 后这颗盒子升到顶部变成比赛名（链去 CF），下方再展开页签与列表。铅笔把名字换回输入框，
+ * Esc 放弃改写、回到名字 —— 判据是 `loaded`（真的取到过一场），而不是「输入框还在不在」。
+ *
+ * 【input 为什么用本地 searchText 而不是直接绑 specText】spec 是子组件（榜单 / 提交）的
+ * 取数依据，改到一半的 ID 不该去惊动它们；提交那一刻才写进 specText。
  *
  * 【状态在哪】题目 / 元数据 / 导入全在 useCfContest，**只在本组件的 setup 里调一次**
  * （与 useCfPicker 只归 CfPickerPanel 同一条纪律）。榜单与提交各自有组合式，归各自的
- * 子组件调 —— 它们只在被切到那一页时才取数（active 由这里给）。
+ * 子组件调 —— 它们只在被切到那一页时才取数（active 由这里给，空状态下也一律为 false）。
  *
  * 【提交当前文件为什么只在这一场有可交文件时出现】沿用 2026-10-23 的口径：交不了就不显示，
  * 别摆一颗永远灰着的按钮。判据与 App 的提交按钮同源（shouldShowSubmit + submitBlockedReason），
@@ -201,13 +262,11 @@
  * 真正的确认与发送仍归 App（emit submit-active → requestSubmitConfirmation），
  * 不在这里复制一份提交逻辑。
  *
- * 【版式】控制台网格是两个面板共用的（src/styles/cf-console.css），这里只放比赛自己
- * 特有的规则（模式开关、子页签、工具栏）。
+ * 【版式】共享语汇在 src/styles/cf-console.css，这里只放比赛自己特有的规则（抬头两态、页签行）。
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 import AppIcon from './AppIcon.vue'
-import CfContestSchedule from './CfContestSchedule.vue'
 import CfStandingsTable from './CfStandingsTable.vue'
 import CfSubmissionList from './CfSubmissionList.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
@@ -221,14 +280,13 @@ const emit = defineEmits(['submit-active'])
 
 /**
  * 这一页露没露出来（来自合成页签的可见性，见 CfCodeforcesPanel）。本组件与它的子页都
- * 是常驻挂载的，只有 mode/tab 这两条不够 —— 整个页签没露出来时，赛程不该取列表、
+ * 是常驻挂载的，只有 tab 这条不够 —— 整个页签没露出来时，赛程不该取列表、
  * 更不该让扩展去读报名状态。
  */
 const props = defineProps({
   active: { type: Boolean, default: true },
 })
 
-const MODES = ['schedule', 'contest']
 const TABS = ['problems', 'standings', 'submissions']
 
 const {
@@ -256,20 +314,232 @@ const {
   scrapeSamples,
 } = useCfContest()
 
-/** 回来时上一场还在 → 直接开在比赛模式；第一次用 → 先看赛程（这是 P0 的入口页） */
-const mode = ref(specText.value.trim() ? 'contest' : 'schedule')
+/** 赛程在本页之外（合成页签的抬头那一层），进来的第一页就是题目 */
 const tab = ref('problems')
+
+/** 赛事类型徽标：contest / gym / group（从链接解析出来；空态没有） */
+const kindLabel = computed(() => spec.value?.kind?.toUpperCase() || '')
+
+/** 空状态：打开面板永远从这里开始（比赛不自动载入，从赛程点进来的那一条会立刻载入） */
+const searching = ref(true)
+/** 输入框自己的那一份：改到一半不会打扰已载入的那场（见文件头） */
+const searchText = ref(specText.value)
+/** 真的取到过一场 —— 铅笔换回来的输入框要能用 Esc 退回名字，靠的就是这一条 */
+const loaded = ref(false)
+/** 上一次载入成功写下的那一串：Esc 退回名字时把 specText 还原成它，url / 榜单都跟着它走 */
+const loadedText = ref('')
+/**
+ * 上一次提交失败留下的现场（Esc 退回名字时按它收拾干净）：错误要清掉；
+ * 若解析得出的 ID 已经把面板里这场清空了，specText 还原之后还得重新取一次。
+ */
+let failedSearch = null
+
+const heroEl = ref(null)
+const searchInput = ref(null)
+
+/**
+ * 页面还空着时，「正在获取题目列表…」落在内容区的黄金分割点（见 .cf-blank）：
+ * 此时页面本身没有别的东西可看，那句话挂在右上角会像页面坏了。
+ * 空状态由大输入框自己说话，页面上没有这段空白，所以直接返回空串。
+ */
+const blankText = computed(() => {
+  if (searching.value || tab.value !== 'problems') return ''
+  if (error.value || problems.value.length || problemsNote.value) return ''
+  if (loadingProblems.value) return t('cf.contest.status.problems')
+  return ''
+})
 
 const live = computed(() => status.value === 'running')
 
-/** 点赛程里的一行：填链接、切到比赛模式、载入这场 */
+/** 榜单 / 提交把刷新动作与 loading 露出来（defineExpose），按钮统一在页签行右端 */
+const standingsEl = ref(null)
+const submissionsEl = ref(null)
+
+/**
+ * 这一页此刻能刷新的那个子组件（null = 按钮不出现）。
+ * 题目是一次载入的结果，重取等于换一场，所以那一页没有「刷新」。
+ */
+const refreshTarget = computed(() => {
+  if (searching.value) return null
+  if (tab.value === 'standings') return standingsEl.value
+  if (tab.value === 'submissions') return submissionsEl.value
+  return null
+})
+
+const refreshing = computed(() => !!refreshTarget.value?.loading)
+
+/**
+ * 「刷新于 20 秒前」的后半句。
+ *
+ * 【为什么在面板这层算】刷新动作与时间现在合成一句话，挂在页签行右端；两个子页各自
+ * 只把 `fetchedAt` 露出来（defineExpose），时间怎么读由这里统一算 —— 两边口径一致，
+ * 也只有一个每秒的定时器。
+ *
+ * 【一分钟以上不带秒】1 分 20 秒读作「1 分钟」；一小时以上带上零头分钟，
+ * 让人知道是刚过一小时还是快两小时了（与赛程 / 榜单此前的口径一致）。
+ */
+const refreshedAt = computed(() => refreshTarget.value?.fetchedAt || 0)
+
+const now = ref(Date.now())
+let ageTimer = 0
+
+function stopAgeTick() {
+  window.clearInterval(ageTimer)
+  ageTimer = 0
+}
+
+/** 只有「刷新」这一页露出来时才有必要每秒重算相对时刻 */
+const refreshLineVisible = computed(
+  () =>
+    props.active &&
+    !searching.value &&
+    (tab.value === 'standings' || tab.value === 'submissions'),
+)
+
+watch(
+  refreshLineVisible,
+  (visible) => {
+    stopAgeTick()
+    if (!visible) return
+    now.value = Date.now()
+    ageTimer = window.setInterval(() => {
+      now.value = Date.now()
+    }, 1000)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(stopAgeTick)
+
+const refreshAge = computed(() => {
+  const at = refreshedAt.value
+  if (!at) return ''
+  const seconds = Math.max(0, Math.floor((now.value - at) / 1000))
+
+  if (seconds < 60) {
+    return t('cf.contest.action.refreshAge.seconds', { n: seconds })
+  }
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) {
+    return t('cf.contest.action.refreshAge.minutes', { n: minutes })
+  }
+
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest
+    ? t('cf.contest.action.refreshAge.hoursMinutes', { h: hours, m: rest })
+    : t('cf.contest.action.refreshAge.hours', { n: hours })
+})
+
+function tabLabel(item) {
+  return t(`cf.contest.tabs.${item}`)
+}
+
+// ------------------------------------------------------------ 两态之间
+
+let morphTimer = 0
+
+/**
+ * 抬头盒子从旧位置滑到新位置（FLIP）：换 DOM 之前量一次，换完再量一次，
+ * 先用一段反向 transform 把它按回原处，再在下一帧抹平 —— 输入框「升到顶部」就是这一段。
+ * 位置没变（已经有名字、只是换了一场）时什么都不做。
+ */
+async function morphHero(swap) {
+  const el = heroEl.value
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const from = el && !reduce ? el.getBoundingClientRect().top : null
+  swap()
+  await nextTick()
+  if (!el || from === null) return
+
+  const dy = from - el.getBoundingClientRect().top
+  if (Math.abs(dy) < 1) return
+
+  el.style.transition = 'none'
+  el.style.transform = `translateY(${dy}px)`
+  void el.offsetHeight
+  el.style.transition = 'transform 0.28s cubic-bezier(0.22, 0.72, 0.2, 1)'
+  el.style.transform = 'translateY(0)'
+
+  const clear = () => {
+    window.clearTimeout(morphTimer)
+    el.removeEventListener('transitionend', onEnd)
+    el.style.transition = ''
+    el.style.transform = ''
+  }
+  const onEnd = (event) => {
+    if (event.target === el && event.propertyName === 'transform') clear()
+  }
+  el.addEventListener('transitionend', onEnd)
+  morphTimer = window.setTimeout(clear, 420)
+}
+
+/** 空状态那颗「载入」：取到这一场才升到顶部换名字，失败了就留在输入框下面说原因 */
+async function submitSearch() {
+  if (busy.value) return
+
+  const text = searchText.value.trim()
+  if (!text) {
+    error.value = { key: 'cf.contest.errors.badLink' }
+    return
+  }
+
+  searchText.value = text
+  specText.value = text
+  await load()
+  if (error.value) {
+    // 解析得出的 ID 在 load() 里已经把面板清空了，退回时得重新取；解析不出的则什么都没动
+    failedSearch = { cleared: Boolean(spec.value) }
+    return
+  }
+
+  loadedText.value = text
+  loaded.value = true
+  failedSearch = null
+  await morphHero(() => {
+    searching.value = false
+  })
+}
+
+/** 铅笔：名字换回输入框，盒子落回页面中央，焦点直接交给输入框（全选，便于整个换掉） */
+async function startSearch() {
+  searchText.value = specText.value
+  await morphHero(() => {
+    searching.value = true
+  })
+  searchInput.value?.focus()
+  searchInput.value?.select()
+}
+
+/** Esc：放弃这次改写，退回刚才那场的名字（从没载入过就无处可退） */
+async function cancelSearch() {
+  if (!loaded.value || busy.value) return
+  searchText.value = loadedText.value
+  specText.value = loadedText.value
+  if (failedSearch) {
+    error.value = null
+    if (failedSearch.cleared) void load()
+    failedSearch = null
+  }
+  await morphHero(() => {
+    searching.value = false
+  })
+}
+
+/**
+ * 点赛程里的一行：填链接、切到题目页、载入这场。赛程在合成页签那一层，所以由
+ * CfCodeforcesPanel 转调（见那边 defineExpose）。
+ * 已经有一场的名字挂在页头时不再闪回输入框 —— 载入成功那条路本来就不换布局。
+ */
 function openContest(contest) {
   if (!contest?.id) return
-  specText.value = String(contest.id)
-  mode.value = 'contest'
+  searchText.value = String(contest.id)
   tab.value = 'problems'
-  void load()
+  void submitSearch()
 }
+
+defineExpose({ openContest })
 
 // ------------------------------------------------------------ 提交当前文件
 
@@ -288,7 +558,6 @@ const activeContestPath = computed(() => {
 })
 
 const canSubmitActive = computed(() => {
-  if (mode.value !== 'contest') return false
   if (!activeProblem.value || activeProblem.value.contestPath !== activeContestPath.value) return false
   if (!shouldShowSubmit(activeNode.value)) return false
   return !submitBlockedReason({
@@ -301,96 +570,241 @@ const canSubmitActive = computed(() => {
 </script>
 
 <style scoped>
-/* 比赛名：抬头左侧那颗链接，长了截断 */
+/* ---------------- 抬头：空状态 · 比赛名 ---------------- */
+/* 空状态整页只剩「大输入框 + 载入」，落在内容区黄金分割点（与 .cf-blank 同一口径），
+   像搜索引擎首页。载入成功后这颗盒子升到顶部，换成「比赛名 + 铅笔 + 状态」。 */
+.cf-page--search {
+  position: relative;
+  min-height: 100%;
+}
+
+/* position: relative 是给 Transition 里那颗「退场中」的绝对定位子元素用的 ——
+   它得相对抬头盒子定位，否则会飞到整个内容层的左上角 */
+.cf-hero {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.cf-hero--search {
+  position: absolute;
+  top: calc(38.2% - 22px);
+  left: 0;
+  right: 0;
+}
+
+/* 形态交替：旧的脱离布局淡出（不撑高），新的一边淡入一边跟着盒子移动 */
+.cf-swap-enter-active {
+  transition: opacity 0.22s ease 0.06s;
+}
+
+.cf-swap-leave-active {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transition: opacity 0.14s ease;
+}
+
+.cf-swap-enter-from,
+.cf-swap-leave-to {
+  opacity: 0;
+}
+
+.cf-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(620px, 100%);
+  margin-inline: auto;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--bg-panel);
+}
+
+/* 卡里的输入框不再画第二层框：整张卡就是那颗登录框，焦点环仍由共享的 .cf-input 给 */
+.cf-search .cf-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+/* 载入：空状态下唯一的主操作，与卡里的输入框同高 */
+.cf-search__go {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent-face);
+  color: var(--accent-text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-search__go:hover:not(:disabled) {
+  background: var(--accent-face-hover);
+}
+
+.cf-search__go:disabled {
+  background: var(--bg-control);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* 错误归输入框下面一行：空状态下没有第二个槽能说「为什么没载入」 */
+.cf-search__error {
+  width: min(520px, 100%);
+  margin: 10px auto 0;
+  color: var(--fail);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 名字条：比赛名（链去 CF）+ 铅笔 + 这一场的状态 */
+.cf-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  margin-bottom: 6px;
+}
+
+/* 赛事类型徽标：CONTEST / GYM / GROUP —— 纯等宽小字，不铺底，别抢比赛名的视线 */
+.cf-kind {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
 .cf-contest__name {
+  min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 600;
   text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cf-contest__name:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
-/* ---------------- 模式开关（赛程 / 比赛） ---------------- */
-/* 直角分段：两枚共用一条外框，中间只留一道竖线 —— 不是胶囊 */
-.cf-contest__modes {
-  display: inline-flex;
+/* 状态胶囊不许被长标题挤扁（挤出来会只剩「已…」）；要收就收名字，它有省略号 */
+.cf-contest__status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
-.cf-seg {
-  height: 20px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-faint);
-  font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  cursor: pointer;
+/* 倒计时（距开始 / 已开赛）的整句走等宽：秒数每跳一次，句子宽度不跟着抖。
+   只在计时态挂上 —— 错误与「已结束」仍是正文字体，那颗等宽的字面不该用来读中文。
+   与赛程右端的倒计时列（.cf-schedule__clock）同一套口径。 */
+.cf-contest__status.is-countdown {
+  font-family: var(--mono-font);
 }
 
-.cf-seg + .cf-seg {
-  border-left: none;
-}
-
-.cf-seg:hover {
-  color: var(--text);
-}
-
-.cf-seg.is-on {
-  background: var(--bg-control);
-  color: var(--text);
-}
-
-/* ---------------- 子页签 + 动作 ---------------- */
-.cf-contest__toolbar {
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 6px;
-}
-
-.cf-contest__tabs {
+/* 页签与列表整块：名字条出来之后淡入并轻轻上浮，接住抬头那段移位 */
+.cf-contest__body {
   display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  animation: cf-body-in 0.22s ease-out 0.04s both;
+}
+
+@keyframes cf-body-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ---------------- 页签行 ---------------- */
+/* 页签行：放到极窄时换行，别把三颗页签压成一团叠字（按钮本身不许被压） */
+.cf-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  margin-bottom: 6px;
+}
+
+.cf-tabs__list {
+  display: flex;
+  flex-wrap: wrap;
   gap: 2px;
+  min-width: 0;
 }
 
-.cf-contest__tab {
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  background: transparent;
+.cf-tabs__list .cf-tab {
+  flex: 0 0 auto;
+}
+
+.cf-tabs__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 「刷新于 20 秒前」是一句话：按钮只占「刷新」两个字，后面紧跟相对时刻。
+   按钮的内边距收掉，字距由 gap 给 —— 中英文都不会粘成一块。 */
+.cf-tabs__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cf-tabs__refresh .cf-btn {
+  height: 28px;
+  padding: 0 2px;
+}
+
+.cf-tabs__age {
   color: var(--text-faint);
-  font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  cursor: pointer;
+  /* 这个数每秒都在长：等宽 + 定宽字位，20 秒 → 19 秒时字串宽度不抖 */
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.cf-contest__tab:hover {
-  color: var(--text);
+/* 提交：唯一带主色文字的动作，但仍是无面的次级按钮（低透明度面只在悬停时出现） */
+.cf-btn--accent {
+  color: var(--accent-text);
 }
 
-/* 选中态只加一条内阴影下划线：不占高度，切页签时整行不跳 */
-.cf-contest__tab.is-on {
-  box-shadow: inset 0 -2px 0 var(--accent);
-  color: var(--text);
+.cf-btn--accent:hover:not(:disabled) {
+  background: var(--accent-face);
+  color: var(--accent-text);
 }
 
-/* 提交：唯一一颗带强调色的动作，但保持直角按钮的形制 */
-.cf-head-btn--accent {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.cf-contest__statusrow {
-  min-height: 24px;
-  padding: 0 6px;
+/* 题目那块抬头只剩抓样例的进度：一份内容靠右（比赛名已经在页头），
+   复合选择器让过共享文件里 .cf-head 的 space-between */
+.cf-head.cf-contest__scrape {
+  justify-content: flex-end;
 }
 </style>
 

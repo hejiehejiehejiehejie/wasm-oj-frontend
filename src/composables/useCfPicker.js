@@ -30,7 +30,7 @@
 import { computed, nextTick, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
-import { COUNT_MAX, COUNT_MIN, normalizeHandles, problemKey } from '../cf/pick.js'
+import { COUNT_MAX, COUNT_MIN, normalizeHandles, normalizeTags, problemKey } from '../cf/pick.js'
 import { cfHandle } from '../cf/myHandle.js'
 import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
@@ -125,26 +125,12 @@ export function useCfPicker() {
    */
   let batchGroupId = null
 
-  const handleState = ref('') // '' | 'checking' | 'ok' | 'bad'
-  const handleReason = ref('') // bad 时：'not_found' | 'network'
-  /** bad 且是 not_found 时具体是哪些账号 —— 界面上要点名，用户才知道改哪个 */
+  /** 校验时不存在的那几个账号：抽取前的静默校验用它点名（见 run） */
   const handleBad = ref([])
 
   const stageText = computed(() => {
     if (!picking.value) return ''
     return stage.value ? t(`cf.module.stage.${stage.value}`) : t('cf.picker.picking')
-  })
-
-  const handleText = computed(() => {
-    if (handleState.value === 'checking') return t('cf.picker.handle.checking')
-    if (handleState.value === 'ok') return t('cf.picker.handle.ok')
-    if (handleState.value === 'bad') {
-      if (handleReason.value === 'not_found') {
-        return t('cf.picker.handle.notFound', { handles: handleBad.value.join(', ') })
-      }
-      return t('cf.picker.handle.network')
-    }
-    return ''
   })
 
   /** 数量夹取：失焦时把 `99` / `0` / `abc` 收回到合法区间 */
@@ -160,46 +146,56 @@ export function useCfPicker() {
     ratingMax.value = String(preset.max)
   }
 
-  /** 清掉校验结论（输入被清空时） */
+  /**
+   * 已选标签（小写去重的数组）。**持久化仍是 `cp.cf.tags` 那一个逗号串** ——
+   * 键名与格式都不动，所以这一版之前的旧值（手输的任意标签）原样认；
+   * 归一化直接复用 Worker 那份 normalizeTags，界面与筛选对「什么算同一个标签」不会有两套说法。
+   */
+  const selectedTags = computed(() => normalizeTags(tags.value))
+
+  /**
+   * 点一颗标签芯片：在就撤掉，不在就追加。写回的是同一种逗号串（`, ` 分隔），
+   * 顺序即点选顺序 —— 上面那行「选了哪些」照这个顺序念，与结果行的标签顺序无关。
+   */
+  function toggleTag(tag) {
+    const key = String(tag ?? '').trim().toLowerCase()
+    if (!key) return
+    const next = selectedTags.value.includes(key)
+      ? selectedTags.value.filter((item) => item !== key)
+      : [...selectedTags.value, key]
+    tags.value = next.join(', ')
+  }
+
+  /** 清掉上一次校验点出来的「不存在」名单 */
   function resetHandleState() {
-    handleState.value = ''
-    handleReason.value = ''
     handleBad.value = []
   }
 
   /**
-   * 校验账号（支持逗号分隔的多个）。**竞态处理**：输入是防抖触发的，慢的那次可能后回来，
-   * 所以回来时先看账号列表有没有又被改过 —— 改过就只回结论、不动界面。
-   * @param {boolean} [silent] 静默校验（抽取前顺手确认），不动界面上的「校验中」
+   * 静默校验账号（支持逗号分隔的多个）。**只在抽取前调用**（见 run）：拼错的账号会让
+   * user.status 拿不到数据，「排除已通过的题」于是**悄悄失效** —— 比报错更糟。
+   * 命中 1h 缓存时这一步是瞬时的。
+   *
+   * **竞态处理**：慢的那次可能后回来，所以回来时先看账号列表有没有又被改过 ——
+   * 改过就只回结论、不动界面上那份「不存在」名单。
    * @returns {Promise<boolean>} 全部存在（或连不上、暂时无从判断）才算 true
    */
-  async function checkHandle(silent = false) {
+  async function checkHandle() {
     const current = normalizeHandles(handle.value)
     if (!current.length) {
       resetHandleState()
       return true
     }
-    if (!silent) handleState.value = 'checking'
 
     const { results } = await cfCheckHandles(current)
     const missing = results
       .filter((item) => item.reason === 'not_found')
       .map((item) => item.handle)
-    const offline = results.some((item) => item.reason === 'network')
 
     if (handleSignature(handle.value) !== handleSignature(current)) return missing.length === 0
 
     // 连不上 CF 不该拦着用户：判「未知」而不是「不存在」，原样放行，由抽取那一步再兜底。
     // 但只要有一个账号是**明确不存在**的，就照实报出来 —— 它会让「排除已通过的题」悄悄失效
-    if (offline && !missing.length) {
-      handleState.value = silent ? '' : 'bad'
-      handleReason.value = 'network'
-      handleBad.value = []
-      return true
-    }
-
-    handleState.value = missing.length ? 'bad' : 'ok'
-    handleReason.value = missing.length ? 'not_found' : ''
     handleBad.value = missing
     return missing.length === 0
   }
@@ -241,7 +237,7 @@ export function useCfPicker() {
     try {
       // 账号必须在这里拦一道：拼错的账号会让 user.status 拿不到数据，
       // 「排除已通过的题」于是**悄悄失效**——比报错更糟。命中 1h 缓存时这一步是瞬时的。
-      if (needsHandle && !(await checkHandle(true))) {
+      if (needsHandle && !(await checkHandle())) {
         error.value = {
           key: 'cf.picker.handle.notFound',
           params: { handles: (handleBad.value.length ? handleBad.value : handles).join(', ') },
@@ -409,12 +405,11 @@ export function useCfPicker() {
     handle,
     // 派生
     stageText,
-    handleText,
-    handleState,
+    selectedTags,
     // 动作
     clampCount,
     applyPreset,
-    checkHandle,
+    toggleTag,
     run,
     importOne,
     importAll,

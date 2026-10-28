@@ -1,82 +1,101 @@
 <template>
-  <!-- 赛程：比赛面板的默认一页（见 CfContestPanel 的 mode）。
-       版式沿用控制台：抬头一行、分组一行、每场一行，与题目列表同一套边框规矩。 -->
-  <section class="cf-results cf-schedule">
-    <div class="cf-results__head">
-      <span class="cf-section">{{ t('cf.contest.schedule.title') }}</span>
-      <span class="cf-results__actions">
-        <span v-if="error" class="cf-contest__note is-error">{{ error }}</span>
-        <span v-else-if="fetchedAt" class="cf-contest__note">
-          {{ t('cf.contest.schedule.updated', { time: updatedText }) }}
-        </span>
-        <button
-          type="button"
-          class="cf-head-btn"
-          :class="{ 'cf-head-btn--busy': loading }"
-          :disabled="loading"
-          @click="refresh"
-        >
-          <LoadingSpinner v-if="loading" :size="10" />
-          <span>{{ loading ? t('cf.contest.schedule.refreshing') : t('cf.contest.schedule.refresh') }}</span>
-        </button>
+  <!-- 赛程：合成页签抬头的三个模式之一（见 CfCodeforcesPanel）。
+       2026-10-28 改版：分组标签退成一行灰字，每场一行 40px，行间一条 5% 淡线，
+       悬停铺一层极浅的底 —— 与题目 / 榜单 / 提交同一套列表语汇。 -->
+  <section class="cf-schedule" :class="{ 'cf-schedule--blank': blankLoading }">
+    <!-- 2026-10-29：「更新于」不再独占抬头那一行 —— 它和「扩展在位能做什么」一起挪到
+         第一组标签的右端（页面第一行就是「即将开始」，上面不再空出一条只有时间的线）。
+         刷新没有按钮：每次打开这一页都静默取一次，列表真变了才换（见 useCfSchedule）。 -->
+
+    <!-- 第一次取数、列表还是空的：这句话落在内容区居中偏上（黄金分割点），不挤在右上角 -->
+    <div v-if="blankLoading" class="cf-blank" role="status">
+      <span class="cf-blank__hint">
+        <LoadingSpinner :size="12" />
+        <span>{{ t('cf.contest.schedule.refreshing') }}</span>
       </span>
     </div>
 
-    <p v-if="!loading && !contests.length && !error" class="cf-contest__note cf-contest__note--block">
+    <p v-if="error" class="cf-note is-error">{{ error }}</p>
+    <p v-else-if="!loading && !contests.length" class="cf-note">
       {{ t('cf.contest.schedule.empty') }}
     </p>
 
-    <p v-if="statesNote" class="cf-contest__note cf-contest__note--block">{{ statesNote }}</p>
+    <p v-if="statesNote" class="cf-note">{{ statesNote }}</p>
 
-    <template v-for="group in groups" :key="group.id">
-      <div class="cf-schedule__group">{{ t(`cf.contest.schedule.group.${group.id}`) }}</div>
-      <ul class="cf-results__list">
-        <li
-          v-for="contest in group.items"
-          :key="contest.id"
-          class="cf-schedule__row"
-          :class="{ 'cf-schedule__row--entry': showEntryColumn }"
-          role="button"
-          tabindex="0"
-          :aria-label="t('cf.contest.schedule.open', { name: contest.name })"
-          @click="$emit('select', contest)"
-          @keydown.enter.prevent="$emit('select', contest)"
-          @keydown.space.prevent="$emit('select', contest)"
-        >
-          <span class="cf-schedule__clock" :class="`is-${statusOf(contest)}`">
-            {{ clockOf(contest) || '—' }}
+    <template v-for="(group, index) in groups" :key="group.id">
+      <!-- 分组标签：一行灰字，靠上边距与上一段分开（不铺底、不画条）。
+           元信息（能力提示 · 更新于）只挂在第一组那一行的右端，属于整份列表 -->
+      <div class="cf-schedule__group">
+        <span class="cf-schedule__group-label">
+          {{ t(`cf.contest.schedule.group.${group.id}`) }}
+        </span>
+        <span v-if="index === 0" class="cf-schedule__meta">
+          <span v-if="showEntryColumn" class="cf-schedule__meta-hint">
+            {{ t('cf.contest.schedule.capabilities') }}
           </span>
-          <span class="cf-schedule__start">{{ startText(contest) }}</span>
-          <span class="cf-schedule__name" :title="contest.name">{{ contest.name }}</span>
-          <span class="cf-schedule__type">{{ contest.type || '—' }}</span>
-          <span v-if="showEntryColumn" class="cf-schedule__entry">
-            <button
-              v-if="actionKind(contest)"
-              type="button"
-              class="cf-schedule__action"
-              :title="
-                t(`cf.contest.schedule.entryTitle.${actionKind(contest)}`, { name: contest.name })
-              "
-              :disabled="!!entryBusy"
-              @click.stop="askEntry(contest, actionKind(contest))"
+          <span v-if="fetchedAt && !error">
+            {{ t('cf.contest.schedule.updated', { time: updatedText }) }}
+          </span>
+        </span>
+      </div>
+      <ul class="cf-list">
+        <li v-for="contest in group.items" :key="contest.id">
+          <div
+            class="cf-schedule__row cf-list__row"
+            :class="{
+              'cf-schedule__row--entry': showEntryColumn,
+              'cf-schedule__row--running': statusOf(contest) === 'running',
+            }"
+            role="button"
+            tabindex="0"
+            :aria-label="t('cf.contest.schedule.open', { name: contest.name })"
+            @click="$emit('select', contest)"
+            @keydown.enter.prevent="$emit('select', contest)"
+            @keydown.space.prevent="$emit('select', contest)"
+          >
+            <!-- 比赛名在最左，时间（开赛时刻 + 倒计时）整块靠右 -->
+            <!-- 比赛名本身就是去 CF 的链接：行点击仍是「载入这场」，点名字不连带触发 -->
+            <a
+              class="cf-schedule__name"
+              :href="pageUrl(contest)"
+              target="_blank"
+              rel="noreferrer"
+              :title="contest.name"
+              @click.stop
               @keydown.stop
             >
-              <LoadingSpinner v-if="entryBusy === String(contest.id)" :size="9" />
-              <span>{{ actionLabel(contest) }}</span>
-            </button>
-            <span v-else class="cf-schedule__state">{{ stateText(contest) }}</span>
-          </span>
-          <a
-            class="cf-result__link"
-            :href="pageUrl(contest)"
-            target="_blank"
-            rel="noreferrer"
-            :title="t('cf.picker.result.open')"
-            :aria-label="t('cf.picker.result.open')"
-            @click.stop
-          >
-            <AppIcon name="link" :size="12" />
-          </a>
+              {{ contest.name }}
+            </a>
+            <span class="cf-schedule__type">{{ contest.type || '—' }}</span>
+            <span class="cf-schedule__start">{{ startText(contest) }}</span>
+            <span class="cf-schedule__clock" :class="`is-${statusOf(contest)}`">
+              {{ countdownOf(contest) || '—' }}
+            </span>
+            <span v-if="showEntryColumn" class="cf-schedule__entry">
+              <button
+                v-if="actionKind(contest)"
+                type="button"
+                class="cf-mini"
+                :title="
+                  t(`cf.contest.schedule.entryTitle.${actionKind(contest)}`, { name: contest.name })
+                "
+                :disabled="!!entryBusy"
+                @click.stop="askEntry(contest, actionKind(contest))"
+                @keydown.stop
+              >
+                <LoadingSpinner v-if="entryBusy === String(contest.id)" :size="10" />
+                <span>{{ actionLabel(contest) }}</span>
+              </button>
+              <span v-else class="cf-schedule__state">{{ stateText(contest) }}</span>
+            </span>
+            <!-- 进行中的场次在行底压一条 1px 进度线：行高仍是 40px，不加第二行 -->
+            <span
+              v-if="statusOf(contest) === 'running'"
+              class="cf-schedule__progress"
+              :style="{ width: `${Math.round(progressOf(contest) * 100)}%` }"
+              aria-hidden="true"
+            />
+          </div>
         </li>
       </ul>
     </template>
@@ -126,11 +145,10 @@
 /**
  * CfContestSchedule —— 赛程列表（近期比赛 + 倒计时 + 报名 / VP + 点进比赛）。
  *
- * 【点一行 = 载入这场】赛程与比赛是同一页的两个模式（见 CfContestPanel），
- * 这里只把选中的比赛抛出去，切模式、填链接、取数都归面板管 —— 赛程不该知道
- * 「比赛」那一页的输入框长什么样。
+ * 【点一行 = 载入这场】这里只把选中的比赛抛出去，翻模式、填链接、取数都归合成页签
+ * 与比赛面板管 —— 赛程不该知道「比赛」那一层的输入框长什么样。
  *
- * 【只有这一页可见时才跳秒】active 由面板给（mode === 'schedule'）。切去题目 / 榜单时
+ * 【只有这一页可见时才跳秒】active 由合成页签给（mode === 'schedule'）。切去抽题 / 比赛时
  * 倒计时没人看，白养一只每秒的 interval 没意义；切回来会立刻把 now 校正到当前时刻。
  *
  * 【报名 / VP 那一列不是赛程数据】报名状态来自扩展读 CF 的 /contests 页面，能力协商
@@ -140,7 +158,6 @@
 import { computed, nextTick, ref, watch } from 'vue'
 
 import { contestUrl } from '../cf/contest.js'
-import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { notify } from '../services/notifications.js'
@@ -165,10 +182,10 @@ const {
   upcoming,
   running,
   finished,
-  refresh,
   statusOf,
+  progressOf,
   startText,
-  clockOf,
+  countdownOf,
   statesError,
   entryBusy,
   stateOf,
@@ -182,6 +199,16 @@ const groups = computed(() =>
     { id: 'upcoming', items: upcoming.value },
     { id: 'finished', items: finished.value },
   ].filter((group) => group.items.length > 0),
+)
+
+/**
+ * 列表还是空的、第一份数据还在路上。
+ *
+ * 【这个 spinner 只属于首屏】回访与之后的刷新都是静默的（loading 不翻），列表照常显示；
+ * 所以空页面上把「获取中」落在内容区的黄金分割点（见 .cf-blank），不挤在抬头。
+ */
+const blankLoading = computed(
+  () => loading.value && !contests.value.length && !error.value,
 )
 
 /** 「更新于」只到分钟：列表本身不会一秒一变 */
@@ -306,52 +333,142 @@ async function confirmEntry() {
 </script>
 
 <style scoped>
-/* 分组标签：一整行，底色比行头浅一档，像控制台的分区条 */
-.cf-schedule__group {
-  padding: 3px 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel-head);
-  color: var(--text-faint);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+/* 在外层的 .cf-page--fill 里撑满余下的高度（见 cf-console.css 的「空白区提示」） */
+.cf-schedule {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-/* 一场一行。列宽写死（理由同 .cf-result）：各行独立 grid，auto 会对不齐 */
+/* 列表还空着：这一页要吃到内容层底部，.cf-blank 才有「空白区」可量 */
+.cf-schedule--blank {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 分组标签：一行灰字，靠上边距与上一段分开（不铺底、不画条）。
+   2026-10-29：字号 11 → 12.5（与行内正文同一档，三组一起长，只改两个会看着像漏了一个）；
+   同时变成「左标签 / 右元信息」的一行 —— 「更新于」原来自己占着抬头一整行，太浪费。 */
+.cf-schedule__group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 18px 0 2px;
+  color: var(--text-faint);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cf-schedule__group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 元信息（扩展能力 · 更新于）：贴在分组标签右端，比标签小一号、常规字重 ——
+   同一行里靠字重与字号分层，不靠再加一根竖线 */
+.cf-schedule__meta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* 两段之间点一颗「·」：挂在**前一段**的尾巴上（窄容器里前一段会被 display:none，
+   点跟着一起消失；写成 `span + span::before` 会在只剩「更新于」时留下一颗悬空的点） */
+.cf-schedule__meta-hint::after {
+  content: '·';
+  margin-left: 8px;
+}
+
+/* 一场一行：比赛名在左（吃掉剩余宽度），类型紧跟其后，开赛时刻与倒计时收在右端。
+   列宽写死（理由同 .cf-result）：各行独立 grid，auto 会对不齐 */
 .cf-schedule__row {
   display: grid;
-  grid-template-columns: 62px 84px minmax(0, 1fr) 40px 16px;
+  grid-template-columns: minmax(0, 1fr) 44px 92px 144px;
   align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--mono-font);
-  font-size: 11px;
+  gap: 12px;
+  height: 40px;
+  color: var(--text);
+  font-size: 12.5px;
   cursor: pointer;
 }
 
 /* 报名状态 / 动作列：只有在扩展支持时才多出这一格 */
 .cf-schedule__row--entry {
-  grid-template-columns: 62px 84px minmax(0, 1fr) 40px 76px 16px;
+  grid-template-columns: minmax(0, 1fr) 44px 92px 144px 76px;
 }
 
-.cf-schedule__row:hover {
-  background: var(--bg-hover);
+/* 进行中：左侧一条 2px 呼吸条 + 极浅的绿雾（从左往右淡出），不铺整行色块。
+   呼吸条用 ::after —— ::before 已经被行间分隔线占了 */
+.cf-schedule__row--running {
+  background-image: linear-gradient(90deg, var(--ok-face), transparent 46%);
+}
+
+.cf-schedule__row--running::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--ok);
+  animation: cf-running-pulse 2s ease-in-out infinite;
+}
+
+/* 进度线：贴在行底 1px，宽度 = 已进行 / 总时长；每秒平滑过去，行高不变 */
+.cf-schedule__progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  border-radius: 0 1px 1px 0;
+  background: var(--ok);
+  opacity: 0.5;
+  transition: width 1s linear;
+}
+
+@keyframes cf-running-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-schedule__row--running::after {
+    animation: none;
+  }
+
+  .cf-schedule__progress {
+    transition: none;
+  }
 }
 
 .cf-schedule__row:focus-visible {
-  outline: 1px solid var(--focus);
-  outline-offset: -1px;
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
-/* 倒计时 / 已进行时长：等宽数字，避免每秒跳动时整列左右晃 */
+/* 倒计时 / 已进行时长：等宽数字、靠右贴齐 —— 单位串长短不一，右缘对齐才不乱；
+   列宽写死 144px（「23 小时 59 分钟 59 秒」在 12px 等宽下约 138px），各行才不会错位 */
 .cf-schedule__clock {
+  overflow: hidden;
+  justify-self: end;
   color: var(--text-dim);
+  font-family: var(--mono-font);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cf-schedule__clock.is-running {
@@ -359,26 +476,37 @@ async function confirmEntry() {
 }
 
 .cf-schedule__clock.is-upcoming {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .cf-schedule__start {
-  color: var(--text-faint);
-  font-size: 10px;
-}
-
-.cf-schedule__name {
-  min-width: 0;
   overflow: hidden;
-  color: var(--text);
+  justify-self: end;
+  color: var(--text-faint);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 比赛名是行里唯一的一颗链接：颜色与正文同档，悬停才转主色 */
+.cf-schedule__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-schedule__name:hover {
+  color: var(--accent-text);
+}
+
 .cf-schedule__type {
   color: var(--text-faint);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: 11px;
 }
 
 .cf-schedule__entry {
@@ -390,46 +518,30 @@ async function confirmEntry() {
 /* 报名状态是「文字」，与行里其它元数据同一档；动作才是按钮 */
 .cf-schedule__state {
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
-/* 与结果行那颗「导入」同款：18px、直角、透明底，悬停才亮边框 */
-.cf-schedule__action {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 18px;
-  padding: 0 7px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-dim);
-  font-family: var(--ui-font);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  cursor: pointer;
-}
+/* 窄容器：先撤「类型」列与开始时刻，只留比赛名 + 倒计时（名字截断，悬停读全） */
+@container cf (max-width: 34rem) {
+  .cf-schedule__row {
+    grid-template-columns: minmax(0, 1fr) 144px;
+    gap: 10px;
+  }
 
-.cf-schedule__action:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--text);
-}
+  .cf-schedule__row--entry {
+    grid-template-columns: minmax(0, 1fr) 144px 72px;
+  }
 
-.cf-schedule__action:disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
+  .cf-schedule__start,
+  .cf-schedule__type {
+    display: none;
+  }
 
-.cf-schedule__action:focus-visible {
-  outline: 1px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.is-error {
-  color: var(--fail);
+  /* 能力提示比「更新于」长得多，窄容器里先让它让位 —— 时间在不在新才是一眼要看的 */
+  .cf-schedule__meta-hint {
+    display: none;
+  }
 }
 
 /* ---------------- 确认卡片 ---------------- */

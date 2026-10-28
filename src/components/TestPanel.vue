@@ -275,7 +275,9 @@ const elapsedText = computed(() => {
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
              一起收掉，页脚不留占位（原因走快捷键那条通知）。
              2026-10-24：与「运行全部」交换左右顺序，提交落在最左。
-             2026-10-24 凌晨：原生 title 里也带上它的快捷键（见脚本 submitTitle）。 -->
+             2026-10-24 凌晨：原生 title 里也带上它的快捷键（见脚本 submitTitle）。
+             2026-10-29：图标从 arrow-up 换成纸飞机 send —— 箭头与「把输出誊进期望」
+             那颗同形，且只表达「朝上」；纸飞机的「发送出去」更贴提交。 -->
         <button
           v-if="showSubmit"
           class="submit-inline"
@@ -285,7 +287,7 @@ const elapsedText = computed(() => {
           :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
           @click="emit('submit')"
         >
-          <AppIcon name="arrow-up" :size="13" />
+          <AppIcon name="send" :size="12" />
         </button>
         <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
              图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
@@ -641,18 +643,17 @@ const elapsedText = computed(() => {
   height: 36px;
   padding: 0;
   border-radius: 6px;
-  /* 与 .run-inline 同一种低对比语汇（2026-10-23），蓝色只留在图标上；
-     取 --accent-hover 而不是更亮的 --accent-strong —— 「跑」与「交」仍靠色相区分，
-     但这一排不再有实心色块抢视线。 */
-  color: var(--accent-hover);
-  background: transparent;
-  border: 1px solid var(--border-hairline);
+  /* 与 .run-inline 同一种低对比语汇（2026-10-23 起；2026-10-29 用户要求把它也改成
+     透明微光面并去掉描边，彻底对齐「运行全部」）：蓝色只留在图标上，底色是一层
+     --accent 的低透明度面；「跑」与「交」仍靠色相区分，但这一排没有实心色块抢视线。 */
+  color: var(--accent-text);
+  background: var(--accent-face);
+  border: 1px solid transparent;
   transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
 .submit-inline:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border);
+  background: var(--accent-face-hover);
 }
 
 .submit-inline:disabled {

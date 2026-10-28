@@ -1,23 +1,22 @@
 <template>
   <!-- 排行榜：官方榜（API 不含 VP / 非正式参赛者）。
-       表头与行都用控制台那套 1px 边框；题格按计分制分色（见 cf/standings.js）。 -->
-  <section class="cf-results cf-standings">
-    <div class="cf-results__head">
-      <span class="cf-section">
-        {{ t('cf.contest.standings.title') }}
-        <span v-if="contest?.name" class="cf-standings__contest"> · {{ contest.name }}</span>
-      </span>
-      <span class="cf-results__actions">
+       2026-10-28 改版：拆掉表格的竖线与外框 —— 只剩行间淡线 + 悬停面；
+       表头 / 表尾贴边，题格按计分制只换文字色（见 cf/standings.js）。 -->
+  <section class="cf-standings">
+    <!-- 抬头只剩右侧的非正式名次入口：比赛名在面板抬头已经有了，
+         「排行榜」是页签本身，人数 / 官方榜口径 / 类型这些重复信息不再写一遍。
+         刷新时间已经并进页签行那句「刷新于 20 秒前」（见 CfContestPanel），这里不再重复。
+         扩展不支持 / 没有 handle 时整行不出现 —— 空的 32px 抬头只会白占一段留白 -->
+    <div v-if="canLookupUnofficial" class="cf-head">
+      <span class="cf-head__actions">
         <button
-          v-if="canLookupUnofficial"
           type="button"
-          class="cf-head-btn"
-          :class="{ 'cf-head-btn--busy': unofficialLoading }"
+          class="cf-btn"
           :title="t('cf.contest.standings.unofficialHint')"
           :disabled="unofficialLoading"
           @click="lookupUnofficial"
         >
-          <LoadingSpinner v-if="unofficialLoading" :size="10" />
+          <LoadingSpinner v-if="unofficialLoading" :size="11" />
           <span>
             {{
               unofficialLoading
@@ -26,25 +25,11 @@
             }}
           </span>
         </button>
-        <button
-          type="button"
-          class="cf-head-btn"
-          :class="{ 'cf-head-btn--busy': loading }"
-          :disabled="loading"
-          @click="refresh"
-        >
-          <LoadingSpinner v-if="loading" :size="10" />
-          <span>{{ loading ? t('cf.contest.standings.refreshing') : t('cf.contest.standings.refresh') }}</span>
-        </button>
       </span>
     </div>
 
-    <!-- 口径行：人数 / 官方榜口径 / 冻结 / 非正式名次 / 实时更新。空榜不出这一行。
-         「我的名次」不在这里 —— 它单独置顶在表上方（见下面 .cf-standings__pin） -->
-    <div v-if="rows.length" class="cf-standings__meta">
-      <span>{{ t('cf.contest.standings.count', { n: rows.length }) }}</span>
-      <span>{{ t('cf.contest.standings.official') }}</span>
-      <span v-if="contest?.type" class="cf-standings__type">{{ contest.type }}</span>
+    <!-- 口径行：冻结 / 实时 / 非正式名次这几句状态提示。没有提示时整行不出现 -->
+    <div v-if="frozen || live || unofficialLine" class="cf-standings__meta">
       <span v-if="frozen" class="cf-standings__warn">{{ t('cf.contest.standings.frozen') }}</span>
       <span v-if="live" class="cf-standings__live">{{ t('cf.contest.standings.live') }}</span>
       <span
@@ -54,30 +39,14 @@
       >
         {{ unofficialLine.text }}
       </span>
-      <span v-if="fetchedAt" class="cf-standings__updated">
-        {{ t('cf.contest.standings.updated', { time: updatedText }) }}
-      </span>
     </div>
 
-    <p v-if="error" class="cf-contest__note cf-contest__note--block is-error">{{ error }}</p>
-    <p
-      v-else-if="pending"
-      class="cf-contest__note cf-contest__note--block"
-    >
-      {{ t('cf.contest.standings.notStarted') }}
-    </p>
-    <p
-      v-else-if="!rows.length && loading"
-      class="cf-contest__note cf-contest__note--block"
-    >
+    <p v-if="error" class="cf-note is-error">{{ error }}</p>
+    <p v-else-if="pending" class="cf-note">{{ t('cf.contest.standings.notStarted') }}</p>
+    <p v-else-if="!rows.length && loading" class="cf-note">
       {{ t('cf.contest.standings.loading') }}
     </p>
-    <p
-      v-else-if="!rows.length"
-      class="cf-contest__note cf-contest__note--block"
-    >
-      {{ t('cf.contest.standings.empty') }}
-    </p>
+    <p v-else-if="!rows.length" class="cf-note">{{ t('cf.contest.standings.empty') }}</p>
 
     <template v-if="rows.length">
       <!-- 我的位置置顶：翻到第几页、往下滚多远都看得见（粘在 .cf-view 的滚动区顶边）。
@@ -175,12 +144,7 @@
       </div>
 
       <div v-if="pageCount > 1" class="cf-pager">
-        <button
-          type="button"
-          class="cf-head-btn"
-          :disabled="page <= 1"
-          @click="gotoPage(page - 1)"
-        >
+        <button type="button" class="cf-btn" :disabled="page <= 1" @click="gotoPage(page - 1)">
           {{ t('cf.contest.standings.prev') }}
         </button>
         <span class="cf-pager__label">
@@ -188,7 +152,7 @@
         </span>
         <button
           type="button"
-          class="cf-head-btn"
+          class="cf-btn"
           :disabled="page >= pageCount"
           @click="gotoPage(page + 1)"
         >
@@ -215,9 +179,9 @@
  * 往下滚、翻到第 20 页都看得见；条尾那颗「跳到我」翻到我的名次所在页。名次是**官方榜**
  * 里的名次，含非正式的总名次仍由抬头那颗按钮单独查（另一个口径，别混）。
  *
- * 【只有官方榜】API 的 standings 只含 CONTESTANT。界面把这句口径写在人数那一行，
- * 不发「你不在榜上 = 你没参赛」这种错误信号。数据里真出现非正式行时，名字前会有一枚
- * `*`（CF 的标法）；接口本身不会带 —— 原因与代价见 cf/standings.js 顶部那段。
+ * 【只有官方榜】API 的 standings 只含 CONTESTANT。这句口径不再重复写在页面上（人数 / 类型
+ * 在页签与面板抬头已经说得够清楚），只在数据里真出现非正式行时给名字前一枚 `*`（CF 的标法）；
+ * 接口本身不会带 —— 原因与代价见 cf/standings.js 顶部那段。
  *
  * 【非正式名次是另一条路（扩展）】官方榜看不见 VP，所以另给一颗按钮，由扩展去读 CF 的好友榜
  * （拿不到时退到合并榜第一页）数出含非正式参赛者的名次。它只在用户点按时才开 CF 标签页，
@@ -251,7 +215,6 @@ const {
   rows,
   problems,
   problemStats,
-  contest,
   kind,
   fetchedAt,
   page,
@@ -268,6 +231,9 @@ const {
   active: toRef(props, 'active'),
   live: toRef(props, 'live'),
 })
+
+/** 「刷新」在页签行右侧（见 CfContestPanel）：动作、loading 与上次刷新时刻都从这一层露出去 */
+defineExpose({ refresh, loading, fetchedAt })
 
 /** 分数列的表头随计分制变：ICPC 是「过题数」，CF / IOI 是分数 */
 const scoreHeader = computed(() =>
@@ -371,12 +337,11 @@ function statTitle(stat, index) {
   })}`
 }
 
-const updatedText = computed(() => {
-  if (!fetchedAt.value) return ''
-  const date = new Date(fetchedAt.value)
-  const pad = (value) => String(value).padStart(2, '0')
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-})
+/**
+ * 「20 秒前刷新 / 1 分钟前刷新 / 1 小时 20 分钟前刷新」的相对时刻已经并进页签行那句
+ * 「刷新于 …」（见 CfContestPanel）：这边只把 fetchedAt 露出去，不再自己算、也不再多挂
+ * 一个每秒的定时器。
+ */
 
 // ------------------------------------------------------------ 非正式名次（扩展）
 
@@ -451,34 +416,19 @@ watch(
 </script>
 
 <style scoped>
-/* 抬头里的比赛名：长了截断，不让它把右侧按钮挤走 */
-.cf-standings__contest {
-  display: inline-block;
-  max-width: 34ch;
-  overflow: hidden;
-  color: var(--text-dim);
-  text-overflow: ellipsis;
-  text-transform: none;
-  vertical-align: bottom;
-  white-space: nowrap;
+/* 抬头没有标题了，把非正式名次那颗按钮靠到右端 */
+.cf-standings .cf-head {
+  justify-content: flex-end;
 }
 
-/* 口径行：一行小字，和抬头同底色，像控制台的元数据条 */
+/* 口径行：一行小字的元数据，落在页面上（不铺底、不画条） */
 .cf-standings__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 3px 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel-head);
+  gap: 14px;
+  padding: 2px 0 6px;
   color: var(--text-faint);
-  font-family: var(--mono-font);
-  font-size: 9px;
-}
-
-.cf-standings__type {
-  letter-spacing: 0.08em;
+  font-size: 11.5px;
 }
 
 .cf-standings__live {
@@ -489,8 +439,9 @@ watch(
   color: var(--warn);
 }
 
-/* 我的位置置顶条：左侧一道主色竖条 + 淡底（与帮助页那条置顶提示同一套语言），
-   粘在滚动区顶边 —— 翻页、往下滚都不丢自己的人 */
+/* 我的位置置顶条：低透明度主色面 + 圆角，粘在滚动区顶边 ——
+   翻页、往下滚都不丢自己的人。底色先铺一层页面地面再叠 10% 主色，
+   这样它压在表格行上时是实心的（纯半透明会透出底下的行）。 */
 .cf-standings__pin {
   position: sticky;
   top: 0;
@@ -498,19 +449,17 @@ watch(
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 3px 8px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  border-left: 2px solid var(--accent);
-  background: var(--bg-panel-head);
-  font-family: var(--mono-font);
-  font-size: 10px;
-  line-height: 18px;
+  height: 34px;
+  margin-bottom: 8px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: linear-gradient(var(--accent-face-soft), var(--accent-face-soft)), var(--bg-editor);
+  font-size: 12px;
 }
 
 .cf-standings__pin-rank {
   flex: 0 0 auto;
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -526,22 +475,27 @@ watch(
 .cf-standings__pin-score {
   flex: 0 0 auto;
   color: var(--text-dim);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
 .cf-standings__pin-jump {
   flex: 0 0 auto;
-  padding: 0;
+  height: 24px;
+  padding: 0 8px;
   border: none;
-  background: none;
-  color: var(--accent);
-  font-family: inherit;
-  font-size: 10px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-text);
+  font-family: var(--ui-font);
+  font-size: 11.5px;
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
 .cf-standings__pin-jump:hover {
-  text-decoration: underline;
+  background: var(--accent-face);
 }
 
 /* 非正式名次：与「我：N 名」并排，它是另一套口径，所以单独一色 */
@@ -550,7 +504,7 @@ watch(
 }
 
 .cf-standings__unofficial.is-mine {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .cf-standings__unofficial.is-warn {
@@ -563,20 +517,21 @@ watch(
   overflow: auto;
 }
 
+/* 表：无外框、无竖线，只剩行间一条 5% 的淡线；表头 / 表尾贴边（背景用页面地面，
+   滚动时盖住下面的行）。 */
 .cf-table {
   width: 100%;
-  border-collapse: collapse;
-  font-family: var(--mono-font);
-  font-size: 11px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .cf-table th,
 .cf-table td {
-  height: 24px;
-  padding: 0 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  height: 34px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-divider);
   text-align: right;
   white-space: nowrap;
 }
@@ -585,19 +540,30 @@ watch(
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg-panel-head);
+  height: 32px;
+  background: var(--bg-editor);
   color: var(--text-faint);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.cf-table tbody tr {
+  transition: background-color 0.12s ease;
+}
+
+.cf-table tbody tr:hover {
+  background: var(--bg-hover-soft);
 }
 
 .cf-table__rank {
   width: 48px;
 }
 
-.cf-table__who {
+/* 左对齐要带 .cf-table 前缀：基础规则是 `.cf-table td`（类 + 元素），
+   只写 `.cf-table__who` 会被它压回右对齐 */
+.cf-table th.cf-table__who,
+.cf-table td.cf-table__who {
   width: 34%;
   min-width: 140px;
   text-align: left;
@@ -609,6 +575,14 @@ watch(
 
 .cf-table__problem {
   width: 46px;
+}
+
+/* 表头里的分数列与题号列居中。这两列是定宽小格，底下的数按右缘对齐（便于纵向比大小），
+   表头若也跟着贴右，短标题会偏到格子一角，看上去和列对不上 —— 表头只当「列名」读，
+   居中才落在格子的正上方。正文（tbody / tfoot）保持右对齐。 */
+.cf-table thead th.cf-table__score,
+.cf-table thead th.cf-table__problem {
+  text-align: center;
 }
 
 .cf-table__name {
@@ -625,12 +599,17 @@ watch(
   color: var(--warn);
 }
 
+/* 我这一行：低透明度主色面 + 主色名字（不描边，与置顶条同一套） */
 .cf-table tbody tr.is-mine {
-  background: var(--bg-hover);
+  background: var(--accent-face-soft);
+}
+
+.cf-table tbody tr.is-mine:hover {
+  background: var(--accent-face);
 }
 
 .cf-table tbody tr.is-mine .cf-table__name {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* 幽灵（ghost）是官方榜里的历史成绩行，压淡一档 */
@@ -640,17 +619,22 @@ watch(
 
 .cf-table__num {
   color: var(--text-dim);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
 }
 
 .cf-table__sub {
   margin-left: 4px;
   color: var(--text-faint);
-  font-size: 9px;
+  font-family: var(--ui-font);
+  font-size: 10px;
 }
 
-/* 题格：主数字与副文字同一行，窄列也放得下 */
+/* 题格：主数字与副文字同一行，窄列也放得下；颜色只落在主数字上 */
 .cf-table__cell {
   color: var(--text-faint);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
 }
 
 .cf-table__cell.is-ok .cf-table__main {
@@ -661,15 +645,11 @@ watch(
   color: var(--warn);
 }
 
-.cf-table__cell.is-fail {
-  color: var(--fail);
-}
-
 .cf-table__cell.is-fail .cf-table__main {
   color: var(--fail);
 }
 
-.cf-table__cell.is-empty {
+.cf-table__cell.is-empty .cf-table__main {
   color: var(--text-faint);
 }
 
@@ -679,9 +659,10 @@ watch(
   position: sticky;
   bottom: 0;
   z-index: 1;
-  height: 28px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel-head);
+  height: 36px;
+  border-top: 1px solid var(--border-divider);
+  border-bottom: none;
+  background: var(--bg-editor);
 }
 
 .cf-table__foot-cell {
@@ -691,7 +672,7 @@ watch(
 .cf-table__foot-label,
 .cf-table__foot-tried {
   display: block;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -703,26 +684,27 @@ watch(
   color: var(--text-faint);
 }
 
-/* 翻页条：与表同宽，贴在表的边框里 */
+/* 翻页条：居中，不再有框 */
 .cf-pager {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 4px 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-panel-head);
+  padding: 12px 0 0;
 }
 
 .cf-pager__label {
   color: var(--text-faint);
   font-family: var(--mono-font);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
-.is-error {
-  color: var(--fail);
+/* 窄容器：榜单本来就能横向滚动，只把左右内边距收一档 */
+@container cf (max-width: 34rem) {
+  .cf-table th,
+  .cf-table td {
+    padding: 0 6px;
+  }
 }
 </style>
 
