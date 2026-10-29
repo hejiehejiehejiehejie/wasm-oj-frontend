@@ -69,6 +69,23 @@ import {
 const scaleLabel = (scale) => `${Math.round(scale * 100)}%`
 
 /**
+ * 「设置分类」二级里每一档的图标 —— 与设置面板左侧导航 `EditorSettingsPanel` 的 `SECTIONS`
+ * 一一对应（同一套 id、同一颗图）。表在这里而不是组件里，理由同整张菜单：加一档只改表。
+ * 分类 id 与面板那张表本来就各存一份（顺序也一样），图标跟着 id 走，别只给其中一处加。
+ */
+const SECTION_ICONS = {
+  appearance: 'sliders',
+  editor: 'code',
+  templates: 'file',
+  shortcuts: 'keyboard',
+  judge: 'check',
+  cloud: 'cloud',
+  app: 'install',
+  extension: 'plugin',
+  help: 'help',
+}
+
+/**
  * 「装着的插件比本站发的旧」—— 版本号来自扩展自报（`cp-info` 的 `info.version`），比对逻辑
  * 与设置面板共用 `extensionPackage.js` 的 `isExtensionOutdated`（唯一出处，别在这里再抄一份）。
  * 没探到扩展时返回 false，那种情况归上面那两颗「安装 / 下载」的行管。
@@ -263,7 +280,7 @@ export const SETTINGS_MENU_ROWS = [
      */
     options: () =>
       ['appearance', 'editor', 'templates', 'shortcuts', 'judge', 'cloud', 'app', 'extension', 'help'].map(
-        (id) => ({ id, labelKey: `settings.section.${id}` }),
+        (id) => ({ id, labelKey: `settings.section.${id}`, icon: SECTION_ICONS[id] }),
       ),
     // 分类不是「当前值」，所以没有 current —— 组件据此不画选中圆点
     select: (id) => openSettingsTab(id),

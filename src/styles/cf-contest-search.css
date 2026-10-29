@@ -1,0 +1,170 @@
+/* 比赛页「输入比赛 ID / 链接」那颗盒子 —— 2026-10-29 轻量高质感改版
+   整块样式改这里就够了（改完直接发回来，我照这版落回去）。
+
+   谁在用：CfContestPanel.vue 的第三个 <style scoped src>（排在 cf-console.css 之后，
+   所以同特异性时以本文件为准）。选择器自动带组件作用域，写普通选择器就行。
+
+   这一块包含：
+     · 空状态时盒子在页面上的落位（内容区黄金分割点）与「输入框 ⇄ 比赛名」两态交替的过渡
+     · 卡片 .cf-search 本身（全站三档圆角里的面上两档：卡面 10 / 卡内 6 / 极窄内距 / 悬浮微阴影 / 整体焦点环）
+     · 卡里输入框的覆盖 .cf-search .cf-input（去盒中盒、彻底融入外卡）
+     · 右侧「载入」按钮 .cf-search__go（轻量化尺寸与按压反馈）
+     · 卡片下面那行错误 .cf-search__error（与输入框内文字左对齐） */
+
+/* 空状态整页只剩「大输入框 + 载入」，落在内容区黄金分割点（与 .cf-blank 同一口径），
+   像搜索引擎首页。载入成功后这颗盒子升到顶部，换成「比赛名 + 铅笔 + 状态」。 */
+.cf-page--search {
+  position: relative;
+  min-height: 100%;
+}
+
+/* position: relative 是给 Transition 里那颗「退场中」的绝对定位子元素用的 ——
+   它得相对抬头盒子定位，否则会飞到整个内容层的左上角 */
+.cf-hero {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* 48px 高（5 + 36 + 5 + 2 描边）的盒子居中在黄金分割点：38.2% 减去半高 */
+.cf-hero--search {
+  position: absolute;
+  top: calc(38.2% - 24px);
+  left: 0;
+  right: 0;
+}
+
+/* 形态交替：加入极轻微的纵向浮动与缩放，消除生硬的纯透明度切换 */
+.cf-swap-enter-active {
+  transition:
+    opacity 0.24s cubic-bezier(0.16, 1, 0.3, 1) 0.04s,
+    transform 0.24s cubic-bezier(0.16, 1, 0.3, 1) 0.04s;
+}
+
+.cf-swap-leave-active {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.cf-swap-enter-from,
+.cf-swap-leave-to {
+  opacity: 0;
+  transform: translateY(4px) scale(0.99);
+}
+
+/* 外层容器直接作为「唯一的一张输入框卡面」：
+   总高从 64px 收窄至 48px。圆角取全站三档里的面上两档（见 HANDOFF §1.A）：
+   卡面（容器）10px、卡内控件 6px —— 与 `.confirm__card` / `.confirm__btn` 同一套内外搭配
+   （这里两件控件都 ≥36px 高，按「6 / 4 按高度挑」那条该取 6；22px 上下的小输入框才用 4） */
+.cf-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(560px, 100%);
+  margin-inline: auto;
+  padding: 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 6px 20px -4px rgba(0, 0, 0, 0.05);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.cf-search:hover {
+  border-color: color-mix(in srgb, var(--text-faint) 40%, var(--border-soft));
+}
+
+/* 焦点上移到整张卡片，不再在卡片内部画第二个焦点框，彻底消除「盒中盒」的笨重感。
+   这里混的是 --focus（实色），不是 --accent-face：后者本身只有 0.18 / 0.1 的透明度，
+   再取 14% 混进 transparent，alpha 只剩 0.025 / 0.014 —— 焦点环等于没画。
+   光晕直接复用站内那支调好的 --focus-ring（3px），与 .cf-input / 页签的焦点环同一种观感。 */
+.cf-search:focus-within {
+  border-color: color-mix(in srgb, var(--focus) 55%, var(--border-soft));
+  box-shadow:
+    0 0 0 3px var(--focus-ring),
+    0 8px 24px -4px rgba(0, 0, 0, 0.08);
+}
+
+/* 内部输入框彻底隐形，只负责承载文字与光标 */
+.cf-search .cf-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  font-size: 13.5px;
+}
+
+/* 压掉 cf-console.css 的共享悬停底色与内层焦点环，保持单层通透卡面 */
+.cf-search .cf-input:hover,
+.cf-search .cf-input:focus {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 载入按钮：高度收至 36px，字重微调，像嵌在卡面右端的紧凑按钮（卡内控件取 6px 档） */
+.cf-search__go {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent-face);
+  color: var(--accent-text);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease,
+    opacity 0.15s ease;
+}
+
+.cf-search__go:hover:not(:disabled) {
+  background: var(--accent-face-hover);
+}
+
+.cf-search__go:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* 空输入禁用态：弱化实体色块感，避免未输入时右侧像堵了一块灰砖头 */
+.cf-search__go:disabled {
+  background: color-mix(in srgb, var(--bg-control) 65%, transparent);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* 错误提示：与上方卡片同宽，左内距 17px（1px 描边 + 5px 外框内距 + 11px 输入框内距）
+   使文字与输入内容严格左对齐 */
+.cf-search__error {
+  width: min(560px, 100%);
+  margin: 8px auto 0;
+  padding-inline: 17px;
+  color: var(--fail);
+  font-size: 12px;
+  line-height: 1.5;
+}

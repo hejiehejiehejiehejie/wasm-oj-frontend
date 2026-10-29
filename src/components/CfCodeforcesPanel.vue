@@ -8,9 +8,34 @@
        2026-10-29 第二版：去掉品牌旁的状态点与右端的能力指示点（用户要求），抬头不再挂指示灯。 -->
   <div class="cf-codeforces" data-native-focus>
     <header class="cf-codeforces__bar">
-      <span class="cf-codeforces__brand">
-        <AppIcon name="codeforces" :size="14" />
-        <span class="cf-codeforces__title">{{ t('cf.view.title') }}</span>
+      <span class="cf-codeforces__lead">
+        <span class="cf-codeforces__brand">
+          <AppIcon name="codeforces" :size="14" />
+          <span class="cf-codeforces__title">{{ t('cf.view.title') }}</span>
+        </span>
+
+        <span class="cf-nav">
+          <button
+            type="button"
+            class="cf-nav__btn"
+            :disabled="!canBack"
+            :title="t('cf.view.nav.back')"
+            :aria-label="t('cf.view.nav.back')"
+            @click="goBack"
+          >
+            <AppIcon name="chevron-left" :size="18" />
+          </button>
+          <button
+            type="button"
+            class="cf-nav__btn"
+            :disabled="!canForward"
+            :title="t('cf.view.nav.forward')"
+            :aria-label="t('cf.view.nav.forward')"
+            @click="goForward"
+          >
+            <AppIcon name="chevron-right" :size="18" />
+          </button>
+        </span>
       </span>
 
       <span class="cf-codeforces__modes">
@@ -21,7 +46,7 @@
           class="cf-tab"
           :class="{ 'is-on': mode === item }"
           :aria-pressed="mode === item"
-          @click="mode = item"
+          @click="selectMode(item)"
         >
           {{ t(`cf.view.mode.${item}`) }}
           <span v-if="item === 'schedule' && cfRunningCount" class="cf-live-badge">
@@ -40,8 +65,15 @@
             :title="t('cf.view.handle.label')"
             @click="toggleHandle"
           >
-            <span class="cf-handle__dot" :class="{ 'is-set': handleList.length }" />
-            <span class="cf-handle__text">{{ handleText }}</span>
+            <span class="cf-handle__text">
+              <template v-if="handleList.length">
+                <span class="cf-handle__name" :class="rankClass">{{ handleList[0] }}</span>
+                <span v-if="handleList.length > 1" class="cf-handle__extra">
+                  +{{ handleList.length - 1 }}
+                </span>
+              </template>
+              <template v-else>{{ t('cf.view.handle.empty') }}</template>
+            </span>
             <AppIcon name="chevron" :size="11" class="cf-handle__chevron" />
           </button>
 
@@ -84,6 +116,7 @@
         ref="contestPanel"
         v-show="mode === 'contest'"
         :active="props.active && mode === 'contest'"
+        @nav="onContestNav"
         @submit-active="emit('submit-active')"
       />
     </div>
@@ -98,8 +131,10 @@ import CfContestPanel from './CfContestPanel.vue'
 import CfContestSchedule from './CfContestSchedule.vue'
 import CfPickerPanel from './CfPickerPanel.vue'
 import { cfHandle, myHandles } from '../cf/myHandle.js'
+import { cfRankOf } from '../cf/rank.js'
 import { cfRunningCount } from '../composables/useCfSchedule.js'
 import { t } from '../i18n/index.js'
+import { cfCheckHandles } from '../services/cfClient.js'
 
 const emit = defineEmits(['submit-active'])
 
@@ -118,11 +153,83 @@ const mode = ref('picker')
 
 const contestPanel = ref(null)
 
-/** 赛程里点一行：把这场交给比赛面板（它自己填链接、切到题目页、取数），再翻到比赛 */
+/* ---------------- 后退 / 前进 ---------------- */
+/**
+ * 历史只记**本页内部**的界面切换（2026-10-29 用户口径）：切模式、切比赛子页签、
+ * 换一场比赛各算一步；退出到代码 / 设置页不在其中。
+ *
+ * 页内能变的只有两样：抬头的 mode，与比赛面板的「哪一场 + 哪个子页签」。
+ * 后者归 CfContestPanel 自己管，所以由它 expose 出 navState（读）与 restoreNav（写回）。
+ *
+ * 指针前的条目是走过的，指针后的在**下一次切换时丢弃** —— 与浏览器一致。
+ * 抽题 / 赛程没有可回退的内部页面，它们只记 mode 本身。
+ */
+const EMPTY_CONTEST = { text: '', tab: 'problems' }
+
+const navHistory = ref([{ mode: 'picker', contest: EMPTY_CONTEST }])
+const pointer = ref(0)
+
+const canBack = computed(() => pointer.value > 0)
+const canForward = computed(() => pointer.value < navHistory.value.length - 1)
+
+function snapshot() {
+  return { mode: mode.value, contest: contestPanel.value?.navState() ?? EMPTY_CONTEST }
+}
+
+/** 两屏是不是同一屏：抽题 / 赛程只比 mode；比赛还要比是哪一场、哪个子页签 */
+function sameScreen(a, b) {
+  if (!a || a.mode !== b.mode) return false
+  if (a.mode !== 'contest') return true
+  return a.contest.text === b.contest.text && a.contest.tab === b.contest.tab
+}
+
+function record() {
+  const entry = snapshot()
+  if (sameScreen(navHistory.value[pointer.value], entry)) return
+  navHistory.value.splice(pointer.value + 1)
+  navHistory.value.push(entry)
+  pointer.value = navHistory.value.length - 1
+}
+
+function selectMode(item) {
+  if (mode.value === item) return
+  mode.value = item
+  record()
+}
+
+/** 赛程里点一行：把这场交给比赛面板（它自己填链接、切到题目页、取数），再翻到比赛。
+ *  这里**不**立刻记历史：载入成功后比赛面板会发 nav，那一下才是一步 —— 失败或中途
+ *  退走都不该留下一个「比赛」空壳条目。 */
 function openContest(contest) {
   if (!contest?.id) return
   mode.value = 'contest'
   contestPanel.value?.openContest(contest)
+}
+
+/** 比赛面板里用户真的换了一屏（换一场 / 切子页签）。不在比赛模式（比如载入中途
+ *  已经退到赛程）就不记 —— 那一屏已经不在眼前了。 */
+function onContestNav() {
+  if (mode.value !== 'contest') return
+  record()
+}
+
+/** 把某一屏摆回来。比赛屏由子面板异步取数，这里不等它 —— 指针已经落位，
+ *  连点靠子面板自己的代次作废旧的那一趟。 */
+function applyEntry(entry) {
+  mode.value = entry.mode
+  if (entry.mode === 'contest') void contestPanel.value?.restoreNav(entry.contest)
+}
+
+function goBack() {
+  if (!canBack.value) return
+  pointer.value -= 1
+  applyEntry(navHistory.value[pointer.value])
+}
+
+function goForward() {
+  if (!canForward.value) return
+  pointer.value += 1
+  applyEntry(navHistory.value[pointer.value])
 }
 
 onBeforeUnmount(() => {
@@ -137,11 +244,59 @@ const handleDraft = ref('')
 
 const handleList = computed(() => myHandles())
 
-const handleText = computed(() => {
-  const list = handleList.value
-  if (!list.length) return t('cf.view.handle.empty')
-  return list.length > 1 ? `${list[0]} +${list.length - 1}` : list[0]
+/**
+ * 名字的 CF 段位色（2026-10-29 用户口径：按分数上色 + 加粗）。
+ *
+ * rating 走 Worker 的 user.info —— 与抽题前「校验账号」**同一个请求、同一份 1h 缓存**
+ * （见 cfWorker 的 verifyHandle），不必为配色再开一条接口。只问第一个账号：胶囊本来
+ * 也只显示第一个，其余收在 +N 里。
+ *
+ * 只在整页可见时才问（props.active）：页签挂在后台时不白花一次配额。换账号的瞬间
+ * 先把旧结论清掉，别让新名字挂着上一位的段位色；同一位账号切走再切回来则直接复用。
+ */
+const handleInfo = ref(null)
+let rankSeq = 0
+
+/** 有效账号才有段位色；未定级（没有 rating）按 CF 站上的口径画成 newbie 灰 */
+const rankClass = computed(() => {
+  const info = handleInfo.value
+  if (!info?.valid) return ''
+  return `is-ranked cf-rank--${cfRankOf(info.rating) ?? 'newbie'}`
 })
+
+watch(
+  [() => handleList.value[0] || '', () => props.active],
+  async ([handle, active]) => {
+    const seq = ++rankSeq
+    const key = handle.toLowerCase()
+
+    if (!key) {
+      handleInfo.value = null
+      return
+    }
+    if (handleInfo.value?.handle === key) return
+
+    handleInfo.value = null
+    if (!active) return
+
+    try {
+      const { results } = await cfCheckHandles([handle])
+      if (seq !== rankSeq) return
+      const found = (results || []).find(
+        (item) => String(item.handle || '').toLowerCase() === key,
+      )
+      // 「连不上」不落结论：Worker 不缓存网络失败，留着 null 让下次露出来时再问一次
+      handleInfo.value =
+        found && found.reason !== 'network'
+          ? { handle: key, valid: found.valid === true, rating: found.rating ?? null }
+          : null
+    } catch {
+      // 连不上 / Worker 出错就保持普通样式：段位色是锦上添花，不该把这件事报成故障
+      if (seq === rankSeq) handleInfo.value = null
+    }
+  },
+  { immediate: true },
+)
 
 function toggleHandle() {
   if (handleOpen.value) closeHandle()
@@ -213,6 +368,46 @@ watch(handleOpen, (open) => {
   padding: 0 20px;
 }
 
+.cf-codeforces__lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 后退 / 前进（2026-10-29）：跟在品牌后面（用户口径：放到品牌图标右边）。
+   无框无底，指针压上来才浮一层淡底；到头了只把字色压暗。 */
+.cf-nav {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.cf-nav__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cf-nav__btn:hover:not(:disabled) {
+  background: var(--icon-hover-bg);
+  color: var(--text);
+}
+
+.cf-nav__btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
 .cf-codeforces__brand {
   display: inline-flex;
   align-items: center;
@@ -273,18 +468,6 @@ watch(handleOpen, (open) => {
   color: var(--text);
 }
 
-.cf-handle__dot {
-  flex: 0 0 auto;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-
-.cf-handle__dot.is-set {
-  background: var(--ok);
-}
-
 .cf-handle__text {
   min-width: 0;
   overflow: hidden;
@@ -292,6 +475,39 @@ watch(handleOpen, (open) => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 名字按 CF 段位色上色 + 加粗（2026-10-29 用户口径） */
+.cf-handle__name.is-ranked {
+  font-weight: 600;
+}
+
+/* 多账号收起来的那截（+N）：不再跟名字抢眼，压到最淡 */
+.cf-handle__extra {
+  margin-left: 3px;
+  color: var(--text-faint);
+}
+
+/* 段位色。这几支是 **CF 自己的配色**，刻意不抽象成主题变量（它们表达的是段位，
+   不是界面层次）：
+   - 深色（默认）那组把太暗的四支提亮了 —— 官方 #008000 / #0000ff / #aa00aa / #ff0000
+     落在 #1c1c1c 上几乎读不出来；色相不动，仍认得出是哪一档。
+   - 浅色那组回到官方原文（下面那条覆盖）—— CF 站本身就是白底，这套颜色在那里最正。
+   master 与 international master 同色、三个 grandmaster 同色，所以七档够用（见 cf/rank.js）。 */
+.cf-handle__name.cf-rank--newbie { color: #9e9e9e; }
+.cf-handle__name.cf-rank--pupil { color: #1fae1f; }
+.cf-handle__name.cf-rank--specialist { color: #03a89e; }
+.cf-handle__name.cf-rank--expert { color: #5b8cff; }
+.cf-handle__name.cf-rank--candidate-master { color: #d96cd9; }
+.cf-handle__name.cf-rank--master { color: #ff8c00; }
+.cf-handle__name.cf-rank--grandmaster { color: #ff5252; }
+
+:root[data-theme='light'] .cf-handle__name.cf-rank--newbie { color: #808080; }
+:root[data-theme='light'] .cf-handle__name.cf-rank--pupil { color: #008000; }
+:root[data-theme='light'] .cf-handle__name.cf-rank--specialist { color: #03a89e; }
+:root[data-theme='light'] .cf-handle__name.cf-rank--expert { color: #0000ff; }
+:root[data-theme='light'] .cf-handle__name.cf-rank--candidate-master { color: #aa00aa; }
+:root[data-theme='light'] .cf-handle__name.cf-rank--master { color: #ff8c00; }
+:root[data-theme='light'] .cf-handle__name.cf-rank--grandmaster { color: #ff0000; }
 
 .cf-handle__chevron {
   flex: 0 0 auto;
@@ -347,6 +563,12 @@ watch(handleOpen, (open) => {
 }
 
 @container cfpage (max-width: 22.5rem) {
+  /* 左端最窄时只留后退 / 前进：品牌图标再留着会被挤成 0 宽（2026-10-29 实测），
+     与其让它半隐半现，不如整块让位给导航与分段 */
+  .cf-codeforces__brand {
+    display: none;
+  }
+
   .cf-handle__text,
   .cf-handle__chevron {
     display: none;

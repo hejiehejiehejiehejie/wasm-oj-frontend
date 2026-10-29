@@ -36,7 +36,7 @@
 | Monaco 只能动态改 | 设置项变化走 `editor.updateOptions()` / `monaco.editor.setTheme()`，**不要重建实例** |
 | 设置要持久化 | 统一用 `src/composables/usePersistentRef.js`（存的是 JSON 字符串，见第 5 节的坑）。**例外**：服务层的模块级单例（如 `services/shellSettings.js`）**不能**用它 —— 那份靠 `onMounted` 落首值，组件之外不执行（见第 5 节坑 36） |
 | SW 改了**外壳**策略就升 `SHELL_VERSION` | `src/services/storageNames.js` 的 `SHELL_VERSION` 只决定外壳桶名（现为 `cp-shell-v6`）；改外壳缓存内容或策略时必须同步升它，否则老用户会一直吃旧桶。**2026-10-25 起有个例外**：同桶内「URL 带版本」的条目已由 `sw.js` 的 `pruneStaleShellArtifacts()` 按 `/retain-manifest.json` 自动回收，所以只是扩回收范围、不改「桶里该留什么」时不必升；升版本留给「vN 桶里已有新判据够不着的残骸、要一次清空」那种情况（v5 → v6 就是）。**工具链桶名是硬编码的 `cp-toolchain`，刻意不跟版本号走**——工具链是随 URL 固定的二进制（clang 24MB + CPython 25MB），跟外壳改不改无关，绑在一起会让每次升外壳都逼老用户重下几十 MB。要换代工具链时才手动改那一行 |
-| **禁止胶囊形控件** | 按钮 / 芯片 / 徽标 / 提示条一律**圆角矩形**，`border-radius` 必须**小于高度的一半**（2026-10-24 用户口径：「不要出现胶囊形的东西，都改为圆角矩形，并且保持圆角一致」）。同一排 / 同一组控件取同一档：常规控件 **10px**（输入框 / 按钮 / 预设芯片），高度 < 24px 的小徽标 **6px**（判定码与 verdict 那两枚，见第 4 节），26px 的紧凑图标按钮沿用组件既有的小圆角（如倒计时头栏的 7px）；**同一排里不许混用两种半径**。**别把 10px 套到 17–20px 高的元素上**——相邻两角之和超过边长时浏览器会按比例夹小，又变回半圆。存量 `999px` 还剩三处，逐组件迁完为止：滚动条滑块（`base.css` 的 `.oscroll-thumb`）、设置页开关轨道（`EditorSettingsPanel.vue`）、拖拽放大镜（`EditorPane.vue`）；倒计时卡已于 2026-10-24 迁完（预设 / 解锁按钮 10px）。状态点、环形进度这类**纯几何元素**不在此列 |
+| **禁止胶囊形控件** | 按钮 / 芯片 / 徽标 / 提示条一律**圆角矩形**，`border-radius` 必须**小于高度的一半**（2026-10-24 用户口径：「不要出现胶囊形的东西，都改为圆角矩形，并且保持圆角一致」）。同一排 / 同一组的控件取同一档：**全站只有三档圆角 —— 10px / 6px / 4px**（分工、嵌套规则与存量偏离见 §1.A）：面与常规控件 **10px**；卡内 / 行内的中等控件（高约 24–36px）**6px**；≤26px 高的小控件（行内小输入框、键帽、小图标钮）**4px**；**同一排里不许混用两档**（2026-10-29 加回 4px：小输入框配 6px 会和旁边的树行一样圆，看不出是一格输入）。**别把 10px 套到 17–20px 高的元素上**——相邻两角之和超过边长时浏览器会按比例夹小，又变回半圆。存量 `999px` 还剩四处，逐组件迁完为止：滚动条滑块（`base.css` 的 `.oscroll-thumb`）、设置页开关轨道（`EditorSettingsPanel.vue`）、抽题面板开关轨道（`CfPickerPanel.vue` 的 `.pk-switch__track`）、拖拽放大镜（`EditorPane.vue`）；倒计时卡已于 2026-10-24 迁完（预设 / 解锁按钮 10px）。状态点、环形进度这类**纯几何元素**不在此列 |
 | 图标是构建产物之外的静态资源 | `public/icons/*.png` 直接进产物、**不在**构建清单里，也**不能进** `sw.js` 的 `STATIC_ASSETS`——图标内容会变（白底改透明圆角那次就变过）而路径里没有内容哈希，进了那个列表就等于拿装机那一刻的图永久盖住新图（2026-10-15 踩过，见第 9 节）。改图标要连带递增 `index.html` 里两条 `rel="icon"` 的 `?v=` |
 | 扩展安装包文件名必须带版本号 | `public/extension/cc-for-web-<版本>.zip`。它同理不在构建清单里，但**故意不进 `STATIC_ASSETS`**——发新版靠的是换个文件名（SW 对同源 GET 走 `cacheFirst` 且不重新校验，同名覆盖会让老用户一直下到旧包），见第 13 节 |
 | 内置字体文件名必须带版本号 | `public/fonts/<族>-latin-<字重>-<字体内部版本>.woff2`，`@font-face` 只写在 `src/styles/fonts.css`（由 `base.css` 的**首行** `@import` 引入，`@import` 只能出现在其它规则之前）。与扩展包同理**不进 `STATIC_ASSETS`**，靠首次使用落进外壳桶，同名覆盖会让老用户永远吃旧文件。版本号必须取**字体内部**的真实版本，别抄上游 release 号（@fontsource 的包会滞后） |
@@ -49,6 +49,37 @@
 | 界面文案不许写死 | 组件、composable、service 里**一律不许出现中文字面量**（现在只剩注释里有中文）。模板与 computed 里写 `t('域.组.键')`，整棵内容树（应用内帮助）走 `messages('help')`。加新文案 = 在 `src/i18n/messages/<域>.js` 里**中英两栏同时补**（同一文件里并排），缺哪一栏会静默退到中文。唯一例外是**写进文件系统的名字**（见下一条）与 `[unnamed]` 这类控制台前缀（见第 5 节坑 28 第 5 条） |
 | 数据表只存 key，不存译文 | `EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` 都只存 `labelKey` / `hintKey` / `titleKey`（可带 `labelParams`），由消费处再 `t()`。**在模块顶层或 `<script setup>` 顶层调 `t()` 会冻结成那一刻的语言**——切语言不跟着变，是最容易漏的一类（第 5 节坑 28 第 1 条） |
 | 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cp.*` 键名、IndexedDB 库名、主题 id 都不随语言变 |
+
+### 1.A 圆角只有三档：10px / 6px / 4px（2026-10-29 定，改样式先看这里）
+
+**别再自创第四个值。** 按控件「多大」挑档：
+
+| 档 | 用在哪 | 现成例子 |
+| --- | --- | --- |
+| **10px** | **面**与常规控件：卡片 / 面板、按钮、芯片、分段、主操作 | `.confirm__card`（`EditorSettingsPanel.vue`）、`.cf-btn` / `.cf-chip` / `.cf-tab`（`cf-console.css`）、`App.vue` 的浮层与面板 |
+| **6px** | 卡内 / 行内的**中等尺寸**控件（高约 24–36px）：输入框（含 textarea / select / 数字框）、行内按钮、徽标、图标钮 | `.cf-input` / `.cf-mini` / `.cf-icon-btn`（`cf-console.css`）、`.number-input` / `.select select` / `.setting-textarea`（设置页）、样例卡的 `.ta` / `.out-box` / `.badge` |
+| **4px** | **小尺寸**控件（高约 ≤26px）：树里 / 行内的小输入框、键帽、22px 图标钮、小徽标 | `.create-row__input` / `.tree-item__input`（22px）、`.ionote__btn`（约 19px）、`.pk-range__input` / `.pk-stepper__*`（26px）、`.hotkey` / `.setting-code`、`.icon-btn`、`.engine__badge`、`.explorer__btn` |
+
+**为什么不全用 6px**（2026-10-29 用户口径：「输入框都用 6px 圆角并不是好事」）：6px 是卡内控件的通用档，但 22px 高的小输入框配 6px，会跟旁边 22px 的树行一样圆、读不出「这里是一格输入」——那一层就该用 4px。所以 6 / 4 之间**按控件高度挑**，10px 仍专属「面」（别拿 10px 套 28px 以下的东西）。
+
+三条配套规则：
+
+1. **嵌套时「外 10 内 6 / 4」**：一张 10px 的卡里放输入框 / 按钮，里面那几颗按高度取 6 或 4 —— 既有几处都照这个来：`.confirm__card` + `.confirm__btn`（10 / 6）、比赛页那颗「输入比赛 ID / 链接」的盒子（`styles/cf-contest-search.css`：卡 10 / 框 6 / 载入钮 6）、样例卡里的 `.ta`（无框卡内 6）。反过来「外 6 内 10」会看着卡片比里面的控件还圆，别这么写。
+2. **同一排里同尺寸的控件必须同档**：一行里既有输入框又有按钮时两者取同一档（`.md-insert__input` + `.md-insert__btn` 都是 4，`.pk-stepper__btn` + `.pk-stepper__value` 都是 4）。一排里尺寸本来就不同时（如样例卡头：22px 折叠箭头 4px 与 32px 垃圾桶 / 运行 6px），各按自身高度定档，但**不许同高度的两颗取两档**。
+3. **改尺寸时连半径一起看**：`.icon-btn` 基底 4px、`--danger` / `--run` 变体 6px，差别只因为变体把盒子放大到 32×32；给控件改高、改宽时要重挑档。
+
+已知存量偏离（**别再新增**，碰到就顺手迁到 10 / 6 / 4）：
+
+- `cf-console.css`：`.cf-list__row` 行悬停面 **8px**、`.cf-live-badge` **5px**；
+- **5px** 共 8 处：`.md-tool` / `.view-switch__item`（`EditorPane`）、`.explorer__btn`（`FileExplorer`）、`.hotkey`（`HotkeyRecorder`）、`.md-preview__action`、`.gate__action`、`.shortcut-key.is-fixed`、`.cf-live-badge`；
+- **8px** 多在设置页的面与清单：`.cloud-account` / `.cloud-flow` / `.danger-zone` / `.runtime-row__icon`（`EditorSettingsPanel`）、`.engine-list`、`.help-item`、`.cf-handle__btn`（账号按钮，26px 高）、`.editor-tabs__item` 的悬停面；
+- **菜单缩放值**（`calc(... * var(--menu-scale))`）：`ComponentsMenu` 的 `__item` 8 / `__tile` 12、`TabGroupCard` 的 `__name` 8、`SettingsMenu` 的 `__step` 3 —— 迁的时候一起乘；
+- `CountdownCard` 的 `.cd-icon` **7px**、`.cd-dms input` **10px**（与「输入框按高度取 6 / 4」不一致），都还没动；
+- `guide.html` / `guide.en.html` 共用 `guide.css`（营销长文，4 / 7 / 8px 自成一套）—— **别把它的值往应用里搬**。
+
+**刻意不迁的形状**（不算偏离）：页签的 `8px 8px 0 0`（下沿要接页签栏直线）、侧栏指示器的 8px（= 轨道 10 − 2×1px 内距，同心）、通知卡 `.notif` 的 2px（原型定的「便签」形态，与 10px 卡片语言故意不同档）、开关轨道 / 滚动条滑块 / 放大镜的 `999px`（几何件）、`50%`（状态点、环形进度、头像）。
+
+`calc(... * var(--menu-scale))` 那类菜单里的值按 `--menu-scale` 等比缩放，选档规则同上。
 
 ## 2. 与界面相关的文件
 

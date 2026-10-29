@@ -113,10 +113,12 @@ export function cfPick(filters) {
 }
 
 /**
- * 校验若干 CF 账号是否存在，resolve `{ results: [{ handle, valid, reason }] }`。
+ * 校验若干 CF 账号是否存在，resolve `{ results: [{ handle, valid, reason, rating }] }`。
  * reason ∈ `'ok' | 'not_found' | 'network'`；**账号不存在不会 reject**
  * （那是业务结论不是故障），只有 Worker 本身出事才会 reject。
  * 字段叫 valid 不叫 ok，是为了跟信封的 ok（这次调用成没成功）区分开，见 cfWorker.js。
+ * `rating` 是同一份 user.info 顺带留下的分段（未定级 / 不存在 / 连不上都是 null），
+ * 账号胶囊按它上色 —— 别为分数再调一次接口。
  * @param {string[]} handles
  */
 export function cfCheckHandles(handles) {

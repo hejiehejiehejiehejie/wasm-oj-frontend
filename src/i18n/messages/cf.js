@@ -64,6 +64,11 @@ export default {
           schedule: '赛程',
           contest: '比赛',
         },
+        /** 抬头左上角的后退 / 前进（只在本页内部走，见 CfCodeforcesPanel 的 navHistory） */
+        nav: {
+          back: '后退',
+          forward: '前进',
+        },
         /** 抬头右侧的账号胶囊（点开才编辑，三个页面共用这一份） */
         handle: {
           label: 'Codeforces 账号',
@@ -371,6 +376,10 @@ export default {
           picker: 'Pick',
           schedule: 'Schedule',
           contest: 'Contest',
+        },
+        nav: {
+          back: 'Back',
+          forward: 'Forward',
         },
         handle: {
           label: 'Codeforces handle',

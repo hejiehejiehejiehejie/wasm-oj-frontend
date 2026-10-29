@@ -724,15 +724,23 @@ function optionLabel(option) {
               :key="option.id"
               type="button"
               class="settings-menu__item settings-menu__item--sub"
-              :class="{ 'is-active': subActiveIndex === optionIndex }"
+              :class="{
+                'is-active': subActiveIndex === optionIndex,
+                'settings-menu__item--with-icon': option.icon,
+              }"
               :role="row.current ? 'menuitemradio' : 'menuitem'"
               :aria-checked="row.current ? option.id === row.current() : undefined"
               tabindex="-1"
               @click.stop="pickOption(row, option)"
               @pointerenter="subActiveIndex = optionIndex"
             >
-              <!-- 打勾位常驻（哪怕这一档没选中也占位），选中的标记出现时文字不横向弹跳 -->
-              <span class="settings-menu__check" aria-hidden="true">
+              <!-- 打勾位常驻（哪怕这一档没选中也占位），选中的标记出现时文字不横向弹跳。
+                   设置分类那几档带图标：图标就占这一格 —— 它本来对分类永远空着，
+                   两者不会同时出现，文字左缘也不动 -->
+              <span v-if="option.icon" class="settings-menu__icon" aria-hidden="true">
+                <AppIcon :name="option.icon" :size="12" />
+              </span>
+              <span v-else class="settings-menu__check" aria-hidden="true">
                 <AppIcon v-if="row.current && option.id === row.current()" name="check" :size="12" />
               </span>
               <span class="settings-menu__label">{{ optionLabel(option) }}</span>
@@ -1153,6 +1161,14 @@ function optionLabel(option) {
   gap: calc(8px * var(--menu-scale));
 }
 
+/* 带图标的二级项（「设置分类」）：图标紧挨文字，不跟着 space-between 被甩到最左、
+   文字孤零零顶到右缘（实测图标右缘 232、文字左缘 275–311 不等）。有图标的一档
+   才是「图标 + 名字」的一行，其余档位列表仍是打勾位 + 右对齐的短标签。
+   用一个类而不是 `:has()`：后者要 Firefox 121+ 才有，老一档的安卓 Firefox 会退回上面的排法。 */
+.settings-menu__item--with-icon {
+  justify-content: flex-start;
+}
+
 .settings-menu__check {
   display: inline-flex;
   align-items: center;
@@ -1160,6 +1176,24 @@ function optionLabel(option) {
   width: calc(12px * var(--menu-scale));
   flex: 0 0 auto;
   color: var(--menu-text);
+}
+
+/* 二级里带图标的那几档（设置分类）：占的正是打勾位那一格，尺寸也照它 ——
+   于是有图标与没图标的二级项左缘一致，文字不会因多一颗图标整体右移。
+   颜色跟着名字走（与上面 .settings-menu__check 同一口径）：这一格是**行首图标**，
+   不是行尾的附注信息，用 muted 会比名字暗一档（浅色下 even 反过来更亮）；
+   --menu-muted 留给箭头 / 快捷键 / 步进器那些真正的次要位。 */
+.settings-menu__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(12px * var(--menu-scale));
+  flex: 0 0 auto;
+  color: var(--menu-text);
+}
+
+.settings-menu__item.is-active .settings-menu__icon {
+  color: var(--menu-hover-text);
 }
 
 .settings-menu__item.is-active .settings-menu__check {

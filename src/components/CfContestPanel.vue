@@ -98,7 +98,7 @@
               class="cf-tab"
               :class="{ 'is-on': tab === item }"
               :aria-pressed="tab === item"
-              @click="tab = item"
+              @click="selectTab(item)"
             >
               {{ tabLabel(item) }}
             </button>
@@ -276,7 +276,7 @@ import { useCompanionBridge } from '../composables/useCompanionBridge.js'
 import { parseCodeforcesProblem, shouldShowSubmit, submitBlockedReason } from '../services/ojSubmit.js'
 import { activeLanguage, activeNode } from '../services/vfs/workspaceStore.js'
 
-const emit = defineEmits(['submit-active'])
+const emit = defineEmits(['nav', 'submit-active'])
 
 /**
  * 这一页露没露出来（来自合成页签的可见性，见 CfCodeforcesPanel）。本组件与它的子页都
@@ -333,6 +333,13 @@ const loadedText = ref('')
  * 若解析得出的 ID 已经把面板里这场清空了，specText 还原之后还得重新取一次。
  */
 let failedSearch = null
+
+/**
+ * 「现在这一屏是谁要的」代次。载入中的 submitSearch 与历史恢复（restoreNav）共用它：
+ * 恢复一旦开始，早先那次点「载入」回来的收尾就作废（别再翻成比赛名），反之亦然 ——
+ * 连点后退 / 前进时屏幕上留下的必须是最后那一下。
+ */
+let viewSeq = 0
 
 const heroEl = ref(null)
 const searchInput = ref(null)
@@ -436,6 +443,13 @@ function tabLabel(item) {
   return t(`cf.contest.tabs.${item}`)
 }
 
+/** 点子页签 = 换一屏（记进后退 / 前进的历史）。空状态下页签是藏着的，碰不到。 */
+function selectTab(item) {
+  if (tab.value === item) return
+  tab.value = item
+  if (!searching.value) emit('nav')
+}
+
 // ------------------------------------------------------------ 两态之间
 
 let morphTimer = 0
@@ -485,9 +499,11 @@ async function submitSearch() {
     return
   }
 
+  const seq = ++viewSeq
   searchText.value = text
   specText.value = text
   await load()
+  if (seq !== viewSeq) return
   if (error.value) {
     // 解析得出的 ID 在 load() 里已经把面板清空了，退回时得重新取；解析不出的则什么都没动
     failedSearch = { cleared: Boolean(spec.value) }
@@ -500,6 +516,7 @@ async function submitSearch() {
   await morphHero(() => {
     searching.value = false
   })
+  emit('nav')
 }
 
 /** 铅笔：名字换回输入框，盒子落回页面中央，焦点直接交给输入框（全选，便于整个换掉） */
@@ -539,7 +556,69 @@ function openContest(contest) {
   void submitSearch()
 }
 
-defineExpose({ openContest })
+// ------------------------------------------------------------ 后退 / 前进
+/**
+ * 这一屏的导航快照（历史归 CfCodeforcesPanel，见那边的 navHistory）：text 为空 =
+ * 还停在空状态的大输入框；非空 = 已载入的那一场。子页签随快照一起走。
+ */
+function navState() {
+  return {
+    text: searching.value ? '' : loadedText.value,
+    tab: tab.value,
+  }
+}
+
+/**
+ * 把面板摆回某个快照。与 submitSearch 分开写：恢复不该带回「点载入」的焦点与失败处理，
+ * 也不能走 submitSearch 的 busy 早退 —— 连点后退时后一次必须能立刻接管。
+ * 两次恢复叠在一起时，前一次的收尾按 viewSeq 作废；数据侧另有 useCfContest 的代次兜底。
+ */
+async function restoreNav(state) {
+  const seq = ++viewSeq
+  const text = String(state?.text || '')
+  const nextTab = TABS.includes(state?.tab) ? state.tab : 'problems'
+
+  if (!text) {
+    tab.value = nextTab
+    error.value = null
+    failedSearch = null
+    if (searching.value) return
+    searchText.value = loadedText.value
+    await morphHero(() => {
+      searching.value = true
+    })
+    return
+  }
+
+  // 已经挂着这一场：只换子页签（必要时把输入框收回去），不重取
+  if (loaded.value && text === loadedText.value) {
+    tab.value = nextTab
+    if (!searching.value) return
+    searchText.value = text
+    await morphHero(() => {
+      searching.value = false
+    })
+    return
+  }
+
+  // 换一场：先落到输入框态再取数（载入中途看起来与点「载入」一样是取数中）
+  searchText.value = text
+  specText.value = text
+  tab.value = nextTab
+  searching.value = true
+  error.value = null
+  failedSearch = null
+  await load()
+  if (seq !== viewSeq || error.value) return
+
+  loadedText.value = text
+  loaded.value = true
+  await morphHero(() => {
+    searching.value = false
+  })
+}
+
+defineExpose({ openContest, navState, restoreNav })
 
 // ------------------------------------------------------------ 提交当前文件
 
@@ -570,109 +649,9 @@ const canSubmitActive = computed(() => {
 </script>
 
 <style scoped>
-/* ---------------- 抬头：空状态 · 比赛名 ---------------- */
-/* 空状态整页只剩「大输入框 + 载入」，落在内容区黄金分割点（与 .cf-blank 同一口径），
-   像搜索引擎首页。载入成功后这颗盒子升到顶部，换成「比赛名 + 铅笔 + 状态」。 */
-.cf-page--search {
-  position: relative;
-  min-height: 100%;
-}
-
-/* position: relative 是给 Transition 里那颗「退场中」的绝对定位子元素用的 ——
-   它得相对抬头盒子定位，否则会飞到整个内容层的左上角 */
-.cf-hero {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.cf-hero--search {
-  position: absolute;
-  top: calc(38.2% - 22px);
-  left: 0;
-  right: 0;
-}
-
-/* 形态交替：旧的脱离布局淡出（不撑高），新的一边淡入一边跟着盒子移动 */
-.cf-swap-enter-active {
-  transition: opacity 0.22s ease 0.06s;
-}
-
-.cf-swap-leave-active {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  transition: opacity 0.14s ease;
-}
-
-.cf-swap-enter-from,
-.cf-swap-leave-to {
-  opacity: 0;
-}
-
-.cf-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: min(620px, 100%);
-  margin-inline: auto;
-  padding: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 14px;
-  background: var(--bg-panel);
-}
-
-/* 卡里的输入框不再画第二层框：整张卡就是那颗登录框，焦点环仍由共享的 .cf-input 给 */
-.cf-search .cf-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 42px;
-  padding: 0 12px;
-  border-color: transparent;
-  background: transparent;
-  border-radius: 10px;
-  font-size: 13.5px;
-}
-
-/* 载入：空状态下唯一的主操作，与卡里的输入框同高 */
-.cf-search__go {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 42px;
-  padding: 0 20px;
-  border: none;
-  border-radius: 10px;
-  background: var(--accent-face);
-  color: var(--accent-text);
-  font-family: var(--ui-font);
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.cf-search__go:hover:not(:disabled) {
-  background: var(--accent-face-hover);
-}
-
-.cf-search__go:disabled {
-  background: var(--bg-control);
-  color: var(--text-faint);
-  cursor: default;
-}
-
-/* 错误归输入框下面一行：空状态下没有第二个槽能说「为什么没载入」 */
-.cf-search__error {
-  width: min(520px, 100%);
-  margin: 10px auto 0;
-  color: var(--fail);
-  font-size: 12px;
-  line-height: 1.6;
-}
+/* ---------------- 抬头：比赛名 ---------------- */
+/* 空状态那颗「输入比赛 ID / 链接」的盒子（落位、两态过渡、卡片 / 输入框 / 载入按钮 / 错误行）
+   单独放在 styles/cf-contest-search.css —— 那部分独立成块，改样式只动那一个文件。 */
 
 /* 名字条：比赛名（链去 CF）+ 铅笔 + 这一场的状态 */
 .cf-titlebar {
@@ -809,3 +788,7 @@ const canSubmitActive = computed(() => {
 </style>
 
 <style scoped src="../styles/cf-console.css"></style>
+
+<!-- 空状态那颗「输入比赛 ID / 链接」的盒子：独立成块，样式全在 styles/cf-contest-search.css。
+     放在最后一块 = 同特异性时以它为准（见该文件头部说明）。 -->
+<style scoped src="../styles/cf-contest-search.css"></style>

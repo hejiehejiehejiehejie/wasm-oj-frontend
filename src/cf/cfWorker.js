@@ -75,7 +75,12 @@ const contestProblemsKey = (contestId) => `contestProblems:2:${contestId}`
 
 
 const solvedKey = (handle) => `solved:${handle.toLowerCase()}`
-const handleKey = (handle) => `handle:${handle.toLowerCase()}`
+/**
+ * 账号信息的缓存键。带 `:2`：2026-10-29 起这份缓存除了「账号存在」还存 rating
+ * （账号胶囊按分数上色用），旧记录里没有这个字段 —— 换键让胶囊立刻拿得到分数，
+ * 旧键随 1h TTL 自然作废。
+ */
+const handleKey = (handle) => `handle:2:${handle.toLowerCase()}`
 
 // ------------------------------------------------------------ 全局限速
 
@@ -223,7 +228,10 @@ async function loadSolvedKeys(handle, { force = false } = {}) {
  * 校验账号是否存在，结果缓存 1h。
  * 网络失败一律回 `{ ok: false, reason: 'network' }` —— 由调用方区分「不存在」与「连不上」，
  * 后者不该拦着用户抽题。
- * @returns {Promise<{ ok: boolean, reason: 'empty'|'ok'|'not_found'|'network' }>}
+ *
+ * 顺手把 `rating` 留下（2026-10-29）：账号胶囊要按分数上色。同一份 user.info、同一份
+ * 1h 缓存，不该为「存在」和「段位」分两处各拉一次。未打过 rated 比赛的账号没有这个字段，落成 null。
+ * @returns {Promise<{ ok: boolean, reason: 'empty'|'ok'|'not_found'|'network', rating?: number|null }>}
  */
 async function verifyHandle(rawHandle) {
   const handle = String(rawHandle || '').trim()
@@ -243,7 +251,12 @@ async function verifyHandle(rawHandle) {
       const body = await response.json().catch(() => null)
 
       if (body?.status === 'OK' && Array.isArray(body.result) && body.result.length) {
-        const outcome = { ok: true, reason: 'ok' }
+        const user = body.result[0] || {}
+        const outcome = {
+          ok: true,
+          reason: 'ok',
+          rating: typeof user.rating === 'number' ? user.rating : null,
+        }
         await writeRecord(handleKey(handle), outcome)
         return outcome
       }
@@ -560,6 +573,9 @@ const handlers = {
    * `{ id, ok: true, ...payload }` 里互相覆盖，结果是「账号不存在」被主线程当成
    * 「这次调用失败」而 reject。所以这里只回 `{ results }`，`ok` 永远专指信封。
    *
+   * 每条结果带 `rating`（未定级 / 不存在 / 连不上都是 null）：账号胶囊要按分数上色，
+   * 与「校验存在」共用这一次 user.info。
+   *
    * 逐个校验而不是一次性 `user.info?handles=a;b`：CF 那个接口只要有一个 handle 不存在
    * 就整体 FAILED，分不出是哪一个拼错了；而且逐个走的是各自 1h 的缓存，命中时是瞬时的。
    */
@@ -568,7 +584,12 @@ const handlers = {
     const results = []
     for (const handle of handles) {
       const outcome = await verifyHandle(handle)
-      results.push({ handle, valid: outcome.ok, reason: outcome.reason })
+      results.push({
+        handle,
+        valid: outcome.ok,
+        reason: outcome.reason,
+        rating: outcome.rating ?? null,
+      })
     }
     return { results }
   },
