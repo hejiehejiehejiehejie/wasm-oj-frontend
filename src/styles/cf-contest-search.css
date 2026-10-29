@@ -25,12 +25,16 @@
   flex: 0 0 auto;
 }
 
-/* 48px 高（5 + 36 + 5 + 2 描边）的盒子居中在黄金分割点：38.2% 减去半高 */
+/* 48px 高（5 + 36 + 5 + 2 描边）的盒子居中在黄金分割点：38.2% 减去半高。
+   left/right: 0 贴的是 .cf-page 的 padding 盒 —— 卡面宽 min(560px, 100%) 在窄屏取 100% 时
+   正好顶到内容列外缘（视口多窄就贴多窄）。padding-inline: inherit 把 .cf-page 的那圈内距
+   复制过来，抬头盒子的内容盒与内容列对齐；窄容器降级把内距收到 14px 时也自动跟随。 */
 .cf-hero--search {
   position: absolute;
   top: calc(38.2% - 24px);
   left: 0;
   right: 0;
+  padding-inline: inherit;
 }
 
 /* 形态交替：加入极轻微的纵向浮动与缩放，消除生硬的纯透明度切换 */
