@@ -275,7 +275,7 @@ defineExpose({ syncScroll })
   font-size: 12.5px;
 }
 
-.md-preview__action:hover:not(:disabled) {
+:where(html.is-hoverable) .md-preview__action:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
@@ -356,7 +356,7 @@ defineExpose({ syncScroll })
   text-decoration: none;
 }
 
-.md-preview__body :deep(a:hover) {
+:where(html.is-hoverable) .md-preview__body :deep(a:hover) {
   text-decoration: underline;
 }
 

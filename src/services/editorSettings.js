@@ -11,7 +11,7 @@
  * 这里只负责「读盘 → 校验 → 运行期状态 → 落盘」这一层。迁移注释照搬自 App.vue，未改动逻辑。
  */
 import { ref, watch } from 'vue'
-import { EDITOR_SETTINGS_DEFAULTS, normalizeEditorSetting } from './editorOptions.js'
+import { EDITOR_SETTINGS_DEFAULTS, normalizeEditorSetting, themeScheme } from './editorOptions.js'
 import { setAutoSaveEnabled } from './autoSave.js'
 import { syncSystemBars } from './systemBars.js'
 
@@ -63,8 +63,9 @@ function readEditorSettings() {
 
 export const editorSettings = ref(readEditorSettings())
 
-// 主题决定的是整套界面的配色：挂在 <html data-theme> 上由 CSS 变量接管，
-// Monaco 那边通过同一个 id 对应的自定义主题保持内芯同色。
+// 主题决定的是整套界面的配色：挂在 <html data-theme>（具体配色）与 <html data-scheme>
+// （只声明明暗）两个属性上，由 CSS 变量接管；Monaco 那边通过同一个 id 对应的自定义主题
+// 保持内芯同色。两个属性都要写 —— 前者选调色板，后者供「只关心明暗」的样式与逻辑读。
 // `--bg-chrome` 这一支（窗口装饰色）另有两个去处 —— 都是「宿主画的那条栏」，
 // 网页自己画不到，只能各走各的通道：
 //   · 浏览器（装成应用后画窗口标题栏 / 系统栏）：写进 `<meta name="theme-color">`；
@@ -74,14 +75,16 @@ export const editorSettings = ref(readEditorSettings())
 watch(
   () => editorSettings.value.theme,
   (theme) => {
+    const scheme = themeScheme(theme)
     document.documentElement.dataset.theme = theme
+    document.documentElement.dataset.scheme = scheme
     const chrome = getComputedStyle(document.documentElement)
       .getPropertyValue('--bg-chrome')
       .trim()
     const chromeBar = document.querySelector('meta[name="theme-color"]')
     if (chromeBar && chrome) chromeBar.setAttribute('content', chrome)
     // 状态栏图标的明暗跟着**站内主题**走（不是系统深色模式），底色用同一支 --bg-chrome
-    syncSystemBars(theme === 'dark', chrome)
+    syncSystemBars(scheme === 'dark', chrome)
   },
   { immediate: true },
 )

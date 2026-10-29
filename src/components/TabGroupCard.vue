@@ -180,7 +180,7 @@ async function action(id) {
   transition: transform 0.1s ease;
 }
 
-.tab-group-card__color:hover {
+:where(html.is-hoverable) .tab-group-card__color:hover {
   transform: scale(1.12);
 }
 
@@ -213,7 +213,7 @@ async function action(id) {
   transition: background-color 0.1s ease, color 0.1s ease;
 }
 
-.tab-group-card__item:hover {
+:where(html.is-hoverable) .tab-group-card__item:hover {
   background: var(--menu-hover-bg);
   color: var(--menu-hover-text);
 }

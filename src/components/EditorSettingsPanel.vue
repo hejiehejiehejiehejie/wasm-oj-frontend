@@ -35,6 +35,7 @@ import {
   noApiVariant,
 } from '../services/installGuides.js'
 import { settingsSectionEntry } from '../services/editorViews.js'
+import { watchBackLayer } from '../services/backStack.js'
 import { invoke } from '@tauri-apps/api/core'
 import {
   CAN_USE_LOCAL_FOLDER,
@@ -507,7 +508,7 @@ const APPEARANCE_ROWS = [
     key: 'theme',
     labelKey: 'settings.appearance.theme.label',
     hintKey: 'settings.appearance.theme.hint',
-    control: 'select',
+    control: 'themeGrid',
     options: THEMES,
   },
   ...SHELL_ROWS,
@@ -522,6 +523,56 @@ const APPEARANCE_ROWS = [
  * 写成模块级常量或每次现查 `matchMedia` 会让这一栏把首帧的答案缓存住。
  */
 const appearanceRows = computed(() => APPEARANCE_ROWS.filter((row) => row.when?.() ?? true))
+
+// 深色一行、浅色一行（用户要求的两行排法），不在模板里按 id 硬写
+const themeGroups = computed(() => [
+  { scheme: 'dark', items: THEMES.filter((item) => item.scheme === 'dark') },
+  { scheme: 'light', items: THEMES.filter((item) => item.scheme === 'light') },
+])
+
+/**
+ * 色卡预览的四格颜色**直接从样式表里读**，不在 JS 再抄一份。
+ * 抄一份的结果就是：改了 base.css 的色值，色卡还停在旧颜色（用户实报过）。
+ * 读法：把该主题实际会命中的选择器（:root → 明暗基础块 → 主题覆盖块）按文档顺序叠起来，
+ * 后出现的声明优先，正好和浏览器级联的方向一致。读不到（跨源样式表 / 尚未加载）时
+ * 退回 THEMES 上那份 fallback，绝不出现空白卡。
+ */
+const SWATCH_VARS = ['--bg-editor', '--bg-card', '--accent', '--text']
+const swatchCache = new Map()
+
+function selectorsFor(theme) {
+  const names = [':root']
+  if (theme.scheme === 'light') names.push(":root[data-scheme='light']")
+  if (theme.id !== 'dark' && theme.id !== 'light') names.push(`:root[data-theme='${theme.id}']`)
+  return names
+}
+
+function swatchFor(theme) {
+  if (swatchCache.has(theme.id)) return swatchCache.get(theme.id)
+  const wanted = selectorsFor(theme)
+  const values = {}
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules = null
+    try {
+      rules = sheet.cssRules
+    } catch {
+      continue // 跨源样式表：读不到就跳过，由 fallback 兜底
+    }
+    for (const rule of Array.from(rules || [])) {
+      // 浏览器把属性选择器的引号规整成正/双引号不定，统一成单引号再比
+      const sel = rule.selectorText?.replace(/"/g, "'")
+      if (!sel || !wanted.includes(sel)) continue
+      for (const name of SWATCH_VARS) {
+        const value = rule.style.getPropertyValue(name).trim()
+        if (value) values[name] = value
+      }
+    }
+  }
+  const read = SWATCH_VARS.map((name) => values[name] || '')
+  const swatch = read.every(Boolean) ? read : theme.swatch
+  swatchCache.set(theme.id, swatch)
+  return swatch
+}
 
 // 设置分类目录：左侧导航项与右侧内容一一对应，点哪一项就只渲染那一组设置。
 // activeSection 只活在这个组件里（不落 localStorage）：设置视图本来就是常驻挂载的，
@@ -1116,6 +1167,13 @@ function requestUninstall(entry) {
 function cancelUninstall() {
   pendingUninstall.value = null
 }
+
+/**
+ * 装成 app 时的**系统返回** = 取消卸载（2026-10-30）：与点遮罩、Esc 同一个出口。
+ * 它**绝不能等于确认** —— 删掉的是几十 MB 的运行时缓存，重新下要等。
+ */
+const stopBackUninstall = watchBackLayer(() => Boolean(pendingUninstall.value), cancelUninstall)
+onBeforeUnmount(() => stopBackUninstall())
 
 /**
  * 真卸载。先从服务层清缓存 / 内存（失败也不报错，见 uninstallRuntime），
@@ -1718,6 +1776,18 @@ function cancelUnbind() {
 }
 
 /**
+ * 解绑 / 应用云端配置这两张确认卡同样接上返回键（2026-10-30）：一律落到各自的取消，
+ * 而且走的是**弹窗自己的**取消函数 —— `cancelCloudApply` 里那两句 `clearPendingCloudHandle`
+ * / `markCloudEntryHandled` 不能绕过，否则这条链接带来的询问会在下次刷新时又冒一遍。
+ */
+const stopBackUnbind = watchBackLayer(() => pendingUnbind.value, cancelUnbind)
+const stopBackCloudApply = watchBackLayer(() => Boolean(cloudApplyHandle.value), cancelCloudApply)
+onBeforeUnmount(() => {
+  stopBackUnbind()
+  stopBackCloudApply()
+})
+
+/**
  * 解绑：只断开**本机**与这个用户名的关联，不碰云端。
  *
  * 刻意不发 unbind 请求。服务端那个接口要求先取码验证（没有码就回「验证码已过期或未获取，
@@ -1848,7 +1918,10 @@ watch(pendingUnbind, (open) => {
         <template v-for="row in appearanceRows" :key="row.key">
           <p v-if="row.groupTitleKey" class="setting-subtitle">{{ t(row.groupTitleKey) }}</p>
 
-          <label
+          <!-- 主题色卡那行必须是 div 而不是 label：label 会把第一个可标记后代（第一张卡）
+               认成自己的控件，点标题空白处等于点了第一张卡 -->
+          <component
+            :is="row.control === 'themeGrid' ? 'div' : 'label'"
             class="setting-row"
             :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
           >
@@ -1872,6 +1945,29 @@ watch(pendingUnbind, (open) => {
                 @change="setNumber(row, $event)"
               />
 
+              <span v-else-if="row.control === 'themeGrid'" class="theme-groups">
+                <span v-for="group in themeGroups" :key="group.scheme" class="theme-group">
+                  <button
+                    v-for="item in group.items"
+                    :key="item.id"
+                    type="button"
+                    class="theme-card"
+                    :class="{ 'is-on': rowValue(row) === item.id }"
+                    :aria-pressed="rowValue(row) === item.id"
+                    :title="t(item.labelKey)"
+                    @click="rowSelect(row, item.id)"
+                  >
+                    <!-- 预览块的四格颜色从样式表读（见 swatchFor），改 CSS 就自动跟着变 -->
+                    <span class="theme-card__preview" :style="{ background: swatchFor(item)[0] }">
+                      <span class="theme-card__panel" :style="{ background: swatchFor(item)[1] }"></span>
+                      <span class="theme-card__accent" :style="{ background: swatchFor(item)[2] }"></span>
+                      <span class="theme-card__line" :style="{ background: swatchFor(item)[3] }"></span>
+                    </span>
+                    <span class="theme-card__name">{{ t(item.labelKey) }}</span>
+                  </button>
+                </span>
+              </span>
+
               <span v-else-if="row.control === 'select'" class="select">
                 <select :value="rowValue(row)" @change="rowSelect(row, $event.target.value)">
                   <option v-for="item in row.options" :key="item.id" :value="item.id">
@@ -1893,7 +1989,7 @@ watch(pendingUnbind, (open) => {
                 <span class="switch__thumb"></span>
               </button>
             </span>
-          </label>
+          </component>
         </template>
       </section>
 
@@ -3164,7 +3260,7 @@ watch(pendingUnbind, (open) => {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.settings-nav__item:hover {
+:where(html.is-hoverable) .settings-nav__item:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -3277,7 +3373,7 @@ watch(pendingUnbind, (open) => {
   transition: background-color 0.15s ease;
 }
 
-.setting-row:hover {
+:where(html.is-hoverable) .setting-row:hover {
   background: var(--bg-panel);
 }
 
@@ -3395,6 +3491,103 @@ watch(pendingUnbind, (open) => {
   margin-top: 0;
 }
 
+/* 主题色卡网格：整行改成纵向 —— 标题与说明在上，色卡在下面铺满整行。
+   一张卡 = 一块预览（底色 + 右侧面板条 + 强调色条 + 正文线）+ 主题名。
+   预览块里的颜色来自 THEMES 的 swatch（别的主题的色值，读不到当前主题的变量）。 */
+.setting-row--themeGrid {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.setting-row--themeGrid .setting-row__control {
+  width: 100%;
+}
+
+/* 深色一组、浅色一组；组内列数按可用宽度弹性铺（auto-fill + 最小卡宽），
+   宽度不够就换行，不再为了「一行塞满」把卡片压扁 */
+.theme-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.theme-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+:where(html.is-hoverable) .theme-card:hover {
+  border-color: var(--text-faint);
+  background: var(--bg-control);
+}
+
+.theme-card.is-on {
+  border-color: var(--accent);
+  background: var(--bg-card);
+}
+
+.theme-card__preview {
+  position: relative;
+  display: block;
+  height: 46px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.theme-card__panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 30%;
+}
+
+.theme-card__accent {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  width: 26px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.theme-card__line {
+  position: absolute;
+  left: 8px;
+  top: 10px;
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.theme-card__name {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+
+.theme-card.is-on .theme-card__name {
+  color: var(--text);
+}
+
 /* 动作行（按钮 / 录制框 / 链接）：标签在左、控件在右并垂直居中 */
 .setting-row--action {
   align-items: center;
@@ -3422,7 +3615,7 @@ watch(pendingUnbind, (open) => {
   transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.select select:hover {
+:where(html.is-hoverable) .select select:hover {
   background: var(--bg-control);
 }
 
@@ -3507,7 +3700,7 @@ watch(pendingUnbind, (open) => {
   transition: background-color 0.15s ease;
 }
 
-.runtime-row:hover {
+:where(html.is-hoverable) .runtime-row:hover {
   background: var(--bg-hover);
 }
 
@@ -3621,7 +3814,7 @@ watch(pendingUnbind, (open) => {
     box-shadow 0.16s ease;
 }
 
-.download-button:hover:not(:disabled) {
+:where(html.is-hoverable) .download-button:hover:not(:disabled) {
   background: var(--bg-control-hover);
 }
 
@@ -3694,8 +3887,8 @@ watch(pendingUnbind, (open) => {
   background: transparent;
 }
 
-.download-button.is-uninstall:hover:not(:disabled),
-.download-button.is-danger:hover:not(:disabled) {
+:where(html.is-hoverable) .download-button.is-uninstall:hover:not(:disabled)
+:where(html.is-hoverable) .download-button.is-danger:hover:not(:disabled) {
   color: var(--danger-text);
   border-color: var(--danger-text);
   background: var(--danger-bg);
@@ -3816,7 +4009,7 @@ a.download-button {
 }
 
 /* 内嵌卡片自己负责层次，别再叠行悬停的底色 */
-.cloud-account:hover {
+:where(html.is-hoverable) .cloud-account:hover {
   background: var(--bg-panel);
 }
 
@@ -3857,7 +4050,7 @@ a.download-button {
   color: var(--text-on-accent);
 }
 
-.cloud-primary:hover:not(:disabled) {
+:where(html.is-hoverable) .cloud-primary:hover:not(:disabled) {
   border-color: transparent;
   background: var(--accent-hover);
 }
@@ -3994,7 +4187,7 @@ a.download-button {
   text-decoration: none;
 }
 
-.cloud-flow__link:hover {
+:where(html.is-hoverable) .cloud-flow__link:hover {
   text-decoration: underline;
 }
 
@@ -4085,12 +4278,14 @@ a.download-button {
   padding: 14px;
 }
 
-.danger-zone .setting-row:hover {
+:where(html.is-hoverable) .danger-zone .setting-row:hover {
   background: transparent;
 }
 
 /* 窄面板（手机、或桌面端侧栏展开后的编辑区）：两栏并排放不下，整行退回上下排。
    规范 1 的「左文右操作」只在有横向余量时成立 —— 硬撑两栏会让中文标题一字一行。
+   但**退回上下排不等于放弃右对齐**：控件仍然贴行尾（`flex-end`），否则按钮掉到第二行最左边，
+   手指要横跨整行才够得到，读起来也跟上面的标题断开（2026-10-30 改，原来靠左）。
    阈值用 rem：跟着界面缩放一起变。 */
 @container settings (max-width: 26rem) {
   .setting-row,
@@ -4110,13 +4305,8 @@ a.download-button {
   .setting-row--switch .setting-row__control {
     margin-top: 0;
     align-self: stretch;
-    justify-content: flex-start;
+    justify-content: flex-end;
     flex-wrap: wrap;
-  }
-
-  /* 开关是唯一不需要占满一行的控件：放在文字下方、靠左即可 */
-  .setting-row--switch .setting-row__control {
-    align-self: flex-start;
   }
 
   .select,
@@ -4130,7 +4320,7 @@ a.download-button {
     min-width: 0;
   }
 
-  /* 运行环境行：图标 + 文字排一行，下载 / 卸载按钮落到第二行，别把标题挤成竖排 */
+  /* 运行环境行：图标 + 文字排一行，下载 / 卸载按钮落到第二行（同样贴行尾，见本节开头） */
   .runtime-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -4149,9 +4339,12 @@ a.download-button {
     grid-area: text;
   }
 
+  /* 撑满整行 + 内容靠右：`justify-self: end` 只会把它缩到内容宽，两颗按钮挤不下时会顶出卡片 */
   .runtime-row__actions {
     grid-area: actions;
-    justify-self: start;
+    justify-self: stretch;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 }
 
@@ -4278,7 +4471,7 @@ a.download-button {
   color: var(--text-on-accent);
 }
 
-.download-button.is-primary:hover:not(:disabled) {
+:where(html.is-hoverable) .download-button.is-primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
@@ -4362,7 +4555,7 @@ a.download-button {
   cursor: pointer;
 }
 
-.confirm__btn:hover {
+:where(html.is-hoverable) .confirm__btn:hover {
   background: var(--bg-hover);
 }
 
@@ -4372,7 +4565,7 @@ a.download-button {
   color: var(--danger-text);
 }
 
-.confirm__btn--danger:hover {
+:where(html.is-hoverable) .confirm__btn--danger:hover {
   background: var(--danger-bg-hover);
 }
 

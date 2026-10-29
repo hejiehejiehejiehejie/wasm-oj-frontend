@@ -161,7 +161,7 @@ onBeforeUnmount(clearRevealTimer)
   font-size: 12.5px;
 }
 
-.gate__action:hover {
+:where(html.is-hoverable) .gate__action:hover {
   background: var(--accent-hover);
 }
 
@@ -171,7 +171,7 @@ onBeforeUnmount(clearRevealTimer)
   color: var(--text-dim);
 }
 
-.gate__action.is-quiet:hover {
+:where(html.is-hoverable) .gate__action.is-quiet:hover {
   background: var(--bg-hover);
   color: var(--text);
 }

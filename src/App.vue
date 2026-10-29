@@ -19,6 +19,7 @@ import { useInstallGuides } from './composables/useInstallGuides.js'
 import { actionForCombo, comboFromEvent, recordingActive } from './composables/useShortcutManager.js'
 import { contentElementAt } from './composables/contentHit.js'
 import { flush, initAutoSave } from './services/autoSave.js'
+import { watchBackLayer } from './services/backStack.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { MEMORY_LIMIT_DEFAULT_BYTES, TIME_LIMIT_DEFAULT_MS, runCases } from './services/runner.js'
 import { DEFAULT_CHECKER_ID } from './services/checkers.js'
@@ -524,6 +525,12 @@ function nudgeShare(delta) {
 // 这里只做收敛：越界才写回，本来就合法则原样不动。
 function reclampShare() {
   if (!panelVisible.value) return
+  // 窄屏整个跳过（2026-10-30）：那一档侧栏是浮在编辑区之上的抽屉，编辑区**不再分**侧栏那条
+  // 宽度（见样式表「窄屏展开态」那块），所以这里的算式对它没有意义；照旧夹取反而有害 ——
+  // 390 宽下 maxShare 只有 50 左右，手机横过来再竖回去，宽屏那份 60 就被永久夹成 50，
+  // 侧栏凭空胖出一圈（实测 1200 宽：474 → 592）。窄屏里没有拖拽入口，占比也没处改，
+  // 留着原值等回到宽屏再由那一次的 ResizeObserver 正常收敛才是对的。
+  if (isNarrowLayout()) return
   applyShare(editorShare.value, measureLimits())
   virtualShare = editorShare.value
 }
@@ -791,6 +798,19 @@ function beginDrag(event) {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', stop)
     window.removeEventListener('pointercancel', stop)
+    window.removeEventListener('blur', bail)
+    document.removeEventListener('visibilitychange', onVisibility)
+  }
+  // 兜底收尾两条（2026-10-30 加）：系统手势（从屏幕边缘往回划、下拉通知栏、来电）会把整串
+  // 指针事件直接吞掉 —— 页面既收不到 pointerup 也收不到 pointercancel，于是 dragging 永远为真，
+  // 那条蓝线（`.workspace.is-dragging .splitter__line`）就一直亮着，直到下一次拖拽。手指
+  // 明明已经抬起来了，这就是用户报的「有的时候松手之后蓝线还在」。窗口失焦、页面转到后台
+  // 时一律按「松手」处理：那时候已经没人在按住这条线了。
+  function bail() {
+    finish()
+  }
+  function onVisibility() {
+    if (document.visibilityState === 'hidden') finish()
   }
   const stop = (upEvent) => {
     // 判据 ② 必须在这里先算：下面 finish() 会把 dragPanelPx 清成 null
@@ -815,6 +835,8 @@ function beginDrag(event) {
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
   window.addEventListener('pointercancel', stop)
+  window.addEventListener('blur', bail)
+  document.addEventListener('visibilitychange', onVisibility)
 }
 
 // ------------------------------------------------------------------ 运行逻辑
@@ -994,6 +1016,31 @@ function cancelSubmit() {
   // 键盘取消后焦点别掉到 <body>：回到那颗提交按钮（弹窗只会在它存在时打开）
   nextTick(() => document.querySelector('.panel .submit-inline')?.focus())
 }
+
+/**
+ * 装成 app 时的**系统返回** = 取消（2026-10-30）：与 Esc、点遮罩同一个出口。
+ *
+ * 提交会在 Codeforces 上留一条删不掉的记录，所以这张卡必须能被返回键关掉 ——
+ * 独立 app 里返回键的语义是「退掉眼前这一件」，比误交一次安全得多。
+ *
+ * 注册与注销都跟着 `pendingSubmit` 走：Esc / 点遮罩关掉时 `watchBackLayer` 会自己出栈，
+ * 这里不用另接一条钩子（那正是它存在的理由，见 services/backStack.js）。
+ */
+const stopBackSubmit = watchBackLayer(() => Boolean(pendingSubmit.value), cancelSubmit)
+
+/**
+ * 装成 app 时的**系统返回** = 收起窄屏抽屉（2026-10-30）。
+ *
+ * 判据必须带上 `isNarrowLayout()`：宽窄屏共用同一个 `panelVisible`，无条件接的话
+ * **宽屏上按返回会把一直开着的侧栏收起来** —— 那不是「退掉眼前这一件」，用户会以为坏了。
+ * 窄屏的展开态是覆盖式抽屉（`.drawer-scrim` 就是它的遮罩），返回收它符合直觉。
+ *
+ * 动作与点遮罩、侧栏底栏那枚箭头完全一致（都是 `togglePanel`），不另写一份。
+ */
+const stopBackDrawer = watchBackLayer(
+  computed(() => isNarrowLayout() && panelVisible.value),
+  () => togglePanel(),
+)
 
 async function confirmSubmit() {
   const pending = pendingSubmit.value
@@ -1828,6 +1875,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopBackSubmit()
+  stopBackDrawer()
   window.removeEventListener('keydown', onKeydown, true)
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('blur', onWindowBlur)
@@ -1860,6 +1909,11 @@ onBeforeUnmount(() => {
         { 'is-dragging': dragging, 'is-collapsed': !panelVisible },
       ]"
     >
+      <!-- 窄屏抽屉的遮罩：只在「窄屏 + 侧栏展开」这一种形态下存在 —— 显隐全交给下面那条
+           CSS 规则，模板里不重复判据。它拦住指针，于是背后那条编辑区只作为背景存在；
+           点它等于「收起抽屉」，与侧栏底栏那枚箭头是同一个动作（都是 togglePanel）。 -->
+      <div class="drawer-scrim" aria-hidden="true" @click="togglePanel()"></div>
+
       <section class="pane pane--editor" :style="editorPaneStyle">
         <EditorPane
           ref="editorPane"
@@ -2068,6 +2122,10 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  /* 窄屏的抽屉（侧栏展开时改为浮在编辑区之上，见下面「窄屏展开态」那一块）的定位基准。
+     不写它，那个 `position: absolute` 会一路找到初始包含块（视口），抽屉就跑页头上面去了。
+     这里只是成为包含块，不动主轴、不建层叠上下文（没有 z-index），宽屏排版一个像素都不变。 */
+  position: relative;
   /* 布局对调只发生在这里 */
   flex-direction: row;
   /* 四周留白 6px + 两栏之间 4px 空隙（分隔条负外边距后剩下的部分，见 .splitter）：
@@ -2211,6 +2269,83 @@ onBeforeUnmount(() => {
 .pane--tests.is-collapsed .pane__inner {
   visibility: hidden;
   opacity: 0;
+}
+
+/* ------------------------------------------------- 窄屏展开态：侧栏是抽屉，不占编辑区（2026-10-30）
+
+   窄屏两栏并排分的是同一条只有几百像素的宽度：侧栏按 `min-width` 那组 clamp（160 / 50% / 240）
+   直接拿走近一半，编辑器只剩一百多像素（390 宽实测 175px）—— 一行代码都读不全，等于
+   「一开侧栏就写不了代码」（用户 2026-10-30 原话：编辑区过窄的时候，是不可用的）。
+   所以窄屏的展开态改成**抽屉**：侧栏脱离主轴、绝对定位浮在编辑区之上，编辑器照旧吃满整行；
+   收起后是「编辑器 + 一条通栏图标栏」（见下面折叠态那块）—— 两种形态都不挤。
+
+   四条缺一不可：
+   - `position: absolute` + `inset-block: 6px`：脱离主轴（编辑器是 `flex: 1 1 60%`，grow 还在，
+     行里只剩它一个就自然铺满）；上下缘与 6px 内边距同值，与编辑器卡片对齐；
+   - 宽度 `min(86%, 420px)`：手机上基本铺满（留出编辑器的一条边，暗示后面还有东西），
+     平板竖屏封顶 420px —— 768 宽的机器上不至于盖掉大半个屏；
+   - 贴它停靠的那一侧：默认 `left`，`.is-right` 时镜像到右边（与宽屏 order 同一套判据）；
+   - `z-index: 30`：压得住编辑器那一栏，又低于 toast（150）/ 菜单（120）/ 确认框（130）——
+     抽屉开着时「运行完成」那条通知照样看得见。
+
+   底面仍是 `--bg-editor`（2026-10-23 用户口径「侧栏折叠 / 展开都跟页面底色一样」），
+   于是边界交给「1px 淡环 + 一层投影」，与 CF 页那个小面板同一套写法（`.cf-handle__panel`）。
+   刻意不画真 `border`：`pinSidebarWidth` 靠 `borderLeftWidth / borderRightWidth` 反算内容宽，
+   多一条真边框就多扣 2px，钉出来的内层会比外层窄两像素。
+
+   ⚠️ 折叠态不在这条规则里（选择器排除了 `.is-collapsed`）：那边侧栏已经收成 1px 留在排版里，
+   等 View Transitions 拍快照（见上面 `.pane--tests.is-collapsed` 那段），改不得。
+   ⚠️ 判据照旧只有 `html.is-narrow` 这一份（`shellSettings.js` 的 `isNarrowLayout()`），
+   `:where()` 只是为了不贡献特异性 —— 与上面两块同一个写法。 */
+:where(html.is-narrow) .workspace:not(.is-collapsed) .pane--tests {
+  position: absolute;
+  inset-block: 6px;
+  left: 6px;
+  z-index: 30;
+  width: min(86%, 420px);
+  box-shadow: 0 0 0 1px var(--border-divider), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+/* 侧栏停到右边时贴右边（上面那条的 left 是默认方向，这里连 left 一起归位） */
+:where(html.is-narrow) .workspace.is-right:not(.is-collapsed) .pane--tests {
+  left: auto;
+  right: 6px;
+}
+
+/* 窄屏展开态没有那条缝：分隔条整条撤掉。
+   它表达的是「两栏共用这条宽度」，而抽屉已经把侧栏从主轴里摘出来了 —— 留着它只会在
+   编辑器的另一侧留一条 4px 的净占宽（12px 热区 − 8px 负外边距），宽屏那套算式在这里没有意义。
+   收起侧栏的入口仍是侧栏底栏那枚箭头（Sidebar.vue 的 .sidebar-switcher__collapse，只在窄屏出现）。 */
+:where(html.is-narrow) .workspace:not(.is-collapsed) .splitter {
+  display: none;
+}
+
+/* 抽屉背后的遮罩（2026-10-30）。抽屉浮起来之后，右侧那条编辑区只剩视觉意义，
+   可不加这一层，手指点上去仍会落进编辑器里（选字、点折叠箭头、弹软键盘）——
+   「浮层」该是背后不可操作（用户 2026-10-30 口径「唤出浮层侧边栏之后不能点按到底下编辑区」）。
+   所以这一层只为两件事存在：拦住指针、给出「点外面收起」的落点。
+
+   几条口径：
+   - 显隐与抽屉同一套判据，各写一次；宽屏与折叠态下 `display: none`，不参与任何布局
+     （`position: absolute` 本来也不进 flex 主轴，但 display 更彻底：连绘制都不做）。
+   - `z-index: 29`：压住编辑区（auto），低于抽屉（30）。toast（150）与菜单 / 确认框
+     仍在最上 —— 抽屉开着时「运行完成」那条通知照样看得见、点得着。
+     ⚠️ 这一层只跟 `.pane--editor` 的 z-index 比：编辑器里若有自带的 z ≥ 29 的浮层，
+     会从遮罩上面露出来（现在全树只有一条 z 101 的 `.editor-tabs__gline`，1px 宽、不接指针，
+     可以不管；将来真加了浮层，得把它一并收进编辑器的层叠上下文）。
+   - 只覆盖 `.workspace` 的 padding box：页头不在其中，抽屉开着时它仍是可用入口
+     （齿轮菜单、胶囊），没必要一起封掉。
+   - 颜色走令牌 `--drawer-scrim`（深色 34% / 浅色 14%），深浅两套各自的权重见 base.css。 */
+.drawer-scrim {
+  display: none;
+}
+
+:where(html.is-narrow) .workspace:not(.is-collapsed) .drawer-scrim {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 29;
+  background: var(--drawer-scrim);
 }
 
 /* ------------------------------------------------- 窄屏折叠态：图标栏横过来贴边（2026-10-13）
@@ -2453,14 +2588,8 @@ onBeforeUnmount(() => {
 .workspace.is-dragging .splitter__line {
   opacity: 1;
 }
-
-/* 「悬停显影」只在真有悬停能力的指针上生效。触屏没有 hover，浏览器会把点按瞬间的 :hover
-   粘在元素上直到点了别处，于是点按折叠/展开后那条蓝线留在原处不灭；键盘焦点（上面的
-   :focus-visible）和拖拽态不受影响，触屏下这两条路仍然可用 */
-@media (hover: hover) {
-  .splitter:hover .splitter__line {
-    opacity: 1;
-  }
+  :where(html.is-hoverable) .splitter:hover .splitter__line {
+  opacity: 1;
 }
 
 /* ---------------------------------------------------------------- 提交确认
@@ -2526,7 +2655,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.confirm__btn:hover {
+:where(html.is-hoverable) .confirm__btn:hover {
   background: var(--bg-hover);
 }
 
@@ -2537,7 +2666,7 @@ onBeforeUnmount(() => {
   color: var(--text-on-accent);
 }
 
-.confirm__btn--primary:hover {
+:where(html.is-hoverable) .confirm__btn--primary:hover {
   background: var(--accent-hover);
 }
 

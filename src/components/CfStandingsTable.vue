@@ -494,7 +494,7 @@ watch(
   transition: background-color 0.15s ease;
 }
 
-.cf-standings__pin-jump:hover {
+:where(html.is-hoverable) .cf-standings__pin-jump:hover {
   background: var(--accent-face);
 }
 
@@ -552,7 +552,7 @@ watch(
   transition: background-color 0.12s ease;
 }
 
-.cf-table tbody tr:hover {
+:where(html.is-hoverable) .cf-table tbody tr:hover {
   background: var(--bg-hover-soft);
 }
 
@@ -604,7 +604,7 @@ watch(
   background: var(--accent-face-soft);
 }
 
-.cf-table tbody tr.is-mine:hover {
+:where(html.is-hoverable) .cf-table tbody tr.is-mine:hover {
   background: var(--accent-face);
 }
 

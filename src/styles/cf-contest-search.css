@@ -83,7 +83,7 @@
     background-color 0.18s ease;
 }
 
-.cf-search:hover {
+:where(html.is-hoverable) .cf-search:hover {
   border-color: color-mix(in srgb, var(--text-faint) 40%, var(--border-soft));
 }
 
@@ -113,7 +113,7 @@
 }
 
 /* 压掉 cf-console.css 的共享悬停底色与内层焦点环，保持单层通透卡面 */
-.cf-search .cf-input:hover,
+:where(html.is-hoverable) .cf-search .cf-input:hover,
 .cf-search .cf-input:focus {
   border-color: transparent;
   background: transparent;
@@ -147,7 +147,7 @@
     opacity 0.15s ease;
 }
 
-.cf-search__go:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-search__go:hover:not(:disabled) {
   background: var(--accent-face-hover);
 }
 

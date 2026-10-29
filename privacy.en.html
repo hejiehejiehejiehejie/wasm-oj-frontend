@@ -23,7 +23,9 @@
     <meta property="og:description" content="What stays in your browser, what the optional cloud sync uploads, what the extension reads, and how to reach us.">
     <!--
       Theme sync: same localStorage contract as the main app (cp.editorSettings.theme).
-      Without a data-theme attribute base.css defaults to dark, so only switch for light.
+      Lightness (data-scheme) and the concrete palette (data-theme) are two separate
+      attributes; with neither one base.css defaults to dark. LIGHT_THEMES is the list of
+      light-theme ids and must be kept in sync across every static page.
       Deliberately not type="module": a plain inline script is not moved or bundled by the build.
 
       Sync obligation: this is the English version of the privacy policy and corresponds
@@ -33,8 +35,12 @@
       try {
         var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
         var theme = saved && saved.theme
-        if (theme === 'light' || theme === 'cph-light') {
-          document.documentElement.dataset.theme = 'light'
+        if (theme === 'cph-light') theme = 'light'
+        var LIGHT_THEMES = ['light', 'paper', 'leaf', 'mist']
+        if (theme) {
+          document.documentElement.dataset.theme = theme
+          document.documentElement.dataset.scheme =
+            LIGHT_THEMES.indexOf(theme) >= 0 ? 'light' : 'dark'
         }
       } catch (error) {
         /* private mode, or a corrupt entry: dark by default is fine */

@@ -49,6 +49,7 @@
 | 界面文案不许写死 | 组件、composable、service 里**一律不许出现中文字面量**（现在只剩注释里有中文）。模板与 computed 里写 `t('域.组.键')`，整棵内容树（应用内帮助）走 `messages('help')`。加新文案 = 在 `src/i18n/messages/<域>.js` 里**中英两栏同时补**（同一文件里并排），缺哪一栏会静默退到中文。唯一例外是**写进文件系统的名字**（见下一条）与 `[unnamed]` 这类控制台前缀（见第 5 节坑 28 第 5 条） |
 | 数据表只存 key，不存译文 | `EDITOR_GROUPS` / `SECTIONS` / `RUNTIMES` / `THEMES` / `SHORTCUT_ACTIONS` / `OJ_LIST` / `LUOGU_LEVELS` / 各引擎的 `labelKey` 都只存 `labelKey` / `hintKey` / `titleKey`（可带 `labelParams`），由消费处再 `t()`。**在模块顶层或 `<script setup>` 顶层调 `t()` 会冻结成那一刻的语言**——切语言不跟着变，是最容易漏的一类（第 5 节坑 28 第 1 条） |
 | 写进文件系统的名字不翻译 | `vfs/problemImport.js` 的 `未分类` / `未命名题目`、`problemMeta.js` 里 `OJ_LIST[].dirName`（洛谷 / Codeforces / 牛客…）都会变成**真实目录名 / 文件名**。跟着界面语言变会让同一个逻辑位置出现两个目录（老用户切换语言后找不到自己的题）。所以显示名走 `labelKey`、落盘名走 `dirName`，**两个字段刻意分开**，主应用与两份 guide 的正文里也照写 `未分类` 不译。同理 `cp.*` 键名、IndexedDB 库名、主题 id 都不随语言变 |
+| **悬停一律过 `html.is-hoverable` 闸门** | 任何 `:hover` 规则（含「悬停才显形」的隐形容器）都写成 `:where(html.is-hoverable) <选择器>:hover`；判定本身只在 `services/hoverCapability.js`（`main.js` import 即执行，首帧前落定）。**别再写 `@media (hover: hover)`** —— 它判的是设备而不是「这一次输入」，安卓长按模拟悬停 / 手机开「桌面版网站」/ 插着鼠标的触屏本三种情况全漏（2026-10-30，见第 5 节坑 65）。`@media (hover: none)` 的同款兜底也要反向改写成 `:where(html:not(.is-hoverable))`。`:where()` 是为了**不贡献特异性**，别删 |
 
 ### 1.A 圆角只有三档：10px / 6px / 4px（2026-10-29 定，改样式先看这里）
 
@@ -112,7 +113,7 @@ docs/云端同步服务.md            # ★ 云端同步的后端（Cloudflare W
 docs/新内核规划.md                # **只在「换内核」这件事上**的施工规划（2026-10-24 立）：`scripts/wasm-core/` 的实况进度、外部建议的逐项裁决（已实现 / 已过时 / 与 §18 实测冲突）、阶段 0–6 与每阶段的出口判据、换内核必须一起动的 9 条下游、待拍板 8 条。**不放基准数字**（第 18 节）、**不定判定语义**（`docs/评测判定规范.md`）。做完一个阶段就把那一节从这份里删掉、结论进本文件
 docs/评测判定规范.md              # 评测判定的**规范性**口径：什么算 AC / WA / CE / TLE / MLE / RE / ERR、判定优先级（TLE > MLE > RE）、时间与内存口径（对齐 DOMjudge / Isolate / AtCoder / CF / USACO 的一手依据）、编译参数基线、输出比对规则、各引擎兑现矩阵、20 行验收矩阵、与现行实现的差距（§10，含「栈只有 1 MiB」与「`abort()` 误判 MLE」两条 P0）。换内核后哪些条目要重量，见 `docs/新内核规划.md` 阶段 3
 src/
-  main.js                       # 挂载 + 生产构建里注册 Service Worker
+  main.js                       # 挂载 + 生产构建里注册 Service Worker + 装成 app 时武装返回栈（`armBackStack()`，**必须在 `mount()` 之前**，理由见第 23 节）
   sw.js                         # Service Worker 的**源码模板**（不是产物）：预缓存外壳（工具链与题解渲染器都不预缓存、改为按需落缓存），导航网络优先（见第 9 节）。桶名常量不在本文件里——SW 是 classic worker、没法 import，所以由 vite.config.js 的 `cp-service-worker` 插件把 services/storageNames.js 的 `SERVICE_WORKER_CONSTANTS` 生成一段 `const …` 前置进来，产物落 `dist/sw.js`（URL 与原来的 `public/sw.js` 完全一致）。**`public/` 下已经没有这个文件**，dev 下由同一个插件的中间件现场拼出来
   monaco-setup.js               # Monaco 的 dark / light 两套自定义主题（它仍是全站唯一的 Monaco 出口，但**引入清单已挪进 services/monaco/editorBundle.js**，见下）
   services/monaco/editorBundle.js # ★ **Monaco 的按需引入清单**（2026-10-13）：74 条 contribution 逐条抄自 monaco-editor@0.56.0 的 editor.main.js，**只删了 languages/definitions/*（83 种语言只剩 cpp/python/markdown 三个注册桩，monarch 定义仍是懒加载 chunk）与 languages/features/*（js/ts/css/html/json 四个语言服务连同各自 worker）**；语法之外全保留（查找框 / 右键 / 折叠 / 多光标 / 快捷键一条没少）。全量入口 `import * as monaco from 'monaco-editor'` 曾把 ts.worker（单文件 6.6MB）等 9.1MB 用不到的资产拖进首访预缓存。三件事：① 全仓只许这一处 import Monaco（经 `export *` + `export { monaco }` 双出口，`import * as monaco` 与 `import { monaco }` 都成立）；② 用 `monaco-esm/` 前缀（vite.config.js 的 alias 直指 esm/vs/，exports map 取不到 .css 与深层路径）；③ **升级 Monaco 后要重对清单**：`diff node_modules/monaco-editor/esm/vs/editor/editor.main.js` 的 import 表与这份清单，新增的 contribution 逐条决定收不收；④ **dev 下验「动作在不在册」不可靠**：预打包把 78 个 bare import 各自成 chunk、按需发现时可能跑两次 esbuild，两次产物的模块图各带一份动作注册表实例，动作会「忽有忽无」（2026-10-13 探针实测：同一份代码 dev 下 127/128 动作不稳定）——验编辑器能力一律**对产物**（`npx vite build --outDir /tmp/xxx` + `vite preview`），别信 dev server。
@@ -206,6 +207,7 @@ src/
     fileTransfer.js             # ★ 文件「导入 / 导出」的服务层（2026-10-12 加），**两端共用**，组件只消费。四块：① **下载** `downloadBlob`（`<a download>` + `URL.createObjectURL`，插进 DOM 点一下再撤，30s 后 revoke）；② **导出** `collectExport(nodes)` —— 递归读内容、算出每个条目在 zip 里的相对路径（以选区**公共父目录**为根，`commonParent()`；选中一个目录时保留它自己那一层），落点入口是 `exportAsZip` / `exportSingleFile`；③ **导入** `planImport(files)` 把 `File[]` 拍成 `{ rel, file }[]`（**保住 `webkitRelativePath`**，所以「选一个文件夹」进来时顶层文件夹名与子目录层级都在；没有这个属性就退化成单级文件名），`importInto(dir, items)` 落盘并回 `{ imported, skipped, failed, firstId }`；④ **平台能力** `CAN_EXPORT_TO_DISK = IS_DESKTOP`（**只有桌面端能写本机目录**）/ `canPickFolder()`（**只有桌面浏览器能整目录导入**，安卓与 iOS 的 `webkitdirectory` 认不出来）。两条纪律：**用户文件绝不覆盖**，重名一律走 `treeOps.uniqueNameIn` 排号（`a.cpp` → `a-2.cpp`，与 problemImport 同口径）；**整批落盘包在一个 `vfs.batch()` 里**，否则几百个文件就是几百次树重建。上限 `MAX_IMPORT_BYTES = 5MB`（与 Rust 侧 `MAX_TEXT_BYTES` 同号）、目录深度 `MAX_DEPTH = 32`；二进制与超大文件都只计入 `skipped`、**不报错**，提示里报个数就行。⑤ **拖入** `readDroppedItems(dataTransfer)`（2026-10-12 加）：把系统拖放里带的东西读成同一形状的 `{ rel, file }[]` —— 目录结构只能靠 `webkitGetAsEntry()` 递归（`dataTransfer.files` 是**平的**，文件夹进去只有一个伪 File）；**同步段不能挪**（`DataTransfer` 只在事件派发期间有效，entry 引用要在事件里抓到手，之后才能慢慢递归，见第 5 节坑 42）；`readEntries()` 一次只回一批（Chrome 上限 100 条），必须读到空为止；浏览器不给 entry 时退回 `files`（至少把顶层文件导进来）。顶层名字保留（拖 `chapter1/` 就建 `chapter1/`），与 ③ 同一口径
     zip.js                      # 极简 zip 打包（2026-10-12 加）。**刻意不引依赖**（第 0 节：加依赖先讨论），压缩走原生 `CompressionStream('deflate-raw')`（Chromium 103+ / Safari 16.4+ / Firefox 113+），拿不到就退回 store（method 0、不压缩）—— **「能解开」比「压得小」重要**。结构是本地文件头 + 中央目录 + EOCD，EFS 标志位 `0x0800` 声明文件名是 UTF-8（中文目录名全靠它），不写 data descriptor。上限照 zip 格式本身（`MAX_ENTRIES = 0xffff` / `MAX_UINT32`），**超了就抛错**、不静默产出半个包（文案 `error.zipTooManyEntries` / `error.zipTooLarge`，落点在 `engines.js` 的 `error` 组）
     systemBars.js               # 壳里那条**系统状态栏**的同步入口（2026-10-12 加），前端这一侧的唯一出处：`syncSystemBars(dark, color)` —— `IS_ANDROID` 闸门 + `invoke('set_system_bars')`，失败只 `console.warn`。调用点只有一个：`editorSettings.js` 里主题那个 watch（与写 `<meta name="theme-color">` 同处）。为什么网页上做不到、底色为什么取 `--bg-chrome`、以及 Rust / JNI 那一整条链路，见第 14.P 节
+    backStack.js                # ★ 装成 app 之后的**系统返回**在站内的去处（2026-10-30 加）：一条哨兵历史 + 一条自维护的 LIFO 栈 + 一层可反复消费的兜底。对外四个出口 —— `armBackStack()`（`main.js` 在 mount **之前**调）、`pushBackLayer(onBack)`（返回注销函数，幂等）、`watchBackLayer(source, onBack)`（开 / 关型状态用这个）、`addBackFallback(fn, priority)`（「还能往回退一步的路」用这个，不占栈位）。只在独立窗口武装，浏览器标签页里四个出口全是空转。机制与全部判据见第 23 节，踩过的坑见第 5 节坑 66
 ```
 
 ## 3. 布局骨架（改布局 / 尺寸看这里）
@@ -509,7 +511,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 十七改后正常折叠路径已不触发）。删除后没有任何替代提示；「刷新后焦点复原进折叠组」这条已知残留
 （见十七改 ⑤）仍在，只是不再有视觉标记。历史章节里的 holds-active 记述保留作沿革，不再生效。〕 |
 | `EditorPane.vue`（style@231） | `.editor-pane` `.editor-pane__stage` `.editor-pane__host`（Monaco 容器）`.editor-pane__empty*` `.editor-pane__status*` |
-| `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size` + `container-name: settings`，窄宽降级靠它而不是视口断点）`.settings-view__inner`（**默认单列**，编辑区 ≥35rem 时才升级成目录 + 内容两栏，见坑 7）`.settings-nav*`（分类目录，8 项，`--active` 是选中项；宽面板下是左栏、窄面板下是顶部横向标签条）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.runtime-row__actions`（已就绪时右侧「已就绪 + 卸载」两颗的容器）`.download-button*`（本地运行环境下载 / 卸载 / 「应用」组安装按钮 / 扩展包下载共用；`.is-uninstall` 悬停才转危险色）`.shortcut-key`（插件快捷键只读键位徽标，与 `HotkeyRecorder` 的 `.hotkey` 同观感；**字体必须用 `--ui-font`**，见下）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`，以及卸载确认弹窗那一组 `.confirm*`（与 `FileExplorer` 同款，Teleport 到 body，见坑 23）（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
+| `EditorSettingsPanel.vue`（style@837） | `.settings-view`（滚动容器，`container-type: inline-size` + `container-name: settings`，窄宽降级靠它而不是视口断点）`.settings-view__inner`（**默认单列**，编辑区 ≥35rem 时才升级成目录 + 内容两栏，见坑 7）`.settings-nav*`（分类目录，8 项，`--active` 是选中项；宽面板下是左栏、窄面板下是顶部横向标签条）`.setting-group*` `.setting-subtitle`（组内小标题，把「运行时限」与「评测引擎」分开）`.setting-group__note`（分组说明文字，如「应用」组那句）`.setting-row`（**不画行边框**，靠内边距 + `:hover` 底色划分边界；`.is-modified::before` 是左侧 3px `--accent` 「已改动」线）`.setting-row__main` / `__head` / `__label` / `__key` / `__hint` / `__control`（标题 / 键名 / 描述三级灰度：`--text` / `--text-faint` 等宽 / `--text-dim`）`.setting-row--select` / `--number`（上下结构，控件在左下）`--switch`（左右结构，开关靠右上）`--action`（左右结构，按钮 / 录制框居中在右）；窄面板（`@container settings (max-width: 26rem)`）下整行退回上下排，**控件仍贴行尾**：`.setting-row__control` 是 `justify-content: flex-end`、`.runtime-row__actions` 是 `justify-self: stretch` + `flex-end`（2026-10-30 由 `flex-start` 改，原先按钮掉到第二行最左边、手指要横跨整行）。还剩两处例外：下拉框 / 数字框在窄面板下撑满整行（对齐无从谈起），`.setting-row--template` 的「恢复默认」用 `margin-left: auto` 贴右（不受这套规则影响）。开关原先靠左（`align-self: flex-start` 收缩成自身宽度）、**2026-10-30 同日改为贴行尾**（一并走上面那条 `justify-content: flex-end`，与按钮同一摆法）`.select` `.number-input` `.switch*` `.runtime-list` `.runtime-row*` `.runtime-row__actions`（已就绪时右侧「已就绪 + 卸载」两颗的容器）`.download-button*`（本地运行环境下载 / 卸载 / 「应用」组安装按钮 / 扩展包下载共用；`.is-uninstall` 悬停才转危险色）`.shortcut-key`（插件快捷键只读键位徽标，与 `HotkeyRecorder` 的 `.hotkey` 同观感；**字体必须用 `--ui-font`**，见下）`.setting-code`（行内代码，如 `chrome://extensions/shortcuts`）`.is-spinning`，以及卸载确认弹窗那一组 `.confirm*`（与 `FileExplorer` 同款，Teleport 到 body，见坑 23）（铺满编辑区的设置视图；原 `.panel-drawer*` / `.icon-button*` / `.done-button*` 已随抽屉外壳一起删掉） |
 | `HotkeyRecorder.vue` | `.hotkey-field`（右对齐一列）`.hotkey`（录制框，`--is-recording` 描边点亮 / `--is-conflict` 红描边红字 / `--is-empty` 未绑定置灰）`.hotkey-clear`（清除按钮）`.hotkey-error`（冲突红字）`.hotkey-tip`（录制中的 Esc / Delete 提示）。**键位徽标一律用 `var(--ui-font)`，不要图「像代码」改成 `--mono-font`**：等宽字体没有 `⌘` `⇧` `⌥` 这几个字形，浏览器会按字符逐个回退到别的字体，同一枚徽标里符号比字母大一圈、粗细也不一致（2026-09-30 修的就是这个）。同一条理由适用于 `EditorSettingsPanel` 的 `.shortcut-key`；状态栏里 `formatCombo` 那一处本来就是 `--ui-font`，所以改完三处一致 |
 | `EngineSettingsPanel.vue`（style@103） | `.engine-panel` `.engine-list` `.engine`（`--active` 是选中引擎，整块可点）`.engine__*` `.engine-field*`（服务地址）`.engine-button*`（自检 / 保存）`.engine-probe*`（自检结果文案，`--ok` / `--bad` 由 `is-*` 类控制） |
 | `HelpPanel.vue`（style@95） | `.help-content` `.help-group*` `.help-item*`（`.is-bold` 是 `**…**` 加粗片段）`.guide-link`。原 `.help-button` / `.panel-backdrop` / `.panel-drawer*` / `.done-button` 与两段 Transition 已随抽屉外壳一起删掉 |
@@ -820,6 +822,33 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
     - **真因**：rolldown-vite 的 CSS 压缩（Lightning CSS）遇到「标准 + `-webkit-` 前缀」成对出现时**只保留前缀那条**（线上 `main-*.css` 实测只剩 `-webkit-backdrop-filter:blur(...)`），而 **Chrome 141 起移除了 `-webkit-backdrop-filter` 别名** —— 解析时整条丢弃，CSSOM 里规则里干干净净没有这个属性。dev server 吐未压缩 CSS（标准属性在），所以本地永远复现不出来。
     - **修法**：源码里**只写标准属性**，一行前缀都不要（Chrome 76+ / Firefox 103+ / Safari 18+ 都认；压缩器会按它自己的 targets 自己补前缀，补回的 `-webkit-` 是给老 Safari 的、Chrome 不认就忽略，无害）。改动四处：`CountdownCard.vue`（卡片 + `is-locked`）、`EditorPane.vue`（放大镜、toast）、`NotificationCenter.vue`（通知条）。改完产物里标准 / 前缀两条并存，`vite preview` 实测计算值 `blur(0.875rem)` 回来了。
     - **通用判据**：**凡是「本地正常、线上缺一条 CSS 效果」的报障，先 curl 线上那份 `main-*.css` 对着源码查这条属性还在不在** —— 压缩器吞属性是静默的，`getComputedStyle` 在 dev 上永远查不出来。同类高危写法还有：依赖声明顺序的缩写展开（`background` 缩写覆盖前面的 `background-color`）、`@media` 参数被 pxtorem 转换单位（已用 `mediaQuery: false` 关掉，见 vite.config.js）。
+
+65. **触屏上的 `:hover` 会粘住：手指抬起后元素仍是 hover 态，直到点了别处**（2026-10-30 加，用户报「触屏模式下拖动拖拽条，有的时候松手之后蓝线还存在」「样例栏的写入 / 复制按钮点完热区还高亮」）。八条：
+    - **症状**：手指点在按钮上抬起 → 高亮不退；长按拖分隔条 → 松手后 `.splitter__line` 的蓝线留驻。点一下空白处才恢复。键盘 / 鼠标一切正常，所以只有真机报障。
+    - **真因**：**`:hover` 的状态机不区分输入设备** —— 触屏上它被沿用成「最后一个触点落在这里」，要等下一次 pointerdown 落在别处才清。全站原先用 `@media (hover: hover)` 做闸门，而那个媒体特性判的是**设备**，不是「这一次输入」，于是三种情况全漏：① **安卓的「长按模拟悬停」**：长按期间 `(hover: hover)` 在部分机型 / 浏览器上当场成立，而拖分隔条这个动作本身就是长按 —— 闸门自己开了；② 手机开「桌面版网站」、Windows 触屏本（既有鼠标又有手指）：媒体查询恒真，手指点按照样粘；③ 同一台设备鼠标与手指交替，媒体查询根本不变。
+    - **修法**：新增 `src/services/hoverCapability.js`，全站唯一的悬停判定出口，`main.js` 里 `import` 即执行（早于首帧，避免首屏闪一下悬停态）。它给 `<html>` 挂 / 摘 `is-hoverable` 类：初始值与「开」的闸门用 `(any-hover: hover)`（判「有没有**任何**可悬停指针」，纯触屏恒假，比 `(hover: hover)` 更严）；`pointerdown` 捕获阶段 —— `pointerType === 'touch'` 就关并记时刻，鼠标 / 笔按设备能力重开；`pointermove` 只在「鼠标 + 当前是关 + 距上次触摸 > 700ms + 设备有悬停能力」时重开（700ms 是躲开触摸抬起时浏览器补发的那串 `pointermove`）。**所有 `:hover` 规则加 `:where(html.is-hoverable) ` 前缀**，本轮 31 个文件、源码里 132 处统一改完。`:where()` 特异性为 0，不破坏既有覆盖顺序，也不会被 scoped 的 `data-v-*` 反压。
+    - **原先靠 `@media (hover: none)` 常亮的兜底也要反向改**：`TestCaseCard.vue` 的垃圾桶（本轮全站唯一一处这种兜底）原先用 `@media (hover: none)` 让它常亮（触屏没有 hover，0.18 的隐形态会让人找不到它），在「插着鼠标的触屏本」上那个查询不成立 → 常亮不生效、又走不到 hover → **停在 0.18 幽灵态**。改成 `:where(html:not(.is-hoverable)) .icon-btn--danger:not(:disabled)`，判的是「这一刻的输入」，两边都对。
+    - **分隔条另加两条兜底**（`App.vue` 的 `beginDrag`）：系统手势（边缘回划、拉通知栏、来电）会把**整串指针事件**吞掉，`pointerup` / `pointercancel` 一个都收不到 → `dragging` 永远挂在那里。补 `window` 的 `blur` 与 `document` 的 `visibilitychange`（`hidden` 时才收尾）两个出口，都走同一个 `finish()`。
+    - **实测**（自起 dev server + 无头 Chrome，探针在 `/tmp/hoverprobe/`，跑完即删）：手机口径 412×915（`page.emulate` + CDP 触摸，`hover:none`）—— 指针压住写入 / 复制按钮，改前背景 `rgba(50,53,57,0.992)`、改后 `rgba(0,0,0,0)`；垃圾桶改前**常态就是红的**、改后回到 0.18。桌面 1200×800（`hover:hover`）两组读数与改前一致（悬停高亮照常）。触摸拖动分隔条四场景（shrink / collapse / blur / hide）：拖动中 `dragging:true` / 蓝线 `opacity:1`；松手 / 失焦 / 转后台后均 `false` / `0`。产物 CSS 里 `:where(html.is-hoverable)` 共 188 处、`@media (hover: hover)` 残留 0 处，scoped 属性落在最右复合选择器上（`:where(html.is-hoverable) .cf-input[data-v-bc80c02c]:hover`）。
+    - **两处刻意没改**：`styles/guide.css` 不给那两页（`guide.html` / `privacy.html` 及其英文版）加闸门 —— 它们不走 `main.js`，拿不到 `is-hoverable`，加了等于把悬停反馈整条废掉。**以后要动它们得先让那两页自己挂类**。另外这轮只处理 hover 类残留，`pointerdown` 期间的 `:active` 不受影响、也不用管（抬手就退）。
+    - **同类排查（2026-10-30 追记，用户问「标签页的关闭按钮是否也有类似问题」）**：`EditorTabs` 的 × 不属于受损面 —— 它的显形主路径是 `.editor-tabs__item--active .editor-tabs__close`（选中态，与输入设备无关），hover 只负责「非激活页签上露出」与「更亮 + 底色」。实测触屏：`is-hoverable=false` 时手指压住页签 / 压住 ×，× 始终 `opacity 0.75`、背景透明（不上 `--bg-control-hover`），松开正常关闭；桌面 1200×800 压住 × 时背景 `rgb(61,61,62)`、移开即退回 —— 两边都对。审计方法是遍历 CSSOM 取所有含 `:hover` 且不含 `is-hoverable` 的**单个选择器**（逗号拆开、`[data-v-*]` 归一），结果**站内自写样式 0 条**、只剩 Monaco 自带 74 条（`.monaco-editor .codicon`、`.minimap-autohide-mouseover:hover`、`.action-widget` 等）。**这 74 条别去写 override 反转**：它们是 `monaco-esm` 的 CSS（`node_modules` 里），逐条反转会把桌面端的折叠箭头 / 滚动条悬停反馈一起废掉；无头实测触屏 tap 行号槽后折叠箭头仍 `0/2` 显形（不粘），只有真机长按才可能把这个 hover 挂上去，可见面很小。**排查看这一节就够，别再另起一份清单**。
+
+66. **装成 app 之后的「系统返回」不是事件、是历史：一条哨兵 + 一条自维护的栈**（2026-10-30 加，用户问「装成 app 之后能不能拦截系统返回、映射成站内操作」；落地在 `src/services/backStack.js`，全貌见第 23 节）。八条：
+    - **能接管的不是 `backbutton`**：Web 平台从来没有这个 API（那是 Cordova / Capacitor 的私有事件），PWA 里也没有任何「返回键按下」的通知。安卓装成 PWA 之后，返回键与边缘返回手势**先走 webview 的历史**，历史空了才退出 app —— 所以能接住的只有「后退」这一发 `popstate`。iOS 独立窗口既没有返回键、也没有后退手势，那条路上机制空转、无害（别为此写特判）。
+    - **必须让历史里恒压着一条哨兵**：启动时 `pushState` 一条带标记的条目，`popstate` 一到就补回。⚠️ **补回必须同步** —— 不能在 `async` 函数里、等某个 `await` 之后再补：那一拍用户已经看见回退动画，慢的设备上页面可能先卸载。所以 `onPopState` 是同步函数，先出栈、调 `onBack()`、再 `ensureSentinel()`。
+    - **哨兵不能整体覆盖 `history.state`**：`services/cloudEntry.js` 早就往 `history.state` 里放了 `cpCloudEntry`（`/<handle>` 那条地址的载荷，见 §2 那一格）。一律写成 `{ ...history.state, [SENTINEL_KEY]: true }` —— 整体替换会把云端入口那条链路打断。
+    - **栈自己维护，不拿 history 层数当 UI 层数**：「开一层压一条 `pushState`」那种天生对齐的写法被否决了，两个理由：① 刷新之后那些条目**静默残留**，用户下次打开按返回，浏览器吃掉一层、屏幕上什么都不动；② 点遮罩关闭时不进 `popstate`，还得主动 `back()` 伪造一次后退，多出一路不可控的时序。现在历史里恒定只有一条哨兵，UI 层数完全由 `backStack.js` 里那个数组说了算。
+    - **`display_override: ["fullscreen"]` 匹配的是 `(display-mode: fullscreen)`，不是 `standalone`**：三个 query（`standalone` / `fullscreen` / `minimal-ui`）都要列，漏一个就等于「装了 app 但返回没接管」—— `manifest.webmanifest` 里那一行就在同一个仓库里，改之前先对一眼。再加上 iOS 那个 `navigator.standalone`。**只在独立窗口武装**：浏览器标签页里 `Alt+←` 是用户真想回上一页，拦下来站不住脚（这条就是 `armBackStack()` 返回 `false` 的分支）。
+    - **栈底不许把历史漏空**（2026-10-30 改过一次口径）：第一版是「栈底不发哨兵、下一发由系统退出 app」，用户驳回为「容易误触」—— 现在栈底**无条件补回哨兵**，那一发返回等于什么都不发生，退 app 走系统默认路。补哨兵那一句收在 `onPopState` 的 `finally` 里（三个分支共用一个出口），别退化成「每个分支各写一遍」：层里的 `onBack` 抛个异常就会漏，而漏的后果是下一次返回真的退出 app，报上来只会是「偶尔一按就退」。另外「Web 上做不到『再按一次才退』」这条老判断仍然成立 —— 哨兵要先被弹掉，那一发必然先进 `popstate`。新开的层不补哨兵也别担心（`pushBackLayer` / `addBackFallback` 里各有一句 `ensureSentinel()` 幂等兜底）。
+    - **`watchBackLayer` 的 source 要用「生效态」，不是「存档态」**：题解全屏接的是 `mdFullscreen` 而不是 `mdView.fullscreen` —— 在全屏里点开一个 `.cpp` 时生效态回落成 `false`（`mdView` 的 `mdActive` 那条），存档态还是 `true`，接错就一直占着一层、按返回什么都不发生。同理**注册点必须收在「拥有生命周期」的地方**（浮层在 `usePopoverLayer`，三个开 / 关状态在各自的组件里）：`pushBackLayer` 的注销必须与注册成对，散出去写必然漏一个，漏一个就在栈里留个幽灵条目。
+    - **实测**（自起 dev server + 无头 Chrome 1400×980，探针 `/tmp/back-probe.mjs`、`/tmp/noexit-probe.mjs`，跑完即删；浏览器标签页里用 `?backstack=1` 这个探针口子强制武装）：启动即压好哨兵；齿轮浮层上按返回只关菜单、URL 不变；**Esc 关掉浮层之后再按返回，落的是下一层**（没有幽灵条目）；栈底连按 5 次全部停在站内、不弹任何 toast、`history.length` 稳定 3；删除确认上按返回是**取消**（文件还在）；题解全屏上按返回退全屏、两栏布局恢复；确认卡 + 全屏叠着时返回一次**只退最上面那层**；一路按到底**仍在站内**（2026-10-30 起，之前是离开站点）。另开一个无参数标签页对照：`history.state` 仍是 `null`、`history.length` 仍是 2，**完全没武装**。第二支探针（`/tmp/back-probe2.mjs`）验窄屏抽屉与 CF 兜底：560×900 下抽屉收起、宽屏 1400 下**不**收侧栏、CF 切「赛程」后退回「抽题」且不弹提示、CF 页签关掉后按返回不被它抢走。第三支（`noexit-probe` 的 E 段）用两个假兜底验健壮性：前一个抛错不连累后一个、后一个能反复消费、注销后回到「什么都不发生」，三种情况哨兵都在。第四支（`/tmp/exp-probe.mjs`）验后加的四层：伪装成桌面壳（塞 `window.__TAURI_INTERNALS__`，只有那时导出才先弹二选一卡片）后右键导出 → 按返回只退卡片、不替用户选；播种 `cp.cloudAccount` 造出危险区 → 「解绑」卡按返回是取消、handle 还在；把 `cloudEntry.pendingCloudHandle` 置值造出「应用云端配置」卡 → 按返回后它被清空（证明走的是 `cancelCloudApply`，否则下次刷新还问）。卸载卡只能读代码 —— 它要运行时真 ready（76MB 工具链），探针里造不出来。`npm run verify` 与改动前的基线一字不差（**B/C/D/F 绿、A/E/G/H 红**；四项都是既有失败，A 自 2026-10-23 起由绿转红、根因未查，口径见 23.5）。
+    - **哪些是新增、哪些改了既有行为**：浮层 / 六个卡片（提交 / 删除 / 导出 / 卸载 / 解绑 / 应用云端配置）/ 题解全屏 / CF 页内后退都是「以前按返回直接退出、现在落在站内」，属纯新增；**改过既有行为的是两处**：① 窄屏抽屉（以前窄屏按返回直接退 app，现在先把抽屉收起来），所以那一层的判据必须带 `isNarrowLayout()` —— 宽窄屏共用同一个 `panelVisible`，无条件接会让宽屏上按返回把常开的侧栏收掉，用户会以为坏了（探针里有这条对照）；② **栈底也不再退 app**（下一轮按用户口径改的，见 23.4）—— 于是「以前一按就退」这件事整体没了，退 app 只剩系统那条默认路。**兜底层必须自己判「此刻该不该管」**：它不占栈位，没有入栈 / 出栈帮它收窄时机，而 CF 面板是**常驻挂载**的（`v-show` 保状态），所以那边一定得带 `props.active`，否则在代码页按返回会莫名其妙地翻 CF 的内部页面（同样有对照）。Esc 一行没改（仍是各浮层自己响应）；不新增任何 `cp.*` 键（`cpBackSentinel` 只活在 `history.state` 里，刷新后靠它判断「已经压过了」）。
+
+67. **旧页面的「按需 chunk」会被 SW 换代回收：`new Worker` / 动态 `import()` 都可能 404，而 404 触发的 `onerror` 连 message 都是空的**（2026-10-30 加，用户报「codeforces 无法下载，显示 `Codeforces worker error`」；全貌与实测见第 24 节）。四条：
+    - **症状长什么样**：界面只显示一句英文兜底文案（`cfClient` 的 `'Codeforces worker error'`），跟真实原因（文件 404）毫无关系。同类故障换到别的入口会换个长相：点「运行」没反应、题解不渲染 —— 根因都是「页面版本与当前部署不同步」。
+    - **判据**：`worker.onerror` 里 **`event.message` 与 `event.filename` 同时为空 = 脚本根本没取到**（实测：请求一个不存在的 `/assets/cfWorker-*.js`，两者都是空串）。有 message 的才是 Worker 内部抛错，那种要原样显示，别一起吞。
+    - **为什么会 404**：链条三步 —— ① `cfWorker` 是按需加载的、文件名带哈希；② SW 的 `pruneStaleShellArtifacts()` 按 `/retain-manifest.json`（**只列当前这一版**）把外壳桶里不在清单上的 `/assets/` 删掉；③ 停在旧页面的人点下载 → 桶里没了、服务器上也没了（Vercel 只留当次构建）→ 404。**任何新增的按需资源都天生带这个风险**，别以为只影响 CF。
+    - **修法与两条纪律**：`cfClient` 在失败路径上 `fetch('/retain-manifest.json?v=' + Date.now())` 取当前清单里的 worker 顶上、把在途请求原样重投（`id` 不变），`rescueTried` 只试一次。纪律一：**清单请求必须带变化的 query**（它走 `cacheFirst`，不带差异会拿回上一版清单）；纪律二：**别在 `new Worker(new URL(...))` 附近另写裸 `new URL(...)`** —— 构建器会把同一份 worker 多打一个产物（实测多出 33KB 那份）。另：兜底成立的前提是**消息 type 只增不改**。
 
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
@@ -3665,3 +3694,187 @@ PCH 随工具链下发（`.pch.br` 8.3MB）之后，又回头把「共用一颗�
 **验证**：`npx vite build` 通过；`/tmp/wasi-queue-test.mjs`（假 Worker）三场景 PASS ——
 「语法跑着时点运行 → 语法 reject `preempted`、编译在新 worker 上跑完」「编译看门狗超时 →
 排队中的编译交接后正常返回」「用户取消 → 两条都 reject `user-cancel`、不重建」。
+
+## 23. 装成 app 之后的系统返回（2026-10-30 加，第一版）
+
+用户在安卓上把站点装成 app 之后，返回键 / 边缘返回手势会当场把应用退掉 —— 屏幕上有浮层、有确认框、正在看题解全屏，也一样退。这一节是那一发返回在站内的去处。
+
+**现在接上来的是五层**：浮层 / 提交确认 / 删除确认 / 题解全屏（这四者都是「开 / 关型」，进栈），加上**窄屏抽屉**（同样是开关，但判据必须带上窄屏）与 **Codeforces 页内后退**（不是开关，走兜底层）。导出卡片与设置面板里的几个确认还没接，见 23.6。踩坑细节在 §5 坑 66。
+
+### 23.1 能接管的到底是什么
+
+Web 没有「返回键被按下」这回事。`backbutton` 是 Cordova / Capacitor 那类原生容器的私有事件，PWA 里拿不到；`beforeunload` 也不解决这个问题（它管的是离开页面，而装成 app 之后「离开」本身就是退出）。
+
+真正能用的机制只有一条：**安卓 PWA 里，返回键与边缘返回手势先走 webview 的历史，历史空了才退出应用**。所以只要让历史永远不为空，一次「返回」就变成一次 `popstate`，站内再把它翻译成关闭动作。这是这类需求的唯一正解，不要去找别的 API。
+
+三处平台差异（都写在 `isAppWindow()` 里，别在别处重判）：
+
+| 环境 | 行为 |
+| --- | --- |
+| 安卓 PWA（装成 app） | 返回 → `popstate`，接管成立 |
+| iOS 独立窗口 | 没有返回键、也没有后退手势，机制空转、无害 |
+| 浏览器标签页 | **不武装**（`Alt+←` 是用户真想回上一页），`armBackStack()` 直接返回 `false` |
+
+### 23.2 机制：一条哨兵 + 一条自维护的栈 + 一层兜底
+
+`src/services/backStack.js`，模块级单例，对外四个出口：
+
+- `armBackStack()` —— `main.js` 里调一次，**必须在 `createApp().mount()` 之前**。组件 setup 里的 `watchBackLayer` 带 `immediate`，刷新时正停在题解全屏的情形下会立刻注册第一层，武装晚了那一层就永远注册不上。返回 `boolean`（这次到底有没有武装）。
+- `pushBackLayer(onBack)` —— 压一层，返回**幂等**的注销函数。只给「拥有生命周期」的地方调（浮层 composable、组件的状态 watch），不许业务代码各自 push。
+- `watchBackLayer(source, onBack)` —— 开 / 关型状态用这个：`source` 为真入栈、为假出栈，返回「停表 + 出栈」。出栈发生在状态变假那一刻，所以不管是谁关的（返回键 / Esc / 点遮罩 / 业务逻辑）栈都能跟上。
+- `addBackFallback(fn, priority)` —— **兜底层**：不占栈位，只在**栈空时**才有机会消费一次，`fn` 返回 `true` 表示「这一发我处理了」。用在「还能往回退一步的路」上（CF 页内后退），可以**反复消费**，消费后照样补哨兵。
+
+两种层的差别就是「开关」与「路径」：栈层被返回键关掉之后它那个状态会变假、自己出栈；兜底层退了一格还能再退，所以不能进栈（进栈一次就没了），只能每次栈空时再问一遍。
+
+历史里**恒定只有一条哨兵**（`history.state.cpBackSentinel`），UI 的层数完全由模块里那个数组说了算。不采用「开一层压一条 `pushState`」，理由见坑 66 第 4 条（刷新残留 + 点遮罩关闭还得伪造后退）。
+
+```
+pushState 一条哨兵
+      ↓ 用户按返回
+popstate ─→ layers.pop() ──有──→ onBack() ────→ 补回哨兵 ─→ （继续下一次）
+                │
+                └─没有─→ 问兜底层 ──接住──→ 补回哨兵 ─→ （继续下一次）
+                              │
+                              └─没接住─→ 补回哨兵，什么都不做（返回键永不退 app，见 23.4）
+```
+
+三条分支的出口是同一个 `finally { ensureSentinel() }`，所以图里那三段「补回」不是各写一遍，是一处兜住的。
+
+`popstate` 里**先 `pop` 再 `onBack()`**：`onBack` 内部常会同步翻一个标记，那个标记的 watch 又要来注销自己 —— 先弹掉，注销那一下按 `indexOf` 找不到条目，是幂等的。
+
+### 23.3 现在接上了哪些
+
+| 对象 | 挂在哪 | 返回键做什么 |
+| --- | --- | --- |
+| 浮层（右键菜单 / 齿轮菜单 / 组件菜单 / 分组卡重命名） | `composables/usePopoverLayer.js` | 走 `dismiss`，与点外 / Esc / 失焦 / resize **同一个出口** |
+| 提交确认卡 | `App.vue` 的 `stopBackSubmit` | `cancelSubmit()` —— **取消**，不是确认提交 |
+| 删除确认卡 | `FileExplorer.vue` 的 `stopBackDelete` | `cancelDelete()` —— 取消，文件还在 |
+| 导出卡片（二选一：下载 / 写进本机目录，**只有桌面壳会弹**） | `FileExplorer.vue` 的 `stopBackExport` | `cancelExport()` —— 返回键**不替用户选**，只退卡片 |
+| 题解全屏 | `EditorPane.vue` 的 `stopBackFullscreen` | `exitFullscreen()`，与 Esc 同一个出口 |
+| 窄屏抽屉 | `App.vue` 的 `stopBackDrawer` | `togglePanel()` —— 与点遮罩、侧栏底栏那枚箭头同一个动作 |
+| 卸载扩展确认 | `EditorSettingsPanel.vue` 的 `stopBackUninstall` | `cancelUninstall()` —— 取消；删的是几十 MB 缓存，绝不能让返回等于确认 |
+| 解绑确认 | 同上的 `stopBackUnbind` | `cancelUnbind()` —— 取消，仍是已绑定 |
+| 应用云端配置确认 | 同上的 `stopBackCloudApply` | `cancelCloudApply()` —— 取消；**必须走它**，因为它还会 `clearPendingCloudHandle` + `markCloudEntryHandled`，绕过则下次刷新又冒一遍 |
+| Codeforces 页内后退 | `CfCodeforcesPanel.vue` 的 `stopBackNav`（**兜底层**） | `goBack()` —— 与页头那枚后退按钮同一个动作 |
+
+三处口径值得记住：
+
+- **浮层那一层收在 `usePopoverLayer` 里注册**，因为浮层有四路关闭 + 外层 `v-if` 卸载，注册点散到各调用方必然漏；收在一处，四条老路也顺带把栈清干净了。它是「第五路关闭」，与 Esc 一起**当场挂**、不排进 `pointerdown` 那个 `setTimeout(0)`（那几路的注册时机为什么分家，见 §2 里 `usePopoverLayer.js` 那一格）。
+- **题解全屏接的是 `mdFullscreen`（生效态），不是 `mdView.fullscreen`（存档态）**：在全屏里点开一个 `.cpp` 时生效态会回落成 `false`，存档态还是 `true`，接错就一直占着一层。
+- **窄屏抽屉的判据必须带 `isNarrowLayout()`**：宽窄屏共用同一个 `panelVisible`，无条件接的话**宽屏上按返回会把一直开着的侧栏收起来**（探针里专门做了这条对照）。而**兜底层必须自己判「此刻该不该管」** —— 它不占栈位，也就没有入栈 / 出栈帮它收窄时机；CF 面板是常驻挂载的（`v-show` 保状态），所以那边一定得带上 `props.active`，否则在代码页按返回会莫名其妙地翻 CF 的内部页面（同样有探针对照）。
+
+`i18n` 一条都没多 —— 曾经加过一条 `notifications.back.exitHint`（「再按一次返回即可退出」），2026-10-30 栈底口径改了之后它描述的行为不复存在，已随那一轮删掉。也没有新增任何 `cp.*` 键，`cpBackSentinel` 只活在 `history.state` 里。
+
+### 23.4 栈见底：返回键不退 app（2026-10-30 改过一次口径）
+
+第一版是「栈底发一次提示、这一发不再补哨兵，历史到此到底，下一发由系统退出 app」。**已否决**：app 里按返回的本意是「站内退一步」，一按就退出等于手重一下就把整个工作区关掉 —— 用户口径原话是「容易误触」。
+
+现在的规则只有一条：**返回键永远不退 app**。栈底（没有层可关、兜底层也不管）同样把哨兵补回去，那一发返回等价于「什么都不发生」，也不弹任何提示（提示里说的事不会发生了）。退 app 走系统那条默认路：Android 从最近任务上划掉、桌面端关窗口。
+
+实现上把补哨兵收进了 `finally`：
+
+```js
+try {
+  const top = layers.pop()
+  if (top) { top.onBack(); return }
+  runFallbacks()
+} finally {
+  ensureSentinel()   // 无论走哪条分支、哪个回调抛错，历史都不许漏成空的
+}
+```
+
+这样「永不退 app」是**结构上的**保证，而不是各分支的自觉 —— 否则哪天某个 `onBack` 抛个异常，历史当场到底，下一发返回就真退出了，而且这种漏法极难复现。`runFallbacks` 那个「有没有人接住」的返回值也因此取消了：接没接住处理完全一样。
+
+两条读数值得记：栈底连按 5 次，`history.length` **稳定在 3、不增长** —— `back()` 把指针退一格、`pushState` 又在同一位置压回一条，前进侧被截断，不会攒出一长串历史；另外全程没有 toast 冒出来。
+
+代价是这类 app 的「退不出去」问题：只能靠系统手势 / 关窗口。这是有意选的 —— 相比误触退出丢工作区，退不出去更可接受。
+
+### 23.5 怎么验（探针口子）
+
+浏览器标签页里带 `?backstack=1` 也按「装成 app」跑一遍（`isAppWindow()` 里的第一个分支）。不加这个口子，这条功能在开发机上根本走不到。**对照要另开一个无参数标签页**，确认它完全没武装。
+
+实测（自起 dev server + 无头 Chrome，探针 `/tmp/back-probe.mjs`、`/tmp/back-probe2.mjs`、`/tmp/noexit-probe.mjs`、`/tmp/exp-probe.mjs`，跑完即删）逐项通过：
+
+- 启动即压好哨兵；齿轮浮层上按返回只关菜单、URL 不变。
+- **Esc 关掉浮层之后再按返回，落的是下一层**（没有幽灵条目）。
+- 栈底（2026-10-30 口径）：连按 5 次返回全部停在站内、**一次 toast 都没弹**、每发哨兵都在，`history.length` 稳定 3；之后打开删除确认，哨兵仍在。
+- 删除确认上按返回是**取消**（文件还在）；题解全屏上按返回退全屏、两栏布局恢复。
+- 确认卡 + 全屏叠着时，返回一次**只退最上面那层**（后开的先退）。
+- 一路按到底**仍在站内**，不导航、不白屏（2026-10-30 之前是离开站点，见 23.4）。
+- 无参数标签页：`history.state` 仍是 `null`、`history.length` 仍是 2。
+- **窄屏 560×900**：抽屉（`.drawer-scrim` 可见）上按返回 → 收起、哨兵补上；再按一次 → 仍在站内、什么都不发生。
+- **窄屏 + 删除确认叠着**：返回一次只关确认框（抽屉还在）、再一次关抽屉、第三次起什么都不发生 —— 常驻在栈底的那层不会被顺手带走。
+- **宽屏 1400×980 对照**：侧栏一直开着，按返回**不会**把它收起来（直接落到「什么都不发生」）。
+- **CF 页签**：切到「赛程」记一步、页头后退钮变亮；按返回 → 回到「抽题」、后退钮变灰、没弹提示（兜底吃掉了这一发）、哨兵补上；再按一次 → 仍在站内。
+- **CF 页签关掉之后**（页内历史还在）：按返回**不走 CF 的内部页面**，直接落到「什么都不发生」—— `props.active` 那道判据生效。
+- **兜底层健壮性**（`noexit-probe` 的 E 段，注册两个假兜底）：前面那个抛 `Error('boom')` 不影响后面那个被调用；第二个被连续消费两次（可反复消费）；注销之后回到「什么都不发生」—— 三种情况下哨兵都在，页面一律没导航。
+- **导出卡片**（`/tmp/exp-probe.mjs` 的 A 段；网页版不弹这张卡，探针在开机前塞 `window.__TAURI_INTERNALS__` 伪装成桌面壳，`CAN_EXPORT_TO_DISK` 才为真）：右键 → 导出 → 二选一卡片出现 → 按返回只关卡片、**没有替你选下载还是落盘**；Esc 关掉之后再按返回仍在站内（没有幽灵条目）。
+- **解绑确认**（同探针 B 段；播种 `cp.cloudAccount` 让危险区出现，再从「云端同步」那一节点「解绑」）：卡片出现 → 按返回关掉，`cp.cloudAccount` 里的 handle **还在**（是取消，不是解绑）。
+- **应用云端配置确认**（同探针 C 段；把 `cloudEntry.pendingCloudHandle` 置一个值，等价于「地址栏带 `/<handle>` 进来且云端有配置」）：卡片出现 → 按返回关掉，`pendingCloudHandle` 被清空 —— 证明确实走了 `cancelCloudApply` 那条（否则下次刷新又会问一遍）。
+- **卸载扩展确认没做浏览器实测**：卡片只在运行时 `state === 'ready'` 时可开，而 ready 要么真有 76MB 工具链缓存、要么已载入内存，探针里造不出来。代码与解绑同构（同一个文件、同一个 `watchBackLayer` + 各自的 `cancelXxx`），风险面就是「判据写成恒假」—— 那一处对着 `pendingUninstall` 的 `shallowRef` 读代码即可。
+
+`npm run verify` 与本次改动前的基线一字不差（**B/C/D/F 绿、A/E/G/H 红**，四项都是既有失败、别顺手去修；其中 A 是 2026-10-23 复核时由绿转红的，根因未查，与本轮无关 —— 所以 §0 与 §8 里那句「A/B/C/D/F 绿」是 10-23 之前的旧口径），`npx vite build` 通过。
+
+### 23.6 剩下的：未做与已定不改
+
+- **Esc 的口径没改**：仍是各浮层自己响应，两个浮层同时开着时会一起关。改成「只关最上层」会动既有可见行为，单独一轮再说。
+- **「云端配置在，但地址进来的这个 handle 没有配置」那张提示卡**（`cloudEntryMissingHandle` / `dismissCloudMissing`）**没接**：2026-10-30 用户点名的三个确认里不含它，它也只是句一次性提示、没有选项要选。要接的话是同一处再补一行。
+- **CF 页内退到底之后再按返回**：**已定，不改**（2026-10-30 用户口径）。现在落到栈底那条「什么都不发生」，不改成「退出 CF 页签」—— 那一步会丢页内状态，而用户已经被「一按就退」咬过一次。
+
+## 24. 「Codeforces worker error」：旧页面的按需 chunk 被 SW 换代回收（2026-10-30 修）
+
+### 24.1 症状与根因链
+
+用户报「codeforces 无法下载，显示 `Codeforces worker error`」。这句不是 CF 接口的报错 —— 它来自 `cfClient.ensureWorker` 的 `worker.onerror` 兜底文案，只在 **Worker 脚本根本没取到** 时出现（脚本存在、Worker 里抛异常时 `event.message` 有原文，会照原样显示）。
+
+链条三步，缺一不成立：
+
+1. `cfWorker` 是**按需**加载的（点下载 / 抽题时才 `new Worker`），文件名带内容哈希，落在 `/assets/`。
+2. 站点装成 PWA 后由 SW 接管：`sw.js` 的 `pruneStaleShellArtifacts()` 按 `/retain-manifest.json` 把外壳桶里「不在当前清单里」的 `/assets/` 条目删掉（`SHELL_VERSIONED_PREFIXES` 含 `/assets/`；桶里 170MB 残骸就是这么清的，见 §9）。而那份清单**只列当前这一版**的产物。
+3. 用户停留在旧页面（SW 给的是旧 HTML + 旧 main chunk）去点下载：这个 chunk 桶里已被删、服务器上也不存在（Vercel 只保留当次构建）→ `cacheFirst` 未命中后联网 → **404**。
+
+实测佐证：`new Worker('/assets/cfWorker-DOES-NOT-EXIST.js', {type:'module'})` 的 `onerror` 里 **`message` 与 `filename` 都是空字符串** → 正好落进兜底文案。而同一个文件存在时能正常回 status（写这份文档时线上 `cfWorker-D27m9ueT.js` 200、13KB，`cfStatus` 回 `ready:true, count:11481`）。
+
+**影响面不止 CF**：同一个坑会咬 `wasi.worker-*.js`（点「运行」时才创建）、`editor.worker-*.js`、以及动态 `import()` 的 `markdown` / `python` / `cpp` chunk —— 旧页面点这些都会 404，症状各不相同（运行失败 / 题解不渲染），但根因是同一个。
+
+### 24.2 修法：`cfClient` 的失败路径兜底（正常路径零成本）
+
+`src/services/cfClient.js`：
+
+- `onerror` 里先判断「脚本没取到」：`!event.message && !event.filename`。**只有这种**才走兜底，Worker 内部抛的异常照旧原样报出去。
+- 兜底 `rescueWorker()`：`fetch('/retain-manifest.json?v=' + Date.now())` 取**当前部署**的清单 → 找 `cfWorker-*.js` → `new Worker` 起它 → **把 `pending` 里所有在途请求原样重投**（id 不变，新 worker 回信对得上）。新 worker 加载的是一整套同代资源（相对 URL 都指回自己的目录），自洽。
+- `attach(target)` 抽出来给「首次创建」与「兜底换代」共用 —— 两处各写一份的话，兜底那颗会漏掉 `progress` 转发，抽题进度卡住不动。
+- `rescueTried` 保证只试一次；兜底失败走原路 `failAll(WORKER_ERROR)`。
+- `pending` 里连 payload 一起存（重投要用）。
+- ⚠️ `onerror` 里**必须先 `worker = null`**：否则兜底也失败时，下一次请求会往一颗死掉的 worker `postMessage`，Promise 永远不结算 —— 界面卡在「下载中…」，比报错更糟。
+- 兜底用 `void rescueWorker().catch(...)`，不让它自身变成未捕获 rejection。
+
+### 24.3 两个坑（都是本轮踩出来的）
+
+- **别为了拿 URL 另写一句裸 `new URL('../cf/cfWorker.js', import.meta.url)`**。构建器会把它当静态资源引用，给同一个 worker **多打一份产物**（实测多出一个 33KB 的 `cfWorker-*.js`，而正常那份是 13KB）。所以兜底里不比较「清单里的是不是同一个文件」，直接试一次 —— 万一相同也只是多一次空跑，落回 failAll。
+- **清单请求必须带变化的 query**。`/retain-manifest.json` 不在 `/assets/` 前缀里，会被 `cacheFirst` 写进外壳桶，不带差异的 URL 拿回的是**上一版**清单（列的正是已经删掉的那些文件）。带 `?v=` 就绕开 `caches.match` 直接问网络。
+- **兜底成立的前提是「消息 type 只增不改」**。将来要改某个 type 的入参 / 出参形状，不能再直接改 —— 旧页面会拿新 worker 来跑。要么加新 type，要么两版并存。
+
+### 24.4 实测（自起 dev server + 请求拦截模拟「旧页面」，探针在 `/tmp/cfc/`，跑完即删）
+
+| 场景 | 结果 |
+| --- | --- |
+| 首选 worker 404 → 清单指向另一份可用 worker | `cfStatus()` **resolve**（`id:3` 是原请求重投后回的），兜底 worker 请求 1 次 |
+| 首选 404 + 清单指向**同名**文件 | `WORKER_ERROR`，**1ms** 返回（不挂住） |
+| 首选 404 + 清单本身 404 | `WORKER_ERROR`，**1ms** 返回 |
+| 正常路径（无 404） | `cfStatus()` ok，**`/retain-manifest.json` 请求 0 次** |
+| 全 404 时连发两次请求 | 两次都 `WORKER_ERROR`（各 1ms），清单**只请求 1 次**（`rescueTried` 生效） |
+
+`npx vite build` 通过，产物里 `cfWorker-*.js` **只有一份**（13.03 kB，hash 与线上一致，说明 worker 源码未动）。`npm run verify` 与基线一致（**B/C/D/F 绿、A/E/G/H 红**，四项既有失败）。
+
+### 24.5 用户侧：已经卡住的页面怎么救
+
+补丁只对**加载了新版 main chunk 的页面**生效。停在旧页面上的人，刷新一次（桌面 Cmd/Ctrl+Shift+R；手机 / PWA 关掉重开）即恢复 —— 刷新后拿到新 HTML + 新 main + 同代 worker。
+
+### 24.6 没做的（要做另开一轮）
+
+- **SW 换代时通知受控页面刷新**：`activate` 里 `clients.matchAll()` → `postMessage` → 页面弹一条「已更新，刷新」。这能把「旧页面按需加载 404」从根上收敛掉，但它会新增一条用户可见的提示，按惯例要先问。
+- **prune 保留上一代清单**：需要构建期拿到上一次部署的 manifest（CI 里 curl 旧地址），链路更脆，暂时不做。
+- `wasi.worker` / `editor.worker` / 动态 chunk 的同类兜底没做 —— 它们没有 `cfClient` 这种单一入口，得各自想清楚（`wasi.worker` 崩了是「点运行没反应」，比 CF 更值得单独处理）。
+
+

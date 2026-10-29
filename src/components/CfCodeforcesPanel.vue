@@ -134,6 +134,7 @@ import { cfHandle, myHandles } from '../cf/myHandle.js'
 import { cfRankOf } from '../cf/rank.js'
 import { cfRunningCount } from '../composables/useCfSchedule.js'
 import { t } from '../i18n/index.js'
+import { addBackFallback } from '../services/backStack.js'
 import { cfCheckHandles } from '../services/cfClient.js'
 
 const emit = defineEmits(['submit-active'])
@@ -232,7 +233,23 @@ function goForward() {
   applyEntry(navHistory.value[pointer.value])
 }
 
+/**
+ * 装成 app 时的**系统返回** = 页内后退（2026-10-30）。
+ *
+ * 走**兜底层**而不是栈层：`pointer` 退一格之后往往还能再退，这不是「开 / 关型状态」，
+ * 塞进栈里一次就没了（见 `services/backStack.js` 文件头）。它只在栈空时轮到、可反复消费。
+ *
+ * 判据必须带 `props.active`：本组件是**常驻挂载**的（`v-show` 保状态），没露出来时
+ * 不能抢返回 —— 否则在代码页按返回会莫名其妙地翻 CF 的内部页面。
+ */
+const stopBackNav = addBackFallback(() => {
+  if (!props.active || !canBack.value) return false
+  goBack()
+  return true
+})
+
 onBeforeUnmount(() => {
+  stopBackNav()
   document.removeEventListener('mousedown', onDocPointer)
 })
 
@@ -398,7 +415,7 @@ watch(handleOpen, (open) => {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-nav__btn:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-nav__btn:hover:not(:disabled) {
   background: var(--icon-hover-bg);
   color: var(--text);
 }
@@ -463,7 +480,7 @@ watch(handleOpen, (open) => {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-handle__btn:hover {
+:where(html.is-hoverable) .cf-handle__btn:hover {
   background: var(--icon-hover-bg);
   color: var(--text);
 }
@@ -501,13 +518,13 @@ watch(handleOpen, (open) => {
 .cf-handle__name.cf-rank--master { color: #ff8c00; }
 .cf-handle__name.cf-rank--grandmaster { color: #ff5252; }
 
-:root[data-theme='light'] .cf-handle__name.cf-rank--newbie { color: #808080; }
-:root[data-theme='light'] .cf-handle__name.cf-rank--pupil { color: #008000; }
-:root[data-theme='light'] .cf-handle__name.cf-rank--specialist { color: #03a89e; }
-:root[data-theme='light'] .cf-handle__name.cf-rank--expert { color: #0000ff; }
-:root[data-theme='light'] .cf-handle__name.cf-rank--candidate-master { color: #aa00aa; }
-:root[data-theme='light'] .cf-handle__name.cf-rank--master { color: #ff8c00; }
-:root[data-theme='light'] .cf-handle__name.cf-rank--grandmaster { color: #ff0000; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--newbie { color: #808080; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--pupil { color: #008000; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--specialist { color: #03a89e; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--expert { color: #0000ff; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--candidate-master { color: #aa00aa; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--master { color: #ff8c00; }
+:root[data-scheme='light'] .cf-handle__name.cf-rank--grandmaster { color: #ff0000; }
 
 .cf-handle__chevron {
   flex: 0 0 auto;

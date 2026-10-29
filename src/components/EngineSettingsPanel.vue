@@ -157,7 +157,7 @@ function applyBase() {
   border-top: 1px solid var(--border-faint);
 }
 
-.engine:hover {
+:where(html.is-hoverable) .engine:hover {
   background: var(--bg-panel);
 }
 
@@ -279,7 +279,7 @@ function applyBase() {
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
-.engine-button:hover:not(:disabled) {
+:where(html.is-hoverable) .engine-button:hover:not(:disabled) {
   background: var(--bg-control-hover);
 }
 
@@ -294,7 +294,7 @@ function applyBase() {
   color: var(--text-on-accent);
 }
 
-.engine-button--solid:hover:not(:disabled) {
+:where(html.is-hoverable) .engine-button--solid:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 

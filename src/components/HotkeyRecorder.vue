@@ -171,7 +171,7 @@ function onKeydown(event) {
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
-.hotkey:hover {
+:where(html.is-hoverable) .hotkey:hover {
   background: var(--bg-control-hover);
 }
 
@@ -204,7 +204,7 @@ function onKeydown(event) {
   color: var(--text-faint);
 }
 
-.hotkey-clear:hover {
+:where(html.is-hoverable) .hotkey-clear:hover {
   background: var(--bg-control-hover);
   color: var(--text);
 }

@@ -79,5 +79,150 @@ monaco.editor.defineTheme('light', {
   },
 })
 
+// 午夜蓝：与深色主题同一套 vs-dark 基色，只把内芯 / 行高亮 / 行号换成午夜蓝那支调色板
+// （值必须与 base.css 的 :root[data-theme='midnight'] 对齐：--bg-editor-pane #101219、
+//  --bg-card #1c1f2b、--text-faint #6b7488、--text-dim #98a3b8）。
+monaco.editor.defineTheme('midnight', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#101219',
+    'editorGutter.background': '#101219',
+    'minimap.background': '#101219',
+    'editor.lineHighlightBackground': '#1c1f2b',
+    'editor.lineHighlightBorder': '#1c1f2b',
+    'editorLineNumber.foreground': '#6b7488',
+    'editorLineNumber.activeForeground': '#98a3b8',
+    // 同深色主题：不配会退回括号色原色，一条竖线拉满饱和太抢眼
+    'editorBracketPairGuide.activeBackground1': '#FFD700B3',
+    'editorBracketPairGuide.activeBackground2': '#DA70D6B3',
+    'editorBracketPairGuide.activeBackground3': '#179FFFB3',
+  },
+})
+
+// OLED 纯黑：地面纯黑，行高亮用 #101010（base.css 的 --bg-card），行号比深色再压暗一档
+monaco.editor.defineTheme('oled', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#000000',
+    'editorGutter.background': '#000000',
+    'minimap.background': '#000000',
+    'editor.lineHighlightBackground': '#101010',
+    'editor.lineHighlightBorder': '#101010',
+    'editorLineNumber.foreground': '#707070',
+    'editorLineNumber.activeForeground': '#a0a0a0',
+    'editorBracketPairGuide.activeBackground1': '#FFD700B3',
+    'editorBracketPairGuide.activeBackground2': '#DA70D6B3',
+    'editorBracketPairGuide.activeBackground3': '#179FFFB3',
+  },
+})
+
+// 暖白纸张 / 护眼豆绿：都是浅色（base vs），只换内芯与行高亮，行号沿用浅色默认。
+// 底色必须与 base.css 的 --bg-editor-pane 一字不差（#f6f0e1 / #eaf2e6）——
+// 这两套的内芯是**带色**的纸 / 豆绿，不是接近白的那一档，否则卡片四角露白、风格也散。
+// 行高亮对齐 --bg-hover（#e9e2d2 / #dbe4d6）。
+monaco.editor.defineTheme('paper', {
+  base: 'vs',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#f6f0e1',
+    'editorGutter.background': '#f6f0e1',
+    'minimap.background': '#f6f0e1',
+    'editor.lineHighlightBackground': '#e9e2d2',
+    'editor.lineHighlightBorder': '#e9e2d2',
+    'editor.foreground': '#2f2a22',
+  },
+})
+
+monaco.editor.defineTheme('leaf', {
+  base: 'vs',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#eaf2e6',
+    'editorGutter.background': '#eaf2e6',
+    'minimap.background': '#eaf2e6',
+    'editor.lineHighlightBackground': '#dbe4d6',
+    'editor.lineHighlightBorder': '#dbe4d6',
+    'editor.foreground': '#26302a',
+  },
+})
+
+// 紫夜：vs-dark 基色 + 紫灰内芯；行高亮取 --bg-card（#2d2f3d），行号取 --text-faint / --text-dim
+monaco.editor.defineTheme('dusk', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#282a36',
+    'editorGutter.background': '#282a36',
+    'minimap.background': '#282a36',
+    'editor.lineHighlightBackground': '#2d2f3d',
+    'editor.lineHighlightBorder': '#2d2f3d',
+    'editorLineNumber.foreground': '#7d8199',
+    'editorLineNumber.activeForeground': '#b9bac6',
+    'editorBracketPairGuide.activeBackground1': '#FFD700B3',
+    'editorBracketPairGuide.activeBackground2': '#DA70D6B3',
+    'editorBracketPairGuide.activeBackground3': '#179FFFB3',
+  },
+})
+
+// 深林墨绿：同上，内芯 #151b17、行高亮 --bg-card #1d2620
+monaco.editor.defineTheme('forest', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#151b17',
+    'editorGutter.background': '#151b17',
+    'minimap.background': '#151b17',
+    'editor.lineHighlightBackground': '#1d2620',
+    'editor.lineHighlightBorder': '#1d2620',
+    'editorLineNumber.foreground': '#6d7d72',
+    'editorLineNumber.activeForeground': '#93a398',
+    'editorBracketPairGuide.activeBackground1': '#FFD700B3',
+    'editorBracketPairGuide.activeBackground2': '#DA70D6B3',
+    'editorBracketPairGuide.activeBackground3': '#179FFFB3',
+  },
+})
+
+// 高对比：纯黑内芯 + 提亮的行高亮与行号（--bg-hover #1f1f1f / --text-faint #c0c0c0）
+monaco.editor.defineTheme('contrast', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#000000',
+    'editorGutter.background': '#000000',
+    'minimap.background': '#000000',
+    'editor.lineHighlightBackground': '#1a1a1a',
+    'editor.lineHighlightBorder': '#1a1a1a',
+    'editorLineNumber.foreground': '#c0c0c0',
+    'editorLineNumber.activeForeground': '#ffffff',
+    'editorBracketPairGuide.activeBackground1': '#FFD700E6',
+    'editorBracketPairGuide.activeBackground2': '#DA70D6E6',
+    'editorBracketPairGuide.activeBackground3': '#179FFFE6',
+  },
+})
+
+// 雾蓝：浅色（base vs），内芯 #edf1f7、行高亮 --bg-hover #dbe3ee，正文取主题正文色
+monaco.editor.defineTheme('mist', {
+  base: 'vs',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#edf1f7',
+    'editorGutter.background': '#edf1f7',
+    'minimap.background': '#edf1f7',
+    'editor.lineHighlightBackground': '#dbe3ee',
+    'editor.lineHighlightBorder': '#dbe3ee',
+    'editor.foreground': '#2e3440',
+  },
+})
+
 export default monaco
 export { monaco }

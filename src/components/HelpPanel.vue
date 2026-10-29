@@ -126,7 +126,7 @@ function segments(text) {
   word-break: break-all;
 }
 
-.help-notice__link:hover {
+:where(html.is-hoverable) .help-notice__link:hover {
   text-decoration: underline;
 }
 
@@ -249,7 +249,7 @@ function segments(text) {
   text-decoration: none;
 }
 
-.guide-link:hover {
+:where(html.is-hoverable) .guide-link:hover {
   color: var(--accent-hover);
   text-decoration: underline;
 }

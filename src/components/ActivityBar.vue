@@ -440,7 +440,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
 /* 选中态只提亮图标，**不画那道左缘 2px 主题色指示条**（2026-10-04 用户反馈去掉了）：
    图标栏只有一列、不分段，提亮已经说得清「这一个开着」，再加一条线就是多余的噪音。
    hover 另有自己的一套反馈 —— 那是「这一格能点」的信号，不是选中态。 */
-.activity-bar__item:hover {
+:where(html.is-hoverable) .activity-bar__item:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
@@ -501,7 +501,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   content: none;
 }
 
-.activity-bar__group--panels .activity-bar__item:hover::after,
+:where(html.is-hoverable) .activity-bar__group--panels .activity-bar__item:hover::after,
 .activity-bar__group--panels .activity-bar__item:focus-visible::after {
   opacity: 1;
   transform: translate(0, -50%) rotate(45deg);
@@ -516,7 +516,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   transform: translate(2px, -50%) rotate(-45deg);
 }
 
-.activity-bar[data-side='right'] .activity-bar__group--panels .activity-bar__item:hover::after,
+:where(html.is-hoverable) .activity-bar[data-side='right'] .activity-bar__group--panels .activity-bar__item:hover::after,
 .activity-bar[data-side='right'] .activity-bar__group--panels .activity-bar__item:focus-visible::after {
   transform: translate(0, -50%) rotate(-45deg);
 }

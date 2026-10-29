@@ -500,7 +500,7 @@ async function confirmEntry() {
   white-space: nowrap;
 }
 
-.cf-schedule__name:hover {
+:where(html.is-hoverable) .cf-schedule__name:hover {
   color: var(--accent-text);
 }
 
@@ -603,7 +603,7 @@ async function confirmEntry() {
   cursor: pointer;
 }
 
-.confirm__btn:hover {
+:where(html.is-hoverable) .confirm__btn:hover {
   background: var(--bg-hover);
 }
 
@@ -613,7 +613,7 @@ async function confirmEntry() {
   color: var(--text-on-accent);
 }
 
-.confirm__btn--primary:hover {
+:where(html.is-hoverable) .confirm__btn--primary:hover {
   background: var(--accent-hover);
 }
 

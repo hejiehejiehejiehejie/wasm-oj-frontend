@@ -2,9 +2,13 @@
 import './services/storageMigration.js'
 import { createApp } from 'vue'
 import App from './App.vue'
+import { armBackStack } from './services/backStack.js'
 import { captureCloudHandleFromPath } from './services/cloudEntry.js'
 import { ensureCfPickerInstalled } from './services/cfRuntime.js'
 import { countdown, installCountdown, readCountdownAutoInstall } from './services/countdown.js'
+// 悬停能力判定：要在首帧之前把 <html> 的 is-hoverable 落定，全站 :hover 都靠它把关
+// （见 services/hoverCapability.js 文件头）。
+import './services/hoverCapability.js'
 import { IS_WEB } from './services/platform.js'
 import './styles/base.css'
 
@@ -26,6 +30,11 @@ if (import.meta.env.DEV) {
 // 要不要打开设置页，要等 App 起来、会话恢复完之后再探（见 cloudEntry.js 的 confirmCloudEntry）——
 // 没有配置时那次探测会顺手把地址抹回根路径，不能在这里做。
 captureCloudHandleFromPath()
+
+// 装成 app（独立窗口）时才武装：把系统返回接成站内动作。**必须在 mount 之前** ——
+// 组件 setup 里的 watchBackLayer 可能立刻注册第一层（比如刷新时正停在 Markdown 全屏里），
+// 那时候栈得已经武装好。浏览器标签页里它自己会跳过，不影响 Alt+← 的历史语义。
+armBackStack()
 
 createApp(App).mount('#app')
 

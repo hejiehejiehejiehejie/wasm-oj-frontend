@@ -23,7 +23,8 @@
     <meta property="og:description" content="数据保存在你浏览器本地、什么情况下会上传到云端、扩展会读取什么，以及联系方式。">
     <!--
       主题同步：和主应用读同一份 localStorage 契约（cp.editorSettings.theme）。
-      不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
+      明暗（data-scheme）与具体配色（data-theme）分开挂，不写时 base.css 的默认值就是深色。
+      LIGHT_THEMES 是一张「浅色主题 id」名单，新增浅色主题时必须同步到本页与其余静态页。
       故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
 
       同步义务：本页是隐私政策的「中文版」，与 privacy.en.html（英文版）逐条对应 ——
@@ -33,8 +34,12 @@
       try {
         var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
         var theme = saved && saved.theme
-        if (theme === 'light' || theme === 'cph-light') {
-          document.documentElement.dataset.theme = 'light'
+        if (theme === 'cph-light') theme = 'light'
+        var LIGHT_THEMES = ['light', 'paper', 'leaf', 'mist']
+        if (theme) {
+          document.documentElement.dataset.theme = theme
+          document.documentElement.dataset.scheme =
+            LIGHT_THEMES.indexOf(theme) >= 0 ? 'light' : 'dark'
         }
       } catch (error) {
         /* 隐私模式或存档损坏：按默认深色渲染即可 */

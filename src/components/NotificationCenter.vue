@@ -189,12 +189,10 @@ function runAction(notif, action) {
   }
 }
 
-/* 悬停抬一档底色。收进 (hover:hover)：触屏上 :hover 会粘在最后点过的卡片上不散，
-   那样一条通知会永久停在「悬停色」。 */
-@media (hover: hover) {
-  .notif:hover {
-    background: var(--toast-bg-hover);
-  }
+/* 悬停抬一档底色。判据是 html.is-hoverable（services/hoverCapability.js）：
+   触屏上 :hover 会粘在最后点过的卡片上不散，那样一条通知会永久停在「悬停色」。 */
+:where(html.is-hoverable) .notif:hover {
+  background: var(--toast-bg-hover);
 }
 
 /* 类型着色只落在图标上：正文保持中性色，四种类型混着排时才不会花 */
@@ -284,7 +282,7 @@ function runAction(notif, action) {
     background-color 0.16s ease;
 }
 
-.notif__action:hover {
+:where(html.is-hoverable) .notif__action:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
@@ -307,18 +305,20 @@ function runAction(notif, action) {
     opacity 0.16s ease;
 }
 
-.notif__close:hover {
+:where(html.is-hoverable) .notif__close:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
 
-@media (hover: hover) {
-  .notif__close {
-    opacity: 0;
-  }
+/* 关闭键压在右上角，能悬停时才藏着、悬停才显形（原型同款）；手指 / 无悬停指针上它常驻可见，
+   否则通知点不开也关不掉。判据是 html.is-hoverable（services/hoverCapability.js：
+   手指按下就关、鼠标一动就开）—— 触屏上 :hover 会粘在最后点过的那张卡上不散，
+   那样一条通知会永久停着「悬停色」的 ×。 */
+:where(html.is-hoverable) .notif__close {
+  opacity: 0;
+}
 
-  .notif:hover .notif__close {
-    opacity: 1;
-  }
+:where(html.is-hoverable) .notif:hover .notif__close {
+  opacity: 1;
 }
 </style>

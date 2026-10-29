@@ -34,6 +34,7 @@ import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
 import { SETTINGS_MENU_ROWS } from '../services/settingsMenu.js'
+import { THEMES } from '../services/editorOptions.js'
 import { readActiveProfile } from '../services/cloudEntry.js'
 import {
   adoptCloud,
@@ -295,6 +296,18 @@ async function confirmPending() {
 function optionsOf(index) {
   const row = rows.value[index]
   return row && row.kind === 'radio' ? row.options() : []
+}
+
+// 主题二级：深色一行、浅色一行（与设置面板色卡同一口径，来源都是 editorOptions 的 THEMES）
+const themeGroups = [
+  { scheme: 'dark', items: THEMES.filter((item) => item.scheme === 'dark') },
+  { scheme: 'light', items: THEMES.filter((item) => item.scheme === 'light') },
+]
+
+/** 主题卡在 optionsOf 里的全局下标：键盘上下键的高亮仍按扁平顺序走 */
+function themeOptionIndex(option) {
+  if (openSubmenu.value === null) return -1
+  return optionsOf(openSubmenu.value).findIndex((item) => item.id === option.id)
 }
 
 /** 从 from 往 delta 方向找下一个可选项，找不到就原地不动 */
@@ -719,32 +732,58 @@ function optionLabel(option) {
             role="menu"
             :aria-label="t(row.labelKey)"
           >
-            <button
-              v-for="(option, optionIndex) in row.options()"
-              :key="option.id"
-              type="button"
-              class="settings-menu__item settings-menu__item--sub"
-              :class="{
-                'is-active': subActiveIndex === optionIndex,
-                'settings-menu__item--with-icon': option.icon,
-              }"
-              :role="row.current ? 'menuitemradio' : 'menuitem'"
-              :aria-checked="row.current ? option.id === row.current() : undefined"
-              tabindex="-1"
-              @click.stop="pickOption(row, option)"
-              @pointerenter="subActiveIndex = optionIndex"
-            >
-              <!-- 打勾位常驻（哪怕这一档没选中也占位），选中的标记出现时文字不横向弹跳。
-                   设置分类那几档带图标：图标就占这一格 —— 它本来对分类永远空着，
-                   两者不会同时出现，文字左缘也不动 -->
-              <span v-if="option.icon" class="settings-menu__icon" aria-hidden="true">
-                <AppIcon :name="option.icon" :size="12" />
-              </span>
-              <span v-else class="settings-menu__check" aria-hidden="true">
-                <AppIcon v-if="row.current && option.id === row.current()" name="check" :size="12" />
-              </span>
-              <span class="settings-menu__label">{{ optionLabel(option) }}</span>
-            </button>
+            <!-- 主题：10 档横排成两行（深色一行、浅色一行）。竖排列表在这里会长到
+                 比屏幕还高，也不利于一次扫完；键盘仍按扁平顺序上下走（见 themeOptionIndex） -->
+            <div v-if="row.id === 'theme'" class="settings-menu__theme-rows">
+              <div v-for="group in themeGroups" :key="group.scheme" class="settings-menu__theme-row">
+                <button
+                  v-for="option in group.items"
+                  :key="option.id"
+                  type="button"
+                  class="settings-menu__theme-chip"
+                  :class="{
+                    'is-active': subActiveIndex === themeOptionIndex(option),
+                    'is-on': row.current && option.id === row.current(),
+                  }"
+                  role="menuitemradio"
+                  :aria-checked="row.current ? option.id === row.current() : undefined"
+                  tabindex="-1"
+                  @click.stop="pickOption(row, option)"
+                  @pointerenter="subActiveIndex = themeOptionIndex(option)"
+                >
+                  {{ optionLabel(option) }}
+                </button>
+              </div>
+            </div>
+
+            <template v-else>
+              <button
+                v-for="(option, optionIndex) in row.options()"
+                :key="option.id"
+                type="button"
+                class="settings-menu__item settings-menu__item--sub"
+                :class="{
+                  'is-active': subActiveIndex === optionIndex,
+                  'settings-menu__item--with-icon': option.icon,
+                }"
+                :role="row.current ? 'menuitemradio' : 'menuitem'"
+                :aria-checked="row.current ? option.id === row.current() : undefined"
+                tabindex="-1"
+                @click.stop="pickOption(row, option)"
+                @pointerenter="subActiveIndex = optionIndex"
+              >
+                <!-- 打勾位常驻（哪怕这一档没选中也占位），选中的标记出现时文字不横向弹跳。
+                     设置分类那几档带图标：图标就占这一格 —— 它本来对分类永远空着，
+                     两者不会同时出现，文字左缘也不动 -->
+                <span v-if="option.icon" class="settings-menu__icon" aria-hidden="true">
+                  <AppIcon :name="option.icon" :size="12" />
+                </span>
+                <span v-else class="settings-menu__check" aria-hidden="true">
+                  <AppIcon v-if="row.current && option.id === row.current()" name="check" :size="12" />
+                </span>
+                <span class="settings-menu__label">{{ optionLabel(option) }}</span>
+              </button>
+            </template>
           </div>
 
           <!-- 云端同步的二级：一个小表单，三相互斥（填用户名 / 看验证码 / 问一句确认）。
@@ -1034,8 +1073,8 @@ function optionLabel(option) {
 }
 
 /* 悬停与键盘高亮共用同一种反馈：通栏方块 + 提亮的文字 —— 「这是我的目标」只有一种说法 */
-.settings-menu__item.is-active,
-.settings-menu__item:hover:not(:disabled) {
+.settings-menu__item.is-active
+:where(html.is-hoverable) .settings-menu__item:hover:not(:disabled) {
   background: var(--menu-hover-bg);
   color: var(--menu-hover-text);
 }
@@ -1092,7 +1131,7 @@ function optionLabel(option) {
   cursor: pointer;
 }
 
-.settings-menu__step:hover {
+:where(html.is-hoverable) .settings-menu__step:hover {
   background: rgba(255, 255, 255, 0.12);
 }
 
@@ -1136,9 +1175,13 @@ function optionLabel(option) {
 
 /* ------------------------------------------------------------------ 二级子菜单
    贴在所属那一行的右侧，顶端与行对齐后再往上让出一个容器内边距，让一级 / 二级的
-   首在自己那一侧看齐（手写 -6px 而不是百分比：要的是一小截固定退让，与行高无关）。 */
+   首在自己那一侧看齐（手写 -6px 而不是百分比：要的是一小截固定退让，与行高无关）。
+   z-index 必给：窄屏放不下右侧时会用 --sub-shift-x 把二级横向推回来、压在菜单本身上，
+   而它下面的行都是 position: relative（z-index auto），按源序会画在二级之上 ——
+   字号步进器 / 箭头就会浮到主题面板上面。 */
 .settings-menu__sub {
   position: absolute;
+  z-index: 2;
   top: 0;
   left: 100%;
   min-width: calc(150px * var(--menu-scale));
@@ -1159,6 +1202,48 @@ function optionLabel(option) {
 
 .settings-menu__item--sub {
   gap: calc(8px * var(--menu-scale));
+}
+
+/* 主题二级：深色一组、浅色一组；组内按宽度弹性排列（auto-fill），放不下就换行，
+   不压成一条挤在一起的窄条。宽度与最小胶囊宽都随 --menu-scale 缩放。 */
+.settings-menu__theme-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--menu-scale));
+  padding: calc(4px * var(--menu-scale)) calc(6px * var(--menu-scale));
+  width: calc(300px * var(--menu-scale));
+}
+
+.settings-menu__theme-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(68px * var(--menu-scale)), 1fr));
+  gap: calc(4px * var(--menu-scale));
+}
+
+.settings-menu__theme-chip {
+  min-height: calc(24px * var(--menu-scale));
+  padding: calc(3px * var(--menu-scale)) calc(4px * var(--menu-scale));
+  border: 1px solid var(--menu-border);
+  border-radius: calc(4px * var(--menu-scale));
+  background: transparent;
+  color: var(--menu-text);
+  font: inherit;
+  font-size: calc(11.5px * var(--menu-scale));
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+:where(html.is-hoverable) .settings-menu__theme-chip:hover,
+.settings-menu__theme-chip.is-active {
+  border-color: var(--menu-muted);
+}
+
+/* 选中档铺色，和竖排列表里「高亮 + 打勾」的读法一致 */
+.settings-menu__theme-chip.is-on {
+  background: var(--menu-hover-bg);
+  border-color: var(--menu-hover-bg);
+  color: var(--menu-hover-text);
 }
 
 /* 带图标的二级项（「设置分类」）：图标紧挨文字，不跟着 space-between 被甩到最左、
@@ -1307,7 +1392,7 @@ function optionLabel(option) {
   transition: background-color 0.1s ease;
 }
 
-.settings-menu__action:hover:not(:disabled) {
+:where(html.is-hoverable) .settings-menu__action:hover:not(:disabled) {
   background: var(--bg-control-hover);
 }
 
@@ -1322,7 +1407,7 @@ function optionLabel(option) {
   color: var(--text-on-accent);
 }
 
-.settings-menu__action--primary:hover:not(:disabled) {
+:where(html.is-hoverable) .settings-menu__action--primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
@@ -1386,7 +1471,7 @@ function optionLabel(option) {
   transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
 }
 
-.settings-menu__copy:hover {
+:where(html.is-hoverable) .settings-menu__copy:hover {
   background: var(--bg-control-hover);
 }
 

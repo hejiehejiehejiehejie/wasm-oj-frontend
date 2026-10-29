@@ -94,6 +94,7 @@ import {
   todayISO,
 } from '../services/problemMeta.js'
 import { CHECKERS, DEFAULT_CHECKER_ID } from '../services/checkers.js'
+import { watchBackLayer } from '../services/backStack.js'
 
 /** 弹窗里的比对方式选项：默认逐行用「留空」表示，其余几种按题开启 */
 const CHECKER_OPTIONS = CHECKERS.filter((checker) => checker.id !== DEFAULT_CHECKER_ID)
@@ -542,6 +543,13 @@ watch(
   },
 )
 
+/**
+ * 装成 app 时的**系统返回** = 取消删除（2026-10-30）：与 Esc、点遮罩同一个出口。
+ * 删除确认是这张卡片唯一「不可撤销」的入口，返回键必须能退掉它 ——
+ * 独立 app 里返回键的语义就是「退掉眼前这一件」，不该等于「确认」。
+ */
+const stopBackDelete = watchBackLayer(() => pendingDelete.value.length > 0, cancelDelete)
+
 // 导出卡片同理：焦点进第一颗按钮，Esc 才落得到卡片上（keydown 是绑在卡片元素上的）
 watch(
   () => pendingExport.value.length,
@@ -549,6 +557,12 @@ watch(
     if (count) nextTick(() => exportFirstBtn.value?.focus())
   },
 )
+
+/**
+ * 导出卡片也接上返回键（2026-10-30）：它是二选一（下载 / 写进本机目录），
+ * 返回键**不能替用户选**，只能退掉卡片 —— 与点遮罩那个 `cancelExport` 同一个出口。
+ */
+const stopBackExport = watchBackLayer(() => pendingExport.value.length > 0, cancelExport)
 
 // ------------------------------------------------------------ 导入 / 导出
 
@@ -1063,6 +1077,8 @@ function dismissNotice() {
 // 于是 provider 在 init() 里投递时订阅已就位。
 onUnmounted(onStartupNotice((key) => showNotice(t(key))))
 onUnmounted(() => window.clearTimeout(transferPhaseTimer))
+onUnmounted(() => stopBackDelete())
+onUnmounted(() => stopBackExport())
 
 // ------------------------------------------------------------ 焦点（roving tabindex）
 
@@ -1563,7 +1579,7 @@ defineExpose({
   cursor: pointer;
 }
 
-.confirm__btn:hover {
+:where(html.is-hoverable) .confirm__btn:hover {
   background: var(--bg-hover);
 }
 
@@ -1574,7 +1590,7 @@ defineExpose({
   color: var(--danger-text);
 }
 
-.confirm__btn--danger:hover {
+:where(html.is-hoverable) .confirm__btn--danger:hover {
   background: var(--danger-bg-hover);
 }
 
@@ -1585,7 +1601,7 @@ defineExpose({
   color: var(--text-on-accent);
 }
 
-.confirm__btn--primary:hover {
+:where(html.is-hoverable) .confirm__btn--primary:hover {
   background: var(--accent-hover);
 }
 
@@ -1702,7 +1718,7 @@ defineExpose({
   cursor: pointer;
 }
 
-.meta__btn:hover {
+:where(html.is-hoverable) .meta__btn:hover {
   background: var(--bg-hover);
 }
 
@@ -1712,7 +1728,7 @@ defineExpose({
   color: var(--text-on-accent);
 }
 
-.meta__btn--primary:hover {
+:where(html.is-hoverable) .meta__btn--primary:hover {
   background: var(--accent-hover);
 }
 
@@ -1750,14 +1766,14 @@ defineExpose({
   cursor: pointer;
 }
 
-.explorer__btn:hover {
+:where(html.is-hoverable) .explorer__btn:hover {
   background: var(--bg-control-hover);
   color: var(--text);
 }
 
 /* 禁用态（比上面那条 :hover 更具体，压得住） */
 .explorer__btn:disabled,
-.explorer__btn:disabled:hover {
+:where(html.is-hoverable) .explorer__btn:disabled:hover {
   background: transparent;
   color: var(--text-dim);
   opacity: 0.4;

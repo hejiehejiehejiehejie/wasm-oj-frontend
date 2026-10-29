@@ -1365,13 +1365,14 @@ function onTabEnter(el) {
    取 --bg-tab-hover（深色比页签栏底 --bg-panel-head 提亮 6 阶、浅色压深 6 阶 —— 两套主题方向
    相反，原因写在 base.css 那两条注释里），过渡走基类那几行。
    三条注意：
-   - **刻意不放进 @media (hover: hover)**：与下面 .editor-tabs__close 那条不同 —— 触屏上
-     这层底色不会误伤，因为手指点页签必定把它切成选中态，选中规则的背景会盖住这里
-     （见下面两条注释）。
+   - **原本刻意没加悬停闸门**（2026-10-30 补上）：触屏上这层底色不会「误伤」——手指点页签
+     必定把它切成选中态，选中规则的背景会盖住这里（见下面两条注释）。但它会**粘住**：
+     点完之后指针已经离开，那块高光却留在原地。现在统一走 html.is-hoverable
+     （services/hoverCapability.js，手指按下就关、鼠标一动就开），全站只有这一套判据。
    - 必须写在 .editor-tabs__item--active 那组**之前**，靠顺序让选中色胜出。
    - 四角圆角只属于**这块临时高光**；选中页签（下面那条）必须把 border-radius 改回
      `8px 8px 0 0`，否则悬停当前页签时下沿也会翘起来、与编辑区脱开。 */
-.editor-tabs__item:hover {
+:where(html.is-hoverable) .editor-tabs__item:hover {
   /* 底色交给下一条的 ::before；自身透明，否则整盒又铺一层、把「底边内收 2.5px」盖掉。 */
   background: transparent;
   color: var(--text);
@@ -1385,7 +1386,7 @@ function onTabEnter(el) {
    - `--pressing`：长按进度要**整盒**（进度从整块底色走到 --bg-tab-hover，见下面那条）；
    - `--dragging`：拖动中页签已浮起，整盒底色才像「被拎起来的那一张」。
    `z-index: -1` 落在内容之下 —— 由页签自己的 `isolation: isolate` 兜住，不外泄到条带。 */
-.editor-tabs__item:hover:not(.editor-tabs__item--active):not(.editor-tabs__item--pressing):not(.editor-tabs__item--dragging)::before {
+:where(html.is-hoverable) .editor-tabs__item:hover:not(.editor-tabs__item--active):not(.editor-tabs__item--pressing):not(.editor-tabs__item--dragging)::before {
   content: '';
   position: absolute;
   inset: -2.5px 0 2.5px 0;
@@ -1403,7 +1404,7 @@ function onTabEnter(el) {
    同理，`--active:hover` 还要把 border-radius 改回 `8px 8px 0 0` —— 上一条 :hover 给的是
    四角全圆，不盖回来的话悬停当前页签时它的下沿也会翘起、与编辑区脱开。 */
 .editor-tabs__item--active,
-.editor-tabs__item--active:hover {
+:where(html.is-hoverable) .editor-tabs__item--active:hover {
   background: var(--bg-tab-active);
   color: var(--text);
   border-radius: 8px 8px 0 0;
@@ -1667,7 +1668,7 @@ function onTabEnter(el) {
    不排除的话拖动期间当前页签会连选中底色一起被抹成透明。
    （2026-10-10 从同形态的 `:hover::after { scaleX(0) }` 版本改来 —— 那时它压的是悬停细线，
    而选中线画在另一个伪元素上，所以不排除也不会露馅；改成底色之后必须补这个 :not。） */
-.editor-tabs.is-dragging .editor-tabs__item:not(.editor-tabs__item--active):hover {
+:where(html.is-hoverable) .editor-tabs.is-dragging .editor-tabs__item:not(.editor-tabs__item--active):hover {
   background: transparent;
 }
 
@@ -1746,7 +1747,7 @@ function onTabEnter(el) {
    胶囊左缘到组尾右缘整条线一次画完，不再有成员 / 胶囊各画一段的接缝。
    折叠时 SVG 的 measure 直接跳过折叠组，「展开之后才有下划线」照旧成立。 */
 
-.editor-tabs__chip:hover {
+:where(html.is-hoverable) .editor-tabs__chip:hover {
   filter: brightness(1.12);
 }
 
@@ -1850,15 +1851,16 @@ function onTabEnter(el) {
   pointer-events: none;
 }
 
-/* 「悬停即露出」只给真能悬停的设备（鼠标 / 触控板）。触屏的 :hover 是在 touchstart
-   那一刻就套上的：手指刚碰到页签、× 就现身并抢走这次点击，于是「点页签切换」变成
-   「点 × 关页签」。触屏改走下面那条 —— 先点亮页签（选中态）再露出 ×，即
-   「第一次只打开标签并显示关闭按钮，再点关闭才关闭」。 */
-@media (hover: hover) {
-  .editor-tabs__item:hover .editor-tabs__close {
-    opacity: 0.75;
-    pointer-events: auto;
-  }
+/* 「悬停即露出」只给**此刻真能悬停**的指针（判据在 services/hoverCapability.js：
+   手指按下就关、鼠标 / 触控笔一动就开）。触屏的 :hover 是在 touchstart 那一刻就套上的：
+   手指刚碰到页签、× 就现身并抢走这次点击，于是「点页签切换」变成「点 × 关页签」。
+   触屏改走下面那条 —— 先点亮页签（选中态）再露出 ×，即「第一次只打开标签并显示关闭按钮，
+   再点关闭才关闭」。
+   ⚠️ 别退回 `@media (hover: hover)`：有些安卓浏览器同时报 hover: hover，那条挡不住
+   （见文件末尾「触屏上的 ×」那段的第 ① 条），而这里一旦漏了，症状是**误关页签**。 */
+:where(html.is-hoverable) .editor-tabs__item:hover .editor-tabs__close {
+  opacity: 0.75;
+  pointer-events: auto;
 }
 
 .editor-tabs__item--active .editor-tabs__close {
@@ -1866,7 +1868,7 @@ function onTabEnter(el) {
   pointer-events: auto;
 }
 
-.editor-tabs__close:hover {
+:where(html.is-hoverable) .editor-tabs__close:hover {
   opacity: 1;
   background: var(--bg-control-hover);
 }
@@ -1874,7 +1876,7 @@ function onTabEnter(el) {
 /* ------------------------------------------------------------ 触屏上的 ×（十九改）
    两条口径，都只在粗指针设备上生效：
    ① **非激活页签一律不露 ×**。上面那两条规则其实已经做到了（默认 opacity 0 +
-      pointer-events: none，:hover 那条被 @media (hover: hover) 挡住），但有些安卓
+      pointer-events: none，:hover 那条被 html.is-hoverable 挡在手指之外），但有些安卓
       浏览器会同时报 `hover: hover` —— 手指一按下就补 :hover，× 抢在激活之前冒出来，
       于是「点页签切换」变成「点 × 关文件」。这里用一条特异性更高的
       `:not(--active)`（0,4,0）把它钉死，与浏览器怎么报 hover 无关。

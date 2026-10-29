@@ -30,7 +30,8 @@
     <meta name="twitter:image" content="https://www.998244353.best/og-cover.png" data-page-node-id="eMuVL63BedySIvMDQNAElK">
     <!--
       主题同步：和主应用读同一份 localStorage 契约（cp.editorSettings.theme）。
-      不写 data-theme 时 base.css 的默认值就是深色，所以只在浅色时才改。
+      明暗（data-scheme）与具体配色（data-theme）分开挂，不写时 base.css 的默认值就是深色。
+      LIGHT_THEMES 是一张「浅色主题 id」名单，新增浅色主题时必须同步到本页与其余静态页。
       故意不加 type="module"：普通内联脚本不会被构建流程挪走或打包。
 
       同步义务：本页是使用说明的「中文完整版」，与 guide.en.html（英文完整版）逐条对应 ——
@@ -44,8 +45,12 @@
         var theme = saved && saved.theme
         // 同时认旧 id（cph-light）：要等主应用跑过一次才会把存档迁成 'light'，
         // 在此之前直接打开本页也不该闪成深色。
-        if (theme === 'light' || theme === 'cph-light') {
-          document.documentElement.dataset.theme = 'light'
+        if (theme === 'cph-light') theme = 'light'
+        var LIGHT_THEMES = ['light', 'paper', 'leaf', 'mist']
+        if (theme) {
+          document.documentElement.dataset.theme = theme
+          document.documentElement.dataset.scheme =
+            LIGHT_THEMES.indexOf(theme) >= 0 ? 'light' : 'dark'
         }
       } catch (error) {
         /* 隐私模式或存档损坏：按默认深色渲染即可 */

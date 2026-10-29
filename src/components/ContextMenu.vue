@@ -163,13 +163,13 @@ function select(item) {
   transition: background-color 0.1s ease, color 0.1s ease;
 }
 
-.context-menu__item:hover:not(:disabled) {
+:where(html.is-hoverable) .context-menu__item:hover:not(:disabled) {
   background: var(--menu-hover-bg);
   color: var(--menu-hover-text);
 }
 
 /* 悬停时快捷键也跟着提亮一档 —— 深蓝底上原本那档灰会糊掉 */
-.context-menu__item:hover:not(:disabled) .context-menu__shortcut {
+:where(html.is-hoverable) .context-menu__item:hover:not(:disabled) .context-menu__shortcut {
   color: var(--menu-hover-muted);
 }
 

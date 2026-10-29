@@ -266,7 +266,7 @@ function headIconOptics(name) {
 
 /* hover 提亮整条轨道（而不是只提亮某一段）：这是「整枚都可以按」的反馈。
    指示块压在轨道上面，所以轨道 hover 变亮时当前段仍是实心蓝 */
-.sidebar-switcher__pill:hover {
+:where(html.is-hoverable) .sidebar-switcher__pill:hover {
   background: var(--bg-control-hover);
 }
 
@@ -342,7 +342,7 @@ function headIconOptics(name) {
     background-color 0.16s ease;
 }
 
-.sidebar-switcher__tab:hover {
+:where(html.is-hoverable) .sidebar-switcher__tab:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
@@ -354,7 +354,7 @@ function headIconOptics(name) {
    分段」的判据换成另外两条：它在轨道**之外**（没有轨道底色，只有自己填的那块），
    且与胶囊之间有 4px 间隙 —— 这两条别顺手去掉（比如给整排套一个共同底色）。 */
 .sidebar-switcher__tab.is-active,
-.sidebar-switcher__tab.is-active:hover {
+:where(html.is-hoverable) .sidebar-switcher__tab.is-active:hover {
   color: var(--text-on-accent);
   background: var(--accent);
 }

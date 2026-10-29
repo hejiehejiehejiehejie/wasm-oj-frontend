@@ -12,14 +12,85 @@
  * 另一处刻意的例外是 autoSave（默认开），理由写在它自己那行注释里。
  */
 
-/** 主题决定整套界面配色（见 styles/base.css 的变量），所以只有深 / 浅两套。
- *  这个 id 有三重身份，改名时必须一起动：Monaco 自定义主题名（src/monaco-setup.js）、
- *  <html data-theme> 的值（src/styles/base.css 的选择器）、以及存档里 theme 字段的取值
- *  （迁移见 src/App.vue 的 readEditorSettings），另加 guide.html 的首帧内联脚本。 */
+/** 主题决定整套界面配色（见 styles/base.css 的变量）。
+ *  每一套主题有两个身份，必须分开看：
+ *    · `id` —— 具体配色方案的存档值，同时是 `<html data-theme>` 的取值与 Monaco 自定义主题名
+ *      （src/monaco-setup.js），改名时必须一起动，另加各静态页的首帧内联脚本；
+ *    · `scheme` —— 只描述明暗（'dark' / 'light'），写在 `<html data-scheme>`。
+ *  组件里凡是「只关心明暗」的判断（放大镜用哪套 Monaco 基色、段位色、系统栏图标）一律读
+ *  scheme，不要读 id —— 否则每加一套深色主题都得再补一处分支。
+ *
+ *  `swatch` 是设置页色卡网格的预览色（底色 / 卡片 / 强调 / 正文）。它是**别的主题**的颜色，
+ *  当前渲染时读不到那套主题的 CSS 变量，所以只能在这里显式列出；主题配色改动时记得同步。 */
 export const THEMES = [
-  { id: 'dark', labelKey: 'settings.option.themeDark' },
-  { id: 'light', labelKey: 'settings.option.themeLight' },
+  {
+    id: 'dark',
+    scheme: 'dark',
+    labelKey: 'settings.option.themeDark',
+    swatch: ['#1c1c1c', '#252528', '#0e639c', '#d4d4d4'],
+  },
+  {
+    id: 'light',
+    scheme: 'light',
+    labelKey: 'settings.option.themeLight',
+    swatch: ['#f3f3f3', '#ffffff', '#005fb8', '#1f1f1f'],
+  },
+  {
+    id: 'midnight',
+    scheme: 'dark',
+    labelKey: 'settings.option.themeMidnight',
+    swatch: ['#14161d', '#1c1f2b', '#2273b5', '#ccd3e1'],
+  },
+  {
+    id: 'oled',
+    scheme: 'dark',
+    labelKey: 'settings.option.themeOled',
+    swatch: ['#000000', '#101010', '#0e639c', '#e6e6e6'],
+  },
+  {
+    id: 'paper',
+    scheme: 'light',
+    labelKey: 'settings.option.themePaper',
+    swatch: ['#f6f1e6', '#fbf7ee', '#9a5b00', '#2f2a22'],
+  },
+  {
+    id: 'leaf',
+    scheme: 'light',
+    labelKey: 'settings.option.themeLeaf',
+    swatch: ['#e8efe3', '#f0f5ec', '#2f7048', '#26302a'],
+  },
+  {
+    id: 'dusk',
+    scheme: 'dark',
+    labelKey: 'settings.option.themeDusk',
+    swatch: ['#282a36', '#2d2f3d', '#7c5cd6', '#f8f8f2'],
+  },
+  {
+    id: 'forest',
+    scheme: 'dark',
+    labelKey: 'settings.option.themeForest',
+    swatch: ['#151b17', '#1d2620', '#1f7a52', '#cfdcd2'],
+  },
+  {
+    id: 'contrast',
+    scheme: 'dark',
+    labelKey: 'settings.option.themeContrast',
+    swatch: ['#000000', '#0a0a0a', '#2ea8ff', '#ffffff'],
+  },
+  {
+    id: 'mist',
+    scheme: 'light',
+    labelKey: 'settings.option.themeMist',
+    swatch: ['#e3e9f1', '#eef2f7', '#43698f', '#2e3440'],
+  },
 ]
+
+/** 主题 id → 明暗。未知 id 一律按深色（与 base.css 的默认值一致）。 */
+const THEME_SCHEME = Object.fromEntries(THEMES.map(({ id, scheme }) => [id, scheme]))
+
+export function themeScheme(id) {
+  return THEME_SCHEME[id] || 'dark'
+}
 
 /** 字体栈：末尾都留一个 monospace 兜底，首选字体没装也不会退化成非等宽。
  *  标了「内置」的三款是自托管的 webfont（见 styles/fonts.css / public/fonts/），

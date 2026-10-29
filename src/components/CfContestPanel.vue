@@ -683,7 +683,7 @@ const canSubmitActive = computed(() => {
   white-space: nowrap;
 }
 
-.cf-contest__name:hover {
+:where(html.is-hoverable) .cf-contest__name:hover {
   color: var(--accent-text);
 }
 
@@ -775,7 +775,7 @@ const canSubmitActive = computed(() => {
   color: var(--accent-text);
 }
 
-.cf-btn--accent:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-btn--accent:hover:not(:disabled) {
   background: var(--accent-face);
   color: var(--accent-text);
 }

@@ -322,7 +322,7 @@
  * 2026-10-29 起账号不再在表单里填 —— 抬头右侧那颗胶囊是三个模式共用的同一份（cf/myHandle.js）。
  *
  * 【颜色一律走设计令牌】不用 rgba(255,255,255,x) 这类字面量：本项目有浅色主题
- * （base.css 的 :root[data-theme='light']），白色系硬编码在浅色下会整体失效。
+ * （base.css 的 :root[data-scheme='light']），白色系硬编码在浅色下会整体失效。
  *
  * 【开关不在这里】侧栏那颗「组件」按钮唤出组件菜单（ComponentsMenu，Codeforces 类里的
  * 一项，与比赛并列），页签栏负责开关/切换，这里只渲染内容。
@@ -573,7 +573,7 @@ function stepCount(delta) {
 /* 悬停才浮现一层淡底（--bg-field：深色比地面亮一档，2026-10-29 用户口径「都改为比底色浅」）。
    这一步不是为了「告诉你能点」——placeholder「不限」与光标已经说了 ——
    而是让指针压上去时有个落点，不至于在裸字上凭空出框。 */
-.pk-range:hover {
+:where(html.is-hoverable) .pk-range:hover {
   background: var(--bg-field);
 }
 
@@ -676,7 +676,7 @@ function stepCount(delta) {
   white-space: nowrap;
 }
 
-.pk-presets .pk-chip:hover:not(.is-on) {
+:where(html.is-hoverable) .pk-presets .pk-chip:hover:not(.is-on) {
   background: var(--bg-control);
   color: var(--text);
 }
@@ -737,7 +737,7 @@ function stepCount(delta) {
 }
 
 /* 悬停 / 展开时箭头亮一档：不加底色，靠亮度交代「可点」与「已展开」 */
-.pk-fold:hover,
+:where(html.is-hoverable) .pk-fold:hover,
 .pk-fold.is-open {
   color: var(--text);
 }
@@ -779,7 +779,7 @@ function stepCount(delta) {
   white-space: nowrap;
 }
 
-.pk-tags .pk-chip:hover:not(.is-on) {
+:where(html.is-hoverable) .pk-tags .pk-chip:hover:not(.is-on) {
   background: var(--bg-control);
   color: var(--text);
 }
@@ -829,7 +829,7 @@ function stepCount(delta) {
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.pk-stepper:hover {
+:where(html.is-hoverable) .pk-stepper:hover {
   background: var(--bg-field);
 }
 
@@ -852,7 +852,7 @@ function stepCount(delta) {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.pk-stepper__btn:hover:not(:disabled) {
+:where(html.is-hoverable) .pk-stepper__btn:hover:not(:disabled) {
   background: var(--bg-control);
   color: var(--text);
 }
@@ -904,7 +904,7 @@ function stepCount(delta) {
   transition: color 0.15s ease;
 }
 
-.pk-switch:hover {
+:where(html.is-hoverable) .pk-switch:hover {
   color: var(--text);
 }
 
@@ -977,7 +977,7 @@ function stepCount(delta) {
   transition: background-color 0.16s ease;
 }
 
-.pk-cta:hover:not(:disabled) {
+:where(html.is-hoverable) .pk-cta:hover:not(:disabled) {
   background: var(--accent-face-hover);
 }
 

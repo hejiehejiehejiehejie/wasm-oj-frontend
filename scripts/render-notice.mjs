@@ -284,8 +284,12 @@ function renderPage(body, hash, page) {
       try {
         var saved = JSON.parse(localStorage.getItem('cp.editorSettings'))
         var theme = saved && saved.theme
-        if (theme === 'light' || theme === 'cph-light') {
-          document.documentElement.dataset.theme = 'light'
+        if (theme === 'cph-light') theme = 'light'
+        var LIGHT_THEMES = ['light', 'paper', 'leaf', 'mist']
+        if (theme) {
+          document.documentElement.dataset.theme = theme
+          document.documentElement.dataset.scheme =
+            LIGHT_THEMES.indexOf(theme) >= 0 ? 'light' : 'dark'
         }
       } catch (error) {
         /* 隐私模式或存档损坏：按默认深色渲染即可 */

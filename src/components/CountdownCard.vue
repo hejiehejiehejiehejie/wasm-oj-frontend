@@ -738,12 +738,12 @@ onBeforeUnmount(() => {
   transition: color 0.16s ease, background-color 0.16s ease;
 }
 
-.cd-icon:hover {
+:where(html.is-hoverable) .cd-icon:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
 
-.cd-icon.is-danger:hover {
+:where(html.is-hoverable) .cd-icon.is-danger:hover {
   color: var(--fail);
   background: var(--danger-bg);
 }
@@ -805,7 +805,7 @@ onBeforeUnmount(() => {
 }
 
 /* 深色没有底色块撑着，数字再大一档，读起来才像仪表盘 */
-html[data-theme='dark'] .cd-dms input {
+html[data-scheme='dark'] .cd-dms input {
   font-size: 22px;
 }
 
@@ -863,7 +863,7 @@ html[data-theme='dark'] .cd-dms input {
   transition: color 0.16s ease, background-color 0.16s ease;
 }
 
-.cd-presets button:hover {
+:where(html.is-hoverable) .cd-presets button:hover {
   color: var(--text);
   background: var(--cd-chip-hover);
 }
@@ -891,7 +891,7 @@ html[data-theme='dark'] .cd-dms input {
   transition: background-color 0.16s ease;
 }
 
-.cd-primary:hover:not(:disabled) {
+:where(html.is-hoverable) .cd-primary:hover:not(:disabled) {
   background: var(--cd-primary-hover);
 }
 
@@ -1029,15 +1029,15 @@ html[data-theme='dark'] .cd-dms input {
     color 0.18s ease;
 }
 
-.cd-unlock.is-hover,
-.cd-unlock:hover,
-.cd-unlock:focus-visible,
+.cd-unlock.is-hover
+:where(html.is-hoverable) .cd-unlock:hover
+.cd-unlock:focus-visible
 .cd-unlock.is-peek {
   opacity: 1;
   transform: translateX(-50%) scale(1);
 }
 
-.cd-unlock:hover {
+:where(html.is-hoverable) .cd-unlock:hover {
   background: var(--ok);
   color: var(--bg-raised);
 }
@@ -1073,7 +1073,7 @@ html[data-theme='dark'] .cd-dms input {
     );
 }
 
-.cd-card:hover .cd-resize {
+:where(html.is-hoverable) .cd-card:hover .cd-resize {
   opacity: 0.7;
 }
 

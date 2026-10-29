@@ -504,7 +504,7 @@ const elapsedText = computed(() => {
   text-underline-offset: 2px;
 }
 
-.empty__link:hover {
+:where(html.is-hoverable) .empty__link:hover {
   color: var(--accent-strong);
 }
 
@@ -542,7 +542,7 @@ const elapsedText = computed(() => {
   transition: border-color 0.16s ease, color 0.16s ease;
 }
 
-.add:hover:not(:disabled) {
+:where(html.is-hoverable) .add:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--border);
 }
@@ -621,7 +621,7 @@ const elapsedText = computed(() => {
   transition: background-color 0.16s ease;
 }
 
-.run-inline:hover:not(:disabled) {
+:where(html.is-hoverable) .run-inline:hover:not(:disabled) {
   background: var(--ok-face-hover);
 }
 
@@ -652,7 +652,7 @@ const elapsedText = computed(() => {
   transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
-.submit-inline:hover:not(:disabled) {
+:where(html.is-hoverable) .submit-inline:hover:not(:disabled) {
   background: var(--accent-face-hover);
 }
 

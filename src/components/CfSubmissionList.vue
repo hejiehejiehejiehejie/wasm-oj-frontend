@@ -384,7 +384,7 @@ const emptyText = computed(() => {
   color: var(--text-faint);
 }
 
-.cf-sub:hover .cf-sub__link {
+:where(html.is-hoverable) .cf-sub:hover .cf-sub__link {
   color: var(--accent-text);
 }
 

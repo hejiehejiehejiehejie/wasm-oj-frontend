@@ -217,7 +217,7 @@ watch(ready, (shown) => {
   transition: background-color 0.1s ease;
 }
 
-.components-menu__item:hover,
+:where(html.is-hoverable) .components-menu__item:hover,
 .components-menu__item:focus-visible {
   background: var(--menu-hover-bg);
   outline: none;
@@ -255,13 +255,13 @@ watch(ready, (shown) => {
   white-space: nowrap;
 }
 
-.components-menu__item:hover .components-menu__tile,
+:where(html.is-hoverable) .components-menu__item:hover .components-menu__tile,
 .components-menu__item:focus-visible .components-menu__tile {
   background: var(--menu-bg);
 }
 
 /* 悬停 / 键盘选中时整格变蓝，文字也要跟着转白，否则浅色主题下是深灰压亮蓝 */
-.components-menu__item:hover .components-menu__label,
+:where(html.is-hoverable) .components-menu__item:hover .components-menu__label,
 .components-menu__item:focus-visible .components-menu__label {
   color: var(--menu-hover-text);
 }

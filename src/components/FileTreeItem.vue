@@ -598,12 +598,12 @@ function focusRowAt(el, extend) {
 /* 悬停用比选中（--bg-hover）淡一档的底色，否则鼠标划过别的行时看不出哪一行才是选中的。
    下面 --active 的两条要留在 :hover 之后：同为 (0,2,0) 特异性，靠源序压回来，
    不然悬停选中的那一行会把它「淡成」悬停色。 */
-.tree-item__row:hover {
+:where(html.is-hoverable) .tree-item__row:hover {
   background: var(--bg-hover-soft);
 }
 
 .tree-item__row--active,
-.tree-item__row--active:hover {
+:where(html.is-hoverable) .tree-item__row--active:hover {
   background: var(--bg-hover);
 }
 
@@ -678,7 +678,7 @@ function focusRowAt(el, extend) {
    免得悬停色（不透明）在整块蓝中间压出一条深色带。
    双类 + :hover 是为了压过上面的 :hover 与 --active:hover（拖拽时光标必然停在这一行）。 */
 .tree-item__row.tree-item__row--drop,
-.tree-item__row.tree-item__row--drop:hover {
+:where(html.is-hoverable) .tree-item__row.tree-item__row--drop:hover {
   background: transparent;
 }
 

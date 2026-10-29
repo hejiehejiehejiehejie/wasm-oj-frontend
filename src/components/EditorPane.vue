@@ -23,7 +23,7 @@ import { useEditorMenu } from '../composables/useEditorMenu.js'
 import { useSelectionHandles } from '../composables/useSelectionHandles.js'
 import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
-import { editorModelOptions, editorOptions } from '../services/editorOptions.js'
+import { editorModelOptions, editorOptions, themeScheme } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { releaseSyntaxDiagnostics, scheduleSyntaxCheck } from '../services/monaco/syntaxDiagnostics.js'
 import {
@@ -61,6 +61,7 @@ import EditorSettingsPanel from './EditorSettingsPanel.vue'
 import EditorTabs from './EditorTabs.vue'
 import MarkdownPreview from './MarkdownPreview.vue'
 import { MD_SHORTCUTS, MD_TOOL_GROUPS, formatMarkdown, markdownStats } from '../services/mdFormat.js'
+import { watchBackLayer } from '../services/backStack.js'
 
 const props = defineProps({
   settings: { type: Object, required: true },
@@ -153,7 +154,7 @@ const magnifierEl = ref(null)
  * 但选中 / 当前行 / 缩进参考线全是 `.monaco-editor .xxx` 前缀。所以跟着主编辑器的主题
  * 挂 `vs-dark` / `vs`（这是 Monaco `getThemeTypeSelector()` 的口径，不是站内的 dark / light）。
  */
-const lensTheme = computed(() => (props.settings.theme === 'light' ? 'vs' : 'vs-dark'))
+const lensTheme = computed(() => (themeScheme(props.settings.theme) === 'light' ? 'vs' : 'vs-dark'))
 const {
   handles: selectionHandles,
   dragging: handlesDragging,
@@ -568,7 +569,19 @@ onMounted(() => {
   unregisterDropZone = registerDropZone(dropZone.value)
 })
 
+/**
+ * 装成 app 时的**系统返回** = 退出 Markdown 全屏（2026-10-30）。与 Esc 同一个出口
+ * （`exitFullscreen`），但不共用事件链：Esc 那条还要先让 Monaco 的查找框 / 补全框
+ * （见 `onWindowKeydown`），返回键没有这些竞争者。
+ *
+ * source 必须是 `mdFullscreen`（**生效态**）而不是 `mdView.fullscreen`（存档态）：
+ * 在全屏里点开一个 .cpp 时，生效态会回落成 false（见 mdView 的 `mdActive`），
+ * 那种情形下不该还占着一层。
+ */
+const stopBackFullscreen = watchBackLayer(mdFullscreen, exitFullscreen)
+
 onBeforeUnmount(() => {
+  stopBackFullscreen()
   unregisterDropZone?.()
   unregisterDropZone = null
   window.removeEventListener('keydown', onWindowKeydown, true)
@@ -1343,7 +1356,7 @@ defineExpose({
   color: var(--text-dim);
 }
 
-.md-tool:hover {
+:where(html.is-hoverable) .md-tool:hover {
   color: var(--text);
   background: var(--bg-control-hover);
 }
@@ -1377,7 +1390,7 @@ defineExpose({
   color: var(--text-dim);
 }
 
-.view-switch__item:hover {
+:where(html.is-hoverable) .view-switch__item:hover {
   color: var(--text);
   background: var(--bg-control-hover);
 }
@@ -1400,7 +1413,7 @@ defineExpose({
   background: var(--bg-control);
 }
 
-.view-toggle:hover {
+:where(html.is-hoverable) .view-toggle:hover {
   color: var(--text);
   background: var(--bg-control-hover);
 }
@@ -1463,7 +1476,7 @@ defineExpose({
   font-size: 12.5px;
 }
 
-.md-insert__btn:hover {
+:where(html.is-hoverable) .md-insert__btn:hover {
   background: var(--bg-control-hover);
 }
 
@@ -1682,7 +1695,7 @@ defineExpose({
   cursor: pointer;
 }
 
-.image-ask__btn:hover {
+:where(html.is-hoverable) .image-ask__btn:hover {
   background: var(--bg-hover);
 }
 
@@ -1693,7 +1706,7 @@ defineExpose({
   color: var(--text-on-accent);
 }
 
-.image-ask__btn--primary:hover {
+:where(html.is-hoverable) .image-ask__btn--primary:hover {
   background: var(--accent-hover);
 }
 

@@ -753,7 +753,7 @@ function onLongCopy(event, full) {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.icon-btn:hover:not(:disabled) {
+:where(html.is-hoverable) .icon-btn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -763,7 +763,7 @@ function onLongCopy(event, full) {
   cursor: default;
 }
 
-.icon-btn--danger:hover:not(:disabled) {
+:where(html.is-hoverable) .icon-btn--danger:hover:not(:disabled) {
   color: var(--fail);
   background: rgba(244, 135, 113, 0.14);
 }
@@ -772,7 +772,7 @@ function onLongCopy(event, full) {
    透明度、用次要文字色 —— 它替运行图标撑住右侧这一格，不至于留白，也不跟主操作抢注意力；
    鼠标进入卡片（或键盘进入头栏）时醒到 1，并转成柔和的危险色。
    点按面一直有效（不再 pointer-events: none）：它看得见，就该点得到；
-   0.18 的幽灵图标也不至于被误触。触屏没有 hover，走 hover:none 那条常亮兜底。 */
+   0.18 的幽灵图标也不至于被误触。手指 / 无悬停指针上走下面那条「常亮」兜底。 */
 .icon-btn.icon-btn--danger {
   /* 与运行图标同尺寸（2026-10-24 晚第三次改，用户要求）：32×32 热区、6px 圆角，
      两颗按钮的点击范围与形状完全一致。 */
@@ -798,7 +798,7 @@ function onLongCopy(event, full) {
 /* 亮起条件按**键盘意图**判，不用 :focus-within（2026-10-24 修）：鼠标点一下旁边的运行按钮，
    焦点也会落进头栏，:focus-within 随即把垃圾桶点亮，指针移出卡片后它仍一直亮着 ——
    看着像垃圾桶自己被聚焦了。:has(:focus-visible) 只认键盘意图，鼠标点击不匹配。 */
-.card:hover .icon-btn--danger:not(:disabled),
+:where(html.is-hoverable) .card:hover .icon-btn--danger:not(:disabled),
 .card__head:has(:focus-visible) .icon-btn--danger:not(:disabled) {
   opacity: 1;
 }
@@ -806,16 +806,18 @@ function onLongCopy(event, full) {
 /* 鼠标进入卡片即按用户要求转危险色；键盘进入头栏只显形、不染红 —— 那时焦点还在
    别的按钮上，一枚红垃圾桶会跟正在聚焦的主操作抢眼神。等 Tab 真正落到垃圾桶
    （focus-visible）再变红，见下一条。 */
-.card:hover .icon-btn--danger:not(:disabled),
+:where(html.is-hoverable) .card:hover .icon-btn--danger:not(:disabled),
 .icon-btn--danger:focus-visible {
   color: var(--fail);
 }
 
-@media (hover: none) {
-  .icon-btn--danger:not(:disabled) {
-    opacity: 1;
-    color: var(--fail);
-  }
+/* 没有悬停能力时（手指 / 触控笔落下的那一瞬起）垃圾桶常亮：那种指针上「等悬停才现身」
+   等于永远不现身。判据用 html.is-hoverable 而不是 `@media (hover: none)`（2026-10-30 换）：
+   后者判的是**设备**，手指点在一台「也插着鼠标」的机器上时它不成立，于是上面两条
+   被 is-hoverable 挡住、这条又不接管 —— 垃圾桶就一直停在 0.18 的幽灵态。 */
+:where(html:not(.is-hoverable)) .icon-btn--danger:not(:disabled) {
+  opacity: 1;
+  color: var(--fail);
 }
 
 /* 运行图标（2026-10-24 晚第三次改）：与垃圾桶互换位置后独立成一颗 32×32 按钮，
@@ -828,7 +830,7 @@ function onLongCopy(event, full) {
   color: var(--text-dim);
 }
 
-.icon-btn--run:hover:not([aria-disabled='true']) {
+:where(html.is-hoverable) .icon-btn--run:hover:not([aria-disabled='true']) {
   background: var(--icon-hover-bg);
   color: var(--text);
 }
@@ -840,7 +842,7 @@ function onLongCopy(event, full) {
 
 /* 禁用时仍允许悬停弹提示（runBlocked 的原因就靠它说），但不给悬停底色 ——
    亮起来的反馈会让人以为按下去有用。 */
-.icon-btn--run[aria-disabled='true']:hover {
+:where(html.is-hoverable) .icon-btn--run[aria-disabled='true']:hover {
   background: transparent;
   color: var(--text-dim);
 }
@@ -870,7 +872,7 @@ function onLongCopy(event, full) {
    那颗 22×22 的灰方块（--bg-hover）比字形本身还抢眼，点完鼠标还停在那里，看着
    像「选中了还亮着」。反馈留给文字由灰变亮（--text-faint → --text）。
    必须写在这里：与 .icon-btn:hover:not(:disabled) 同权重，靠后面这条覆盖掉。 */
-.icon-btn--toggle:hover:not(:disabled) {
+:where(html.is-hoverable) .icon-btn--toggle:hover:not(:disabled) {
   background: transparent;
 }
 
@@ -879,7 +881,7 @@ function onLongCopy(event, full) {
    与直接悬停按钮完全一致；底色两处都保持透明。:has() 在这文件里已有先例
    （.card__head:has(:focus-visible)）。箭头自己的 color transition（.icon-btn 上那条）
    照常生效，所以高亮是渐变不是瞬跳。 */
-.card__head:has(.card__title:hover) .icon-btn--toggle {
+:where(html.is-hoverable) .card__head:has(.card__title:hover) .icon-btn--toggle {
   color: var(--text);
 }
 
@@ -1123,7 +1125,7 @@ function onLongCopy(event, full) {
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.ionote__btn:hover {
+:where(html.is-hoverable) .ionote__btn:hover {
   background: var(--bg-control-hover);
   border-color: var(--border);
   color: var(--text);

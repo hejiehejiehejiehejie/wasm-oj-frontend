@@ -1,5 +1,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, toValue } from 'vue'
 
+import { pushBackLayer } from '../services/backStack.js'
+
 /**
  * usePopoverLayer —— Teleport 到 body 的浮层躲不开的两件事：定位收敛 + 什么时候关。
  *
@@ -16,11 +18,15 @@ import { nextTick, onBeforeUnmount, onMounted, ref, toValue } from 'vue'
  * ⚠️ **那个「视口」是可视视口，不是布局视口**（2026-10-14 修，见 `viewportBox()`）：
  * 软键盘弹起时两者会分家，拿 `window.innerHeight` 当匣，菜单就会伸到键盘底下那一段去。
  *
- * 【关闭】四路：点浮层外（捕获阶段）/ Esc（捕获阶段）/ 窗口失焦 / 视口尺寸变化
- * （最后一路有例外：焦点在浮层里时只重匣位置、不收 —— 那是软键盘，见 onResize）。
+ * 【关闭】五路：点浮层外（捕获阶段）/ Esc（捕获阶段）/ 窗口失焦 / 视口尺寸变化 /
+ * 系统返回（2026-10-30 加，装成 app 时的返回键，见 `services/backStack.js`）。
+ * 前四路走下面同一个 `dismiss`，第五路注册的也是它 —— 所以任何一路关闭都会把
+ * 「当前最上层」一起清掉，不会在返回栈里留幽灵条目。
+ * （视口尺寸变化那一路有例外：焦点在浮层里时只重匣位置、不收 —— 那是软键盘，见 onResize）。
  * 注册时机是**分开的**（2026-10-19 修，见 onMounted 里那段）：`pointerdown` 延迟一拍 ——
  * 打开这一下往往就是某个 pointerdown / click 带出来的，当场挂上会被同一发事件立刻关掉
- * （表现为「点了没反应」）；Esc / blur / resize 当场挂上 —— 它们打开不了浮层，晚挂只会吞键。
+ * （表现为「点了没反应」）；Esc / blur / resize / 返回 当场挂上 —— 它们打开不了浮层，
+ * 晚挂只会吞键。
  * 另外 resize 也会关：浮层是 fixed 定位、贴着某个元素，视口一变那个元素就挪走了，
  * 留在原地的浮层会指向错的位置 —— 重定位不如直接收掉（原生菜单也是这么干的）。
  *
@@ -62,8 +68,17 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   // 量完之前不显形，否则会看见「先在期望位置闪一下再被拉回来」
   const ready = ref(false)
 
+  /** 返回键那一层的注销函数（注册在 onMounted，见那里那段） */
+  let releaseBack = null
+
   // 稳定引用：onDismiss 若是个每次渲染都变的内联箭头函数，removeEventListener 会认不出来
-  const dismiss = () => onDismiss?.()
+  const dismiss = () => {
+    // 先出栈再关：任何一路关闭（点外 / Esc / blur / resize / 系统返回）都要让
+    // 「当前最上层」立刻跟上，否则残留的那个条目会让下一次返回落在空处
+    releaseBack?.()
+    releaseBack = null
+    onDismiss?.()
+  }
 
   function onPointerDown(event) {
     if (root.value && !root.value.contains(event.target)) dismiss()
@@ -114,7 +129,8 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
 
   onMounted(async () => {
     /**
-     * ⚠️ **只有 pointerdown 该迟一拍，其余三路必须当场挂上**（2026-10-19 修）。
+     * ⚠️ **只有 pointerdown 该迟一拍，其余四路必须当场挂上**（2026-10-19 修；2026-10-30 起
+     * 第五路「系统返回」同样归入这一组，见下面那段）。
      *
      * 四路统一塞进 `setTimeout(0)` 那版有个真实的吞键窗口：timer 还是排在
      * `await clampIntoViewport()`（要等一个 nextTick）之后的，浮层刚显出 `--ready`、
@@ -123,12 +139,22 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
      *
      * 分家的判据：`pointerdown` 是可能**打开**浮层的那个手势（菜单都挂在 click 上，
      * click 前面必有一发 pointerdown），当场挂上会被它自己立刻关掉，所以要等它派发完；
-     * 而 Esc / 失焦 / 视口变化打开不了任何浮层，晚挂只会漏掉按键，没有好处。
+     * 而 Esc / 失焦 / 视口变化 / 系统返回打开不了任何浮层，晚挂只会漏掉按键，没有好处。
      * `blur` 也不能等：窗口在你等这一拍的时候失焦，浮层就永远留着了。
      */
     window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('blur', dismiss)
     window.addEventListener('resize', onResize)
+
+    /**
+     * 第五路关闭：装成 app 时的**系统返回**。它和 Esc / 失焦 / 视口变化一样，
+     * 打开不了浮层，所以当场注册、不排队等那一拍。
+     *
+     * 注册点收在这里而不是各调用方：注销必须与注册成对，而浮层有四路关闭 + 外层 `v-if`
+     * 卸载，散出去写必然漏（漏一个就在栈里留个幽灵条目，表现为「按了返回什么都没发生」）。
+     * 这一路走的是 `dismiss`，所以四条老路也顺带把栈清干净了。
+     */
+    releaseBack = pushBackLayer(dismiss)
 
     const timer = window.setTimeout(() => {
       window.addEventListener('pointerdown', onPointerDown, true)
@@ -148,6 +174,9 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     window.removeEventListener('keydown', onKeyDown, true)
     window.removeEventListener('blur', dismiss)
     window.removeEventListener('resize', onResize)
+    // 外层 `v-if` 直接收掉浮层（既没走 dismiss 也没走那四路）时，这一层就靠这里出栈
+    releaseBack?.()
+    releaseBack = null
   })
 
   return { root, position, ready }

@@ -59,7 +59,7 @@
   color: var(--text-faint);
 }
 
-.cf-input:hover {
+:where(html.is-hoverable) .cf-input:hover {
   background: var(--bg-control);
 }
 
@@ -104,13 +104,13 @@
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-btn:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-btn:hover:not(:disabled) {
   background: var(--icon-hover-bg);
   color: var(--text);
 }
 
 /* 纯文字动作（刷新一类）：悬停只让字变亮，不铺整块热区 */
-.cf-btn--text:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-btn--text:hover:not(:disabled) {
   background: transparent;
 }
 
@@ -125,7 +125,7 @@
   color: var(--accent-text);
 }
 
-.cf-btn.is-on:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-btn.is-on:hover:not(:disabled) {
   background: var(--accent-face-hover);
   color: var(--accent-text);
 }
@@ -150,7 +150,7 @@
   transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-mini:hover:not(:disabled) {
+:where(html.is-hoverable) .cf-mini:hover:not(:disabled) {
   border-color: var(--border);
   color: var(--text);
 }
@@ -184,7 +184,7 @@
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-icon-btn:hover {
+:where(html.is-hoverable) .cf-icon-btn:hover {
   background: var(--icon-hover-bg);
   color: var(--accent-text);
 }
@@ -204,7 +204,7 @@
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-chip:hover {
+:where(html.is-hoverable) .cf-chip:hover {
   background: var(--bg-control);
   color: var(--text);
 }
@@ -234,7 +234,7 @@
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.cf-tab:hover {
+:where(html.is-hoverable) .cf-tab:hover {
   color: var(--text);
 }
 
@@ -411,12 +411,12 @@
   background: var(--border-divider);
 }
 
-.cf-list__row:hover {
+:where(html.is-hoverable) .cf-list__row:hover {
   background: var(--bg-hover-soft);
 }
 
 /* 行悬停面与上一条分隔线会叠在一起：悬停时把线让开，观感才是一整块 */
-.cf-list > li + li .cf-list__row:hover::before {
+:where(html.is-hoverable) .cf-list > li + li .cf-list__row:hover::before {
   opacity: 0;
 }
 
@@ -472,7 +472,7 @@
   white-space: nowrap;
 }
 
-.cf-result__name:hover {
+:where(html.is-hoverable) .cf-result__name:hover {
   color: var(--accent-text);
 }
 

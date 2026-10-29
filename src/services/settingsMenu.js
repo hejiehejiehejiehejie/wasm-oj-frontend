@@ -99,6 +99,14 @@ function stepFontSize(delta) {
   setEditorSetting('fontSize', Math.min(max, Math.max(min, next)))
 }
 
+/** 界面缩放没有连续区间：± 只在档位表里挪一格（1 → 110% → 125% → 150%），两端停住 */
+function stepUiScale(delta) {
+  const index = UI_SCALE_OPTIONS.indexOf(uiScalePref.value)
+  if (index < 0) return // 读盘已做 normalize，这里只是兜底
+  const next = UI_SCALE_OPTIONS[index + delta]
+  if (next !== undefined) uiScalePref.value = next
+}
+
 
 /**
  * 一级菜单的每一行。
@@ -118,14 +126,13 @@ export const SETTINGS_MENU_ROWS = [
     select: (id) => setEditorSetting('theme', id),
   },
   {
+    // 缩放走离散档位（UI_SCALE_OPTIONS），所以 ± 是在档位表里挪一格，到两端就停住；
+    // 与字号那行同一种交互（两颗按钮 + 中间读数），不再是展开二级选档
     id: 'uiScale',
-    kind: 'radio',
+    kind: 'stepper',
     labelKey: 'settings.appearance.uiScale.label',
-    options: () => UI_SCALE_OPTIONS.map((scale) => ({ id: scale, label: scaleLabel(scale) })),
-    current: () => uiScalePref.value,
-    select: (value) => {
-      uiScalePref.value = value
-    },
+    value: () => scaleLabel(uiScalePref.value),
+    step: stepUiScale,
   },
   {
     id: 'fontSize',
