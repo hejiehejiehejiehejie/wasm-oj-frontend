@@ -509,7 +509,6 @@ const APPEARANCE_ROWS = [
   {
     key: 'theme',
     labelKey: 'settings.appearance.theme.label',
-    hintKey: 'settings.appearance.theme.hint',
     control: 'themeGrid',
     options: THEMES,
   },
@@ -2406,7 +2405,6 @@ watch(pendingUnbind, (open) => {
         </div>
 
         <p class="setting-subtitle">{{ t('cf.module.group') }}</p>
-        <p class="setting-group__note">{{ t('cf.module.groupNote') }}</p>
 
         <div class="runtime-list">
           <!-- Codeforces（2026-10-27 合并）：随机抽题与比赛在组件菜单里已是同一格，
@@ -3036,7 +3034,6 @@ watch(pendingUnbind, (open) => {
             </button>
           </span>
         </div>
-        <p class="setting-group__note">{{ t('cf.module.autoInstall.note') }}</p>
       </section>
 
       <!-- 危险区域（2026-10-24 按设置页规范加）：只收「一旦点了就得重新走一遍证明」的操作。

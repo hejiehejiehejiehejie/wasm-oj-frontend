@@ -89,7 +89,7 @@ export default {
       },
 
       appearance: {
-        theme: { label: '主题', hint: '深色 / 浅色（默认：深色）' },
+        theme: { label: '主题' },
         fontSize: { label: '字体大小', hint: '代码字号（默认 14px，范围 8–32）' },
         uiScale: {
           label: '界面缩放',
@@ -307,7 +307,7 @@ export default {
 
       judge: {
         timeLimit: { label: '运行时限', hint: '只计运行阶段，不含编译' },
-        memoryLimit: { label: '内存上限', hint: '超出判 MLE；导入的题目优先用题目限制，这里只是默认值。仅 wasm 沙箱与 Judge0 支持' },
+        memoryLimit: { label: '内存上限', hint: '超出判 MLE' },
         celebration: { label: '通过动画', hint: '所有样例都通过时，在样例栏飘落彩色纸屑' },
         engines: '评测引擎',
       },
@@ -678,7 +678,7 @@ export default {
       },
 
       appearance: {
-        theme: { label: 'Theme', hint: 'Dark or light colours (default: dark)' },
+        theme: { label: 'Theme' },
         fontSize: { label: 'Font size', hint: 'Code font size (default 14px, range 8–32)' },
         uiScale: {
           label: 'Interface scale',
@@ -909,7 +909,7 @@ export default {
 
       judge: {
         timeLimit: { label: 'Time limit', hint: 'Run phase only, excluding compilation' },
-        memoryLimit: { label: 'Memory limit', hint: 'Exceeding it reports MLE; imported problems use their own limit first. Only the wasm sandbox and Judge0 honour it' },
+        memoryLimit: { label: 'Memory limit', hint: 'Exceeding it reports MLE' },
         celebration: { label: 'Pass animation', hint: 'Confetti falls over the sample panel when every test case passes' },
         engines: 'Judge engine',
       },

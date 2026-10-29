@@ -42,7 +42,7 @@ export default {
         uninstallHint:
           '关闭悬浮卡并清除计时，入口从「组件 › 工具」移除；位置与尺寸保留，可随时重新安装。',
         /** 设置 › 云同步 › 默认安装 里那一枚（2026-10-25 加，与抽题那两枚并列）。
-            组级说明在 cf.module.autoInstall.note —— 它覆盖三枚开关，不归倒计时一家 */
+            2026-10-30 起这组不再挂组级说明（cf.module.autoInstall.note 已删）。 */
         autoInstall: {
           switchTitle: '打开站点时自动启用「倒计时」组件',
         },

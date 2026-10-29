@@ -14,8 +14,6 @@ export default {
       module: {
         /** 设置 › 应用 里的分区标题 */
         group: '组件',
-        groupNote:
-          'Codeforces（随机抽题与比赛）与倒计时默认安装；此处显示本机状态，失败可重试。Codeforces 题库约 2MB，仅下载一次；「默认安装」开关在云同步。',
         title: 'Codeforces',
         /** 图标右上角那枚小标签：这个组件仍在测试中 */
         testing: '测试',
@@ -31,9 +29,6 @@ export default {
             2026-10-27 起抽题与比赛合并成一个组件，只剩 Codeforces 与倒计时两枚开关。 */
         autoInstall: {
           label: '默认安装',
-          /** 组级说明（挂在本组两枚开关后面）：Codeforces 要下载、倒计时不下，必须分开说 ——
-              原来只写倒计时那枚的行为，读起来像整组都「没有需要下载的内容」（2026-10-25 用户指出） */
-          note: '「Codeforces」开着时，打开站点会自动下载题库（约 2MB）；关着就不会。「倒计时」是内置组件，没有需要下载的内容，开着时每次打开站点都会把入口放回「组件 › 工具」。',
           switchTitle: '打开站点时自动安装 Codeforces 的题库',
         },
         downloading: '正在获取 Codeforces 题库…',
@@ -343,8 +338,6 @@ export default {
     cf: {
       module: {
         group: 'Components',
-        groupNote:
-          'Codeforces (random problem picker and contests) and Countdown install by default; this list shows local state and lets you retry failures. The Codeforces problem bank is ~2MB and downloaded once; “Install by default” lives under Cloud sync.',
         title: 'Codeforces',
         /** 同 zh-CN：图标右上角那枚小标签 */
         testing: 'Beta',
@@ -358,7 +351,6 @@ export default {
         /** 同 zh-CN：云同步栏里的「默认安装」开关，2026-10-27 合并后只剩两枚 */
         autoInstall: {
           label: 'Install by default',
-          note: 'With “Codeforces” on, opening the site downloads the problem bank (~2MB); off, it does not. Countdown is built in with nothing to download — when on, each visit puts its entry back under Components › Tools.',
           switchTitle: 'Install the Codeforces problem bank when the site opens',
         },
         downloading: 'Fetching the Codeforces problemset…',
