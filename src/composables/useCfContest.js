@@ -36,10 +36,10 @@ import {
 } from '../cf/contest.js'
 import { cfContest, cfContestProblems } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
-import { closeCodeforcesTab } from '../services/editorViews.js'
+import { closeCodeforcesTab, deactivateViews } from '../services/editorViews.js'
 import { addTabsToGroup, findGroupByName, groupOfId, groupTabs } from '../services/tabGroups.js'
 import { importProblem } from '../services/vfs/problemImport.js'
-import { findProblemByUrl } from '../services/vfs/workspaceStore.js'
+import { findProblemByUrl, openFile } from '../services/vfs/workspaceStore.js'
 import { canScrapeContest, requestContestScrape } from './useCompanionBridge.js'
 import { usePersistentRef } from './usePersistentRef.js'
 
@@ -322,29 +322,36 @@ export function useCfContest() {
    * 难度按 CF 的 rating 交给 importProblem，与抽题面板一致（它会写进元数据）；比赛导入的
    * 落盘目录是 `/<年月>/<OJ>/<比赛名>/`，由 `contestName` 传入。
    * **单题导入仍然抢焦点**（importProblem 末尾 openFile）：用户点的是这一道，跳过去是预期行为。
-   * 批量那条路（抓样例前的「先落题」）走 `quiet: true`，见 scrapeSamples。
+   * 批量那条路（抓样例前的「先落题」与 2026-10-30 的「自动开始」）走 `quiet: true`，见 scrapeSamples
+   * 与 importAllAndOpenFirst —— 前者别把用户的页签连翻七八次，后者要把焦点留给「第一题」。
    *
    * ⚠️ `toRaw(problem.task)` 不能省：`problems` 是 ref，`problem.task` 与其嵌套字段都是 reactive
    * Proxy，IndexedDB 的 structured clone 拒绝它（DataCloneError），落库会整批失败 ——
    * 界面上看着导入成功、刷新后题目没了。抽题面板同款，见 HANDOFF 坑 62。
+   *
+   * @returns {Promise<object|null>} 落进工作区的节点；没轮到（在途 / 已导入过）或失败时为 null。
+   *   「自动开始」要拿它打开第一题，其余调用方不消费返回值。
    */
-  async function importOne(problem) {
+  async function importOne(problem, { quiet = false } = {}) {
     const target = problem?.task?.url
-    if (!target || importingUrl.value || importedUrls.value.has(target)) return
+    if (!target || importingUrl.value || importedUrls.value.has(target)) return null
 
     importingUrl.value = target
     try {
       const { node } = await importProblem(toRaw(problem.task), {
         difficulty: problem.rating == null ? '' : String(problem.rating),
         contestName: title.value,
+        quiet,
       })
       importedUrls.value = new Set(importedUrls.value).add(target)
       await trackContestTab(node?.id)
+      return node
     } catch (failure) {
       error.value = {
         key: 'cf.contest.errors.importFailed',
         params: { detail: failure?.message || '' },
       }
+      return null
     } finally {
       importingUrl.value = ''
     }
@@ -361,6 +368,38 @@ export function useCfContest() {
         await importOne(problem)
         if (error.value?.key === 'cf.contest.errors.importFailed') break
       }
+    } finally {
+      importingAll.value = false
+    }
+  }
+
+  /**
+   * 自动开始的导入腿（2026-10-30）：整场导入但**不抢焦点**（全走 quiet），落定后
+   * 打开**第一道题** —— 通知那颗「开始比赛」承诺的就是「点完直接落进 A 题」。
+   *
+   * 【为什么不用 importProblem 的返回值串第一题】已导入过的题在循环里被 importOne 跳过
+   * （返回 null），第一题可能恰好是它。收尾时按第一题的 url 现查一次（findProblemByUrl
+   * 按 url 并题的同一套归一化），拿到谁是谁 —— 就算整场早就导过，这条路也能把 A 题摆出来。
+   *
+   * 【deactivateViews + openFile】与 importProblem 非 quiet 的收尾同一写法：此刻盖着
+   * 编辑器的是 Codeforces 视图（正是「开始比赛」切过去的），先显式让开；openFile 负责
+   * 建 model、开页签、展开祖先目录。
+   */
+  async function importAllAndOpenFirst() {
+    if (importingAll.value || importingUrl.value) return
+
+    importingAll.value = true
+    try {
+      for (const problem of problems.value) {
+        await importOne(problem, { quiet: true })
+        if (error.value?.key === 'cf.contest.errors.importFailed') return
+      }
+
+      const first = problems.value[0]
+      const found = first ? await findProblemByUrl(first.task?.url) : null
+      if (!found) return
+      deactivateViews()
+      await openFile(found.id, found)
     } finally {
       importingAll.value = false
     }
@@ -565,6 +604,7 @@ export function useCfContest() {
     // 导入
     importOne,
     importAll,
+    importAllAndOpenFirst,
     importState,
     importedUrls,
     importingAll,

@@ -171,6 +171,19 @@ export const COUNTDOWN_KEY = 'cp.countdown'
  */
 export const FLASH_NOTICE_KEY = 'cp.flashNotice'
 
+/**
+ * 站内报名成功的比赛（`{ id, name, startMs, durationMs }` 数组）：T-10 分钟提醒的数据源。
+ *
+ * 报名状态本身是扩展读 CF 页面得来的「此刻快照」，拿不到「哪一场什么时候开赛」；
+ * 只有走站内报名（CfContestSchedule 的 submitEntry）才同时握有 id / 名字 / 时刻，
+ * 所以在这里记一笔，刷新 / 重开站点后由 cfStartReminder 扫它补排定时器。
+ *
+ * 与工作区模式那几条同一性质 —— 是**这台设备**上的事实（在**这台设备上**报的名），
+ * **绝不进云同步白名单**：同步过去等于让另一台设备弹它从没报过的比赛的提醒。
+ * 读写都在 `services/cfStartReminder.js`（记录在报名成功那一刻，清理在每次读写时）。
+ */
+export const CF_REGISTERED_CONTESTS_KEY = 'cp.cfRegisteredContests'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**

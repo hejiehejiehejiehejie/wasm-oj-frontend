@@ -25,12 +25,15 @@
  * （`EditorSettingsPanel` 的 locale 下拉，与菜单原先读的是同一份 `i18n` 状态）。
  * 别以「菜单少了一行」为由加回来。
  *
- * 【三种控件】
+ * 【四种控件】
  * - `switch`：二值，一级行末尾就是那只开关，点整行翻面。适合的正是「启用模板」这类
  *   本身就是「开或不开」语义的项。
- * - `radio`：点开二级子菜单再选，**两档也照样用它** —— 主题（深 / 浅）与侧边栏位置
- *   （左 / 右）、窄屏折叠方向（上 / 下）这几项的两档各有名字，开关只能说「开 / 关」、
- *   说不出档位叫什么，而二级里既看得到当前停在哪一档、也能直接认出另一档叫什麼。选完默认**菜单不关** ——
+ * - `toggle`：两档一键切换，行尾一颗钮显示当前档（如「‹ 左侧」），点一下翻到另一档
+ *   —— 侧边栏位置与窄屏折叠方向用这个（2026-10-30 起，原先是 radio 二级：两档的切换
+ *   是「当场就想改」的动作，多开一层子菜单反而绕）。
+ * - `radio`：点开二级子菜单再选。主题（十档色卡）与「设置分类」仍用它 —— 档位多、
+ *   一排放不下才需要一层二级；两档的项一律走上面的 `toggle`，别退回去。
+ *   选完默认**菜单不关** ——
  *   调缩放 / 换主题这类动作常常要连着试几次，关掉反而碍事。要连菜单一起收的行
  *   （「设置分类」—— 它把人送到设置面板去）在表里标 `closes: true`。
  * - `stepper`：数值 ±1，缩放那样有档位的用 radio，只有字号这个连续量用它。
@@ -142,8 +145,10 @@ export const SETTINGS_MENU_ROWS = [
     step: stepFontSize,
   },
   {
+    // 两档一键切换：行尾一颗钮显示当前档，点一下翻到另一档（SettingsMenu 的 trigger
+    // 与这颗钮走同一动作）。档位表与设置面板的单颗钮共用 PANEL_POSITIONS。
     id: 'panelPosition',
-    kind: 'radio',
+    kind: 'toggle',
     labelKey: 'settings.appearance.panelPosition.label',
     options: () => PANEL_POSITIONS,
     current: () => panelPosition.value,
@@ -154,8 +159,9 @@ export const SETTINGS_MENU_ROWS = [
     // 宽屏上这一项是**空转**的（折叠后是竖条，没有上下之分），所以整行跟着窄屏判据显隐
     // （2026-10-13 用户要求；判据见 shellSettings.js 的 isNarrowLayout，设置面板那一栏同一口径）。
     // 注意别把它当成「hide 掉一个动作」：值本身照旧持久化 / 走云端同步，只是宽屏不给入口。
+    // 两档一键切换，与「侧边栏位置」同一种控件（2026-10-30 起，原先是 radio 二级）。
     id: 'narrowCollapseSide',
-    kind: 'radio',
+    kind: 'toggle',
     when: () => isNarrowLayout(),
     labelKey: 'settings.appearance.narrowCollapseSide.label',
     options: () => NARROW_COLLAPSE_SIDES,

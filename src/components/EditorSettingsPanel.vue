@@ -467,13 +467,14 @@ const SHELL_ROWS = [
   },
   {
     // 统一侧边栏的位置偏好存在 services/shellSettings.js 的 cp.panelPosition 里，这里只负责
-    // 发起一次对调；档位表也从那里 import（设置菜单的二级子菜单用的是同一份，见 PANEL_POSITIONS）。
-    // 下拉里选中的始终是「当前值」，选中另一侧就等于发起一次对调（App 那边会翻转偏好）。
+    // 发起一次对调；档位表也从那里 import（设置菜单行尾的两颗段钮用的是同一份，见 PANEL_POSITIONS）。
+    // 两段式一键切换（2026-10-30 起，原先是下拉）：两档名字并排，点另一档就发起对调，
+    // 点当前档是空操作（onSelect 里那道比较把它滤掉）。
     key: 'panelPosition',
     external: true,
     labelKey: 'settings.appearance.panelPosition.label',
     hintKey: 'settings.appearance.panelPosition.hint',
-    control: 'select',
+    control: 'toggle',
     options: PANEL_POSITIONS,
     readValue: () => props.panelPosition,
     onSelect: (raw) => {
@@ -486,12 +487,13 @@ const SHELL_ROWS = [
     // 所以整行只在窄屏出现（2026-10-13 用户要求，`when` 见下面的 appearanceRows；
     // 设置菜单那一行同一判据）。值本身照旧持久化 / 走云端同步，只是宽屏不给入口。
     // 这里不接 props / emits：状态是那个模块的单例，读写都走它自己。
+    // 两段式一键切换（2026-10-30 起，原先是下拉），与「侧边栏位置」同一种控件。
     key: 'narrowCollapseSide',
     external: true,
     when: () => isNarrowLayout(),
     labelKey: 'settings.appearance.narrowCollapseSide.label',
     hintKey: 'settings.appearance.narrowCollapseSide.hint',
-    control: 'select',
+    control: 'toggle',
     options: NARROW_COLLAPSE_SIDES,
     readValue: () => narrowCollapseSide.value,
     onSelect: (raw) => setNarrowCollapseSide(raw),
@@ -1512,6 +1514,17 @@ function rowOptionLabel(row, item) {
   return item.labelKey ? t(item.labelKey, item.labelParams) : item.label
 }
 
+/** 一键切换行的「当前档」：按 rowValue 在 options 里反查，找不到（值异常）退回第一档 */
+function currentOption(row) {
+  return row.options.find((item) => item.id === rowValue(row)) ?? row.options[0]
+}
+
+/** 一键切换要翻到的「另一档」id：不是当前档的那个；只有两档，取第一个不等即可 */
+function otherOptionId(row) {
+  const current = rowValue(row)
+  return (row.options.find((item) => item.id !== current) ?? row.options[0]).id
+}
+
 /** 缩放档位的显示名：就是百分比本身，不标默认档 */
 function scaleLabel(scale) {
   return `${Math.round(scale * 100)}%`
@@ -1918,10 +1931,10 @@ watch(pendingUnbind, (open) => {
         <template v-for="row in appearanceRows" :key="row.key">
           <p v-if="row.groupTitleKey" class="setting-subtitle">{{ t(row.groupTitleKey) }}</p>
 
-          <!-- 主题色卡那行必须是 div 而不是 label：label 会把第一个可标记后代（第一张卡）
-               认成自己的控件，点标题空白处等于点了第一张卡 -->
+          <!-- 主题色卡与两段切换这两行必须是 div 而不是 label：label 会把第一个可标记后代
+               （第一张卡 / 第一颗段钮）认成自己的控件，点标题空白处等于点了它 -->
           <component
-            :is="row.control === 'themeGrid' ? 'div' : 'label'"
+            :is="row.control === 'themeGrid' || row.control === 'toggle' ? 'div' : 'label'"
             class="setting-row"
             :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
           >
@@ -1976,6 +1989,18 @@ watch(pendingUnbind, (open) => {
                 </select>
                 <AppIcon name="chevron" :size="12" class="select__chevron" />
               </span>
+
+              <!-- 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗钮显示当前档（如「<左侧>」），
+                   点一下翻到另一档，没有下拉这一层。 -->
+              <button
+                v-else-if="row.control === 'toggle'"
+                type="button"
+                class="toggle-seg"
+                :aria-label="`${t(row.labelKey)}：${rowOptionLabel(row, currentOption(row))}`"
+                @click="rowSelect(row, otherOptionId(row))"
+              >
+                &lt;{{ rowOptionLabel(row, currentOption(row)) }}&gt;
+              </button>
 
               <button
                 v-else
@@ -3624,6 +3649,33 @@ watch(pendingUnbind, (open) => {
   right: 9px;
   pointer-events: none;
   color: var(--text-dim);
+}
+
+/* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗小钮显示当前档（如「<左侧>」），
+   点一下翻到另一档。底色用输入框底色，描边走 --border，颜色全部走变量、两套主题各取各的。 */
+.toggle-seg {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:where(html.is-hoverable) .toggle-seg:hover {
+  background: var(--bg-control);
+}
+
+.toggle-seg:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .number-input {

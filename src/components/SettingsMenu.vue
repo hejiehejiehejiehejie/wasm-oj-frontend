@@ -346,10 +346,17 @@ function openSubmenuAt(index) {
   openSubmenu.value = index
 }
 
-/** 执行一级行（switch 翻面 / radio 展开二级 / action 打开面板） */
+/** 执行一级行（switch 翻面 / toggle 换档 / radio 展开二级 / action 打开面板） */
 function trigger(index) {
   const row = rows.value[index]
   if (!row || row.kind === 'divider') return
+  if (row.kind === 'toggle') {
+    // 一键切换：点行空白处 = 翻到另一档；行尾那两颗段钮负责点名（点谁选谁，见模板）。
+    // 与 radio 不同，这里不展开二级、菜单也不关 —— 改完常常还想顺手改别的。
+    const other = row.options().find((option) => option.id !== row.current())
+    if (other) row.select(other.id)
+    return
+  }
   if (row.kind === 'radio' || row.kind === 'cloud') {
     openSubmenuAt(index)
     return
@@ -643,6 +650,11 @@ function comboOf(actionId) {
 function optionLabel(option) {
   return option.labelKey ? t(option.labelKey) : option.label
 }
+
+/** 一键切换行的「当前档」：按 current() 在档位表里反查，找不到（值异常）退回第一档 */
+function currentOption(row) {
+  return row.options().find((option) => option.id === row.current()) ?? row.options()[0]
+}
 </script>
 
 <template>
@@ -690,6 +702,20 @@ function optionLabel(option) {
                 :size="12"
                 class="settings-menu__chevron"
               />
+
+              <!-- 两档一键切换（侧边栏位置 / 窄屏折叠方向）：行尾一颗钮，显示当前档
+                   （形如「<左侧>」），点一下翻到另一档。与步进器同款：内嵌在行按钮里，
+                   事件自己 .stop —— 点这颗钮翻面；点行空白处走外层的 trigger，同样是翻面。 -->
+              <button
+                v-else-if="row.kind === 'toggle'"
+                type="button"
+                class="settings-menu__seg"
+                :aria-label="optionLabel(currentOption(row))"
+                @pointerdown.stop
+                @click.stop="trigger(index)"
+              >
+                &lt;{{ optionLabel(currentOption(row)) }}&gt;
+              </button>
 
               <template v-else-if="row.kind === 'stepper'">
                 <button
@@ -1139,6 +1165,31 @@ function optionLabel(option) {
   min-width: calc(18px * var(--menu-scale));
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+/* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：行尾一颗小钮，显示当前档（如「<左侧>」），
+   点一下翻到另一档。亮底沿用步进器 hover 那份白（菜单这一层自有一套 --menu-* 变量，
+   不认主题的输入框底），尺寸挂 --menu-scale 跟整组等比缩放。 */
+.settings-menu__seg {
+  display: inline-flex;
+  align-items: center;
+  padding: calc(2px * var(--menu-scale)) calc(7px * var(--menu-scale));
+  border: none;
+  border-radius: calc(3px * var(--menu-scale));
+  background: transparent;
+  color: var(--menu-muted);
+  font-size: calc(11px * var(--menu-scale));
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.settings-menu__item.is-active .settings-menu__seg {
+  color: var(--menu-hover-muted);
+}
+
+:where(html.is-hoverable) .settings-menu__seg:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* 开关：与设置面板那只 .switch 同一种语言（轨道 + 圆 thumb，on 时推到右端并填主题色），

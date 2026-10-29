@@ -424,12 +424,23 @@ try {
       item?.click()
     })
     await wait(200)
+    // 侧边栏位置已改成单颗钮一键切换（2026-10-30，原先是下拉）：按钮显示当前档（如「<左侧>」），
+    // 点一下翻到另一档。这里的目标是「左侧 → 右侧」，所以只有当前显示「左侧」时点一下；
+    // 若已是「右侧」（残留）就再点一下翻回左侧后重试，保证落到右侧。
     await page.evaluate(() => {
-      const select = [...document.querySelectorAll('.settings-view select')].find((s) =>
-        [...s.options].some((o) => o.textContent.trim() === '右侧'),
+      const row = [...document.querySelectorAll('.settings-view .setting-row')].find(
+        (r) => r.querySelector('.setting-row__label')?.textContent === '侧边栏位置',
       )
-      select.value = 'right'
-      select.dispatchEvent(new Event('change', { bubbles: true }))
+      const btn = row?.querySelector('.toggle-seg')
+      if (!btn) return
+      if (btn.textContent.trim() !== '<左侧>') btn.click() // 先翻回左侧
+    })
+    await wait(120)
+    await page.evaluate(() => {
+      const row = [...document.querySelectorAll('.settings-view .setting-row')].find(
+        (r) => r.querySelector('.setting-row__label')?.textContent === '侧边栏位置',
+      )
+      row?.querySelector('.toggle-seg')?.click() // 左侧 → 右侧
     })
     await wait(600)
     await page.evaluate(() => {

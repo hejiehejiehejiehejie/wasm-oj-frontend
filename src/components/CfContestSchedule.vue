@@ -161,6 +161,7 @@ import { contestUrl } from '../cf/contest.js'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { notify } from '../services/notifications.js'
+import { recordRegisteredContest } from '../services/cfStartReminder.js'
 import { useCfSchedule } from '../composables/useCfSchedule.js'
 import {
   canReadContestStates,
@@ -313,9 +314,13 @@ async function confirmEntry() {
   const result = await submitEntry(contest, kind)
 
   if (result.ok) {
+    // 站内报名成功：记下开赛时刻，T-10 分钟由 cfStartReminder 弹提醒（VP 不记 ——
+    // 它当场就开，没有「提前十分钟」可言；开赛时刻拿不到的场次服务里会静默跳过）
+    if (kind === 'register') recordRegisteredContest(contest)
     notify({
       type: 'success',
       title: t(`cf.contest.schedule.entryDone.${kind}`, { name: contest.name }),
+      message: kind === 'register' ? t('cf.contest.schedule.remindNote') : '',
       duration: 5000,
     })
     return

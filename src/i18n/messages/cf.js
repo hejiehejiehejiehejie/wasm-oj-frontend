@@ -227,6 +227,14 @@ export default {
             register: '已报名 {name}',
             virtual: '已开始 {name} 的虚拟参赛',
           },
+          /** T-10 开赛提醒（2026-10-30，见 services/cfStartReminder.js）：报名成功那一刻
+               记下开赛时刻，到点弹常驻通知；「开始比赛」接去比赛页 → 整场导入 → 开第一题 */
+          remindNote: '开赛前十分钟会提醒你',
+          remindTitle: '{name} 十分钟后开赛',
+          remindLiveTitle: '{name} 正在进行',
+          remindCountdown: '距开赛 {time}',
+          remindStarted: '已开赛',
+          startAction: '开始比赛',
           entryErrors: {
             notLoggedIn: '要先去 Codeforces 登录',
             challenge: 'Codeforces 要求先完成人机校验',
@@ -526,6 +534,15 @@ export default {
             register: 'Registered for {name}',
             virtual: 'Virtual participation started in {name}',
           },
+          /** T-10 start reminder (2026-10-30, see services/cfStartReminder.js): the start time
+               is recorded on successful registration; a persistent notification fires at T-10,
+               and its "Start" action goes to the contest page, imports everything, opens A */
+          remindNote: "You'll get a reminder 10 minutes before it starts",
+          remindTitle: '{name} starts in 10 minutes',
+          remindLiveTitle: '{name} is running',
+          remindCountdown: 'Starts in {time}',
+          remindStarted: 'Started',
+          startAction: 'Start',
           entryErrors: {
             notLoggedIn: 'Sign in to Codeforces first',
             challenge: 'Codeforces wants you to pass its human check first',

@@ -5,6 +5,9 @@ import App from './App.vue'
 import { armBackStack } from './services/backStack.js'
 import { captureCloudHandleFromPath } from './services/cloudEntry.js'
 import { ensureCfPickerInstalled } from './services/cfRuntime.js'
+// 站内报名比赛的 T-10 提醒：import 即执行启动扫描（存档里没到点的补排定时器、
+// 已在窗口内的立刻补弹），见 services/cfStartReminder.js 文件头。
+import './services/cfStartReminder.js'
 import { countdown, installCountdown, readCountdownAutoInstall } from './services/countdown.js'
 // 悬停能力判定：要在首帧之前把 <html> 的 is-hoverable 落定，全站 :hover 都靠它把关
 // （见 services/hoverCapability.js 文件头）。

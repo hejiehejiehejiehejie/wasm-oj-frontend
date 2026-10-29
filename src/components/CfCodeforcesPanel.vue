@@ -136,6 +136,8 @@ import { cfRunningCount } from '../composables/useCfSchedule.js'
 import { t } from '../i18n/index.js'
 import { addBackFallback } from '../services/backStack.js'
 import { cfCheckHandles } from '../services/cfClient.js'
+import { startRequest } from '../services/cfStartReminder.js'
+import { openCodeforcesTab } from '../services/editorViews.js'
 
 const emit = defineEmits(['submit-active'])
 
@@ -198,14 +200,31 @@ function selectMode(item) {
   record()
 }
 
-/** 赛程里点一行：把这场交给比赛面板（它自己填链接、切到题目页、取数），再翻到比赛。
+/** 赛程里点一行（或 T-10 提醒的「开始比赛」，见下面 startRequest 的 watch）：把这场交给
+ *  比赛面板（它自己填链接、切到题目页、取数），再翻到比赛。options 原样透传（autoStart）。
  *  这里**不**立刻记历史：载入成功后比赛面板会发 nav，那一下才是一步 —— 失败或中途
  *  退走都不该留下一个「比赛」空壳条目。 */
-function openContest(contest) {
+function openContest(contest, options = {}) {
   if (!contest?.id) return
   mode.value = 'contest'
-  contestPanel.value?.openContest(contest)
+  contestPanel.value?.openContest(contest, options)
 }
+
+/**
+ * T-10 提醒通知的「开始比赛」（2026-10-30）：用户可能在任何页签上点它 —— 先把
+ * Codeforces 页签亮出来（openCodeforcesTab 内部与设置互斥），再走与点赛程行同一条
+ * openContest 路，autoStart 让比赛面板接着整场导入、打开第一题（见 CfContestPanel）。
+ *
+ * startRequest 是服务层的中转站（cfStartReminder）：通知的按钮回调活得比组件的
+ * 局部作用域久，只能经它转交。消费完立刻置回空串 —— 这是「一次点击只开一场」的闸门，
+ * 不是双向同步，所以不等价于 watch 的什么 flush 口径，id 为空串时直接让过。
+ */
+watch(startRequest, (id) => {
+  if (!id) return
+  startRequest.value = ''
+  openCodeforcesTab()
+  openContest({ id }, { autoStart: true })
+}, { immediate: true })
 
 /** 比赛面板里用户真的换了一屏（换一场 / 切子页签）。不在比赛模式（比如载入中途
  *  已经退到赛程）就不记 —— 那一屏已经不在眼前了。 */

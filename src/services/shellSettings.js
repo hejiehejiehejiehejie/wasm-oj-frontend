@@ -72,8 +72,9 @@ export const panelPosition = ref(read(PANEL_POSITION_KEY, 'left', (value) => (va
 watch(panelPosition, (value) => persist(PANEL_POSITION_KEY, value), { immediate: true })
 
 /**
- * 两档的取值名。**档位表的唯一出处在这里**（i18n 只管文案）：设置面板那个下拉与菜单的
- * 二级子菜单都 import 这一份，加第三档只改这里。顺序是「左 → 右」，与两栏的实际排布一致。
+ * 两档的取值名。**档位表的唯一出处在这里**（i18n 只管文案）：设置面板的单颗切换钮与
+ * 设置菜单行尾的段钮都 import 这一份，加第三档只改这里。顺序是「左 → 右」，
+ * 与两栏的实际排布一致。
  */
 export const PANEL_POSITIONS = [
   { id: 'left', labelKey: 'settings.option.sideLeft' },
@@ -100,7 +101,7 @@ watch(narrowCollapseSide, (value) => persist(NARROW_COLLAPSE_SIDE_KEY, value), {
 /**
  * 两档的取值名（与 PANEL_POSITIONS 同一体例：**档位表的唯一出处在这里**，i18n 只管文案）。
  * 顺序按中文里的「上下」来 —— 只是列表顺序，默认值仍是 'bottom'（第二档），
- * 与 2026-10-13 定这条形态时一样。
+ * 与 2026-10-13 定这条形态时一样。两处设置入口（面板单颗切换钮 / 菜单行尾段钮）共用。
  */
 export const NARROW_COLLAPSE_SIDES = [
   { id: 'top', labelKey: 'settings.option.sideTop' },

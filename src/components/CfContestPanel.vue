@@ -305,6 +305,7 @@ const {
   statusText,
   importOne,
   importAll,
+  importAllAndOpenFirst,
   importState,
   importingAll,
   allImported,
@@ -545,15 +546,40 @@ async function cancelSearch() {
 }
 
 /**
- * 点赛程里的一行：填链接、切到题目页、载入这场。赛程在合成页签那一层，所以由
- * CfCodeforcesPanel 转调（见那边 defineExpose）。
+ * 点赛程里的一行（或 T-10 通知的「开始比赛」）：填链接、切到题目页、载入这场。
+ * 赛程在合成页签那一层，所以由 CfCodeforcesPanel 转调（见那边 defineExpose）。
  * 已经有一场的名字挂在页头时不再闪回输入框 —— 载入成功那条路本来就不换布局。
+ *
+ * 【autoStart（2026-10-30）】通知点「开始」的那一趟除了载入还要整场导入并打开第一题。
+ * 题目列表是 load() 里 `void loadProblems()` 的**异步后手**，所以这里等它落定再动：
+ * 列表空着（开赛前 / 这场没有题）就停在比赛页 —— 空态说明就在屏幕上，不是故障。
+ * 载入失败同样只停在比赛页：错误行本来就在那里，不另发通知。
  */
-function openContest(contest) {
+async function openContest(contest, options = {}) {
   if (!contest?.id) return
   searchText.value = String(contest.id)
   tab.value = 'problems'
-  void submitSearch()
+  if (!options.autoStart) {
+    void submitSearch()
+    return
+  }
+
+  await submitSearch()
+  if (error.value) return
+
+  // 题目列表落定（在途就等它回来；早收工就立刻过）
+  if (loadingProblems.value) {
+    await new Promise((resolve) => {
+      const stop = watch(loadingProblems, (busy) => {
+        if (!busy) {
+          stop()
+          resolve()
+        }
+      })
+    })
+  }
+  if (error.value || !problems.value.length) return
+  await importAllAndOpenFirst()
 }
 
 // ------------------------------------------------------------ 后退 / 前进
