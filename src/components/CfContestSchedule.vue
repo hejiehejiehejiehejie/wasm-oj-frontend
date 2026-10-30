@@ -557,9 +557,12 @@ async function confirmEntry() {
   font-size: 11px;
 }
 
+/* 报名状态 / 动作列：这一格有时是文字（已报名 / 未开放）、有时是按钮（报名 / VP）。
+   两种元素宽度不同，靠左对不齐视觉中心 —— 统一水平居中，各行的中心落在同一条竖线上 */
 .cf-schedule__entry {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-width: 0;
 }
 
