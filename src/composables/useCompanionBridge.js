@@ -606,6 +606,17 @@ export const canRegisterContest = computed(() =>
   (extensionInfo.value?.capabilities ?? []).includes('contest-register'),
 )
 
+/**
+ * 报名时能不能选「不计分」（2026-10-30 加，扩展 2.69.0 起）。
+ *
+ * 【为什么要单独一条能力】CF 只对允许 unrated 的轮次在报名表单里放那颗控件，能不能拨得动
+ * 只有扩展知道；老扩展收到 `unrated` 也不认识，会照旧按计分提交 —— 那等于把「不计分」这个
+ * 选择悄悄吃掉。所以站点先看能力位，没有就整行选择不出现，与改动前一模一样。
+ */
+export const canRegisterUnrated = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-register-unrated'),
+)
+
 /** 能不能替用户开一场 VP。与报名**分开列**：两条能力互不蕴含，站点不必替扩展猜 */
 export const canStartVirtual = computed(() =>
   (extensionInfo.value?.capabilities ?? []).includes('contest-virtual'),
@@ -655,11 +666,17 @@ export function requestContestStates() {
  *
  * 这是**两个不可逆动作**，所以合成一个函数、共用一套等待表：调用一次 = 扩展上 CF 提交一次
  * 表单，没有撤销。界面那边必须先在确认卡片上问一句再调这里（见 CfContestSchedule）。
+ *
+ * `options.unrated`（2026-10-30 加）只对「报名」有意义：true = 请扩展按不计分报。
+ * 受 `canRegisterUnrated` 保护 —— 老扩展不认识这个字段，别把选择发过去当没看见。
+ * 这一场若没有不计分选项，扩展会回 `unrated-unavailable`，报名**没有发生**。
  */
-export function requestContestEntry(contestId, kind) {
+export function requestContestEntry(contestId, kind, options = {}) {
   return new Promise((resolve) => {
     const type = kind === 'virtual' ? 'cp-start-virtual' : 'cp-register'
     const capability = kind === 'virtual' ? canStartVirtual : canRegisterContest
+    const unrated =
+      kind === 'register' && options.unrated === true && canRegisterUnrated.value
 
     if (!capability.value || !contestId) {
       resolve({ ok: false, reason: 'unsupported' })
@@ -680,7 +697,7 @@ export function requestContestEntry(contestId, kind) {
     })
 
     window.postMessage(
-      { source: PAGE_SOURCE, type, requestId, contestId: String(contestId) },
+      { source: PAGE_SOURCE, type, requestId, contestId: String(contestId), unrated },
       window.location.origin,
     )
   })
@@ -1110,6 +1127,7 @@ export function useCompanionBridge(onTask) {
     requestSubmit,
     canReadContestStates,
     canRegisterContest,
+    canRegisterUnrated,
     canStartVirtual,
     canReadUnofficialRank,
     requestContestStates,

@@ -122,6 +122,28 @@
           <p id="contest-entry-desc" class="confirm__desc">
             {{ t(`cf.contest.schedule.entryDesc.${pendingEntry.kind}`) }}
           </p>
+          <!-- 报名方式（2026-10-30 加）：CF 只对允许 unrated 的轮次给这颗控件，站点看不见
+               那一页，所以先摆出来让用户自己选；扩展那边设不上就不提交，回一句
+               「这场比赛没有不计分选项」。VP 本来就不计分，这一行不出现。 -->
+          <div
+            v-if="showEntryMode"
+            class="confirm__choice"
+            role="radiogroup"
+            :aria-label="t('cf.contest.schedule.entryMode.label')"
+          >
+            <label
+              v-for="mode in ENTRY_MODES"
+              :key="mode"
+              class="confirm__option"
+              :class="{ 'is-on': entryMode === mode }"
+            >
+              <input v-model="entryMode" type="radio" :value="mode" />
+              <span>{{ t(`cf.contest.schedule.entryMode.${mode}`) }}</span>
+            </label>
+          </div>
+          <p v-if="showEntryMode" class="confirm__hint">
+            {{ t(`cf.contest.schedule.entryMode.hint.${entryMode}`) }}
+          </p>
           <div class="confirm__actions">
             <button type="button" class="confirm__btn" @click="cancelEntry">
               {{ t('cf.contest.schedule.entryCancel') }}
@@ -166,6 +188,7 @@ import { useCfSchedule } from '../composables/useCfSchedule.js'
 import {
   canReadContestStates,
   canRegisterContest,
+  canRegisterUnrated,
   canStartVirtual,
 } from '../composables/useCompanionBridge.js'
 
@@ -278,8 +301,22 @@ const statesNote = computed(() => {
 const pendingEntry = ref(null)
 const entryConfirmBtn = ref(null)
 
+/**
+ * 报名方式的两个取值（键名同时是 `cf.contest.schedule.entryMode.*` 与 `.hint.*` 的键）。
+ * 默认「计分」—— 绝大多数人要的就是这个，改主意只需多按一下。
+ */
+const ENTRY_MODES = ['rated', 'unrated']
+const entryMode = ref('rated')
+
+/** 只有「报名 + 扩展会拨那颗控件」时才有这一行；VP 不计分，不给选 */
+const showEntryMode = computed(
+  () => pendingEntry.value?.kind === 'register' && canRegisterUnrated.value,
+)
+
 function askEntry(contest, kind) {
   if (entryBusy.value || !kind) return
+  // 每次开卡片都回到「计分」：上一场选过不计分，不该悄悄留给下一场
+  entryMode.value = 'rated'
   pendingEntry.value = { contest, kind }
 }
 
@@ -293,6 +330,7 @@ function entryErrorText(reason, kind) {
     challenge: 'challenge',
     'not-eligible': 'notEligible',
     'already-registered': kind === 'virtual' ? 'vpAlready' : 'alreadyRegistered',
+    'unrated-unavailable': 'unratedUnavailable',
     rejected: 'rejected',
     timeout: 'timeout',
     busy: 'busy',
@@ -311,7 +349,9 @@ async function confirmEntry() {
   pendingEntry.value = null
 
   const { contest, kind } = entry
-  const result = await submitEntry(contest, kind)
+  // 不计分只在「报名」上带下去；VP 本来就不计分，扩展那边也不看这个字段
+  const unrated = kind === 'register' && entryMode.value === 'unrated'
+  const result = await submitEntry(contest, kind, { unrated })
 
   if (result.ok) {
     // 站内报名成功：记下开赛时刻，T-10 分钟由 cfStartReminder 弹提醒（VP 不记 ——
@@ -319,7 +359,10 @@ async function confirmEntry() {
     if (kind === 'register') recordRegisteredContest(contest)
     notify({
       type: 'success',
-      title: t(`cf.contest.schedule.entryDone.${kind}`, { name: contest.name }),
+      title: t(
+        unrated ? 'cf.contest.schedule.entryDone.registerUnrated' : `cf.contest.schedule.entryDone.${kind}`,
+        { name: contest.name },
+      ),
       message: kind === 'register' ? t('cf.contest.schedule.remindNote') : '',
       duration: 5000,
     })
@@ -585,6 +628,59 @@ async function confirmEntry() {
   line-height: 1.6;
   color: var(--text-dim);
   overflow-wrap: anywhere;
+}
+
+/* 报名方式：两颗并排的胶囊单选。自绘而非用原生 radio —— 原生圆点在深色主题下会露出系统蓝，
+   与卡片其余部分不是一套。真 input 仍留在 label 里（可聚焦、可读屏），只是视觉上收起来 */
+.confirm__choice {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.confirm__option {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.confirm__option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.confirm__option.is-on {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+:where(html.is-hoverable) .confirm__option:not(.is-on):hover {
+  background: var(--bg-hover);
+}
+
+.confirm__option:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* 这一行解释选中的那一边到底意味着什么（计分 / 不计分），一行灰字 */
+.confirm__hint {
+  margin: 6px 0 0;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.6;
 }
 
 .confirm__actions {

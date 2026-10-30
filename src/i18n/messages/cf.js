@@ -218,8 +218,20 @@ export default {
           },
           entryConfirm: '确认',
           entryCancel: '取消',
+          /** 报名方式（2026-10-30 加）：CF 只对标明 Unrated allowed 的轮次给这颗控件，
+               站点看不见那一页，所以让用户自己选；扩展设不上就不提交（见 entryErrors 那条） */
+          entryMode: {
+            label: '报名方式',
+            rated: '计分',
+            unrated: '不计分',
+            hint: {
+              rated: '成绩计入 rating。',
+              unrated: '成绩不计入 rating。',
+            },
+          },
           entryDone: {
             register: '已报名 {name}',
+            registerUnrated: '已按不计分报名 {name}',
             virtual: '已开始 {name} 的虚拟参赛',
           },
           /** T-10 开赛提醒（2026-10-30，见 services/cfStartReminder.js）：报名成功那一刻
@@ -236,6 +248,7 @@ export default {
             notEligible: '这场比赛现在不能报名',
             alreadyRegistered: '已经报过名了',
             vpAlready: '已经开过虚拟参赛了',
+            unratedUnavailable: '这场比赛的表单里没有不计分选项，去报名页确认一下',
             rejected: 'Codeforces 没有接受这次操作，去那一页看看原因',
             timeout: '操作超时，去 Codeforces 确认一下结果',
             busy: '上一个操作还没结束',
@@ -522,8 +535,21 @@ export default {
           },
           entryConfirm: 'Confirm',
           entryCancel: 'Cancel',
+          /** Registration type (2026-10-30): CF only offers the control for rounds marked
+               "Unrated allowed"; the site cannot see that page, so the choice is explicit
+               here — and the extension refuses to submit when it finds no such control */
+          entryMode: {
+            label: 'Registration type',
+            rated: 'Rated',
+            unrated: 'Unrated',
+            hint: {
+              rated: 'Affects your rating.',
+              unrated: 'Does not affect your rating.',
+            },
+          },
           entryDone: {
             register: 'Registered for {name}',
+            registerUnrated: 'Registered for {name} as unrated',
             virtual: 'Virtual participation started in {name}',
           },
           /** T-10 start reminder (2026-10-30, see services/cfStartReminder.js): the start time
@@ -541,6 +567,7 @@ export default {
             notEligible: 'This contest cannot be registered right now',
             alreadyRegistered: 'You are already registered',
             vpAlready: 'Virtual participation was already started',
+            unratedUnavailable: 'This contest has no unrated option in its form — check the registration page',
             rejected: 'Codeforces did not accept the request — check that page for the reason',
             timeout: 'The request timed out — check the result on Codeforces',
             busy: 'The previous action is still running',

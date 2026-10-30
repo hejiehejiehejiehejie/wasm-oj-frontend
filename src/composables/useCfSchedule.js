@@ -270,10 +270,13 @@ export function useCfSchedule({ active }) {
   /**
    * 报名 / 开 VP。返回 `{ ok, reason }`，界面负责把 reason 折成一句人话。
    *
+   * `options.unrated`（2026-10-30 加）只对报名有意义：用户在确认卡片上选了「不计分」，
+   * 原样递给扩展。设不上那颗控件时扩展回 `unrated-unavailable`，这次报名没有发生。
+   *
    * 成功后只对「报名」就地改状态：报名一落定，那一列就该马上显示「已报名」（下次刷新会对齐）；
    * VP 不改报名状态 —— 它本来就不是官方报名，那一列说的是「报名」，不是「参赛」。
    */
-  async function submitEntry(contest, kind) {
+  async function submitEntry(contest, kind, options = {}) {
     const id = String(contest?.id ?? '')
     if (!id) return { ok: false, reason: 'unsupported' }
     if (entryBusy.value) return { ok: false, reason: 'busy' }
@@ -281,7 +284,7 @@ export function useCfSchedule({ active }) {
     entryBusy.value = id
 
     try {
-      const result = await requestContestEntry(id, kind)
+      const result = await requestContestEntry(id, kind, options)
       if (result.ok && kind === 'register') {
         states.value = { ...states.value, [id]: 'registered' }
       }
