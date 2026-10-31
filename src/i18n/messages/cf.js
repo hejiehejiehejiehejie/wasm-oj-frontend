@@ -196,8 +196,15 @@ export default {
             minutes: '{n} 分钟',
             seconds: '{n} 秒',
           },
+          /** 进行中那一格：距结束还剩多久（2026-11-01 起，原来这一格显示「已开赛多久」） */
+          remaining: '还剩 {time}',
+          /** 进行中那一格的悬停提示：把「已进行 / 本场共多长」补回来 */
+          elapsedHint: '已进行 {time} · 本场共 {total}',
           empty: '没有取到比赛列表，稍后再试',
+          /** 整行点击 = 载入这场比赛（含比赛名那一段） */
           open: '载入 {name}',
+          /** 行尾那颗外链图标：这一行唯一「去 CF 网页」的出口 */
+          cfPage: '在 Codeforces 打开',
           /** 报名 / 开 VP 那一列（2026-10-26 起由扩展读 CF 的报名状态，见 useCfSchedule） */
           register: '报名',
           registering: '报名中…',
@@ -514,8 +521,13 @@ export default {
             minutes: '{n}m',
             seconds: '{n}s',
           },
+          /** 见 zh-CN 那侧的说明 */
+          remaining: '{time} left',
+          /** 见 zh-CN 那侧的说明 */
+          elapsedHint: '{time} elapsed · {total} total',
           empty: 'Could not load the contest list — try again later',
           open: 'Load {name}',
+          cfPage: 'Open on Codeforces',
           register: 'Register',
           registering: 'Registering…',
           vp: 'VP',

@@ -36,8 +36,68 @@ import { t } from '../i18n/index.js'
 import { cfContests } from '../services/cfClient.js'
 import { useCompanionBridge } from './useCompanionBridge.js'
 
-/** 进入中（running）的场次数。模块级只读，供抬头「Live」角标读 —— 不新增请求。 */
+/**
+ * 进行中（running）的场次数，供抬头「Live」角标读 —— 不新增请求。
+ *
+ * 【为什么不跟着赛程页那颗心跳走】`now` 只在「赛程页可见」时跳（见文件末对 active 的 watch），
+ * 于是这个数字过去只在**重新打开赛程页**那一刻重算：用户把 Codeforces 页停在抽题 / 比赛、
+ * 或者干脆在别处写代码，比赛到点了角标也不会自己冒出来（2026-11-01 用户报障）。
+ *
+ * 这里另起一只**只在阶段切换那一刻醒来**的定时器：算出「下一场什么时候开赛 / 结束」，
+ * setTimeout 到点再算一次，中间零开销（这个数字只在阶段边界上变，不值得每秒轮询），
+ * 也不会像把 `now` 挪到模块级那样让 v-show 着的赛程列表在后台每秒重排一遍。
+ */
 export const cfRunningCount = ref(0)
+
+/** 赛程页最近一次落地的列表快照：离开赛程页之后仍要靠它推算「此刻有没有在打」 */
+let liveContests = []
+let liveFetchedAt = 0
+let liveTimer = 0
+
+/** 一次最多睡这么久：机器休眠 / 改过系统时间之后，最迟一小时内自纠一次 */
+const LIVE_WAKE_CAP_MS = 60 * 60 * 1000
+/** 宁可晚一点点也不要早于边界 —— 早 1ms 醒来只会看到「还没开赛」，白醒一趟 */
+const LIVE_WAKE_SLACK_MS = 50
+
+/**
+ * 这场比赛的阶段下一次在多久之后变（毫秒）：未开赛 → 距开赛，进行中 → 距结束。
+ * 已结束 / 拿不到时间字段时返回 null（它不会再变，不必为它设闹钟）。
+ */
+function untilNextPhase(contest, now) {
+  const remaining = contestRemainingMs(contest, liveFetchedAt, now)
+  if (remaining === null) return null
+  if (remaining > 0) return remaining
+  const durationMs = (contest?.durationSeconds || 0) * 1000
+  if (durationMs && remaining + durationMs > 0) return remaining + durationMs
+  return null
+}
+
+/** 按此刻重算角标数字，并把下一次唤醒排到最近的阶段边界上 */
+function syncRunningCount() {
+  window.clearTimeout(liveTimer)
+  liveTimer = 0
+
+  const now = Date.now()
+  let count = 0
+  let soonest = null
+
+  for (const contest of liveContests) {
+    if (contestStatus(contest, contestRemainingMs(contest, liveFetchedAt, now)) === 'running') {
+      count += 1
+    }
+    const wait = untilNextPhase(contest, now)
+    if (wait !== null && wait > 0 && (soonest === null || wait < soonest)) soonest = wait
+  }
+
+  // 只在真的变了才写 ref：同一个值反复赋值会让抬头那颗角标白跑一轮 patch
+  if (cfRunningCount.value !== count) cfRunningCount.value = count
+  if (soonest === null) return
+
+  liveTimer = window.setTimeout(
+    syncRunningCount,
+    Math.min(soonest + LIVE_WAKE_SLACK_MS, LIVE_WAKE_CAP_MS),
+  )
+}
 
 /** 回来时数据超过这个岁数就 force 取一次（否则走 Worker 缓存，绝大多数情况下不触网） */
 const STALE_MS = 10 * 60 * 1000
@@ -136,6 +196,10 @@ export function useCfSchedule({ active }) {
         contests.value = next
         fetchedAt.value = response?.fetchedAt || Date.now()
         now.value = Date.now()
+        // 抬头角标用它自己算一份：赛程页看不见时也要在开赛那一刻翻面（见 cfRunningCount）
+        liveContests = next
+        liveFetchedAt = fetchedAt.value
+        syncRunningCount()
       })
       .catch((failure) => {
         if (mine !== seq || silent) return
@@ -149,7 +213,12 @@ export function useCfSchedule({ active }) {
     return loadingPromise
   }
 
-  /** 此刻的剩余量（毫秒，负数 = 已开赛）。拿不到时间字段时为 null */
+  /**
+   * 此刻距**开赛**的剩余量（毫秒，负数 = 已开赛多久）。
+   *
+   * 【别把它当「还剩多久」】开赛之后它是负的已进行时长：一场 2 小时比赛开赛 20 分钟后，
+   * 这里是 −20 分钟。「还剩多久结束」是 `untilEndOf`（= 这个值 + 总时长）。
+   */
   function remainingOf(contest) {
     return contestRemainingMs(contest, fetchedAt.value, now.value)
   }
@@ -158,12 +227,26 @@ export function useCfSchedule({ active }) {
     return contestStatus(contest, remainingOf(contest))
   }
 
+  /**
+   * 进行中那一场「还剩多久结束」（毫秒，正数）。已开赛 20 分钟、总时长 2 小时 → 100 分钟。
+   * 拿不到时间字段或本场没有时长时为 null（界面落「—」，不猜）。
+   */
+  function untilEndOf(contest) {
+    const remaining = remainingOf(contest)
+    const durationMs = (contest?.durationSeconds || 0) * 1000
+    if (remaining === null || !durationMs) return null
+    return remaining + durationMs
+  }
+
   /** 进行中比赛的进度 0..1（开赛 0、结束 1）。缺时长字段时给 0，进度条不出现 */
   function progressOf(contest) {
     const durationMs = (contest?.durationSeconds || 0) * 1000
     if (!durationMs) return 0
-    const elapsed = durationMs - remainingOf(contest)
-    return Math.max(0, Math.min(1, elapsed / durationMs))
+    const remaining = remainingOf(contest)
+    if (remaining === null) return 0
+    // 已进行 = −remaining（remaining 开赛后为负）。**别写成 duration − remaining**：
+    // 那样开赛瞬间就已经是 duration，进度线起步即满格、之后一直满（2026-11-01 发现）
+    return Math.max(0, Math.min(1, -remaining / durationMs))
   }
 
   /** 开赛时刻 `MM-DD HH:MM`；列表里偶尔缺 startTimeSeconds，落空串让列留白 */
@@ -172,7 +255,7 @@ export function useCfSchedule({ active }) {
   }
 
   /**
-   * 倒计时 / 已进行时长 → 「3 周 6 天 21 小时」。
+   * 时长 → 「3 周 6 天 21 小时」。
    *
    * 【为什么不再用 HH:MM:SS】几十上百小时的数字要心算，「天 / 周」一眼就读懂。
    * 【最多三档】从最大的非零档往下取三档：远期只看周 / 天 / 小时，一天以内才带秒
@@ -185,14 +268,42 @@ export function useCfSchedule({ active }) {
     return shown.map((key) => t(`cf.contest.schedule.units.${key}`, { n: parts[key] })).join(' ')
   }
 
-  /** 倒计时 / 已进行时长。已结束或拿不到时间时为空串 */
+  /**
+   * 时钟那一格显示什么：
+   *   - 未开赛 → 距开赛还剩多久（「3 周 6 天 21 小时」）
+   *   - 进行中 → **距结束还剩多久**（「还剩 1 小时 20 分钟」）。2026-11-01 用户口径：开赛之后
+   *     只显示已开赛时间、看不到还剩多少，不方便 —— 于是这一格改成剩余，把「已进行 / 本场
+   *     共多长」挪进悬停提示（见 `runningHintOf`），行底那条进度线也在表达同一件事
+   *   - 已结束 / 拿不到时间 → 空串（界面落「—」）
+   */
   function countdownOf(contest) {
     const remaining = remainingOf(contest)
     if (remaining === null) return ''
     const state = statusOf(contest)
     if (state === 'upcoming') return spanText(remaining)
-    if (state === 'running') return spanText(-remaining)
+    if (state === 'running') {
+      const left = untilEndOf(contest)
+      // 列表偶尔缺 durationSeconds：退回「已进行」——总比一格空白有用
+      return left === null
+        ? spanText(-remaining)
+        : t('cf.contest.schedule.remaining', { time: spanText(left) })
+    }
     return ''
+  }
+
+  /**
+   * 进行中那一格的悬停提示：格子里只放「还剩」，「已进行多少 / 本场共多长」放这儿。
+   * 不是进行中的场次返回空串（`title=""` 不会冒出空提示）。
+   */
+  function runningHintOf(contest) {
+    if (statusOf(contest) !== 'running') return ''
+    const remaining = remainingOf(contest)
+    const total = (contest?.durationSeconds || 0) * 1000
+    if (remaining === null || !total) return ''
+    return t('cf.contest.schedule.elapsedHint', {
+      time: spanText(-remaining),
+      total: spanText(total),
+    })
   }
 
   const sortedByStart = computed(() =>
@@ -211,14 +322,8 @@ export function useCfSchedule({ active }) {
       .sort((a, b) => a.startTimeSeconds - b.startTimeSeconds),
   )
 
-  // 抬头那枚 Live 角标与这里共用一份数字；赛程页没打开过时就是 0
-  watch(
-    running,
-    (list) => {
-      cfRunningCount.value = list.length
-    },
-    { immediate: true },
-  )
+  // 抬头那枚 Live 角标**不在这里**跟着 running 走：它的数字由模块级 syncRunningCount 维护
+  // （赛程页不可见时也得在开赛那一刻翻面，见文件头 cfRunningCount 的注释）
 
   const finished = computed(() =>
     sortedByStart.value
@@ -358,6 +463,7 @@ export function useCfSchedule({ active }) {
     progressOf,
     startText,
     countdownOf,
+    runningHintOf,
     states,
     statesLoading,
     statesError,

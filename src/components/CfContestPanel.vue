@@ -318,8 +318,13 @@ const {
 /** 赛程在本页之外（合成页签的抬头那一层），进来的第一页就是题目 */
 const tab = ref('problems')
 
-/** 赛事类型徽标：contest / gym / group（从链接解析出来；空态没有） */
-const kindLabel = computed(() => spec.value?.kind?.toUpperCase() || '')
+/** 赛事类型徽标：只有 gym / group 会挂（从链接解析出来；普通比赛与空态都不显示） */
+const kindLabel = computed(() =>
+  // 普通比赛不挂这枚徽标（2026-11-01 用户口径「去掉比赛界面里的 CONTEST 字样」）：
+  // 能走到这一页的绝大多数就是 /contest/，「CONTEST」既没信息量又占着比赛名的位置。
+  // GYM / GROUP 留着 —— 那两个才是在说「这不是一场普通比赛」
+  spec.value?.kind && spec.value.kind !== 'contest' ? spec.value.kind.toUpperCase() : '',
+)
 
 /** 空状态：打开面板永远从这里开始（比赛不自动载入，从赛程点进来的那一条会立刻载入） */
 const searching = ref(true)
@@ -688,7 +693,8 @@ const canSubmitActive = computed(() => {
   margin-bottom: 6px;
 }
 
-/* 赛事类型徽标：CONTEST / GYM / GROUP —— 纯等宽小字，不铺底，别抢比赛名的视线 */
+/* 赛事类型徽标：只剩 GYM / GROUP（CONTEST 2026-11-01 起不显示，见 kindLabel）——
+   纯等宽小字，不铺底，别抢比赛名的视线 */
 .cf-kind {
   flex: 0 0 auto;
   margin-left: 2px;
