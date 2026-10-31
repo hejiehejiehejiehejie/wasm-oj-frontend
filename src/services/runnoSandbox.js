@@ -536,6 +536,30 @@ async function warmCache(url, label) {
   await response.arrayBuffer()
 }
 
+/**
+ * 造一颗宿主。参数对主运行与对拍完全一样，差别只在 `oomProbe`：
+ * 探针 .o 是 init 里顺手编的（省得首次编译多付 ~300ms），而第二颗宿主能走到时
+ * 主宿主早编好了，它再编一遍纯属白花（见 loadCrossToolchain）。
+ */
+function createToolHost({ oomProbe = true } = {}) {
+  return new WasiWorkerHost({
+    clangURL: CLANG_URL,
+    linkerURL: LINKER_URL,
+    sysrootURL: SYSROOT_URL,
+    universalHeaderPath: UNIVERSAL_HEADER_PATH,
+    universalHeader: UNIVERSAL_HEADER,
+    pchSource: PCH_SOURCE_TEXT,
+    oomProbe: oomProbe
+      ? {
+          args: OOM_PROBE_ARGS,
+          source: OOM_PROBE_SOURCE,
+          sourcePath: OOM_PROBE_PATH,
+          outputPath: OOM_OBJECT_PATH,
+        }
+      : null,
+  })
+}
+
 function loadToolchain(onStatus) {
   if (toolchain?.host?.alive) return Promise.resolve(toolchain)
   if (toolchain && !toolchain.host?.alive) {
@@ -552,20 +576,7 @@ function loadToolchain(onStatus) {
         throw new Error(t('error.wasmUnsupported', { missing: features.missing.join(', ') }))
       }
       onStatus('download', t('stage.toolchain'))
-      const host = new WasiWorkerHost({
-        clangURL: CLANG_URL,
-        linkerURL: LINKER_URL,
-        sysrootURL: SYSROOT_URL,
-        universalHeaderPath: UNIVERSAL_HEADER_PATH,
-        universalHeader: UNIVERSAL_HEADER,
-        pchSource: PCH_SOURCE_TEXT,
-        oomProbe: {
-          args: OOM_PROBE_ARGS,
-          source: OOM_PROBE_SOURCE,
-          sourcePath: OOM_PROBE_PATH,
-          outputPath: OOM_OBJECT_PATH,
-        },
-      })
+      const host = createToolHost()
       try {
         const preloaded = await host.preload()
         if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
@@ -584,6 +595,101 @@ function loadToolchain(onStatus) {
     })
   }
   return toolchainPromise
+}
+
+/**
+ * 对拍专用的**第二颗**宿主（2026-11-01）。
+ *
+ * 为什么要有它：对拍和用户运行共用一颗宿主时，两条线只能靠「掐断对方」让路 —— wasm 里
+ * 没有中断点，掐断就是 terminate 整颗 worker，下一次运行要先重建（实测 405ms，还要重新
+ * 取三件资产）。开了第二颗之后两边各占一条 worker 线程：用户点运行既不排队也不掐断对拍，
+ * 对拍也不再是「用户运行前面的一堵墙」。
+ *
+ * 代价是**内存翻倍**：第二颗 worker 自带一份 clang / wasm-ld 的 Module 和 sysroot
+ * （复测数字见 HANDOFF §18.2）。所以它**懒建** —— 只有真的跑出结论、要开始对拍了才建，
+ * 从不为了对拍提前拉起那 23MB；收工后闲置 2 分钟自动回收（见 scheduleCrossIdleDispose），
+ * 卸载运行时也跟着 `unloadRuntime` 一起收掉。
+ *
+ * 与主宿主的关系只有一条：编译产物（.o / .wasm 的字节）在应用层缓存里，与谁编的无关，
+ * 所以两边共用 `compileCaches` 不会串味 —— 各自只写自己那个优化级别的槽位。
+ */
+let crossToolchain = null
+let crossToolchainPromise = null
+
+/**
+ * 第二颗宿主的闲置回收（2026-11-01，用户定的 2 分钟）。
+ *
+ * 它懒建，但建起来就一直常驻 ~22MiB（其中 14MB 是另一份 clang 的 Module，数字见
+ * HANDOFF §18.2）。对拍是个「想起来才跑一次」的功能：一整天只对拍过一两次的会话，
+ * 这 22MiB 等于白占一下午。所以每趟对拍收工就挂一个 2 分钟倒计时，期间再来对拍
+ * 就取消，真闲置到点整颗 terminate。
+ *
+ * 代价是重建：实测 839–1107ms（含一次 -O0 编译与运行）。这些全在后台发生（对拍本身
+ * 是 silent 的，不刷状态栏），用户感知只有「那一次的提示晚到 1s 左右」，比常驻 22MiB 划算。
+ */
+const CROSS_IDLE_DISPOSE_MS = 2 * 60 * 1000
+/** @type {ReturnType<typeof setTimeout> | null} */
+let crossIdleTimer = null
+
+function cancelCrossIdleDispose() {
+  if (crossIdleTimer === null) return
+  clearTimeout(crossIdleTimer)
+  crossIdleTimer = null
+}
+
+/** 对拍收工后上弦：从现在起闲置 2 分钟就回收 */
+function scheduleCrossIdleDispose() {
+  cancelCrossIdleDispose()
+  crossIdleTimer = setTimeout(() => {
+    crossIdleTimer = null
+    disposeCrossToolchain()
+  }, CROSS_IDLE_DISPOSE_MS)
+}
+
+function disposeCrossToolchain() {
+  cancelCrossIdleDispose()
+  const host = crossToolchain?.host
+  // 没有宿主：要么从没建过，要么正建到一半（promise 未决时 crossToolchain 还是 null）。
+  // 后者不能连 promise 一起清 —— 那一趟迟早会收工，收工时自己会重新上弦。
+  if (!host) return
+  // 正被占着（对拍还在跑）：terminate 只会把这一趟变成一次白跑，推到下次收工再说
+  if (host.busy) {
+    scheduleCrossIdleDispose()
+    return
+  }
+  crossToolchain = null
+  crossToolchainPromise = null
+  host.dispose()
+}
+
+function loadCrossToolchain(onStatus) {
+  // 有人要用宿主了：先停掉闲置倒计时，免得建到一半被回收
+  cancelCrossIdleDispose()
+  if (crossToolchain?.host?.alive) return Promise.resolve(crossToolchain)
+  if (crossToolchain && !crossToolchain.host?.alive) {
+    crossToolchain = null
+    crossToolchainPromise = null
+  }
+  if (!crossToolchainPromise) {
+    crossToolchainPromise = (async () => {
+      onStatus('download', t('stage.toolchain'))
+      // 探针不重编：能走到这里说明主宿主已经编过一份，那包字节链接时直接当 extraFiles 用
+      const host = createToolHost({ oomProbe: false })
+      try {
+        const preloaded = await host.preload()
+        if (!oomProbeObject && preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
+      } catch (error) {
+        host.dispose()
+        throw error
+      }
+      crossToolchain = { host }
+      return crossToolchain
+    })()
+    crossToolchainPromise.catch(() => {
+      crossToolchainPromise = null
+    })
+  }
+  return crossToolchainPromise
 }
 
 /** 只把工具链拉到本地（不发编译任务），用于「本地运行环境」面板的下载按钮。 */
@@ -737,10 +843,10 @@ function cacheFresh(entry, code, memoryLimitBytes) {
 }
 
 /** 取某个优化级别下的产物；槽位里没有就现编一份落进去。编译抛异常时不落缓存（重试得重编） */
-async function compileCached(code, memoryLimitBytes, onStatus, optimization) {
+async function compileCached(code, memoryLimitBytes, onStatus, optimization, tool = null) {
   const cached = compileCaches.get(optimization)
   if (cacheFresh(cached, code, memoryLimitBytes)) return cached.outcome
-  const outcome = await compileAndLink(code, memoryLimitBytes, onStatus, optimization)
+  const outcome = await compileAndLink(code, memoryLimitBytes, onStatus, optimization, tool)
   compileCaches.set(optimization, {
     code,
     memoryLimitBytes: memoryLimitBytes || 0,
@@ -775,9 +881,12 @@ async function loadOomProbe(tool, onDispatch) {
 /**
  * clang 编译 + wasm-ld 链接，产出可执行的 wasm 二进制。
  * 结果分成「拿到二进制」和「编译/链接失败」两种，两种都可缓存（同一份代码结论必然相同）。
+ *
+ * @param {object|null} [toolOverride] 指定用哪颗宿主；缺省走主宿主（对拍传自己那颗，见
+ *   loadCrossToolchain）。产物字节与宿主无关，所以缓存照旧共用。
  */
-async function compileAndLink(code, memoryLimitBytes, onStatus, optimization = OPT_MAIN) {
-  const tool = await loadToolchain(onStatus)
+async function compileAndLink(code, memoryLimitBytes, onStatus, optimization = OPT_MAIN, toolOverride = null) {
+  const tool = toolOverride ?? (await loadToolchain(onStatus))
   // PCH 只有 -O2 那一份（见 OPT_MAIN 处的说明）：对拍那一遍不加载它。
   // 硬塞进去的后果不是「慢一点」，而是 clang fatal + 命中下面那段 PCH 判废、把好 PCH 删掉。
   const pch = optimization === OPT_MAIN ? await loadPchBytes() : null
@@ -952,18 +1061,21 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
  * 三个边界：
  * - **不改判定**，调用方拿它只写一行提示（见 engines/wasm.js 的 crossCheck）；
  * - **不加载 PCH**（见 OPT_MAIN 处的说明），所以这一遍比主编译慢 230–265ms；
- * - 编译段沿用与主编译同一套看门狗（60s），运行段的时限由调用方给（见 wasmRuntime
- *   的 CROSS_CHECK_RUN_MS）——这里不自己设阈值，避免两套口径。
+ * - **跑在自己的宿主上**（见 loadCrossToolchain）：不与用户运行排队，也不占它的 worker。
+ *   编译段沿用同一套看门狗（60s），运行段的时限由调用方给（见 wasmRuntime 的
+ *   CROSS_CHECK_RUN_MS）——这里不自己设阈值，避免两套口径。
  *
  * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null, runMs: number | null, trap: string }>}
  */
 export async function crossCheckRun({ code, stdin, memoryLimitBytes = 0, onStatus = () => {}, onHost = () => {} }) {
   const source = String(code ?? '')
-  const tool = await loadToolchain(onStatus)
+  // 第二颗宿主（见 loadCrossToolchain）：对拍不再和用户运行抢同一颗 worker，
+  // 于是「用户点运行」既不用等它，也不必把它掐断
+  const tool = await loadCrossToolchain(onStatus)
   onHost(tool.host)
   const releaseHost = tool.host.hold()
   try {
-    const outcome = await compileCached(source, memoryLimitBytes, onStatus, OPT_CROSS)
+    const outcome = await compileCached(source, memoryLimitBytes, onStatus, OPT_CROSS, tool)
     if (!outcome.ok) {
       // 同一份源码 -O2 编得过、-O0 却编不过，正常只可能是工具链层面的问题
       // （这条路不用 PCH，排除了 PCH 不匹配）。如实回报，由上层静默收场。
@@ -1002,6 +1114,8 @@ export async function crossCheckRun({ code, stdin, memoryLimitBytes = 0, onStatu
   } finally {
     releaseHost()
     onHost(null)
+    // 这一趟收工：开始计闲置时间（期间再来对拍会在 loadCrossToolchain 里把它取消）
+    scheduleCrossIdleDispose()
   }
 }
 
@@ -1168,6 +1282,12 @@ export async function unloadRuntime(language) {
   toolchain?.host?.dispose()
   toolchain = null
   toolchainPromise = null
+  // 对拍那颗宿主是第二份内存（自带一份 clang / wasm-ld 与 sysroot），卸载得一起收；
+  // 闲置倒计时也要停，否则它到点会对一颗已经释放的宿主再 dispose 一次
+  cancelCrossIdleDispose()
+  crossToolchain?.host?.dispose()
+  crossToolchain = null
+  crossToolchainPromise = null
   // 编译产物是纯内存缓存，依附工具链存在，一起丢
   compileCaches.clear()
   oomProbeObject = null

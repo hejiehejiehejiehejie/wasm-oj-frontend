@@ -207,10 +207,44 @@ function endTask(entry) {
   }
 }
 
-/** 串行执行，前一个任务失败也照常排队下一个 */
+/** 队列里还没收工的前台任务条数（含正在跑的那条）。对拍据此判断「现在还有没有人要用」 */
+let pending = 0
+
+/**
+ * 串行执行，前一个任务失败也照常排队下一个。
+ *
+ * 这条队列只装**用户任务**（运行 / 预载）。对拍不在里面 —— 它跑在自己的宿主上，
+ * 由 `crossEnqueue` 另外串行（2026-11-01，见那个函数）。
+ */
 function enqueue(task) {
+  pending += 1
   const run = queue.then(() => task())
   queue = run.then(
+    () => {},
+    () => {},
+  )
+  const done = () => {
+    pending = Math.max(0, pending - 1)
+  }
+  run.then(done, done)
+  return run
+}
+
+/**
+ * 对拍自己的串行链 —— 与上面那条**互不相干**。
+ *
+ * 对拍现在跑在第二颗宿主上（见 runnoSandbox.loadCrossToolchain），所以它既不排在用户
+ * 运行后面，也不会把用户运行挡在后面 —— 这正是开第二颗宿主换来的东西，上一版的
+ * 「后台活可被前台抢占」（abort → terminate 整颗 worker）随之取消：掐断一条不再挡路的
+ * 后台活，只会让下一次对拍白付一次宿主重建。
+ *
+ * 这条链只保证「同一颗宿主上一次只发一条」：两批用例连着跑完时，两条对拍不会在同一个
+ * `entry` 上互相盖看门狗。
+ */
+let crossQueue = Promise.resolve()
+function crossEnqueue(task) {
+  const run = crossQueue.then(() => task())
+  crossQueue = run.then(
     () => {},
     () => {},
   )
@@ -393,8 +427,9 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
  *
  * 四条纪律（B 版口径，2026-10-31 定）：
  * 1. **只跑一条用例**：UB 是代码结构问题，与用例规模无关，调用方挑最快的一条（见 runner）；
- * 2. **异步、不阻塞结论**：延到空闲时段、进串行队列。它**不**会和用户运行并发编译
- *    （同一个宿主），但会排在用户运行前面占住队列约 1s —— 见下面 crossCheckCase 的注释；
+ * 2. **异步、不挡路**：延到空闲时段开工，跑在**自己那颗宿主**上（2026-11-01 起，见
+ *    runnoSandbox.loadCrossToolchain）—— 用户随后再点运行既不排队也不掐断它，代价只是
+ *    多一份常驻内存；
  * 3. **超时即放弃、不提示**：-O0 慢两三倍是常态，跑不完只能说明「比不出来」，
  *    不能当成 UB 证据 —— 假阳性比漏报更伤害这个提示的可信度；
  * 4. **-O0 直接崩掉算证据，栈溢出除外**（2026-10-31 用户报障后补的）：同一份源码
@@ -411,10 +446,7 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
  */
 export function crossCheckCase({ language = 'cpp', code, stdin, baselineStdout, memoryLimitBytes, signal, budgetMs = CROSS_CHECK_BUDGET_MS }) {
   // 延到空闲时段开工：对拍发生在结论之后，不该在用户刚看到结果时就开始占 CPU。
-  // 注意「异步」只保证**不拖慢结论的显示**，不保证不占队列：它和用户运行走同一个
-  // 串行 enqueue（同一个常驻宿主，没法并发编译），所以紧接着再点运行时，那一次会排在
-  // 对拍后面 —— 2026-10-31 实测：AC 之后 250ms 发起的 runCase 被挡了 801ms，等对拍
-  // 收工才开跑。窗口就是这么长（一遍 -O0 编译 + 最多两次 1s 内的运行），没法更短。
+  // 「异步」只保证不拖慢结论的显示。
   return new Promise((resolve) => {
     whenIdle(() => {
       void crossCheckNow({ language, code, stdin, baselineStdout, memoryLimitBytes, signal, budgetMs }).then(resolve)
@@ -423,7 +455,11 @@ export function crossCheckCase({ language = 'cpp', code, stdin, baselineStdout, 
 }
 
 async function crossCheckNow({ language, code, stdin, baselineStdout, memoryLimitBytes, signal, budgetMs }) {
-  return enqueue(async () => {
+  // 前台正忙（用户又点了运行）：这一趟比的还是上一份代码，干脆不做 —— 那次运行结束后
+  // 会自己再安排一趟。注意这里**只放弃、不掐断**：已经开工的那趟占的是它自己的宿主，
+  // 掐断只会让下一次对拍白付一次重建（见 runnoSandbox.loadCrossToolchain）。
+  if (pending > 0) return { status: 'skipped', attempts: 0 }
+  return crossEnqueue(async () => {
     if (language !== 'cpp' || signal?.aborted) return { status: 'skipped', attempts: 0 }
     const baseline = String(baselineStdout ?? '')
     const deadline = performance.now() + budgetMs
@@ -431,7 +467,10 @@ async function crossCheckNow({ language, code, stdin, baselineStdout, memoryLimi
     // 单次运行时限：剩余预算里挑，但留 250ms 地板 —— 编译把预算吃光时仍然值得跑一次
     // （编译都花了，不跑等于白花；一次 250ms 的比对远好过什么都不说）。
     const nextLimit = () => Math.max(250, Math.min(CROSS_CHECK_RUN_MS, remain()))
-    const entry = beginTask(signal, CROSS_CHECK_RUN_MS, { silent: true })
+    // 不传调用方的 signal：这颗宿主只服务对拍，中途放弃时让那一条消息自己跑完（最长
+    // 一遍 -O0 编译 + 一次 ≤1s 的运行）比把 worker 掐掉再重建划算得多。看门狗照旧 ——
+    // 那才是「这条消息真卡死了」的判据。
+    const entry = beginTask(null, CROSS_CHECK_RUN_MS, { silent: true })
     try {
       // 第一遍的结论：`{ crashed: true }` 或 `{ out }`。第二遍只负责确认它可复现
       let first = null
@@ -443,7 +482,7 @@ async function crossCheckNow({ language, code, stdin, baselineStdout, memoryLimi
         try {
           ran = await crossCheckRun({ code, stdin, memoryLimitBytes, onStatus: entry.onStatus, onHost: entry.onHost })
         } catch {
-          // 被看门狗掐断 / 宿主被程序搞崩：对拍这一趟不影响任何东西，静默收场
+          // 看门狗掐断 / 程序把宿主搞崩：对拍这一趟不影响任何东西，静默收场
           return { status: 'skipped', attempts }
         }
         if (signal?.aborted) return { status: 'skipped', attempts }
@@ -470,7 +509,9 @@ async function crossCheckNow({ language, code, stdin, baselineStdout, memoryLimi
         // 第二遍：必须收敛到和第一遍同一个结论，否则当作程序本身不确定
         if (first.crashed) return crashed ? { status: 'crashed', attempts } : { status: 'skipped', attempts }
         if (crashed) return { status: 'skipped', attempts }
-        return String(ran.stdout ?? '') === first.out ? { status: 'differed', attempts } : { status: 'skipped', attempts }
+        return String(ran.stdout ?? '') === first.out
+          ? { status: 'differed', attempts }
+          : { status: 'skipped', attempts }
       }
     } finally {
       endTask(entry)
