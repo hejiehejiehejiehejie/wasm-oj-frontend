@@ -2256,6 +2256,31 @@ watch(pendingUnbind, (open) => {
           </span>
         </div>
 
+        <!-- 关闭优化重跑比对（2026-11-01 加）。默认关：它要另开一颗宿主（+22 MiB）并对同一份
+             代码多编一遍，而编译期那四条 UB 警告已经零成本地覆盖了它抓到的大半。
+             关掉时 runner 的 crossCheckBest 第一行就返回，那颗宿主压根不会被建起来 ——
+             所以这一行的代价是真的可省，不是「关了个显示」。 -->
+        <div class="setting-row setting-row--switch">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.judge.crossCheck.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.judge.crossCheck.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              class="switch"
+              :class="{ 'is-on': settings.crossCheck }"
+              role="switch"
+              :aria-checked="settings.crossCheck"
+              :aria-label="t('settings.judge.crossCheck.label')"
+              @click="set('crossCheck', !settings.crossCheck)"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+        </div>
+
         <p class="setting-subtitle">{{ t('settings.judge.engines') }}</p>
         <EngineSettingsPanel
           :judge="judge"

@@ -181,6 +181,39 @@ const FRONTEND_ARGS = [
 ]
 
 /**
+ * 只有**用户代码那一次编译**才放开的编译期 UB 检查（2026-11-01 加，跟 `-Wdivision-by-zero`
+ * 同一条路：诊断带回去，卡片补一行提示，判定一个字不动）。
+ *
+ * 为什么单挑这四条 —— 它们都能在**前端**给出结论，不需要第二遍编译、不需要第二颗宿主，
+ * 实测单次编译 8–23ms，加与不加没有可测差别；而且它们正好补上 `-O0` 对拍最常漏的那一片。
+ * 同一批 6 个 UB 样本里静态检查抓到 5 个（漏 `return` / 未初始化 / 越界读 / 越界写 / 悬垂栈地址），
+ * 对拍只抓到 2 个。
+ *
+ * 报什么（clang 23.1.0 / wasm32-wasip1 实测，`-O2` 与 `-O0` 完全一致）：
+ * - `-Wreturn-type`：`non-void function does not return a value in all control paths`；
+ * - `-Wuninitialized`：`variable 'x' is uninitialized when used here`，分支里赋值那类走
+ *   `-Wsometimes-uninitialized`，同属这一组；
+ * - `-Warray-bounds`：`array index 5 is past the end of the array (that has type 'int[4]')`，
+ *   读和写都报，但只有**常量下标**才报；
+ * - `-Wreturn-stack-address`：`address of stack memory associated with local variable 'a' returned`。
+ *
+ * 为什么不放进 FRONTEND_ARGS：那是 PCH 生成、OOM 探针、编辑器语法检查共用的那份，PCH 会把
+ * 一堆标准库头当用户代码编（1385 条 sysroot 进 AST），放开这些只会把警告洒在别人的文件上；
+ * 而且编辑器那条路要的是「编译不过」，多出来的波浪线会盖住真错误。
+ *
+ * 噪声实测（这些**不会**报，也就是不会刷屏）：`int main(){...}` 不写 `return`（clang 对 main
+ * 是特例）、以 `throw` 结尾的函数、`vector` / `new[]` 的下标越界、`&a[4]`（one-past-end 取址）、
+ * 全局数组、循环里赋值后使用 —— 全部安静。已知抓不到的：有符号溢出（要 UBSan）、
+ * 空指针解引用、容器越界。
+ */
+const UB_WARN_ARGS = [
+  '-Wreturn-type',
+  '-Wuninitialized',
+  '-Warray-bounds',
+  '-Wreturn-stack-address',
+]
+
+/**
  * clang 的 cc1 命令行。
  * @param {string | null} pchPath 非空时把 PCH 当作 TU 的前缀加载（阶段 4）；
  *   -include-pch 必须出现在输入文件之前，所以插在 -x 之前
@@ -204,6 +237,7 @@ function clangArgs(pchPath, optimization = OPT_MAIN) {
     // 「走不到的分支里写了 10/0」这种程序也一起打死，而它在 -O0 的 OJ 上是正常的），
     // 只把这条诊断带回去，由卡片在 ACTUAL 框下面补一行「结果不可预期」。
     '-Wdivision-by-zero',
+    ...UB_WARN_ARGS,
     ...(pchPath ? ['-include-pch', pchPath] : []),
     '-o',
     OBJECT_PATH,

@@ -127,14 +127,19 @@ const collapseEntry = computed(() => ({
 // ------------------------------------------------------------ 页头的两种自适应
 const rootEl = ref(null)
 
-// ① 紧凑模式：侧栏够宽时胶囊段位带文字标签（图标 + 短名），窄了退回纯图标
-//   （与重构前的胶囊同形）。阈值 360 逻辑 px 的来历：带标签的胶囊 ~148px + 抽题 30 +
-//   齿轮 26 + 间距 + 右侧动作区（评测面板的 verdict + 耗时最坏 ~170px；compact 态
-//   verdict 去掉「 AC」后缀会更短，见 TestPanel），再窄文字就会把页头挤折行。用
-//   ResizeObserver 而不用 @container：页头里有 fixed 定位的
-//   浮层（SettingsMenu），container-type 附带的 layout containment 会把它的
-//   定位基准从视口改到页头。
+// ① 两档紧凑：判定文案先收、胶囊段位标签后收（2026-11-01 用户要求「异步收窄」）。
+//   - verdictCompact（< 400 逻辑 px）：评测面板页头的「全部 AC / n/m AC」先换短文案
+//     （去掉「 AC」后缀，见 TestPanel 的 verdict），这一档先省下 ~25px；
+//   - compact（< 350 逻辑 px）：胶囊段位再收起文字标签、退回纯图标。
+//   两个阈值分开而不是共用一条：一起收的话，页头会在同一档宽度上「整排缩一下」；
+//   先收文案、后收标签，400→350 这一档是「标签还在、词条已短」的过渡。
+//   350 的来历：带标签的胶囊 208px + 间距 8 + 右侧动作区 + 页头内边距，实测最坏
+//   （「运行中」+ 转圈 + 耗时）≈346px，取 350 留几像素余量；再往下调（如 340）这档
+//   就会在运行中把页头挤折行。判定文案已在 400 先收，所以标签可以比原来的 360 多留 10px。
+//   用 ResizeObserver 而不用 @container：页头里有 fixed 定位的浮层（SettingsMenu），
+//   container-type 附带的 layout containment 会把它的定位基准从视口改到页头。
 const compact = ref(false)
+const verdictCompact = ref(false)
 let compactObserver = null
 
 // ② 滚动显影：列表没滚动时页头与正文一色（2026-10-04「透明页头」的定稿不变）；
@@ -165,7 +170,8 @@ onMounted(() => {
   compactObserver = new ResizeObserver(() => {
     const width = rootEl.value?.getBoundingClientRect().width ?? 0
     // 阈值是逻辑尺寸，要随 uiScale 走（与 useUiScale 的 px() 同口径）
-    compact.value = width > 0 && width < 360 * uiScale.value
+    compact.value = width > 0 && width < 350 * uiScale.value
+    verdictCompact.value = width > 0 && width < 400 * uiScale.value
   })
   if (rootEl.value) compactObserver.observe(rootEl.value)
 })
@@ -186,6 +192,8 @@ provide('sidebarTabs', {
   // 两个面板拿它判「是不是该我把上下文动作投进页头」；切换器拿它判要不要收起文字标签
   activeTab,
   compact,
+  // 评测面板专用：verdict 换短文案的阈值比胶囊标签的更宽（见上面 ① 的说明）
+  verdictCompact,
 })
 
 // 供父组件从外部切到指定面板（如 App.vue 在开跑时要把「评测样例」亮出来）。

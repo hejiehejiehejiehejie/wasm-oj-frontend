@@ -57,7 +57,6 @@
             <!-- 比赛名**不是**链接（2026-11-01）：整行只有一个行为「载入这场」，名字只是它最长的一段。
                  以前名字是去 CF 的 <a>、行是载入，同一根水平带里两种行为、还看不出谁是谁。 -->
             <span class="cf-schedule__name" :title="contest.name">{{ contest.name }}</span>
-            <span class="cf-schedule__type">{{ contest.type || '—' }}</span>
             <span class="cf-schedule__start">{{ startText(contest) }}</span>
             <!-- 时钟格：未开赛是距开赛，进行中是**距结束还剩**（见 useCfSchedule.countdownOf）；
                  已进行 / 本场共多长放进悬停提示，不占格宽 -->
@@ -450,14 +449,14 @@ async function confirmEntry() {
   margin-left: 8px;
 }
 
-/* 一场一行：比赛名在左（吃掉剩余宽度），类型紧跟其后，开赛时刻与倒计时收在右端，
+/* 一场一行：比赛名在左（吃掉剩余宽度），开赛时刻与倒计时收在右端，
    最右一格是「去 CF 网页」的图标（2026-11-01）。
    列宽写死（理由同 .cf-result）：各行独立 grid，auto 会对不齐。
    末列 168（2026-11-01 由 144 加宽）：进行中的那格要装下「还剩 4 小时 59 分钟 59 秒」，
    12px 等宽下实测 163.5px —— 还按 144 会让格子向左溢出 19.5px、压到「开赛时刻」那列的尾巴上 */
 .cf-schedule__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px 92px 168px 26px;
+  grid-template-columns: minmax(0, 1fr) 92px 168px 20px;
   align-items: center;
   gap: 12px;
   height: 40px;
@@ -468,7 +467,7 @@ async function confirmEntry() {
 
 /* 报名状态 / 动作列：只有在扩展支持时才多出这一格 */
 .cf-schedule__row--entry {
-  grid-template-columns: minmax(0, 1fr) 44px 92px 168px 76px 26px;
+  grid-template-columns: minmax(0, 1fr) 92px 168px 76px 20px;
 }
 
 /* 进行中：左侧一条 2px 呼吸条 + 极浅的绿雾（从左往右淡出），不铺整行色块。
@@ -570,15 +569,13 @@ async function confirmEntry() {
   color: var(--accent-text);
 }
 
-/* 行尾那颗「在 Codeforces 打开」：26×26 的纯图标热区（.cf-icon-btn），
-   字形本身只有 13px —— 视觉上是一条淡淡的出口，不是第二个主按钮 */
-.cf-schedule__open {
+/* 行尾那颗「在 Codeforces 打开」：比通用的 .cf-icon-btn（26×26）更窄一档，
+   只留 20×20 的热区、字形本身 13px —— 视觉上是一条淡淡的出口，不是第二个主按钮 */
+.cf-schedule__row .cf-schedule__open {
   justify-self: center;
-}
-
-.cf-schedule__type {
-  color: var(--text-faint);
-  font-size: 11px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
 }
 
 /* 报名状态 / 动作列：这一格有时是文字（已报名 / 未开放）、有时是按钮（报名 / VP）。
@@ -597,20 +594,19 @@ async function confirmEntry() {
   white-space: nowrap;
 }
 
-/* 窄容器：先撤「类型」列与开始时刻，只留比赛名 + 倒计时 + 行尾的外链图标（名字截断，悬停读全）。
+/* 窄容器：先撤开始时刻，只留比赛名 + 倒计时 + 行尾的外链图标（名字截断，悬停读全）。
    末列与宽容器同一档 168：进行中那句「还剩 …」最长 163.5px，收窄到 144 会截断成「还剩 4 小时 59 分…」 */
 @container cf (max-width: 34rem) {
   .cf-schedule__row {
-    grid-template-columns: minmax(0, 1fr) 168px 26px;
+    grid-template-columns: minmax(0, 1fr) 168px 20px;
     gap: 10px;
   }
 
   .cf-schedule__row--entry {
-    grid-template-columns: minmax(0, 1fr) 168px 72px 26px;
+    grid-template-columns: minmax(0, 1fr) 168px 72px 20px;
   }
 
-  .cf-schedule__start,
-  .cf-schedule__type {
+  .cf-schedule__start {
     display: none;
   }
 

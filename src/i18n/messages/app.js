@@ -101,6 +101,8 @@ export default {
           exitFullscreen: '退出全屏（Esc）',
           /** ⌘\ 那条轮换键的说明，挂在三段胶囊整组上（见 EditorPane） */
           cycleHint: '轮换视图模式（{key}）',
+          /** 极窄时三段胶囊收成一颗轮换键，提示里必须把「当前是哪种」说清 */
+          cycleTitle: '当前：{mode}（点击切换，{key}）',
         },
         preview: {
           /** 预览面板当前状态的标题，key 即状态名 */
@@ -155,8 +157,8 @@ export default {
           invalidUrl: '地址需以 http 或 https 开头',
         },
         stats: {
-          chars: '{count} 字',
-          lines: '{count} 行',
+          charsUnit: '字',
+          linesUnit: '行',
         },
       },
     },
@@ -248,6 +250,7 @@ export default {
           fullscreen: 'Full screen',
           exitFullscreen: 'Exit full screen (Esc)',
           cycleHint: 'Cycle view mode ({key})',
+          cycleTitle: 'Current: {mode} (click to cycle, {key})',
         },
         preview: {
           state: {
@@ -298,8 +301,8 @@ export default {
           invalidUrl: 'Use an http or https address',
         },
         stats: {
-          chars: '{count} chars',
-          lines: '{count} lines',
+          charsUnit: 'chars',
+          linesUnit: 'lines',
         },
       },
     },

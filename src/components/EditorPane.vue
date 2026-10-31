@@ -35,6 +35,7 @@ import {
 import {
   MD_VIEW_MODES,
   MD_VIEW_SHORTCUT,
+  cycleMdView,
   exitFullscreen,
   mdActive,
   mdFileActive,
@@ -223,8 +224,16 @@ const stripEmpty = computed(() => !workspace.openTabIds.length && !anyViewOpen.v
 /** 预览的正文来源：活跃 model 的当前内容 */
 const mdSource = ref('')
 
-/** 工具栏右端的「N 字 · M 行」：跟着 mdSource 走，不必再单独订阅一次 model */
+/** 工具栏右端的「N 字 / M 行」：跟着 mdSource 走，不必再单独订阅一次 model */
 const mdStats = computed(() => markdownStats(mdSource.value))
+
+/** 极窄时那颗轮换键的提示：当前模式 + ⌘\ 键位，两者都得在 */
+function viewCycleTitle() {
+  return t('app.md.view.cycleTitle', {
+    mode: t(`app.md.view.${mdViewMode.value}`),
+    key: formatCombo(MD_VIEW_SHORTCUT),
+  })
+}
 
 /** 链接 / 图片的填写行；null 即收起来 */
 const insertForm = ref(null)
@@ -748,7 +757,19 @@ defineExpose({
 
       <span class="grow"></span>
 
-      <span class="md-stats">{{ t('app.md.stats.chars', { count: mdStats.chars }) }} · {{ t('app.md.stats.lines', { count: mdStats.lines }) }}</span>
+      <!-- 字数与行数各自「数字在上、单位在下」（单位相对数字居中）：横向只需两列
+           各自较宽的那个，两块之间只隔一个小圆点 -->
+      <span class="md-stats">
+        <span class="md-stat">
+          <span class="md-stat__num">{{ mdStats.chars }}</span>
+          <span class="md-stat__unit">{{ t('app.md.stats.charsUnit') }}</span>
+        </span>
+        <span class="md-stat__dot" aria-hidden="true"></span>
+        <span class="md-stat">
+          <span class="md-stat__num">{{ mdStats.lines }}</span>
+          <span class="md-stat__unit">{{ t('app.md.stats.linesUnit') }}</span>
+        </span>
+      </span>
 
       <!-- 三段是「选一个」，键位却是「挨个轮换」，所以键位挂在整组身上而不是某一段上 -->
       <div
@@ -770,6 +791,18 @@ defineExpose({
           <AppIcon :name="MD_VIEW_ICONS[mode]" :size="15" />
         </button>
       </div>
+
+      <!-- 极窄（≤18rem）时三段胶囊放不下：收成一颗轮换键，图标即当前模式。
+           两者都在 DOM 里，只由容器查询决定谁 display，避免再存一份模式状态 -->
+      <button
+        type="button"
+        class="view-cycle"
+        :title="viewCycleTitle()"
+        :aria-label="viewCycleTitle()"
+        @click="cycleMdView"
+      >
+        <AppIcon :name="MD_VIEW_ICONS[mdViewMode]" :size="15" />
+      </button>
 
       <!-- 全屏是独立开关（不是第四种模式）：勾上之后「仅预览」「双栏」照样选得动，
            只是整块占满窗口而已 -->
@@ -1314,6 +1347,10 @@ defineExpose({
      代价是这条工具栏不再靠底色与下面的正文分开，只剩下面那根 1px --border-soft 断句。 */
   background: var(--bg-editor-pane);
   border-bottom: 1px solid var(--border-soft);
+  /* 这条栏自己当查询容器：窄面板下统计与视图控件按栏宽逐档收（见文件末尾那组 @container）。
+     不能挂在上层的 .editor-pane 上 —— 那会成为 Monaco fixedOverflowWidgets 的包含块。
+     本栏内没有任何 fixed / absolute 后代，layout 包含不会伤到别处 */
+  container: mdbar / inline-size;
 }
 
 .editor-pane__bar .grow {
@@ -1361,12 +1398,46 @@ defineExpose({
   background: var(--bg-control-hover);
 }
 
-/* 字数用等宽字：数字跳动时宽度不会来回抖 */
+/* 统计块：数字在上、单位在下（单位相对数字居中）。横向只按每列较宽的那个算，
+   数字走等宽 + tabular-nums，位数变化时列宽不抖；单位回到界面字体
+   （汉字与英文词本来就不需要等宽，整串套等宽只会把「chars / lines」撑宽） */
 .md-stats {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   color: var(--text-dim);
-  font: 400 12px/1 var(--font-mono, ui-monospace, monospace);
   white-space: nowrap;
+}
+
+.md-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  line-height: 1;
+}
+
+.md-stat__num {
+  font: 400 11px/1 var(--mono-font);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-stat__unit {
+  font: 400 8px/1 var(--ui-font);
+  color: var(--text-faint);
+}
+
+/* 分隔用一个小圆点，而不是竖线：点只占一个字符宽，两侧各 3px（读起来是「一组数」，
+   又不至于把两块推得太远） */
+.md-stat__dot {
+  flex: 0 0 auto;
+  font: 400 10px/1 var(--ui-font);
+  color: var(--text-faint);
+}
+
+.md-stat__dot::after {
+  content: '·';
 }
 
 /* 三颗视图按钮 + 一颗全屏开关：与侧栏那颗胶囊同一套视觉语言（选中段是实心蓝），
@@ -1426,6 +1497,65 @@ defineExpose({
 .view-toggle.is-active {
   color: var(--text-on-accent);
   background: var(--accent);
+}
+
+/* 三段胶囊在 ≤18rem 时换成的单键轮换（见下面那组容器查询）：图标即当前模式，
+   提示里带模式名与键位。它不是「第四种模式」，所以没有 is-active 态 */
+.view-cycle {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  background: var(--bg-control);
+}
+
+:where(html.is-hoverable) .view-cycle:hover {
+  color: var(--text);
+  background: var(--bg-control-hover);
+}
+
+/* 窄栏逐档收：先收间距，再缩数字，再收视图胶囊，最后收全屏。
+   阈值写 rem：postcss-pxtorem 不处理 at-rule 参数，写 px 的话界面放大后
+   会提前挤爆、断点却还停在原地（与状态栏那三档同一套理由）。
+   触屏没有 hover，也不把数字降到 10px —— 11px 是手机上可读的下限。 */
+@container mdbar (max-width: 26rem) {
+  .md-stats {
+    gap: 2px;
+  }
+}
+
+@container mdbar (max-width: 20rem) {
+  .md-stat__num {
+    font-size: 10px;
+  }
+}
+
+@media (pointer: coarse) {
+  @container mdbar (max-width: 20rem) {
+    .md-stat__num {
+      font-size: 11px;
+    }
+  }
+}
+
+@container mdbar (max-width: 18rem) {
+  .view-switch {
+    display: none;
+  }
+
+  .view-cycle {
+    display: inline-flex;
+  }
+}
+
+@container mdbar (max-width: 13rem) {
+  .view-toggle {
+    display: none;
+  }
 }
 
 /* 链接 / 图片的填写行：贴在工具栏下面，底色比工具栏深一档，像一张摊开的小卡片 */
@@ -1587,9 +1717,11 @@ defineExpose({
   opacity: 0.5;
 }
 
+/* 「已选中 N 字符」比其它项亮一档就够：这里原先还加了 550 字重，
+   压在这条浅蓝字上会突然跳出来（2026-11-01 用户反馈）。保持常规字重，
+   只靠 --text-on-accent 这一点提亮区分 */
 .editor-pane__status .picked {
   color: var(--text-on-accent);
-  font-weight: 550;
 }
 
 /* 由窄到宽逐项隐藏：UTF-8 是常量、文件名在页签栏已经有一份，先摘这两项，

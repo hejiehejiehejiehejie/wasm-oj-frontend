@@ -50,16 +50,41 @@ function describeTrap(trap) {
 }
 
 /**
- * 编译期诊断 → 卡片上那行提示。当前**只认一条**：编译期就能确定的除以零。
+ * 编译期诊断 → 卡片上那行提示。
  *
- * 为什么不判死（2026-10-26 用户拍板「只提示不判死」）：`a / 0` 在 -O2 下被折成常量、
- * wasm 里没有除法指令，程序照样退出 0；而 -O0 的 OJ 会发 `idiv` 收到 SIGFPE 判 RE。
- * 两种都是 UB 的合法后果，我们按「实际跑出来的」判定，只把这条诊断补在卡片上
- * （ACTUAL 框内顶部那行淡黄色提示，见 `TestCaseCard.vue` 的 `.out-box__note`），让用户知道结果不可预期。另一层原因：这条警告对**走不到的分支**里的 `10 / 0` 同样会报，
- * 若据此判 RE，那个在 -O0 的 OJ 上完全正常的程序会被我们误杀。
+ * 两条来源，都只是提示、都不参与判定：
+ * 1. **编译期就能确定的除以零**（2026-10-26 起）。为什么不判死：`a / 0` 在 -O2 下被折成
+ *    常量、wasm 里没有除法指令，程序照样退出 0；而 -O0 的 OJ 会发 `idiv` 收到 SIGFPE 判 RE。
+ *    两种都是 UB 的合法后果，我们按「实际跑出来的」判定。另一层原因：这条警告对**走不到的
+ *    分支**里的 `10 / 0` 同样会报，若据此判 RE，那个在 -O0 的 OJ 上完全正常的程序会被我们误杀。
+ * 2. **上面那几条编译期 UB 检查**（2026-11-01 起，见 runnoSandbox 的 UB_WARN_ARGS）。
+ *
+ * 认的是诊断末尾那个 `[-Wxxx]` 标签，不是正文措辞 —— 正文随 clang 版本改，标签是稳定接口。
+ * 一行里可能同时命中多条（既漏 `return` 又越界），所以先收种类再去重、最后拼成一句；
+ * 拼接用语言中立的 ' / '，免得为一个分隔符再开一条文案。
  */
+const UB_WARNING_KINDS = [
+  ['[-Wreturn-type]', 'returnType'],
+  // 分支里赋值、分支外使用属于 -Wsometimes-uninitialized，和 -Wuninitialized 是两句话一件事
+  ['[-Wsometimes-uninitialized]', 'uninitialized'],
+  ['[-Wuninitialized]', 'uninitialized'],
+  ['[-Warray-bounds]', 'arrayBounds'],
+  ['[-Wreturn-stack-address]', 'stackAddress'],
+]
+
 function describeWarnings(diagnostics) {
   if (!diagnostics) return ''
+  const kinds = []
+  for (const [tag, kind] of UB_WARNING_KINDS) {
+    if (!diagnostics.includes(tag) || kinds.includes(kind)) continue
+    kinds.push(kind)
+  }
+  if (kinds.length) {
+    const labels = kinds.map((kind) => t(`tests.outcome.ubWarnKind.${kind}`)).join(' / ')
+    return t('tests.outcome.ubWarning', { kinds: labels })
+  }
+  // 除零没进上面那张表：它的文案早就上线了，措辞与这一组不同，不为统一而改用户的可见文案。
+  // 两者同时出现时（极少）只说 UB 那一句 —— 它更概括，而除零本来也是 UB 的一种。
   if (/division by zero/i.test(diagnostics)) return t('tests.outcome.divideByZero')
   return ''
 }

@@ -437,10 +437,23 @@ function onRootKeydown(event) {
 // 会短暂离开两个盒子，没有这段宽限二级会在半路消失。
 let closeTimer = 0
 
-function onRowPointerEnter(index) {
+/**
+ * 指针移进一级行：鼠标才当场展开二级。
+ *
+ * 【触屏为什么不能走这条】触屏没有「悬停」，`pointerenter` 是在 **touchstart 那一刻**来的，
+ * 于是二级立刻插进 DOM；而同一根手指抬起后浏览器补的那发 `click`，是按**那一刻**落点
+ * 重新做命中测试的 —— 它会落到刚长出来的二级上。窄屏首当其冲：二级按「两侧都塞不下就夹回
+ * 视口」被压在所属那一行上（见 subShiftX），第一格「深色」正好在指头下面，于是「点主题」
+ * 变成「直接切深色」（2026-11-01 用户报障）。
+ * 触屏的展开改由 click 走 `trigger` → `openSubmenuAt`：DOM 在那发 click **之后**才变，
+ * 自己长出来的二级就不可能把自己这一下接走。`activeIndex` 仍在这里记 —— 按下即高亮。
+ */
+function onRowPointerEnter(event, index) {
   window.clearTimeout(closeTimer)
   closeTimer = 0
   activeIndex.value = index
+  // 空串的平台（老浏览器 / 合成事件）按鼠标算，与下面 onRootPointerLeave 同一条口径
+  if (event?.pointerType && event.pointerType !== 'mouse') return
   openSubmenuAt(index)
 }
 
@@ -674,7 +687,7 @@ function currentOption(row) {
 
         <!-- 一级行只是个定位上下文：可点的是里面那颗 <button>，二级由此能 absolute
              贴到它的右侧，不必再 Teleport 一层、也不用同步两个浮层的关闭 -->
-        <div v-else class="settings-menu__row" @pointerenter="onRowPointerEnter(index)">
+        <div v-else class="settings-menu__row" @pointerenter="onRowPointerEnter($event, index)">
           <button
             :ref="(el) => (itemRefs[index] = el)"
             type="button"
@@ -1050,6 +1063,11 @@ function currentOption(row) {
   --menu-scale: 0.92;
   position: fixed;
   z-index: 125;
+  /* 换边 / 折叠这类 View Transition 里必须自己成组：浮层 Teleport 到 body、排在 #app 之后，
+     成组后画在两栏快照之上；不成组的话它只是 root 快照的一部分，会被两栏的组盖住 ——
+     观感就是「换边那一下菜单闪没了、动画结束又冒出来」（2026-11-01 用户报）。
+     自身位置变化（换边后重锚）也因此跟着布局一起移动，而不是硬跳。 */
+  view-transition-name: settings-menu;
   min-width: calc(220px * var(--menu-scale));
   padding: calc(6px * var(--menu-scale)) 0;
   background: var(--menu-bg);
@@ -1168,8 +1186,11 @@ function currentOption(row) {
 }
 
 /* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：行尾一颗小钮，显示当前档（如「<左侧>」），
-   点一下翻到另一档。亮底沿用步进器 hover 那份白（菜单这一层自有一套 --menu-* 变量，
-   不认主题的输入框底），尺寸挂 --menu-scale 跟整组等比缩放。 */
+   点一下翻到另一档。**亮度**跟同列的步进器读数（.settings-menu__value）对齐 —— 它读的也是
+   「当前值」，压成 muted 会在菜单里显得暗一档；**字号**比它小一档（12 对 13）：段钮是行尾
+   的状态胶囊，跟正文同号会抢行首标签。2026-11-01 用户要求「再小一点」定的这一档。
+   亮底沿用步进器 hover 那份白（菜单这一层自有一套 --menu-* 变量，不认主题的输入框底），
+   尺寸挂 --menu-scale 跟整组等比缩放。 */
 .settings-menu__seg {
   display: inline-flex;
   align-items: center;
@@ -1177,15 +1198,15 @@ function currentOption(row) {
   border: none;
   border-radius: calc(3px * var(--menu-scale));
   background: transparent;
-  color: var(--menu-muted);
-  font-size: calc(11px * var(--menu-scale));
-  line-height: 1.5;
+  color: var(--menu-text);
+  font-size: calc(12px * var(--menu-scale));
+  line-height: 1.2;
   cursor: pointer;
   transition: background-color 0.14s ease, color 0.14s ease;
 }
 
 .settings-menu__item.is-active .settings-menu__seg {
-  color: var(--menu-hover-muted);
+  color: var(--menu-hover-text);
 }
 
 :where(html.is-hoverable) .settings-menu__seg:hover {

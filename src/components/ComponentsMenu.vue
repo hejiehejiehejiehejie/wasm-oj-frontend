@@ -133,7 +133,12 @@ watch(ready, (shown) => {
             @click="choose(item)"
           >
             <span class="components-menu__tile" aria-hidden="true">
-              <AppIcon :name="item.icon" :size="22" />
+              <!-- 24 而不是 22：AppIcon 的 viewBox 是 24 网格，渲染尺寸必须是它的整数倍，
+                   否则路径坐标落到物理像素的非整数位置上，圆弧的抗锯齿被量化成台阶（锯齿）。
+                   2026-11-01 实测（dpr 2，边缘硬边占比）：22px 28% → 24px 15%；
+                   dpr 3 更明显（18% → 9%）。非整数 dpr（系统缩放 125% / 150%）下两者一样，
+                   那是浏览器光栅化的固有限制。 -->
+              <AppIcon :name="item.icon" :size="24" />
               <!-- 仍在测试中的组件（眼下只有 Codeforces）：图标右上角挂一枚小标签。
                    aria-hidden 的容器里，读屏只念下面那行组件名，不会把这枚标签当名字。 -->
               <span v-if="item.testing" class="components-menu__tag">{{ t('cf.module.testing') }}</span>
@@ -152,6 +157,9 @@ watch(ready, (shown) => {
   --menu-scale: 0.92;
   position: fixed;
   z-index: 125;
+  /* 与 SettingsMenu 同一条：View Transition 里浮层要自己成组，否则会被两栏快照盖住，
+     表现是「换边 / 折叠那一下菜单闪没了」 */
+  view-transition-name: components-menu;
   min-width: calc(200px * var(--menu-scale));
   padding: calc(10px * var(--menu-scale));
   background: var(--menu-bg);

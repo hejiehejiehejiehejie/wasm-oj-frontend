@@ -31,11 +31,12 @@
  * 现在菜单里多了与模块无关的「工具」类，按钮因此改为常驻 —— 卸载 Codeforces 之后，
  * 倒计时的入口不能跟着消失。顺序仍刻意是「组件 → 设置」：齿轮是常驻的那个，排在右端。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ComponentsMenu from './ComponentsMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
+import { panelPosition } from '../services/shellSettings.js'
 
 const { panels, targetPanel, togglePanel, settings, components, collapse, compact } =
   inject('sidebarTabs')
@@ -106,6 +107,21 @@ function closeCompMenu() {
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
 onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
+
+/**
+ * 换边后齿轮 / 组件钮整颗挪到另一侧，菜单却还钉在打开时量下的那个 rect 上。
+ * 这里把新位置写回锚点，`usePopoverLayer` 会跟着重新匣一次（菜单不关、跟着按钮走）。
+ *
+ * 必须是 post：量位置要等 `order` 换完、新一帧的布局落地之后。
+ */
+watch(
+  panelPosition,
+  () => {
+    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
+    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
+  },
+  { flush: 'post' },
+)
 
 // ------------------------------------------------------------ 页头图标的墨迹口径
 // 两颗独立钮（组件 / 设置）过去同画布 size=16，但两个字形在 24 网格里的外接框不同：
@@ -314,6 +330,15 @@ function headIconOptics(name) {
 .sidebar-switcher__seg.is-active {
   color: var(--text-on-accent);
   transition: color 0.16s ease 0.06s;
+}
+
+/* 「文件」段的文件夹字形在 24 viewBox 里墨迹是 4.5~22（本来就偏下），16px 盒居中后
+   视觉重心仍低 ~0.9px（4 倍截图逐像素量：22px 段内上留白 5.5、下 3.75）。
+   这里补 -1px，让上下回到 ~4.5 / 4.75。只按 data-panel 打，别去改 AppIcon 里
+   folder 的路径 —— 那条会牵连文件树等所有用 folder 的地方；transform 只改绘制，
+   不动 16px 图标盒、3px 上下留白与点击区域。 */
+.sidebar-switcher__seg[data-panel='explorer'] svg {
+  transform: translateY(-1px);
 }
 
 .sidebar-switcher__label {

@@ -721,6 +721,9 @@ try {
       return {
         toolsVisible: visible('.md-tools'),
         stats: document.querySelector('.md-stats')?.textContent.trim() ?? null,
+        // 统计块是「数字在上、单位在下」的两列（2026-11-01 起不再用「N 字 · M 行」整句），
+        // 两块各自带一个数字 + 单位，竖线只管视觉、不带文字
+        statCount: document.querySelectorAll('.md-stats > .md-stat').length,
         // 状态栏是 v-if 存在、靠 .editor-pane.is-md 收掉，所以只能看渲染盒
         statusVisible: visible('.editor-pane__status'),
         // 运行按钮在「评测样例」页签里（v-show 藏着，但节点在 DOM 里，disabled 读得到）；
@@ -762,7 +765,9 @@ try {
     record(
       'H. 题解（.md）：工具栏、运行闸门与快捷键让路',
       mdState.toolsVisible &&
-        /\d+ (字|chars) · \d+ (行|lines)/.test(mdState.stats ?? '') &&
+        mdState.statCount === 2 &&
+        /\d+\s*(字|chars)/.test(mdState.stats ?? '') &&
+        /\d+\s*(行|lines)/.test(mdState.stats ?? '') &&
         !mdState.statusVisible &&
         mdState.runDisabled === true &&
         mdState.runBlocked.length > 0 &&

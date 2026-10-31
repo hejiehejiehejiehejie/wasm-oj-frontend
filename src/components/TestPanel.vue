@@ -10,7 +10,7 @@ import { t } from '../i18n/index.js'
 
 // 页头右侧的 verdict + 耗时经 Teleport 投进 Sidebar 的共享页头（#sidebar-context），
 // 只在本面板激活时投 —— 切换器单实例上提后（2026-10-11），页头只剩这一小条上下文
-const { activeTab, compact } = inject('sidebarTabs')
+const { activeTab, verdictCompact } = inject('sidebarTabs')
 const isActivePanel = computed(() => activeTab.value === 'tests')
 
 // 用例列表是面板里唯一的长滚动区：原生滚动条会占掉 11px 宽度（卡片跟着变窄、出现 / 消失时
@@ -147,8 +147,9 @@ const counts = computed(() => {
 // 具体是 WA 还是 TLE 由各张卡片的徽标说明，页头不再堆第二个长句。
 // 只要有一张卡片的结论已过期（stale），就不能再宣称「全部 AC」——
 // 上一轮通过不代表改完代码后仍通过。
-// 窄侧栏（compact 由 Sidebar 按 <360 逻辑 px 算好）去掉「 AC」后缀：
-// 「0/4 AC」加耗时在侧栏最窄时会挤到折行，数字本身已经表意（2026-10-12）。
+// 窄侧栏（verdictCompact 由 Sidebar 按 <400 逻辑 px 算好，比胶囊标签的 350 早收一档，
+// 2026-11-01 用户要求「异步收窄」）去掉「 AC」后缀：这时胶囊段位还带着文字标签，
+// 先让判定文案省出 ~25px；「0/4 AC」加耗时在侧栏最窄时会挤到折行，数字本身已经表意（2026-10-12）。
 const verdict = computed(() => {
   const total = props.cases.length
   if (!total) return { text: t('tests.verdict.noCases'), tone: 'muted' }
@@ -156,17 +157,17 @@ const verdict = computed(() => {
   // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待重测）
   if (counts.value.stale)
     return {
-      text: t(compact.value ? 'tests.verdict.staleShort' : 'tests.verdict.stale', { total }),
+      text: t(verdictCompact.value ? 'tests.verdict.staleShort' : 'tests.verdict.stale', { total }),
       tone: 'warn',
     }
   if (counts.value.passed === total)
     return {
-      text: t(compact.value ? 'tests.verdict.allPassedShort' : 'tests.verdict.allPassed'),
+      text: t(verdictCompact.value ? 'tests.verdict.allPassedShort' : 'tests.verdict.allPassed'),
       tone: 'passed',
     }
   const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
   return {
-    text: t(compact.value ? 'tests.verdict.partialShort' : 'tests.verdict.partial', {
+    text: t(verdictCompact.value ? 'tests.verdict.partialShort' : 'tests.verdict.partial', {
       passed: counts.value.passed,
       total,
     }),

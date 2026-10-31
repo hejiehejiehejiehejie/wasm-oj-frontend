@@ -1,4 +1,5 @@
 import { DEFAULT_CHECKER_ID, checkOutput } from './checkers.js'
+import { editorSettings } from './editorSettings.js'
 import { t } from '../i18n/index.js'
 
 /**
@@ -168,8 +169,15 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
  * 所以只交回 (note, index)，由界面去当前那一批里找卡片。判定照旧一个字都不动。
  *
  * 引擎没有 crossCheck（远端引擎 / Python）时整段直接跳过。
+ *
+ * **开关**：设置 › 评测 的「关闭优化重跑比对」（`cp.editorSettings.crossCheck`，默认关，
+ * 2026-11-01 用户定）。关着时在函数第一行返回 —— 早于建宿主、早于编译，所以这条偏好
+ * 省下的是真金白银（第二颗宿主常驻的 22 MiB 与那一遍 -O0 编译），不只是少一行提示。
+ * 读的是单例 ref 而不是入参：`runCases` 的签名已经很长，而且这个值只在运行**结束时**
+ * 用一次，当场读当前值比一路透传更贴合「用户刚好在跑完之后把它关掉」这种情况。
  */
 function crossCheckBest({ engine, languageId, code, results, memoryLimitBytes, signal, onNote }) {
+  if (!editorSettings.value.crossCheck) return
   if (typeof engine?.crossCheck !== 'function') return
   // 只认「跑完且 stdout 是完整的」那两档：AC 与 WA（都是引擎的 outcome ok，见 evaluateCase）。
   // CE 根本没跑、TLE / MLE / RE 的 actualOutput 是半截 —— 都不能当基准。

@@ -1373,6 +1373,9 @@ async function runOne(target) {
   const queue = [...testCases.value]
   const wasAccepted = isAllAccepted(queue)
   const isSingleCase = queue.length === 1
+  // 对拍提示按索引回指卡片（见 applyLateNote），而这一跑只把 target 一张交给 runCases，
+  // 引擎交回的索引恒为 0。先记下它在当前那一批里的真实位置，否则提示会落到第 1 张上。
+  const targetIndex = testCases.value.indexOf(target)
   // 与 runAll 同一套清场口径（含「不清上一轮输出」那条），见 resetCase
   resetCase(target)
   try {
@@ -1389,8 +1392,8 @@ async function runOne(target) {
       checker: effectiveChecker.value,
       signal: controller.signal,
       onCase: applyPatch,
-      // 与 runAll 同一条出口（见 applyLateNote）
-      onNote: applyLateNote,
+      // 与 runAll 同一条出口，索引换成 target 在当前那一批里的位置（见 targetIndex）
+      onNote: (note) => applyLateNote(note, targetIndex),
     })
     if (target.status === 'running') target.status = 'idle'
     if (!controller.signal.aborted) {

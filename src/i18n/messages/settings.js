@@ -109,10 +109,12 @@ export default {
         },
       },
 
-      /** 数值型选项的文案模板 */
+      /** 数值型（与开关型）选项的文案模板 */
       value: {
         times: '{n} 倍',
         spaces: '{n} 空格',
+        on: '开启',
+        off: '关闭',
       },
 
       editor: {
@@ -309,6 +311,10 @@ export default {
         timeLimit: { label: '运行时限', hint: '只计运行阶段，不含编译' },
         memoryLimit: { label: '内存上限', hint: '超出判 MLE' },
         celebration: { label: '通过动画', hint: '所有样例都通过时，在样例栏飘落彩色纸屑' },
+        crossCheck: {
+          label: '关闭优化重跑比对',
+          hint: '用 -O0 重编一遍跑同一条用例，两次输出不同就提示（查未定义行为，多占一份内存）',
+        },
         engines: '评测引擎',
       },
 
@@ -701,6 +707,8 @@ export default {
       value: {
         times: '{n}×',
         spaces: '{n} spaces',
+        on: 'On',
+        off: 'Off',
       },
 
       editor: {
@@ -911,6 +919,10 @@ export default {
         timeLimit: { label: 'Time limit', hint: 'Run phase only, excluding compilation' },
         memoryLimit: { label: 'Memory limit', hint: 'Exceeding it reports MLE' },
         celebration: { label: 'Pass animation', hint: 'Confetti falls over the sample panel when every test case passes' },
+        crossCheck: {
+          label: 'Re-run without optimisation',
+          hint: 'Recompiles at -O0 and reruns one case; a differing output is reported (catches undefined behaviour, costs an extra host)',
+        },
         engines: 'Judge engine',
       },
 

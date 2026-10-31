@@ -114,10 +114,11 @@ export default {
       /**
        * 设置撤销（services/settingsUndo.js）：改任一设置发一条带「撤回」的通知。
        * `{name}` 是设置项自己的名字 —— 由那个设置自己的 labelKey 取（见 settingsUndo 的
-       * labelKeyFor），所以这里只有句式，没有第二份设置名。
+       * labelKeyFor）；`{value}` 是刚换上的那一档显示名，取自面板 / 菜单同一批选项表
+       * （见 settingsUndo 的 VALUE_LABELERS）。所以这里只有句式，没有第二份名字。
        */
       setting: {
-        changed: '「{name}」已更新',
+        changed: '「{name}」已更新为「{value}」',
         undo: '撤回',
       },
     },
@@ -185,9 +186,9 @@ export default {
         codeCancelUpload: 'Cancel upload',
       },
 
-      /** See the zh-CN side: {name} comes from the changed setting's own labelKey */
+      /** See the zh-CN side: {name} comes from the setting's labelKey, {value} from the shared option tables */
       setting: {
-        changed: '“{name}” updated',
+        changed: '“{name}” updated to “{value}”',
         undo: 'Undo',
       },
     },

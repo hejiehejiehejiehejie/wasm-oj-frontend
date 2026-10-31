@@ -66,8 +66,9 @@ export default {
 
       /**
        * 页头判定语。AC 是「通过」的通用说法，两套语言都不译。
-       * *Short 三条是窄侧栏用的（侧栏 <360 逻辑 px 时 Sidebar 给出 compact，
-       * TestPanel 换用这组，2026-10-12）：计数那两条去掉「 AC」后缀（数字本身已表意），
+       * *Short 三条是窄侧栏用的（侧栏 <400 逻辑 px 时 Sidebar 给出 verdictCompact，
+       * TestPanel 换用这组，2026-10-12；2026-11-01 起这条阈值比胶囊标签的 350 更宽，
+       * 判定文案先收、胶囊标签后收）：计数那两条去掉「 AC」后缀（数字本身已表意），
        * 「全部 AC」那条只留 `AC` —— 不能写成「全部」，那样读不出判定结论。
        */
       verdict: {
@@ -231,6 +232,25 @@ export default {
          * -O2 把它折成常量，程序照样退出 0，那个输出本身没有意义（UB）。
          */
         divideByZero: '源码含除以零（编译期已确定），输出结果不可预期',
+        /**
+         * 编译期就能确定的其它未定义行为（2026-11-01 起）。这四条检查只在**用户代码那次
+         * 编译**里打开（见 runnoSandbox 的 UB_WARN_ARGS），同样只提示、不改判定。
+         *
+         * 为什么把种类列出来：卡片上没有别的地方能看到它们（编辑器红线没有接这条），
+         * 只说「有 UB」而不说是哪一类，用户没法照着改。`{kinds}` 是下面那几条中文标签
+         * 用 ' / ' 拼起来的（同一时刻可能命中多条，比如既漏 `return` 又越界）。
+         */
+        ubWarning: '源码有编译期警告：{kinds}，输出结果不可预期',
+        ubWarnKind: {
+          /** clang：non-void function does not return a value in all control paths */
+          returnType: '函数未在所有分支返回值',
+          /** clang：variable 'x' is uninitialized when used here / -Wsometimes-uninitialized */
+          uninitialized: '变量未初始化就使用',
+          /** clang：array index 5 is past the end of the array（仅常量下标） */
+          arrayBounds: '数组下标越界',
+          /** clang：address of stack memory associated with local variable returned */
+          stackAddress: '返回了局部变量的地址',
+        },
         /**
          * 对拍：关掉优化（-O0）重编一遍、把同一条样例再跑一次，输出与 -O2 那次不同。
          * 只提示、不改判定（见 services/runner.js 的 crossCheckBest）。文案刻意留「可能」：
@@ -402,6 +422,14 @@ export default {
         memoryExceededPlain: 'Memory limit exceeded (MLE)',
         runtimeError: 'Runtime error',
         divideByZero: 'Source divides by zero at compile time; the output is undefined',
+        /** 见 zh-CN 那侧的说明 */
+        ubWarning: 'Compile-time warning: {kinds}; the output is undefined',
+        ubWarnKind: {
+          returnType: 'a function does not return on every path',
+          uninitialized: 'a variable is used uninitialized',
+          arrayBounds: 'an array index is out of bounds',
+          stackAddress: 'the address of a local variable is returned',
+        },
         /** 见 zh-CN 那侧的说明 */
         crossCheckDiffered: 'This case prints something different without optimisation (-O0): the source may contain undefined behaviour',
         /** 见 zh-CN 那侧的说明 */

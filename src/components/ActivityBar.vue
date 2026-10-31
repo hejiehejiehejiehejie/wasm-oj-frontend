@@ -28,7 +28,7 @@
  * 面板数据由 App 从 Sidebar 的 defineExpose 透传进来（状态只有一份，仍是 cp.sidebarTab），
  * 本组件不自己存一份。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ComponentsMenu from './ComponentsMenu.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -196,6 +196,16 @@ function closeCompMenu() {
 
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
 onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
+
+// 换边后整条图标栏搬到另一侧，开着的菜单要跟着自己的按钮走（理由同 SidebarSwitcher 那份）
+watch(
+  () => props.panelPosition,
+  () => {
+    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
+    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
+  },
+  { flush: 'post' },
+)
 
 // ------------------------------------------------------------ 右键菜单（2026-10-22 加）
 /**

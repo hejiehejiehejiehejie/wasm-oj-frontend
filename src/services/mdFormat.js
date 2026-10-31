@@ -101,15 +101,46 @@ export function formatMarkdown(action, text, ranges, options = {}) {
 }
 
 /**
- * 工具栏右端那行「N 字 · M 行」。
+ * 工具栏右端那对「N 字 / M 行」。
  * 字数据**不含空白**算：题解里换行与缩进是排版手段，不该算进篇幅。
+ *
+ * 【为什么单遍扫】它挂在每次击键的 model 变更上，正则 replace 与 split 各要一份
+ * 中间产物（大题解上是整篇长度的数组）；这里只读一遍字符码，无分配。
+ * 空白口径与 `/\s/` 对齐：空白码点逐个列出，别改成 `code <= 32` —— 那会把
+ * NBSP / 全角空格算进字数。
  * @param {string} text
  */
 export function markdownStats(text) {
-  return {
-    chars: (text ?? '').replace(/\s/g, '').length,
-    lines: text ? text.split('\n').length : 0,
+  const source = text ?? ''
+  let chars = 0
+  let lines = source ? 1 : 0
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index)
+    if (code === 10) {
+      lines += 1
+      continue
+    }
+    if (isBlankCode(code)) continue
+    chars += 1
   }
+  return { chars, lines }
+}
+
+/** 与正则 `\s` 同一份空白定义（LineTerminator + Unicode Zs + BOM） */
+function isBlankCode(code) {
+  return (
+    code === 32 ||
+    (code >= 9 && code <= 13) ||
+    code === 160 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000 ||
+    code === 0xfeff
+  )
 }
 
 /* ------------------------------------------------------------------ 各动作实现 */

@@ -241,6 +241,19 @@ export const EDITOR_SETTINGS_DEFAULTS = {
    */
   celebration: true,
   /**
+   * 「O0 对拍」（2026-11-01 加，见 `services/runner.js` 的 crossCheckBest）。
+   *
+   * 一键稿在 -O2 下跑完之后，再用 -O0 重编一遍跑同一份输入，两次输出不同就补一行
+   * 「结果依赖优化级别」的提示 —— 抓的是 UB（漏 `return` 那类）。
+   *
+   * **默认关**（2026-11-01 用户定）。理由是它要另开一颗宿主（常驻 +22 MiB，见 HANDOFF §18.2）
+   * 并对同一份代码多编一遍；编译期的四条 UB 警告（`UB_WARN_ARGS`）已经能覆盖它抓到的大半，
+   * 且那部分是零成本的。所以对拍从「默认在跑的后台活」降级成「想更严一点的人自己开」。
+   * 关掉时 `crossCheckBest` 在第一行就返回，第二颗宿主根本不会被建起来。
+   * 开关在 设置 › 评测（`settings.judge.crossCheck`）。
+   */
+  crossCheck: false,
+  /**
    * 低配模式：只影响**编辑器内的后台语法检查**（`services/monaco/syntaxDiagnostics.js`）。
    *
    * 开着眼务于老机器 —— 那条检查每触发一次就要起一个 WASI worker、实例化 30MB 的 clang、

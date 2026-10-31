@@ -1342,6 +1342,14 @@ textarea {
   mix-blend-mode: normal;
 }
 
+/* 浮层自己的过渡组（SettingsMenu / ComponentsMenu 各自成组，见那两个组件的注释）：
+   换边时跟着两栏一起走，时长与其它组取同一档 */
+::view-transition-group(settings-menu),
+::view-transition-group(components-menu) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

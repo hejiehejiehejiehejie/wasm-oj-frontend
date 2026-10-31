@@ -28,10 +28,13 @@
  * （`applying` 守卫）。默认的 'pre' 会把回调推到微任务里跑，那时守卫早已复位 —— 于是撤回自己
  * 又弹一条通知，无限套娃。sync 让回调在 setter 里同步执行，正好落在守卫区间内。
  *
- * 【文案里的设置名】标题是「{设置名} 已更新」，名字按 `settings.editor.<id>.label` 约定取
- * （与 settingsMenu.js 里 `settings.section.${id}` 同一体例）。不在编辑器域的那几个
- * （主题 / 字号 / 缩放 / 语言 / 侧边栏位置 / 窄屏折叠方向 / 模板开关 —— 它们在设置面板里就算「外观」「模板」栏）
- * 走下面的例外表。改词条位置时两边一起改，探针会逐键校验每一条都译得出来。
+ * 【文案里的设置名与取值】标题是「{设置名}」已更新为「{取值名}」，两个名字都按约定取自现有表：
+ * 设置名按 `settings.editor.<id>.label`（与 settingsMenu.js 里 `settings.section.${id}` 同一体例），
+ * 不在编辑器域的那几个（主题 / 字号 / 缩放 / 语言 / 侧边栏位置 / 窄屏折叠方向 / 模板开关 ——
+ * 它们在设置面板里就算「外观」「模板」栏）走下面的例外表。取值名复用面板下拉与菜单档位
+ * 那一批选项表（见 VALUE_LABELERS），开关译成「开启 / 关闭」。
+ * 改词条位置时两边一起改，探针会逐键校验每一条都译得出来。
+ * 撤回之后标题要跟着换成刚还原的那一档 —— 否则通知上会停着一个已经不在生效的值。
  *
  * 【刻意不发通知的情形】
  * - **一次改一批**：云端导入 / 登录成功走 `applyProfile`，它只写 localStorage 再整页刷新，
@@ -42,11 +45,33 @@
  */
 import { watch } from 'vue'
 
-import { EDITOR_SETTINGS_DEFAULTS } from './editorOptions.js'
+import {
+  CODE_IMAGE_ACTIONS,
+  CODE_IMAGE_QUALITIES,
+  CURSOR_BLINKINGS,
+  CURSOR_STYLES,
+  EDITOR_SETTINGS_DEFAULTS,
+  FONT_FAMILIES,
+  LINE_HIGHLIGHTS,
+  LINE_NUMBER_MODES,
+  PADDINGS,
+  SCROLLBAR_SIZES,
+  THEMES,
+  WHITESPACE_MODES,
+  WRAP_MODES,
+} from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
-import { narrowCollapseSide, panelPosition, setNarrowCollapseSide, setPanelPosition, uiScalePref } from './shellSettings.js'
+import {
+  NARROW_COLLAPSE_SIDES,
+  PANEL_POSITIONS,
+  narrowCollapseSide,
+  panelPosition,
+  setNarrowCollapseSide,
+  setPanelPosition,
+  uiScalePref,
+} from './shellSettings.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
-import { locale, setLocale, t } from '../i18n/index.js'
+import { LOCALES, locale, setLocale, t } from '../i18n/index.js'
 import { dismissNotification, notifications, notify, updateNotification } from './notifications.js'
 
 /** 停留时长：与设置面板「应用」栏那颗演示用的 info 通知同档（3 秒） */
@@ -73,6 +98,47 @@ const EXTRA_LABEL_KEYS = {
 }
 
 const labelKeyFor = (id) => EXTRA_LABEL_KEYS[id] ?? `settings.editor.${id}.label`
+
+/** 选项表里按 id 找到那一档的显示名（系统字体那几档只有写死的 label，没有 labelKey） */
+function optionLabel(options, id) {
+  const item = options.find((option) => option.id === id)
+  if (!item) return String(id)
+  return item.labelKey ? t(item.labelKey, item.labelParams) : String(item.label ?? item.id)
+}
+
+/**
+ * 每项的「取值名」：复用面板下拉与菜单档位那一批选项表，不在这里另抄一份名字。
+ * 没列到的只剩两种 —— 开关（true / false → 开启 / 关闭）与直接露数字的（字号 / 换行列宽）。
+ */
+const VALUE_LABELERS = {
+  theme: (value) => optionLabel(THEMES, value),
+  fontFamily: (value) => optionLabel(FONT_FAMILIES, value),
+  fontSize: (value) => String(value),
+  lineHeightRatio: (value) => t('settings.value.times', { n: value }),
+  tabSize: (value) => t('settings.value.spaces', { n: value }),
+  wordWrap: (value) => optionLabel(WRAP_MODES, value),
+  wordWrapColumn: (value) => String(value),
+  cursorStyle: (value) => optionLabel(CURSOR_STYLES, value),
+  cursorBlinking: (value) => optionLabel(CURSOR_BLINKINGS, value),
+  lineNumbers: (value) => optionLabel(LINE_NUMBER_MODES, value),
+  renderWhitespace: (value) => optionLabel(WHITESPACE_MODES, value),
+  renderLineHighlight: (value) => optionLabel(LINE_HIGHLIGHTS, value),
+  padding: (value) => optionLabel(PADDINGS, value),
+  scrollbarSize: (value) => optionLabel(SCROLLBAR_SIZES, value),
+  codeImageQuality: (value) => optionLabel(CODE_IMAGE_QUALITIES, value),
+  codeImageAction: (value) => optionLabel(CODE_IMAGE_ACTIONS, value),
+  uiScale: (value) => `${Math.round(value * 100)}%`,
+  panelPosition: (value) => optionLabel(PANEL_POSITIONS, value),
+  narrowCollapseSide: (value) => optionLabel(NARROW_COLLAPSE_SIDES, value),
+  locale: (value) => optionLabel(LOCALES, value),
+}
+
+function valueLabelFor(id, value) {
+  const resolve = VALUE_LABELERS[id]
+  if (resolve) return resolve(value)
+  if (typeof value === 'boolean') return t(value ? 'settings.value.on' : 'settings.value.off')
+  return String(value)
+}
 
 /**
  * 写回一个值：每一项都走它**自己的**原有出口（见文件头的通路表），不碰 localStorage。
@@ -108,8 +174,11 @@ function forget(id) {
   notices.delete(id)
 }
 
-function titleFor(id) {
-  return t('notifications.setting.changed', { name: t(labelKeyFor(id)) })
+function titleFor(id, value) {
+  return t('notifications.setting.changed', {
+    name: t(labelKeyFor(id)),
+    value: valueLabelFor(id, value),
+  })
 }
 
 /** 撤回按钮的动作：退上一手；栈空了就把通知收掉（`keep: true`，收不收由这里定） */
@@ -131,8 +200,10 @@ function undo(id) {
   }
   const noticeId = notices.get(id)
   if (stack.length) {
-    // 还能再往前退一手：通知留着，时限顺带重新起算（用户正连着撤，别在这时候消失）
-    if (noticeId !== undefined) updateNotification(noticeId, { duration: STAY_MS })
+    // 还能再往前退一手：通知留着，标题换成刚还原的这一档，时限顺带重新起算（用户正连着撤，别在这时候消失）
+    if (noticeId !== undefined) {
+      updateNotification(noticeId, { title: titleFor(id, value), duration: STAY_MS })
+    }
     return
   }
   forget(id)
@@ -150,7 +221,7 @@ function handleChange(id, before, after) {
   stacks.set(id, stack)
 
   const actions = [{ label: t('notifications.setting.undo'), run: () => undo(id), keep: true }]
-  const title = titleFor(id)
+  const title = titleFor(id, after)
   const noticeId = notices.get(id)
   if (noticeId !== undefined && updateNotification(noticeId, { title, actions, duration: STAY_MS })) {
     return

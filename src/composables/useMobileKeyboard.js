@@ -67,6 +67,13 @@ const isTouchOn = (event, el) => {
 // 那里不能整体调 useMobileKeyboard()，否则 onMounted 会把下面一整套 document 监听再挂一遍。
 export const isTouchPointer = () => window.matchMedia('(pointer: coarse)').matches
 
+// 键盘此刻弹着没有的**模块级读数**（与唯一实例的 keyboardUp 同源，由 syncViewport 每次实测后写入）。
+// 给同样不能整体调 useMobileKeyboard() 的调用点（useEditorMenu 的单击防抖）用：那边要判的是
+// 「键盘弹着没有」，而不是「编辑器有没有焦点」—— 本站刻意保焦，键盘被返回键收掉之后焦点
+// 还留在 Monaco 的输入面上（见上面 onTouchStart 那段），两者并不等价。
+let keyboardShown = false
+export const isKeyboardShown = () => keyboardShown
+
 export function useMobileKeyboard() {
   const active = ref(isTouchPointer())
   // 可视高度矮于 SHORT_VIEWPORT（含键盘弹起的压缩）时为 true，App.vue 拿它挂 .app.is-short
@@ -231,6 +238,7 @@ export function useMobileKeyboard() {
     }
     baselineHeight = Math.max(baselineHeight, window.innerHeight)
     keyboardUp.value = isKeyboardUp()
+    keyboardShown = keyboardUp.value
 
     const viewport = window.visualViewport
     const height = Math.round(viewport ? viewport.height : window.innerHeight)

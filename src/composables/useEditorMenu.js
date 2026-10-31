@@ -10,10 +10,16 @@
  * 多击手势（2026-10-11 加）：**三击 = 选中整行、四击 = 全选**，对齐 Monaco 自己在鼠标下的
  * 口径；触屏上 Monaco 数不到 3，只能由这里接着数（见 `onMonacoGestureTap`）。
  *
- * 键盘的防抖（2026-10-11 加）：编辑器没有焦点时，这一轮轻点**先不聚焦** —— Monaco 的 Tap 会
+ * 键盘的防抖（2026-10-11 加）：键盘没弹着时，这一轮轻点**先不聚焦** —— Monaco 的 Tap 会
  * 顺带 `focusTextArea()`，键盘一弹 App 就收矮（`--vvh`），后面几击的落点全跟着偏。
  * 补聚焦推迟到 `TAP_SETTLE_MS`（与 Monaco 的双击窗口同口径）：单击 = 光标立刻落下、键盘晚约
- * 0.4s；双击及以上 = 选完才弹。焦点已经在编辑器里时不做这套（视口不会动，交给 Monaco 更快）。
+ * 0.4s；双击及以上 = 选完才弹。键盘本来就弹着时不做这套（视口不会动，交给 Monaco 更快）。
+ *
+ * 判据必须是**实测的键盘状态**（`useMobileKeyboard` 的 `isKeyboardShown`），不能是
+ * `editor.hasTextFocus()`：本站刻意保焦（见 useMobileKeyboard.js 的 onMouseDown / onTouchStart），
+ * 按键盘的返回键收掉键盘之后焦点仍旧留在 Monaco 的输入面上，`hasTextFocus()` 依然是真 ——
+ * 2026-11-01 用户报「防抖完全没起作用」，就是这条判据恒真、接管分支永不进入（单击立刻把键盘
+ * 弹起来，双击的第二下已经落在被视口收缩顶走的位置上）。
  *
  * 【为什么自己判长按，而不是用 Monaco 的】
  * Monaco 的手势识别（`vs/base/browser/touch.js`）在按住 `HOLD_DELAY`（**700ms**）时派发
@@ -61,6 +67,7 @@ import {
 import { renderMarkdownCanvas } from '../services/mdImage.js'
 import { notify } from '../services/notifications.js'
 import { formatCombo, useShortcutManager } from './useShortcutManager.js'
+import { isKeyboardShown } from './useMobileKeyboard.js'
 
 /** 触屏长按多久算「按住 = 选词 + 菜单」。与 useTreeDrag.js 的 LONG_PRESS_MS 同口径 */
 const LONG_PRESS_MS = 450
@@ -141,9 +148,10 @@ export function useEditorMenu({ editor, host }) {
    */
   let tapSequence = 0
   /**
-   * 这一轮轻点是不是由我们接管（编辑器没有焦点时才置真）。置真期间 Monaco 的每一击都被拦掉，
+   * 这一轮轻点是不是由我们接管（键盘没弹着时才置真）。置真期间 Monaco 的每一击都被拦掉，
    * 光标 / 选词 / 选行 / 全选全由这里做 —— 因为 Monaco 的 Tap 里带着 `focusTextArea()`，
-   * 而我们要的正是「这一轮先别聚焦」。
+   * 而我们要的正是「这一轮先别聚焦」。判据用 `isKeyboardShown()` 而不是 `hasTextFocus()`：
+   * 后者在「键盘已收、焦点还留着」时也是真（见文件头那段）。
    */
   let deferFocus = false
   /** 补聚焦的定时器（0 = 没有待补的）。每来一击就重新计，到点了才真的聚焦 */
@@ -466,15 +474,19 @@ export function useEditorMenu({ editor, host }) {
    * 词，刚选好的整行又被缩回一个词。事件派发在 `.view-lines` 上（`bubbles: false`），
    * 所以挂在祖先的**捕获阶段**拦（与 `useMobileKeyboard.js` 拦 Tap 是同一招）。
    *
-   * 【键盘的防抖 —— 编辑器没焦点时整轮都由我们接管】
+   * 【键盘的防抖 —— 键盘没弹着时整轮都由我们接管】
    * Monaco 的 Tap 里除了落光标还带着 `focusTextArea()`：第一击就把键盘弹起来，而键盘一弹，
    * App 就按 `--vvh` 把自己收矮（见 useMobileKeyboard / App.vue 的 `.app.is-keyboard`），
    * 编辑区跟着重新排版 —— **后面几击的落点因此全部偏掉**（双击选到别的词、三击选到别的行），
    * 因为 Monaco 给我们的 `pageX / pageY` 是手指抬起那一刻的、按下时早就不是那个坐标了。
-   * 所以只要编辑器本来没有焦点，这一轮就**先不聚焦**：每一击都由这里自己落地（光标 / 选词 /
+   * 所以只要键盘本来没弹着，这一轮就**先不聚焦**：每一击都由这里自己落地（光标 / 选词 /
    * 选行 / 全选），并把「补聚焦」推迟到 `TAP_SETTLE_MS` 之后 —— 期间任何一击都会把它重新计时，
    * 于是单击是「键盘晚约 0.4s 弹」（光标立刻落下），双击及以上则是「选完才弹」。
-   * 焦点本来就在编辑器里（键盘弹着打字）时不做这套：那时视口不会动，原样交给 Monaco 更快。
+   * 键盘本来就弹着（正在打字）时不做这套：那时视口不会动，原样交给 Monaco 更快。
+   *
+   * 判据取 `isKeyboardShown()`（visualViewport 实测）**而不是 `editor.hasTextFocus()`**。
+   * 本站刻意保焦：键盘被返回键收掉之后，焦点仍在 Monaco 的输入面上，`hasTextFocus()` 还是真
+   * ——以前按它判，「防抖」在真机上从来没有生效过（见文件头那段）。
    */
   function onMonacoGestureTap(event) {
     // 这一发是长按松手带出来的（450ms 时已经被我们接管）：整轮早结束了，别拿它当下一轮的第一击。
@@ -486,7 +498,7 @@ export function useEditorMenu({ editor, host }) {
     const clientX = event.pageX - window.scrollX
     const clientY = event.pageY - window.scrollY
 
-    if (tapSequence === 1) deferFocus = !editor.value?.hasTextFocus()
+    if (tapSequence === 1) deferFocus = !isKeyboardShown()
     if (deferFocus) {
       event.stopPropagation()
       event.preventDefault()
@@ -498,7 +510,7 @@ export function useEditorMenu({ editor, host }) {
       return
     }
 
-    if (tapSequence < 3) return // 焦点在编辑器里：单击、双击照旧交给 Monaco（光标、选词）
+    if (tapSequence < 3) return // 键盘弹着：单击、双击照旧交给 Monaco（光标、选词）
     event.stopPropagation()
     event.preventDefault()
     if (tapSequence === 3) selectLine(clientX, clientY)
@@ -524,8 +536,30 @@ export function useEditorMenu({ editor, host }) {
     settleTimer = window.setTimeout(() => {
       settleTimer = 0
       deferFocus = false
-      editor.value?.focus()
+      focusEditor()
     }, TAP_SETTLE_MS)
+  }
+
+  /**
+   * 补聚焦：真的把键盘唤起来。
+   * 不能只调 `editor.focus()` —— 键盘被返回键收掉之后，焦点还留在 Monaco 的输入面上
+   * （本站刻意保焦，见 useMobileKeyboard.js），这时 `focus()` 走的是 Monaco 自己的
+   * 「已经聚焦」早退（`textAreaEditContextInput` 的 `_setHasFocus` 见同值直接 return），
+   * 一次 DOM focus 都不会发生，键盘也就不弹，单击就变成「点了没反应」。
+   * 先把那个已经聚焦的输入面 blur 掉再聚焦，与用户手指点进来时是同一条路径。
+   */
+  function focusEditor() {
+    const instance = editor.value
+    if (!instance) return
+    const surface = document.activeElement
+    if (
+      instance.hasTextFocus() &&
+      surface instanceof HTMLElement &&
+      surface.closest('.monaco-editor')
+    ) {
+      surface.blur()
+    }
+    instance.focus()
   }
 
   /** 撤销待补的聚焦：长按接管（用户要的是菜单，不是键盘）与卸载时都要用 */

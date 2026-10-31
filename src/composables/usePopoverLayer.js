@@ -1,4 +1,4 @@
-import { nextTick, onBeforeUnmount, onMounted, ref, toValue } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, toValue, watch } from 'vue'
 
 import { pushBackLayer } from '../services/backStack.js'
 
@@ -124,6 +124,20 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     }
     dismiss()
   }
+
+  /**
+   * 锚点挪了就重新匣一次。
+   *
+   * 位置只在挂载与视口尺寸变化时算过，而锚点自己会走：侧栏换边时齿轮整颗搬到另一侧，
+   * 不跟过去的话菜单会留在原地、指着一个已经搬走的按钮。调用方换锚点（`x` / `y` 的
+   * 上游）时把新 rect 写回，这里重算一次位置。
+   *
+   * 与下面 resize 那一路同口径：只重匣、不收 —— 关不关由调用方决定（换边这条不动菜单）。
+   */
+  watch(
+    () => [toValue(x), toValue(y), toValue(align)],
+    () => clampIntoViewport(),
+  )
 
   let timers = []
 
