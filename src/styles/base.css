@@ -1300,7 +1300,7 @@ textarea {
   pointer-events: auto;
 }
 
-:where(html.is-hoverable) .oscroll-thumb.is-visible:hover
+:where(html.is-hoverable) .oscroll-thumb.is-visible:hover,
 .oscroll-thumb.is-dragging {
   background: var(--scrollbar-thumb-hover);
 }

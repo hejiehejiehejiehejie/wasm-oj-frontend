@@ -155,7 +155,7 @@ onBeforeUnmount(clearRevealTimer)
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--accent);
   color: var(--text-on-accent);
   font-size: 12.5px;

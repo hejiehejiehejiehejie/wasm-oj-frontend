@@ -1099,7 +1099,7 @@ function currentOption(row) {
 }
 
 /* 悬停与键盘高亮共用同一种反馈：通栏方块 + 提亮的文字 —— 「这是我的目标」只有一种说法 */
-.settings-menu__item.is-active
+.settings-menu__item.is-active,
 :where(html.is-hoverable) .settings-menu__item:hover:not(:disabled) {
   background: var(--menu-hover-bg);
   color: var(--menu-hover-text);

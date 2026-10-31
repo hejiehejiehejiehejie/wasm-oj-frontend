@@ -3449,7 +3449,7 @@ watch(pendingUnbind, (open) => {
   flex: 0 0 auto;
   padding: 0 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--bg-control);
   color: var(--text-dim);
   font-size: 9px;
@@ -3547,7 +3547,7 @@ watch(pendingUnbind, (open) => {
   gap: 6px;
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-card);
   font: inherit;
   text-align: left;
@@ -3569,7 +3569,7 @@ watch(pendingUnbind, (open) => {
   position: relative;
   display: block;
   height: 46px;
-  border-radius: 5px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -3761,7 +3761,7 @@ watch(pendingUnbind, (open) => {
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--border-hairline);
   color: var(--text-dim);
   background: var(--bg-control);
@@ -3775,7 +3775,7 @@ watch(pendingUnbind, (open) => {
   right: -7px;
   padding: 0 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--bg-panel);
   color: var(--text-dim);
   font-size: 9px;
@@ -3936,7 +3936,7 @@ watch(pendingUnbind, (open) => {
   background: transparent;
 }
 
-:where(html.is-hoverable) .download-button.is-uninstall:hover:not(:disabled)
+:where(html.is-hoverable) .download-button.is-uninstall:hover:not(:disabled),
 :where(html.is-hoverable) .download-button.is-danger:hover:not(:disabled) {
   color: var(--danger-text);
   border-color: var(--danger-text);
@@ -3982,13 +3982,13 @@ a.download-button {
 }
 
 /* 快捷键分组里的只读键位徽标（`fixed`）：跟同一列的录制框对齐（.hotkey 是 28px /
-   圆角 5 / 最小 124px）；.shortcut-key 本身的 30px 是配「组件」分组那些 30px 按钮的。
+   圆角 4 / 最小 124px）；.shortcut-key 本身的 30px 是配「组件」分组那些 30px 按钮的。
    当前没有渲染对象（三条 `fixed` 都 `hideInSettings`），规则连同那一支模板一起留着待用 */
 .shortcut-key.is-fixed {
   justify-content: center;
   min-width: 124px;
   height: 28px;
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 .setting-code {
@@ -4043,7 +4043,7 @@ a.download-button {
   margin: 4px 18px 14px;
   padding: 14px;
   border: 1px solid var(--border-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-panel);
   flex-direction: column;
   justify-content: flex-start;
@@ -4123,7 +4123,7 @@ a.download-button {
   margin: 4px 18px 14px;
   padding: 14px;
   border: 1px solid var(--border-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-panel);
 }
 
@@ -4317,7 +4317,7 @@ a.download-button {
   /* 左右 18 与云端账号卡对齐：红框不贴内容列（=面板）边缘，边框内再留 14 呼吸 */
   margin: 28px 18px 0;
   border: 1px solid var(--danger-border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   overflow: hidden;
 }

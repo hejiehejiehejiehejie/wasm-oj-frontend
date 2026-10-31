@@ -857,6 +857,18 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
     - **能力位单列**：`contest-register-unrated`，站点拿到这一条才在确认卡片上摆「计分 / 不计分」。老扩展不认识 `unrated` 字段，会静默按计分提交 —— 不加能力位等于把这个选择吃掉。
     - **实测**（无头 Chrome 上跑真实源码里的 `applyRatingChoice`，探针 `/tmp/probe-unrated.mjs`，跑完即删）：五种形态逐个验过 —— `participate as rated` 复选框 → 不计分时 `checked=false`；`Unrated allowed` 复选框 → `checked=true`；单选组 → `UNRATED` 选中；下拉框 → 切到 Unrated 那一项；**只有个人 / 队伍那一组时两个方向都判「设不上」且一个控件都没动**。
 
+69. **脚本 `focus()` 在触屏上会点亮 `:focus-visible`：组件菜单打开后第一格像「被按下」**（2026-10-31 加，用户报「安装为应用之后，在触屏设备上使用，组件的 codeforces 按钮是被按下的状态，但实际我没有按它」）。四条：
+    - **症状**：触屏上点「组件」那颗按钮唤出菜单，**第一格**（装了两个组件时就是 Codeforces）当场带上一块蓝色底、文字转白，看着像处于选中 / 按下态；手指没落在它上面，点别处才恢复。桌面鼠标点开是干净的，所以只有触屏报障。
+    - **真因**：`ComponentsMenu` 打开时把焦点送上第一项（`watch(ready)` → `.focus()`，为的是 Esc / Tab 立刻有着落）。这块高亮是**焦点**画的，不是悬停 —— 那一格的选中样式与悬停共用同一条规则（`.components-menu__item:focus-visible` 同样上 `--menu-hover-bg` + `--menu-hover-text`）。鼠标设备上点开时浏览器把「脚本聚焦」判成指针意图、`:focus-visible` 不成立；**触屏上却成立**，于是脚本聚焦被画成了「选中」。与坑 65 是两回事：那条是 `:hover` 粘住，这条是 `:focus-visible`，`is-hoverable` 闸门管不到。
+    - **修法**：`ComponentsMenu` 的 `watch(ready)` 前面加 `if (!shown || isTouchPointer()) return`（`composables/useMobileKeyboard.js` 导出，与 `EditorPane` / `FileExplorer` 那几处「触屏上不许程序化抢焦点」同一条口径）。触屏上没有 Tab 要走，Esc 由 `usePopoverLayer` 在 window 捕获阶段处理、与焦点无关，所以只少了「打开即选中第一项」这一下。**别把这理解成删掉 `.focus()`**：鼠标设备上它照旧生效（键盘用户的 Tab 起点）。
+    - **实测**（自起 dev server + 无头 Chrome，探针在 `/tmp/probe-focus/`，跑完即删）：手机口径 412×915（`isMobile` + CDP 触摸，`pointer: coarse`）改前第一格 `focusVisible=true`、背景 `rgb(4, 57, 94)`（= `--menu-hover-bg`）、文字 `rgb(255,255,255)`；改后 `focusVisible=false`、背景 `rgba(0,0,0,0)`、文字 `rgb(204,204,204)`。鼠标口径 1400×900 两组读数与改前一致（第一格仍拿到焦点，`focusVisible=false`、背景透明）。两种口径下 Esc 都照常关菜单。**判据留给后来人**：菜单里凡「打开即送焦点」的格子，选中态别写成 `:focus-visible` 与悬停共用一条 —— 要么像 `SettingsMenu` 那样给 `:focus-visible` 只留 `outline: none`，要么在触屏上不送焦点。
+
+70. **`input[type=number]` 的固有宽度会悄悄撑大它的 flex 容器：难度那两个数字停在整块左端、看着「没有靠右」**（2026-10-31 加，用户报「难度的这两个分数，位置有问题没有靠右」）。四条：
+    - **症状**：抽题面板「难度」那一行的 `2100 – 2200` 停在行的左三分之一处，与右端的折叠箭头之间空出两百多像素；聚焦时能看见那块淡底一直铺到箭头跟前，**数字却挤在它的左端**。其余三行（标签 / 数量 / 两个开关）都正常靠右。
+    - **真因**：`.pk-range` 的宽度是 `flex: 0 1 auto`，即**内容撑出来的**；而它的内容里那两颗 `input[type=number]` 的**固有宽度约 164px**（`size` 默认 20 个字符）。只给了 `flex: 0 1 5ch` 时，「固有宽度要不要算进容器的 max-content」各引擎取值不同 —— 算进去的那一侧整块被撑到 355px，`margin-left: auto` 仍然把**整块的右缘**推到箭头上，于是 5ch 的两颗数字停在整块的左端。判据是「右缘对、内容不对」：这既不是 `margin` 丢了，也不是 `justify-content` 的问题。
+    - **修法**：给 `.pk-range__input` 补一条显式 `width: 5ch`（`flex: 0 1 5ch` 保留，收缩兜底不变）。显式宽度让输入框对容器 max-content 的贡献变成确定的 5ch，两边引擎算出来的整块都是 102px。空态那两条（第一颗吃满右对齐、第二颗收成 0 宽）特异性更高，照旧生效。
+    - **实测**（生产产物 `vite build --outDir /tmp` + `vite preview`，无头 Chrome 640×1000、dpr 2，探针在 `/tmp/probe-range/`，跑完即删）：本机 Chrome 上改前改后都是 102.5px / 右缘 558（对得齐，**所以本地复现不出来**，与坑 64 一样属「本地正常、某些设备坏」）；**反证**用 `.pk-range__input{flex:none}` 模拟「把固有宽度算进 max-content」那一侧引擎 —— 整块 355.2px、右缘仍 558、两颗数字挤在 202.8 起的左端，**画出来与用户截图一致**；补上 `width: 5ch` 后同一条件下回到 102.5px / 455.5–558，空态 87.3px / 470.8–558 也都靠右。`npm run verify` 基线不变（B/C/D/F 绿 + A/E/G/H 红）。
+
 ## 6. 已持久化的状态（加设置项时照抄这套）
 
 | key | 内容 | 位置 |
@@ -962,6 +974,15 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 - **跑 `npm run verify` 前的两个前置**（只影响无头回归，`npm run dev` 不需要）：
   - **Node / npm 不在 PATH 里**就先补上，例如 `export PATH="/Users/hejie/.local/node-v22.23.3-darwin-arm64/bin:$PATH"`（按自己机器改路径）。
   - 脚本用 `puppeteer-core` 驱动 Chrome，默认候选是 `/Applications` 下那几个；本机没装就设 `CHROME_PATH` 指到 Chrome for Testing，例如 `CHROME_PATH="/Users/hejie/.cache/cft/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"`。
+- **静态审计 `npm run lint`（2026-10-31 加，零依赖、秒级）：改完样式或文案先跑它，比 `verify` 便宜得多。**
+  两条脚本各自也能单跑：`npm run lint:css`（`scripts/lint-css.mjs`）、`npm run lint:text`（`scripts/lint-text.mjs`）。
+  它们抓的是**构建与浏览器都不会报错、但规则/文案永远不会按本意生效**的那一类：选择器列表少逗号被粘成后代选择器、
+  `html` 跑到非首段、`:hover` 漏闸门、写死十六进制颜色、圆角自创第四档、胶囊形、模板里的中文字面量。
+  输出分两级：**错误**（结构上失效，退出码 1，必须清）与**提示**（§1 / §1.A 登记过的存量偏离，退出码 0）；
+  加 `--strict` 时提示也算失败，适合以后接 CI。放行名单都在脚本顶部的常量里（`NO_HOVER_GATE` / `COLOR_OK_HEX` /
+  `PILL_OK` / `RADIUS_OK` / `NO_RADIUS_CHECK`），**别在脚本里现贴一处例外**；单个文件/行要豁免就用行内 `lint-text-ok`。
+  改判据本身时先自测：`node scripts/lint-css.mjs /tmp/样例目录` —— 拿几条「该报 / 不该报」的样例喂进去，
+  确认没被改坏（第一版扫描器就出过「四条被粘成一条的选择器在它眼里全是单行、一条都没报」这种事）。
 - 手工：`npm run dev`，浏览器 http://localhost:5199，重点看**两套主题各一遍**、面板折叠/展开、分隔条拖拽与单击折叠 / 展开（宽屏；窄屏上单击分隔条**应当无反应**），**且侧栏停靠左 / 右各试一遍** —— 分隔条热区的偏心要跟着换方向（见第 5 节坑 52：在右时热区不得压进侧栏，文件夹折角箭头那一带点得开）。
 - 本地沙箱端到端（动过 `runnoSandbox.js` / `wasmRuntime.js` / 工具链目录后必做）：手工路径是打开设置页签（侧栏页头的齿轮图标）→「评测」组里选「本地 WASM 沙箱」→ 跑一段带 `vector` / `sort` 的 A+B，看输出对不对、同一份代码第二次跑是否秒回（编译缓存）。想自动化就临时写个 puppeteer 脚本，在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `preloadToolchain()` 和 `runCpp({ code, stdin })`——**用完删掉脚本**，仓库里不留临时探针（这条纪律之前踩过：残留探针把 `scripts/` 弄得很乱）。
 - Python 专项（动过 `runPython` / 语言路由 / `python-3.11.3/` 目录后必做），同样临时探针、用完即删：手工路径是新建/打开一个 `.py` 文件（面板会自动切到 Python）→ 在设置里切「本地 WASM 沙箱」→ 运行，应看到 AC 且耗时在 100–200ms 量级；再补一条用例验证 `import` 同目录的另一个 `.py`（多文件路径）。自动化时在页面上下文 `import('/src/services/runnoSandbox.js')` 后直接调 `runPython({ code, entryPath, fs })`，注意 `fs` 是「路径 → `{ path, content, mode, timestamps }`」的映射，别直接塞裸字符串。

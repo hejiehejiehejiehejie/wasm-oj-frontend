@@ -231,6 +231,20 @@ export default {
          * -O2 把它折成常量，程序照样退出 0，那个输出本身没有意义（UB）。
          */
         divideByZero: '源码含除以零（编译期已确定），输出结果不可预期',
+        /**
+         * 对拍：关掉优化（-O0）重编一遍、把同一条样例再跑一次，输出与 -O2 那次不同。
+         * 只提示、不改判定（见 services/runner.js 的 crossCheckBest）。文案刻意留「可能」：
+         * 程序自己不确定（rand / 时间 / 打印地址）也会走到这条路上。
+         */
+        crossCheckDiffered: '同一条样例在关闭优化（-O0）后输出不同：源码可能含未定义行为',
+        /**
+         * 对拍：-O0 那一遍直接非 0 退出（崩溃），而 -O2 那次是 AC 的。与上面那条分开写，
+         * 因为对用户来说完全是两类现象：那个是「算出了别的东西」，这个是「连跑都跑不完」。
+         * 典型来源是漏 `return` —— clang 在函数尾补一条 `unreachable`，-O2 顺着错位到下一段
+         * 代码、-O0 老老实实撞上去（2026-10-31 实测 exit 134 / RuntimeError: unreachable）。
+         * 爆栈已在数据层挡掉（见 wasmRuntime 的 CROSS_CHECK_STACK_TRAP），所以这里敢说「可能含」。
+         */
+        crossCheckCrashed: '同一条样例在关闭优化（-O0）后程序直接崩溃：源码可能含未定义行为',
         serviceUnreachable: '评测服务不可达',
         failed: '评测失败（{outcome}）',
         /** {engine} 是引擎显示名 */
@@ -388,6 +402,10 @@ export default {
         memoryExceededPlain: 'Memory limit exceeded (MLE)',
         runtimeError: 'Runtime error',
         divideByZero: 'Source divides by zero at compile time; the output is undefined',
+        /** 见 zh-CN 那侧的说明 */
+        crossCheckDiffered: 'This case prints something different without optimisation (-O0): the source may contain undefined behaviour',
+        /** 见 zh-CN 那侧的说明 */
+        crossCheckCrashed: 'This case crashes without optimisation (-O0): the source may contain undefined behaviour',
         serviceUnreachable: 'Judge service unreachable',
         failed: 'Judging failed ({outcome})',
         unsupportedLanguage:

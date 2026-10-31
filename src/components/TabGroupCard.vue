@@ -150,7 +150,7 @@ async function action(id) {
   padding: calc(7px * var(--menu-scale)) calc(10px * var(--menu-scale));
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: calc(8px * var(--menu-scale));
+  border-radius: calc(4px * var(--menu-scale));
   color: var(--text);
   font-family: var(--font-sans, system-ui);
   font-size: calc(13px * var(--menu-scale));

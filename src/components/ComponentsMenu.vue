@@ -20,11 +20,12 @@
  * 点哪项就把那个界面亮出来，然后收掉菜单。
  *
  * 【键盘】Esc 关（usePopoverLayer 捕获阶段）；Tab 在可见项之间自然走，
- * 打开时焦点送上第一项。方向键漫游不做了：一屏最多三项，Tab 足够。
+ * **鼠标设备上**打开时焦点送上第一项（触屏上不送，理由见下面 watch 那段）。方向键漫游不做：一屏最多三项，Tab 足够。
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
+import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { t } from '../i18n/index.js'
 import { COMPONENT_GROUPS } from '../services/activityBarPins.js'
 
@@ -90,7 +91,12 @@ function choose(item) {
   emit('close')
 }
 
-// 打开即把焦点送上第一项：Esc / Tab 立刻有着落，不用先点一下面板
+// 打开即把焦点送上第一项：Esc / Tab 立刻有着落，不用先点一下面板。
+// **触屏上不送**（2026-10-31，用户报「没按它，Codeforces 那格却是按下状态」）：
+// 脚本 focus 在 Chrome 里被判成键盘意图、`:focus-visible` 当场成立，而那一格
+// 的选中高亮与悬停共用同一条规则（下面 `.components-menu__item:focus-visible`
+// 那条），于是第一格被画成「选中」。触屏没有 Tab 要走，判断与
+// EditorPane / FileExplorer 那几处「不许程序化抢焦点」同一条口径。
 const itemRefs = {}
 
 function setItemRef(id, el) {
@@ -98,7 +104,8 @@ function setItemRef(id, el) {
 }
 
 watch(ready, (shown) => {
-  if (shown) nextTick(() => itemRefs[flatItems.value[0]?.id]?.focus())
+  if (!shown || isTouchPointer()) return
+  nextTick(() => itemRefs[flatItems.value[0]?.id]?.focus())
 })
 </script>
 
@@ -212,7 +219,7 @@ watch(ready, (shown) => {
   padding: calc(10px * var(--menu-scale)) calc(6px * var(--menu-scale)) calc(8px * var(--menu-scale));
   background: transparent;
   border: none;
-  border-radius: calc(8px * var(--menu-scale));
+  border-radius: calc(6px * var(--menu-scale));
   cursor: pointer;
   transition: background-color 0.1s ease;
 }
@@ -232,7 +239,7 @@ watch(ready, (shown) => {
   justify-content: center;
   width: calc(42px * var(--menu-scale));
   height: calc(42px * var(--menu-scale));
-  border-radius: calc(12px * var(--menu-scale));
+  border-radius: calc(10px * var(--menu-scale));
   background: var(--menu-tile-bg);
   color: var(--menu-text);
 }
@@ -245,7 +252,7 @@ watch(ready, (shown) => {
   right: calc(-7px * var(--menu-scale));
   padding: 0 calc(4px * var(--menu-scale));
   border: 1px solid var(--menu-border);
-  border-radius: 999px;
+  border-radius: calc(4px * var(--menu-scale));
   background: var(--menu-bg);
   color: var(--menu-text);
   font-size: calc(10px * var(--menu-scale));

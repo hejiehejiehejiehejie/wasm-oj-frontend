@@ -490,7 +490,7 @@ watch(handleOpen, (open) => {
   height: 26px;
   padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
   font-family: var(--ui-font);

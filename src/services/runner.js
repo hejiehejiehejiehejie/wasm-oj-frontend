@@ -147,11 +147,69 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
 }
 
 /**
+ * 对拍：挑一条「实际跑得最快的、跑完了的用例」，让引擎关掉优化重编一遍再跑，
+ * 输出不一致就补一行提示。
+ *
+ * 为什么 WA 也算（2026-10-31 用户口径「输出不一样就值得提醒」）：这条提示说的是
+ * 「同一份源码在两种优化级别下行为不同」，也就是**这份代码本身可能含 UB** —— 与
+ * 「这一次的答案对不对」是两个问题。WA 的提交里同样可能有 UB，只认 AC 等于把
+ * 「答案错了、代码也是坏的」这一整类挡在门外。真正的边界是**有没有跑完**：
+ * TLE / MLE / RE 的 stdout 是被掐断的半截，拿它去和 -O0 的完整输出比必然「不同」，
+ * 那是最廉价的一种假阳性，所以只认 AC / WA 这两档。
+ *
+ * 为什么挑最快的那条：UB 是代码结构问题，跟用例规模无关，小数据一样能暴露；而这是
+ * 整条链路上唯一真正花钱的一步（一次重编 + 最多两次运行）。最大的那条最贵、收益却一样。
+ * 为什么 fire-and-forget：判定与结果通知（App.vue 的 notifyRunOutcome / 纸屑）已经按
+ * 原时序走完了，这里再 await 会把「跑完了」这件事往后拖一两秒。
+ * 为什么不用 onCase 而是单独的 onNote：**这条结论是事后到达的**（AC 之后 1–2 秒），
+ * 而这期间界面很可能已经做过一次用例回写（flushCasesWrite → rebuildTree），
+ * `testCase` 这个引用早就不在 `testCases` 里了 —— 补丁落在旧对象上就永远看不见
+ * （2026-10-31 实测：结果回来了、卡片没变）。索引在整批重写前后是稳定的，
+ * 所以只交回 (note, index)，由界面去当前那一批里找卡片。判定照旧一个字都不动。
+ *
+ * 引擎没有 crossCheck（远端引擎 / Python）时整段直接跳过。
+ */
+function crossCheckBest({ engine, languageId, code, results, memoryLimitBytes, signal, onNote }) {
+  if (typeof engine?.crossCheck !== 'function') return
+  // 只认「跑完且 stdout 是完整的」那两档：AC 与 WA（都是引擎的 outcome ok，见 evaluateCase）。
+  // CE 根本没跑、TLE / MLE / RE 的 actualOutput 是半截 —— 都不能当基准。
+  const finished = results.filter((item) => item.patch.verdict === 'AC' || item.patch.verdict === 'WA')
+  if (!finished.length) return
+  // 拿不到耗时的排最后：跑完的卡片一定有数，这里只是不让 undefined 参与比较
+  finished.sort((a, b) => (a.patch.durationMs ?? Infinity) - (b.patch.durationMs ?? Infinity))
+  const best = finished[0]
+  void engine
+    .crossCheck({
+      languageId,
+      code,
+      stdin: best.testCase.input ?? '',
+      // 基准是**这份代码在 -O2 下这条用例的实际输出**，不是用例的标准答案：
+      // 对拍问的是「换一种优化，同一输入会不会打印别的东西」
+      baselineStdout: best.patch.actualOutput ?? '',
+      memoryLimitBytes,
+      signal,
+    })
+    .then((result) => {
+      // 用户中途停止 / 又点了一次运行：signal 已 abort，这条结论已经没有落点
+      if (!result?.note || signal?.aborted) return
+      onNote?.(result.note, best.index)
+    })
+    .catch(() => {
+      /* 对拍是附加信息，任何异常都不该冒泡到评测流程 */
+    })
+}
+
+/**
  * 小并发跑完一批用例，逐个回调补丁，界面可以实时看到卡片变色。
  * 回调签名固定为 (testCase, patch, index)。
+ *
+ * `onNote(note, index)` 是对拍那条事后结论的出口，与 onCase 分开：它可能在整批用例
+ * 已经被重写过之后才到，只能靠索引回指（原因见 crossCheckBest）。
  */
-export async function runCases({ engine, base, languageId, entryPath, code, cases, timeLimitMs, memoryLimitBytes, checker, signal, concurrency = 2, onCase }) {
+export async function runCases({ engine, base, languageId, entryPath, code, cases, timeLimitMs, memoryLimitBytes, checker, signal, concurrency = 2, onCase, onNote }) {
   const queue = cases.map((testCase, index) => ({ testCase, index }))
+  // 对拍要「挑最快的 AC」，而 onCase 回调只给得出当前这一张 —— 自己留一份
+  const results = []
 
   const workers = Array.from({ length: Math.max(1, Math.min(concurrency, queue.length)) }, async () => {
     for (;;) {
@@ -159,10 +217,13 @@ export async function runCases({ engine, base, languageId, entryPath, code, case
       const next = queue.shift()
       if (!next) return
       const patch = await evaluateCase({ engine, base, languageId, entryPath, code, testCase: next.testCase, timeLimitMs, memoryLimitBytes, checker, signal })
+      results.push({ testCase: next.testCase, patch, index: next.index })
       onCase?.(next.testCase, patch, next.index)
     }
   })
 
   await Promise.all(workers)
+  // 跑完再看要不要对拍：中途被用户停掉的那次不再烧一次编译
+  if (!signal?.aborted) crossCheckBest({ engine, languageId, code, results, memoryLimitBytes, signal, onNote })
   return queue.length
 }

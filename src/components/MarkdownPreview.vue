@@ -269,7 +269,7 @@ defineExpose({ syncScroll })
   gap: 6px;
   margin-top: 8px;
   padding: 5px 12px;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--accent);
   color: var(--text-on-accent);
   font-size: 12.5px;

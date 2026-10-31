@@ -90,6 +90,24 @@ const PCH_SOURCE_PATH = '/stdc++.h'
 const PCH_PATH = '/stdc++.h.pch'
 
 /**
+ * 主编译的优化级别。它写死在 FRONTEND_ARGS 里，而 FRONTEND_ARGS 同时是 **PCH 的编译级别** ——
+ * 两者必须一致：clang 拿 `__OPTIMIZE__` 的预定义状态校验 PCH，-O0 加载 -O2 编的 PCH 直接
+ * fatal（实测 `error: __OPTIMIZE__ predefined macro was enabled in precompiled file … but is
+ * currently disabled`），而且这条错误会命中 compileAndLink 里「PCH 判废」的分支，把好 PCH
+ * 一并删掉。想给 -O0 也用上 PCH 就得存两份（pchStore 明确「一辈子只该有一份」），而 §18.3
+ * 实测 PCH 只省 230–265ms —— 换 8.61MiB 存档与一套多份存档语义，不值。
+ */
+const OPT_MAIN = '-O2'
+
+/**
+ * 对拍（crossCheck）那一遍的优化级别：关掉全部优化，让编译器的假设退回最少。
+ * 与主编译差得越远，UB 越容易在两边显出不同的输出（实测 -O1 已经开了 TBAA，
+ * 严格别名那类在 -O1 与 -O2 上结果相同，抓不到，所以对照端不能用 -O1 省时间）。
+ * ⚠️ 这条路**不加载 PCH**，见 compileAndLink 里那句 pch 取值。
+ */
+const OPT_CROSS = '-O0'
+
+/**
  * 前端（cc1）的公共参数，PCH 生成和用户代码编译必须**逐字共用**这一份。
  *
  * 为什么不能各写各的：PCH 会把语言选项（-std、异常 / RTTI 开关等）和目标选项
@@ -97,7 +115,8 @@ const PCH_PATH = '/stdc++.h.pch'
  * 照旧开异常，轻则 clang 直接拒绝这个 PCH，重则混进语义不一致的 libc++ 声明
  * （libc++ 头在 -fno-exceptions 下生成的 AST 是不一样的）。
  * -O0 同理不要动：-emit-pch 只做解析 + 序列化、不做代码生成，改成 -O0 省不下时间，
- * 却会改变 __OPTIMIZE__ 这类预定义宏。
+ * 却会改变 __OPTIMIZE__ 这类预定义宏（对拍那条线确实要 -O0，但它**不加载 PCH**，
+ * 参数由 clangArgs(pch=null, OPT_CROSS) 单独拼出来）。
  *
  * 两处与 clang 8 不同、**别再改回去**：
  * 1) clang 23 的 cc1 不认 `-fmessage-length`，也不认驱动层 `-fwasm-exceptions`
@@ -132,7 +151,7 @@ const FRONTEND_ARGS = [
   // 除零那一条放开；PCH / 探针 / 语法检查仍然全静音。
   '-Wno-everything',
   '-std=c++20',
-  '-O2',
+  OPT_MAIN,
   // 与 CF / AtCoder 对齐（判定规范 §6）：让用户代码里的 `#ifdef ONLINE_JUDGE` 生效。
   '-DONLINE_JUDGE',
   // wasm 异常：cc1 的展开式，缺一不可（缺 +exception-handling 会在后端崩）。
@@ -165,13 +184,17 @@ const FRONTEND_ARGS = [
  * clang 的 cc1 命令行。
  * @param {string | null} pchPath 非空时把 PCH 当作 TU 的前缀加载（阶段 4）；
  *   -include-pch 必须出现在输入文件之前，所以插在 -x 之前
+ * @param {string} optimization 优化级别，只有对拍那一遍会传 OPT_CROSS
  */
-function clangArgs(pchPath) {
+function clangArgs(pchPath, optimization = OPT_MAIN) {
   return [
     '-cc1',
     '-emit-obj',
     '-disable-free',
-    ...FRONTEND_ARGS,
+    // 优化级别是**唯一**可变的一处：对拍那一遍把 OPT_MAIN 换成 OPT_CROSS，其余参数逐字相同。
+    // 只有「除优化之外全部一致」，两边输出的差异才只能归因于优化本身 —— 顺手改个别的
+    // flag（比如换个 -D）就会让差异变成噪声。
+    ...FRONTEND_ARGS.map((arg) => (arg === OPT_MAIN ? optimization : arg)),
     // 唯一放开的警告：**编译期就能确定的除以零**（`a / 0`、`10 / 0`）。
     //
     // 为什么单独挑它（2026-10-26 用户问「别的 OJ 里 a/0 会 RE，我们这里输出了 0」）：
@@ -686,16 +709,47 @@ async function runWasi(binaryURL, { name, args, env, fs, stdin, onHost }) {
 }
 
 /**
- * 编译产物缓存 —— 按「源码原文 + 内存上限」只留最近一份。
+ * 编译产物缓存 —— 按优化级别各留**一个**槽位：主编译（-O2）与对拍（-O0）。
  *
  * 为什么要它：一次「全部运行」会把同一份代码喂给每个用例，而每个用例都会重新走
  * clang + wasm-ld。缓存命中时连工具链都不用碰，第 2..N 个用例只付运行开销。
- * 为什么只留一份：用例总是成批跑的，而代码一改缓存必然失效，多留几个槽位没有收益。
+ * 为什么只有两个槽位：用例总是成批跑的，而代码一改缓存必然失效，多留几个槽位没有收益；
+ * 对拍是同一份代码的第二轮编译，它的产物同样只对「这份代码 + 这个上限」有效，
+ * 分开存才不会把主编译那份挤掉（对拍跟着主流程之后发生，挤掉就等于下一轮白编一次）。
  * 为什么键里要有内存上限：上限编在 --max-memory 里、直接烙进产物，改上限必须重链接。
  * 为什么键里还要有 STACK_POLICY_VERSION：栈大小由内存上限推导（§5.3），同样烙进产物。
- * @type {{ code: string, memoryLimitBytes: number, stackPolicy: number, outcome: { ok: true, binary: object, diagnostics: string } | { ok: false, exitCode: number, stdout: string, stderr: string } } | null}
+ * @type {Map<string, { code: string, memoryLimitBytes: number, stackPolicy: number, toolchain: string, outcome: { ok: true, binary: object, diagnostics: string } | { ok: false, exitCode: number, stdout: string, stderr: string } }>}
  */
-let compileCache = null
+const compileCaches = new Map()
+
+/**
+ * 某个槽位里的产物是不是还对得上这份代码 / 这套上限。
+ * 优化级别不进这里：它由 Map 的键分槽，一个槽位只会被同一个级别写。
+ */
+function cacheFresh(entry, code, memoryLimitBytes) {
+  return (
+    Boolean(entry) &&
+    entry.code === code &&
+    entry.memoryLimitBytes === (memoryLimitBytes || 0) &&
+    entry.stackPolicy === STACK_POLICY_VERSION &&
+    entry.toolchain === TOOLCHAIN_VERSION
+  )
+}
+
+/** 取某个优化级别下的产物；槽位里没有就现编一份落进去。编译抛异常时不落缓存（重试得重编） */
+async function compileCached(code, memoryLimitBytes, onStatus, optimization) {
+  const cached = compileCaches.get(optimization)
+  if (cacheFresh(cached, code, memoryLimitBytes)) return cached.outcome
+  const outcome = await compileAndLink(code, memoryLimitBytes, onStatus, optimization)
+  compileCaches.set(optimization, {
+    code,
+    memoryLimitBytes: memoryLimitBytes || 0,
+    stackPolicy: STACK_POLICY_VERSION,
+    toolchain: TOOLCHAIN_VERSION,
+    outcome,
+  })
+  return outcome
+}
 
 /** 探针 .o 的字节：编译一次后常驻内存，后续所有链接直接复用 */
 let oomProbeObject = null
@@ -722,9 +776,11 @@ async function loadOomProbe(tool, onDispatch) {
  * clang 编译 + wasm-ld 链接，产出可执行的 wasm 二进制。
  * 结果分成「拿到二进制」和「编译/链接失败」两种，两种都可缓存（同一份代码结论必然相同）。
  */
-async function compileAndLink(code, memoryLimitBytes, onStatus) {
+async function compileAndLink(code, memoryLimitBytes, onStatus, optimization = OPT_MAIN) {
   const tool = await loadToolchain(onStatus)
-  const pch = await loadPchBytes()
+  // PCH 只有 -O2 那一份（见 OPT_MAIN 处的说明）：对拍那一遍不加载它。
+  // 硬塞进去的后果不是「慢一点」，而是 clang fatal + 命中下面那段 PCH 判废、把好 PCH 删掉。
+  const pch = optimization === OPT_MAIN ? await loadPchBytes() : null
 
   // 「编译阶段」的播报（同时是上层按阶段上弦的看门狗）跟着**消息派发**走，不跟着进入这个
   // 函数走：从进来到第一条消息真发出去之间，可能还在排队等前面那条任务（运行 / PCH 生成），
@@ -742,7 +798,7 @@ async function compileAndLink(code, memoryLimitBytes, onStatus) {
 
   let compiled = await tool.host.compile(
     {
-      args: clangArgs(pch ? PCH_PATH : null),
+      args: clangArgs(pch ? PCH_PATH : null, optimization),
       source: code,
       sourcePath: SOURCE_PATH,
       outputPath: OBJECT_PATH,
@@ -835,21 +891,7 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
   // 用 hold() 而不是布尔：PCH 生成可能同时在收尾，布尔会被先到的那一方抹掉。
   const releaseHost = tool.host.hold()
   try {
-    if (
-      compileCache?.code !== source ||
-      compileCache.memoryLimitBytes !== (memoryLimitBytes || 0) ||
-      compileCache.stackPolicy !== STACK_POLICY_VERSION ||
-      compileCache.toolchain !== TOOLCHAIN_VERSION
-    ) {
-      compileCache = {
-        code: source,
-        memoryLimitBytes: memoryLimitBytes || 0,
-        stackPolicy: STACK_POLICY_VERSION,
-        toolchain: TOOLCHAIN_VERSION,
-        outcome: await compileAndLink(source, memoryLimitBytes, onStatus),
-      }
-    }
-    const outcome = compileCache.outcome
+    const outcome = await compileCached(source, memoryLimitBytes, onStatus, OPT_MAIN)
 
     if (!outcome.ok) {
       return {
@@ -893,6 +935,69 @@ export async function runCpp({ code, stdin, memoryLimitBytes = 0, onStatus = () 
       // 这份产物在本 worker 里的第一次执行（Module 刚 compile 出来）→ 这一遍跑在
       // Liftoff 上，耗时偏高。上层据此决定预热，见文件头那段注释与 wasmRuntime.runCase。
       cold: ran.cold === true,
+    }
+  } finally {
+    releaseHost()
+    onHost(null)
+  }
+}
+
+/**
+ * 对拍的那一趟：用 -O0 重编一份同一份源码、跑一次，把 stdout 原样交回去由调用方比对。
+ *
+ * 为什么值得存在：源码里的未定义行为在 -O2 下可能被优化「修好」（漏 return 直接错位到下
+ * 一条指令、越界读被折成常量、严格别名下两次写被合并），于是同一个错误在别处 OJ 上炸、
+ * 在这里 AC。把优化关掉再跑一遍，两边输出不同就是最直接的证据。
+ *
+ * 三个边界：
+ * - **不改判定**，调用方拿它只写一行提示（见 engines/wasm.js 的 crossCheck）；
+ * - **不加载 PCH**（见 OPT_MAIN 处的说明），所以这一遍比主编译慢 230–265ms；
+ * - 编译段沿用与主编译同一套看门狗（60s），运行段的时限由调用方给（见 wasmRuntime
+ *   的 CROSS_CHECK_RUN_MS）——这里不自己设阈值，避免两套口径。
+ *
+ * @returns {Promise<{ stage: 'compile' | 'run', ok: boolean, exitCode: number, stdout: string, stderr: string, durationMs: number | null, runMs: number | null, trap: string }>}
+ */
+export async function crossCheckRun({ code, stdin, memoryLimitBytes = 0, onStatus = () => {}, onHost = () => {} }) {
+  const source = String(code ?? '')
+  const tool = await loadToolchain(onStatus)
+  onHost(tool.host)
+  const releaseHost = tool.host.hold()
+  try {
+    const outcome = await compileCached(source, memoryLimitBytes, onStatus, OPT_CROSS)
+    if (!outcome.ok) {
+      // 同一份源码 -O2 编得过、-O0 却编不过，正常只可能是工具链层面的问题
+      // （这条路不用 PCH，排除了 PCH 不匹配）。如实回报，由上层静默收场。
+      return {
+        stage: 'compile',
+        ok: false,
+        exitCode: outcome.exitCode,
+        stdout: '',
+        stderr: outcome.stderr,
+        durationMs: null,
+        runMs: null,
+        trap: '',
+      }
+    }
+
+    let runStartedAt = performance.now()
+    const ran = await tool.host.run(
+      { binary: outcome.binary.content, stdin },
+      {
+        onDispatch: () => {
+          runStartedAt = performance.now()
+          onStatus('run', t('stage.run'))
+        },
+      },
+    )
+    return {
+      stage: 'run',
+      ok: ran.exitCode === 0 && !ran.trap,
+      exitCode: ran.exitCode,
+      stdout: ran.stdout,
+      stderr: ran.stderr,
+      durationMs: ran.runMs ?? Math.round(performance.now() - runStartedAt),
+      runMs: ran.runMs,
+      trap: ran.trap,
     }
   } finally {
     releaseHost()
@@ -1064,7 +1169,7 @@ export async function unloadRuntime(language) {
   toolchain = null
   toolchainPromise = null
   // 编译产物是纯内存缓存，依附工具链存在，一起丢
-  compileCache = null
+  compileCaches.clear()
   oomProbeObject = null
   // PCH 有两处落点：IndexedDB 里的存档（十几 MB，不在 /wasm/ 缓存清单内）和
   // `cp-toolchain` 桶里的预编译资源（`*.pch.br`，由 purgeRuntimeCache 按 /wasm/ 前缀一并带走）。

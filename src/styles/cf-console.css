@@ -2,7 +2,7 @@
    2026-10-28 整体改版：从「工业引擎控制台」（1px 网格、直角、9–10px 小字、实心蓝主按钮）
    换成本项目现行的语汇 —— 与设置页、评测面板同一套：
      · 不铺卡片、不画网格，靠留白 + 行间一条 --border-divider 淡线分区；
-     · 常规控件 10px 圆角，小徽标 / 紧凑行内按钮 6px，行悬停面 8px；
+     · 常规控件 10px 圆角，小徽标 / 紧凑行内按钮 6px，行悬停面 6px；
      · 主操作是通栏的低透明度 --accent-face 面，颜色只留在文字与图标上；
      · 文字三级灰度：正文 --text / 标签 --text-dim / 元数据 --text-faint。
    两个面板都用 <style scoped src> 挂这份文件：类名相同、视觉只有一份出处。
@@ -248,7 +248,7 @@
 /* Live 角标：挂在「赛程」页签里，只在有进行中的场次时出现 */
 .cf-live-badge {
   padding: 1px 5px;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--ok-face);
   color: var(--ok);
   font-family: var(--mono-font);
@@ -392,12 +392,12 @@
   list-style: none;
 }
 
-/* 行悬停面：左右各外扩 10px，圆角 8 —— 文字左缘仍与左边的标签 / 抬头严格对轨 */
+/* 行悬停面：左右各外扩 10px，圆角 6 —— 文字左缘仍与左边的标签 / 抬头严格对轨 */
 .cf-list__row {
   position: relative;
   margin-inline: -10px;
   padding-inline: 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: background-color 0.12s ease;
 }
 

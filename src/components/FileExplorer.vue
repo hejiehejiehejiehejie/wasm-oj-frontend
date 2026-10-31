@@ -1761,7 +1761,7 @@ defineExpose({
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--text-dim);
   cursor: pointer;
 }

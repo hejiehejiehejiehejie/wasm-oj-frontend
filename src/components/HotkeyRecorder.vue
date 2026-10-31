@@ -159,7 +159,7 @@ function onKeydown(event) {
   min-width: 124px;
   height: 28px;
   padding: 0 11px;
-  border-radius: 5px;
+  border-radius: 4px;
   border: 1px solid var(--border);
   background: var(--bg-input);
   color: var(--text);

@@ -19,6 +19,7 @@
  *   `max(100ms, 5%)` 的宽限；是否 TLE 按**程序自己的结束时刻**与时限比较（§4.2）。
  */
 import {
+  crossCheckRun,
   ensurePch,
   isPythonRuntimeReady,
   isToolchainReady,
@@ -48,6 +49,24 @@ const DOWNLOAD_TIMEOUT_MS = 3 * 60 * 1000
 const COMPILE_TIMEOUT_MS = 60 * 1000
 // 调用方没给时限时的兜底：宁可误判超时，也不能让程序无限跑下去
 const DEFAULT_RUN_TIMEOUT_MS = 1000
+
+// 对拍（crossCheck）单次运行的上限：对拍只问「输出一不一样」，不问 -O0 版快不快。
+// 1s 而不是调用方的时限 —— -O0 慢两三倍是常态，用原时限会把「本来就慢」误判成
+// 「不敢比」，而多给它也没有收益：真 UB 通常在很小的输入上就能显出差异。
+const CROSS_CHECK_RUN_MS = 1000
+// 对拍的总预算（软上限）：编译 + 最多两次运行。超了就不再往下做，结论宁可不给。
+// 3s 的来历：一次对拍编译 400–600ms（不带 PCH，见 runnoSandbox 的 OPT_MAIN），
+// 两次运行各 ≤1s，留一点余量。它约束的是「还要不要再跑一遍」，不是「编译能不能慢」
+// —— 编译段仍由 60s 的编译看门狗管，卡死是另一类故障，不在这里另设阈值。
+const CROSS_CHECK_BUDGET_MS = 3000
+
+// 对拍那边崩掉时，唯一「不算 UB 证据」的一类：栈溢出。
+// -O0 的栈帧比 -O2 大 3.2 倍（实测同一个递归函数 8.5 万层 vs 27.5 万层），深递归在这一遍
+// 爆栈是编译器给的栈深度差异，不是源码有错 —— 拿它提示「源码可能含未定义行为」就是误报。
+// 两者在 trap 文本上分得开（2026-10-31 实测）：爆栈是
+// `RangeError: Maximum call stack size exceeded`，而漏 return 撞上 clang 补的
+// `unreachable` 是 `RuntimeError: unreachable`。
+const CROSS_CHECK_STACK_TRAP = /call stack|stack size exceeded|stack overflow/i
 
 // 固定上限只覆盖前两个阶段；run 段的时限随任务传进来（见 beginTask）
 const STAGE_TIMEOUTS = {
@@ -128,8 +147,15 @@ function armTimer(entry) {
   }, delay)
 }
 
-/** 起一个可被看门狗 / signal 中断的任务上下文 */
-function beginTask(signal, timeLimitMs) {
+/**
+ * 起一个可被看门狗 / signal 中断的任务上下文。
+ *
+ * `silent`：不往状态栏播报（也不在收尾时把状态打回 idle）。对拍用的是它 ——
+ * 那件事发生在「用例已经全跑完、结果已经出来」之后，用户此刻看到的状态是结论，
+ * 半路冒出「正在编译」再掉回「空闲」，只会让人以为刚才那次运行没算数。
+ * 看门狗、kill、signal 中断这些照样生效，只是不出声。
+ */
+function beginTask(signal, timeLimitMs, { silent = false } = {}) {
   const entry = {
     stage: 'boot',
     stageStartedAt: performance.now(),
@@ -138,13 +164,14 @@ function beginTask(signal, timeLimitMs) {
     host: null,
     cancelled: false,
     timedOut: false,
+    silent,
     timer: 0,
   }
 
   entry.onStatus = (stage, message) => {
     entry.stage = stage
     entry.stageStartedAt = performance.now()
-    publish(stage, message)
+    if (!silent) publish(stage, message)
     armTimer(entry)
   }
 
@@ -175,7 +202,8 @@ function endTask(entry) {
   if (entry.onAbort) entry.disposeSignal?.()
   if (active === entry) {
     active = null
-    publish('idle', '')
+    // 静默任务收尾时不把状态栏打回 idle：它从没占用过状态栏（见 beginTask）
+    if (!entry.silent) publish('idle', '')
   }
 }
 
@@ -349,6 +377,100 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
         message: error?.message || String(error),
         // 运行段被搞崩（真栈溢出之类）也算「程序打到一半出事」：镜像里那截照样带回去
         stdout: error?.partialStdout ?? '',
+      }
+    } finally {
+      endTask(entry)
+    }
+  })
+}
+
+/**
+ * 对拍：把同一份源码换成 -O0 再编一遍，拿同一条用例再跑一次，和 -O2 那次的输出比对。
+ *
+ * 用途只有一句话：**AC 了的代码不一定对**。源码里的 UB 在 -O2 下可能被「优化对了」
+ * （漏 return 错位到下一条指令、越界读被折成常量、严格别名下两次写被合并），
+ * 于是同一个错误在别的 OJ 上炸、在这里 AC。关掉优化再跑一遍，两次输出不同就是证据。
+ *
+ * 四条纪律（B 版口径，2026-10-31 定）：
+ * 1. **只跑一条用例**：UB 是代码结构问题，与用例规模无关，调用方挑最快的一条（见 runner）；
+ * 2. **异步、不阻塞结论**：延到空闲时段、进串行队列。它**不**会和用户运行并发编译
+ *    （同一个宿主），但会排在用户运行前面占住队列约 1s —— 见下面 crossCheckCase 的注释；
+ * 3. **超时即放弃、不提示**：-O0 慢两三倍是常态，跑不完只能说明「比不出来」，
+ *    不能当成 UB 证据 —— 假阳性比漏报更伤害这个提示的可信度；
+ * 4. **-O0 直接崩掉算证据，栈溢出除外**（2026-10-31 用户报障后补的）：同一份源码
+ *    -O2 上 AC、关掉优化就跑不完，本身就是「这段代码依赖优化的容错」的直接证据。
+ *    实测漏 `return` 的程序 -O2 打出 `ACAACA`，-O0 撞上 clang 在函数尾补的
+ *    `unreachable` → exit 134。原先这类一律按「比不出来」吞掉，等于把最典型的一类
+ *    UB 藏了起来。唯一要挡的是深递归爆栈（理由见 CROSS_CHECK_STACK_TRAP）。
+ *
+ * 非确定性输出（rand / time / 打印地址）会天然误报，所以「第一次就有结论」时再跑一遍
+ * 同样的 -O0：两次一致才算数，不一致就当比不出来。这一步只在已经有结论时付钱。
+ *
+ * @returns {Promise<{ status: 'same' | 'differed' | 'crashed' | 'skipped', attempts: number }>}
+ *   differed / crashed 都只表示「-O0 与 -O2 的行为不同」，判定由上层决定怎么用（当前只提示）
+ */
+export function crossCheckCase({ language = 'cpp', code, stdin, baselineStdout, memoryLimitBytes, signal, budgetMs = CROSS_CHECK_BUDGET_MS }) {
+  // 延到空闲时段开工：对拍发生在结论之后，不该在用户刚看到结果时就开始占 CPU。
+  // 注意「异步」只保证**不拖慢结论的显示**，不保证不占队列：它和用户运行走同一个
+  // 串行 enqueue（同一个常驻宿主，没法并发编译），所以紧接着再点运行时，那一次会排在
+  // 对拍后面 —— 2026-10-31 实测：AC 之后 250ms 发起的 runCase 被挡了 801ms，等对拍
+  // 收工才开跑。窗口就是这么长（一遍 -O0 编译 + 最多两次 1s 内的运行），没法更短。
+  return new Promise((resolve) => {
+    whenIdle(() => {
+      void crossCheckNow({ language, code, stdin, baselineStdout, memoryLimitBytes, signal, budgetMs }).then(resolve)
+    })
+  })
+}
+
+async function crossCheckNow({ language, code, stdin, baselineStdout, memoryLimitBytes, signal, budgetMs }) {
+  return enqueue(async () => {
+    if (language !== 'cpp' || signal?.aborted) return { status: 'skipped', attempts: 0 }
+    const baseline = String(baselineStdout ?? '')
+    const deadline = performance.now() + budgetMs
+    const remain = () => deadline - performance.now()
+    // 单次运行时限：剩余预算里挑，但留 250ms 地板 —— 编译把预算吃光时仍然值得跑一次
+    // （编译都花了，不跑等于白花；一次 250ms 的比对远好过什么都不说）。
+    const nextLimit = () => Math.max(250, Math.min(CROSS_CHECK_RUN_MS, remain()))
+    const entry = beginTask(signal, CROSS_CHECK_RUN_MS, { silent: true })
+    try {
+      // 第一遍的结论：`{ crashed: true }` 或 `{ out }`。第二遍只负责确认它可复现
+      let first = null
+      for (let attempts = 1; ; attempts += 1) {
+        if (signal?.aborted) return { status: 'skipped', attempts: attempts - 1 }
+        // 看门狗按这个数上弦（armTimer 在 run 段读它），所以每遍都要先写好
+        entry.runLimit = nextLimit()
+        let ran
+        try {
+          ran = await crossCheckRun({ code, stdin, memoryLimitBytes, onStatus: entry.onStatus, onHost: entry.onHost })
+        } catch {
+          // 被看门狗掐断 / 宿主被程序搞崩：对拍这一趟不影响任何东西，静默收场
+          return { status: 'skipped', attempts }
+        }
+        if (signal?.aborted) return { status: 'skipped', attempts }
+        // 跑超了对拍自己设的短时限：-O0 慢两三倍是常态，只能说明比不出来（纪律 3）。
+        // 这和「崩溃」是两回事 —— TLE 有 runMs 且超过上限，崩溃是程序自己退出了。
+        const overLimit = typeof ran.runMs === 'number' && ran.runMs > entry.runLimit
+        // 非 0 退出且不是爆栈 → 这一遍真的崩了（纪律 4）。爆栈要单独挡掉，见常量处的说明
+        const crashed = !ran.ok && !CROSS_CHECK_STACK_TRAP.test(`${ran.trap ?? ''}\n${ran.stderr ?? ''}`)
+        if (overLimit || (!ran.ok && !crashed)) return { status: 'skipped', attempts }
+
+        if (attempts === 1) {
+          if (crashed) {
+            first = { crashed: true }
+          } else {
+            const out = String(ran.stdout ?? '')
+            if (out === baseline) return { status: 'same', attempts }
+            first = { out }
+          }
+          // 已经有结论，但还差一次复现确认（真 UB 可复现，rand / 时间这类不会）：
+          // 预算不够就宁可不给结论。
+          if (remain() < 400) return { status: 'skipped', attempts }
+          continue
+        }
+        // 第二遍：必须收敛到和第一遍同一个结论，否则当作程序本身不确定
+        if (first.crashed) return crashed ? { status: 'crashed', attempts } : { status: 'skipped', attempts }
+        if (crashed) return { status: 'skipped', attempts }
+        return String(ran.stdout ?? '') === first.out ? { status: 'differed', attempts } : { status: 'skipped', attempts }
       }
     } finally {
       endTask(entry)

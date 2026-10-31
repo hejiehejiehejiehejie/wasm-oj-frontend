@@ -140,7 +140,7 @@ function applyBase() {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
 }
 

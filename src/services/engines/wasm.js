@@ -6,7 +6,7 @@
  * 这个文件只做一件事：把回来的一串消息翻译成 runner 认识的 EngineExecution。
  */
 
-import { runCase } from '../wasmRuntime.js'
+import { crossCheckCase, runCase } from '../wasmRuntime.js'
 import { withSourceName } from '../runnoSandbox.js'
 import { t } from '../../i18n/index.js'
 
@@ -162,5 +162,28 @@ export const wasmEngine = {
     // 走到了 exit 0：判定只看程序自己跑出来的东西，编译期警告不参与 —— 它只是卡片上
     // 多出来的一行说明（见 describeWarnings）。
     return { outcome: 'ok', stdout, stderr: '', warning: describeWarnings(message.diagnostics), durationMs }
+  },
+
+  /**
+   * 对拍：同一份源码换成 -O0 再编一遍，把同一条用例再跑一次，和 AC 那次的输出比。
+   *
+   * 由编排层在「用例全部跑完、挑出一条跑完的（AC 或 WA）」之后调用
+   * （见 services/runner.js 的 crossCheckBest），结果只写进卡片那行提示（note），
+   * **判定一个字都不改** —— AC 就是 AC，WA 就是 WA。
+   * 只有 C++ 有这条路：Python 没有优化级别这一维，解释器跑出来的就是它跑出来的。
+   *
+   * 两种证据分开说（2026-10-31 补）：`differed` 是「算出了别的东西」，`crashed` 是
+   * 「这一遍连跑都跑不完」。对用户来说完全不同 —— 漏 `return` 的程序在 -O0 下是撞上
+   * clang 补的 `unreachable` 直接 exit 134，只认前者就会把这类最典型的 UB 静默掉。
+   *
+   * 不给 note 的情况：输出相同、没崩也没不同、比不出来（超时 / 只够跑一遍 /
+   * 两次 -O0 互相不一致 / 爆栈）、语言不是 C++。宁可不说，也别给一句可能是假阳性的结论。
+   */
+  async crossCheck({ languageId, code, stdin, baselineStdout, memoryLimitBytes, signal }) {
+    if (languageId !== 'cpp') return null
+    const result = await crossCheckCase({ language: languageId, code, stdin, baselineStdout, memoryLimitBytes, signal })
+    if (result?.status === 'crashed') return { note: t('tests.outcome.crossCheckCrashed') }
+    if (result?.status !== 'differed') return null
+    return { note: t('tests.outcome.crossCheckDiffered') }
   },
 }

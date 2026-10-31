@@ -731,7 +731,7 @@ onBeforeUnmount(() => {
   height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
@@ -1029,9 +1029,9 @@ html[data-scheme='dark'] .cd-dms input {
     color 0.18s ease;
 }
 
-.cd-unlock.is-hover
-:where(html.is-hoverable) .cd-unlock:hover
-.cd-unlock:focus-visible
+.cd-unlock.is-hover,
+:where(html.is-hoverable) .cd-unlock:hover,
+.cd-unlock:focus-visible,
 .cd-unlock.is-peek {
   opacity: 1;
   transform: translateX(-50%) scale(1);

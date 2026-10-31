@@ -1352,7 +1352,7 @@ defineExpose({
   justify-content: center;
   width: 30px;
   height: 26px;
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--text-dim);
 }
 
@@ -1386,7 +1386,7 @@ defineExpose({
   justify-content: center;
   width: 28px;
   height: 24px;
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--text-dim);
 }
 
@@ -1406,6 +1406,11 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 不参与收缩：工具栏摆不下时该由左边那组工具（.md-tools）自己横向滚动去让位。
+     漏了这条，窄屏 + 110% 缩放（`cp.uiScale`）下它会被压到 min-content ——
+     图标 15 + 按钮默认的左右 padding 12 = 27px，而高度仍是 30.8px，
+     于是这颗按钮成了竖长方形（2026-10-31 用户报「全屏按钮不是正方形」）。 */
+  flex: 0 0 auto;
   width: 28px;
   height: 28px;
   border-radius: 6px;

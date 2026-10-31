@@ -151,7 +151,7 @@ function segments(text) {
 .help-item {
   padding: 12px 14px;
   border: 1px solid var(--border-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--bg-panel);
 }
 

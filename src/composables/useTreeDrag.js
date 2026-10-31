@@ -76,12 +76,21 @@ export function registerDropZone(zone) {
 /**
  * 指针落在哪块外部落点里。
  *
- * 用矩形命中而不是 elementFromPoint：拖拽时幽灵元素就贴在手底下，谁压在谁上面全靠 DOM 顺序，
- * 用 elementFromPoint 得先赌幽灵 `pointer-events: none` 万无一失；矩形判断跟幽灵无关，稳。
+ * 【矩形 + 命中元素，两道都要】矩形这道是为了跟幽灵无关：拖拽时幽灵就贴在手底下，谁压在谁
+ * 上面全靠 DOM 顺序，只看 elementFromPoint 就得先赌幽灵 `pointer-events: none` 万无一失。
+ *
+ * 但**只看矩形会误判**（2026-10-31 用户报）：窄屏（`html.is-narrow`）下侧栏不是并排的一栏，
+ * 而是**压在编辑区之上的覆盖层** —— 编辑区自己的盒子照旧铺满整块工作区，412 宽的实测几何是
+ * `stage: 7 → 405`、侧栏 `51.7 → 405.7`，编辑区的矩形把整棵树都框在里面。于是在树里任何
+ * 「树内落点为空」的位置（拖的是根目录下的文件、落点就是根，按下面的规则算无效）都会顺手
+ * 点亮编辑区：用户看到的是「想拖到根，亮起来的却是编辑区」。所以要再问一句指针底下**确实是
+ * 它**才算命中 —— 指针在树里时，`elementFromPoint` 拿到的是树的元素，编辑区就被排除了。
  *
  * @param {object} source 被拖的节点（给 canDrop 判要不要接）
+ * @param {Element|null} [probe] 指针底下那个内容元素（调用方已算好时传进来，省一次命中测试）
  */
-function hitDropZone(clientX, clientY, source) {
+function hitDropZone(clientX, clientY, source, probe) {
+  const hit = probe === undefined ? contentElementAt(clientX, clientY) : probe
   for (const zone of zones) {
     if (zone.canDrop && !zone.canDrop(source)) continue
     const rect = zone.el?.getBoundingClientRect()
@@ -89,7 +98,8 @@ function hitDropZone(clientX, clientY, source) {
     if (!rect || rect.width <= 0) continue
     const inside =
       clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
-    if (inside) return zone
+    if (!inside) continue
+    if (hit instanceof Element && zone.el.contains(hit)) return zone
   }
   return null
 }
@@ -368,8 +378,8 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
    * 让可投递的面积大一些）；树容器空白处 = 根目录。拖回原目录、拖到自己身上、把目录拖进
    * 自己的后代，都算无效，不高亮也不起手。
    */
-  function resolveTarget(clientX, clientY, source) {
-    const hit = contentElementAt(clientX, clientY)
+  function resolveTarget(clientX, clientY, source, probe) {
+    const hit = probe === undefined ? contentElementAt(clientX, clientY) : probe
     // 长按弹出的那张菜单在「收掉」与「真的从 DOM 里消失」之间隔着一帧（Vue 的更新是异步的）。
     // 这一帧里指针底下压着的就是菜单本身，按「树空白处」算会闪出一整棵树都高亮的落点 —— 当作
     // 没命中，下一帧落点就正常回来了。
@@ -411,9 +421,11 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
 
   function updateDropTarget(clientX, clientY) {
     if (!press?.dragging) return
-    const next = resolveTarget(clientX, clientY, press.node)
+    // 指针底下「究竟是谁」两个判据共用：树内落点与树外落点各查一次 DOM 命中，这里先算一遍
+    const hit = contentElementAt(clientX, clientY)
+    const next = resolveTarget(clientX, clientY, press.node, hit)
     // 树里没命中才轮到外部面板（编辑区）—— 顺序反过来的话，在树里划过时会把编辑区也点亮
-    activeDropZone.value = next ? null : hitDropZone(clientX, clientY, press.node)
+    activeDropZone.value = next ? null : hitDropZone(clientX, clientY, press.node, hit)
     const changed = next?.rowId !== dropTarget.value?.rowId
     dropTarget.value = next
     // 悬停在折叠的目录行上就自动展开 —— 触屏拖拽时手指腾不出来点它

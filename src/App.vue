@@ -861,6 +861,25 @@ function applyPatch(target, patch, index) {
 }
 
 /**
+ * 对拍那行提示的落点（见 services/runner.js 的 crossCheckBest）。
+ *
+ * 它与普通补丁的差别只在**到达时刻**：AC 之后 1–2 秒才回来，而中间界面很可能已经做过一次
+ * 用例回写（flushCasesWrite → rebuildTree），把整批用例换成了新对象 —— 补丁若还落在旧的
+ * testCase 引用上，卡片永远看不到（2026-10-31 实测：结论回来了、界面没变）。索引在整批
+ * 重写前后是稳定的，所以按 index 去当前那一批里找卡片。
+ * 判定照旧一个字都不改：只写 note，而且只写在「跑完了、且这一轮还没被换掉」的卡片上
+ * （用户可能已经重跑、复位，或者改了代码 —— 那条结论针对的是旧代码）。
+ * AC / WA 都收：对拍说的是「两个优化级别行为不同」，与这张卡片过没过无关
+ * （2026-10-31 用户口径，见 services/runner.js 的 crossCheckBest）。
+ */
+function applyLateNote(note, index) {
+  const target = testCases.value[index]
+  const finished = target?.status === 'passed' || target?.status === 'failed'
+  if (!finished || target.stale) return
+  target.note = note
+}
+
+/**
  * 这一组用例是不是「全过且结论新鲜」。
  *
  * status 之外还看 stale：改过代码之后，上一轮的 AC 已经不作数了（见下面那条
@@ -1311,6 +1330,8 @@ async function runAll() {
     checker: effectiveChecker.value,
     signal: abortController.signal,
     onCase: applyPatch,
+    // 对拍那行事后提示：只带 note + 索引，判定不受影响（见 applyLateNote）
+    onNote: applyLateNote,
   })
 
   // 中途中断时，未跑到的卡片回到待运行，不留假的“运行中”。
@@ -1368,6 +1389,8 @@ async function runOne(target) {
       checker: effectiveChecker.value,
       signal: controller.signal,
       onCase: applyPatch,
+      // 与 runAll 同一条出口（见 applyLateNote）
+      onNote: applyLateNote,
     })
     if (target.status === 'running') target.status = 'idle'
     if (!controller.signal.aborted) {
