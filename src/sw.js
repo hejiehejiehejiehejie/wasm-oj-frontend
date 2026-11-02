@@ -7,7 +7,7 @@
    **题解渲染器（/md/，katex + marked）同理**：它不算构建产物，进不了
    precache-manifest，用户在设置里点「下载」时才由页面写进 MD_CACHE。
 
-   五条边界：
+   六条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
       /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）；
@@ -29,6 +29,13 @@
       标签页的 `/favicon.ico` 请求 `fromServiceWorker: true`；把旧图塞进桶后普通刷新
       拿到旧图、`Network.setBypassServiceWorker` 后再刷才拿到新图）。
       图标不必离线可用（离线时页面本来就靠外壳桶渲染），放行给网络。
+   6) PCH（`*.pch.br`）不进 Cache Storage（2026-11-03 加）—— 页面把它存在 IndexedDB
+      （`cp-pch`），编译与语法检查只从那里读；SW 再存一份纯属冗余，而且 Cache API 存的是
+      **解压后**的 body（实测请求头 `Content-Length` 8.29MB，桶里占 18.37MB）。
+      更麻烦的是它会在同目录里换名（改编译参数 / 改万能头），旧条目落在「当前版本前缀」
+      里，`pruneLegacyToolchainCache` 的版本判据清不到，只能永久占着。放行进网络即可：
+      资源自带 `immutable, max-age=1y` 的 HTTP 磁盘缓存，IndexedDB 被手动清掉时照样
+      免流量恢复。
 
    ⚠ 下面用到的桶名常量（SHELL_CACHE / TOOLCHAIN_CACHE / MD_CACHE / LEGACY_BUCKETS）
    **不在本文件里定义**。SW 是 classic worker，没有 import，读不到 services/storageNames.js，
@@ -239,6 +246,10 @@ self.addEventListener('fetch', (event) => {
   // 兜底桶，下次改图又回到「改了不生效」。`/icons/` 用整目录前缀，将来加尺寸不必回来补。
   if (url.pathname === '/favicon.svg' || url.pathname === '/favicon.ico') return
   if (url.pathname.startsWith('/icons/')) return
+
+  // PCH 归 IndexedDB 独占（边界 6）：这里**既不读也不写** —— 只从 STATIC_ASSETS 摘掉不够，
+  // cacheFirst 在未命中时照样会把 18MB 解压后的 body 写进工具链桶。
+  if (/\.pch\.br$/.test(url.pathname)) return
 
   event.respondWith(request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(request))
 })

@@ -1329,7 +1329,12 @@ async function deleteToolchainEntries(isStale) {
 export async function pruneLegacyToolchainCache() {
   const keep = currentAssetPrefixes()
   await deleteToolchainEntries(
-    (url) => url.includes(WASM_PATH_SEGMENT) && !keep.some((prefix) => url.startsWith(prefix)),
+    (url) =>
+      url.includes(WASM_PATH_SEGMENT) &&
+      // PCH 归 IndexedDB 独占（SW 也不再缓存，见 sw.js 边界 6），桶里留着的一律清掉。
+      // 不能只靠下面那条版本前缀判据：PCH 的文件名会在**同目录**里换（改参数 / 改头），
+      // 旧条目永远落在「当前版本前缀」里，那条判据认不出来（2026-11-03 改名后实测）。
+      (/\.pch\.br$/.test(url) || !keep.some((prefix) => url.startsWith(prefix))),
   )
 }
 
@@ -1677,9 +1682,14 @@ async function fetchShippedPch() {
  *
  * 与 `prefetchRuntimeAssets` 分开两个函数：那个同时是「工具链是否已下载」的判据
  * （`runtimeAssetURLs`），把 PCH 塞进去会让所有老用户被判成「没下过」。
- * 可重复调用：内存 / 存档命中时几乎没有成本。
+ *
+ * 2026-11-03 修：先查内存 / 存档，命中就**不再发 fetch**。以前这里无条件走
+ * `fetchShippedPch`，于是老用户每次刷新都会白跑一次缓存读取 + Brotli 解压 + 18MB 的
+ * IDB 覆写（实测二次访问 36–112ms、每次都 put 18,372,468 B），是个隐蔽的启动期伪命中。
+ * 坏档不在这里兜：编译会走 `PCH_ERROR_RE → discardPch`，下一次预热重新取。
  */
 export async function prefetchPch() {
+  if (await loadPchBytes()) return
   await fetchShippedPch()
 }
 
