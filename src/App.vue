@@ -435,8 +435,6 @@ function measureLimits() {
   // 于是每条 basis 都会被按比例缩掉一点（shrink 权重 = 各自 basis，所以面板那条少的正是
   // splitterOuter × 面板占比）。松手反算占比时除以它才是「这块地方真有多宽」（见 finish）。
   const paneSpace = Math.max(1, width - splitterOuter)
-  // 再加分隔条自身宽度：百分比 flex-basis 下，面板内容盒能压到多窄还要看分隔条占掉的那几像素。
-  const minTests = panelMin + splitterRect
   return {
     width,
     // 两栏可分的总宽（= 内容宽 − 分隔条净占宽），见上面那段
@@ -451,8 +449,14 @@ function measureLimits() {
     collapsedPx,
     // 折叠 / 展开的分界（像素直连）：面板宽压到它以下折叠，撑到它以上展开
     hingePx,
-    // 百分比路径（键盘方向键 / reclamp）的编辑器占比上限：面板顶到最窄时编辑器该占多少
-    maxShare: ((width - minTests) / width) * 100,
+    // 百分比路径（键盘方向键 / reclamp）的编辑器占比上限：面板顶到最窄时编辑器该占多少。
+    // ⚠️ 分母必须是 paneSpace、且只扣 panelMin（2026-11-02 修）：百分比 basis 的缩小由两栏
+    // 按各自 basis 分担，分隔条的净占宽已经落在 paneSpace 里；照 width 再扣一次 splitterRect
+    // 会把这条线算**低**一截（1400 宽 / 240 面板实测 80.0 对 80.92）。拖到最窄松手时存下的
+    // 是 80.92，于是它一直是个「越界值」—— 任何一次 resize（软键盘弹起就是一次）触发
+    // reclampShare 都会把它夹到 80.0，面板当场凭空胖十几像素；夹取又是单向的（Math.min
+    // 只压不放），收键盘也不回去。用户报的「键盘一弹侧栏就变宽一截」正是这一条。
+    maxShare: ((paneSpace - panelMin) / paneSpace) * 100,
     edgeShare: ((width - collapsedPx) / width) * 100,
   }
 }
@@ -1981,6 +1985,8 @@ onBeforeUnmount(() => {
         @keydown.right.prevent="nudgeShare(2)"
       >
         <span class="splitter__line"></span>
+        <!-- 触屏的纵向命中层：上下各让出 1/4，只有中间一半接指针（见样式表 .splitter__grab） -->
+        <span class="splitter__grab"></span>
       </div>
 
       <!-- 统一侧边栏：资源管理器与评测样例合并成一个页签容器，
@@ -2518,6 +2524,12 @@ onBeforeUnmount(() => {
   touch-action: none;
 }
 
+/* 触屏专用的纵向命中层（空元素）：鼠标下完全不存在，见下面 @media (pointer: coarse)。
+   不能并进 .splitter 自己：根节点是满高的，纵向没法只让中间一半接指针。 */
+.splitter__grab {
+  display: none;
+}
+
 /* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区翻倍到 24px，负外边距按同样幅度加大
    （仍是只往右扩：24 − 20 = 4），于是两块卡片的位置和间距与鼠标下逐像素一致
    （净空隙同为 4px）—— 只有可抓区域变宽，视觉一点没动。
@@ -2548,6 +2560,33 @@ onBeforeUnmount(() => {
 @media (pointer: coarse) {
   .workspace.is-right .splitter {
     margin: 0 0 0 -20px;
+  }
+}
+
+/* 触屏：纵向热区只留中间一半（2026-11-02 用户要求）。
+   问题出在高度上 —— 热区是满高的，最顶上那一段正好与页签栏同高，而触屏的 24px 热区又有
+   20px 铺在编辑区左缘上，于是手指想点最靠左的页签组时先撞上这条看不见的热区：宽屏那条
+   「轻点分隔条 = 展开侧栏」当场被误触发，侧栏弹出来。
+   所以粗指针下让根节点整块退出命中测试，改由 __grab 只承接中间 50%（上下各让出 1/4）：
+   上下两段直接透给底下的页签栏 / 侧栏，轻点落在页签上就是点页签。
+   ⚠️ 不能只在 beginDrag 里按 Y 提前 return：pointerdown 的 target 仍是分隔条，那一趟既不会
+   开始拖、也不会落到页签上，等于白点一下。必须让指针真的穿过去。
+   ⚠️ 宽度那套（24px / −20px）一个字不改：可见的线、净空隙、左右可抓范围都维持原样。 */
+@media (pointer: coarse) {
+  .splitter {
+    pointer-events: none;
+  }
+
+  .splitter__grab {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* 上下各 1/4 不可拖，中间一半可拖 */
+    top: 25%;
+    bottom: 25%;
+    /* 移回命中测试；touch-action 沿祖先那条 none 生效，纵向滑动仍归拖拽 */
+    pointer-events: auto;
   }
 }
 

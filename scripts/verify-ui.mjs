@@ -123,7 +123,7 @@ const probe = (page) =>
     // ⚠️ 必须按**可见性**过滤（`getClientRects`，与上面 visiblePanel 同一口径）：
     // 2026-10-13 起页头里还挂着窄屏底部那条那颗「收起侧栏」箭头（同一个 `__tab` 外观类），
     // 它在本脚本的桌面宽度下是 `display: none`，但 `querySelectorAll` 照样拿得到它 ——
-    // 不过滤的话 A 组那条精确清单（`切换到评测样例/设置`）会凭空多一项、整组变红。
+    // 不过滤的话 A 组那条精确清单会凭空多一项、整组变红。
     // 这个清单的语义本来就是「眼前看得见的控件」，函数名里的 visible 也该落实在这里。
     const visibleSwitcherTabs = () => [
       ...(sidebarHead()?.querySelectorAll('.sidebar-switcher__pill, .sidebar-switcher__tab') ?? []),
@@ -279,7 +279,8 @@ try {
     const state = await probe(page)
     await page.screenshot({ path: `${SHOTS}cp-1-default-right.png` })
     const ok =
-      tabs.join('/') === '切换到评测样例/设置' &&
+      // 「组件」那颗是侧栏页头的第三颗控件（2026-10 加入），清单按可见顺序写全
+      tabs.join('/') === '切换到评测样例/组件/设置' &&
       segIds.join('/') === 'explorer/tests' &&
       state.sidebarSegActive.join('/') === 'tests' &&
       state.sidebarPanel === 'tests' &&
