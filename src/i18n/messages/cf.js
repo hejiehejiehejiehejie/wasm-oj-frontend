@@ -187,7 +187,6 @@ export default {
         schedule: {
           refreshing: '获取中…',
           updated: '更新于 {time}',
-          capabilities: '扩展在位：可读报名状态、可报名 / 开 VP',
           /** 倒计时档位：界面只取最大的几档拼起来（见 useCfSchedule.spanText） */
           units: {
             weeks: '{n} 周',
@@ -513,7 +512,6 @@ export default {
         schedule: {
           refreshing: 'Fetching…',
           updated: 'Updated {time}',
-          capabilities: 'Extension available: entry states, registration and virtual participation',
           units: {
             weeks: '{n}w',
             days: '{n}d',

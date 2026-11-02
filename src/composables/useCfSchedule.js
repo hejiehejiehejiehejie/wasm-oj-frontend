@@ -143,6 +143,54 @@ function sameList(left, right) {
 }
 
 /**
+ * 赛程窄容器里用的短名（2026-11-02）：一场比赛的名字里最重复的是系列词，真正区分场次的是
+ * 编号与 Div.。「Educational Codeforces Round 196 (Rated for Div. 2)」与
+ * 「DeepInfra Round 1 (Codeforces Round 1126, Div. 1 + Div. 2)」重排成
+ * 「Edu 196 (Div. 2)」/「CF 1126 (Div. 1+2)」后，窄屏一列名字基本能放下全称。
+ *
+ * 【先认结构，认不全才逐词替换】同时认出「Codeforces Round N」与 Div. 时直接重排：
+ * 编号唯一标识一场，Div. 是参加者最关心的那一位，其余（赞助商、Rated for、Based on …）
+ * 整段省掉。认不全的（Global Round、Kotlin Heroes、早期没有 Div. 的 Educational）
+ * 退回逐词缩写，只去重复的系列词，不猜结构。
+ *
+ * 【只改显示】悬停提示、整行的 aria-label、宽屏一律仍用 `contest.name`；
+ * 短名由组件里的 `.cf-schedule__name-short` 在窄容器才切出来。
+ */
+const ROUND_PATTERN = /Codeforces Round\s+(\d+)/i
+const EDUCATIONAL_PATTERN = /Educational Codeforces Round/i
+const DIVISION_PATTERN = /Div\.?\s*([1234])\b/i
+const COMBINED_DIVISION_PATTERN = /Div\.?\s*1\s*\+\s*Div\.?\s*2/i
+
+function divisionLabel(text) {
+  if (COMBINED_DIVISION_PATTERN.test(text)) return 'Div. 1+2'
+  const single = text.match(DIVISION_PATTERN)
+  return single ? `Div. ${single[1]}` : ''
+}
+
+const COMPACT_NAME_RULES = [
+  [/\bEducational Codeforces Round\b/g, 'Edu'],
+  [/\bCodeforces Round\b/g, 'CF'],
+  [/\bCodeforces\b/g, 'CF'],
+  [/\bRated for (Div\. \d)/g, '$1'],
+  [/\bDiv\. 1\s*\+\s*Div\. 2\b/g, 'Div. 1+2'],
+]
+
+export function compactContestName(name) {
+  const text = String(name ?? '')
+  const round = text.match(ROUND_PATTERN)
+  const division = divisionLabel(text)
+  if (round && division) {
+    return `${EDUCATIONAL_PATTERN.test(text) ? 'Edu' : 'CF'} ${round[1]} (${division})`
+  }
+  let compact = text
+  for (const [pattern, replacement] of COMPACT_NAME_RULES) {
+    compact = compact.replace(pattern, replacement)
+  }
+  // API 里有「Div. 1,  Based on」这种双空格；顺带归一，少占一个字符
+  return compact.replace(/\s+/g, ' ').trim()
+}
+
+/**
  * @param {{active: import('vue').Ref<boolean>}} options active = 这一页此刻看不看得见
  */
 export function useCfSchedule({ active }) {

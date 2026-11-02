@@ -3,8 +3,8 @@
        2026-10-28 改版：分组标签退成一行灰字，每场一行 40px，行间一条 5% 淡线，
        悬停铺一层极浅的底 —— 与题目 / 榜单 / 提交同一套列表语汇。 -->
   <section class="cf-schedule" :class="{ 'cf-schedule--blank': blankLoading }">
-    <!-- 2026-10-29：「更新于」不再独占抬头那一行 —— 它和「扩展在位能做什么」一起挪到
-         第一组标签的右端（页面第一行就是「即将开始」，上面不再空出一条只有时间的线）。
+    <!-- 2026-10-29：「更新于」不再独占抬头那一行 —— 它挪到第一组标签的右端
+         （页面第一行就是「即将开始」，上面不再空出一条只有时间的线）。
          刷新没有按钮：每次打开这一页都静默取一次，列表真变了才换（见 useCfSchedule）。 -->
 
     <!-- 第一次取数、列表还是空的：这句话落在内容区居中偏上（黄金分割点），不挤在右上角 -->
@@ -24,15 +24,12 @@
 
     <template v-for="(group, index) in groups" :key="group.id">
       <!-- 分组标签：一行灰字，靠上边距与上一段分开（不铺底、不画条）。
-           元信息（能力提示 · 更新于）只挂在第一组那一行的右端，属于整份列表 -->
+           「更新于」只挂在第一组那一行的右端，属于整份列表 -->
       <div class="cf-schedule__group">
         <span class="cf-schedule__group-label">
           {{ t(`cf.contest.schedule.group.${group.id}`) }}
         </span>
         <span v-if="index === 0" class="cf-schedule__meta">
-          <span v-if="showEntryColumn" class="cf-schedule__meta-hint">
-            {{ t('cf.contest.schedule.capabilities') }}
-          </span>
           <span v-if="fetchedAt && !error">
             {{ t('cf.contest.schedule.updated', { time: updatedText }) }}
           </span>
@@ -45,6 +42,7 @@
             :class="{
               'cf-schedule__row--entry': showEntryColumn,
               'cf-schedule__row--running': statusOf(contest) === 'running',
+              'cf-schedule__row--finished': statusOf(contest) === 'finished',
             }"
             role="button"
             tabindex="0"
@@ -56,7 +54,12 @@
             <!-- 比赛名在最左，时间（开赛时刻 + 倒计时）整块靠右 -->
             <!-- 比赛名**不是**链接（2026-11-01）：整行只有一个行为「载入这场」，名字只是它最长的一段。
                  以前名字是去 CF 的 <a>、行是载入，同一根水平带里两种行为、还看不出谁是谁。 -->
-            <span class="cf-schedule__name" :title="contest.name">{{ contest.name }}</span>
+            <!-- 窄容器的名字用短名（2026-11-02）：两个版本都渲染，容器查询只切显示。
+                 title 仍是全名，鼠标悬停 / 读屏拿到的永远是原名 -->
+            <span class="cf-schedule__name" :title="contest.name">
+              <span class="cf-schedule__name-full">{{ contest.name }}</span>
+              <span class="cf-schedule__name-short">{{ compactContestName(contest.name) }}</span>
+            </span>
             <span class="cf-schedule__start">{{ startText(contest) }}</span>
             <!-- 时钟格：未开赛是距开赛，进行中是**距结束还剩**（见 useCfSchedule.countdownOf）；
                  已进行 / 本场共多长放进悬停提示，不占格宽 -->
@@ -196,7 +199,7 @@ import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { notify } from '../services/notifications.js'
 import { recordRegisteredContest } from '../services/cfStartReminder.js'
-import { useCfSchedule } from '../composables/useCfSchedule.js'
+import { useCfSchedule, compactContestName } from '../composables/useCfSchedule.js'
 import {
   canReadContestStates,
   canRegisterContest,
@@ -428,7 +431,7 @@ async function confirmEntry() {
   white-space: nowrap;
 }
 
-/* 元信息（扩展能力 · 更新于）：贴在分组标签右端，比标签小一号、常规字重 ——
+/* 元信息（更新于）：贴在分组标签右端，比标签小一号、常规字重 ——
    同一行里靠字重与字号分层，不靠再加一根竖线 */
 .cf-schedule__meta {
   display: flex;
@@ -442,21 +445,20 @@ async function confirmEntry() {
   white-space: nowrap;
 }
 
-/* 两段之间点一颗「·」：挂在**前一段**的尾巴上（窄容器里前一段会被 display:none，
-   点跟着一起消失；写成 `span + span::before` 会在只剩「更新于」时留下一颗悬空的点） */
-.cf-schedule__meta-hint::after {
-  content: '·';
-  margin-left: 8px;
-}
-
 /* 一场一行：比赛名在左（吃掉剩余宽度），开赛时刻与倒计时收在右端，
    最右一格是「去 CF 网页」的图标（2026-11-01）。
-   列宽写死（理由同 .cf-result）：各行独立 grid，auto 会对不齐。
-   末列 168（2026-11-01 由 144 加宽）：进行中的那格要装下「还剩 4 小时 59 分钟 59 秒」，
-   12px 等宽下实测 163.5px —— 还按 144 会让格子向左溢出 19.5px、压到「开赛时刻」那列的尾巴上 */
+   前两列写死（理由同 .cf-result）：各行独立 grid，auto 会对不齐。
+   末列 2026-11-01 是定宽 168，按最长的那句「还剩 4 小时 59 分钟 59 秒」（163.5px）定的；
+   可 168 只在进行中那几行才用满，未开赛的倒计时实测 88~139.5（周/天两档 105.8、
+   天/时/分 125、两位小时 132.3、一天以内 139.5），右对齐后左边空出 29~50px 死白
+   —— 开赛时刻和倒计时之间实测 62.2px，太大（2026-11-02 用户报障）。
+   改成 minmax(140px, max-content)：140 正好是未开赛那一档的天花板（139.5），
+   未开赛各行都落在同一个定宽上，开赛时刻仍严格对齐；倒计时与开赛时刻的间距收到 12~46px。
+   只有进行中那句 163.5 会把这一列撑开 —— 它单独一组，左边让出 23px 不影响别的行。
+   宽度足够时保持这套版式；窄容器换成下面那两档（2026-11-02 用户口径）。 */
 .cf-schedule__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px 168px 20px;
+  grid-template-columns: minmax(0, 1fr) 92px minmax(140px, max-content) 20px;
   align-items: center;
   gap: 12px;
   height: 40px;
@@ -467,7 +469,7 @@ async function confirmEntry() {
 
 /* 报名状态 / 动作列：只有在扩展支持时才多出这一格 */
 .cf-schedule__row--entry {
-  grid-template-columns: minmax(0, 1fr) 92px 168px 76px 20px;
+  grid-template-columns: minmax(0, 1fr) 92px minmax(140px, max-content) 76px 20px;
 }
 
 /* 进行中：左侧一条 2px 呼吸条 + 极浅的绿雾（从左往右淡出），不铺整行色块。
@@ -522,8 +524,9 @@ async function confirmEntry() {
 }
 
 /* 距开赛 / 距结束：等宽数字、靠右贴齐 —— 单位串长短不一，右缘对齐才不乱；
-   列宽写死 168px（最长的是进行中那句「还剩 4 小时 59 分钟 59 秒」，12px 等宽下实测 163.5px），
-   各行才不会错位。进行中那格还带一份悬停提示（已进行 / 本场共多长），见 runningHintOf */
+   列宽至少 140px（未开赛最长的一档 139.5），内容更长才把这一列撑开
+   （只有进行中那句 163.5 会，见 .cf-schedule__row），所以右缘是稳的、左缘只在长句上才往左扩。
+   进行中那格还带一份悬停提示（已进行 / 本场共多长），见 runningHintOf */
 .cf-schedule__clock {
   overflow: hidden;
   justify-self: end;
@@ -565,6 +568,11 @@ async function confirmEntry() {
   white-space: nowrap;
 }
 
+/* 短名只在窄容器切出来（规则见下面两档 container query）：宽屏仍是完整比赛名 */
+.cf-schedule__name-short {
+  display: none;
+}
+
 :where(html.is-hoverable) .cf-schedule__row:hover .cf-schedule__name {
   color: var(--accent-text);
 }
@@ -594,25 +602,104 @@ async function confirmEntry() {
   white-space: nowrap;
 }
 
-/* 窄容器：先撤开始时刻，只留比赛名 + 倒计时 + 行尾的外链图标（名字截断，悬停读全）。
-   末列与宽容器同一档 168：进行中那句「还剩 …」最长 163.5px，收窄到 144 会截断成「还剩 4 小时 59 分…」 */
-@container cf (max-width: 34rem) {
-  .cf-schedule__row {
-    grid-template-columns: minmax(0, 1fr) 168px 20px;
-    gap: 10px;
+/* 带「报名 / VP」那一列的窄容器（2026-11-02）：40rem 以下这一行从定宽版式换成窄档 ——
+   列间距 8、倒计时 fit-content、动作格 56。开始时刻仍留在这一档：名字换短名
+   （Edu 196 / CF 1131）后只要 60~150px（全列表 p50 = 88.6px），到 32rem（容器 512px）
+   还有约 165px 给名字，最长的「Kotlin Heroes: Practice 15」约 151px，正好放得下。
+   宽度在 40rem 以上时不受影响，仍是上面的定宽版式。 */
+@container cf (max-width: 40rem) {
+  .cf-schedule__row--entry {
+    grid-template-columns: minmax(0, 1fr) 92px fit-content(168px) 56px 20px;
+    gap: 8px;
   }
 
+  /* 动作格从 72 收到 56（2026-11-02）：72 是按最宽的忙碌态「报名中…」定的，常态的「报名」
+     只有 49px、「未开放」37px —— 内容居中时两侧各空十几 px，外链图标像是被甩在一边；
+     但也不能改成贴右对齐（用户报障）：按钮有 10px 内边距、状态文字没有，右缘一对齐，
+     两种内容的视觉中心就错开了。56px 同时保住「居中」与「靠得近」：常态按钮离外链
+     15px、状态文字 21px（原来是 23 / 29）。忙碌态约 80px，比这一格宽出的部分居中分摊到
+     两侧，8px 列间距之外只多出几 px，且只出现在提交那一两秒。 */
+
+  /* 窄容器里名字换成短名（Edu 196 / CF 1131）：40rem 以下名字列只剩二三百 px，
+     长的场次会只露半个系列名；短名能把编号、Div. 和「Based on …」这些区分信息露出来。
+     宽屏不受影响，仍是原名（2026-11-02） */
+  .cf-schedule__name-full {
+    display: none;
+  }
+
+  .cf-schedule__name-short {
+    display: inline;
+  }
+}
+
+/* 容器再窄，这一行也留不住开始时刻了：512px 时名字列约 165px（按未开赛 117.8px
+   的倒计时算），再往下「Kotlin Heroes…」就要截断。撤掉时刻后只留
+   名字 + 倒计时 + 动作 + 外链（名字截断，悬停读全）。 */
+@container cf (max-width: 32rem) {
   .cf-schedule__row--entry {
-    grid-template-columns: minmax(0, 1fr) 168px 72px 20px;
+    grid-template-columns: minmax(0, 1fr) fit-content(168px) 56px 20px;
+  }
+
+  .cf-schedule__row--entry .cf-schedule__start {
+    display: none;
+  }
+}
+
+/* 没有扩展时这一行没有动作列（少 56px + 一道 gap），同样的宽度能多撑一档：
+   34rem 以下换成窄档（列间距 8、倒计时 fit-content），开始时刻仍在；
+   到 28rem 才撤 —— 那一档的名字列同样约 165px（448 的容器 − 行内距 − 92 − 118 − 20 − 24）。
+   末列上限仍是 168：进行中那句「还剩 …」最长 163.5px，再收会截断成「还剩 4 小时 59 分…」，
+   窄档把它改成 fit-content(168px)：未开赛 125px、「—」7px，省下的宽度归名字，
+   右缘仍与上面各档对齐（右对齐的格子，收窄只吃掉左侧空白）。 */
+@container cf (max-width: 34rem) {
+  .cf-schedule__row:not(.cf-schedule__row--entry) {
+    grid-template-columns: minmax(0, 1fr) 92px fit-content(168px) 20px;
+    gap: 8px;
+  }
+}
+
+/* 没有动作列的这一行也留不住开始时刻了：只留名字 + 倒计时 + 外链
+   （名字截断，悬停读全；末列上限的口径同上一档） */
+@container cf (max-width: 28rem) {
+  .cf-schedule__row:not(.cf-schedule__row--entry) {
+    grid-template-columns: minmax(0, 1fr) fit-content(168px) 20px;
   }
 
   .cf-schedule__start {
     display: none;
   }
+}
 
-  /* 能力提示比「更新于」长得多，窄容器里先让它让位 —— 时间在不在新才是一眼要看的 */
-  .cf-schedule__meta-hint {
+/* 已结束的场次没有倒计时，最后一格只是「—」占位：窄容器里把这一格整格撤掉，
+   开赛时刻留下（2026-11-02 用户口径）—— 否则窄屏上会剩下一行「没有时间、只有一个破折号」。
+   撤掉一列要同时换模板，开赛时刻在 32rem / 28rem 档本来会被上面撤掉，这里对已结束的行改回显示。
+   两个档分别挂在各自的断点上：40rem 只覆盖带动作列的行，34rem 才覆盖没有动作列的行 ——
+   后者在 40~34rem 之间仍是宽版式，不能提前换成窄模板。 */
+@container cf (max-width: 40rem) {
+  .cf-schedule__row--entry.cf-schedule__row--finished {
+    grid-template-columns: minmax(0, 1fr) 92px 56px 20px;
+  }
+
+  .cf-schedule__row--entry.cf-schedule__row--finished .cf-schedule__clock {
     display: none;
+  }
+
+  .cf-schedule__row--entry.cf-schedule__row--finished .cf-schedule__start {
+    display: inline;
+  }
+}
+
+@container cf (max-width: 34rem) {
+  .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished {
+    grid-template-columns: minmax(0, 1fr) 92px 20px;
+  }
+
+  .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished .cf-schedule__clock {
+    display: none;
+  }
+
+  .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished .cf-schedule__start {
+    display: inline;
   }
 }
 
