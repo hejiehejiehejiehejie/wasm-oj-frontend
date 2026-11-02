@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 生成「预编译 PCH」这份静态资源：`public/wasm/<工具链版本>/pch-<存档版本>-<头文件指纹>.pch.br`。
+ * 生成「预编译 PCH」这份静态资源：
+ * `public/wasm/<工具链版本>/pch-<存档版本>-<头文件指纹>-<编译参数指纹>.pch.br`。
  *
  * 为什么要有这个脚本
  * ------------------
@@ -28,9 +29,10 @@
  *   CHROME_PATH  自定义 Chrome 可执行文件（同 verify-ui.mjs）
  *
  * 什么时候必须重跑：clang / sysroot 换代（`TOOLCHAIN_VERSION`）、万能头文本改了、
- * 或者 `PCH_CACHE_VERSION` / `FRONTEND_ARGS` 变了。文件名带后两者，所以「忘了重跑」
- * 的表现是 404 → 运行时静默退回本机生成（不自伤，只是白搭）；而「忘了升版本号又重跑」，
- * 表现是旧资源被新运行时判废 —— 两种都在下面第 3 步会被抓出来。
+ * `PCH_CACHE_VERSION` 变了、或者 `FRONTEND_ARGS`（进而 `PCH_ARGS`）变了。文件名带着
+ * 后三者算出来的两枚指纹，所以「忘了重跑」的表现是 404 → 运行时静默退回本机生成
+ * （不自伤，只是白搭）；而「忘了升版本号又重跑」，表现是旧资源被新运行时判废 ——
+ * 两种都在下面第 3 步会被抓出来。
  */
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'

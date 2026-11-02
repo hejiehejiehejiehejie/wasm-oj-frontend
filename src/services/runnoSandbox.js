@@ -122,7 +122,7 @@ const OPT_CROSS = '-O0'
  * 1) clang 23 的 cc1 不认 `-fmessage-length`，也不认驱动层 `-fwasm-exceptions`
  *    与 `-msimd128`；异常要写六项展开式，SIMD 要写 `-target-feature +simd128`。
  * 2) 2026-10-25 拍板：`-std=c++20`、SIMD 开、RTTI 关。三条都是语言 / 目标选项，
- *    全部进 PCH 签名 —— 改任一条，PCH_CACHE_VERSION 必须 +1。
+ *    全部进 PCH 签名 —— 改任一条都会让 `PCH_ARGS_HASH` 变化，旧存档与旧资源自动失效。
  */
 const FRONTEND_ARGS = [
   // 新内核没有内置 host triple（wasm32-wasip1 交叉编出来的 cc1），不显式给会报
@@ -264,6 +264,18 @@ const PCH_ARGS = [
   'c++-header',
   PCH_SOURCE_PATH,
 ]
+
+/**
+ * PCH 编译参数的指纹，进存档 id 与资源名（2026-11-03 加）。
+ *
+ * 这组参数会被 clang 逐项写进 PCH 控制块（语言 / 目标选项、包含路径、预定义宏），
+ * 加载时对不上就 fatal。以前靠「改 FRONTEND_ARGS 记得 +1 PCH_CACHE_VERSION」，
+ * 而那一步**会漏**：漏了的症状是 clang 拒载 → 降级重试把失败吃掉 → 表现为
+ * 「参数明明改了，PCH 却一直是旧行为」，没有报错。直接哈希参数，就没有可漏的地方了。
+ *
+ * `hashString` 是函数声明（会提升），所以这里放在 PCH_ARGS 后面也能用。
+ */
+const PCH_ARGS_HASH = hashString(PCH_ARGS.join('\0'))
 
 const LINKER_ARGS = [
   // runno 传进来的 argv[0] 是 wasm-ld，但还是显式写 flavor：新 wasm-ld 的两段式
@@ -1458,12 +1470,12 @@ export async function runPython({
 const PCH_UNSUPPORTED_KEY = 'cp.pchUnsupported'
 
 /**
- * 「这份**预编译好的** PCH 在本机加载不了」的标记，值是资源 id（`pch-6-a41f3b2e`）。
+ * 「这份**预编译好的** PCH 在本机加载不了」的标记，值是资源 id（`pch-6-<头文件指纹>-<参数指纹>`）。
  *
  * 与上面那个标记刻意分开，因为后果不一样：`cp.pchUnsupported` 关掉的是**本机生成**，
  * 而这条只是「别再下这份资源了」—— 本地生成那条路必须继续可用。混成一个键的话，
  * 一次资源事故就会把本来能靠本地生成拿到加速的机器一起报废。
- * 按资源 id 记，所以换了 PCH（版本号或头文件内容变了 → 文件名变了）自动重试。
+ * 按资源 id 记，所以换了 PCH（版本号、头文件内容或编译参数变了 → 文件名变了）自动重试。
  */
 const PCH_ASSET_BAD_KEY = 'cp.pchAssetBad'
 
@@ -1577,22 +1589,23 @@ function hashString(text) {
  * 判废**必须**靠这个 id，不能指望 clang 报错：PCH 的控制块里签着 clang 版本和
  * -internal-isystem 路径（实测 '/sys/include/c++/v1' 在控制块里出现 150 次），
  * 参数一变加载就会失败 —— 而那个失败会被「降级重试」吃掉，退化成不报错但静默变慢。
- * 所以工具链版本、PCH 源码内容、存档格式三者任一变化，id 都不一样，旧存档自然取不到。
+ * 所以工具链版本、PCH 源码内容、**编译参数**、存档格式任一变化，id 都不一样，旧存档自然取不到。
+ * 参数用指纹而不是让 `PCH_CACHE_VERSION` 手工跟着 +1：手工那步漏过（见 PCH_ARGS_HASH）。
  */
 function pchCacheId() {
-  return `${PCH_CACHE_VERSION}:${TOOLCHAIN_VERSION}:${hashString(PCH_SOURCE_TEXT)}`
+  return `${PCH_CACHE_VERSION}:${TOOLCHAIN_VERSION}:${hashString(PCH_SOURCE_TEXT)}:${PCH_ARGS_HASH}`
 }
 
 /**
  * 预编译 PCH 的资源 id / 地址（2026-10-27）。
  *
- * 文件名里同时带**存档格式版本**和**万能头内容指纹**，把它做成内容寻址：凡是会改变
- * PCH 字节的东西（clang 版本、sysroot、头文件内容、语言 / 目标选项）一变，网址就变，
- * SW 的 `cp-toolchain` 桶里那份 immutable 缓存自然失效。少任何一项都会留下
+ * 文件名里带**存档格式版本**、**万能头内容指纹**与**编译参数指纹**，把它做成内容寻址：
+ * 凡是会改变 PCH 字节的东西（clang 版本、sysroot、头文件内容、语言 / 目标选项）一变，
+ * 网址就变，SW 的 `cp-toolchain` 桶里那份 immutable 缓存自然失效。少任何一项都会留下
  * 「资源永远是旧的那份、而运行时不认」的静默降级（见坑表里 SW 外壳桶那一条）。
  * 构建侧按同一个名字落盘，见 scripts/build-pch.mjs；运行时导出它就是为了两边对得上。
  */
-const PCH_ASSET_ID = `pch-${PCH_CACHE_VERSION}-${hashString(PCH_SOURCE_TEXT)}`
+const PCH_ASSET_ID = `pch-${PCH_CACHE_VERSION}-${hashString(PCH_SOURCE_TEXT)}-${PCH_ARGS_HASH}`
 const PCH_URL = `${ASSETS}/${PCH_ASSET_ID}.pch.br`
 
 /** `public/` 下的相对路径（构建脚本用，别在别处硬编码这个文件名） */
