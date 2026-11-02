@@ -3955,5 +3955,38 @@ try {
 - `scripts/verify-ui.mjs` 的 H 步断言同步：不再找 ` · `，改判 `.md-stats > .md-stat` 恰好两块 + 两段「数字 + 单位」。
 - 文案只动了 `docs/使用手册.md` §3（正文与 ASCII 示意图）。`guide*.html` / `help.js` / `index.html` 原本只笼统提「字数与视图按钮」，不含统计格式，无需改。
 
+## 26. 三条流程互踩的四刀（2026-11-03，单宿主架构内的调和）
+
+背景是上一轮审计测到的四件事：预取完的 PCH 没落到编译路径读的地方；语法检查在用户点运行的一瞬间被整颗 terminate；宿主被 TLE / 看门狗收掉后，语法诊断的一次性闸门再也不放开；补枪靠 600ms 盲轮询。四条都在**不新增 worker、不新增依赖**的前提下改完。
+
+### 26.1 改了什么
+
+1. **语法检查不杀**（`services/wasi/client.js` 的 `send`）：前台任务抢占后台活时，`label === 'syntax'` 例外。语法只跑百毫秒级，杀一次要重建整颗 worker（~400ms）外加一枪 ABORTED；让前台排在队首等它跑完反而更便宜。PCH 本机生成**不**豁免，仍会被前台整颗换掉。
+2. **宿主生命周期广播**（`client.js` 的 `onEvent`）：`terminated`（看门狗 / 抢占 / 崩溃 / 卸载，`reason` 区分）与 `idle`（队列排空且 `holders === 0`）。`idle` 排进微任务再核验一次 —— `settle` 之后上层的 `finally` 才 `releaseHost()`，同步发会被自己的 hold 挡回去。
+3. **一次性闸门跟着宿主走**（`runnoSandbox.onHostEvent` + `syntaxDiagnostics`）：只转发主宿主，`DISPOSED` 不转发；`terminated` 放开 `bootstrapAttempts`，下一次击键走「只读缓存、不下载」的重建，重建成功由 `onRuntimeReady` 重查；`idle` 立刻补上让路那一枪，600ms×4 退化成兜底。`ABORTED` 也记 deferred（抢占式 terminate 会就地重建，`runtimeReady` 仍为 true，值得再补一次）。
+4. **PCH 同一条落库路**（`runnoSandbox.prefetchPch`）：从 `downloadShippedPch()` 改成 `fetchShippedPch()` —— 内存一份 + IndexedDB 一份。以前预取只把响应留在 SW 缓存里、把字节丢掉，而编译路径只读内存 / IDB，「预取完成」与「首编用上 PCH」互不相干。18MB 常驻是刻意的，顺带消掉「首编赶在 18MB put 提交前读库」的竞态。
+
+`runtimePreload.js` 只改注释：预取边界第 1 条补上 PCH 这个例外。
+
+### 26.2 实测（dev / localhost / 无头 Chrome，探针放 `/tmp`、跑完即删，24/24）
+
+| 场景 | 读数 |
+| --- | --- |
+| A 预取 → 首编 | `prefetchPch` 112ms 落 IDB **18,372,468 B**；首个 `/program.cpp` 编译载荷里 `pch` 同为 **18,372,468 B** |
+| B 语法进行中点运行 | 语法已派发时发起运行：**terminate 0 次**；语法结论（0 条标记）落地后编译才派发；运行成功 |
+| C idle 不变量 | 6 条 idle，全部 `busy=false / active=null / queued=0 / holders=0` |
+| D hold → 释放 | 占用期间语法**不发消息**（BUSY 让路）；释放后 **0ms** 由 idle 补枪并出标记（早于 600ms 兜底） |
+| E TLE → 只敲键盘 | `kill(timeout)` → terminated 事件 → 缓存探针仍判「本机有」→ **509ms 自动重建**、标记自动清空，全程 **0 次用户编译** |
+| F 回归 | PCH 本机生成仍被前台运行以 `preempted` 抢掉，用户运行照常成功 |
+
+验证 E 时 dev 没有 SW（`ensureRuntimeLoaded` 在无 controller 时直接放弃），探针用 `ServiceWorkerContainer.prototype` 上伪造的 controller + `cp-toolchain` 桶里种三条资产，模拟线上「本机缓存过」的判据；生产路径仍由真 SW 提供。
+
+### 26.3 边界
+
+- 语法为什么不干脆开第二颗宿主：那会多一份 ~22MiB 的 clang / sysroot 常驻，而语法只跑百毫秒级，省下的等待抵不过峰值内存。
+- `terminated` 不主动重建：用户可能跑完 TLE 就关文件；重建只在「下一次击键 / 运行时就绪」时发生。
+- 卸载（`DISPOSED`）不重新武装诊断：卸载之后再探缓存只是白忙。
+
+
 
 

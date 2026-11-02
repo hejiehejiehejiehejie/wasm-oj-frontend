@@ -28,7 +28,7 @@ import { WASIWorkerHost } from '@runno/wasi'
 import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
 import { TOOLCHAIN_CACHE } from './storageNames.js'
-import { HOST_PRIORITY_BACKGROUND, WasiWorkerHost } from './wasi/client.js'
+import { HOST_PRIORITY_BACKGROUND, KILL_REASON, WasiWorkerHost } from './wasi/client.js'
 import { detectWasmFeatures } from './wasmFeatures.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
@@ -594,6 +594,33 @@ function createToolHost({ oomProbe = true } = {}) {
   })
 }
 
+/**
+ * 主宿主的生命周期订阅（见 wasi/client.js 的 onEvent）。
+ *
+ * 只转发**主**宿主：对拍那颗是另一条独立生命线，它的死不该让编辑器重新武装诊断。
+ * 带 DISPOSED 的终止（用户卸载）不转发 —— 卸载之后再探缓存只是白忙；TLE / 看门狗 /
+ * 抢占 / 崩溃才值得通知，语法侧据此把「每会话只试一次」的闸门放开。
+ *
+ * @type {Set<(event: { type: 'terminated' | 'idle', reason?: string | null, message?: string }) => void>}
+ */
+const hostEventListeners = new Set()
+
+export function onHostEvent(listener) {
+  hostEventListeners.add(listener)
+  return () => hostEventListeners.delete(listener)
+}
+
+function forwardHostEvent(event) {
+  if (event.type === 'terminated' && event.reason === KILL_REASON.DISPOSED) return
+  for (const listener of hostEventListeners) {
+    try {
+      listener(event)
+    } catch {
+      /* 一个订阅者坏了不连坐 */
+    }
+  }
+}
+
 function loadToolchain(onStatus) {
   if (toolchain?.host?.alive) return Promise.resolve(toolchain)
   if (toolchain && !toolchain.host?.alive) {
@@ -611,6 +638,9 @@ function loadToolchain(onStatus) {
       }
       onStatus('download', t('stage.toolchain'))
       const host = createToolHost()
+      // 转发宿主生命周期：语法诊断把一次性闸门挂在它上面（见 onHostEvent）。
+      // 监听器随宿主对象一起消失，重建时会重新挂上。
+      host.onEvent(forwardHostEvent)
       try {
         const preloaded = await host.preload()
         if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
@@ -1622,15 +1652,22 @@ async function fetchShippedPch() {
 }
 
 /**
- * 后台把预编译 PCH 读进缓存（`/wasm/` 前缀 → SW 的 `cp-toolchain` 桶，cache-first）。
+ * 后台把预编译 PCH 备好，**走和编译路径同一条落库路**（见 fetchShippedPch）：
+ * 内存一份 + IndexedDB 一份。缓存只当传输层，不再当唯一的落脚点。
+ *
+ * 2026-11-03 修：以前这里只把响应留在 SW 缓存里、把解出来的字节丢掉，而
+ * `loadPchBytes` 只读内存 / IndexedDB —— 于是「预取完成」与「首编用上 PCH」是两件
+ * 互不相干的事（实测首编 616ms vs 带 PCH 270ms，白等约 350ms）。
+ *
+ * 18MB 常驻是刻意的：第一次运行之后本来也会常驻（warmupPch 走同一条路），而且内存这份
+ * 还能消掉「首编赶在 IndexedDB 的 18MB put 提交之前读库」的竞态。
  *
  * 与 `prefetchRuntimeAssets` 分开两个函数：那个同时是「工具链是否已下载」的判据
  * （`runtimeAssetURLs`），把 PCH 塞进去会让所有老用户被判成「没下过」。
- * 可重复调用：SW 命中时几乎没有成本，所以每次启动预取都可以走一遍。
+ * 可重复调用：内存 / 存档命中时几乎没有成本。
  */
 export async function prefetchPch() {
-  // 只为了把响应写进 Cache Storage；解出来的字节交给 GC，不留在模块里
-  await downloadShippedPch()
+  await fetchShippedPch()
 }
 
 /** @type {Promise<Uint8Array | null> | null} 在途的下载（单飞，见 downloadShippedPch） */

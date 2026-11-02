@@ -26,6 +26,9 @@
  * 第二条纪律是**前台优先**（见 `send` 的 `priority`）：用户点的那一下永远排在排队中的
  * 后台活前面；后台活要是**已经派发**出去了，就整颗换掉（wasm 里没有中断点），
  * 排队中的前台任务由 `terminate` 交接给新 worker —— 见 KILL_REASON 与 preserveWaiting。
+ *
+ * 唯一的例外是**语法诊断**（label `'syntax'`）：它只有百毫秒级，而杀一次要重建整颗
+ * worker（~400ms）外加一枪 ABORTED、旧红线留在编辑器里。所以前台让它跑完，自己不杀它。
  */
 
 import { createMirror, readMirror, resetMirror } from './stdoutMirror.js'
@@ -126,6 +129,10 @@ export class WasiWorkerHost {
     this.active = null
     /** 已入队、还没轮到的任务（按入队顺序，取的时候按 priority 挑） */
     this.waiting = []
+    /** 生命周期订阅，见 onEvent */
+    this.eventListeners = new Set()
+    /** idle 已经排进微任务，别重复排 */
+    this.idleScheduled = false
     this.stdout = ''
     this.stderr = ''
     // stdout 的跨线程镜像：TLE 掐断之后靠它取回「已经打印出来的部分」。
@@ -164,7 +171,46 @@ export class WasiWorkerHost {
       if (released) return
       released = true
       this.holders = Math.max(0, this.holders - 1)
+      // 占用的往往是「编译完还要等上层来收尾」的那段时间；释放才是真正空闲的起点
+      this.scheduleIdleNotify()
     }
+  }
+
+  /**
+   * 订阅宿主的生命周期。上层的一次性闸门（语法预热、PCH 预热）挂在它上面，
+   * 而不是自己写一份「每会话只试一次」后就不管宿主死活了。
+   *
+   * - `terminated`：worker 被收掉（看门狗 / 抢占 / 崩溃 / 卸载），带 `reason`；
+   * - `idle`：队列排空且没有任何 hold 占用。
+   *
+   * idle **不在任务 settle 的同一拍发出**：`settle` 之后上层的 `finally` 才调
+   * releaseHost()，同步发时 holders 往往还没降下来，订阅者会再次看到 busy
+   * （PCH 生成结束后的语法补查就卡在这里）。所以排进微任务，发之前重新核验一次。
+   */
+  onEvent(listener) {
+    this.eventListeners.add(listener)
+    return () => this.eventListeners.delete(listener)
+  }
+
+  emitEvent(event) {
+    for (const listener of this.eventListeners) {
+      try {
+        listener(event)
+      } catch {
+        /* 一个订阅者坏了不连坐 */
+      }
+    }
+  }
+
+  scheduleIdleNotify() {
+    if (this.idleScheduled || !this.eventListeners.size) return
+    this.idleScheduled = true
+    queueMicrotask(() => {
+      this.idleScheduled = false
+      // 这期间可能又派发了新任务 / 有人 hold 住了 / 宿主已经死了 —— 都不算空闲
+      if (this.dead || this.active || this.waiting.length || this.holders > 0) return
+      this.emitEvent({ type: 'idle' })
+    })
   }
 
   /** 懒分配 stdout 镜像；SAB 用不了（没开跨域隔离）时返回 null，退回消息那条路 */
@@ -219,6 +265,9 @@ export class WasiWorkerHost {
       // 世代推进 + 队列清空：崩溃之后排队的那几条再也不会有人回话
       this.generation += 1
       this.fail(error)
+      // reason 为 null：不是外力掐断，是宿主自己崩的。语法侧同样要把闸门放开，
+      // 否则「崩溃一次 → 本会话不再诊断」会变成没人能解释的假死。
+      this.emitEvent({ type: 'terminated', reason: null, message: error.message })
     }
     this.worker = worker
     // init 走同一条队列（它必然是这颗 worker 的第一条消息），这样「一次只发一条」
@@ -308,15 +357,20 @@ export class WasiWorkerHost {
       else job.resolve(result)
     }
     this.waiting.push(job)
-    // 抢占：前台任务绝不排在后台活（语法诊断 / PCH 本机生成）后面。
+    // 抢占：前台任务绝不排在后台活（PCH 本机生成）后面。
     // 后台那条**已经派发**了，wasm 里没有中断点，只能连同 worker 一起收掉；
     // 而排队中的前台任务本身没问题，由 terminate 交接给新 worker 继续跑
     // （见 terminate 的 preserveWaiting）。
+    //
+    // 语法诊断（label `'syntax'`）不在此列：它只有百毫秒级，杀一次却要重建整颗
+    // worker（~400ms），还把那一枪变成 ABORTED、旧红线留在编辑器里 —— 让路反而更贵。
+    // 它跑完后前台任务本来就排在队首，会立刻派发；真卡住有 15s 看门狗兜底。
     const active = this.active
     if (
       job.priority === HOST_PRIORITY_FOREGROUND &&
       active &&
-      active.priority === HOST_PRIORITY_BACKGROUND
+      active.priority === HOST_PRIORITY_BACKGROUND &&
+      active.label !== 'syntax'
     ) {
       this.terminate({
         message: `C++ WASI 后台任务（${active.label || 'background'}）已让路`,
@@ -344,7 +398,11 @@ export class WasiWorkerHost {
   pump() {
     while (!this.active) {
       const job = this.takeNext()
-      if (!job) return
+      if (!job) {
+        // 队列排空：下一拍通知订阅者（发之前会再核一次 hold / 新任务）
+        this.scheduleIdleNotify()
+        return
+      }
       if (this.dead || !this.worker || job.generation !== this.generation) {
         // 它等的那颗 worker 已经没了 / 换过世代：这条永远跑不了了。
         // 必须就地判死，否则它会一直挂在队列里（「永远不出结果」的另一种形状）。
@@ -506,6 +564,10 @@ export class WasiWorkerHost {
       if (preserveWaiting && job.priority === HOST_PRIORITY_FOREGROUND) carry.push(job)
       else job.settle(error)
     }
+    // 先告诉订阅者「这颗 worker 已经没了」，再决定是否重建：语法侧要把
+    // 「每会话只试一次」的闸门放开（见 runnoSandbox.onHostEvent），PCH 侧靠错误上的
+    // reason 自己重置 —— 两边都不该靠猜下一次运行来恢复。
+    this.emitEvent({ type: 'terminated', reason, message })
     if (!carry.length) return
 
     // 不可见的告警：用户没有做错事，不该看到报错，但排查时要知道发生过交接
@@ -548,6 +610,13 @@ export class WasiWorkerHost {
   }
 
   dispose() {
-    this.terminate({ message: 'C++ WASI worker 已释放', code: 'disposed', keepOutput: false })
+    // 必须带 DISPOSED：这是「用户主动卸载 / 释放」，不是宿主意外死亡。
+    // 订阅者（语法诊断）据此不重新武装 —— 否则卸载后每次击键都会白探一次缓存。
+    this.terminate({
+      message: 'C++ WASI worker 已释放',
+      code: 'disposed',
+      reason: KILL_REASON.DISPOSED,
+      keepOutput: false,
+    })
   }
 }

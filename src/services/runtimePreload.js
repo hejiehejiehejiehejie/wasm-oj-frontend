@@ -6,8 +6,10 @@
  * 才是用户关闭。Python / 渲染器仍按勾选。
  *
  * 三条边界：
- * 1) **只下到 Cache Storage，不 init 宿主、不 untar**：`preloadToolchain()` 会建 worker、
+ * 1) **只下到缓存，不 init 宿主、不 untar**：`preloadToolchain()` 会建 worker、
  *    解 1385 条 sysroot（~27 MiB 常驻），后台预取不该让每个访客都为没用到的语言付内存；
+ *    唯一例外是 PCH（~18MB）：它必须留在内存 + IndexedDB 里，编译路径才读得到
+ *    （见 runnoSandbox 的 prefetchPch）；
  * 2) **等 SW 接管**：首访时 SW 还没 controller，那几发 fetch 不进 `cp-toolchain`；
  *    今天等 `ready` + `controllerchange` 后再 idle 动手；
  * 3) 尽力而为：探针说已有就跳过；失败静默，用户真正点▶时照样按需下载。
@@ -61,7 +63,8 @@ export async function runAutoPreload() {
       if (!(await probeRuntime(id))) await prefetchRuntimeAssets(id)
       // 预编译 PCH（约 8MB）单独一份：它不在 `runtimeAssetURLs` 里 —— 那张表同时是
       // 「工具链是否已下载」的判据，塞进去会让所有老用户被判成「没下过」。所以这里
-      // **不看**上面那条探针结果，老用户也能补齐这一份（SW 命中时几乎没有成本）。
+      // **不看**上面那条探针结果，老用户也能补齐这一份（命中缓存时几乎没有成本；
+      // 没命中就走 prefetchPch 那条落库路：内存 + IndexedDB）。
       if (id === 'cpp') await prefetchPch()
     } catch {
       // 断网 / 配额 / 探测失败：这次没提前下好，别继续把剩下的也试一遍

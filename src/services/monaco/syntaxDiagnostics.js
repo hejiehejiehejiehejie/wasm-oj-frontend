@@ -44,6 +44,7 @@ import {
   checkPythonSyntax,
   isPythonRuntimeReady,
   isToolchainReady,
+  onHostEvent,
   onRuntimeReady,
 } from '../runnoSandbox.js'
 
@@ -125,9 +126,11 @@ let runningHost = null
 let deferred = null
 
 /**
- * 补账的重试次数与间隔。宿主的另一个持有人是 PCH 后台生成，它**不发 idle 事件**
- * （不经过 wasmRuntime 的任务总线），所以「运行结束 → 立刻补枪」偶尔会正好撞上它、
- * 又被让路一次。给几次延迟重试兜住这种撞车；次数封顶，免得在长跑 / 长生成期间空转。
+ * 补账的重试次数与间隔。
+ *
+ * 主路径现在是宿主自己的 `idle` 事件（见文件末尾的 onHostEvent）：队列排空、没有 hold
+ * 占用时才发，PCH 本机生成结束也算。这里剩下的是兜底 —— 事件和计时器之间可能有极小的
+ * 窗口（例如宿主在补查前又被新一轮运行占住），给几次延迟重试；次数封顶，免得空转。
  */
 const DEFERRED_RETRY_MS = 600
 const DEFERRED_RETRY_LIMIT = 4
@@ -317,7 +320,8 @@ async function runCheck(model, language, text) {
   const seq = ++latestSeq
   // 运行时没就绪：跳过，但**不清**已有标记（清掉等于告诉用户「代码突然对了」）。
   // 还要把这一语言的补账收掉 —— 运行时都不在（宿主被看门狗收掉、或压根没下载），
-  // 再重试多少次都不会有结论，等 runtimeReady 的通知就够了（文件末尾的订阅）。
+  // 再重试多少次都不会有结论。宿主被收掉的情况由 terminated 订阅放开闸门（见文件末尾），
+  // 下一次击键会「只读缓存、不下载」地重建，重建成功再通过 runtimeReady 的通知重查。
   if (!runtimeReady(language)) {
     clearDeferred(language)
     return
@@ -349,9 +353,22 @@ async function runCheck(model, language, text) {
     }
     return
   }
+  if (status === SYNTAX_STATUS.ABORTED) {
+    // 宿主被外力掐断（看门狗 / 抢占 / 崩溃）。旧标记保留 —— 代码没变，结论就还成立。
+    // 但**不要就此遗忘**：宿主的 terminate 若是就地重建（抢占），`runtimeReady` 仍是 true，
+    // 这一枪其实值得再补一次；宿主真没了则交给 terminated 订阅去放开闸门、
+    // 等 onRuntimeReady 重建后再查（见文件末尾）。
+    if (seq === latestSeq && runtimeReady(language)) {
+      deferred = { key: model.uri.toString(), text, language }
+      scheduleDeferredRetry()
+    } else {
+      clearDeferred(language)
+    }
+    return
+  }
   if (status !== SYNTAX_STATUS.SUCCESS) {
-    // unavailable / aborted：宿主没了、或这一枪被外力掐断。
-    // 保留旧标记，但**不再补账**：试多少次都是同一个结果，等下一枪或 runtimeReady。
+    // unavailable：宿主没了（看门狗 / 卸载）。保留旧标记，但不再补账 ——
+    // 等 terminated 订阅放开闸门、onRuntimeReady 重建后由那个入口重查。
     clearDeferred(language)
     return
   }
@@ -456,6 +473,29 @@ onRuntimeReady(() => {
 })
 
 /**
+ * 宿主生命周期（2026-11-03）：一次性闸门跟着**宿主**走，而不是跟着页面会话走。
+ *
+ * - `terminated`：宿主没了（TLE / 看门狗 / 抢占 / 崩溃）。把 `bootstrapAttempts` 放开，
+ *   下一次击键就会走 ensureRuntimeLoaded 的「只读缓存、不下载」重建；重建成功会
+ *   `notifyRuntimeReady`，上面那一枪立刻重查。这里**不主动重建** —— 用户可能跑完 TLE
+ *   就把文件关了，不该为诊断先拉起一颗宿主。卸载（DISPOSED）不会转发到这里。
+ * - `idle`：队列排空且没有 hold 占用（PCH 本机生成结束也走这条）。补上「让路之后
+ *   没人叫醒」的缺口，不再只靠 600ms×4 的盲轮询。
+ */
+onHostEvent((event) => {
+  if (event.type === 'terminated') {
+    bootstrapAttempts.delete('cpp')
+    deferredRetries = 0
+    return
+  }
+  if (event.type !== 'idle' || !deferred) return
+  clearTimeout(deferredTimer)
+  deferredTimer = 0
+  deferredRetries = 0
+  runDeferred()
+})
+
+/**
  * 把「运行期间被迫让路的那一枪」补上。
  *
  * 只在真有让路记录时才做事，所以平时它是空的。补跑前要重新核对：用户可能已经切了文件、
@@ -463,8 +503,8 @@ onRuntimeReady(() => {
  * 触发新一枪）。核对通过就直接跑一次，不走防抖、也不碰退避计数：这是补账，不是用户又
  * 敲了一下键盘。
  *
- * 两个入口：沙箱空闲（一次运行 / 预载收尾，`subscribeStatus` 的 idle）是主路径；
- * 撞上 PCH 后台生成时那条路没有事件，靠 `scheduleDeferredRetry` 的延迟重试兜住。
+ * 两个入口：宿主空闲（`onHostEvent` 的 idle，覆盖运行收尾 / PCH 生成结束）是主路径；
+ * 沙箱状态机的 idle（`subscribeStatus`）与延迟重试兜住极小的时序窗口。
  * 补跑若又被让路，`runCheck` 会把记录重新写回来并再排一次重试，所以这里只负责「试一次」。
  */
 function runDeferred() {
