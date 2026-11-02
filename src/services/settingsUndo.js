@@ -84,8 +84,10 @@ const TAG_PREFIX = 'setting:'
 const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
 
 /**
- * 名字不在 `settings.editor.*` 域里的几项 —— 面板把它们摆在「外观」「模板」栏，
- * 词条也就跟着在那边（见 EditorSettingsPanel.vue 的 APPEARANCE_ROWS / SHELL_ROWS）。
+ * 名字不在 `settings.editor.*` 域里的几项 —— 面板把它们摆在「外观」「模板」「评测」栏，
+ * 词条也就跟着在那边（见 EditorSettingsPanel.vue 的 APPEARANCE_ROWS / SHELL_ROWS / 评测那一组）。
+ * 漏一项的表现是通知标题直接显示原始 key（实测漏过 `crossCheck`：弹出
+ * `settings.editor.crossCheck.label`）。
  */
 const EXTRA_LABEL_KEYS = {
   theme: 'settings.appearance.theme.label',
@@ -95,6 +97,8 @@ const EXTRA_LABEL_KEYS = {
   panelPosition: 'settings.appearance.panelPosition.label',
   narrowCollapseSide: 'settings.appearance.narrowCollapseSide.label',
   templatesEnabled: 'settings.templates.enable.label',
+  celebration: 'settings.judge.celebration.label',
+  crossCheck: 'settings.judge.crossCheck.label',
 }
 
 const labelKeyFor = (id) => EXTRA_LABEL_KEYS[id] ?? `settings.editor.${id}.label`
