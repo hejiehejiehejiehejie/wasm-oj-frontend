@@ -674,10 +674,15 @@ async function confirmEntry() {
    开赛时刻留下（2026-11-02 用户口径）—— 否则窄屏上会剩下一行「没有时间、只有一个破折号」。
    撤掉一列要同时换模板，开赛时刻在 32rem / 28rem 档本来会被上面撤掉，这里对已结束的行改回显示。
    两个档分别挂在各自的断点上：40rem 只覆盖带动作列的行，34rem 才覆盖没有动作列的行 ——
-   后者在 40~34rem 之间仍是宽版式，不能提前换成窄模板。 */
+   后者在 40~34rem 之间仍是宽版式，不能提前换成窄模板。
+
+   时刻轨道 92 → 108、并给自己补 16px 右内边距（2026-11-02 用户报障）：撤掉倒计时后，
+   时刻的右缘只隔一道 8px 列距就贴住「VP / 外链图标」，看着像被推到最右边。轨道加宽的 16px
+   正好被内边距吃掉，日期可用宽度仍是原来的 92px（跨年的长日期不会更容易截断），
+   与右侧那一簇的间距从 8px 变成 24px。 */
 @container cf (max-width: 40rem) {
   .cf-schedule__row--entry.cf-schedule__row--finished {
-    grid-template-columns: minmax(0, 1fr) 92px 56px 20px;
+    grid-template-columns: minmax(0, 1fr) 108px 56px 20px;
   }
 
   .cf-schedule__row--entry.cf-schedule__row--finished .cf-schedule__clock {
@@ -686,12 +691,13 @@ async function confirmEntry() {
 
   .cf-schedule__row--entry.cf-schedule__row--finished .cf-schedule__start {
     display: inline;
+    padding-right: 16px;
   }
 }
 
 @container cf (max-width: 34rem) {
   .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished {
-    grid-template-columns: minmax(0, 1fr) 92px 20px;
+    grid-template-columns: minmax(0, 1fr) 108px 20px;
   }
 
   .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished .cf-schedule__clock {
@@ -700,6 +706,7 @@ async function confirmEntry() {
 
   .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished .cf-schedule__start {
     display: inline;
+    padding-right: 16px;
   }
 }
 
