@@ -21,7 +21,8 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-submit-status：扩展回报这次提交的评测状态变化（见下）
  *   - cp-contest-states / cp-contest-states-result：网页读赛程上每一场的报名状态（见下）
  *   - cp-register / cp-register-result：网页请扩展替用户报名（见下）
- *   - cp-start-virtual / cp-start-virtual-result：网页请扩展替用户开一场 VP（见下）
+ *   - cp-start-virtual / cp-start-virtual-result：网页请扩展替用户开一场 VP（见下）。
+ *     2026-11-03 起带 `startAt`（毫秒时间戳，0 = 现在），受 `contest-virtual-start-time` 保护
  *   - cp-unofficial-rank / cp-unofficial-rank-result：网页问自己在一场里的非正式名次（见下）
  *
  * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
@@ -622,6 +623,17 @@ export const canStartVirtual = computed(() =>
   (extensionInfo.value?.capabilities ?? []).includes('contest-virtual'),
 )
 
+/**
+ * 开 VP 时能不能指定开始时刻（2026-11-03 加，扩展 2.70.0 起）。
+ *
+ * 【为什么要单独一条能力】老扩展收到 `startAt` 也不认识，会按「现在开始」提交 ——
+ * 那等于把用户选的时间悄悄吃掉。所以站点先看能力位，没有就整行时间选择不出现，
+ * 行为与改动前一模一样。
+ */
+export const canStartVirtualAt = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-virtual-start-time'),
+)
+
 /** 能不能读非正式名次。没有这条就退回 P0 的口径：榜单只画官方参赛者 */
 export const canReadUnofficialRank = computed(() =>
   (extensionInfo.value?.capabilities ?? []).includes('contest-unofficial'),
@@ -670,6 +682,9 @@ export function requestContestStates() {
  * `options.unrated`（2026-10-30 加）只对「报名」有意义：true = 请扩展按不计分报。
  * 受 `canRegisterUnrated` 保护 —— 老扩展不认识这个字段，别把选择发过去当没看见。
  * 这一场若没有不计分选项，扩展会回 `unrated-unavailable`，报名**没有发生**。
+ *
+ * `options.startAt`（2026-11-03 加）只对「开 VP」有意义：毫秒时间戳 = 虚拟参赛的开始时刻。
+ * 受 `canStartVirtualAt` 保护，理由同上；缺省 / 0 = 扩展按「现在开始」提交。
  */
 export function requestContestEntry(contestId, kind, options = {}) {
   return new Promise((resolve) => {
@@ -677,6 +692,13 @@ export function requestContestEntry(contestId, kind, options = {}) {
     const capability = kind === 'virtual' ? canStartVirtual : canRegisterContest
     const unrated =
       kind === 'register' && options.unrated === true && canRegisterUnrated.value
+    const startAt =
+      kind === 'virtual' &&
+      Number.isFinite(options.startAt) &&
+      options.startAt > 0 &&
+      canStartVirtualAt.value
+        ? Math.round(options.startAt)
+        : 0
 
     if (!capability.value || !contestId) {
       resolve({ ok: false, reason: 'unsupported' })
@@ -697,7 +719,7 @@ export function requestContestEntry(contestId, kind, options = {}) {
     })
 
     window.postMessage(
-      { source: PAGE_SOURCE, type, requestId, contestId: String(contestId), unrated },
+      { source: PAGE_SOURCE, type, requestId, contestId: String(contestId), unrated, startAt },
       window.location.origin,
     )
   })

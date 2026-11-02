@@ -235,6 +235,12 @@ export default {
               unrated: '成绩不计入 rating。',
             },
           },
+          /** 虚拟参赛的开始时刻（2026-11-03 加）：CF 的 VP 表单本来就有这一行，
+               默认现在，站点把它摆到确认卡片上 */
+          entryStart: {
+            label: '开始时间',
+            hint: '虚拟参赛从这一刻开始计时，默认现在。',
+          },
           entryDone: {
             register: '已报名 {name}',
             registerUnrated: '已按不计分报名 {name}',
@@ -556,6 +562,12 @@ export default {
               rated: 'Affects your rating.',
               unrated: 'Does not affect your rating.',
             },
+          },
+          /** Virtual start time (2026-11-03): CF's VP form already has this row, defaulting
+               to now; the site surfaces it on the confirm card */
+          entryStart: {
+            label: 'Start time',
+            hint: 'The virtual contest starts counting from this time. Defaults to now.',
           },
           entryDone: {
             register: 'Registered for {name}',

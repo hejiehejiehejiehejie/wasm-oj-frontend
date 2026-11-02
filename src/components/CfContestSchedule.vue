@@ -157,6 +157,22 @@
           <p v-if="showEntryMode" class="confirm__hint">
             {{ t(`cf.contest.schedule.entryMode.hint.${entryMode}`) }}
           </p>
+          <!-- 虚拟参赛的开始时刻（2026-11-03 加）：CF 的 VP 表单本来就有这一行，默认「现在」，
+               站点把它摆到确认卡片上。旧扩展没有这条能力，整行不出现，行为与以前一样 -->
+          <div v-if="showEntryStart" class="confirm__field">
+            <label class="confirm__label" for="contest-vp-start">
+              {{ t('cf.contest.schedule.entryStart.label') }}
+            </label>
+            <input
+              id="contest-vp-start"
+              v-model="entryStartAt"
+              class="confirm__input"
+              type="datetime-local"
+            />
+          </div>
+          <p v-if="showEntryStart" class="confirm__hint">
+            {{ t('cf.contest.schedule.entryStart.hint') }}
+          </p>
           <div class="confirm__actions">
             <button type="button" class="confirm__btn" @click="cancelEntry">
               {{ t('cf.contest.schedule.entryCancel') }}
@@ -205,6 +221,7 @@ import {
   canRegisterContest,
   canRegisterUnrated,
   canStartVirtual,
+  canStartVirtualAt,
 } from '../composables/useCompanionBridge.js'
 
 const props = defineProps({
@@ -329,10 +346,27 @@ const showEntryMode = computed(
   () => pendingEntry.value?.kind === 'register' && canRegisterUnrated.value,
 )
 
+/** 虚拟参赛的开始时刻（datetime-local 的本地时间串）；空串 = 交给 CF 用「现在」 */
+const entryStartAt = ref('')
+
+/** 只有「开 VP + 扩展认得 startAt」时才有这一行 */
+const showEntryStart = computed(
+  () => pendingEntry.value?.kind === 'virtual' && canStartVirtualAt.value,
+)
+
+/** 本地时间串：`datetime-local` 要的是 yyyy-MM-ddTHH:mm，不带时区 */
+function localDateTimeText(date) {
+  const pad = (value) => String(value).padStart(2, '0')
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  return `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function askEntry(contest, kind) {
   if (entryBusy.value || !kind) return
   // 每次开卡片都回到「计分」：上一场选过不计分，不该悄悄留给下一场
   entryMode.value = 'rated'
+  // 开始时间同理：每次都从此刻起算，不记上一场选过的时刻
+  entryStartAt.value = kind === 'virtual' ? localDateTimeText(new Date()) : ''
   pendingEntry.value = { contest, kind }
 }
 
@@ -367,7 +401,11 @@ async function confirmEntry() {
   const { contest, kind } = entry
   // 不计分只在「报名」上带下去；VP 本来就不计分，扩展那边也不看这个字段
   const unrated = kind === 'register' && entryMode.value === 'unrated'
-  const result = await submitEntry(contest, kind, { unrated })
+  // 开始时刻只在「开 VP」上带下去；空串 / 解析不出来 = 0，扩展按「现在开始」提交
+  const startAt = kind === 'virtual' && entryStartAt.value
+    ? new Date(entryStartAt.value).getTime()
+    : 0
+  const result = await submitEntry(contest, kind, { unrated, startAt })
 
   if (result.ok) {
     // 站内报名成功：记下开赛时刻，T-10 分钟由 cfStartReminder 弹提醒（VP 不记 ——
@@ -799,6 +837,37 @@ async function confirmEntry() {
   color: var(--text-faint);
   font-size: 11.5px;
   line-height: 1.6;
+}
+
+/* 虚拟参赛的开始时间（2026-11-03）：一行标签 + 本地时间输入框。
+   输入框用原生 datetime-local —— 时区就是本机时区，与扩展那边填给 CF 的口径一致 */
+.confirm__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.confirm__label {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.confirm__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: 500 12.5px/1.5 var(--font-sans, system-ui);
+}
+
+.confirm__input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 .confirm__actions {
