@@ -8,7 +8,7 @@ import puppeteer from 'puppeteer-core'
  * 生成浏览器扩展商店的截图（Edge Add-ons 与 Chrome Web Store 的截图规格都是 1280×800）。
  *
  * 【为什么不真装扩展】扩展在浏览器 UI 层（工具栏图标）与操作系统层（系统通知）上画画，
- * 页面内的自动化截不到那两处 —— 那两张只能真机手拍（见 cph-companion/SUBMISSION-EDGE.md
+ * 页面内的自动化截不到那两处 —— 那两张只能真机手拍（见 CC-for-Web/SUBMISSION-EDGE.md
  * 第 5.1 节）。本脚本只产 **站点这一张**：题目被抓进工作区之后长什么样。
  *
  * 【为什么走 postMessage 而不是伪造界面】商店截图最怕的是「图上是摆拍、装上去不一样」。

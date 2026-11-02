@@ -13,7 +13,7 @@
  *
  * 【为什么地址解析不设在后台】扩展也要解析一遍（它自己算出提交页，不信任网页递过来的
  * 任意 URL）。两份解析必须同口径：这里认 contest / problemset / gym / group 四种写法，
- * 与 cph-companion 的 background 一一对应；改一处就要改另一处。
+ * 与 CC-for-Web 的 background 一一对应；改一处就要改另一处。
  */
 import { activeLanguage, activeNode, peekActiveContent } from './vfs/workspaceStore.js'
 import { canSubmitCode, requestSubmit } from '../composables/useCompanionBridge.js'

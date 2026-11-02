@@ -522,7 +522,7 @@ export const filling = ref(false)
  *
  * 扩展只回一个枚举，不描述细节（它不知道站点要什么措辞，也不该往这里塞文案）。
  * 认不出来的枚举一律走兜底：宁可说「没填成，请手动」，也不要把用户卡在一次无解释的失败上。
- * 这些枚举是**跨仓契约**，与 cph-companion 的 fillCode 侧一一对应（见 HANDOFF 第 13 节）。
+ * 这些枚举是**跨仓契约**，与 CC-for-Web 的 fillCode 侧一一对应（见 HANDOFF 第 13 节）。
  */
 function fillFailureText(reason) {
   switch (reason) {
@@ -631,7 +631,7 @@ export async function fillCloudCode() {
   // 只有**不接着验证**时才说这句 —— 链路上它紧接着就去验证了，此时提示「回来点验证」
   // 会与屏幕上的动作打架（而且那一轮结束时页面往往已经重载）
   if (!saved) notice.value = t('settings.cloud.fillCodeDone')
-  // 扩展刚跑完一趟、会话缓存已经对齐（见 cph-companion 的 syncCfIdentityFromFill），
+  // 扩展刚跑完一趟、会话缓存已经对齐（见 CC-for-Web 的 syncCfIdentityFromFill），
   // 再问一次就能把「没登录 / 登的不是你」这类提示从「失败后才知道」提前到「点之前就知道」
   refreshCfStatus()
 

@@ -24,7 +24,7 @@ export const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 // 这个地址不随版本走（AMO 那个页面永远是「最新版」），不在上面「发新版改一处」之列。
 export const FIREFOX_EXTENSION_URL = 'https://addons.mozilla.org/zh-CN/firefox/addon/cc-for-web/'
 
-// Edge 加载项商店版还没上架（上架材料见 cph-companion 的 SUBMISSION-EDGE.md：Partner Center
+// Edge 加载项商店版还没上架（上架材料见 CC-for-Web 的 SUBMISSION-EDGE.md：Partner Center
 // 账号未注册、截图未拍）。地址先留在这里 —— 上架后把 URL 填上，面板那颗「Edge 版」按钮会自己
 // 出现，别的地方一个都不用改。
 // **空着就整颗不渲染**：宁可暂时少一颗按钮，也不给用户一个点开是 404 的入口。

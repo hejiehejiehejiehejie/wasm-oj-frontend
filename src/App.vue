@@ -101,7 +101,7 @@ const effectiveTimeLimitMs = computed(() => {
   return fromMeta && fromMeta > 0 ? fromMeta : timeLimitMs.value
 })
 // 实际生效的内存上限，与 effectiveTimeLimitMs 同构：扩展抓来的题在 config 里带
-// memoryLimit（单位 MB，cph-companion 的 Task 契约），换算成字节优先用；不是题目
+// memoryLimit（单位 MB，CC-for-Web 的 Task 契约），换算成字节优先用；不是题目
 // 文件（或抓取源没给）退回全局设置。个别 parser 硬编码的值（如 Beecrowd 1024）
 // 是该 OJ 的真实限制，照用不纠。
 const effectiveMemoryLimitBytes = computed(() => {

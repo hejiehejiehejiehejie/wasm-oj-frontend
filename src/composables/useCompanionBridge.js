@@ -7,7 +7,7 @@ import { IS_DESKTOP } from '../services/platform.js'
  * 浏览器扩展（改造版 Competitive Companion）的网页接收端。
  *
  * 扩展拿不到网页的 JS 作用域，所以它在目标网站里注入一个内容脚本做桥接
- * （cph-companion 的 src/bridge.ts），用 window.postMessage 中转这几种消息：
+ * （CC-for-Web 的 src/bridge.ts），用 window.postMessage 中转这几种消息：
  *   - cp-task：扩展把解析出来的题目 JSON 推过来
  *   - cp-ping / cp-info：网页主动握手，问扩展「装没装、版本号多少、快捷键绑了什么」
  *   - cp-set-config / cp-config：网页改投递目标开关
@@ -25,7 +25,7 @@ import { IS_DESKTOP } from '../services/platform.js'
  *   - cp-unofficial-rank / cp-unofficial-rank-result：网页问自己在一场里的非正式名次（见下）
  *
  * 这几个消息名是**跨仓契约**（2026-10-01 与扩展一起从 `cph-` 前缀改成 `cp-`）：
- * 改了任何一条都必须同步改 cph-companion 并发新版插件，否则新旧两边互相认不出、
+ * 改了任何一条都必须同步改 CC-for-Web 并发新版插件，否则新旧两边互相认不出、
  * 抓题直接失联。下一行的 EXTENSION_SOURCE 是扩展侧的来源标识，不属于这批消息名。
  *
  * 【cp-fill-code 这一对是 2026-10-11 新加的】它是网页发起的第二条**动作请求**（头一条是
@@ -52,7 +52,7 @@ import { IS_DESKTOP } from '../services/platform.js'
  * **走既有的 cp-task 逐题投递** —— 站点不必为「补样例」再造一条入库路径，扩展也不必另写
  * 一遍解析。它同样受 `capabilities` 的 `contest-batch` 保护，老扩展下那颗按钮不出现。
  * 投递回来的每一道题必须带着**它自己那一页**的地址，否则按 url 认题的站点会把整场并成一道
- * —— 扩展侧已改（cph-companion，2026-10-26），旧扩展的「整场页地址」由 `retargetContestTask` 兜底改回来。
+ * —— 扩展侧已改（CC-for-Web，2026-10-26），旧扩展的「整场页地址」由 `retargetContestTask` 兜底改回来。
  *
  * 【cp-fill-code-saved 是 2026-10-20 加的，把代填串成一条链路】`cp-fill-code-result` 只说明
  * 「字填进输入框了」，而验证要等 Codeforces **把表单提交、服务端读完、页面跳回来**才算数 ——
@@ -108,7 +108,7 @@ const checking = ref(false)
 const CONFIG_TIMEOUT = 1000
 /**
  * 答完「要抓」之后等题目投递回来的上限。
- * 扩展侧等样例渲染最多 20s（cph-companion 的 autoParse.ts），再加上解析与投递，
+ * 扩展侧等样例渲染最多 20s（CC-for-Web 的 autoParse.ts），再加上解析与投递，
  * 留 10s 余量；超过就认定这一趟空手而归，界面上转成「重开页面可再试」。
  */
 const SCRAPE_TIMEOUT = 30000
@@ -134,7 +134,7 @@ const FILL_SAVED_TIMEOUT = 13000
  * 等扩展回答「这个浏览器登的是不是这个 handle」的上限。
  *
  * 比代填短得多：这一问**不打开任何页面、不发任何请求**，扩展只是拿它自己存的会话缓存比一下
- * （见 cph-companion 的 background.ts），正常是毫秒级。留 3s 是给「service worker 刚被回收
+ * （见 CC-for-Web 的 background.ts），正常是毫秒级。留 3s 是给「service worker 刚被回收
  * 需要唤醒」那一档。超时一律当 unknown —— 这一问只是锦上添花，绝不能拖慢界面。
  */
 const CF_CHECK_TIMEOUT = 3000
@@ -377,7 +377,7 @@ export function requestCodeFill(handle, code) {
  * 【为什么只回枚举是安全的】本站问的是「是不是 he-jie」，而 he-jie 是用户自己填进来的 ——
  * 所以扩展回 match / mismatch / not-logged-in / unknown 里**没有一个字**是本站原本不知道的。
  * 扩展那边也不读 cookie：它读的是 Codeforces 页面上公开可见的那个 `/profile/<handle>` 链接
- * （见 cph-companion 的 src/cfIdentity.ts），判据与用户抬头看一眼等价。
+ * （见 CC-for-Web 的 src/cfIdentity.ts），判据与用户抬头看一眼等价。
  *
  * 【绝不用来鉴权】这个值只能决定界面显示什么。扩展是用户可替换的组件，伪造一个就能对任意
  * handle 回答 match —— 所以它不能参与「放行什么」。身份证明始终是服务端那条 user.info +
@@ -563,7 +563,7 @@ export function requestSubmit({ url, source, language }, onVerdict) {
 //
 // 【四件事，一个共同前提】读赛程的报名状态、替用户报名、开一场 VP、读非正式名次 ——
 // 这四件站点自己都做不到：跨源拿不到 CF 的会话，报名与开 VP 更必须对着 CF 自己的表单发 POST。
-// 所以都交给扩展（cph-companion 2.68.0 起，见那边 src/contestActions.ts）。
+// 所以都交给扩展（CC-for-Web 2.68.0 起，见那边 src/contestActions.ts）。
 //
 // 【只在用户点按时发生】四条 request 都由界面上的按钮触发一次；报名与开 VP 之前还各有一张
 // 确认卡片 —— 它们是不可逆的，确认之后才调接口，绝不自动重放。
@@ -571,7 +571,7 @@ export function requestSubmit({ url, source, language }, onVerdict) {
 // 【只回枚举与数字】状态枚举、原因枚举、名次数字；认不出的值在这里就被丢掉，
 // 界面只有那几种形态，不该被一个新枚举撬开新分支。
 
-/** 扩展侧回执里的报名状态枚举（跨仓契约，见 cph-companion 的 src/contestActions.ts） */
+/** 扩展侧回执里的报名状态枚举（跨仓契约，见 CC-for-Web 的 src/contestActions.ts） */
 const REGISTRATION_STATES = ['open', 'before', 'closed', 'registered', 'count', 'unknown']
 
 /** 等扩展读完比赛列表的上限：开页 + 加载 + 扫一遍表格 */
@@ -838,7 +838,7 @@ function answerNeedQuery(data) {
  * 一页里；2.67.4 及以前的扩展把**这一页的地址**当成每道题的 url 一起投回来（2026-10-26 实测，
  * 三条投递的 url 一模一样）。而站点这边按 url 认题（见 problemImport 的 findByUrl），于是：
  * 整场被并成同一道题、后一道的样例覆盖前一道；真正该收样例的那七八个文件一个字节都拿不到。
- * 扩展侧已改（cph-companion，按 `.problemindexholder[problemindex]` 指回各自那一页），
+ * 扩展侧已改（CC-for-Web，按 `.problemindexholder[problemindex]` 指回各自那一页），
  * 这里留一条兜底，让还没更新的插件不至于静默写坏工作区。
  *
  * 只认「题名以题号打头」这一种（扩展给的 name 就是 `A. Theatre Square` 这种形状）；
