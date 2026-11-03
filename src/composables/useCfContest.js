@@ -21,6 +21,10 @@
  * 会问一句要不要抓（见 useCompanionBridge.js 的自动抓取样例）；② 主动 —— 面板上那颗
  * 「抓样例」把整场交给扩展读一遍（P2，要扩展支持 `contest-batch` 能力）。
  * 两条路最后都落到同一条 cp-task 投递上，由 importProblem 按 url 并进已有的题里。
+ *
+ * 【VP 改写这一场的「开赛时刻」（2026-11-03）】开过虚拟参赛的场次不按官方时刻算：状态、
+ * 倒计时、锁题全部读本机的 VP 账本（services/cfVirtualContest.js）。VP 到点前题面与榜单
+ * 都拿不到 —— CF 的接口对一场「官方已结束」的比赛照常给题，不自己拦就等于提前看题。
  */
 import { computed, nextTick, onBeforeUnmount, ref, toRaw, watch } from 'vue'
 
@@ -31,16 +35,26 @@ import {
   contestStatus,
   contestUrl,
   formatDuration,
+  formatStartTime,
   parseContestSpec,
   sortByIndex,
+  virtualContestStatus,
 } from '../cf/contest.js'
 import { cfContest, cfContestProblems } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
+import { virtualContestOf } from '../services/cfVirtualContest.js'
 import { closeCodeforcesTab, deactivateViews } from '../services/editorViews.js'
-import { addTabsToGroup, findGroupByName, groupOfId, groupTabs } from '../services/tabGroups.js'
+import {
+  addTabsToGroup,
+  findGroupByName,
+  groupOfId,
+  groupTabs,
+  renameGroup,
+} from '../services/tabGroups.js'
 import { importProblem } from '../services/vfs/problemImport.js'
 import { findProblemByUrl, openFile } from '../services/vfs/workspaceStore.js'
 import { canScrapeContest, requestContestScrape } from './useCompanionBridge.js'
+import { compactContestName } from './useCfSchedule.js'
 import { usePersistentRef } from './usePersistentRef.js'
 
 /** 偏好键，与抽题那组同为 `cp.cf.` 前缀 */
@@ -80,13 +94,46 @@ export function useCfContest() {
    */
   const problemsNote = ref(null)
 
+  /**
+   * 这一场在这台设备上的虚拟参赛（没有 = null）。
+   *
+   * 【为什么开赛时刻从这里读】`contest.list` 里这一场可能早就 FINISHED 了，而用户的 VP 也许
+   * 还没开始 —— 官方时刻在这件事上一点用都没有。账本是响应式的：站内开成功、
+   * 扩展从 CF「Recent virt. contests」读回来，都会让这一页立刻换到 VP 的时刻。
+   */
+  const vp = computed(() => virtualContestOf(spec.value?.contestId))
+  const virtual = computed(() => vp.value !== null)
+
   /** 每秒推进一次。只作为 computed 的依赖，不参与任何累减 */
   const now = ref(Date.now())
-  const remainMs = computed(() => contestRemainingMs(contest.value, fetchedAt.value, now.value))
-  const status = computed(() => contestStatus(contest.value, remainMs.value))
+  const remainMs = computed(() => {
+    if (vp.value) return Number(vp.value.startMs) - now.value
+    return contestRemainingMs(contest.value, fetchedAt.value, now.value)
+  })
+  const status = computed(() => {
+    if (vp.value) return virtualContestStatus(vp.value, now.value)
+    return contestStatus(contest.value, remainMs.value)
+  })
+
+  /**
+   * VP 还没到点：题面与榜单都不打开（与正式参赛开赛前同一口径）。
+   *
+   * 【为什么必须自己拦】正式比赛开赛前，CF 的接口里本来就没有题；VP 面对的那一场早就是
+   * 「已结束」，接口会原样把题面与榜单给出来 —— 不拦就等于提前看题，比赛的计时失去意义。
+   */
+  const vpLocked = computed(() => virtual.value && status.value === 'upcoming')
+
+  /** VP 开始时刻 `MM-DD HH:MM`（本机时区），挂在页头徽标上 */
+  const vpStartText = computed(() => formatStartTime(Number(vp.value?.startMs || 0) / 1000))
 
   /** 比赛在网页上的地址（元数据没到也能拼，group 会带上 groupId） */
-  const url = computed(() => contestUrl(spec.value))
+  const url = computed(() => {
+    const base = contestUrl(spec.value)
+    if (!base) return ''
+    // VP 还没开始：CF 上那一页是倒计时页（/contest/{id}/countdown），开赛后自动跳回比赛页。
+    // 与赛程行尾 ↗ 的落点一致（用户从 /contests 点 Enter 看到的也是它）
+    return vpLocked.value ? `${base}/countdown` : base
+  })
 
   /** 标题：优先用 CF 给的名字，拿不到就退回 ID */
   const title = computed(() => contest.value?.name || (spec.value ? `#${spec.value.contestId}` : ''))
@@ -100,6 +147,16 @@ export function useCfContest() {
    */
   const statusText = computed(() => {
     if (error.value) return t(error.value.key, error.value.params)
+    // VP 的时刻是本机账本给的，不必等元数据：开赛前用户要看的就是这个倒计时
+    if (virtual.value) {
+      if (status.value === 'upcoming') {
+        return t('cf.contest.status.vpUpcoming', { time: formatDuration(remainMs.value) })
+      }
+      if (status.value === 'running') {
+        return t('cf.contest.status.vpRunning', { time: formatDuration(-remainMs.value) })
+      }
+      if (status.value === 'finished') return t('cf.contest.status.finished')
+    }
     if (loadingContest.value) return t('cf.contest.status.loading')
     if (status.value === 'upcoming') {
       return t('cf.contest.status.upcoming', { time: formatDuration(remainMs.value) })
@@ -187,6 +244,19 @@ export function useCfContest() {
   let contestSeq = 0
   let problemsSeq = 0
 
+  /**
+   * VP 一旦锁上（刚开的那场 VP 被采纳、或用户在别处开过），手里已经取回的题面要立刻收掉：
+   * 否则会留着一屏「开赛前不该看见的题」。作废在途的那一发，让晚到的结果落不进来。
+   * 解锁（到点开赛）不用在这里做什么 —— status 的 watch 会照常重取。
+   */
+  watch(vpLocked, (locked) => {
+    if (!locked) return
+    problemsSeq += 1
+    loadingProblems.value = false
+    problems.value = []
+    problemsNote.value = { key: 'cf.contest.errors.vpNotStarted' }
+  })
+
   /** 元数据。silent 时不动错误槽（给「到点自动刷新」用，不该把已有错误覆盖掉） */
   async function loadContest({ silent = false } = {}) {
     const current = spec.value
@@ -220,6 +290,16 @@ export function useCfContest() {
   async function loadProblems() {
     const current = spec.value
     if (!current) return
+
+    // VP 还没开始：接口会把题面原样给出来（这一场官方早就结束了），必须在这里拦住。
+    // 空态说明与「尚未开赛」分开说 —— 用户等的是自己定的那个时刻
+    if (vpLocked.value) {
+      problemsSeq += 1
+      loadingProblems.value = false
+      problems.value = []
+      problemsNote.value = { key: 'cf.contest.errors.vpNotStarted' }
+      return
+    }
 
     const seq = ++problemsSeq
     loadingProblems.value = true
@@ -272,7 +352,8 @@ export function useCfContest() {
   const importingAll = ref(false)
 
   /**
-   * 本场的页签组（2026-10-26 用户口径：比赛题目导入后归进一个以比赛名命名的组）。
+   * 本场的页签组（2026-10-26 用户口径：比赛题目导入后归进一个以比赛名命名的组；
+   * 2026-11-03 起组名改用 `compactContestName` 的短名，见 trackContestTab）。
    *
    * 与抽题那边的 `batchGroupId` 同一定位：这里只记组 id，建组 / 收编全走 tabGroups 的公开
    * 入口。不设「至少两道才建组」的门槛 —— 比赛的名字天生是组名，先导一道也该有组。
@@ -290,7 +371,12 @@ export function useCfContest() {
   }
 
   /**
-   * 把刚导入的页签收进本场的组：组名 = 比赛名。
+   * 把刚导入的页签收进本场的组：组名 = 比赛**短名**。
+   *
+   * 短名复用赛程窄容器那一份 `compactContestName`（2026-11-03 用户口径：比赛全名太长，
+   * 芯片上显示不全）：它把「Educational Codeforces Round 196 (Rated for Div. 2)」重排成
+   * 「Edu 196 (Div. 2)」—— 芯片放得下，而编号与 Div. 恰好是区分一场比赛的信息。
+   * **只作用于组名**：落盘目录（`importOne` 的 `contestName`）仍用全名，别把短名灌进路径。
    *
    * 【为什么要等一次 nextTick】新页签是 openTabIds 的 watch（flush: 'pre'）排进 stripOrder 的，
    * 而 tabGroups 只收「条带上已有的」页签 —— 不等这次刷新，刚打开的页签会被静默过滤掉
@@ -298,18 +384,22 @@ export function useCfContest() {
    *
    * 同一场再导入（刷新后重新导、或分几次导）先按名字找回已有的组，找不到才新建；
    * 用户把整组关掉时 groupOfId 查不到，也会另建一个，不把页签塞进不存在的组。
+   * 老版本用全名建的组按全名兜底找回、就地改成短名 —— 否则同一场会并排出现两枚芯片。
    * @param {string|undefined} tabId
    */
   async function trackContestTab(tabId) {
     if (!tabId) return
     await nextTick()
-    const name = title.value.trim()
-    const existing =
-      (contestGroupId && groupOfId(contestGroupId)) ||
-      (name && findGroupByName(name)) ||
-      null
+    const fullName = title.value.trim()
+    const name = compactContestName(fullName)
+    const byId = contestGroupId && groupOfId(contestGroupId)
+    const byName = byId ? null : name && findGroupByName(name)
+    // 只给「老版本用全名建的组」开这一条：按名字对上就顺手改名，别再改用户自己起的组名
+    const legacy = byId || byName ? null : fullName && findGroupByName(fullName)
+    const existing = byId || byName || legacy || null
     if (existing) {
       contestGroupId = existing.id
+      if (legacy && name) renameGroup(existing.id, name)
       addTabsToGroup([tabId], existing.id)
       return
     }
@@ -359,7 +449,7 @@ export function useCfContest() {
 
   /** 全部导入：串行 await，与抽题面板同一理由（并发落库会让树抖好几下） */
   async function importAll() {
-    if (importingAll.value || importingUrl.value) return
+    if (importingAll.value || importingUrl.value || vpLocked.value) return
 
     importingAll.value = true
     try {
@@ -386,7 +476,7 @@ export function useCfContest() {
    * 建 model、开页签、展开祖先目录。
    */
   async function importAllAndOpenFirst() {
-    if (importingAll.value || importingUrl.value) return
+    if (importingAll.value || importingUrl.value || vpLocked.value) return
 
     importingAll.value = true
     try {
@@ -523,7 +613,7 @@ export function useCfContest() {
    */
   async function scrapeSamples() {
     const current = spec.value
-    if (!current || scraping.value) return
+    if (!current || scraping.value || vpLocked.value) return
 
     const seq = ++scrapeSeq
     scraping.value = true
@@ -601,6 +691,11 @@ export function useCfContest() {
     status,
     statusText,
     remainMs,
+    // 虚拟参赛（VP）
+    vp,
+    virtual,
+    vpLocked,
+    vpStartText,
     // 导入
     importOne,
     importAll,

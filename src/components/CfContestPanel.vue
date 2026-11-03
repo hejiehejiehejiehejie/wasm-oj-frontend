@@ -57,6 +57,15 @@
             >
               {{ title }}
             </a>
+            <!-- VP 徽标带开始时刻（本机时区）：这一场的「开赛」是用户自己定的那一个，
+                 与赛程里那一行右边的时间同一个来源 -->
+            <span
+              v-if="virtual"
+              class="cf-contest__vp"
+              :title="t('cf.contest.schedule.virtualHint', { time: vpStartText })"
+            >
+              {{ t('cf.contest.status.vpBadge', { time: vpStartText }) }}
+            </span>
             <span v-if="kindLabel" class="cf-kind cf-mono">{{ kindLabel }}</span>
             <button
               type="button"
@@ -104,7 +113,8 @@
             </button>
           </div>
           <div class="cf-tabs__actions">
-            <template v-if="tab === 'problems'">
+            <!-- VP 还没开始：题面不出现，抓样例 / 全部导入也就没有可操作的题，整组动作收起 -->
+            <template v-if="tab === 'problems' && !vpLocked">
               <button
                 v-if="scrapeAvailable"
                 type="button"
@@ -222,7 +232,9 @@
           v-show="tab === 'standings'"
           :spec="spec"
           :active="props.active && !searching && tab === 'standings'"
-          :live="live"
+          :live="live && !virtual"
+          :vp="virtual"
+          :locked="vpLocked"
         />
         <CfSubmissionList
           ref="submissionsEl"
@@ -303,6 +315,9 @@ const {
   title,
   status,
   statusText,
+  virtual,
+  vpLocked,
+  vpStartText,
   importOne,
   importAll,
   importAllAndOpenFirst,
@@ -712,6 +727,19 @@ const canSubmitActive = computed(() => {
   font-weight: 600;
   text-decoration: none;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* VP 徽标：名字后面一小串「VP · 11-03 01:55」。等宽 + 主色，紧贴名字 ——
+   它与状态胶囊都在说时间，一个说「几点开始」，一个说「还有多久」 */
+.cf-contest__vp {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  color: var(--accent-text);
+  font-family: var(--mono-font);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 

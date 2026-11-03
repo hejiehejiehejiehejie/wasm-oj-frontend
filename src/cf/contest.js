@@ -244,6 +244,29 @@ export function contestStatus(contest, remainingMs) {
 }
 
 /**
+ * 一场虚拟参赛（VP）此刻是什么状态。
+ *
+ * 【为什么不套 contestStatus】VP 的开赛时刻与官方时刻是两回事：`contest.list` 里那一场
+ * 可能早就 FINISHED 了，而用户的 VP 才刚开始。所以 VP 一律只看账本里的 `startMs` /
+ * `durationMs`，`phase` 一个字都不读。
+ *
+ * 【durationMs 可能是 0】CF 的「Recent virt. contests」不给时长，而账本可能在赛程元数据
+ * 到达之前就被问状态 —— 只知道开始、不知道结束，按进行中处理（榜单 / 题面照常可用）。
+ *
+ * @param {{startMs?: number, durationMs?: number}|null} vp
+ * @returns {'upcoming'|'running'|'finished'|'unknown'}
+ */
+export function virtualContestStatus(vp, now = Date.now()) {
+  const startMs = Number(vp?.startMs)
+  if (!vp || !Number.isFinite(startMs)) return 'unknown'
+  if (now < startMs) return 'upcoming'
+
+  const durationMs = Number(vp.durationMs) || 0
+  if (durationMs > 0 && now >= startMs + durationMs) return 'finished'
+  return 'running'
+}
+
+/**
  * 按题号自然序：A、B、B1、B2、C……（`localeCompare` 的数字感知对 `B1` vs `B10` 也对）
  * 认不出 index 的条目沉到最后，不让它们挤在 A 前面。
  */

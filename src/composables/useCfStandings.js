@@ -20,6 +20,10 @@
  * 【复用同一份 standings】Worker 里 `contest.standings` 与题目列表共用一个请求与一份内存
  * 复用（直播中 3 秒、已结束 60 秒，见 cfWorker.js 的 requestStandings），所以这一页
  * 与「题目」页不会各拉一遍。
+ *
+ * 【虚拟参赛（2026-11-03）】VP 到点之前这一页整个锁住（locked）：不取数、不轮询、手里那份
+ * 也清掉 —— 官方榜对一场早结束的比赛照常给得出来，开赛前不该看见。开赛之后照常取官方榜，
+ * 用户自己那一行（含非正式的总名次与逐题成绩）由扩展从 CF 页面读回来，见 CfStandingsTable。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -58,11 +62,13 @@ function specKey(spec) {
  *   spec: import('vue').Ref<object|null>,
  *   active: import('vue').Ref<boolean>,
  *   live: import('vue').Ref<boolean>,
+ *   locked: import('vue').Ref<boolean>,
  * }} options
  *   active —— 排行榜这一子页此刻看不看得见
  *   live   —— 比赛此刻在进行中（由 useCfContest 的 status 推出来）
+ *   locked —— 虚拟参赛还没开始：这一页在开赛前什么都不取、也不轮询（见文件头）
  */
-export function useCfStandings({ spec, active, live }) {
+export function useCfStandings({ spec, active, live, locked = ref(false) }) {
   /** 已归一化的榜单；null = 还没取过 */
   const standings = ref(null)
   const loading = ref(false)
@@ -134,6 +140,8 @@ export function useCfStandings({ spec, active, live }) {
   async function load({ silent = false, force = false } = {}) {
     const current = spec.value
     if (!current?.contestId) return
+    // VP 还没开始：开赛前连官方榜也不该出现在这一页上（这一页整个被锁住，见组件）
+    if (locked.value) return
 
     // 手动刷新与轮询撞在一起时复用同一发；force 优先（用户明确要新的）
     if (inFlight && !force) return inFlight
@@ -175,9 +183,10 @@ export function useCfStandings({ spec, active, live }) {
     pollTimer = 0
   }
 
-  /** 排下一次。只有「看得见 + 比赛中」才排；已结束 / 未开赛一次都不排 */
+  /** 排下一次。只有「看得见 + 比赛中」才排；已结束 / 未开赛 / VP 锁榜一次都不排 */
   function planPoll() {
     stopPoll()
+    if (locked.value) return
     if (!active.value || document.visibilityState !== 'visible') return
     if (!live.value || !standings.value || standings.value.pending) return
 
@@ -224,12 +233,32 @@ export function useCfStandings({ spec, active, live }) {
   // 但 Worker 对同一场榜单有 3s / 60s 的复用窗口（见 cfWorker 的 recentStandings），
   // 完结场次直接命中缓存就不会真的再取，所以距上次取数超过几秒时要 force 绕过它；
   // 刚刷过（几秒内）则不 force —— 那份数据本来就是新的，没必要多打一次 CF。
+  /**
+   * VP 锁榜 / 解锁。
+   *
+   * 锁上时把手里那份榜单整份清掉并作废在途的那一发 —— 官方榜对一场「官方已结束」的比赛
+   * 照常给得出来，留着它就等于开赛前能看榜。解锁（VP 到点）后按当前可见性补一次。
+   */
+  watch(locked, (isLocked) => {
+    if (isLocked) {
+      seq += 1
+      inFlight = null
+      stopPoll()
+      standings.value = null
+      loading.value = false
+      error.value = ''
+      page.value = 1
+      return
+    }
+    if (active.value) void load()
+  })
+
   watch(
     [active, live],
     ([visible, running], previous) => {
       const wasVisible = previous?.[0] === true
       const wasRunning = previous?.[1] === true
-      if (!visible) {
+      if (!visible || locked.value) {
         stopPoll()
         return
       }
@@ -257,7 +286,7 @@ export function useCfStandings({ spec, active, live }) {
     document.removeEventListener('visibilitychange', onVisibilityChange)
   })
 
-  const refresh = () => load({ force: true })
+  const refresh = () => (locked.value ? Promise.resolve() : load({ force: true }))
 
   return {
     standings,

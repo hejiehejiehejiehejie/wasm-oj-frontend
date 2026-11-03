@@ -23,6 +23,13 @@
  *
  * 【报名与开 VP 是不可逆动作】这里只负责「点下去之后」：调一次接口、等一个枚举、把状态就地
  * 改掉。确认卡片在组件里（CfContestSchedule），组合式不弹任何界面 —— 也绝不自动重放。
+ *
+ * 【VP 会改写这一场的「开赛时刻」（2026-11-03）】`contest.list` 里看不到虚拟参赛：开过 VP 的
+ * 那一场仍然显示 FINISHED。用户开 VP 之后，这一场应当像正式参赛一样摆到 VP 开始的那一刻，
+ * 开赛前锁题、开赛后进榜。于是分组 / 倒计时都读 `withVirtual` 之后的视图：有 VP 就用账本
+ * （services/cfVirtualContest.js）里的开始时刻覆盖 `startTimeSeconds` 并清掉 `phase`，
+ * 让 `contestStatus` 完全按时间推。用户在别处开的 VP 由扩展读 CF 的「Recent virt. contests」
+ * 带回来，与站内开的那一场并进同一份账本。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -34,6 +41,12 @@ import {
 } from '../cf/contest.js'
 import { t } from '../i18n/index.js'
 import { cfContests } from '../services/cfClient.js'
+import {
+  adoptVirtualContests,
+  recordVirtualContest,
+  virtualContestOf,
+  virtualContests,
+} from '../services/cfVirtualContest.js'
 import { useCompanionBridge } from './useCompanionBridge.js'
 
 /**
@@ -225,6 +238,57 @@ export function useCfSchedule({ active }) {
   let seq = 0
   let loadingPromise = null
 
+  // ------------------------------------------------------------ 虚拟参赛（VP）
+
+  /**
+   * 这一场在账本里的 VP（没有就是 null）。列表本身来自 `contest.list`，那里永远看不到 VP，
+   * 所以「这一场什么时候开赛」要由账本覆盖（见 services/cfVirtualContest.js）。
+   */
+  function virtualOf(contest) {
+    return virtualContestOf(contest?.id)
+  }
+
+  /**
+   * 把一场比赛换成「用户眼里那一场」：有 VP 时，开赛时刻 / 时长 / 阶段全部改用 VP 的。
+   *
+   * 【为什么 phase 要清掉】`contest.list` 里这一场通常是 FINISHED，而用户的 VP 可能还没开始。
+   * 留着 phase，`contestStatus` 会一直判「已结束」，赛程就永远把它摆进「最近结束」。
+   * 清掉之后状态完全按时间推（与正式比赛开赛那一刻翻面是同一套机制）。
+   *
+   * 时长优先用官方元数据（VP 与正式比赛同长），账本里那份只在元数据缺席时兜底。
+   */
+  function withVirtual(contest) {
+    const vp = virtualOf(contest)
+    if (!vp) return contest
+
+    const metaDurationMs = (Number(contest?.durationSeconds) || 0) * 1000
+    const durationMs = metaDurationMs || Number(vp.durationMs) || 0
+
+    return {
+      ...contest,
+      startTimeSeconds: vp.startMs / 1000,
+      relativeTimeSeconds: undefined,
+      durationSeconds: durationMs > 0 ? durationMs / 1000 : 0,
+      phase: undefined,
+      virtual: true,
+      vpStartMs: vp.startMs,
+    }
+  }
+
+  /** 这一行是不是 VP（组件据此挂徽标、收起报名 / 开 VP 动作） */
+  function isVirtual(contest) {
+    return contest?.virtual === true
+  }
+
+  /** 账本变了（站内开成功 / 采纳了 CF 的列表）：Live 角标与分组都要跟着重算 */
+  function refreshVirtualView() {
+    if (!liveContests.length) return
+    liveContests = contests.value.map(withVirtual)
+    syncRunningCount()
+  }
+
+  watch(virtualContests, refreshVirtualView)
+
   /** @param {{force?: boolean, silent?: boolean}} [options] */
   async function load({ force = false, silent = false } = {}) {
     // 连点刷新 / 回访与手动撞在一起时复用同一发，别为了同一份列表占两次限流额度
@@ -245,7 +309,7 @@ export function useCfSchedule({ active }) {
         fetchedAt.value = response?.fetchedAt || Date.now()
         now.value = Date.now()
         // 抬头角标用它自己算一份：赛程页看不见时也要在开赛那一刻翻面（见 cfRunningCount）
-        liveContests = next
+        liveContests = next.map(withVirtual)
         liveFetchedAt = fetchedAt.value
         syncRunningCount()
       })
@@ -354,8 +418,11 @@ export function useCfSchedule({ active }) {
     })
   }
 
+  /** 列表 + VP 覆盖之后的视图；分组、排序、倒计时全从这一份读 */
+  const viewContests = computed(() => contests.value.map(withVirtual))
+
   const sortedByStart = computed(() =>
-    contests.value.filter((contest) => typeof contest?.startTimeSeconds === 'number'),
+    viewContests.value.filter((contest) => typeof contest?.startTimeSeconds === 'number'),
   )
 
   const upcoming = computed(() =>
@@ -404,6 +471,9 @@ export function useCfSchedule({ active }) {
           return
         }
         states.value = result.states
+        // 同一个页面顺带读回了「Recent virt. contests」：用户在别处开的 VP 也从这里进账本
+        // （站内开的那一场由 submitEntry 当场记，两者在 adoptVirtualContests 里按 id 合并）
+        if (Array.isArray(result.virtuals)) adoptVirtualContests(result.virtuals)
         statesError.value = ''
         statesFetchedAt.value = Date.now()
       })
@@ -440,6 +510,18 @@ export function useCfSchedule({ active }) {
       const result = await requestContestEntry(id, kind, options)
       if (result.ok && kind === 'register') {
         states.value = { ...states.value, [id]: 'registered' }
+      }
+      if (result.ok && kind === 'virtual') {
+        // 开成功那一刻就记账：赛程随即把它摆到 VP 开始的那一刻，题面与榜单在开赛前锁住。
+        // 用户没选时刻（0）时 CF 按「现在开始」提交，这里就用此刻当近似值 —— 下一次读
+        // CF 的「Recent virt. contests」会把真实时刻校正回来（见 loadStates）
+        recordVirtualContest({
+          id,
+          name: contest?.name || '',
+          startMs: Number(options.startAt) > 0 ? Number(options.startAt) : Date.now(),
+          durationMs: (Number(contest?.durationSeconds) || 0) * 1000,
+        })
+        refreshVirtualView()
       }
       return result
     } finally {
@@ -508,6 +590,7 @@ export function useCfSchedule({ active }) {
     load,
     remainingOf,
     statusOf,
+    isVirtual,
     progressOf,
     startText,
     countdownOf,

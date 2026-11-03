@@ -640,6 +640,17 @@ export const canReadUnofficialRank = computed(() =>
 )
 
 /**
+ * 非正式名次回包里有没有「一整行」（分数 + 每题格）。
+ *
+ * 【为什么要单独一条能力】最初的 `contest-unofficial` 只回 handle / 名次 / 是否非正式；
+ * 2026-11-03 起扩展多回 `score` 与 `cells`，站点才能把 VP 那一行并进榜表格里看。
+ * 老扩展没有这一条就退回改动前的样子：只显示名次那句话，不画行、也不留空格子。
+ */
+export const canReadUnofficialRow = computed(() =>
+  (extensionInfo.value?.capabilities ?? []).includes('contest-unofficial-row'),
+)
+
+/**
  * 读 /contests 列表上每一场的报名状态。
  *
  * 返回 `{ ok, reason, states }`，`states` 是 `{ [contestId]: 枚举 }`：
@@ -1045,10 +1056,22 @@ function onMessage(event) {
       }
     }
 
+    // 同一个回包顺带捎回「Recent virt. contests」（2026-11-03 加）：只认数字 id + 正数开始时刻，
+    // 名字只管显示，其余字段一律不进账本（见 services/cfVirtualContest.js）
+    const virtuals = Array.isArray(data.virtuals)
+      ? data.virtuals.flatMap((entry) => {
+          const id = String(entry?.id ?? '')
+          const startMs = Number(entry?.startMs)
+          if (!/^\d+$/.test(id) || !Number.isFinite(startMs) || startMs <= 0) return []
+          return [{ id, name: typeof entry.name === 'string' ? entry.name : '', startMs }]
+        })
+      : []
+
     pending.resolve({
       ok: data.ok === true,
       reason: typeof data.reason === 'string' ? data.reason : '',
       states,
+      virtuals,
     })
     return
   }
@@ -1083,11 +1106,25 @@ function onMessage(event) {
               Number.isFinite(entry.rank) &&
               entry.rank > 0,
           )
-          .map((entry) => ({
-            handle: entry.handle,
-            rank: entry.rank,
-            unofficial: entry.unofficial === true,
-          }))
+          .map((entry) => {
+            // 分数与题格是 2026-11-03 加的（capability `contest-unofficial-row`）：
+            // 题号键只认 `A` / `B1` 这类；文字只当显示用，截到 40 字防脏数据撑破表格
+            const cells = {}
+            if (entry.cells && typeof entry.cells === 'object') {
+              for (const [index, text] of Object.entries(entry.cells)) {
+                if (/^[A-Z]\d{0,2}$/.test(index) && typeof text === 'string' && text) {
+                  cells[index] = text.slice(0, 40)
+                }
+              }
+            }
+            return {
+              handle: entry.handle,
+              rank: entry.rank,
+              unofficial: entry.unofficial === true,
+              score: typeof entry.score === 'string' ? entry.score.slice(0, 40) : '',
+              cells,
+            }
+          })
       : []
 
     pending.resolve({
@@ -1152,6 +1189,7 @@ export function useCompanionBridge(onTask) {
     canRegisterUnrated,
     canStartVirtual,
     canReadUnofficialRank,
+    canReadUnofficialRow,
     requestContestStates,
     requestContestEntry,
     requestUnofficialRank,

@@ -43,6 +43,7 @@
               'cf-schedule__row--entry': showEntryColumn,
               'cf-schedule__row--running': statusOf(contest) === 'running',
               'cf-schedule__row--finished': statusOf(contest) === 'finished',
+              'cf-schedule__row--virtual': isVirtual(contest),
             }"
             role="button"
             tabindex="0"
@@ -56,7 +57,10 @@
                  以前名字是去 CF 的 <a>、行是载入，同一根水平带里两种行为、还看不出谁是谁。 -->
             <!-- 窄容器的名字用短名（2026-11-02）：两个版本都渲染，容器查询只切显示。
                  title 仍是全名，鼠标悬停 / 读屏拿到的永远是原名 -->
-            <span class="cf-schedule__name" :title="contest.name">
+            <span class="cf-schedule__name" :title="contest.virtual ? virtualHint(contest) : contest.name">
+              <!-- 开过 VP 的场次：名字前一枚小徽标。开赛时刻就在右边那一列（已经是 VP 的时刻），
+                   悬停徽标再把「是虚拟参赛」说全 -->
+              <span v-if="isVirtual(contest)" class="cf-schedule__vp">{{ t('cf.contest.schedule.virtualBadge') }}</span>
               <span class="cf-schedule__name-full">{{ contest.name }}</span>
               <span class="cf-schedule__name-short">{{ compactContestName(contest.name) }}</span>
             </span>
@@ -239,6 +243,7 @@ const {
   running,
   finished,
   statusOf,
+  isVirtual,
   progressOf,
   startText,
   countdownOf,
@@ -277,7 +282,15 @@ const updatedText = computed(() => {
 })
 
 function pageUrl(contest) {
-  return contestUrl({ kind: 'contest', contestId: String(contest?.id ?? ''), groupId: '' })
+  const base = contestUrl({ kind: 'contest', contestId: String(contest?.id ?? ''), groupId: '' })
+  // VP 还没开始时，CF 那一页是倒计时页（/contest/{id}/countdown）；开赛后同一个地址会自动
+  // 跳回 /contest/{id}。这与用户在 /contests 上点「Enter」看到的落点一致（2026-11-03）
+  return isVirtual(contest) && statusOf(contest) === 'upcoming' ? `${base}/countdown` : base
+}
+
+/** 名字前的 VP 徽标悬停时说全：开赛时刻就是右边那一列（VP 自己的时刻） */
+function virtualHint(contest) {
+  return t('cf.contest.schedule.virtualHint', { time: startText(contest) })
 }
 
 // ------------------------------------------------------------ 报名 / VP
@@ -294,6 +307,8 @@ const showEntryColumn = computed(
  * 其余情况没有动作，那一格显示报名状态。
  */
 function actionKind(contest) {
+  // 已经开过 VP 的场次不再给动作：报名对已结束的比赛不成立，VP 也不能开第二次
+  if (isVirtual(contest)) return ''
   const state = statusOf(contest)
   if (state === 'upcoming') {
     return canRegisterContest.value && stateOf(contest) === 'open' ? 'register' : ''
@@ -313,6 +328,7 @@ function actionLabel(contest) {
 
 /** 能报名却没读状态（扩展读失败）时留白，不猜「可报名」 */
 function stateText(contest) {
+  if (isVirtual(contest)) return t('cf.contest.schedule.virtualState')
   const state = stateOf(contest)
   if (state === 'registered') return t('cf.contest.schedule.registered')
   if (state === 'before') return t('cf.contest.schedule.before')
@@ -609,6 +625,18 @@ async function confirmEntry() {
 /* 短名只在窄容器切出来（规则见下面两档 container query）：宽屏仍是完整比赛名 */
 .cf-schedule__name-short {
   display: none;
+}
+
+/* 已开 VP 的场次：名字前一枚纯文字徽标（不铺底、不描边）。开赛时刻在右边那一列，
+   这里只负责让人一眼看出「这一行的时间不是官方的」 */
+.cf-schedule__vp {
+  margin-right: 5px;
+  color: var(--accent-text);
+  font-family: var(--ui-font);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
 }
 
 :where(html.is-hoverable) .cf-schedule__row:hover .cf-schedule__name {

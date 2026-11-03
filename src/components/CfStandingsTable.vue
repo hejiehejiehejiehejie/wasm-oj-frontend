@@ -7,7 +7,7 @@
          「排行榜」是页签本身，人数 / 官方榜口径 / 类型这些重复信息不再写一遍。
          刷新时间已经并进页签行那句「刷新于 20 秒前」（见 CfContestPanel），这里不再重复。
          扩展不支持 / 没有 handle 时整行不出现 —— 空的 32px 抬头只会白占一段留白 -->
-    <div v-if="canLookupUnofficial" class="cf-head">
+    <div v-if="!locked && canLookupUnofficial" class="cf-head">
       <span class="cf-head__actions">
         <button
           type="button"
@@ -29,11 +29,11 @@
     </div>
 
     <!-- 口径行：冻结 / 实时 / 非正式名次这几句状态提示。没有提示时整行不出现 -->
-    <div v-if="frozen || live || unofficialLine" class="cf-standings__meta">
+    <div v-if="!locked && (frozen || live || showUnofficialLine)" class="cf-standings__meta">
       <span v-if="frozen" class="cf-standings__warn">{{ t('cf.contest.standings.frozen') }}</span>
       <span v-if="live" class="cf-standings__live">{{ t('cf.contest.standings.live') }}</span>
       <span
-        v-if="unofficialLine"
+        v-if="showUnofficialLine"
         class="cf-standings__unofficial"
         :class="`is-${unofficialLine.tone}`"
       >
@@ -41,7 +41,10 @@
       </span>
     </div>
 
-    <p v-if="error" class="cf-note is-error">{{ error }}</p>
+    <!-- VP 还没开始：整页锁住。这与「这场还没开赛」是两种境况 —— 官方榜其实早就有了，
+         但不能在用户自己定的开赛时刻之前摆出来 -->
+    <p v-if="locked" class="cf-note">{{ t('cf.contest.standings.vpLocked') }}</p>
+    <p v-else-if="error" class="cf-note is-error">{{ error }}</p>
     <p v-else-if="pending" class="cf-note">{{ t('cf.contest.standings.notStarted') }}</p>
     <p v-else-if="!rows.length && loading" class="cf-note">
       {{ t('cf.contest.standings.loading') }}
@@ -85,6 +88,28 @@
             </tr>
           </thead>
           <tbody>
+            <!-- 虚拟参赛自己那一行（2026-11-03）：官方榜的 API 里没有非正式参赛者，
+                 这一行是扩展从 CF 的榜单页读回来的。名次是**含非正式的合并名次**，
+                 不能插进官方榜的序号之间 —— 所以摆在表头下的第一行，用 VP 标记说明口径 -->
+            <tr v-if="vpRow" class="is-vp">
+              <td class="cf-table__num" :title="t('cf.contest.standings.unofficialMine', { rank: vpRow.rank })">
+                {{ vpRow.rank }}
+              </td>
+              <td class="cf-table__who">
+                <span class="cf-table__vp-tag">{{ t('cf.contest.standings.vpRow') }}</span>
+                <span class="cf-table__name" :title="vpRow.handle">{{ vpRow.handle }}</span>
+              </td>
+              <td class="cf-table__num">{{ vpRow.score || '—' }}</td>
+              <td
+                v-for="problem in problems"
+                :key="problem.index"
+                class="cf-table__cell"
+                :class="`is-${vpCellTone(vpRow.cells[problem.index] || '')}`"
+                :title="problemTitle(problem)"
+              >
+                <span class="cf-table__main">{{ vpRow.cells[problem.index] || '·' }}</span>
+              </td>
+            </tr>
             <tr
               v-for="row in displayRows"
               :key="row.partyId ?? row.rank"
@@ -186,6 +211,10 @@
  * 【非正式名次是另一条路（扩展）】官方榜看不见 VP，所以另给一颗按钮，由扩展去读 CF 的好友榜
  * （拿不到时退到合并榜第一页）数出含非正式参赛者的名次。它只在用户点按时才开 CF 标签页，
  * 能力协商不过在时按钮不出现 —— 官方榜那一页的行为一字不变。
+ *
+ * 【虚拟参赛（2026-11-03）】开赛前整页锁住（locked，见 useCfStandings）；开赛之后自动把
+ * 自己那一行读回来摆在表头下第一行（名次 + 逐题成绩，扩展读 CF 的合并榜）。那一行的名次
+ * 含非正式参赛者，与官方榜的序号不同尺，所以带一枚 VP 标记单独成行，不冒充官方名次。
  */
 import { computed, ref, toRef, watch } from 'vue'
 
@@ -205,6 +234,10 @@ const props = defineProps({
   active: { type: Boolean, default: false },
   /** 比赛此刻是否进行中（轮询开关，由 useCfContest 的 status 推出来） */
   live: { type: Boolean, default: false },
+  /** 这一场在这台设备上开了虚拟参赛（VP） */
+  vp: { type: Boolean, default: false },
+  /** VP 还没到点：整页锁住（见 useCfStandings 与 cfVirtualContest） */
+  locked: { type: Boolean, default: false },
 })
 
 const {
@@ -230,10 +263,11 @@ const {
   spec: toRef(props, 'spec'),
   active: toRef(props, 'active'),
   live: toRef(props, 'live'),
+  locked: toRef(props, 'locked'),
 })
 
 /** 「刷新」在页签行右侧（见 CfContestPanel）：动作、loading 与上次刷新时刻都从这一层露出去 */
-defineExpose({ refresh, loading, fetchedAt })
+defineExpose({ refresh: refreshAll, loading, fetchedAt })
 
 /** 分数列的表头随计分制变：ICPC 是「过题数」，CF / IOI 是分数 */
 const scoreHeader = computed(() =>
@@ -365,6 +399,34 @@ const unofficialBest = computed(() => {
 })
 
 /**
+ * VP 自己那一行：只有开赛之后、而且扩展真读回了名次才出现。
+ *
+ * 名次来自 CF 的合并榜（含非正式参赛者），与官方榜的序号不是同一个尺子 —— 所以它是单独
+ * 一行（带 VP 标记），不插进官方榜的行里冒充某个名次。
+ */
+const vpRow = computed(() => {
+  if (!props.vp || props.locked) return null
+  const best = unofficialBest.value
+  if (!best) return null
+  return {
+    rank: best.rank,
+    handle: best.handle,
+    score: best.score || '',
+    cells: best.cells || {},
+  }
+})
+
+/** VP 行已经把那句「含非正式：第 N 名」说全了，口径行不再重复；失败 / 查询中的提示照旧 */
+const showUnofficialLine = computed(() => !!unofficialLine.value && !vpRow.value)
+
+/** 题格按 CF 的写法上色：`+1 00:23` 是通过（含被拒次数），`-2` 是还没过 */
+function vpCellTone(text) {
+  if (text.startsWith('+')) return 'ok'
+  if (text.startsWith('-')) return 'fail'
+  return 'empty'
+}
+
+/**
  * 口径行里那一句。三种失败分开说：
  *   - 没登录 / 要过人机校验 → 用户能自己解决，提示去登录
  *   - 其余（超时、读不到页面）→ 只说查不到，别推销「登录」
@@ -405,9 +467,38 @@ async function lookupUnofficial() {
   }
 }
 
-// 换了一场：上一场的名次不能留在这一场的口径行里
+/**
+ * 「刷新」：官方榜 + 自己那一行一起刷新。
+ *
+ * VP 进行中时，官方榜其实已经冻结（比赛官方早就结束了），真正会变的是自己那一行；
+ * 所以这一下必须把非正式名次也带上 —— 否则用户点了刷新，看到的仍是旧名次。
+ */
+async function refreshAll() {
+  if (props.locked) return
+  const tasks = [refresh()]
+  if (props.vp && canLookupUnofficial.value) tasks.push(lookupUnofficial())
+  await Promise.all(tasks)
+}
+
+/**
+ * VP 进行中、这一页被打开：自动去 CF 读一次自己那一行（名次 + 逐题成绩）。
+ *
+ * 读一次要开一页 CF，所以只在「第一次可以读」时自动触发：已经读到过、或正在读，就不动；
+ * 之后要更新交给「刷新」。开赛前 locked 挡着，一次都不发。
+ */
 watch(
-  () => props.spec?.contestId,
+  [() => props.vp, () => props.locked, () => props.active, canLookupUnofficial],
+  ([vp, locked, activeNow, capable]) => {
+    if (!vp || locked || !activeNow || !capable) return
+    if (unofficial.value || unofficialLoading.value) return
+    void lookupUnofficial()
+  },
+  { immediate: true },
+)
+
+// 换了一场 / 锁榜：上一场的名次不能留在这一场的口径行里
+watch(
+  [() => props.spec?.contestId, () => props.locked],
   () => {
     unofficial.value = null
     unofficialLoading.value = false
@@ -610,6 +701,31 @@ watch(
 
 .cf-table tbody tr.is-mine .cf-table__name {
   color: var(--accent-text);
+}
+
+/* 虚拟参赛自己那一行：与「我这一行」同一个低透明度主色面 —— 名字前那枚 VP 标记说明
+   它的名次是含非正式的合并名次，不是官方榜里的某个序号 */
+.cf-table tbody tr.is-vp {
+  background: var(--accent-face-soft);
+}
+
+.cf-table tbody tr.is-vp .cf-table__name {
+  color: var(--accent-text);
+}
+
+.cf-table__vp-tag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--accent-face);
+  color: var(--accent-text);
+  font-family: var(--ui-font);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 15px;
+  vertical-align: 1px;
 }
 
 /* 幽灵（ghost）是官方榜里的历史成绩行，压淡一档 */

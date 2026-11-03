@@ -184,6 +184,16 @@ export const FLASH_NOTICE_KEY = 'cp.flashNotice'
  */
 export const CF_REGISTERED_CONTESTS_KEY = 'cp.cfRegisteredContests'
 
+/**
+ * 这台设备上开过的虚拟参赛（`{ id, name, startMs, durationMs }` 数组）。
+ *
+ * VP 在 `contest.list` 里看不出来（那一场永远显示「已结束」），而赛程要把它摆到 VP 开始的
+ * 那一刻、开赛前锁题，所以需要单独记一笔。站内开的当场记；别处开的由扩展从 CF 的
+ * 「Recent virt. contests」读回来。与上一条同一性质 —— **本机事实，绝不进云同步白名单**。
+ * 读写都在 `services/cfVirtualContest.js`。
+ */
+export const CF_VIRTUAL_CONTESTS_KEY = 'cp.cfVirtualContests'
+
 // ---------------------------------------------------------------- Service Worker 注入表
 
 /**
