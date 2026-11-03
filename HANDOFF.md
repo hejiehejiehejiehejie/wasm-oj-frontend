@@ -1938,6 +1938,12 @@ $("select[name=submittedProblemIndex]").bind('change', updateSubmitButtonState);
 
 **改动文件**：站点 `services/ojSubmit.js`（新）、`composables/useCompanionBridge.js`、`composables/useShortcutManager.js`、`components/TestPanel.vue`、`App.vue`、`i18n/messages/{tests,settings}.js`、`services/extensionPackage.js`（版本 → 2.67.0 / 2.67.1 / 2.67.2 / 2.67.3 / 2.67.4）；扩展 `src/submitCode.ts`（新）、`src/messaging.ts`、`src/background.ts`、`src/bridge.ts`、`scripts/build/extension.ts`、`package.json`（2.67.0 → 2.67.4）。清单随之变为 **`host_permissions` 190 条 / `content_scripts` 4 条**（新增的提交页与 `/my` 页），**没有**新增 API `permissions`；第三方组件一个没变（`NOTICE.md` / `NOTICE.en.md` 已按 2026-10-23 记三笔）。
 
+**2.71.2 当日补丁**（2026-11-03，用户装了 2.71.1 后实报：「用扩展提交代码没有成功，在提交界面停住了」）：**提交按钮的解禁从同步改成了异步。** 当时的提交页（`/contest/2272/submit`）里，题目下拉框的 change 处理器已改名 `updateProblemLockInfo`：它先 `$.post("/data/problemLock", …)`，在**回调里**才 `$(".submit-form :submit").removeAttr("disabled")`；页面加载时（problemIndex 为空）先把按钮置灰。扩展仍是「选完题 → 派发 change → 写源码 → 50 ms 后点按钮」，那一刻 POST 还没回来，按钮仍是灰的，`click()` 空操作 → 页面既不跳转也不报错，后台等 20 秒跳转超时误报 `rejected`。
+
+修法：`submitCode.ts` 新增 `waitForSubmitEnabled`，点之前按 50 ms 轮询等 `button.disabled === false`（上限 4 s，小于后台 `SUBMIT_RESPONSE_TIMEOUT` 8 s）；消息处理器改成异步 `sendResponse`（`return true`），等解禁后才回执并在 50 ms 后点击。一直不解禁（如页面挂出「Problem was locked」）回 `rejected`，这一路只在题目被锁时出现，页面自己的红字会说明原因。
+
+**没做真提交**：本轮只依据用户上传的 contest/2272 真实提交页源码核对（`updateProblemLockInfo` 的 POST 与回调 `removeAttr`、`submitOnce` 里填 `ftaa` / `bfaa`），没有登录态实交。改完 `tsc --noEmit`（`src` 无报错）、eslint、prettier 通过，`build-chrome` 重建并打出 2.71.2 的包；扩展 `package.json` 2.71.1 → 2.71.2，站点 `extensionPackage.js` 同步，清单未变（`host_permissions` 195 / `content_scripts` 5 / API `permissions` 5），`NOTICE.md` / `NOTICE.en.md` 已记一笔。
+
 **还不做什么**：其余 OJ 的提交页各是另一套形态（洛谷要 token、牛客 / LeetCode 是接口），首版只认 Codeforces；**不自动提交**（不发源码、不后台跑，只认用户那一次显式动作）；不替用户选题目 —— 题目由地址里的 contest + index 唯一确定，扩展只是把它在提交页的下拉框里选中。
 
 ## 14. 多平台移植（**macOS 已落地**；Windows 第 1–3 步已落地、待实机实测；**Android 真机已跑通 C++ 编译与运行**，见 14.I；**Android release 已签名出包、包体 118.6 MiB**，见 14.J；**壳里的云端同步已接管（绝对地址 + Worker 放行壳来源）**，见 14.K；**壳端出包已剔掉 `dist/wasm`（74 MB 死重）**，见 14.L；**Android 工具链再裁掉 7 处系统头（设备 Data −6.2 MB）**，见 14.M；**壳里「收键盘后点哪都把输入框捞回来」已修（保焦闸门放宽到全部可编辑面）**，见 14.N；**桌面端「导出到本机文件夹」已落地（另立 `export_*` 四条命令，不复用 `fs_*`）**，见 14.O；**壳的系统状态栏已跟随站内主题（底色 + 图标明暗，前端 → Rust → JNI）**，见 14.P；Linux 未开工）
