@@ -274,11 +274,13 @@ const emptyText = computed(() => {
   margin-left: auto;
 }
 
-/* 一条提交：列宽写死（各行独立 grid，auto 会对不齐） */
+/* 一条提交：列宽写死（各行独立 grid，auto 会对不齐）。
+   语言列给足 152px（Codeforces 最长的 `C++23 (GCC 14-64, msys2)` 实测 146px），
+   余下的宽度全给选手名那一列 —— 语言紧挨着耗时 / 内存，行尾不再出现一块空白。 */
 .cf-sub {
   display: grid;
   grid-template-columns:
-    52px minmax(0, 170px) minmax(0, 120px) 70px minmax(0, 1fr) minmax(0, 110px) 26px;
+    52px minmax(0, 170px) minmax(120px, 1fr) 70px minmax(0, 120px) 152px 26px;
   align-items: center;
   gap: 12px;
   height: 40px;
@@ -361,7 +363,13 @@ const emptyText = computed(() => {
   color: var(--info);
 }
 
+/* 耗时 / 内存靠右缘对齐：这列长短不一的数字串右对齐后，语言列的起点才是固定的，
+   不会每行在语言左边留出一块随字数变化的白。
+   向左最多借 44px：判定列 70px 里徽标只占 27px，余 43px，再留 1px 容差 ——
+   更窄时宁可把「第 N 点」裁掉，也不让数字压到徽标上 */
 .cf-sub__detail {
+  justify-self: end;
+  max-width: calc(100% + 44px);
   min-width: 0;
   overflow: hidden;
   color: var(--text-faint);
@@ -380,7 +388,9 @@ const emptyText = computed(() => {
   white-space: nowrap;
 }
 
+/* 外链 icon 钉在行尾：26px 的列里靠右放，才与行的右缘对齐 */
 .cf-sub__link {
+  justify-self: end;
   color: var(--text-faint);
 }
 
@@ -388,7 +398,26 @@ const emptyText = computed(() => {
   color: var(--accent-text);
 }
 
-/* 窄容器：先撤作者 / 耗时内存 / 语言，保住「哪题 + 什么判定」 */
+/* 中窄容器：先撤选手名（默认本来就只看自己），题目列接住多余宽度；
+   这一档起耗时 / 内存不再向左借判定列的余量 —— 判定码可能很宽（TESTING），
+   宁可把「第 N 点」截掉，也不能压到徽标上 */
+@container cf (max-width: 46rem) {
+  .cf-sub {
+    grid-template-columns:
+      48px minmax(0, 1fr) 64px minmax(0, 104px) minmax(0, 152px) 26px;
+    gap: 10px;
+  }
+
+  .cf-sub__author {
+    display: none;
+  }
+
+  .cf-sub__detail {
+    max-width: 100%;
+  }
+}
+
+/* 窄容器：再撤耗时内存 / 语言，只留「哪题 + 什么判定」 */
 @container cf (max-width: 34rem) {
   .cf-sub {
     grid-template-columns: 48px minmax(0, 1fr) 64px 26px;
