@@ -23,11 +23,40 @@ import DOMPurify from 'dompurify'
 import { loadMdRenderer } from './mdRuntime.js'
 
 /**
+ * 公式里的 HTML 字符引用还原。
+ *
+ * Codeforces / Polygon 的题面源文本整篇是 HTML 转义的：`_` 写成 `&#95;`（否则 CF 自己的
+ * markdown 会把下划线当强调符），`<` / `>` / `&` 也各留一份。这些字符引用若原样进 KaTeX，
+ * 会被当成字面文本 —— `&#95;` 直接让整条公式解析失败，而 throwOnError: false 的失败展示
+ * 就是整段红字。公式空壳里的 `&` 又被 mathShell 转义成 `&amp;`，浏览器解析回来仍是字面
+ * `&#95;`，所以必须在转义之前还原。
+ *
+ * 只认 `&…;` 这一种形态：数学里的 `&`（cases / matrix 的对齐点）后面不跟 `;`，不会被误伤；
+ * 认不出的命名实体原样保留 —— 宁可让 KaTeX 报一个看得见的错，也不擅自改写正文。
+ */
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' }
+
+function decodeMathEntities(text) {
+  if (!text.includes('&')) return text
+  return text.replace(/&(?:#(\d{1,7})|#x([0-9a-fA-F]{1,6})|([a-z][a-z0-9]{1,31}));/gi, (whole, dec, hex, name) => {
+    if (dec) {
+      const code = Number(dec)
+      return code <= 0x10ffff ? String.fromCodePoint(code) : whole
+    }
+    if (hex) {
+      const code = parseInt(hex, 16)
+      return code <= 0x10ffff ? String.fromCodePoint(code) : whole
+    }
+    return NAMED_ENTITIES[name.toLowerCase()] ?? whole
+  })
+}
+
+/**
  * 公式空壳。正文放在**文本节点**里而不是属性里：一来不用自己做属性转义，
  * 二来万一渲染器没就绪，界面上留下的就是原始 TeX 文本，本身可读。
  */
 function mathShell(tex, display) {
-  const escaped = tex.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const escaped = decodeMathEntities(tex).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return `<span class="md-math" data-display="${display ? '1' : '0'}">${escaped}</span>`
 }
 
@@ -331,6 +360,133 @@ function hydrateMath(container, katex) {
 }
 
 /**
+ * 把 Codeforces 题面里的 `$$$…$$$` 归一化。
+ *
+ * CF / Polygon 的数学定界符是 `$$$…$$$`：独占一行当行间公式，写在句子中间当行内公式。
+ * 本项目只注册了块级 `$$$`，行内那一半会被段落裁剪拎出来当块级公式（`$$$n$$$ 个整数` 变
+ * 成「$ / 居中 n / $ 个整数」三截）。这里只把**不独占一行**的那部分改写成标准 `\(…\)`，
+ * 独占一行的原样留给块级扩展 —— 既有扩展一个都不用动。
+ *
+ * 为什么不直接加「行内 `$$$` 扩展」：`$$$` 与 `$$` 共用前缀，而 marked 的段落裁剪交给
+ * 扩展的 start() 的是 `src.slice(1)`，下标 0 看不见它前面那个字符 —— `$$$` 会被 `$$` 从
+ * 第二个美元起认成 `$$n$$`。改源头比和 marked 的裁剪顺序博弈可靠。
+ *
+ * 逐行处理就够了：行内公式不跨行；跨行的 `$$$` 一定是独占行的块级写法，行内凑不成对，
+ * 原样保留。围栏代码和行内代码里的 `$$$` 是正文而不是公式，跳过。
+ */
+function normalizeCodeforcesMath(source) {
+  if (!source.includes('$$$')) return source
+  const lines = source.split('\n')
+  let fence = null
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (marker) {
+      const run = marker[1]
+      if (!fence) fence = { char: run[0], length: run.length }
+      else if (run[0] === fence.char && run.length >= fence.length) fence = null
+      continue
+    }
+    if (fence || !line.includes('$$$')) continue
+    lines[index] = normalizeCodeforcesLine(line)
+  }
+  return lines.join('\n')
+}
+
+/** 行内代码占用的区间，`$$$` 落在这里面时不算公式。 */
+function inlineCodeRanges(line) {
+  const ranges = []
+  let index = 0
+  while (index < line.length) {
+    if (line[index] !== '`') {
+      index += 1
+      continue
+    }
+    let run = 1
+    while (line[index + run] === '`') run += 1
+    let next = index + run
+    let close = -1
+    while (next < line.length) {
+      if (line[next] === '`') {
+        let size = 1
+        while (line[next + size] === '`') size += 1
+        if (size === run) {
+          close = next + size
+          break
+        }
+        next += size
+      } else next += 1
+    }
+    if (close === -1) {
+      index += run
+      continue
+    }
+    ranges.push([index, close])
+    index = close
+  }
+  return ranges
+}
+
+function inRanges(ranges, index) {
+  return ranges.some(([start, end]) => index >= start && index < end)
+}
+
+/** 配对：下一个不在行内代码里的 `$$$`，且中间确有内容（`$$$$$$` 这种空对不认）。 */
+function findClosingTriple(line, from, code) {
+  const close = line.indexOf('$$$', from)
+  if (close === -1) return -1
+  if (inRanges(code, close)) return findClosingTriple(line, close + 3, code)
+  return line.slice(from, close).trim() ? close : -1
+}
+
+function normalizeCodeforcesLine(line) {
+  const code = inlineCodeRanges(line)
+  let out = ''
+  let cursor = 0
+  let from = 0
+  while (from < line.length) {
+    const open = line.indexOf('$$$', from)
+    if (open === -1) break
+    if (inRanges(code, open)) {
+      from = open + 3
+      continue
+    }
+    const close = findClosingTriple(line, open + 3, code)
+    if (close === -1) {
+      from = open + 3
+      continue
+    }
+    // 两端都紧邻更多 `$` 时不动（如 6 美元的 CF 行间写法）：那是同一串美元被拆成
+    // 两截 `$$$`，拆开会把 `$` 的连续性弄坏，反而让 KaTeX 收到 `\(…\)` 这种块级公式里
+    // 非法的内容。只有闭合侧多出一个 `$`（题面源里常见的手滑）不算这种情况：照常归一，
+    // 那枚多出来的 `$` 作为普通字符留在正文里。
+    const longerOpen = (line[open - 1] ?? '') === '$'
+    const longerClose = (line[close + 3] ?? '') === '$'
+    if (longerOpen && longerClose) {
+      from = open + 3
+      continue
+    }
+    // 两侧只剩空白 = 独占一行，交给块级扩展；其余一律当行内公式
+    const alone =
+      !/[^ \t\r]/.test(line.slice(0, open)) &&
+      !/[^ \t\r]/.test(line.slice(close + 3))
+    if (alone) {
+      from = close + 3
+      continue
+    }
+    const tex = line.slice(open + 3, close).trim()
+    if (!tex) {
+      from = open + 3
+      continue
+    }
+    out += line.slice(cursor, open) + '\\(' + tex + '\\)'
+    cursor = close + 3
+    from = cursor
+  }
+  return out ? out + line.slice(cursor) : line
+}
+
+/**
  * 把题解渲染进容器。
  *
  * 未下载渲染器时抛 `code === 'MD_RUNTIME_MISSING'`（由 mdRuntime.loadMdRenderer 抛出），
@@ -342,7 +498,7 @@ function hydrateMath(container, katex) {
 export async function renderMarkdown(source, container) {
   const { marked, katex } = await loadMdRenderer()
   configure(marked)
-  const html = marked.parse(source ?? '')
+  const html = marked.parse(normalizeCodeforcesMath(source ?? ''))
   // USE_PROFILES 只留 HTML：SVG / MathML 这两套命名空间在题解里没有正当用途，
   // 留着只是给 XSS 多开几扇门（公式的 MathML 是我们自己渲染的，不走这里）
   container.innerHTML = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } })

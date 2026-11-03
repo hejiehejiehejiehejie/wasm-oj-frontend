@@ -16,7 +16,7 @@
 import { computed } from 'vue'
 import { BROWSER, BROWSER_PLATFORM, IS_DESKTOP } from './platform.js'
 
-export const EXTENSION_VERSION = '2.71.0'
+export const EXTENSION_VERSION = '2.71.1'
 export const EXTENSION_FILE = `cc-for-web-${EXTENSION_VERSION}.zip`
 export const EXTENSION_DOWNLOAD_URL = `/extension/${EXTENSION_FILE}`
 

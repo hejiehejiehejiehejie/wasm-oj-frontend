@@ -117,7 +117,6 @@
         v-show="mode === 'contest'"
         :active="props.active && mode === 'contest'"
         @nav="onContestNav"
-        @submit-active="emit('submit-active')"
       />
     </div>
   </div>
@@ -138,8 +137,6 @@ import { addBackFallback } from '../services/backStack.js'
 import { cfCheckHandles } from '../services/cfClient.js'
 import { startRequest } from '../services/cfStartReminder.js'
 import { openCodeforcesTab } from '../services/editorViews.js'
-
-const emit = defineEmits(['submit-active'])
 
 /**
  * 这一整页（合成页签）此刻露没露出来。子面板是常驻挂载的，只在模板里 v-show 它们

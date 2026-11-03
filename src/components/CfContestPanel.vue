@@ -97,7 +97,7 @@
       <!-- 页签与列表：只在载入之后出现。v-show 保住榜单 / 提交的取数进度与分页 ——
            铅笔里改个 ID 再回来，不必重取。 -->
       <div v-show="!searching" class="cf-contest__body">
-        <!-- 子页签 + 本页动作。题目页放抓样例 / 全部导入，提交入口只在这一场有可交的文件时出现 -->
+        <!-- 子页签 + 本页动作。题目页放抓样例 / 全部导入 -->
         <nav class="cf-tabs">
           <div class="cf-tabs__list">
             <button
@@ -135,14 +135,6 @@
                 <span>{{ importingAll ? t('cf.picker.result.importing') : t('cf.picker.result.importAll') }}</span>
               </button>
             </template>
-            <button
-              v-if="canSubmitActive"
-              type="button"
-              class="cf-btn cf-btn--accent"
-              @click="emit('submit-active')"
-            >
-              {{ t('cf.contest.action.submitActive') }}
-            </button>
             <!-- 刷新落在页签行右端：榜单与提交各自取数，动作统一收在这里。
                  2026-10-28 第二版：不再是「刷新」按钮 + 旁边一段刷新时间，而是一句
                  「刷新于 20 秒前」—— 只有「刷新」两个字可点，后面接着上次刷新的相对时刻。
@@ -268,12 +260,6 @@
  * （与 useCfPicker 只归 CfPickerPanel 同一条纪律）。榜单与提交各自有组合式，归各自的
  * 子组件调 —— 它们只在被切到那一页时才取数（active 由这里给，空状态下也一律为 false）。
  *
- * 【提交当前文件为什么只在这一场有可交文件时出现】沿用 2026-10-23 的口径：交不了就不显示，
- * 别摆一颗永远灰着的按钮。判据与 App 的提交按钮同源（shouldShowSubmit + submitBlockedReason），
- * 再加一条「活动文件的比赛就是当前这场」—— 在 A 场的面板里把 B 题的代码交出去是没法解释的。
- * 真正的确认与发送仍归 App（emit submit-active → requestSubmitConfirmation），
- * 不在这里复制一份提交逻辑。
- *
  * 【版式】共享语汇在 src/styles/cf-console.css，这里只放比赛自己特有的规则（抬头两态、页签行）。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
@@ -284,11 +270,8 @@ import CfSubmissionList from './CfSubmissionList.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { useCfContest } from '../composables/useCfContest.js'
-import { useCompanionBridge } from '../composables/useCompanionBridge.js'
-import { parseCodeforcesProblem, shouldShowSubmit, submitBlockedReason } from '../services/ojSubmit.js'
-import { activeLanguage, activeNode } from '../services/vfs/workspaceStore.js'
 
-const emit = defineEmits(['nav', 'submit-active'])
+const emit = defineEmits(['nav'])
 
 /**
  * 这一页露没露出来（来自合成页签的可见性，见 CfCodeforcesPanel）。本组件与它的子页都
@@ -665,33 +648,6 @@ async function restoreNav(state) {
 }
 
 defineExpose({ openContest, navState, restoreNav })
-
-// ------------------------------------------------------------ 提交当前文件
-
-const { checking: extensionChecking, canSubmitCode } = useCompanionBridge()
-
-const activeProblem = computed(() => parseCodeforcesProblem(activeNode.value?.meta?.url))
-
-/** 当前这场在 CF 上的路径前缀；与解析出来的 contestPath 逐字比对 */
-const activeContestPath = computed(() => {
-  const current = spec.value
-  if (!current) return ''
-  if (current.kind === 'group') {
-    return `/group/${current.groupId}/contest/${current.contestId}`
-  }
-  return `/${current.kind}/${current.contestId}`
-})
-
-const canSubmitActive = computed(() => {
-  if (!activeProblem.value || activeProblem.value.contestPath !== activeContestPath.value) return false
-  if (!shouldShowSubmit(activeNode.value)) return false
-  return !submitBlockedReason({
-    node: activeNode.value,
-    language: activeLanguage.value,
-    capability: canSubmitCode.value,
-    checking: extensionChecking.value,
-  })
-})
 </script>
 
 <style scoped>

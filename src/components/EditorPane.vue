@@ -87,8 +87,6 @@ const emit = defineEmits([
   'select-engine',
   'update-base',
   'test-connection',
-  // 比赛面板里的「提交当前文件」：原样转交给 App 那条确认 / 发送流程，不在面板里另起一套
-  'submit-active',
 ])
 
 const host = ref(null)
@@ -913,7 +911,6 @@ defineExpose({
       <CfCodeforcesPanel
         v-show="codeforcesTab.active"
         :active="codeforcesTab.active"
-        @submit-active="emit('submit-active')"
       />
 
       <!-- 设置视图与 Monaco 同一层，靠 v-show 互斥：切来切去不重建编辑器，

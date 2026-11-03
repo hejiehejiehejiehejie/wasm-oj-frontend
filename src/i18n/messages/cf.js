@@ -161,7 +161,6 @@ export default {
           edit: '换一场',
           scrape: '抓样例',
           scraping: '抓取中…',
-          submitActive: '提交当前文件',
           refresh: '刷新',
           refreshing: '获取中…',
           /** 「刷新于 20 秒前」：刷新两个字是可点的按钮，这里只给后面那半句 */
@@ -506,7 +505,6 @@ export default {
           edit: 'Change contest',
           scrape: 'Fetch samples',
           scraping: 'Fetching…',
-          submitActive: 'Submit current file',
           refresh: 'Refresh',
           refreshing: 'Fetching…',
           /** 「Refresh 20s ago」：刷新是可点的按钮，这里只给后面那半句 */
