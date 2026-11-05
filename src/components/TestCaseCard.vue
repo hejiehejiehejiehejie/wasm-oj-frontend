@@ -1041,8 +1041,12 @@ function onLongCopy(event, full) {
   background: var(--code-block-bg);
   border: 1px solid transparent;
   font-family: var(--mono-font);
-  font-size: 13.5px;
-  line-height: 1.55;
+  /* 2026-11-05（用户要求「样例文字增大字号、缩减行距，参考题面样例的样式」）：
+     字号 13.5 → 15、行高 1.55 → 1.2；用户随后「适当减小一点字号」（15 → 14），
+     最后定为 14.5（行高保持 1.2，14.5 × 1.2 = 17.4px）。
+     行高是纯数字，不写 px：改字号时字距同比跟着走。 */
+  font-size: 14.5px;
+  line-height: 1.2;
   resize: none;
   overflow-y: hidden;
   transition: border-color 0.15s ease;
@@ -1101,7 +1105,7 @@ function onLongCopy(event, full) {
    - 颜色是**专用的一支鹅黄**（`--hint-goose`），不是 `--warn`：2026-10-26 晚用户指定「鹅黄，
      不要绿」，而 `--warn` 深色是偏褐的金、浅色是偏橄榄的黄褐，压在这里会被读成灰绿。
      它只服务这一处，也就不跟页签未保存点、通知那批警告色联动。
-   - 字号比正文（13.5px）小一号，且用正文字体而不是等宽：它是「关于这次输出的一句话」，
+   - 字号比正文（14.5px）小一号，且用正文字体而不是等宽：它是「关于这次输出的一句话」，
      不是输出本身，等宽会读成「这也是程序打印的」。
    - 必须读完，所以不截断，窄面板下折行。 */
 .out-box__note {
@@ -1139,8 +1143,10 @@ function onLongCopy(event, full) {
   padding: 8px 9px;
   /* 底色 / 描边 / 圆角都在 .out-box 上：外框要能包住框内顶部那行提示 */
   font-family: var(--mono-font);
-  font-size: 13.5px;
-  line-height: 1.55;
+  /* 与 .ta 同档（2026-11-05）：输出框读的是同一批样例数字，两个框的字号 / 行距必须一致，
+     否则同一条用例的输入与输出在视觉上不是一家。 */
+  font-size: 14.5px;
+  line-height: 1.2;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
