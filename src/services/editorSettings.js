@@ -21,9 +21,11 @@ const EDITOR_SETTINGS_KEY = 'cp.editorSettings'
 // v5 与 v6 是同一条改写：v5 当天把「抬版本号」和「加改写分支」分成了两次编辑落地，
 // 中间那段窗口里 HMR 重载过的页面会写进「版本号 = 5、值还是 'all'」的存档 —— 版本号
 // 既然已经追上，< 的判定就永远不成立，那条改写对这份存档失效。抬到 6 把它捞回来。
+// v7（2026-11-05）：语义级悬停改为默认开，把老存档里由默认值自动写入的那份 false
+// 改成 true（原因见下面那条分支）。
 // **教训：动这个常量时必须和它对应的迁移分支在同一次编辑里落地，别分两步。**
 const EDITOR_SETTINGS_VERSION_KEY = 'cp.editorSettingsVersion'
-const EDITOR_SETTINGS_VERSION = 6
+const EDITOR_SETTINGS_VERSION = 7
 // 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
 const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
 
@@ -46,6 +48,11 @@ function readEditorSettings() {
     if (Number(window.localStorage.getItem(EDITOR_SETTINGS_VERSION_KEY)) < EDITOR_SETTINGS_VERSION) {
       if (parsed.theme === 'vs' || parsed.theme === 'cph-light') parsed.theme = 'light'
       if (parsed.renderLineHighlight === 'all') parsed.renderLineHighlight = 'line'
+      // v7（2026-11-05，用户定「语义级悬停默认打开」）：存档里那份 false 是**默认值被
+      // 深度 watch 自动写进去的**，不是用户的选择 —— 只改 EDITOR_SETTINGS_DEFAULTS 对
+      // 老用户等于没改，所以在这里一次性改写。改写之后版本号就是 7，用户再手动关掉
+      // 不会被这条覆盖（同 renderLineHighlight 那条的口径）。
+      parsed.semanticHover = true
     }
     // 只采纳已知字段，并且逐键夹成合法值：历史遗留的过期配置（如已移除的 keybinding）
     // 会被 normalizeEditorSetting 丢掉，越界 / 认不出来的值一律退回默认。

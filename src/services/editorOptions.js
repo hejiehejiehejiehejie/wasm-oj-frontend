@@ -242,12 +242,14 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   /**
    * 语义级悬停（实验，2026-11-05 加，见 services/monaco/semanticHover.js）。
    *
-   * **默认关**：它借用站内那颗 clang 的代码补全前端做真实类型推导，代价是
-   * 首次开启下载约 30MB 工具链、常驻约 23MiB，且**每次悬停**要跑一遍前端（约 0.2–1s）。
-   * 默认走「静态签名表 + tree-sitter」那条零成本路径；只有需要容器成员 / 结构体字段 /
-   * 重载的人再打开它。打开动作本身就会触发工具链下载（见 hover.js 的 watch）。
+   * **默认开（2026-11-05 用户定）**：它借用站内那颗 clang 的代码补全前端做真实类型推导，
+   * 代价是首次使用时下载约 30MB 工具链、常驻约 23MiB，且**每次悬停**要跑一遍前端
+   * （约 0.2–1s）。这条代价由 P0–P3 的闲置休眠与 gzip 落盘压下来之后才敢默认开：
+   * 不悬停就不下载（见 hover.js 的 watch 首枪不预载），闲置 5 分钟宿主自动释放。
+   * 老存档里的 false 是「默认值的自动写入」而不是用户选择，由 editorSettings 的 v7
+   * 迁移统一改回 true；之后手动关掉不会再被覆盖。
    */
-  semanticHover: false,
+  semanticHover: true,
   /**
    * 「全部样例通过」的庆祝纸屑（2026-10-23 加，见 services/confetti.js）。
    *
