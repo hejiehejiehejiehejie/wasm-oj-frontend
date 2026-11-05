@@ -34,6 +34,7 @@ import engines from './messages/engines.js'
 import explorer from './messages/explorer.js'
 import help from './messages/help.js'
 import notifications from './messages/notifications.js'
+import semanticHover from './messages/semanticHover.js'
 import settings from './messages/settings.js'
 import tests from './messages/tests.js'
 
@@ -48,7 +49,19 @@ export const DEFAULT_LOCALE = 'zh-CN'
 /** localStorage 键。刻意不复用已作废的 `cph.language`，见文件头说明。 */
 export const LOCALE_STORAGE_KEY = 'cp.uiLocale'
 
-const PARTS = [app, cf, components, countdown, engines, explorer, help, notifications, settings, tests]
+const PARTS = [
+  app,
+  cf,
+  components,
+  countdown,
+  engines,
+  explorer,
+  help,
+  notifications,
+  semanticHover,
+  settings,
+  tests,
+]
 
 /** locale → 扁平消息表。各域文件导出的是 `{ 'zh-CN': {...}, en: {...} }`，在这里按语言合并。 */
 const TABLES = LOCALES.reduce((tables, { id }) => {

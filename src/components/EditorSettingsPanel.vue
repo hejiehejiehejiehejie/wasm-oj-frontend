@@ -101,6 +101,7 @@ import {
   notice as cloudNotice,
   refreshCloudCode,
   splitLinkText,
+  syncAccountHandleCase,
   unbindCloud,
   uploadCloud,
 } from '../services/cloudSession.js'
@@ -364,6 +365,25 @@ const EDITOR_GROUPS = [
         key: 'statusBar',
         labelKey: 'settings.editor.statusBar.label',
         hintKey: 'settings.editor.statusBar.hint',
+        control: 'switch',
+      },
+    ],
+  },
+  {
+    // 悬停放在「视图」之后：它不改变编辑器长相，只决定停在符号上时弹什么。
+    // 第一行是总开关；第二行是可选的语义方案 —— 代价写在 hint 里，打开即触发工具链下载。
+    titleKey: 'settings.editor.groupHover',
+    rows: [
+      {
+        key: 'hover',
+        labelKey: 'settings.editor.hover.label',
+        hintKey: 'settings.editor.hover.hint',
+        control: 'switch',
+      },
+      {
+        key: 'semanticHover',
+        labelKey: 'settings.editor.semanticHover.label',
+        hintKey: 'settings.editor.semanticHover.hint',
         control: 'switch',
       },
     ],
@@ -1428,6 +1448,8 @@ watch(
   () => props.active,
   (active) => {
     if (!active) return
+    // 老账号的存档可能还是随手填的大小写：这里正要显示账号名，顺手核对一次（一个会话只问一次）
+    void syncAccountHandleCase()
     void reconcile()
     // 抽题组件的资产在 IndexedDB 里，探针（cfStatus）要走 Worker，所以它自己那一套：
     // 标记说没装就一个线程都不起，标记说装过才去库里核实（见 services/cfRuntime.js）。
@@ -1440,7 +1462,10 @@ onBeforeUnmount(() => {
 })
 
 function set(key, value) {
-  emit('update:settings', { ...props.settings, [key]: value })
+  const next = { ...props.settings, [key]: value }
+  // 语义分析依附于悬停：悬停关着时它没有任何出口，打开它时顺手把总开关也打开
+  if (key === 'semanticHover' && value) next.hover = true
+  emit('update:settings', next)
 }
 
 /** 数字行的取值区间（min/max 与读盘校验共用 editorOptions.js 里的同一份） */

@@ -123,6 +123,7 @@ export default {
         groupCursor: '光标与高亮',
         groupView: '视图',
         groupImage: '代码图片',
+        groupHover: '悬停提示',
         groupPerformance: '性能',
 
         fontFamily: { label: '字体', hint: '代码编辑器使用的等宽字体' },
@@ -176,6 +177,14 @@ export default {
         lowPower: {
           label: '低配模式',
           hint: '把后台语法检查延后到停手 1.2 秒后（默认 0.3 秒），老机器更省 CPU；判题不受影响',
+        },
+        hover: {
+          label: '函数悬停提示',
+          hint: '鼠标停在函数名上时显示签名与源码注释；触屏不会触发',
+        },
+        semanticHover: {
+          label: '语义分析（实验）',
+          hint: '用站内 clang 推导真实类型，可提示容器成员、结构体字段与重载。代价：每次悬停跑一遍编译器前端（约 0.2–1 秒），首次开启下载约 30MB 工具链并常驻约 23MiB 内存；关闭时完全走零成本的静态表。编译器被运行时占用时自动退回基础提示',
         },
         codeImageQuality: {
           label: '导出质量',
@@ -717,6 +726,7 @@ export default {
         groupCursor: 'Cursor & highlighting',
         groupView: 'View',
         groupImage: 'Code image',
+        groupHover: 'Hover',
         groupPerformance: 'Performance',
 
         fontFamily: { label: 'Font family', hint: 'The monospace font used by the code editor' },
@@ -785,6 +795,14 @@ export default {
         lowPower: {
           label: 'Low-spec mode',
           hint: 'Delays the background syntax check to 1.2s after you stop typing (0.3s by default), saving CPU on older machines; judging is unaffected',
+        },
+        hover: {
+          label: 'Function hover',
+          hint: 'Shows the signature and source comment when you hover a function name; touch screens do not trigger it',
+        },
+        semanticHover: {
+          label: 'Semantic analysis (experimental)',
+          hint: 'Uses the built-in clang to derive real types, so container members, struct fields and overloads work too. Cost: one compiler frontend run per hover (about 0.2–1s), plus a one-time ~30MB toolchain download and ~23MiB resident memory when first enabled; with it off, hovering stays on the zero-cost static table. Falls back to basic hints while the compiler is busy',
         },
         codeImageQuality: {
           label: 'Export quality',

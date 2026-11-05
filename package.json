@@ -42,7 +42,9 @@
     "katex": "^0.18.9",
     "marked": "^14.0.0",
     "monaco-editor": "^0.56.0",
-    "vue": "^3.5.42"
+    "tree-sitter-wasms": "^0.1.13",
+    "vue": "^3.5.42",
+    "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1",

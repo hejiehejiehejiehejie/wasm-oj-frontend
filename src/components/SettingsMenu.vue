@@ -61,6 +61,7 @@ import {
   probeCloud,
   refreshCloudCode,
   splitLinkText,
+  syncAccountHandleCase,
   unbindCloud,
   uploadCloud,
 } from '../services/cloudSession.js'
@@ -601,6 +602,8 @@ watch(openSubmenu, async (index) => {
   // 云端同步那一行：表单一展开就把焦点送进用户名框。框空着时把本机认得的那一位填进去
   // （先认已绑定的账号、再认「本机在跟谁」），导入过一次之后就不必把用户名重打一遍。
   if (rows.value[index]?.kind === 'cloud') {
+    // 老账号的存档可能还是随手填的大小写：这里要显示账号名，顺手核对一次（一个会话只问一次）
+    void syncAccountHandleCase()
     if (!cloudHandle.value.trim()) {
       cloudHandle.value = cloudAccount.value.handle || readActiveProfile().handle
     }

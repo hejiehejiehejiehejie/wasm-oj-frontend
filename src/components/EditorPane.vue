@@ -59,6 +59,7 @@ import LoadingSpinner from './LoadingSpinner.vue'
 import CfCodeforcesPanel from './CfCodeforcesPanel.vue'
 import ContextMenu from './ContextMenu.vue'
 import EditorSettingsPanel from './EditorSettingsPanel.vue'
+import EditorSemanticStatus from './EditorSemanticStatus.vue'
 import EditorTabs from './EditorTabs.vue'
 import MarkdownPreview from './MarkdownPreview.vue'
 import { MD_SHORTCUTS, MD_TOOL_GROUPS, formatMarkdown, markdownStats } from '../services/mdFormat.js'
@@ -962,6 +963,7 @@ defineExpose({
       <span class="dot opt-utf8"></span>
       <span>{{ t('app.status.spaces', { count: settings.tabSize }) }}</span>
       <span class="grow"></span>
+      <EditorSemanticStatus />
       <span v-if="selectedChars" class="picked">
         {{ t('app.status.selected', { count: selectedChars }) }}
       </span>
@@ -1072,6 +1074,18 @@ defineExpose({
   /* 与两套 Monaco 主题的 editor.background 保持一致，卡片才是一块完整的圆角面。
      用 --bg-editor-pane 而不是 --bg-panel：编辑区要比侧栏/输出/设置那些面板再暗一档 */
   background: var(--bg-editor-pane);
+  /* 自成层叠上下文（2026-11-05 加）：窄屏的侧栏是浮在编辑区之上的抽屉（.pane--tests 的
+     z-index: 30，见 App.vue），而编辑区内部有一批自带 z-index 的浮层 —— 页签组包络线
+     （.editor-tabs__gline，z 101）、拖拽幽灵、生成图片的等待胶囊（z 140）、以及 Monaco
+     自己的补全 / 提示浮层。编辑区不隔层，它们就与抽屉在同一个根层叠上下文里直接比数字，
+     101 / 140 一律压过 30：抽屉一展开，标签组那条线（2px、贯穿整条页签栏）就横穿在
+     抽屉上面（用户 2026-11-05 报的截图正是这个）。
+     isolation 只做隔离、不动任何内部 z-index：编辑区在父上下文里仍是 auto（= 0），
+     内部那批浮层被收进这一层后整体低于抽屉（30）与遮罩（29），该被盖住的都被盖住。
+     ⚠️ 只隔离到 `.editor-pane` 为止，别上提到 `.pane--editor`：那边除了编辑区还挂着
+     NotificationCenter（toast），收进去会连带改变它的层叠语义（见 App.vue 抽屉那段）。
+     弹窗 / 菜单不在这里 —— 它们各自 Teleport 到 body，本来就在根层叠上下文里高于抽屉。 */
+  isolation: isolate;
 }
 
 .editor-pane__stage {
@@ -1197,8 +1211,8 @@ defineExpose({
    **不加 transition**：位置每帧都在变，加了会拖出残影。
    ⚠️ pointer-events: none 必须一路继承到镜片：它是编辑器 DOM 之外的元素，压在落点上会让
    Monaco 的 getTargetAtClientPoint 返回 position: null，拖动当场卡死（同上面那两颗手柄）。
-   z-index 118：压在手柄之上，但仍低于菜单（120）/ 确认框（130）/ 通知（150）——
-   它是拖动期间的附属指示，不该盖住任何一层可交互的东西。 */
+   z-index 118：压在手柄之上、也压过通知 toast（115），但仍低于菜单（120）/
+   确认框（130）—— 它是拖动期间的附属指示，不该盖住任何一层可交互的东西。 */
 .magnifier {
   position: fixed;
   z-index: 118;
@@ -1652,7 +1666,8 @@ defineExpose({
 }
 
 /* 「生成图片」的局部等待：一枚贴底居中、跟着通知同一套玻璃质感的淡胶囊。
-   z-index 压在 toast（150）之下 —— 两条同时出现时先读结果，不读等待。
+   z-index 140 只在编辑区内部比较（`.editor-pane` 已 `isolation: isolate`）；对编辑区外的
+   toast（115）来说整个编辑区是一层 auto，胶囊仍在它之下 —— 两条同时出现时先读结果，不读等待。
    pointer-events: none：它不该拦住下面 Monaco 的任何一次点击（渲染期间也允许继续编辑，
    导出的本来就是点下那一刻的内容）。 */
 .editor-pane__exporting {

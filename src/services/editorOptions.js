@@ -233,6 +233,22 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   // 默认开＝改造前就有状态栏，老用户升上来零变化。
   statusBar: true,
   /**
+   * 悬停提示（2026-11-05 加，见 services/monaco/hover.js）。
+   *
+   * 与 statusBar / lowPower 同理，不是 Monaco 选项，攒在这份存档里只是图「新增一项偏好
+   * 不用再开一份 localStorage」。默认开＝改造前就有悬停；关掉后鼠标停在函数上什么都不弹。
+   */
+  hover: true,
+  /**
+   * 语义级悬停（实验，2026-11-05 加，见 services/monaco/semanticHover.js）。
+   *
+   * **默认关**：它借用站内那颗 clang 的代码补全前端做真实类型推导，代价是
+   * 首次开启下载约 30MB 工具链、常驻约 23MiB，且**每次悬停**要跑一遍前端（约 0.2–1s）。
+   * 默认走「静态签名表 + tree-sitter」那条零成本路径；只有需要容器成员 / 结构体字段 /
+   * 重载的人再打开它。打开动作本身就会触发工具链下载（见 hover.js 的 watch）。
+   */
+  semanticHover: false,
+  /**
    * 「全部样例通过」的庆祝纸屑（2026-10-23 加，见 services/confetti.js）。
    *
    * 与 statusBar / lowPower 同理，不是 Monaco 选项，攒在这份存档里只是图「新增一项偏好
