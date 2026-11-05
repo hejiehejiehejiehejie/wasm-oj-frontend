@@ -93,6 +93,24 @@ const visiblePanelId = (page) =>
       )?.dataset.panel ?? '',
   )
 
+/**
+ * 侧栏是否折叠。
+ *
+ * 不能用 `getClientRects().length === 0`：2026-10-10 起折叠态**不摘节点**，
+ * `.pane--tests` 收成 1px 留在排版里（View Transitions 快照与 syncSidebarPin 都靠它），
+ * 只把内层 `visibility/opacity` 归零（见 App.vue 的 `.pane--tests.is-collapsed`）。
+ * 所以那条判据恒为假、E / G / H 会集体误报。判据只认 `.is-collapsed`。
+ */
+const panelCollapsed = (page) =>
+  page.evaluate(() => Boolean(document.querySelector('.pane--tests')?.classList.contains('is-collapsed')))
+
+/** 侧栏是否展开（与 panelCollapsed 同一口径；宽度 > 1 只是防御性双保险） */
+const panelExpanded = (page) =>
+  page.evaluate(() => {
+    const pane = document.querySelector('.pane--tests')
+    return Boolean(pane) && !pane.classList.contains('is-collapsed') && pane.getBoundingClientRect().width > 1
+  })
+
 const probe = (page) =>
   page.evaluate(() => {
     const rect = (selector) => {
@@ -530,14 +548,12 @@ try {
     const added = await page.evaluate(() => document.querySelectorAll('.card').length)
     // 先把侧栏切回「资源管理器」再单击分隔条折叠它——为的是验新契约：点运行按钮时
     // 侧栏要自己展开、并切到「评测样例」，不然点了运行看不到结果。
-    // （顺序不能反：折叠后整栏 display:none，页头那颗切换钮也就点不到了。）
+    // （顺序不能反：折叠后内层被 visibility 收掉，页头那颗切换钮也就点不到了。）
     await showPanel(page, 'explorer')
     await wait(300)
     await clickSplitter(page)
     await wait(400)
-    const collapsed = await page.evaluate(
-      () => document.querySelector('.pane--tests').getClientRects().length === 0,
-    )
+    const collapsed = await panelCollapsed(page)
     // 运行入口：页签栏那颗运行按钮已删（2026-09-28），现在只剩全局快捷键与评测面板
     // 页脚那颗 ▶。此刻侧栏正折叠着（上面刚单击折起来），页脚那颗 display:none 点不到，
     // 所以走快捷键 —— 顺带守住「侧栏收起时快捷键照样能跑、且能把侧栏重新捞回来」。
@@ -553,8 +569,9 @@ try {
       const panel = [...document.querySelectorAll('.sidebar__panel')].find(
         (el) => el.getClientRects().length > 0,
       )
+      const pane = document.querySelector('.pane--tests')
       return {
-        visible: document.querySelector('.pane--tests').getClientRects().length > 0,
+        visible: Boolean(pane) && !pane.classList.contains('is-collapsed'),
         activePanel: panel?.dataset.panel ?? '',
       }
     })
@@ -661,15 +678,11 @@ try {
     // 侧栏收起时按同一个键：既要翻面，也得先把它捞回来（否则按了看不见任何反应）
     await clickSplitter(page)
     await wait(400)
-    const collapsed = await page.evaluate(
-      () => document.querySelector('.pane--tests').getClientRects().length === 0,
-    )
+    const collapsed = await panelCollapsed(page)
     await pressSwitch()
     // 收起时按一下 = 先捞回来 + 再翻面，所以落点应当是「评测样例」而不是折叠前那个
     const afterCollapsedPress = await visiblePanelId(page)
-    const revealed = await page.evaluate(
-      () => document.querySelector('.pane--tests').getClientRects().length > 0,
-    )
+    const revealed = await panelExpanded(page)
     // 收尾把侧栏恢复成「可见 + 资源管理器」，免得给后续步骤留个歪状态
     await showPanel(page, 'explorer')
     await page.screenshot({ path: `${SHOTS}cp-7-switch-panel.png` })
@@ -731,7 +744,6 @@ try {
         // 此刻有用例（E 步加的那 1 条）、没在运行，唯一能置灰它的就是题解这条闸门
         runDisabled: runButton ? runButton.disabled : null,
         runBlocked: document.querySelector('.run-blocked')?.textContent.trim() ?? '',
-        sidebarVisible: document.querySelector('.pane--tests').getClientRects().length > 0,
       }
     })
 
@@ -741,9 +753,7 @@ try {
     await pressMod(page, 'KeyB')
     await wait(300)
     const mdTextAfter = await editorValue(page)
-    const mdSidebarAfter = await page.evaluate(
-      () => document.querySelector('.pane--tests').getClientRects().length > 0,
-    )
+    const mdSidebarAfter = await panelExpanded(page)
 
     // 回到 .cpp 按同一个键：题解那 14 条只认 .md，这一发应当落回全局的「收侧栏」
     await page.evaluate(() => {
@@ -755,9 +765,7 @@ try {
     await wait(400)
     await pressMod(page, 'KeyB')
     await wait(400)
-    const cppSidebarCollapsed = await page.evaluate(
-      () => document.querySelector('.pane--tests').getClientRects().length === 0,
-    )
+    const cppSidebarCollapsed = await panelCollapsed(page)
     // 收尾：把侧栏再打开，别给后续留个折叠状态
     await pressMod(page, 'KeyB')
     await wait(400)
