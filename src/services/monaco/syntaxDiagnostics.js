@@ -37,7 +37,7 @@
  */
 import { monaco } from '../../monaco-setup.js'
 import { editorSettings } from '../editorSettings.js'
-import { ensureRuntimeLoaded, subscribeStatus } from '../wasmRuntime.js'
+import { ensureRuntimeLoaded, noteHostActivity, subscribeStatus } from '../wasmRuntime.js'
 import {
   SYNTAX_STATUS,
   checkCppSyntax,
@@ -106,6 +106,16 @@ function nextDelay(key) {
 const MARKER_LIMIT = 50
 /** 诊断原文最长保留多少字符，防止模板爆炸时把整条 message 撑爆 */
 const MESSAGE_LIMIT = 1500
+/**
+ * 一条诊断最多并进几条 `note:`。
+ *
+ * clang 的 note 就是「为什么不行」：`candidate function not viable: requires 2 arguments,
+ * but 1 was provided`、`no known conversion from 'const char[4]' to 'int'`。
+ * VS Code 把它们和错误一起铺在悬停里，这里也并进同一条标记 —— 标记的正文就是悬停里
+ * 显示的内容（Monaco 的 MarkerHoverParticipant 直接读 `message`）。上限压住模板实例化
+ * 爆炸时动辄十几条的候选列表。
+ */
+const NOTE_LIMIT = 3
 
 /** 每次检查的序号：只有等于最新序号的结果才允许写标记 */
 let latestSeq = 0
@@ -267,9 +277,11 @@ function byteColumnToChar(line, column) {
 /**
  * 解析 clang 的诊断原文。
  *
- * 只认 `路径:行:列: 级别: 消息` 这一种行（clang 8 的固定格式）；note 一律丢掉 ——
- * 它们是错误的补充说明，铺成标记只会把正文挤满。后面那几行缩进的源码回显也对不上正则，
- * 自然被跳过。
+ * 只认 `路径:行:列: 级别: 消息` 这一种行（clang 8 的固定格式）。`note` 不单独成标记：
+ * 它们是上一条错误的补充说明（候选函数为何不可行、两个类型为什么转不过去），
+ * 这里并进那条标记的正文、每条占一行 —— 标记正文就是悬停里显示的文字
+ * （Monaco 的 MarkerHoverParticipant 直接读 `message`），于是悬停错误处能看到
+ * 与 VS Code 同款的「错误 + 原因」。后面那几行缩进的源码回显对不上正则，自然被跳过。
  * @param {string} stderr
  * @param {{ text?: string, language?: 'cpp' | 'python' }} [source]
  *   text 用来算列单位与区间宽度；language 只影响列单位（clang 是字节列、Python 是字符列）
@@ -278,19 +290,32 @@ function parseDiagnostics(stderr, { text = '', language = 'cpp' } = {}) {
   const lines = String(text).split('\n')
   const byteColumns = language !== 'python'
   const markers = []
+  /** 上一条错误 / 警告：note 只往它身上挂 */
+  let current = null
+  let notes = 0
   for (const line of String(stderr ?? '').split('\n')) {
     if (markers.length >= MARKER_LIMIT) break
     const match = /^(.+?):(\d+):(\d+): (fatal error|error|warning|note): (.*)$/.exec(line)
     if (!match) continue
     const [, , lineText, columnText, level, message] = match
-    if (level === 'note') continue
+    if (level === 'note') {
+      if (!current || notes >= NOTE_LIMIT) continue
+      const note = message.trim()
+      // 同一句原因重复出现（模板多重实例化）时不叠第二遍
+      if (!note || current.message.includes(note)) continue
+      const merged = `${current.message}\nnote: ${note}`
+      if (merged.length > MESSAGE_LIMIT) continue
+      current.message = merged
+      notes += 1
+      continue
+    }
     const lineNumber = Number(lineText)
     const rawColumn = Number(columnText)
     if (!Number.isFinite(lineNumber) || !Number.isFinite(rawColumn)) continue
     const source = lines[lineNumber - 1]
     const column = byteColumns ? byteColumnToChar(source, rawColumn) : rawColumn
     const [startColumn, endColumn] = tokenRangeAt(source, column)
-    markers.push({
+    const marker = {
       severity:
         level === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Error,
       message: message.slice(0, MESSAGE_LIMIT),
@@ -299,7 +324,10 @@ function parseDiagnostics(stderr, { text = '', language = 'cpp' } = {}) {
       endLineNumber: lineNumber,
       endColumn,
       source: 'clang',
-    })
+    }
+    markers.push(marker)
+    current = marker
+    notes = 0
   }
   return markers
 }
@@ -342,6 +370,9 @@ async function runCheck(model, language, text) {
   } finally {
     if (seq === latestSeq) runningHost = null
   }
+  // 语法检查同样不走沙箱调度器（beginTask/endTask），跑完这一枪要自己续上闲置计时器；
+  // 否则活跃编辑几分钟后会被休眠掐断，下一次击键又要付一遍宿主重建。
+  noteHostActivity()
   // 没有结论：按具体原因分流，别再一律当成「宿主忙、过一会儿补一枪」
   const status = result?.status
   if (!result || status === SYNTAX_STATUS.BUSY) {

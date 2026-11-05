@@ -48,6 +48,49 @@ const ASSETS = `${location.origin}${import.meta.env.BASE_URL}wasm/${TOOLCHAIN_VE
 const CLANG_URL = `${ASSETS}/clang.wasm.br`
 const LINKER_URL = `${ASSETS}/wasm-ld.wasm.br`
 const SYSROOT_URL = `${ASSETS}/sys23-fs.tar.br`
+
+/**
+ * Uncompressed sizes of the two assets fetched during host init.
+ *
+ * They are the only trustworthy denominator for a progress bar: the wire
+ * `Content-Length` counts the br/gzip payload (clang is 14.24MB on the wire)
+ * while the worker's ReadableStream yields decoded bytes (77.30MB). The
+ * service worker also strips `content-length` for entries it re-encodes,
+ * so measuring against response headers would produce NaN or >100%.
+ */
+export const TOOLCHAIN_ASSET_BYTES = { clang: 77_300_000, sysroot: 16_330_000 }
+
+/**
+ * Assets the host downloads in `init` (the linker stays lazy until a link).
+ * Cache probes for the semantic wake path must use this list, not the full
+ * runtime set: a hover-only session never fetches wasm-ld, and treating it as
+ * "not cached" would mislabel every wake-up as a fresh download.
+ */
+export const FRONTEND_ASSET_URLS = [CLANG_URL, SYSROOT_URL]
+
+/** Listeners fed by the host worker while it reads asset bytes (see services/wasi/client.js). */
+const assetProgressListeners = new Set()
+
+/**
+ * Subscribe to uncompressed decode progress for clang / sysroot.
+ * The callback receives `{ key, loaded, total }` and is throttled by the stream chunk size.
+ * @param {(progress: { key: string, loaded: number, total?: number }) => void} listener
+ * @returns {() => void} unsubscribe
+ */
+export function onToolchainProgress(listener) {
+  assetProgressListeners.add(listener)
+  return () => assetProgressListeners.delete(listener)
+}
+
+function forwardAssetProgress(progress) {
+  for (const listener of assetProgressListeners) {
+    try {
+      listener(progress)
+    } catch {
+      /* one broken subscriber must not stop the rest */
+    }
+  }
+}
 // 客户端稳态只留当前档（规划 §5 第 6 项）。**不要在这里列举「要清哪一代」**：
 // 换代只换目录名，而 `cp-toolchain*` 在 SW 的 keep 白名单里，没有任何人会替我们回收
 // 桶里旧目录的条目 —— 写死一张旧 URL 表，就等于写了「只回收这特定的一代」。
@@ -384,6 +427,59 @@ const UNIVERSAL_HEADER = `#ifndef OJ_SANDBOX_BITS_STDCXX_H
 #include <cctype>
 #include <cassert>
 #include <cstdint>
+#include <random>
+#include <chrono>
+#include <bit>
+#include <type_traits>
+
+// 站内内核是 clang + libc++，CF 题解里常见的两个 GNU 名字（__lg / __gcd）
+// 属于 libstdc++ 的私有实现，这里按同样语义补一份。实现走 __builtin，
+// 编译后与 GCC 版本同档（一条 clz / 一个欧几里得循环，全部内联）。
+template <class T>
+  requires std::is_integral_v<T> && (!std::is_same_v<T, bool>)
+constexpr T __lg(T __n)
+{
+  using U = std::make_unsigned_t<T>;
+  U __u = static_cast<U>(__n);
+  if constexpr (sizeof(U) <= sizeof(unsigned int))
+    {
+      U __w = __u == 0 ? U(0) : U(32u - __builtin_clz(static_cast<unsigned int>(__u)));
+      return static_cast<T>(static_cast<U>(__w - U(1)));
+    }
+  else if constexpr (sizeof(U) <= sizeof(unsigned long long))
+    {
+      U __w = __u == 0 ? U(0) : U(64u - __builtin_clzll(static_cast<unsigned long long>(__u)));
+      return static_cast<T>(static_cast<U>(__w - U(1)));
+    }
+  else
+    {
+      unsigned __int128 __v = static_cast<unsigned __int128>(__u);
+      unsigned long long __hi = static_cast<unsigned long long>(__v >> 64);
+      unsigned long long __lo = static_cast<unsigned long long>(__v);
+      U __w = __hi != 0 ? U(128u - __builtin_clzll(__hi))
+              : __lo != 0 ? U(64u - __builtin_clzll(__lo))
+              : U(0);
+      return static_cast<T>(static_cast<U>(__w - U(1)));
+    }
+}
+
+template <class T>
+constexpr T __gcd(T __m, T __n)
+{
+  while (__n != 0)
+    {
+      T __t = __m % __n;
+      __m = __n;
+      __n = __t;
+    }
+  return __m;
+}
+
+namespace std
+{
+using ::__lg;
+using ::__gcd;
+}
 #endif
 `
 
@@ -592,6 +688,8 @@ function createToolHost({ oomProbe = true } = {}) {
     clangURL: CLANG_URL,
     linkerURL: LINKER_URL,
     sysrootURL: SYSROOT_URL,
+    assetSizes: TOOLCHAIN_ASSET_BYTES,
+    onAssetProgress: forwardAssetProgress,
     universalHeaderPath: UNIVERSAL_HEADER_PATH,
     universalHeader: UNIVERSAL_HEADER,
     pchSource: PCH_SOURCE_TEXT,
@@ -965,7 +1063,6 @@ async function compileAndLink(code, memoryLimitBytes, onStatus, optimization = O
   const tool = toolOverride ?? (await loadToolchain(onStatus))
   // PCH 只有 -O2 那一份（见 OPT_MAIN 处的说明）：对拍那一遍不加载它。
   // 硬塞进去的后果不是「慢一点」，而是 clang fatal + 命中下面那段 PCH 判废、把好 PCH 删掉。
-  const pch = optimization === OPT_MAIN ? await loadPchBytes() : null
 
   // 「编译阶段」的播报（同时是上层按阶段上弦的看门狗）跟着**消息派发**走，不跟着进入这个
   // 函数走：从进来到第一条消息真发出去之间，可能还在排队等前面那条任务（运行 / PCH 生成），
@@ -981,17 +1078,28 @@ async function compileAndLink(code, memoryLimitBytes, onStatus, optimization = O
   // 探针只编一次；放在 compile 阶段里做，第一次点的用户会多等几十毫秒
   const oomProbe = await loadOomProbe(tool, announceCompile)
 
+  // 尽量贴着消息构造点再取（中间的 await 期间可能有一次语法诊断也在取 PCH）
+  const pch =
+    optimization === OPT_MAIN
+      ? await pchPlan(tool.host)
+      : { installed: false, bytes: null, confirm: null }
+
   let compiled = await tool.host.compile(
     {
-      args: clangArgs(pch ? PCH_PATH : null, optimization),
+      args: clangArgs(pch.installed ? PCH_PATH : null, optimization),
       source: code,
       sourcePath: SOURCE_PATH,
       outputPath: OBJECT_PATH,
-      pch,
+      pch: pch.bytes,
     },
-    { onDispatch: announceCompile },
+    {
+      onDispatch: () => {
+        announceCompile()
+        pch.confirm?.()
+      },
+    },
   )
-  if (pch && !compiled.object && PCH_ERROR_RE.test(compiled.stderr)) {
+  if (pch.installed && !compiled.object && PCH_ERROR_RE.test(compiled.stderr)) {
     // 是 PCH 本身加载不了（clang 会在加载时校验语言选项和头文件搜索路径，对不上就 fatal），
     // 不是用户代码写错了。绝不能因为一个缓存文件让用户的代码编不过 ——
     // 判废、退回普通编译重试一次，这一次的结果才是用户看到的。
@@ -1377,7 +1485,42 @@ export async function unloadRuntime(language) {
   pchBytes = null
   pchOrigin = null
   pchPromise = null
+  pchHandedTo = new WeakMap()
   await deletePch(pchCacheId())
+}
+
+/**
+ * 休眠：把工具链从内存里放掉，**但不碰任何持久层**。
+ *
+ * 与 {@link unloadRuntime} 的区别只有一句话：那条是用户明确点「卸载」，所以要连
+ * Cache Storage 里 23MB 资产和 IndexedDB 里 18MB 存档一起删；这里是「一时用不着了」，
+ * 下次还要能原样恢复 —— 资产留在缓存里，热恢复只是读本地缓存 + 解包（实测约 400ms，
+ * 不需要重新走网络）。
+ *
+ * 放掉的四份内存：clang Module + sysroot 解包后的 1385 个文件节点（baseFs）、
+ * 第二颗对拍宿主、编译产物缓存、以及主线程那份 18MB PCH（存档里还有，读回很快）。
+ *
+ * @param {'cpp'} [language] 目前只有 C++ 有常驻宿主；Python 是 runno 的单次实例，不用这条
+ * @returns {boolean} 真的放掉了东西（false = 本来就没加载，调用方不必改状态）
+ */
+export function suspendRuntime(language = 'cpp') {
+  if (language !== 'cpp') return false
+  const hadHost = Boolean(toolchain?.host?.alive)
+  cancelCrossIdleDispose()
+  toolchain?.host?.dispose()
+  toolchain = null
+  toolchainPromise = null
+  crossToolchain?.host?.dispose()
+  crossToolchain = null
+  crossToolchainPromise = null
+  compileCaches.clear()
+  oomProbeObject = null
+  pchBytes = null
+  pchOrigin = null
+  pchPromise = null
+  pchHandedTo = new WeakMap()
+  if (!hadHost) return false
+  return true
 }
 
 /**
@@ -1578,6 +1721,19 @@ export function isToolchainReady() {
   return Boolean(toolchain?.host?.alive)
 }
 
+/**
+ * 主宿主此刻有没有活（运行 / 编译 / PCH 生成 / 语法诊断 / 悬停查询都算）。
+ *
+ * 给闲置休眠用：`unloadRuntime` 式的释放会 terminate 整颗 worker，一条正在跑的
+ * 15s 语法诊断会随之变成 ABORTED、编辑器里留着旧红线。所以「没人在用」这件事
+ * 只有宿主自己知道得最准（busy / queued / activeLabel，见 wasi/client.js）。
+ */
+export function isToolchainHostIdle() {
+  const host = toolchain?.host
+  if (!host?.alive) return true
+  return !host.busy && !host.activeLabel && host.queued === 0
+}
+
 /** FNV-1a：只给头文件内容取个指纹用，不是安全哈希 */
 function hashString(text) {
   let hash = 0x811c9dc5
@@ -1677,8 +1833,9 @@ async function fetchShippedPch() {
  * `loadPchBytes` 只读内存 / IndexedDB —— 于是「预取完成」与「首编用上 PCH」是两件
  * 互不相干的事（实测首编 616ms vs 带 PCH 270ms，白等约 350ms）。
  *
- * 18MB 常驻是刻意的：第一次运行之后本来也会常驻（warmupPch 走同一条路），而且内存这份
- * 还能消掉「首编赶在 IndexedDB 的 18MB put 提交之前读库」的竞态。
+ * 内存里那份只在「还没交给 worker」之前有意义（pchPlan 交付之后就丢掉，见那里的说明）：
+ * 它同时消掉了「首编赶在 IndexedDB 的 18MB put 提交之前读库」的竞态，代价是同一份字节
+ * 会在 worker 的 baseFs 里再落一份 —— 两份只在这几秒里同时存在，之后只剩 worker 那份。
  *
  * 与 `prefetchRuntimeAssets` 分开两个函数：那个同时是「工具链是否已下载」的判据
  * （`runtimeAssetURLs`），把 PCH 塞进去会让所有老用户被判成「没下过」。
@@ -1706,6 +1863,59 @@ let pchBytes = null
  * @type {'shipped' | 'local' | null}
  */
 let pchOrigin = null
+
+/**
+ * 宿主 → 已经把 PCH 交付给它的 worker 世代号（`host.generation` 每次重建 +1）。
+ *
+ * 为什么要这张表：`client.js` 的 `postMessage` 没有 transfer list，消息体里的
+ * `Uint8Array` 会被**结构化克隆**一份 —— 这 18.37MB 每敲一次键（语法诊断）、
+ * 每悬停一次（completion）都要复制一次，是这套架构里最贵的一笔内存开销。
+ * PCH 是「装进 worker 的 baseFs 里就一直有效」的东西：同一代 worker 只该交一次，
+ * 之后的消息只带 `-include-pch` 参数、不带字节。
+ *
+ * 记在**世代号**而不是宿主对象上：`client.js` 在 terminate 之后会在同一个宿主对象里
+ * 重建 worker，对象身份不变、FS 却已经是空的 —— 拿对象当判据就会漏装。
+ */
+let pchHandedTo = new WeakMap()
+
+/**
+ * 这条消息该怎么带 PCH。
+ *
+ * 三条规矩，缺一条就会回到「每敲一次键克隆一份 18MB」：
+ * 1. **同一代 worker 只交付一次**：装进 baseFs 之后就一直在（`-include-pch` 只是路径参数，
+ *    不需要字节），所以这一代后续的消息一律 `bytes: null`；
+ * 2. **只在真正要交付时才去读存档**：这一代已经装过就直接短路，别为了一条用不上字节的消息
+ *    白读 18MB IndexedDB；
+ * 3. **交付确认必须是「消息真的派发了」**（`confirm` 由客户端 onDispatch 触发），
+ *    否则一条被 `cancelQueued` 撤掉的消息会让这一代误以为已经装好，之后每条消息都带着
+ *    `-include-pch` 去打一个不存在的文件。
+ *
+ * @param {object} host 目标宿主（见 wasi/client.js 的 WasiWorkerHost）
+ * @returns {Promise<{ installed: boolean, bytes: Uint8Array | null, confirm: (() => void) | null }>}
+ *   `installed` 表示「这条消息跑起来时 worker FS 里一定有 PCH」，参数据此决定要不要带
+ *   `-include-pch`。
+ */
+async function pchPlan(host) {
+  const generation = host.generation
+  if (pchHandedTo.get(host) === generation) return { installed: true, bytes: null, confirm: null }
+  // 这一代还没装过：现在才值得读那份存档（内存 → IndexedDB，见 loadPchBytes）
+  const bytes = await loadPchBytes()
+  if (!bytes) return { installed: false, bytes: null, confirm: null }
+  return {
+    installed: true,
+    bytes,
+    confirm: () => {
+      pchHandedTo.set(host, generation)
+      // 交出去之后主线程不再留这份 18MB：worker 的 baseFs 里已经有一份，再留就是双份常驻。
+      // 换一代 worker 要重装时从 IndexedDB 读回来 —— 那份迟早都写过
+      // （见 fetchShippedPch / ensurePch 的 writePch）。
+      if (pchBytes === bytes) pchBytes = null
+      // `pchPromise` 的 resolved value 就是同一份 18MB：只清 pchBytes 清不掉它。
+      // 清空之后 ensurePch 会走一次存档读（不是重编，见那里的注释）。
+      pchPromise = null
+    },
+  }
+}
 
 /**
  * 编译前取 PCH：先看本会话内存，再问 IndexedDB。
@@ -1736,6 +1946,8 @@ async function discardPch() {
   const origin = pchOrigin
   pchBytes = null
   pchOrigin = null
+  // 交付表也要一起清：worker FS 里那份已经被判废，下一代不该再假装「已经装过」
+  pchHandedTo = new WeakMap()
   await deletePch(pchCacheId())
   if (origin === 'shipped') {
     markPchAssetBad()
@@ -1923,18 +2135,19 @@ export async function checkCppSyntax(code, { onHost } = {}) {
   // 运行或 PCH 生成正占着这颗宿主：让路。**不能**只是「照常排队」—— 那张 15s 表虽然已经从
   // 派发时刻起算，但排在这一枪前面的如果是几十秒的 PCH 生成，用户的红线就要迟到几十秒。
   if (host.busy) return { status: SYNTAX_STATUS.BUSY }
-  const pch = await loadPchBytes()
-  // loadPchBytes 是 await：期间用户可能刚好点了运行，回来再确认一次
+  // 这一代 worker 还没装过 PCH 时才会读那份 18MB 存档；装过就直接短路，不带字节
+  const pch = await pchPlan(host)
+  // pchPlan 可能 await 了存档读取：期间用户可能刚好点了运行，回来再确认一次
   if (!host.alive) return { status: SYNTAX_STATUS.UNAVAILABLE }
   if (host.busy) return { status: SYNTAX_STATUS.BUSY }
   onHost?.(host)
   try {
     const result = await host.syntax(
       {
-        args: syntaxArgs(pch ? PCH_PATH : null),
+        args: syntaxArgs(pch.installed ? PCH_PATH : null),
         source: code,
         sourcePath: SOURCE_PATH,
-        pch,
+        pch: pch.bytes,
       },
       {
         // 后台优先级：用户点运行 / PCH 生成要插队时，这一枪可以让到前面去。
@@ -1942,11 +2155,83 @@ export async function checkCppSyntax(code, { onHost } = {}) {
         timeoutMs: SYNTAX_TIMEOUT_MS,
         priority: HOST_PRIORITY_BACKGROUND,
         label: 'syntax',
+        onDispatch: () => pch.confirm?.(),
       },
     )
     return { status: SYNTAX_STATUS.SUCCESS, exitCode: result.exitCode, stderr: result.stderr }
   } catch (error) {
     // 带 reason 的都是「被外力掐断」（看门狗 / 前台抢占 / 取消），不是诊断本身出错
+    if (error?.reason) return { status: SYNTAX_STATUS.ABORTED }
+    throw error
+  } finally {
+    onHost?.(null)
+  }
+}
+
+/**
+ * 语义悬停的命令行：在 `-fsyntax-only` 之上再加一次「代码补全」查询。
+ *
+ * `-code-completion-at=` 是 cc1 的前端开关，clang 会把该位置能看到的符号按
+ * `COMPLETION: 名字 : [#类型#]签名` 打到 **stdout**（与诊断走 stderr 互不干扰）。
+ * 参数与语法检查同源（同一份 FRONTEND_ARGS / PCH），所以结论和真正编译时一致。
+ */
+function completionArgs(pchPath, line, column) {
+  return [
+    '-cc1',
+    '-fsyntax-only',
+    ...FRONTEND_ARGS,
+    ...(pchPath ? ['-include-pch', pchPath] : []),
+    `-code-completion-at=${SOURCE_PATH}:${line}:${column}`,
+    '-x',
+    'c++',
+    SOURCE_PATH,
+  ]
+}
+
+/**
+ * 对一段 C++ 源码的指定位置跑一次代码补全查询（语义悬停用，见 monaco/semanticHover.js）。
+ *
+ * 使用前提与 {@link checkCppSyntax} 完全一致：工具链必须已加载（这里同样**不主动下载**，
+ * 下载时机由设置页那个开关决定）；沿用同一颗常驻宿主，`busy` 时直接让路。
+ *
+ * @param {string} code
+ * @param {number} line 1 起的行号
+ * @param {number} column 1 起的**字节列**（UTF-8 列，不是 UTF-16 光标列）
+ * @param {{ onHost?: (host: object | null) => void }} [options]
+ * @returns {Promise<{ status: string, exitCode?: number, stdout?: string, stderr?: string }>}
+ */
+export async function checkCppCompletion(code, line, column, { onHost } = {}) {
+  if (!toolchain?.host?.alive) return { status: SYNTAX_STATUS.UNAVAILABLE }
+  const host = toolchain.host
+  if (host.busy) return { status: SYNTAX_STATUS.BUSY }
+  // 同 checkCppSyntax：这一代装过就短路，只有第一次交付才读存档
+  const pch = await pchPlan(host)
+  if (!host.alive) return { status: SYNTAX_STATUS.UNAVAILABLE }
+  if (host.busy) return { status: SYNTAX_STATUS.BUSY }
+  onHost?.(host)
+  try {
+    const result = await host.syntax(
+      {
+        args: completionArgs(pch.installed ? PCH_PATH : null, line, column),
+        source: code,
+        sourcePath: SOURCE_PATH,
+        pch: pch.bytes,
+      },
+      {
+        // 与语法检查同一档后台优先级：用户点运行时这一枪先让路
+        timeoutMs: SYNTAX_TIMEOUT_MS,
+        priority: HOST_PRIORITY_BACKGROUND,
+        label: 'completion',
+        onDispatch: () => pch.confirm?.(),
+      },
+    )
+    return {
+      status: SYNTAX_STATUS.SUCCESS,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    }
+  } catch (error) {
     if (error?.reason) return { status: SYNTAX_STATUS.ABORTED }
     throw error
   } finally {

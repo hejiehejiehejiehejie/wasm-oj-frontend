@@ -4,21 +4,54 @@
  * 为什么用原生 API 而不是 idb：这里没有事务编排、没有游标、没有多表，
  * 30 行就够，不值得为它引一个依赖（项目的重量级依赖只有 monaco + runno）。
  *
- * 存储形状刻意做得很薄：{ id, bytes, size, createdAt }。id 由调用方算好，
+ * 存储形状刻意做得很薄：{ id, bytes, size, createdAt, encoding? }。id 由调用方算好，
  * 「什么时候算过期」也归调用方 —— 存档层不认识 PCH 的语义，只负责原样存取。
  * 所以这个文件不需要知道 clang 版本、头文件内容这些东西。
  *
- * 所有导出函数都**不会抛异常**：拿不到库（隐私模式 / 用户禁了站点数据）、
- * 配额不足、存档损坏，一律按「没有存档」处理并返回 null / false。
- * 调用方（runnoSandbox）默认就是把 PCH 当可选加速，没它也必须能编译。
+ * **存储按 gzip 落盘**（2026-11-05 加，P3）：一份 PCH 解压态约 23.2MB，gzip 后 14.2MB。
+ * 浏览器不会替我们压响应体，所以这里在写入前用 `CompressionStream('gzip')` 过一遍，
+ * 记录上打 `encoding: 'gzip'`；读的时候解压回原字节。没有 `encoding` 的旧记录是
+ * 解压态，照常可读，并在首次命中后于空闲时重存成压缩态（不阻塞当次编译）。
+ *
+ * 压缩是**可选**的：`CompressionStream` 缺席、压缩失败、或配额不足，都退回存原字节，
+ * 行为与之前完全一致 —— 这个文件的所有承诺仍然是「拿不到就当没有」。
+ * 字节始终是 Uint8Array（structured clone 的后代），不是 ArrayBuffer。
  */
 import { LEGACY_PCH_DB_NAME, PCH_DB_NAME } from './storageNames.js'
 
 const STORE_NAME = 'pch'
 const DB_VERSION = 1
+const ENCODING_GZIP = 'gzip'
 
 /** @type {Promise<IDBDatabase | null> | null} */
 let dbPromise = null
+
+/**
+ * 可选压缩：不支持 / 失败都返回 null，调用方退回存原字节。
+ * `Blob` + `Response` 这一套是为了让压缩在流式管线里跑，不必自己拼 Chunk。
+ */
+async function gzipBytes(bytes) {
+  if (typeof CompressionStream === 'undefined') return null
+  try {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream(ENCODING_GZIP))
+    const compressed = new Uint8Array(await new Response(stream).arrayBuffer())
+    return compressed.byteLength > 0 ? compressed : null
+  } catch {
+    return null
+  }
+}
+
+/** 解压 gzip 记录；坏数据 / 不支持的浏览器返回 null（调用方按「没有存档」处理） */
+async function gunzipBytes(bytes) {
+  if (typeof DecompressionStream === 'undefined') return null
+  try {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(ENCODING_GZIP))
+    const raw = new Uint8Array(await new Response(stream).arrayBuffer())
+    return raw.byteLength > 0 ? raw : null
+  } catch {
+    return null
+  }
+}
 
 function openDb() {
   if (!dbPromise) {
@@ -90,16 +123,45 @@ export async function readPch(id) {
   // 命中时顺手清掉别的版本：id 里带着 PCH_CACHE_VERSION，换版之后旧存档再也取不到，
   // 只有这一趟能发现它还在（2026-10-25 实测 IndexedDB 19.6MB = 两版 PCH 各 8.6MB）
   void pruneOthers(id)
-  return bytes
+  if (record.encoding !== ENCODING_GZIP) {
+    // 旧存档（解压态）照样能用，但顺手在空闲时重存成 gzip，下一次读才是瘦的。
+    // 不在这一趟里同步重压：它会让「点运行」多等 ~0.4s，而 PCH 省下的也才 0.23–0.26s。
+    recycleLegacyRecord(id, bytes)
+    return bytes
+  }
+  const raw = await gunzipBytes(bytes)
+  if (raw === null) {
+    // 压缩态存档坏了 / 浏览器不支持解压：当没有存档，让编译自己重建 PCH
+    void deletePch(id)
+    return null
+  }
+  return raw
 }
 
 /**
- * 存档一份 PCH。
+ * 旧记录（解压态）的空闲重存。
+ * 放 `requestIdleCallback`：压缩一张 23MB 的 PCH 约 0.4s，别和首次编译抢主线程。
+ */
+function recycleLegacyRecord(id, bytes) {
+  const run = () => void writePch(id, bytes)
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 5000 })
+  } else {
+    setTimeout(run, 1500)
+  }
+}
+
+/**
+ * 存档一份 PCH。先压再写；压缩不可用/失败就退回原字节（此时不带 `encoding`，
+ * 读路径按旧格式处理）。
  * @returns {Promise<boolean>} 是否真的写进去了；false 只表示「这次没存上」，
  * 调用方不应该因此中断编译
  */
 export async function writePch(id, bytes) {
-  const record = { id, bytes, size: bytes.byteLength, createdAt: Date.now() }
+  const compressed = await gzipBytes(bytes)
+  const record = compressed
+    ? { id, bytes: compressed, size: bytes.byteLength, encoding: ENCODING_GZIP, createdAt: Date.now() }
+    : { id, bytes, size: bytes.byteLength, createdAt: Date.now() }
   const result = await withStore('readwrite', (store) => {
     // 这个库只放 PCH，而 PCH 一辈子只该有一份：先清再写，与 put 同一个事务，
     // 换版留下的旧 id 不会跟着新存档一起留到下一次升级

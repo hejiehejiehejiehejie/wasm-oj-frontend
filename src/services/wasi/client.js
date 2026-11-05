@@ -95,7 +95,11 @@ function terminatedError(
 
 export class WasiWorkerHost {
   constructor(options = {}) {
-    this.options = { ...DEFAULT_INIT, ...options }
+    // Callbacks cannot survive structured clone, so they stay on this side and
+    // the init payload keeps only serializable fields.
+    const { onAssetProgress = null, ...init } = options
+    this.options = { ...DEFAULT_INIT, ...init }
+    this.onAssetProgress = onAssetProgress
     this.worker = null
     this.ready = null
     this.dead = false
@@ -289,6 +293,11 @@ export class WasiWorkerHost {
     }
     if (message.type === 'stderr') {
       this.stderr += message.text
+      return
+    }
+    // Progress events carry no request id and must not settle the active job.
+    if (message.type === 'asset-progress') {
+      this.onAssetProgress?.(message)
       return
     }
     const active = this.active

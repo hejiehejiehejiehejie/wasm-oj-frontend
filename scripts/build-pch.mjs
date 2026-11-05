@@ -107,6 +107,29 @@ async function openPage(browser, url) {
   return { context, page }
 }
 
+/**
+ * 等宿主空下来再要 PCH。
+ *
+ * `ensurePch()` 在宿主正忙（例如页面自己的语法预热刚好占着）时会返回 null 并清掉缓存的
+ * promise —— 那是「这一轮没轮到」，不是失败。构建脚本不能把这种时序当成错误，但也不能
+ * 无限等：10s 还拿不到，就说明宿主一直忙或本机 PCH 已被标记为不支持。
+ */
+async function waitPch(page) {
+  return page.evaluate(async () => {
+    const sb = window.__sb ?? (await import('/src/services/runnoSandbox.js'))
+    const deadline = performance.now() + 10_000
+    while (performance.now() < deadline) {
+      const pch = await sb.ensurePch()
+      if (pch) {
+        window.__pch = pch
+        return pch.byteLength
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error('ensurePch() 持续返回 null：宿主一直忙，或本机 PCH 已被标记为不支持')
+  })
+}
+
 const port = await freePort()
 const server = await startDevServer(port)
 const url = `http://localhost:${port}/`
@@ -156,11 +179,18 @@ try {
   // ---------------------------------------------------------------- 1. 本机生成
   bytes = await withBrowser(async (browser) => {
     const { page } = await openPage(browser, url)
-    // 拦掉对 .pch.br 的请求 = 强制走本机生成（否则会把仓库里那份下回来，什么都没生成）
-    await page.setRequestInterception(true)
-    page.on('request', (request) => {
-      if (request.url().includes('.pch.br')) void request.abort()
-      else void request.continue()
+    // 拦掉对 .pch.br 的请求 = 强制走本机生成（否则会把仓库里那份下回来，什么都没生成）。
+    // 不能用 setRequestInterception：开启之后 Worker 里的 fetch 不会被交给 page 的
+    // request 处理器，clang / sysroot 的下载会永远挂着（实测 init 卡满 5 分钟看门狗）。
+    // 这里只改主线程的 fetch，wasi.worker.js 有自己的一份，不受影响。
+    await page.evaluate(() => {
+      const originalFetch = window.fetch.bind(window)
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : (input?.url ?? '')
+        return url.includes('.pch.br')
+          ? Promise.reject(new Error('build-pch: shipped PCH disabled'))
+          : originalFetch(input, init)
+      }
     })
 
     assetFile = await page.evaluate(async () => {
@@ -177,13 +207,9 @@ try {
       return Math.round(performance.now() - startedAt)
     })
 
-    const gen = await page.evaluate(async () => {
-      const startedAt = performance.now()
-      const out = await window.__sb.ensurePch()
-      window.__pch = out
-      return { ms: Math.round(performance.now() - startedAt), size: out.byteLength }
-    })
-    console.log(`工具链就绪 ${loaded} ms；生成 PCH ${gen.ms} ms（${gen.size} B）`)
+    const genStartedAt = Date.now()
+    const genSize = await waitPch(page)
+    console.log(`工具链就绪 ${loaded} ms；生成 PCH ${Date.now() - genStartedAt} ms（${genSize} B）`)
 
     const uploaded = new Promise((r) => {
       resolveUpload = r
@@ -192,7 +218,7 @@ try {
       await fetch(`http://127.0.0.1:${target}/`, { method: 'POST', body: window.__pch })
     }, uploadPort)
     const received = await uploaded
-    if (received.length !== gen.size) throw new Error(`回传字节数不对：${received.length} ≠ ${gen.size}`)
+    if (received.length !== genSize) throw new Error(`回传字节数不对：${received.length} ≠ ${genSize}`)
     return received
   })
 
@@ -230,16 +256,22 @@ try {
     await fresh.page.reload({ waitUntil: 'load' })
     await fresh.page.waitForSelector('.monaco-editor')
 
+    const pchBytes = await (async () => {
+      await fresh.page.evaluate(async () => {
+        const sb = await import('/src/services/runnoSandbox.js')
+        window.__sb = sb
+        await sb.preloadToolchain()
+      })
+      return waitPch(fresh.page)
+    })()
+
     const result = await fresh.page.evaluate(async () => {
-      const sb = await import('/src/services/runnoSandbox.js')
-      await sb.preloadToolchain()
-      const pch = await sb.ensurePch()
+      const sb = window.__sb
       const run = await sb.runCpp({
         code: '#include <bits/stdc++.h>\nint main(){ std::vector<int> v{3,1,2}; std::sort(v.begin(), v.end()); printf("%d\\n", v[0]); }\n',
         stdin: '',
       })
       return {
-        pchBytes: pch ? pch.byteLength : 0,
         ok: run.ok,
         exitCode: run.exitCode,
         stdout: (run.stdout ?? '').trim(),
@@ -248,7 +280,7 @@ try {
       }
     })
     await fresh.context.close()
-    return result
+    return { pchBytes, ...result }
   })
 
   const ok = check.pchBytes > 0 && check.ok && check.stdout === '1' && !check.assetBad

@@ -19,15 +19,18 @@
  *   `max(100ms, 5%)` 的宽限；是否 TLE 按**程序自己的结束时刻**与时限比较（§4.2）。
  */
 import {
+  FRONTEND_ASSET_URLS,
   crossCheckRun,
   ensurePch,
   isPythonRuntimeReady,
+  isToolchainHostIdle,
   isToolchainReady,
   preloadPythonRuntime,
   preloadToolchain,
   runCpp,
   runPython,
   runtimeAssetURLs,
+  suspendRuntime,
   unloadRuntime,
 } from './runnoSandbox.js'
 import { preloadMdRuntime, probeMdRuntime, uninstallMdRuntime } from './mdRuntime.js'
@@ -204,6 +207,8 @@ function endTask(entry) {
     active = null
     // 静默任务收尾时不把状态栏打回 idle：它从没占用过状态栏（见 beginTask）
     if (!entry.silent) publish('idle', '')
+    // 收工之后才开始算「闲置」：工具链是常驻的，没人用就该把 23MiB 还回去（见 armHibernate）
+    armHibernate(HIBERNATE_IDLE_MS)
   }
 }
 
@@ -280,27 +285,102 @@ let pchWarmupStarted = false
  *   用户一点运行就把它整颗换掉（见 services/wasi/client.js 的抢占）。
  */
 export function warmupPch() {
-  if (pchWarmupStarted) return
+  if (pchWarmupStarted) return null
   pchWarmupStarted = true
-  whenIdle(() => {
-    void (async () => {
-      // 排队期间可能刚被别的任务清过场（卸载运行时），开工前再确认一次工具链还在
-      if (!isToolchainReady()) {
-        pchWarmupStarted = false
-        return
-      }
-      try {
-        const bytes = await ensurePch()
-        // 没备成（宿主正忙 / 这一轮没轮到）：把「本会话只试一次」的闸放开，
-        // 下一次运行结尾还会来这里 —— 否则一次撞车就等于本会话永远没有 PCH。
-        if (!bytes) pchWarmupStarted = false
-      } catch (error) {
-        // 被外力掐断（用户点运行抢占 / 看门狗）：这一轮不算数，下次再来。
-        // 真·生成失败（老机器 OOM）已在 runnoSandbox 里写成永久标记，不再重试。
-        if (error?.reason) pchWarmupStarted = false
-        // 后台任务：不播报、不打扰用户，用例照常走普通编译。
-      }
-    })()
+  return new Promise((resolve) => {
+    whenIdle(() => {
+      void (async () => {
+        // 排队期间可能刚被别的任务清过场（卸载运行时），开工前再确认一次工具链还在
+        if (!isToolchainReady()) {
+          pchWarmupStarted = false
+          resolve()
+          return
+        }
+        try {
+          const bytes = await ensurePch()
+          // 没备成（宿主正忙 / 这一轮没轮到）：把「本会话只试一次」的闸放开，
+          // 下一次运行结尾还会来这里 —— 否则一次撞车就等于本会话永远没有 PCH。
+          if (!bytes) pchWarmupStarted = false
+        } catch (error) {
+          // 被外力掐断（用户点运行抢占 / 看门狗）：这一轮不算数，下次再来。
+          // 真·生成失败（老机器 OOM）已在 runnoSandbox 里写成永久标记，不再重试。
+          if (error?.reason) pchWarmupStarted = false
+          // 后台任务：不播报、不打扰用户，用例照常走普通编译。
+        } finally {
+          // 语义悬停会绕过 enqueue 直接把工具链拉起来：这条路径收尾也要开始计时，
+          // 否则「开了语义、只悬停不运行」的用户永远进不了休眠。
+          armHibernate(HIBERNATE_IDLE_MS)
+          resolve()
+        }
+      })()
+    })
+  })
+}
+
+// —— 闲置休眠（2026-11-05）——
+//
+// C++ 宿主是一颗常驻 worker：clang Module + 解包后的 1385 条 sysroot + 主线程那份 18MB
+// PCH，约 23MiB。用户一整天只在编辑器里改代码、偶尔悬停一下，那 23MiB 就一直占着。
+//
+// 这里只放内存，不碰持久层（见 runnoSandbox.suspendRuntime）：资产还在 Cache Storage、
+// PCH 还在 IndexedDB，热恢复只是「读本地缓存 + 解包」，实测重建约 400ms，不走网络。
+//
+// 两个阈值：
+// - 前台闲置 5 分钟：真的在改代码的人不会被这一刀砍到（每次运行 / 编译收工都会重新上弦）；
+// - 切到后台 60 秒：切出去看一眼题解、回个消息太常见，立即释放会让切回来那一下白等一次重建。
+const HIBERNATE_IDLE_MS = 5 * 60 * 1000
+const HIBERNATE_HIDDEN_MS = 60 * 1000
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let hibernateTimer = null
+
+/** 重新上弦：从现在起闲置 `delayMs` 就释放（每次收工 / 切页面都要先清掉旧表） */
+function armHibernate(delayMs) {
+  if (hibernateTimer !== null) clearTimeout(hibernateTimer)
+  hibernateTimer = setTimeout(() => {
+    hibernateTimer = null
+    hibernate()
+  }, delayMs)
+}
+
+/** 沙箱这边确实没人在用（连宿主上那条 15s 语法诊断也不算在跑） */
+function sandboxIdle() {
+  if (pending > 0 || active !== null) return false
+  if (currentStatus !== null && currentStatus.stage !== 'idle') return false
+  return isToolchainHostIdle()
+}
+
+function hibernate() {
+  if (!isToolchainReady()) return
+  if (!sandboxIdle()) {
+    // 正忙（宿主上还有一条语法诊断、或者用户刚点运行）：过一会儿再看。
+    // 这一下不重新排 5 分钟 —— 忙的那几秒过去就该收了。
+    armHibernate(HIBERNATE_HIDDEN_MS)
+    return
+  }
+  if (!suspendRuntime('cpp')) return
+  // 热恢复后要重新预热 PCH：不放开这个闸，warmupPch 会因为「本会话预热过」直接跳过
+  pchWarmupStarted = false
+}
+
+/**
+ * 宿主被「沙箱调度器之外」的用法碰过之后，把闲置倒计时重新上弦。
+ *
+ * 语义悬停与语法诊断都不走 beginTask/endTask，它们直接在宿主上跑一条后台任务；
+ * 不在这里补一枪的话，「打开过语义、却从没点过运行」的会话永远不会走到 hibernate ——
+ * 那颗 250MB 级的 wasm 宿主会一直常驻到用户切后台为止。
+ *
+ * 每次真实使用都重置到 5 分钟：持续在改代码 / 悬停时不会被打断，停手 5 分钟后才释放。
+ */
+export function noteHostActivity() {
+  if (!isToolchainReady()) return
+  armHibernate(HIBERNATE_IDLE_MS)
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!isToolchainReady()) return
+    armHibernate(document.visibilityState === 'hidden' ? HIBERNATE_HIDDEN_MS : HIBERNATE_IDLE_MS)
   })
 }
 
@@ -549,7 +629,22 @@ export async function probeRuntime(language) {
   return probes.every(Boolean)
 }
 
-async function isAssetCached(url) {
+/**
+ * 语义悬停的唤醒探针：只看 `init` 真正下载的那两件（clang + sysroot）。
+ *
+ * 不能复用 `probeRuntime('cpp')`：那条判据带上 wasm-ld，而链接器要到第一次链接才拉，
+ * 「只悬停、没运行」的会话里它压根不在缓存里 —— 用三件套的结论去判断唤醒，会把每一次
+ * 热恢复都误报成 `downloading`（实测匹配结果是 `[true, false, true]`）。
+ * @returns {Promise<boolean>}
+ */
+export async function probeFrontendToolchain() {
+  if (!supportsCppToolchain()) return false
+  if (isToolchainReady()) return true
+  const probes = await Promise.all(FRONTEND_ASSET_URLS.map(isAssetCached))
+  return probes.every(Boolean)
+}
+
+export async function isAssetCached(url) {
   if (navigator.serviceWorker?.controller) {
     try {
       return Boolean(await caches.match(url))

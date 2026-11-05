@@ -53,6 +53,25 @@
 // 无哈希的资产，靠**文件名带版本**轮换，所以也不进这份列表。
 const STATIC_ASSETS = ['/', '/index.html']
 
+/**
+ * 工具链桶里的条目按**存储编码**记一笔（2026-11-05 加，P3）。
+ *
+ * 为什么需要：Cache API 存的是**解码后**的 body —— 14.2MB 的 `clang.wasm.br` 落桶是
+ * 77.3MB，三件资产合计 89MB，加上 PCH 与外壳就是 113MB 配额。浏览器不会替我们把
+ * 响应重新压回去，所以只能由 SW 自己用 `CompressionStream('gzip')` 重编码：
+ * clang 77.3 → 22.6MB、sysroot 16.3 → 2.4MB、wasm-ld 43.5 → 13.3MB。
+ *
+ * 这一行头就是「桶里这份是 gzip」的标记。**读的时候必须解压**，否则会把压缩字节
+ * 直接喂给 `WebAssembly.compileStreaming`；**没有这个头的旧条目是解压态**，可以原样用
+ * （迁移见 recompressLegacyToolchainEntries）。
+ *
+ * gzip 而不是 br：`CompressionStream` 只认 gzip / deflate / deflate-raw，不支持 brotli。
+ * 压缩比差一点（22.6 vs 14.2），但换掉的是「浏览器不给我们重压」这个硬限制。
+ */
+const STORAGE_ENCODING_HEADER = 'x-cp-storage-encoding'
+const STORAGE_ENCODING_GZIP = 'gzip'
+
+
 // 逐条容错：网络抖动或配额不足都属常见，一条失败不该让整次 install 作废
 // （install 失败等于永远装不上）。没进缓存的，之后真正请求时再由 fetch 处理器补。
 async function addAllSafe(cache, urls) {
@@ -153,6 +172,62 @@ async function pruneStaleShellArtifacts() {
   )
 }
 
+/**
+ * 把旧条目**原地重压**成 gzip，零网络流量（2026-11-05 加，P3）。
+ *
+ * 为什么不能「删掉重下」：老用户的桶里已经躺着完整的 77.3MB clang + 16.3MB sysroot，
+ * 删掉等于再花 25MB 流量；弱网或断网时更新 SW，还会直接把「本机已就绪」打成「没有」。
+ * 这里把解压态的 body 流式过一遍 `CompressionStream('gzip')` 再覆写回同一个 key：
+ * 只花本地 CPU（三件资产约 1.8s，SW 线程，不挡页面），断网也照样瘦身。
+ *
+ * 判据只看**标记头**：有 `x-cp-storage-encoding: gzip` 的跳过；没有的一律当解压态
+ * （旧版本写进来的、或者别的迁移路径漏掉的）。**任何一条失败就 delete 那一条**，
+ * 让它下次真正需要时重新下载 —— 半拉子条目比占地方更糟。
+ *
+ * 流式而不是 `blob()`：单条最大 77MB，读成 Blob 在低端机上就是一次内存尖峰
+ * （同文件头边界 6 里说的那个坑）。
+ */
+async function recompressLegacyToolchainEntries() {
+  if (typeof CompressionStream === 'undefined') return
+  let cache
+  try {
+    cache = await caches.open(TOOLCHAIN_CACHE)
+  } catch {
+    return
+  }
+  for (const request of await cache.keys()) {
+    if (!request.url.includes('/wasm/')) continue
+    const response = await cache.match(request)
+    if (!response) continue
+    if (response.headers.get(STORAGE_ENCODING_HEADER) === STORAGE_ENCODING_GZIP) continue
+    if (!response.body) {
+      await cache.delete(request)
+      continue
+    }
+    const headers = new Headers(response.headers)
+    headers.set(STORAGE_ENCODING_HEADER, STORAGE_ENCODING_GZIP)
+    headers.delete('content-length')
+    headers.delete('content-encoding')
+    try {
+      await cache.put(
+        request,
+        new Response(response.body.pipeThrough(new CompressionStream(STORAGE_ENCODING_GZIP)), {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        }),
+      )
+    } catch {
+      // 压缩中途失败 / 配额不足：删掉这条，下次按需重下，别留半份
+      try {
+        await cache.delete(request)
+      } catch {
+        /* 删不掉也只是占地方 */
+      }
+    }
+  }
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
@@ -162,7 +237,9 @@ self.addEventListener('activate', (event) => {
       const names = await caches.keys()
       await Promise.all(names.map((name) => (keep.has(name) ? null : caches.delete(name))))
       await pruneStaleShellArtifacts()
+      // 先 claim 再接瘦身：页面立刻拿到新 SW，重压缩在后台慢慢跑完（waitUntil 兜住）
       await self.clients.claim()
+      await recompressLegacyToolchainEntries()
     })(),
   )
 })
@@ -194,16 +271,81 @@ async function networkFirstNavigation(request) {
 
 // 构建产物、工具链与题解渲染器都带 immutable 语义（文件名带哈希 / 目录名固定且带版本），
 // 可以放心缓存优先。
-async function cacheFirst(request) {
+async function cacheFirst(event, request) {
   const cached = await caches.match(request)
-  if (cached) return cached
+  if (cached) return serveCachedToolchain(cached)
 
   const response = await fetch(request)
   if (response.ok && response.type === 'basic') {
+    // 工具链按 gzip 落盘（见 STORAGE_ENCODING_HEADER）：浏览器已经把 br 解开了，
+    // 只有我们自己重压一遍，配额才会从 89MB 掉到 25MB。
+    if (bucketFor(request.url) === TOOLCHAIN_CACHE && response.body) {
+      return storeCompressedToolchain(event, request, response)
+    }
     const cache = await caches.open(bucketFor(request.url))
     cache.put(request, response.clone())
   }
   return response
+}
+
+/**
+ * 把缓存里的工具链条目还原成「解压态」再交出去。
+ *
+ * 新条目带 `x-cp-storage-encoding: gzip`，要过一遍 `DecompressionStream('gzip')`；
+ * 旧条目（没有这个头）本来就是解压态，原样返回 —— 迁移（recompressLegacyToolchainEntries）
+ * 还没跑到的那段时间里也不能让页面拿不到工具链。
+ *
+ * 构造新 Response 时**必须保留 `Content-Type`**：工具链是 `application/wasm`，
+ * 丢了它 `WebAssembly.compileStreaming` 会直接抛
+ * `TypeError: Incorrect response MIME type. Expected 'application/wasm'`。
+ */
+function serveCachedToolchain(cached) {
+  if (cached.headers.get(STORAGE_ENCODING_HEADER) !== STORAGE_ENCODING_GZIP) return cached
+  if (typeof DecompressionStream === 'undefined' || !cached.body) return cached
+  const headers = new Headers(cached.headers)
+  headers.delete(STORAGE_ENCODING_HEADER)
+  headers.delete('content-length')
+  headers.delete('content-encoding')
+  return new Response(cached.body.pipeThrough(new DecompressionStream(STORAGE_ENCODING_GZIP)), {
+    status: cached.status,
+    statusText: cached.statusText,
+    headers,
+  })
+}
+
+/**
+ * 首次落盘：网络流拆成两路，一路原样回给调用方（保留 compileStreaming 的流式编译与
+ * V8 的 wasm code cache），一路压成 gzip 写进桶。
+ *
+ * `event.waitUntil` 必须**在返回 Response 之前**注册：等 respondWith 的 promise 决议后
+ * 再调会抛 `InvalidStateError: The event handler is already finished`。所以压缩写盘的
+ * promise 在这里同步挂上，而不是在调用方 await 之后。
+ *
+ * tee 的缓存分支比客户端慢时会在 SW 里积压未消费缓冲 —— 这是这条路线唯一的内存风险，
+ * 需要用低端机/限速实测 RSS（见方案 A 的风险项）。
+ */
+function storeCompressedToolchain(event, request, response) {
+  if (typeof CompressionStream === 'undefined') return response
+  const [clientBranch, cacheBranch] = response.body.tee()
+  const headers = new Headers(response.headers)
+  headers.set(STORAGE_ENCODING_HEADER, STORAGE_ENCODING_GZIP)
+  headers.delete('content-length')
+  headers.delete('content-encoding')
+  const write = (async () => {
+    const cache = await caches.open(TOOLCHAIN_CACHE)
+    await cache.put(
+      request,
+      new Response(cacheBranch.pipeThrough(new CompressionStream(STORAGE_ENCODING_GZIP)), {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      }),
+    )
+  })().catch(() => {
+    /* 配额 / 中途取消：这次没存下不影响调用方，下次请求再补 */
+  })
+  if (typeof event.waitUntil === 'function') event.waitUntil(write)
+  return new Response(clientBranch, response)
 }
 
 /**
@@ -251,5 +393,7 @@ self.addEventListener('fetch', (event) => {
   // cacheFirst 在未命中时照样会把 18MB 解压后的 body 写进工具链桶。
   if (/\.pch\.br$/.test(url.pathname)) return
 
-  event.respondWith(request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(request))
+  event.respondWith(
+    request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(event, request),
+  )
 })

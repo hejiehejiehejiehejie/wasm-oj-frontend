@@ -2,8 +2,9 @@
  * 阶段 4 的 C++ 宿主 Worker。
  *
  * 这里只做三件事：
- *   1. 第一次 init 时把 sysroot 解成 MemoryFs、把 clang / wasm-ld 编成
- *      `WebAssembly.Module`，之后**常驻**（不再每次 run 重新实例化 + 整份 clone）；
+ *   1. 第一次 init 时把 sysroot 解成 MemoryFs、把 clang 编成 `WebAssembly.Module`，
+ *      之后**常驻**（不再每次 run 重新实例化 + 整份 clone）；wasm-ld 是第二档资产，
+ *      只在真正要 link 时才拉（见 ensureLinker）；
  *   2. 按消息跑 compile / link / run / syntax，输出只回传结果与产物字节；
  *   3. stdout / stderr 按 64 KiB 回传；**另有一份逐字节镜像**写进主线程开的
  *      SharedArrayBuffer（见 stdoutMirror.js），terminate 之后主线程靠它取回
@@ -29,39 +30,83 @@ const SYSROOT_MTIME = 1_700_000_000_000
 let ready = null
 let clangModule = null
 let lldModule = null
+/** 在途的链接器下载（单飞）：语义悬停 / 语法检查一辈子走不到这条 */
+let lldPromise = null
+let linkerURL = ''
 let baseFs = null
 let pchSource = ''
 let oomProbeObject = null
+/**
+ * 已经装进 baseFs 的那份 PCH（按对象身份比较）。
+ *
+ * 主线程每条带 pch 的消息都会结构化克隆出一份 18.37MB 的字节；装进 FS 时再写一次
+ * `/stdc++.h.pch` 就会把上一个 18MB 节点整个换掉。主线程那边已经改成「每代 worker
+ * 只发一次」，这里按身份再拦一道，防止漏网的消息白抄一份。
+ */
+let installedPchRef = null
 
 function post(message, transfer) {
   self.postMessage(message, transfer ?? [])
 }
 
-async function fetchModule(url) {
+/**
+ * Pass-through wrapper that reports decoded (uncompressed) byte progress.
+ *
+ * The caller's denominator is the uncompressed size, never `content-length`:
+ * after br decoding the body is 77.30MB for clang while the wire header says
+ * 14.24MB, and the service worker removes `content-length` entirely for
+ * entries it re-encodes as gzip. Constructing a new Response keeps the
+ * original headers, so `Content-Type: application/wasm` survives and
+ * `WebAssembly.compileStreaming` still works.
+ */
+function trackProgress(response, key, total) {
+  if (!key || !response.body || typeof TransformStream === 'undefined') return response
+  let loaded = 0
+  const stream = response.body.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        loaded += chunk.byteLength
+        post({ type: 'asset-progress', key, loaded, total })
+        controller.enqueue(chunk)
+      },
+    }),
+  )
+  return new Response(stream, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+async function fetchModule(url, key, total) {
   const response = await fetch(url)
   if (!response.ok) throw new Error(`${url} 下载失败（HTTP ${response.status}）`)
   // 先走 streaming（能吃到浏览器的 wasm 代码缓存）；不行再退回整包编译。
   try {
-    return await WebAssembly.compileStreaming(response.clone())
+    return await WebAssembly.compileStreaming(trackProgress(response.clone(), key, total))
   } catch {
     return WebAssembly.compile(await response.arrayBuffer())
   }
 }
 
 async function init(message) {
-  const [sysrootResponse, clang, lld] = await Promise.all([
+  const sizes = message.assetSizes ?? {}
+  const [sysrootResponse, clang] = await Promise.all([
     fetch(message.sysrootURL),
-    fetchModule(message.clangURL),
-    fetchModule(message.linkerURL),
+    fetchModule(message.clangURL, 'clang', sizes.clang),
   ])
   if (!sysrootResponse.ok) throw new Error(`sysroot 下载失败（HTTP ${sysrootResponse.status}）`)
-  const tar = new Uint8Array(await sysrootResponse.arrayBuffer())
+  const tar = new Uint8Array(
+    await trackProgress(sysrootResponse, 'sysroot', sizes.sysroot).arrayBuffer(),
+  )
   const { files, count } = untarFiles(tar)
   if (!files[message.universalHeaderPath]) {
     files[message.universalHeaderPath] = encoder.encode(message.universalHeader)
   }
   clangModule = clang
-  lldModule = lld
+  // 链接器不在 init 里下：`-fsyntax-only` / `-code-completion-at` 只跑到 clang 前端，
+  // 永远用不到它。8.1MB br 与一次 compileStreaming 留给真正点「运行」的那一刻。
+  linkerURL = message.linkerURL
   baseFs = new MemoryFs(files, ['/sys'], { sourceMtime: SYSROOT_MTIME })
   pchSource = message.pchSource
   // 内存证据探针在 init 里就编好：它是每次链接都要用的 .o，放在第一次 compile 里
@@ -80,8 +125,49 @@ async function init(message) {
   return { files: count, sysrootBytes: tar.length, oomProbe: oomProbeObject }
 }
 
+/**
+ * 按需把 wasm-ld 拉进来（第二档资产）。
+ *
+ * 只有走 link 的那条路才需要它：编译（cc1 -emit-obj）、语法检查、语义悬停都停在前端。
+ * 所以 init 不再无条件付这 8.1MB 的下载与编译；第一次点「运行」时才付。
+ *
+ * **用完整份丢掉**（见 releaseLinker）：`WebAssembly.Module` 不是「几页机器码」——
+ * V8 会保留 43.5MB 解压后的 wire bytes 供惰性编译 / tier-up，再加上编出来的代码页，
+ * 常驻是百 MB 级。判题里一份代码只链接一次，留着的收益远小于它占的 RSS。
+ *
+ * 失败时清掉在途 promise，下一次点运行还能重试 —— 一次断网不该让这个会话永远不能链接。
+ */
+async function ensureLinker() {
+  if (lldModule) return lldModule
+  if (!linkerURL) throw new Error('宿主还没 init')
+  if (!lldPromise) {
+    lldPromise = fetchModule(linkerURL)
+      .then((module) => {
+        lldModule = module
+        return module
+      })
+      .catch((error) => {
+        lldPromise = null
+        throw error
+      })
+  }
+  return lldPromise
+}
+
+/**
+ * 放开对 wasm-ld 模块的引用，让 V8 回收它的 wire bytes 与 JIT 代码页。
+ *
+ * 下次 link 会重新从 Cache Storage 取同一份 `.br` 并重编：本地、无网络，代价是一次
+ * compileStreaming（实测远小于常驻那百来 MB）。正在跑的那条消息手里有自己的局部引用，
+ * 这里清模块级变量不会把在飞的链接器抽走。
+ */
+function releaseLinker() {
+  lldModule = null
+  lldPromise = null
+}
+
 async function ensureReady() {
-  if (!baseFs || !clangModule || !lldModule) throw new Error('宿主还没 init')
+  if (!baseFs || !clangModule) throw new Error('宿主还没 init')
 }
 
 function readFile(path) {
@@ -137,8 +223,12 @@ function fingerprint(bytes) {
 
 function installPch(bytes) {
   if (!bytes) return
+  // 同一份字节不重装：主线程已经改成「每代 worker 只发一次」，这里按对象身份再拦一道。
+  // 少了这道，每条漏网的带 pch 消息都会把 `/stdc++.h.pch` 那个 18MB 节点整个换掉。
+  if (installedPchRef === bytes) return
   writeFile('/stdc++.h', encoder.encode(pchSource), PCH_SOURCE_MTIME)
   writeFile('/stdc++.h.pch', bytes)
+  installedPchRef = bytes
 }
 
 async function main(message) {
@@ -151,6 +241,9 @@ async function main(message) {
     baseFs = null
     clangModule = null
     lldModule = null
+    lldPromise = null
+    linkerURL = ''
+    installedPchRef = null
     moduleCache = null
     ready = null
     return {}
@@ -158,7 +251,7 @@ async function main(message) {
   await ensureReady()
   if (type === 'preload') return { oomProbe: oomProbeObject }
 
-  const tool = message.tool === 'ld' ? lldModule : clangModule
+  const tool = message.tool === 'ld' ? await ensureLinker() : clangModule
   if (type === 'compile' || type === 'syntax') {
     if (type === 'compile') removeFile(message.outputPath)
     writeFile(
@@ -199,6 +292,8 @@ async function main(message) {
     } else if (type === 'link') {
       binary = readFile(message.outputPath)
     }
+    // 这条分支只有历史调用方会带 tool: 'ld'；同样不要让它把链接器留在常驻里
+    if (message.tool === 'ld') releaseLinker()
     return {
       exitCode: result.exitCode,
       stdout: result.stdout,
@@ -219,22 +314,31 @@ async function main(message) {
     }
     let out = ''
     let err = ''
-    const result = runWasiModule(lldModule, {
-      args: ['wasm-ld', ...message.args],
-      fs: baseFs,
-      onStdout: (chunk) => { out += chunk },
-      onStderr: (chunk) => { err += chunk },
-    })
-    if (out) post({ type: 'stdout', text: out })
-    if (err) post({ type: 'stderr', text: err })
-    const binary = readFile(message.outputPath)
-    return {
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      trap: result.trap,
-      runMs: result.runMs,
-      binary: binary ? new Uint8Array(binary) : null,
+    // 链接器是第二档资产：第一次走到这里才下载 + 编译（见 ensureLinker）。
+    // 下载耗时算在这条 link 消息的 60s 编译看门狗里；它通常已经在缓存里了。
+    const lld = await ensureLinker()
+    try {
+      const result = runWasiModule(lld, {
+        args: ['wasm-ld', ...message.args],
+        fs: baseFs,
+        onStdout: (chunk) => { out += chunk },
+        onStderr: (chunk) => { err += chunk },
+      })
+      if (out) post({ type: 'stdout', text: out })
+      if (err) post({ type: 'stderr', text: err })
+      const binary = readFile(message.outputPath)
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        trap: result.trap,
+        runMs: result.runMs,
+        binary: binary ? new Uint8Array(binary) : null,
+      }
+    } finally {
+      // 链接成功、失败、trap 都要放开：它常驻的 wire bytes + JIT 页是百 MB 级，
+      // 而这份代码的链接结果已经被上层缓存，下一次 link 只会发生在换代码之后。
+      releaseLinker()
     }
   }
   if (type === 'run') {

@@ -4,7 +4,7 @@
 
 ## 0. 一分钟上手
 
-- 目录：`/Users/hejie/Code/BISHE`（仓库名是 `wasm-oj-frontend`）。
+- 目录：`/Users/hejie/Code/998244353/unnamed`（仓库名是 `wasm-oj-frontend`）。
 - **是 git 仓库**：远程 `origin` = https://github.com/hejiehejiehejiehejie/wasm-oj-frontend.git ，主分支 `main`（就是部署分支）。动大样式前先看一眼 `git status`。
 - 启动：`npm run dev` → http://localhost:5199；想验生产构建用 `npm run build && npm run preview`（Service Worker 与安装入口**只在生产构建里存在**，dev 下测不到，见第 9 节）。
 - 其他命令：`npm run verify` 跑无头回归（**基线是 A/B/C/D/F 绿，E/G/H 红且是既有失败、别顺手去修**，签名见第 8 节；**本机要显式给 Node 与 Chrome 的路径**，见第 8 节开头）；`npm run wasm:opt` 是工具链体积优化，**当前结论是不用跑**（第 7 节）；`npm run md:runtime` 把题解渲染器（katex + marked）从 `node_modules` 抄进 `public/md/`，**已挂在 `predev` / `prebuild` 上，平时不用手动跑**。

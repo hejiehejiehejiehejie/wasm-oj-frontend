@@ -28,12 +28,19 @@ const apiProxy = {
 
 // 构建产物文件名带内容哈希，Service Worker 没法在源码里硬编码，所以构建完把清单单独写一份，
 // install 阶段读取它来预缓存。这样不必引入 vite-plugin-pwa 之类的依赖。
+//
+// 有两类产物**故意不进清单**：tree-sitter 的语法引擎 wasm（运行时 ~200KB + cpp 语法 ~4.4MB）。
+// 它们只在第一次悬停时用到，预缓存等于让每次装 SW 都白拉 4.6MB —— 与 editorBundle.js
+// 开头那条「首屏不要下用不到的大块」是同一个取舍。文件本身仍带哈希、按需请求后可长期缓存。
+const PRECACHE_SKIP = /tree-sitter(?:-cpp)?-\w+\.wasm$/u
+
 function precacheManifest() {
   return {
     name: 'cp-precache-manifest',
     apply: 'build',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle)
+        .filter((name) => !PRECACHE_SKIP.test(name))
         .sort()
         .map((name) => `/${name}`)
       this.emitFile({
