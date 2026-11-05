@@ -31,7 +31,7 @@ import { computed, nextTick, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
 import { COUNT_MAX, COUNT_MIN, normalizeHandles, normalizeTags, problemKey } from '../cf/pick.js'
-import { cfHandle } from '../cf/myHandle.js'
+import { applyCanonicalHandles, cfHandle } from '../cf/myHandle.js'
 import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
 import { closeCodeforcesTab } from '../services/editorViews.js'
@@ -191,6 +191,10 @@ export function useCfPicker() {
     const missing = results
       .filter((item) => item.reason === 'not_found')
       .map((item) => item.handle)
+
+    // 校验成功就等于确认了官方写法：把存下来的大小写改回 CF 那份（见 applyCanonicalHandles）。
+    // 改的只是大小写，handleSignature 按小写比，所以下面那一步「有没有又被改过」不受影响。
+    applyCanonicalHandles(results)
 
     if (handleSignature(handle.value) !== handleSignature(current)) return missing.length === 0
 

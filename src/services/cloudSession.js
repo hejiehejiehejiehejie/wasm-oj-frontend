@@ -74,6 +74,12 @@ function readStoredString(key) {
  */
 export const CF_SOCIAL_URL = 'https://codeforces.com/settings/social'
 
+/**
+ * 问一次「这个 handle 在 Codeforces 上的官方写法」的超时。
+ * 它只是锦上添花（见 officialHandle），不该把「登录成功」那一步拖在这里。
+ */
+const CF_INFO_TIMEOUT_MS = 5000
+
 /** 成功类通知的停留时长：与「图片已复制」同一档，看一眼就走 */
 const SUCCESS_NOTICE_MS = 5000
 
@@ -165,6 +171,61 @@ export function cloudFailure(result) {
     return t('settings.cloud.errorBadBody', { status: result.status })
   }
   return t('settings.cloud.errorNetwork')
+}
+
+/**
+ * Codeforces 上这个账号的**官方写法**（大小写）。
+ *
+ * 【为什么不能靠云端那边】Worker 的 `normalizeHandle` 一律转小写（KV 键也按小写，
+ * 见 docs/云端同步服务.md 第 2 节），验证时虽然读了 user.info，却只取 Last name、
+ * 不回 handle —— 服务端手上根本没有「官方写法」这份信息。所以这里自己问一次公开的
+ * user.info，口径与 CF 抽题那边的 applyCanonicalHandles 一致：**填的时候不用管大小写，
+ * 绑定 / 验证成功之后改回账号本来的样子**。
+ *
+ * 拿不到（离线 / 账号不存在 / 超时 / 限流）就回空串，调用方按原样保留用户填的写法 ——
+ * 显示上的小写不值得把一次登录判成失败。
+ *
+ * @returns {Promise<string>}
+ */
+async function officialHandle(handle) {
+  try {
+    const response = await fetch(
+      `https://codeforces.com/api/user.info?handles=${encodeURIComponent(handle)}`,
+      { signal: AbortSignal.timeout(CF_INFO_TIMEOUT_MS) },
+    )
+    if (!response.ok) return ''
+    const body = await response.json()
+    const name = body?.status === 'OK' ? body.result?.[0]?.handle : ''
+    return typeof name === 'string' ? name : ''
+  } catch {
+    return ''
+  }
+}
+
+/** 本会话是否已经拿到过官方写法：设置页开关一次不该打一次 CF，失败则不置位、下次还试 */
+let handleCaseChecked = false
+
+/**
+ * 把已绑定账号的存档写法纠正成 Codeforces 的官方那份。
+ *
+ * 给「这次改动之前就绑过」的老用户用：他们的 `cp.cloudAccount.handle` 还是当初随手填的
+ * 大小写。调用点放在真正要显示这个名字的地方（设置页 / 齿轮菜单里的云端同步），
+ * 一个会话只问一次（见 handleCaseChecked），与界面无关的启动流程不碰它。
+ *
+ * 只动本机存档，不改地址栏：`writeCloudEntryPath` 有意保留地址里现有的大小写
+ * （见 cloudEntry.js），这里不去推翻那条决定。
+ */
+export async function syncAccountHandleCase() {
+  if (handleCaseChecked) return
+  const handle = cloudAccount.value.handle
+  if (!handle) return
+  const official = await officialHandle(handle)
+  // 等这一趟的几秒里可能已经解绑 / 换人：那就别把旧名字写回新账号
+  if (!official || cloudAccount.value.handle.toLowerCase() !== handle.toLowerCase()) return
+  handleCaseChecked = true
+  if (official !== handle) {
+    cloudAccount.value = { handle: official, updatedAt: cloudAccount.value.updatedAt }
+  }
 }
 
 /**
@@ -676,7 +737,11 @@ export async function loginCloud() {
     return
   }
 
-  cloudAccount.value = { handle: target, updatedAt: '' }
+  // 登录（也就是绑定）成功之后把用户名改回 Codeforces 的官方写法：
+  // 填的时候不必管大小写，存档与显示都跟着账号本来那份走（见 officialHandle）。
+  // 拿不到官方写法（离线 / 账号不存在）就保留输入的那份，不拿它当失败。
+  const bound = (await officialHandle(target)) || target
+  cloudAccount.value = { handle: bound, updatedAt: '' }
   handleInput.value = ''
   notice.value = t('settings.cloud.loginNoCloud')
   // 这条也是「登录成功」（只是云端还没有配置，没什么可套用的，所以不刷新）。
@@ -708,19 +773,23 @@ export async function verifyAndLogin() {
   const handle = pendingHandle.value
   clearCloudFeedback()
   busy.value = true
+  // 与验证并行地问一次官方写法：它只影响显示，不该串在验证后面多等一趟（见 officialHandle）
+  const official = officialHandle(handle)
   const result = await verifyAndSave(handle, remoteProfile.value ?? {})
   busy.value = false
   if (!result.success) {
     error.value = cloudFailure(result)
     return
   }
+  // 验证成功 → 用户名改回 Codeforces 的官方写法；拿不到就保留用户填的那份
+  const bound = (await official) || handle
   // 先把绑定关系与设备令牌落下（下面那步会刷新页面，晚了就写不进去了）
   const profile = remoteProfile.value
   // 两处时间刻意不是同一个值：账号行显示的是「读到的旧时间」（回写会把服务端的 updatedAt 顶成
   // 此刻，可那不是「用户改了配置」，显示它只会误导）；而「本机在跟哪一版」要记**回写后的那一版**
   // —— 云端现在存着的就是它，记旧值会让下次打开站点白对齐一次（见 cloudEntry.js 的闸门）
   const appliedVersion = result.updatedAt ?? remoteUpdatedAt.value
-  cloudAccount.value = { handle, updatedAt: remoteUpdatedAt.value }
+  cloudAccount.value = { handle: bound, updatedAt: remoteUpdatedAt.value }
   cloudToken.value = result.token ?? ''
   handleInput.value = ''
   code.value = ''
@@ -729,7 +798,7 @@ export async function verifyAndLogin() {
   remoteUpdatedAt.value = ''
   // 刷新成功的话后面就不用走了；只有云端那份一个白名单键都没有时才会走到这里
   // （kind 传 'login'：那条通知说「登录成功」而不是「已导入」）
-  if (!(await adoptCloud(profile, handle, appliedVersion, 'login'))) {
+  if (!(await adoptCloud(profile, bound, appliedVersion, 'login'))) {
     notice.value = t('settings.cloud.loggedIn')
   }
 }
@@ -743,13 +812,17 @@ export async function verifyAndUpload() {
   const handle = pendingHandle.value
   clearCloudFeedback()
   busy.value = true
+  // 与验证并行地问一次官方写法：它只影响显示，不该串在验证后面多等一趟（见 officialHandle）
+  const official = officialHandle(handle)
   const result = await verifyAndSave(handle, collectProfile())
   busy.value = false
   if (!result.success) {
     error.value = cloudFailure(result)
     return
   }
-  cloudAccount.value = { handle, updatedAt: result.updatedAt ?? '' }
+  // 验证成功 → 用户名改回 Codeforces 的官方写法；拿不到就保留用户填的那份
+  const bound = (await official) || handle
+  cloudAccount.value = { handle: bound, updatedAt: result.updatedAt ?? '' }
   // 记下这枚令牌：之后点「上传本机设置」就直接写，不用再取码、不用再去改 Codeforces
   cloudToken.value = result.token ?? ''
   handleInput.value = ''
@@ -757,8 +830,8 @@ export async function verifyAndUpload() {
   pendingHandle.value = ''
   notice.value = t('settings.cloud.saved')
   // 云端刚存下这一套：地址栏跟着认下这位，「本机在跟哪一版」一起记上
-  writeCloudEntryPath(handle)
-  writeActiveProfile(handle, result.updatedAt ?? '')
+  writeCloudEntryPath(bound)
+  writeActiveProfile(bound, result.updatedAt ?? '')
 }
 
 /**
@@ -780,6 +853,8 @@ export async function uploadWithToken(handle) {
     // 云端现在存着的就是这一套，地址栏跟着认下这位，「本机在跟哪一版」也一起记上
     writeCloudEntryPath(handle)
     writeActiveProfile(handle, result.updatedAt ?? '')
+    // 老账号的存档可能还是当初填的大小写：这次写盘成功顺手纠正一次（不阻塞保存结果）
+    void syncAccountHandleCase()
     return
   }
   if (result.status !== 401) {

@@ -42,14 +42,14 @@
 
 | 文件 | 行数 | 当前职责 |
 | --- | --- | --- |
-| [CfCodeforcesPanel.vue](file:///Users/hejie/Code/BISHE/src/components/CfCodeforcesPanel.vue) | 145 | 壳层：46px 透明抬头（品牌 + 抽题/赛程/比赛）+ `position: relative` 的 stage |
-| [CfPickerPanel.vue](file:///Users/hejie/Code/BISHE/src/components/CfPickerPanel.vue) | 639 | 单列 840px：一张表单卡片 + 结果列表 |
-| [CfContestSchedule.vue](file:///Users/hejie/Code/BISHE/src/components/CfContestSchedule.vue) | 527 | 按 `running / upcoming / finished` 三段渲染行，行内倒计时、报名 / VP 列 |
-| [CfContestPanel.vue](file:///Users/hejie/Code/BISHE/src/components/CfContestPanel.vue) | 780 | hero 两态（大输入框 ⇄ 比赛名 + 铅笔）+ 题目/排行榜/提交三子页签 |
-| [CfStandingsTable.vue](file:///Users/hejie/Code/BISHE/src/components/CfStandingsTable.vue) | 711 | 分页 100 行、封榜标、粘性「我」条、跳到我、非正式名次（扩展） |
-| [CfSubmissionList.vue](file:///Users/hejie/Code/BISHE/src/components/CfSubmissionList.vue) | 406 | 最新 200 条、只看我、题目 / 判定本地筛选、5s 增量轮询 |
-| [cf-console.css](file:///Users/hejie/Code/BISHE/src/styles/cf-console.css) | 14 KB | 六个组件共用的版式语汇（无框、留白、淡线、10px 圆角） |
-| [base.css](file:///Users/hejie/Code/BISHE/src/styles/base.css) | 36 KB | 全局令牌，深色默认 + `:root[data-theme='light']` 翻转 |
+| [CfCodeforcesPanel.vue](file:///Users/hejie/Code/998244353/unnamed/src/components/CfCodeforcesPanel.vue) | 145 | 壳层：46px 透明抬头（品牌 + 抽题/赛程/比赛）+ `position: relative` 的 stage |
+| [CfPickerPanel.vue](file:///Users/hejie/Code/998244353/unnamed/src/components/CfPickerPanel.vue) | 639 | 单列 840px：一张表单卡片 + 结果列表 |
+| [CfContestSchedule.vue](file:///Users/hejie/Code/998244353/unnamed/src/components/CfContestSchedule.vue) | 527 | 按 `running / upcoming / finished` 三段渲染行，行内倒计时、报名 / VP 列 |
+| [CfContestPanel.vue](file:///Users/hejie/Code/998244353/unnamed/src/components/CfContestPanel.vue) | 780 | hero 两态（大输入框 ⇄ 比赛名 + 铅笔）+ 题目/排行榜/提交三子页签 |
+| [CfStandingsTable.vue](file:///Users/hejie/Code/998244353/unnamed/src/components/CfStandingsTable.vue) | 711 | 分页 100 行、封榜标、粘性「我」条、跳到我、非正式名次（扩展） |
+| [CfSubmissionList.vue](file:///Users/hejie/Code/998244353/unnamed/src/components/CfSubmissionList.vue) | 406 | 最新 200 条、只看我、题目 / 判定本地筛选、5s 增量轮询 |
+| [cf-console.css](file:///Users/hejie/Code/998244353/unnamed/src/styles/cf-console.css) | 14 KB | 六个组件共用的版式语汇（无框、留白、淡线、10px 圆角） |
+| [base.css](file:///Users/hejie/Code/998244353/unnamed/src/styles/base.css) | 36 KB | 全局令牌，深色默认 + `:root[data-theme='light']` 翻转 |
 
 **现有设计语汇**：不铺卡片、不画网格；靠留白与 `--border-divider` 淡线分区；正文 `--text` / 标签 `--text-dim` / 元数据 `--text-faint` 三级灰；主操作是低透明度 `--accent-face` 面，颜色只落在文字与图标上；控件 10px 圆角，小徽标 6px。
 

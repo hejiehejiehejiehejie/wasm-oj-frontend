@@ -76,11 +76,12 @@ const contestProblemsKey = (contestId) => `contestProblems:2:${contestId}`
 
 const solvedKey = (handle) => `solved:${handle.toLowerCase()}`
 /**
- * 账号信息的缓存键。带 `:2`：2026-10-29 起这份缓存除了「账号存在」还存 rating
- * （账号胶囊按分数上色用），旧记录里没有这个字段 —— 换键让胶囊立刻拿得到分数，
+ * 账号信息的缓存键。带 `:3`：2026-11-05 起这份缓存还要存账号的**官方写法**
+ * （CF 的 handle 大小写不敏感，但 `user.info` 回的那份才是官方写法，界面要显示它），
+ * 旧记录里没有这个字段 —— 换键让填错大小写的老用户下一次校验时就改回来，
  * 旧键随 1h TTL 自然作废。
  */
-const handleKey = (handle) => `handle:2:${handle.toLowerCase()}`
+const handleKey = (handle) => `handle:3:${handle.toLowerCase()}`
 
 // ------------------------------------------------------------ 全局限速
 
@@ -231,7 +232,11 @@ async function loadSolvedKeys(handle, { force = false } = {}) {
  *
  * 顺手把 `rating` 留下（2026-10-29）：账号胶囊要按分数上色。同一份 user.info、同一份
  * 1h 缓存，不该为「存在」和「段位」分两处各拉一次。未打过 rated 比赛的账号没有这个字段，落成 null。
- * @returns {Promise<{ ok: boolean, reason: 'empty'|'ok'|'not_found'|'network', rating?: number|null }>}
+ *
+ * 也把 `handle` 留下（2026-11-05）：那是 CF 回的**官方写法**。CF 的 handle 大小写不敏感，
+ * 用户随手填 `tourist` 而账号是 `Tourist` 时，主线程据此把存下来的名字改回官方那份
+ * （见 myHandle.js 的 applyCanonicalHandles）。「不存在 / 连不上」没有这份信息，留空。
+ * @returns {Promise<{ ok: boolean, reason: 'empty'|'ok'|'not_found'|'network', handle?: string, rating?: number|null }>}
  */
 async function verifyHandle(rawHandle) {
   const handle = String(rawHandle || '').trim()
@@ -255,6 +260,8 @@ async function verifyHandle(rawHandle) {
         const outcome = {
           ok: true,
           reason: 'ok',
+          // CF 自己那份写法：主线程拿到后把用户随手填的大小写改回来
+          handle: typeof user.handle === 'string' && user.handle ? user.handle : handle,
           rating: typeof user.rating === 'number' ? user.rating : null,
         }
         await writeRecord(handleKey(handle), outcome)
@@ -585,7 +592,8 @@ const handlers = {
     for (const handle of handles) {
       const outcome = await verifyHandle(handle)
       results.push({
-        handle,
+        // 校验通过就报 CF 的官方写法；不存在 / 连不上没有官方名字，原样回用户的填法
+        handle: outcome.handle || handle,
         valid: outcome.ok,
         reason: outcome.reason,
         rating: outcome.rating ?? null,

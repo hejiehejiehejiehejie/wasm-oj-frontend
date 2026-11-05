@@ -129,7 +129,7 @@ import AppIcon from './AppIcon.vue'
 import CfContestPanel from './CfContestPanel.vue'
 import CfContestSchedule from './CfContestSchedule.vue'
 import CfPickerPanel from './CfPickerPanel.vue'
-import { cfHandle, myHandles } from '../cf/myHandle.js'
+import { applyCanonicalHandles, cfHandle, myHandles } from '../cf/myHandle.js'
 import { cfRankOf } from '../cf/rank.js'
 import { cfRunningCount } from '../composables/useCfSchedule.js'
 import { t } from '../i18n/index.js'
@@ -323,6 +323,8 @@ watch(
         found && found.reason !== 'network'
           ? { handle: key, valid: found.valid === true, rating: found.rating ?? null }
           : null
+      // 校验确认存在就顺手把存下来的写法改成 CF 的官方那份（老值 / 随手填的大小写都能纠正）
+      if (found?.valid) applyCanonicalHandles(results)
     } catch {
       // 连不上 / Worker 出错就保持普通样式：段位色是锦上添花，不该把这件事报成故障
       if (seq === rankSeq) handleInfo.value = null
@@ -339,8 +341,27 @@ function toggleHandle() {
 /** 失焦 / 点空白处 / Enter 都落盘：三个页面共用这份值，不适合「不点保存就丢」 */
 function closeHandle() {
   if (!handleOpen.value) return
-  cfHandle.value = String(handleDraft.value || '').trim()
+  const handle = String(handleDraft.value || '').trim()
+  cfHandle.value = handle
   handleOpen.value = false
+  // 落盘之后回头校验一次：填的时候不必管大小写，确认存在的账号换成 CF 的官方写法
+  // （见 applyCanonicalHandles）。空串 = 用户清空了账号，没什么可校验的。
+  if (handle) void canonicalizeHandles()
+}
+
+/**
+ * 绑定后的回写：校验整组账号，把存在的那几个改成 CF 的官方大小写。
+ * 连不上 / 不存在就保持用户写的 —— 没有官方名字可换，下次校验成功再改。
+ */
+async function canonicalizeHandles() {
+  const handles = myHandles()
+  if (!handles.length) return
+  try {
+    const { results } = await cfCheckHandles(handles)
+    applyCanonicalHandles(results)
+  } catch {
+    /* Worker 不可用：校验都做不了，当然也就没有「官方写法」可写 */
+  }
 }
 
 /** Esc 只收起，不写回 */
@@ -547,7 +568,11 @@ watch(handleOpen, (open) => {
   color: var(--text-faint);
 }
 
-/* 小面板：锚在胶囊下方，靠右对齐；不铺大卡，一块浅面 + 一条淡边 */
+/* 小面板：锚在胶囊下方，靠右对齐；不铺大卡，一块浅面 + 一条淡边。
+   宽度要跟着面板收（2026-11-05）：它是 absolute、右对齐、没有 Teleport，会被
+   `.pane` 的 overflow 裁掉左半边 —— 侧栏能拖到宽屏最小 240px，固定 280px 就露不下了。
+   100cqw 是最近的容器（`.cf-codeforces` 的 container-name: cfpage）；
+   -28 让左右各留 14px，不会贴到面板边缘。 */
 .cf-handle__panel {
   position: absolute;
   top: calc(100% + 6px);
@@ -556,7 +581,7 @@ watch(handleOpen, (open) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 280px;
+  width: min(280px, calc(100cqw - 28px));
   padding: 12px;
   border-radius: 10px;
   background: var(--bg-panel);
