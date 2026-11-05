@@ -43,15 +43,22 @@ function dropLegacyDb() {
 /**
  * 一次性搬运：把改名前的旧库原样并进新库，再删掉旧库。
  *
- * 只在「新库的节点表确实是空的」时才动手 —— 读不出来（null）或已经有数据，都说明
+ * 只在「新库的节点表确实是空的」时才搬 —— 读不出来（null）或已经有数据，都说明
  * 要么搬过、要么用户已在新库里建了东西，再搬会把新数据盖掉。旧库不存在时 IDB 会新建
  * 一个空库，节点表读出来是空数组，同样落进「没什么可搬、删掉」那条分支。
  *
- * **读失败时绝不删旧库**：宁可下次再试一遍，也不能把用户的工作区丢掉。
+ * **新库非空（count !== 0）时直接删旧库**（2026-11-06）：那意味着本机要么早就搬完、
+ * 要么是升级后新建的工作区，旧库已经没有任何代码会读，留着只是一份几十 MB 的化石。
+ * 之前这里直接 return，于是搬过的人 `cph-vfs` 一直躺在 IndexedDB 里。
+ * 只有「读出新库节点数失败」才原样不动（宁可下次再试，也不能把工作区丢掉）。
  */
 async function migrateLegacyDb(db) {
   const count = await withTransaction(db, [NODES_STORE], 'readonly', (tx) => tx.objectStore(NODES_STORE).count())
-  if (count !== 0) return
+  if (count === null) return
+  if (count !== 0) {
+    dropLegacyDb()
+    return
+  }
 
   const legacy = await openDatabase(LEGACY_VFS_DB_NAME, DB_VERSION, () => {})
   if (!legacy) return

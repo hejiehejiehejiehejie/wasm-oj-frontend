@@ -5,7 +5,7 @@
  * 「每语言草稿」cph.drafts 导入为 /main.cpp、/main.py → 写迁移标记。
  *
  * 幂等：每个迁移各有一个标记，置 '1' 后永不再跑；根非空也不重复种子。
- * 旧 key 保留不删，可回退；迁移后应用不再读 cph.drafts。
+ * 旧的 `cph.drafts` 在导入成功后立刻删掉（2026-11-06 起；之前留作回退兜底）。
  *
  * 抓题的落盘结构（2026-09-30 起）直接在根下分层，见 problemImport.js，所以：
  *   ① 不再种子 /Problems 与 /Contest 两个外壳目录（骨架由用户自己长出来）；
@@ -188,6 +188,14 @@ export async function initWorkspace(mode) {
       })
     }
     markDone(MIGRATION_KEY)
+    // 导完就删：2026-11-06 之前刻意留着「可回退」，但它只是一份几十 KB 的旧草稿，
+    // 而 storageMigration 的化石清理要等下一次启动才敢删（见那边的 sweepLegacyKeys）。
+    // 放在这里、且只在本次启动真的跑完种子导入之后删。
+    try {
+      window.localStorage.removeItem('cph.drafts')
+    } catch {
+      /* 隐私模式：删不掉也无所谓，下次启动的化石清理会再试 */
+    }
   }
 
   // 老工作区把题目存在 /Problems 下；现在改挂根下，这里搬一次并清掉两个旧壳。
