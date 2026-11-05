@@ -122,28 +122,36 @@ async function migrateLegacyBuckets() {
 }
 
 /**
- * 外壳桶里**按版本换代**的三类路径。共同性质：URL 里带着版本（内容哈希 / 文件名里的
- * 字体或扩展版本），所以旧 URL 永远没人再取 —— 桶里剩下它就是纯占地方。
+ * 外壳桶里永远要留的两份入口。清单只管「按 URL 取」的静态资产，外壳不在清单里 ——
+ * 而离线兜底正是靠 `caches.match('/index.html')` 取的，绝不能把它当残留删掉。
  */
-const SHELL_VERSIONED_PREFIXES = ['/assets/', '/fonts/', '/extension/']
+const SHELL_ALWAYS_KEEP = ['/', '/index.html']
 
 /**
- * 清掉外壳桶里「上一版留下、这一版再没人要」的条目 —— **版本清单驱动的回收**。
+ * 清掉外壳桶里「这一版再没人要」的条目 —— **清单驱动的回收**。
  *
  * 为什么必须有这一趟：install 只往桶里**加**，activate 的清理又是按**整桶**删的
- * （见下面白名单），同桶内的旧条目没有任何一条代码会回收。而外壳桶里有一整类
- * 「URL 随版本换代」的资产：构建产物带内容哈希（每发一次版就多一份新的 `main-*.js`，
- * 4.3–4.5MB）、字体文件名带字体内部版本、扩展安装包文件名带扩展版本。旧的那份再也没人
- * 按它的 URL 取，却一直占着配额（实测 2026-10-25：`cp-shell-v5` 68 条 / 约 170MB，
- * 其中只有 16 条 / 5.2MB 是当前这版，其余全是 10-14 至 10-24 历次发版的残骸）。
+ * （见下面白名单），同桶内的旧条目没有任何一条代码会回收。外壳桶里会攒下三类残骸：
+ *   · 构建产物带内容哈希（每发一次版就多一份新的 `main-*.js`，4.3–4.5MB）、字体文件名
+ *     带字体内部版本、扩展安装包文件名带扩展版本；
+ *   · `networkFirstNavigation` 按 request 存的导航条目 —— 站点的 `/<handle>` 入口页
+ *     「一 handle 一个 key」，换个人打开就多一条，谁也不会再删；
+ *   · 带查询串的 key（`fetch('/retain-manifest.json?v=<时间戳>')` 这类绕缓存请求），
+ *     时间戳每次都不同，按 pathname 判重根本认不出来。
+ * 实测 2026-10-25：`cp-shell-v5` 68 条 / 约 170MB，只有 16 条 / 5.2MB 是当前这版。
  *
- * 判据收窄到上面那三类前缀，别的一律不碰：`/`、`/index.html`、guide / notice / privacy
- * 这些按固定 URL 存的页面由 networkFirstNavigation 覆盖写同一个 key，本来就不会堆积；
- * `/<handle>` 那种「一 handle 一个 key」的入口页也不是旧产物，是另一个人的入口。
+ * 所以判据只有一条：**不在 `/retain-manifest.json` 的 shell 清单里就删**（外加两份
+ * 外壳入口，见 SHELL_ALWAYS_KEEP）。清单列的是「这一版还部署着的 URL」，任何其它 key
+ * 都是不会再被按原样取用的死数据。带查询串的 key 按**整串**比对 —— 只比 pathname 的话，
+ * `/retain-manifest.json` 在清单里就能把它的无数个 `?v=` 变体全保下来。
  *
- * 清单（`/retain-manifest.json`，vite.config.js 的 cp-retain-manifest 生成）拿不到
- * ——网络抖动 / 部署中 / 上一版根本没这个文件——就整趟放弃：宁可这一轮不清，也不能在
- * 清单为空时把当前外壳删光，那会让离线打开直接白屏。
+ * 代价是 `/guide.html`、`/notice.html` 这类固定 URL 的导航页也会在 activate 时被删掉：
+ * 它们不堆积，但也不是这一版的资产。下一次打开那页会照常回填；这之间若断网打开，
+ * 拿到的就是外壳（`networkFirstNavigation` 的兜底），不是那一页 —— 可以接受。
+ *
+ * 清单（vite.config.js 的 cp-retain-manifest 生成）拿不到 ——网络抖动 / 部署中 /
+ * 上一版根本没这个文件——就整趟放弃：宁可这一轮不清，也不能在清单为空时把当前外壳
+ * 删光，那会让离线打开直接白屏。
  *
  * 工具链那半不在这里：`cp-toolchain` 里的旧目录由页面侧
  * `runnoSandbox.pruneLegacyToolchainCache()` 按当前资产前缀回收（SW 读不到版本号，
@@ -161,13 +169,13 @@ async function pruneStaleShellArtifacts() {
   const keepList = retain?.shell
   if (!Array.isArray(keepList) || keepList.length === 0) return
 
-  const keep = new Set(keepList)
+  const keep = new Set([...SHELL_ALWAYS_KEEP, ...keepList])
   const cache = await caches.open(SHELL_CACHE)
   await Promise.all(
     (await cache.keys()).map((request) => {
-      const { pathname } = new URL(request.url)
-      const versioned = SHELL_VERSIONED_PREFIXES.some((prefix) => pathname.startsWith(prefix))
-      return versioned && !keep.has(pathname) ? cache.delete(request) : null
+      const url = new URL(request.url)
+      const key = url.search ? `${url.pathname}${url.search}` : url.pathname
+      return keep.has(key) ? null : cache.delete(request)
     }),
   )
 }

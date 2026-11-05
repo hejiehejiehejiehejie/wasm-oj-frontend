@@ -65,7 +65,8 @@ function precacheManifest() {
  *
  * 判据一句话：**桶里的条目，其 URL 只有当这一版仍然部署着它时才有意义**。带内容哈希的
  * 产物看 bundle；带文件版本号的静态资产看目录。将来再加一类「会变但没有哈希」的资产，
- * 要么补进扫描列表、要么补进 sw.js 的 SHELL_VERSIONED_PREFIXES，两处是配套的。
+ * **必须补进下面的扫描列表** —— sw.js 的 `pruneStaleShellArtifacts` 现在只保留清单里的
+ * 条目，漏登记就等于在 activate 时把它当残骸删掉。
  */
 function retainManifest() {
   const PUBLIC_DIR = fileURLToPath(new URL('./public', import.meta.url))
