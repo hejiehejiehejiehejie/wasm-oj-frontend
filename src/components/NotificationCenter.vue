@@ -128,14 +128,20 @@ function runAction(notif, action) {
 <style scoped>
 /* 编辑区右下角（含块 = App 里的 .pane--editor，那边给了 position: relative）。
    容器本身 pointer-events: none，卡片各自接管 —— 否则整块 320px 的透明区域会
-   挡住底下内容的点击。z-index 取 150：压过编辑栏内的浮层（Monaco 菜单等）；
-   栏外的东西（body 级确认框、全局菜单）层叠序更高，会短暂盖住 toast ——
-   toast 跟着编辑栏走是本组件的第一约束，盖不盖得过那些是第二位的。 */
+   挡住底下内容的点击。
+   z-index 取 115：压过编辑栏内的浮层（抽屉 30、倒计时卡 110、Monaco 菜单等），
+   又低于放大镜（118）、body 级菜单（120 / 125）、确认框（130）、拖拽幽灵（140）、
+   tooltip（160）—— toast 是背景播报，不该盖住任何正在被操作的浮层。
+   2026-11-05 由 150 下调：原先比菜单 / 确认框都高，在没有 View Transitions 的
+   浏览器里通知会盖住右键菜单和确认框遮罩（层叠阶梯的完整口径见 App.vue）。
+   窄屏展开的抽屉（.pane--tests，z 30）压不压得住它，看 `.pane--editor` 是否因
+   `view-transition-name` 自成层叠上下文：支持 View Transitions 的浏览器里压得住，
+   不支持的浏览器里这里的 115 直接生效、在抽屉之上。 */
 .notif-center {
   position: absolute;
   right: 20px;
   bottom: 20px;
-  z-index: 150;
+  z-index: 115;
   display: flex;
   flex-direction: column;
   gap: 10px;
