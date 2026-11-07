@@ -46,8 +46,41 @@ const BULK_MIN_CHARS = 2
  */
 const handlers = new Set()
 
+/**
+ * 最后一个拿到文本焦点的编辑器。真机上 `editor.hasTextFocus()` 未必可靠（焦点可能在
+ * EditContext 的挂载节点上、或者被输入法的浮层短暂接管），所以命中判定里还要认这一条。
+ * @type {import('monaco-editor').editor.IStandaloneCodeEditor | null}
+ */
+let lastFocusedEditor = null
+
 /** `window.EditContext` 只换一次（模块是单例，热更新时也不会重复替换） */
 let editContextHooked = false
+
+/**
+ * 真机排障开关：地址栏加 `?paste-diag=1`，右下角出现一条只追加的窄浮层，实时列出每一发
+ * 进来/漏掉的事件（通道、长度、有没有换行、焦点、有没有接管）。不带参数时零成本、零 DOM。
+ * 文案一律 ASCII —— 它是给排障看的，不进 i18n。
+ */
+const DIAG = typeof location !== 'undefined' && /[?&]paste-diag(=|&|$)/.test(location.search)
+/** @type {HTMLElement | null} */
+let diagBox = null
+
+/** @param {string} line */
+function diag(line) {
+  if (!DIAG || typeof document === 'undefined' || !document.body) return
+  if (!diagBox) {
+    diagBox = document.createElement('div')
+    diagBox.style.cssText =
+      'position:fixed;left:8px;right:8px;bottom:8px;max-height:46vh;overflow:auto;z-index:2147483647;' +
+      'background:rgba(0,0,0,.86);color:#7dff7d;font:11px/1.5 ui-monospace,monospace;padding:6px 8px;' +
+      'border-radius:8px;white-space:pre-wrap;word-break:break-all;pointer-events:none'
+    document.body.appendChild(diagBox)
+  }
+  const row = document.createElement('div')
+  row.textContent = line
+  diagBox.appendChild(row)
+  while (diagBox.childElementCount > 16) diagBox.firstElementChild.remove()
+}
 
 /**
  * 把 `window.EditContext` 换成子类，只为在构造时抢到第一条 `textupdate` 监听。
@@ -128,18 +161,23 @@ export function installPasteIndentGuard(editor, host) {
 
   /**
    * 这一发输入该不该由我们接手。
+   *
+   * ⚠️ **多行整段这一条不看 keydown**（2026-11-07 第三版）：真机上点输入法的「粘贴」很可能
+   * 顺带派发一次 keydown（KEYCODE_PASTE / 修饰键 / 输入法自己的浮层），第一版把 keydown 当门禁，
+   * 于是整段粘贴被当成「真人打字」放过去了 —— 用户手机上复测仍是阶梯，这是最可能的那条。
+   * 而「真人一次提交含换行的多行文本」在物理上不存在：Enter 永远是单独一发 `'\n'`。
    * @param {string} text
    */
   function shouldTakeOver(text) {
     if (!text) return false
-    const multiline = text.length >= BULK_MIN_CHARS && text.includes('\n')
-    if (multiline) {
-      // 无论接不接管，都记下这是「多字符输入」——拆行灌入时行间那发换行靠它认
+    if (text.length >= BULK_MIN_CHARS && text.includes('\n')) {
+      // 记下「多字符输入」——拆行灌入时，行间那发换行要靠它认
       lastBulkAt = now()
-      return !typedRecently()
+      return true
     }
     if (text === '\n') {
-      // 兜底：真机若把整段拆成「一行 + 一次换行」逐发送，行间这发换行也要拦，否则照样缩进
+      // 兜底：真机若把整段拆成「一行 + 一次换行」逐发送，行间这发换行也要拦，否则照样缩进。
+      // 这一条必须留着 keydown 判据 —— 真人按 Enter 就是这一发。
       return !typedRecently() && now() - lastBulkAt < FRAGMENT_WINDOW_MS
     }
     if (text.length >= BULK_MIN_CHARS) lastBulkAt = now()
@@ -148,18 +186,38 @@ export function installPasteIndentGuard(editor, host) {
 
   /** EditContext 通道：抢在 Monaco 之前把整段吞掉 */
   function onTextUpdate(event) {
-    if (!editor.hasTextFocus()) return false
-    if (!shouldTakeOver(event.text)) return false
-    insertVerbatim(editor, event.text)
+    const text = event.text ?? ''
+    const hasFocus = editor.hasTextFocus()
+    // 焦点门禁放宽：只有一个守卫时直接认；多个编辑器时认「最后聚焦的那个」
+    if (!hasFocus && lastFocusedEditor !== editor && handlers.size > 1) {
+      diag(`tu skip-focus len=${text.length}`)
+      return false
+    }
+    const take = shouldTakeOver(text)
+    diag(`tu len=${text.length} nl=${text.includes('\n') ? 1 : 0} foc=${hasFocus ? 1 : 0} take=${take ? 1 : 0}`)
+    if (!take) return false
+    insertVerbatim(editor, text)
     return true
   }
 
   /** textarea 通道：`beforeinput` 可取消，拦下来自己插 */
   function onBeforeInput(event) {
     const data = typeof event.data === 'string' ? event.data : ''
-    if (!shouldTakeOver(data)) return
+    const take = shouldTakeOver(data)
+    diag(
+      `bi type=${event.inputType} len=${data.length} nl=${data.includes('\n') ? 1 : 0} can=${
+        event.cancelable ? 1 : 0
+      } take=${take ? 1 : 0}`,
+    )
+    if (!take) return
     event.preventDefault()
     insertVerbatim(editor, data)
+  }
+
+  /** 只诊断，不接管：用来判断「beforeinput 压根没派发、只有 input」这种真机情形 */
+  function onInputForDiag(event) {
+    const data = typeof event.data === 'string' ? event.data : ''
+    diag(`in type=${event.inputType} len=${data.length} nl=${data.includes('\n') ? 1 : 0}`)
   }
 
   function onKeyDown() {
@@ -169,10 +227,30 @@ export function installPasteIndentGuard(editor, host) {
   handlers.add(onTextUpdate)
   host.addEventListener('keydown', onKeyDown, true)
   host.addEventListener('beforeinput', onBeforeInput, true)
+  if (DIAG) host.addEventListener('input', onInputForDiag, true)
+
+  // 记录「最后聚焦的编辑器」：真机上 hasTextFocus() 不一定可信
+  const focusSub = editor.onDidFocusEditorText(() => {
+    lastFocusedEditor = editor
+  })
+
+  // 装上之后延时探一次输入面，把这个最容易出岔子的前提写进浮层
+  if (DIAG) {
+    window.setTimeout(() => {
+      const surface = host.querySelector('.native-edit-context')
+        ? 'native-edit-context'
+        : host.querySelector('textarea.inputarea')
+          ? 'textarea'
+          : 'none'
+      diag(`ready surface=${surface} hook=${editContextHooked ? 1 : 0} guards=${handlers.size}`)
+    }, 600)
+  }
 
   return () => {
     handlers.delete(onTextUpdate)
+    focusSub.dispose()
     host.removeEventListener('keydown', onKeyDown, true)
     host.removeEventListener('beforeinput', onBeforeInput, true)
+    if (DIAG) host.removeEventListener('input', onInputForDiag, true)
   }
 }
