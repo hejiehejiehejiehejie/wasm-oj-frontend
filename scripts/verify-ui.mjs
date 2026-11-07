@@ -354,6 +354,9 @@ try {
     // 目录换成「齿轮 + Quick Settings 下拉菜单」后，分类藏在「设置分类」的二级子菜单里。
     // 从菜单里逐项点开、要求它真的渲染出内容：分类是 v-else-if 互斥的，所以每一项点开后
     // `section.setting-group` 必须恰好是 1 个，且设置视图的目录里当前那一项就是刚点的那个。
+    // ⚠️ 2026-11-07 起横滑翻页要「两页一起走」，设置正文是**一页一个** DOM（`.settings-pane`，
+    // 当前页 + 左右各一页都在树里），所以「恰好 1 个」这个契约点搬到了**当前页内部**：
+    // `.settings-pane--current` 必须恰好 1 个，它里面的 `section.setting-group` 恰好 1 个。
     //
     // 三个契约点跟着实现走（2026-10-11）：
     // - 齿轮是侧栏页头里 aria-label 为「设置」的那颗 `.sidebar-switcher__tab`，
@@ -404,20 +407,26 @@ try {
         const target = items.find((el) => labelOf(el) === label)
         target?.click()
         await tick(80)
+        const current = document.querySelectorAll('.settings-pane--current')
         results.push({
           label,
           current:
             document.querySelector('.settings-nav__item--active .settings-nav__label')?.textContent?.trim() ===
             label,
-          groups: document.querySelectorAll('.settings-view section.setting-group').length,
-          textLength: (document.querySelector('.settings-view__inner')?.textContent ?? '').trim().length,
+          panes: current.length,
+          // 普通分类的「页」就是那个 section 自己，云端那页是包着两张卡的 div —— 两头都算上
+          groups: current[0]
+            ? (current[0].matches('section.setting-group') ? 1 : 0) +
+              current[0].querySelectorAll('section.setting-group').length
+            : 0,
+          textLength: (current[0]?.textContent ?? '').trim().length,
         })
       }
       return results
     })
     const navOk =
       navCoverage.length > 0 &&
-      navCoverage.every((entry) => entry.current && entry.groups === 1 && entry.textLength > 0)
+      navCoverage.every((entry) => entry.current && entry.panes === 1 && entry.groups === 1 && entry.textLength > 0)
 
     // 换边入口（侧边栏位置）在「外观」这一组里。目录改成菜单后，仍显式从菜单里点「外观」，
     // 这样默认分类以后再变，这一步也不会跟着坏。
@@ -447,7 +456,7 @@ try {
     // 点一下翻到另一档。这里的目标是「左侧 → 右侧」，所以只有当前显示「左侧」时点一下；
     // 若已是「右侧」（残留）就再点一下翻回左侧后重试，保证落到右侧。
     await page.evaluate(() => {
-      const row = [...document.querySelectorAll('.settings-view .setting-row')].find(
+      const row = [...document.querySelectorAll('.settings-view .settings-pane--current .setting-row')].find(
         (r) => r.querySelector('.setting-row__label')?.textContent === '侧边栏位置',
       )
       const btn = row?.querySelector('.toggle-seg')
@@ -456,7 +465,7 @@ try {
     })
     await wait(120)
     await page.evaluate(() => {
-      const row = [...document.querySelectorAll('.settings-view .setting-row')].find(
+      const row = [...document.querySelectorAll('.settings-view .settings-pane--current .setting-row')].find(
         (r) => r.querySelector('.setting-row__label')?.textContent === '侧边栏位置',
       )
       row?.querySelector('.toggle-seg')?.click() // 左侧 → 右侧
@@ -496,7 +505,7 @@ try {
       ...state,
       monacoInstanceReused: markerAlive === monacoBefore,
       settingsShown,
-      navCoverage: navCoverage.map((entry) => `${entry.current ? '✓' : '✗'}${entry.groups}${entry.textLength > 0 ? '' : '!空'} ${entry.label}`),
+      navCoverage: navCoverage.map((entry) => `${entry.current ? '✓' : '✗'}${entry.panes}p/${entry.groups}g${entry.textLength > 0 ? '' : '!空'} ${entry.label}`),
       settingsClosed,
     })
   })

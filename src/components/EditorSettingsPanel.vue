@@ -783,7 +783,7 @@ const visibleSections = computed(() =>
 
 // ------------------------------------------------------- 触屏横滑换分类（窄屏）
 /**
- * 窄屏左右滑动内容区，切换设置分类（2026-11-07 加）。
+ * 窄屏左右滑动内容区，切换设置分类（2026-11-07 加，同日改成「两页一起走」）。
  *
  * **只在「目录折到内容上方」的那一档生效**：够宽时目录是左栏、内容在右栏，横滑没有「翻页」
  * 的语义（判据见 `isSingleColumn`）。窄屏上目录是顶上横滚的一行，翻一页要先去够那个不起眼的
@@ -794,9 +794,15 @@ const visibleSections = computed(() =>
  * 那条硬约束）。所以 `.settings-content` 声明的是 `touch-action: pan-y`：纵向仍归浏览器滚
  * 页面，横向没人管，`pointermove` 就一路送到这里来。
  *
- * 【跟手与回弹都落在 transform 上】拖动中挂 `.is-swiping` 关掉过渡（位移逐帧贴手），松手
- * （含换页那一下）由过渡把位移送回 0：划够了就换内容、不够就弹回原处。换页那一帧「新内容 +
- * 位移归零」在同一次渲染里落下，看着就是新的一页从手指停住的位置滑回来。
+ * 【两页一起走，不是换完再从边上补进来】分类之间不是「同一块内容换文案」，所以每一页各自
+ * 是一份 DOM（模板里那些 `.settings-pane`）。当前页留在流里 —— 内容高度由它决定；左右各一页
+ * 绝对定位，按 `--pane-k` 摆到两侧。拖动时位移走 `.settings-content` 的 transform，换页那一帧
+ * 「页码（`--pane-k`）与位移」一起改：推进来的那一页跟着手指从那一侧进来、旧的一页继续往
+ * 反方向出去。两层位移各自过渡，只要时长与缓动一致，合起来就与一条曲线等价（一层走 W−d、
+ * 一层走 d，共用同一份进度）。
+ *
+ * 旁边那一页只在真的横着划起来之后才显形（见 `.is-swiping` / `.is-settling` 那两条规则）：
+ * 两栏布局下视图可能够宽，按一页宽 translate 未必出得了屏。
  */
 const SWIPE_SLOP = 12 // 起手多少像素之后才判方向
 const SWIPE_AXIS = 1.2 // 横向得比纵向大这么多才认；斜着划一律让给滚动
@@ -804,6 +810,7 @@ const SWIPE_RATIO = 0.18 // 不看速度时要划掉内容宽度的这么多
 const SWIPE_MIN = 28 // 但位移本身至少这么远（甩一下也算数，见 SWIPE_FLING）
 const SWIPE_FLING = 0.5 // px/ms：划得够快时不必划满
 const SWIPE_LIMIT = 0.34 // 跟手最多挪内容宽度的这么多，再往外只剩橡皮筋
+const SWIPE_SETTLE_MS = 260 // 松手那一趟过渡（CSS 0.22s）之外再留一点余量
 
 const viewEl = ref(null)
 const navEl = ref(null)
@@ -812,6 +819,16 @@ const contentEl = ref(null)
 const swipeShift = ref(0)
 /** 拖动中：挂上 `.is-swiping` 把过渡关掉，位移才是逐帧贴手的 */
 const isSwiping = ref(false)
+/** 松手之后那一趟过渡还没走完：旁边那一页要留到它落位（见 `.is-settling`） */
+const isSettling = ref(false)
+let settleTimer = 0
+/**
+ * 已经在 DOM 里的分类。
+ *
+ * 当前页 + 左右各一页是常驻的（滑动时旁边那一页必须已经在那儿，现挂一整页会有几百个节点、
+ * 过渡第一帧必卡）；翻到过的也留着，省得来回翻时反复卸载重挂。
+ */
+const renderedIds = ref(new Set([activeSection.value]))
 /** 这一次触摸的现场：`{ id, x, y, dx, t, axis }`，横向锁上之后才开始动内容 */
 let swipe = null
 /**
@@ -857,11 +874,68 @@ function isSingleColumn() {
   return inner ? getComputedStyle(inner).flexDirection !== 'row' : false
 }
 
+/** 分类在目录里排第几；不在目录里（平台把它裁掉了）→ -1 */
+function sectionIndex(id) {
+  return visibleSections.value.findIndex((section) => section.id === id)
+}
+
+/** 当前页是第几页 —— 换页那一帧它变，两侧的 `--pane-k` 就跟着整体挪一格 */
+const activeIndex = computed(() => sectionIndex(activeSection.value))
+
+/**
+ * 这一页离当前页几格：`0` = 当前页，`-1` / `+1` = 左右各一页。
+ * 位置就按它摆（模板里的 `--pane-k`），所以换页只要改这一个数。
+ * **不在目录里的一页给 `null`** —— 这类平台裁掉的分类（网页版没有「工作区」、桌面端没有
+ * 「插件」）`findIndex` 给的是 −1，若直接拿它减，当前页正好是第一类时它就冒充 −1 号页被挂出来，
+ * 到头那一侧的橡皮筋里会露出版面的一角。
+ */
+function paneOffset(id) {
+  const at = sectionIndex(id)
+  return at < 0 ? null : at - activeIndex.value
+}
+
+/** 这一页要不要在 DOM 里：当前页、左右各一页，以及这趟里翻到过的 */
+function paneRendered(id) {
+  const offset = paneOffset(id)
+  return offset !== null && (Math.abs(offset) <= 1 || renderedIds.value.has(id))
+}
+
+/**
+ * 一页的挂载属性，一次 `v-bind` 出去（模板里每页只多一行）。
+ *
+ * 不显示的那几页要一起遮住辅助技术与焦点：它们是真渲染出来的节点，只是被推到屏外或
+ * `display: none` 了；`aria-hidden` 管前者，`inert` 管焦点与指针（当前页上这两个属性都得没有，
+ * 所以给 `{}` 而不是给 `false` —— `inert="false"` 照样是 inert）。
+ */
+function paneProps(id) {
+  const offset = paneOffset(id) ?? 0
+  const current = offset === 0
+  return {
+    class: {
+      'settings-pane': true,
+      'settings-pane--current': current,
+      'settings-pane--peek': Math.abs(offset) === 1,
+    },
+    style: { '--pane-k': offset },
+    ...(current ? {} : { 'aria-hidden': 'true', inert: '' }),
+  }
+}
+
+/** 把当前页两侧各一页先挂上 —— 空闲时做，别在过渡里做 */
+function mountNeighbours() {
+  if (isSwiping.value || isSettling.value) return
+  for (const delta of [-1, 1]) {
+    const near = neighbourSection(delta)
+    if (near) renderedIds.value.add(near.id)
+  }
+}
+
+// 首次进来就把两侧挂上：滑动的那一刻旁边那一页必须在，页面才能跟着手指一起走
+mountNeighbours()
+
 /** 当前分类往 delta（-1 / +1）挪一格；已经在头 / 尾时给 null */
 function neighbourSection(delta) {
-  const list = visibleSections.value
-  const at = list.findIndex((section) => section.id === activeSection.value)
-  return list[at + delta] ?? null
+  return visibleSections.value[sectionIndex(activeSection.value) + delta] ?? null
 }
 
 /**
@@ -934,18 +1008,37 @@ function onSwipePointerUp(event) {
   // 划过一手：抬手那发合成 click 不许落到刚换上的那一页上
   if (axis === 'x' && moved >= SWIPE_MIN) armClickSwallow()
   stopSwipe()
-  // 换页与「位移归零」在同一次渲染里落下，过渡于是从手指停住的那个位置滑回 0
+  // 换页与「位移归零」在同一次渲染里落下：两页于是各自接着走完剩下那一截
+  // （页码挪一格 = 新的一页接着进来，位移归零 = 手指松开后由过渡收尾）
   swipeShift.value = 0
-  if (next) activeSection.value = next.id
+  if (next) {
+    // 连滑两次时它可能还没挂上（上一趟的过渡没走完，mountNeighbours 会跳过）
+    renderedIds.value.add(next.id)
+    activeSection.value = next.id
+  }
 }
 
 /** 收手势：三个 window 监听一起摘掉（每个出口都走这里，别只清状态） */
 function stopSwipe() {
+  const paged = isSwiping.value
   swipe = null
   isSwiping.value = false
   window.removeEventListener('pointermove', onSwipePointerMove)
   window.removeEventListener('pointerup', onSwipePointerUp)
   window.removeEventListener('pointercancel', stopSwipe)
+  // 真的横着划过一手：旁边那一页要留到过渡走完 —— 否则它在松手那一帧就消失，
+  // 最后那一小段路程会露出底下的空白
+  if (paged) beginSettle()
+}
+
+/** 过渡窗（CSS 的 0.22s 再加一点余量）：这期间旁边那一页继续挂着 */
+function beginSettle() {
+  isSettling.value = true
+  window.clearTimeout(settleTimer)
+  settleTimer = window.setTimeout(() => {
+    isSettling.value = false
+    mountNeighbours()
+  }, SWIPE_SETTLE_MS)
 }
 
 /** 上膛：合成 click 紧跟 touchend，留 350ms 的窗口；过了就作废，免得吞掉下一步真正的轻点 */
@@ -985,7 +1078,10 @@ function revealNavItem() {
   nav.scrollBy({ left: delta, behavior: 'smooth' })
 }
 
-/** 位移落到内联样式上；静止时不写，交给样式表 */
+/**
+ * 跟手位移落在这一层上（整排页一起挪）；静止时不写，交给样式表。
+ * 只有它逐帧变，各页自己的 `--pane-k` 只在换页那一帧变一次 —— 一次手势里就只碰一个节点。
+ */
 const contentStyle = computed(() =>
   swipeShift.value ? { transform: `translate3d(${swipeShift.value}px, 0, 0)` } : null,
 )
@@ -993,6 +1089,7 @@ const contentStyle = computed(() =>
 onBeforeUnmount(() => {
   stopSwipe()
   window.clearTimeout(swallowTimer)
+  window.clearTimeout(settleTimer)
 })
 
 // ------------------------------------------------------------ 工作区（仅桌面端）
@@ -1229,6 +1326,8 @@ async function copyShortcutsUrl() {
 watch(activeSection, (section) => {
   if (section === 'extension') refreshExtension()
   nextTick(revealNavItem)
+  // 到了新的一页再把它的左右两侧挂上（滑动途中挂整页会在过渡里卡一下，见 mountNeighbours）
+  nextTick(mountNeighbours)
 })
 
 // 侧栏设置菜单选中某分类后，把设置视图定位到那一类。菜单在 SidebarSwitcher，落点经
@@ -2091,17 +2190,24 @@ watch(pendingUnbind, (open) => {
 
       <!-- 设置正文：卡片都挂在这一层里（宽面板时它才是目录右边那一栏）。
            危险区域要能与主体卡片并排成两张卡，所以不能把卡片直接放在 inner 下。
-           这一层同时是横滑翻页的那一页：位移走内联 transform，样式表里有它的过渡。 -->
+           这一层同时是横滑翻页的「整排」：跟手位移走它的内联 transform（见脚本那一节），
+           里面每一页按 `--pane-k` 各就各位。 -->
       <div
         ref="contentEl"
         class="settings-content"
-        :class="{ 'is-swiping': isSwiping }"
+        :class="{ 'is-swiping': isSwiping, 'is-settling': isSettling }"
         :style="contentStyle"
       >
 
+      <!-- 每一类是一「页」：`paneProps` 给它页码（`--pane-k`）与显不显示的身份，
+           窄屏横滑时左右两页跟着一起走（见脚本的「触屏横滑换分类」）。 -->
       <!-- 工作区（仅桌面端）：显示当前工作区，提供「打开本机文件夹」与「切回虚拟工作区」。
            切换会重新加载界面（见 services/vfs/workspaceMode.js），所以这里不做热切换。 -->
-      <section v-if="activeSection === 'workspace'" class="setting-group">
+      <section
+        v-if="paneRendered('workspace')"
+        v-bind="paneProps('workspace')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.workspace') }}</p>
         <p class="setting-group__note">{{ t('settings.workspace.note') }}</p>
 
@@ -2175,7 +2281,11 @@ watch(pendingUnbind, (open) => {
       <!-- 外观：主题、三条界面偏好（缩放 / 语言 / 侧边栏位置），末尾是「代码图片」那三条。
            除三条界面偏好各有出口外，其余行都是 editorSettings 的键，与编辑器组同源。
            字体大小已挪去编辑器组。 -->
-      <section v-else-if="activeSection === 'appearance'" class="setting-group">
+      <section
+        v-if="paneRendered('appearance')"
+        v-bind="paneProps('appearance')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.appearance') }}</p>
 
         <!-- 行渲染与「编辑器」那一栏同源（都在 editorSettings 上），只是这里多了三条「外壳」
@@ -2271,7 +2381,11 @@ watch(pendingUnbind, (open) => {
         </template>
       </section>
 
-      <section v-else-if="activeSection === 'editor'" class="setting-group">
+      <section
+        v-if="paneRendered('editor')"
+        v-bind="paneProps('editor')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.editor') }}</p>
 
         <template v-for="(group, index) in EDITOR_GROUPS" :key="group.titleKey">
@@ -2336,7 +2450,11 @@ watch(pendingUnbind, (open) => {
       <!-- 模板：新建文件时按扩展名归一到语言、填入对应模板。
            总开关与三条模板都不落 cp.editorSettings，走 services/fileTemplates.js 自己的模块单例
            （与「界面语言」同一体例：模块自己读写 localStorage，不经 props / emits 中转）。 -->
-      <section v-else-if="activeSection === 'templates'" class="setting-group">
+      <section
+        v-if="paneRendered('templates')"
+        v-bind="paneProps('templates')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.templates') }}</p>
         <p class="setting-group__note">{{ t('settings.templates.note') }}</p>
 
@@ -2393,7 +2511,11 @@ watch(pendingUnbind, (open) => {
         </div>
       </section>
 
-      <section v-else-if="activeSection === 'shortcuts'" class="setting-group">
+      <section
+        v-if="paneRendered('shortcuts')"
+        v-bind="paneProps('shortcuts')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.shortcuts') }}</p>
         <p class="setting-group__note">
           {{ t('settings.shortcut.note') }}
@@ -2445,7 +2567,7 @@ watch(pendingUnbind, (open) => {
         </div>
       </section>
 
-      <section v-else-if="activeSection === 'judge'" class="setting-group">
+      <section v-if="paneRendered('judge')" v-bind="paneProps('judge')" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.judge') }}</p>
 
         <label class="setting-row setting-row--select">
@@ -2547,7 +2669,7 @@ watch(pendingUnbind, (open) => {
 
       <!-- 应用：安装到设备，外加本地运行环境（工具链与题解渲染器的下载 / 卸载）。
            浏览器插件原本也挤在这一栏里，现已按内容独立成一个「浏览器插件」分类。 -->
-      <section v-else-if="activeSection === 'app'" class="setting-group">
+      <section v-if="paneRendered('app')" v-bind="paneProps('app')" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.app') }}</p>
         <p class="setting-subtitle setting-subtitle--first">{{ t('settings.app.basics') }}</p>
 
@@ -2783,7 +2905,11 @@ watch(pendingUnbind, (open) => {
            就不出现 —— 见 visibleSections。
            原本挤在「应用」栏里，2026-10-11 按内容独立成一栏；2026-10-24 设置页统一成
            「一栏一张卡」，卡片外框由 .setting-group 给。 -->
-      <section v-else-if="activeSection === 'extension'" class="setting-group">
+      <section
+        v-if="paneRendered('extension')"
+        v-bind="paneProps('extension')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.extension') }}</p>
         <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
@@ -2995,7 +3121,8 @@ watch(pendingUnbind, (open) => {
       <!-- 云端同步：把偏好类设置存到 Cloudflare Worker 背后的 KV 里，身份用 Codeforces handle 证明。
            三态互斥：验证码面板开着（取过码、还没验证通过）→ 未绑定 → 已绑定。
            已绑定时的「解绑」另起一张危险区域卡（见页尾），所以这一栏是 template 包着两张卡。 -->
-      <template v-else-if="activeSection === 'cloud'">
+      <!-- 云端这一栏是两张卡（主卡 + 已绑定时的危险区域），包一层当作一页 -->
+      <div v-if="paneRendered('cloud')" v-bind="paneProps('cloud')">
       <section class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.cloud') }}</p>
         <p class="setting-group__note">{{ t('settings.cloud.groupNote') }}</p>
@@ -3340,9 +3467,13 @@ watch(pendingUnbind, (open) => {
           </span>
         </div>
       </section>
-      </template>
+      </div>
 
-      <section v-else-if="activeSection === 'help'" class="setting-group">
+      <section
+        v-if="paneRendered('help')"
+        v-bind="paneProps('help')"
+        class="setting-group"
+      >
         <p class="setting-group__title">{{ t('settings.section.help') }}</p>
         <HelpPanel />
       </section>
@@ -3533,12 +3664,14 @@ watch(pendingUnbind, (open) => {
   margin-inline: auto;
 }
 
-/* 设置正文：卡片纵向摞起来。宽面板时它才是目录右边那一栏（见容器查询），
-   危险区域与主体卡片是它的两个子项，不会跑进目录那一列。 */
+/* 设置正文：一排「页」的容器（宽面板时它才是目录右边那一栏）。
+   危险区域要能与主体卡片并排成两张卡，所以不能把卡片直接放在 inner 下。 */
 .settings-content {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* 两侧那几页的定位基准：按 `--pane-k` × 一页宽推到左右去（见 .settings-pane） */
+  position: relative;
   /* 横滑换分类（见脚本那一节）：
      `pan-y` 把纵向留给浏览器滚页面、横向留给手势 —— 触摸的手势归属在起手那一刻就按这条
      定下了，`preventDefault()` 改不动它（第 1 节硬约束）。代价是这一块里没有双指缩放，
@@ -3551,6 +3684,43 @@ watch(pendingUnbind, (open) => {
 
 .settings-content.is-swiping {
   transition: none;
+}
+
+/* ---- 一页 = 一类设置（窄屏横滑时左右两页跟着一起走的那个「页」） ---- */
+.settings-pane {
+  width: 100%;
+  /* 上下留白从 .setting-group 挪到这一层：绝对定位的那两页没有可折叠的外边距，
+     每页自己带一份，三页的正文才对得齐 */
+  padding-top: 14px;
+  padding-bottom: 32px;
+  /* 页码 × 一页宽。换页那一帧这个数才变一次，与上一层 `.settings-content` 的跟手位移
+     同时过渡：一层走 d、一层走 W−d，同一份进度，合起来就是「两页一起滑」。 */
+  transform: translate3d(calc(var(--pane-k, 0) * 100%), 0, 0);
+  transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.settings-content.is-swiping .settings-pane {
+  transition: none;
+}
+
+/* 当前页留在流里（内容高度由它定），左右各一页绝对定位叠在同一处、靠 transform 推出去 */
+.settings-pane--current {
+  position: relative;
+}
+
+.settings-pane:not(.settings-pane--current) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* 不滑动时旁边那一页一律不参与渲染：两栏布局下视图可能够宽，推出一页宽未必出得了屏 */
+  display: none;
+}
+
+/* 手指真的横着划起来（以及松手后那一趟过渡）才把旁边那一页放出来 —— 只放紧邻的一页，
+   更远的那几页（翻到过的都在 DOM 里）不参与 */
+.settings-content.is-swiping .settings-pane--peek,
+.settings-content.is-settling .settings-pane--peek {
+  display: block;
 }
 
 .settings-nav {
@@ -3594,17 +3764,12 @@ watch(pendingUnbind, (open) => {
 
 /* 一栏 = 一组设置，不再包一层大卡片（2026-10-24「沉浸式」布局）：
    设置行直接落在编辑区底色上，靠分类标题、上下留白和行间那条 5% 白细线分区。
-   无边、无底、无圆角 —— 大面积亮色块在暗色主题里会压住内容，克制到只剩排版。 */
+   无边、无底、无圆角 —— 大面积亮色块在暗色主题里会压住内容，克制到只剩排版。
+   上下留白在 `.settings-pane` 上（一页一份）：这里再留一份，云端那一页的包裹层就会叠成两层。 */
 .setting-group {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin: 14px 0 0;
-}
-
-/* 最后一块内容离底部留一口气（通常是设置组，云端页则是危险区域） */
-.settings-content > :last-child {
-  margin-bottom: 32px;
 }
 
 /* 编辑区够宽时升级成「左栏目录 + 右栏内容」两栏：目录 sticky 跟着滚动，
