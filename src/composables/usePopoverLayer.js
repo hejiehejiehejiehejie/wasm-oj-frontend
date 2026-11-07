@@ -1,6 +1,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, toValue, watch } from 'vue'
 
 import { pushBackLayer } from '../services/backStack.js'
+import { onViewportChange } from './useMobileKeyboard.js'
 
 /**
  * usePopoverLayer —— Teleport 到 body 的浮层躲不开的两件事：定位收敛 + 什么时候关。
@@ -23,6 +24,10 @@ import { pushBackLayer } from '../services/backStack.js'
  * 前四路走下面同一个 `dismiss`，第五路注册的也是它 —— 所以任何一路关闭都会把
  * 「当前最上层」一起清掉，不会在返回栈里留幽灵条目。
  * （视口尺寸变化那一路有例外：焦点在浮层里时只重匣位置、不收 —— 那是软键盘，见 onResize）。
+ * ⚠️ 「视口尺寸变化」有**两个来源**：`window.resize`，以及 useMobileKeyboard 实测出来的
+ * `--vvh` / `--vv-top` 变化（`onViewportChange`）。后者不能省 —— 收键盘时有的引擎一个
+ * resize 都不派发，而 `.app` 与浮层的锚点会跟着可视视口一起挪（2026-11-07 用户报
+ * 「收起键盘后整屏错位」就是这么漏出来的），见 onMounted 里那段。
  * 注册时机是**分开的**（2026-10-19 修，见 onMounted 里那段）：`pointerdown` 延迟一拍 ——
  * 打开这一下往往就是某个 pointerdown / click 带出来的，当场挂上会被同一发事件立刻关掉
  * （表现为「点了没反应」）；Esc / blur / resize / 返回 当场挂上 —— 它们打开不了浮层，
@@ -70,6 +75,8 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
 
   /** 返回键那一层的注销函数（注册在 onMounted，见那里那段） */
   let releaseBack = null
+  /** 「可视视口几何变了」的订阅注销函数（同上） */
+  let offViewport = null
 
   // 稳定引用：onDismiss 若是个每次渲染都变的内联箭头函数，removeEventListener 会认不出来
   const dismiss = () => {
@@ -139,6 +146,21 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     () => clampIntoViewport(),
   )
 
+  /**
+   * 弹开动画结束之后再匣一次。
+   *
+   * 首次匣在 `nextTick` 之后量，那一帧元素还压在「0.95 → 1」的入场动画中途，
+   * `getBoundingClientRect()` 量到的是被缩小过的那一份 —— 实测 412×861 下设置菜单真高
+   * 373.5，收敛时只量到 345，于是按它算出来的位置偏低：菜单底缘落到视口外 20px、
+   * 最后一行被切掉。动画走完盒子回到真尺寸，照着重量一次。
+   *
+   * 只在 `event.target` 是自己时动手：`animationend` 会从子元素冒泡上来（转圈、对勾那些）。
+   * 另外补一枚 200ms 的定时器兜底 —— 元素没跑动画（或动画被系统关掉）时它不会响。
+   */
+  function onOwnAnimationEnd(event) {
+    if (event.target === root.value) clampIntoViewport()
+  }
+
   let timers = []
 
   onMounted(async () => {
@@ -161,6 +183,20 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     window.addEventListener('resize', onResize)
 
     /**
+     * 应用层跟着可视视口挪动时（`--vvh` / `--vv-top` 变了）也必须重匣一次。
+     *
+     * 这一路**不在 `window.resize` 上**：收键盘时有的引擎连 resize 都不派发（安卓 Firefox
+     * 既不 resize 窗口、也不发 `visualViewport` 的 resize / scroll，见 useMobileKeyboard 里
+     * 那三条兜底），只挂 resize 就会漏掉整条路 —— 菜单留在键盘弹着那一刻的位置上，而它的
+     * 锚点（那颗齿轮）已经跟着 `.app` 挪走了。用户看到的正是「收起键盘之后整屏错位」
+     * （2026-11-07 报）。
+     *
+     * 走同一个 `onResize`：焦点在浮层里就只重匣一次（正在填的表单不能销毁），焦点在外面
+     * 则照旧收掉 —— 那条口径与「视口一变、锚点就挪了」完全一致，只是补上了事件的缺口。
+     */
+    offViewport = onViewportChange(onResize)
+
+    /**
      * 第五路关闭：装成 app 时的**系统返回**。它和 Esc / 失焦 / 视口变化一样，
      * 打开不了浮层，所以当场注册、不排队等那一拍。
      *
@@ -177,6 +213,10 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
 
     await clampIntoViewport()
     ready.value = true
+    // 入场动画一结束就把「被缩过的那一份」纠正回来（见 onOwnAnimationEnd）；
+    // 定时器兜底元素没跑动画的情形
+    root.value?.addEventListener('animationend', onOwnAnimationEnd)
+    timers.push(window.setTimeout(() => clampIntoViewport(), 200))
   })
 
   onBeforeUnmount(() => {
@@ -188,6 +228,9 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     window.removeEventListener('keydown', onKeyDown, true)
     window.removeEventListener('blur', dismiss)
     window.removeEventListener('resize', onResize)
+    root.value?.removeEventListener('animationend', onOwnAnimationEnd)
+    offViewport?.()
+    offViewport = null
     // 外层 `v-if` 直接收掉浮层（既没走 dismiss 也没走那四路）时，这一层就靠这里出栈
     releaseBack?.()
     releaseBack = null

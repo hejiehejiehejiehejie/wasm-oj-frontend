@@ -30,6 +30,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
+import { onViewportChange } from '../composables/useMobileKeyboard.js'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
@@ -633,11 +634,31 @@ function watchSubmenuSize() {
 /**
  * 视口变了就重收一次：手机上点进用户名框会顶起软键盘，视口矮一截 ——
  * 一级菜单由 usePopoverLayer 重新匣进视口，挂出来的二级得自己跟上。
+ *
+ * 两个触发源都要挂：
+ * - `window.resize`：桌面拖窗 / 旋转；
+ * - `onViewportChange`：useMobileKeyboard 实测出来的 `--vvh` / `--vv-top` 变化 ——
+ *   **收键盘那一下有的引擎一个 resize 都不派发**（安卓 Firefox），而那时视口恰恰变高了，
+ *   二级要是不重收，就会留在「按键盘弹着时那点高度算出来的」上抬量上，整块飘在所属那一行
+ *   上方几百像素处（2026-11-07 用户报「关掉键盘后显示错位」，截图里那个表单就是飘着的）。
  */
 function onViewportResize() {
   if (openSubmenu.value !== null) clampSubmenu()
 }
 window.addEventListener('resize', onViewportResize)
+const offViewport = onViewportChange(onViewportResize)
+
+/**
+ * 一级菜单自己也动了（换边重锚、视口收敛改位置）时，二级要再收一次。
+ *
+ * 二级是 absolute 挂在所属那一行上的，**跟着一级一起平移** —— 所以它相对行的位置不变、
+ * 相对视口的位置变了：上抬量（`subShift`）是按「底部离视口下沿多少」算的，一级挪一格，
+ * 那个数就不再成立。触发源的先后不保证（重锚在父组件、收敛在 usePopoverLayer），
+ * 所以不指望通知的顺序，改成盯 position 本身。
+ */
+watch(position, () => {
+  if (openSubmenu.value !== null) clampSubmenu()
+})
 
 /**
  * 收敛量落到内联样式上；两项都是 0 时不写，交给样式表自己的位置。
@@ -654,6 +675,7 @@ const subStyle = computed(() => {
 onBeforeUnmount(() => {
   window.clearTimeout(closeTimer)
   window.removeEventListener('resize', onViewportResize)
+  offViewport()
   subObserver?.disconnect()
 })
 

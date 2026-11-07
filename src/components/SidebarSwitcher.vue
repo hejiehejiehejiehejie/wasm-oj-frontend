@@ -36,6 +36,7 @@ import AppIcon from './AppIcon.vue'
 import ComponentsMenu from './ComponentsMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
+import { onViewportChange } from '../composables/useMobileKeyboard.js'
 import { panelPosition } from '../services/shellSettings.js'
 
 const { panels, targetPanel, togglePanel, settings, components, collapse, compact } =
@@ -121,6 +122,21 @@ watch(
     if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
   },
   { flush: 'post' },
+)
+
+/**
+ * 同一个「跟着按钮走」，还差软键盘那一条：窄屏唤出 / 收起键盘时，`.app` 按 `--vvh` /
+ * `--vv-top` 整块重排（见 useMobileKeyboard），齿轮跟着挪了几百像素，而菜单是 Teleport 到
+ * body 的 fixed 浮层 —— 它只认打开那一刻量下的 rect。于是「收起键盘 → 齿轮回到顶上、菜单
+ * 留在半屏」，用户看到的就是整屏错位（2026-11-07 报）。
+ *
+ * 与上面那条完全同源，只是触发源换成「实测的视口几何变了」：重新量一次按钮就好。
+ */
+onBeforeUnmount(
+  onViewportChange(() => {
+    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
+    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
+  }),
 )
 
 // ------------------------------------------------------------ 页头图标的墨迹口径

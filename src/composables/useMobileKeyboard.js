@@ -8,6 +8,17 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 //   3. 视口矮了要知会外面：可视高度小于 SHORT_VIEWPORT 时把 shortViewport 置真
 //      （App.vue 挂 .app.is-short，用来收掉编辑器状态栏，见 EditorPane.vue）。
 //
+// 【上面第 1 件不能只挂在事件上】（2026-11-07 修，用户报「窄屏唤出键盘，在设置菜单的同步设置
+// 输入框里打字，收起键盘之后显示错位」）：收键盘这条路，有的引擎**一件事都不派发** —— 安卓
+// Firefox 不改 innerHeight、也不发 visualViewport 的 resize / scroll，`--vvh` / `--vv-top`
+// 就此冻在键盘弹着那一刻（实测：可见高 461、offsetTop 398 留着不动，于是整块应用被压到下半屏、
+// 顶上留一条空底）。所以量视口这件事有三条兜底：① 每个信号之后再补几拍（SETTLE_DELAYS ——
+// 键盘是动画收放的，最后一帧常常晚于最后一发事件）；② 键盘据测还弹着时开一条看门狗
+// （WATCHDOG_MS）定频实测，读数一不成立就当场纠正；③ 归一化（`scale === 1` 且没测到键盘收缩
+// ⇒ 可视视口就是布局视口，`--vv-top` 只能是 0）。
+// 几何真的变了还要通知 onViewportChange 的订阅者：Teleport 到 body 的浮层不在这块盒子里，
+// 应用层一挪，它们就得重新匣一次、菜单还得把锚点重量一遍。
+//
 // 另有一个 keyboardUp（键盘**真的**弹着没有，按 visualViewport 是否收缩实测）也一并导出：
 // 它与 active（= 触摸设备，挂 .app.is-keyboard）不是一回事 —— 那个在整台设备上恒真，这个
 // 只在键盘弹起时为真。App.vue 拿它做「打字时把贴底的图标栏收掉」（见 .app.is-typing）。
@@ -38,6 +49,14 @@ const KEYBOARD_MIN = 100
 // 可视高度小于它就认为视口「矮」，把编辑器状态栏收掉（口径 480px，见 EditorPane.vue）。
 // 必须按 visualViewport 量：iOS 上键盘弹起时布局视口不缩，@media (max-height) 看不见它。
 const SHORT_VIEWPORT = 480
+// 键盘弹起 / 收起之后补测的几拍。软键盘是**动画**收放的：最后一帧的几何常常晚于最后一发
+// resize / scroll 事件，只在事件里量会停在「动画中途」那一份上。
+const SETTLE_DELAYS = [60, 180, 420]
+// 看门狗间隔：键盘（据测）还弹着时按这个节奏实测一次，读数一不成立就自己纠回来。
+// 250ms 是「读三个数」的成本，与 Monaco 自己的重绘比可以忽略。
+const WATCHDOG_MS = 250
+// 连续这么多拍读数都没变、键盘也不在、焦点也不在输入框上，就把看门狗停掉（别让空转的定时器常驻）
+const WATCHDOG_QUIET_TICKS = 8
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
 // 普通输入框。刻意**不含 textarea**：测试样例的 `.ta` 走既有口径「轻点别处 → 焦点不动」
@@ -73,6 +92,24 @@ export const isTouchPointer = () => window.matchMedia('(pointer: coarse)').match
 // 还留在 Monaco 的输入面上（见上面 onTouchStart 那段），两者并不等价。
 let keyboardShown = false
 export const isKeyboardShown = () => keyboardShown
+
+/**
+ * 可视视口几何（`--vvh` / `--vv-top`）**真的变了**时的订阅。
+ *
+ * 为什么要这一条：应用层（`.app.is-keyboard`）是按这两个数摆的，而 Teleport 到 body 的浮层
+ * 与「浮层的锚点」不在这块盒子里 —— 应用层一挪，菜单就指着一个已经搬走的按钮（2026-11-07
+ * 用户报：窄屏唤出键盘、在这个同步设置输入框里打字，收起键盘之后整屏错位）。
+ * 订阅者各自做一件事：浮层重匣一次、菜单把那颗按钮的 rect 重新量一遍。
+ *
+ * 只在**实测值变化**时通知（见 syncViewport），所以挂在这里不会因为看门狗而变成定频广播。
+ * @param {() => void} fn
+ * @returns {() => void} 注销函数
+ */
+const viewportSubs = new Set()
+export function onViewportChange(fn) {
+  viewportSubs.add(fn)
+  return () => viewportSubs.delete(fn)
+}
 
 export function useMobileKeyboard() {
   const active = ref(isTouchPointer())
@@ -228,6 +265,20 @@ export function useMobileKeyboard() {
   }
 
   // -------------------------------------------------- 可视高度（键盘剩余空间）
+  /** 上一次真正写进 `<html>` 的那两个数（只在变化时写 / 通知，见下面 syncViewport） */
+  let lastVvh = -1
+  let lastVvTop = -1
+  /** 补测那几拍的定时器（连发信号时会被后一发顶掉，只留最后一串） */
+  let settleTimers = []
+  /** 看门狗：键盘（据测）弹着时定频实测，见 startWatchdog */
+  let watchdog = 0
+  let quietTicks = 0
+
+  /**
+   * 量一次「现在能看见多大、被顶上去多少」，写进 `--vvh` / `--vv-top`。
+   *
+   * **幂等**：随时可以重跑、跑多少次结果都一样 —— 下面那几条兜底（补拍 / 看门狗）全靠这一点。
+   */
   function syncViewport() {
     // 宽度变了（旋转、桌面拖窗）就把基线重取：否则横屏时基线还留着竖屏那个高，
     // 会被误判成「键盘弹着」，滑动就再也不清焦点了。键盘弹出只缩高度、不改宽度，
@@ -241,13 +292,91 @@ export function useMobileKeyboard() {
     keyboardShown = keyboardUp.value
 
     const viewport = window.visualViewport
-    const height = Math.round(viewport ? viewport.height : window.innerHeight)
-    const top = Math.round(viewport ? viewport.offsetTop : 0)
-    const style = document.documentElement.style
+    /**
+     * 归一化：**没缩放**（`scale === 1` 意味着可视视口与布局视口同宽同高）**且**没测到
+     * 键盘收缩时，可视视口就是整个布局视口 —— 这时量到的 `offsetTop` 只可能是上一相的残值。
+     *
+     * 安卓 Firefox 收键盘时会把它留着不归零（既不动 `innerHeight`，也不再派发任何事件），
+     * 于是 `--vv-top` 停在键盘弹着那一刻的偏移上：整块应用被压到下半屏、顶上留一条空底，
+     * 浮层与它的锚点也跟着对不上（2026-11-07 用户报「关掉键盘后显示错位」）。
+     * 这条不成立时（真弹着键盘、或者用户双指放大了）照旧按实测值摆。
+     */
+    const unzoomed = Math.abs((viewport?.scale ?? 1) - 1) < 0.01
+    const idle = unzoomed && !keyboardUp.value
+    const height = idle ? window.innerHeight : Math.round(viewport?.height ?? window.innerHeight)
+    const top = idle ? 0 : Math.round(viewport?.offsetTop ?? 0)
+
     shortViewport.value = height < SHORT_VIEWPORT
-    style.setProperty('--vvh', `${height}px`)
-    style.setProperty('--vv-top', `${top}px`)
+    // 只在变化时写：`--vvh` / `--vv-top` 是 `<html>` 上的自定义属性，每次写都会让整棵树重算样式，
+    // 而看门狗每 250ms 就可能跑一次。通知同理 —— 订阅方要的是「挪了」，不是「又量了一次」。
+    if (height !== lastVvh || top !== lastVvTop) {
+      lastVvh = height
+      lastVvTop = top
+      const style = document.documentElement.style
+      style.setProperty('--vvh', `${height}px`)
+      style.setProperty('--vv-top', `${top}px`)
+      for (const fn of [...viewportSubs]) fn()
+      quietTicks = 0
+    } else {
+      quietTicks += 1
+    }
+    // 键盘（据测）还弹着 → 让看门狗盯着：它可能**再也没有任何事件**来告诉我们它收起了。
+    if (keyboardUp.value) startWatchdog()
     updateProbe()
+  }
+
+  /**
+   * 事件之后再补测几拍（键盘有动画，最后一帧常常晚于最后一发事件）。
+   * 连发信号时重排这一串，不叠着跑。
+   */
+  function scheduleSettle() {
+    for (const timer of settleTimers) window.clearTimeout(timer)
+    settleTimers = SETTLE_DELAYS.map((delay) => window.setTimeout(syncViewport, delay))
+  }
+
+  /** 视口信号：当场量一次，再补几拍 */
+  function onViewportSignal() {
+    syncViewport()
+    scheduleSettle()
+  }
+
+  /**
+   * 看门狗：键盘弹着（或刚弹过）时按 WATCHDOG_MS 实测一次。
+   *
+   * 【为什么必须有它】收键盘这条路，有的引擎**一件事都不派发**：安卓 Firefox 既不 resize
+   * 窗口、也不发 `visualViewport` 的 resize / scroll（实测复现：可见高度 461、offsetTop 398
+   * 一直留着不动，`--vvh` / `--vv-top` 就此冻在键盘弹着那一刻）。没有轮询就没有任何机会知道
+   * 「现在其实已经全屏了」。读数一旦不成立，这里跑的那次 syncViewport 会当场纠正。
+   *
+   * 退出条件：键盘测不到了、焦点也不在输入框里、且连续几拍读数都没动 —— 三条同时成立才停，
+   * 免得留一个空转的定时器；下一次信号（或 focusin）会重新拉起。
+   */
+  function startWatchdog() {
+    if (watchdog) return
+    quietTicks = 0
+    watchdog = window.setInterval(() => {
+      syncViewport()
+      if (!keyboardUp.value && !isEditable(document.activeElement) && quietTicks >= WATCHDOG_QUIET_TICKS) {
+        stopWatchdog()
+      }
+    }, WATCHDOG_MS)
+  }
+
+  function stopWatchdog() {
+    if (!watchdog) return
+    window.clearInterval(watchdog)
+    watchdog = 0
+    quietTicks = 0
+  }
+
+  /**
+   * 焦点进出输入框：键盘多半要跟着开 / 收。这里也补几拍 —— 有些引擎在这一下里同样不派发
+   * 任何视口事件，只能靠「焦点动了」这个必然会来的信号先量一遍。
+   */
+  function onEditableFocusChange(event) {
+    if (!isEditable(event.target)) return
+    if (event.type === 'focusin') startWatchdog()
+    scheduleSettle()
   }
 
   function start() {
@@ -259,10 +388,12 @@ export function useMobileKeyboard() {
     document.addEventListener('focusin', onFocusIn, true)
     // 必须在捕获阶段：Monaco 的监听挂在 .view-lines 自己身上，冒泡阶段就晚了
     document.addEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
-    window.addEventListener('resize', syncViewport)
-    window.addEventListener('orientationchange', syncViewport)
-    window.visualViewport?.addEventListener('resize', syncViewport)
-    window.visualViewport?.addEventListener('scroll', syncViewport)
+    document.addEventListener('focusin', onEditableFocusChange, true)
+    document.addEventListener('focusout', onEditableFocusChange, true)
+    window.addEventListener('resize', onViewportSignal)
+    window.addEventListener('orientationchange', onViewportSignal)
+    window.visualViewport?.addEventListener('resize', onViewportSignal)
+    window.visualViewport?.addEventListener('scroll', onViewportSignal)
     syncViewport()
   }
 
@@ -274,10 +405,15 @@ export function useMobileKeyboard() {
     document.removeEventListener('mousedown', onMouseDown, true)
     document.removeEventListener('focusin', onFocusIn, true)
     document.removeEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
-    window.removeEventListener('resize', syncViewport)
-    window.removeEventListener('orientationchange', syncViewport)
-    window.visualViewport?.removeEventListener('resize', syncViewport)
-    window.visualViewport?.removeEventListener('scroll', syncViewport)
+    document.removeEventListener('focusin', onEditableFocusChange, true)
+    document.removeEventListener('focusout', onEditableFocusChange, true)
+    window.removeEventListener('resize', onViewportSignal)
+    window.removeEventListener('orientationchange', onViewportSignal)
+    window.visualViewport?.removeEventListener('resize', onViewportSignal)
+    window.visualViewport?.removeEventListener('scroll', onViewportSignal)
+    for (const timer of settleTimers) window.clearTimeout(timer)
+    settleTimers = []
+    stopWatchdog()
   }
 
   onMounted(() => {

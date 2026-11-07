@@ -33,7 +33,7 @@ import AppIcon from './AppIcon.vue'
 import ComponentsMenu from './ComponentsMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
-import { isTouchPointer } from '../composables/useMobileKeyboard.js'
+import { isTouchPointer, onViewportChange } from '../composables/useMobileKeyboard.js'
 import { t } from '../i18n/index.js'
 import {
   availableComponents,
@@ -205,6 +205,16 @@ watch(
     if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
   },
   { flush: 'post' },
+)
+
+// 同上，只是触发源换成软键盘：窄屏收起键盘时 `.app` 按 `--vvh` / `--vv-top` 重排，
+// 贴底那一簇按钮整块上下挪，而菜单是 body 上的 fixed 浮层 —— 重量一遍按钮，它才跟得上。
+// （理由展开见 SidebarSwitcher 同名那条与 useMobileKeyboard 头部。）
+onBeforeUnmount(
+  onViewportChange(() => {
+    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
+    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
+  }),
 )
 
 // ------------------------------------------------------------ 右键菜单（2026-10-22 加）
