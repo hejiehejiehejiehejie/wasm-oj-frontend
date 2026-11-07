@@ -8,9 +8,10 @@
  * iOS 独立窗口没有返回键，`navigator.standalone` 那一条命中后机制空转，无害。
  *
  * 【只在独立窗口武装】浏览器标签页里 `Alt+←` 是用户真想回上一页，拦下来站不住脚。
- * 判据见 `isAppWindow()`；本项目的 manifest 是 `display_override: ["fullscreen"]`，
- * 安卓装出来匹配的是 `(display-mode: fullscreen)` 而不是 `standalone` —— 三个都要列，
- * 漏一个就等于「装了 app 但没生效」。
+ * 判据见 `isAppWindow()`；manifest 现在是 `display: standalone`（2026-11-07 摘掉了
+ * `display_override: ["fullscreen"]` —— 那档在 Chromium 上装出来会把系统状态栏一起吃掉，
+ * 时间与电量全没了），但 fullscreen / minimal-ui 两档仍然列着：别处装的、将来改回全屏的，
+ * 都算「独立窗口」，漏一个就等于「装了 app 但没生效」。
  *
  * 【一条栈，不是一层压一条历史】也考虑过「开一层 pushState 一条」那种天然对齐的做法，
  * 否决的理由是刷新：一条 history 条目会静默残留，用户下次打开按返回，浏览器吃掉一层什么
