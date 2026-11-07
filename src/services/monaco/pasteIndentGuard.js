@@ -1,120 +1,177 @@
 /**
- * pasteIndentGuard —— 手机输入法把整段代码「粘贴」进来时，别让自动缩进把每一行越推越深。
+ * pasteIndentGuard —— 手机输入法把整段代码「粘贴」进来时，别让每一行越缩越深。
  *
  * 【症状】手机上用键盘自带的「粘贴」贴一段带缩进的代码，贴完以后每一行都比上一行多一层缩进，
- * 整段呈阶梯状（首尾能差出七八个 tab）。桌面按 Ctrl+V、以及菜单里的「粘贴」都不会这样。
+ * 整段呈阶梯状。桌面 Ctrl+V、以及站内菜单的「粘贴」都不会这样。
  *
- * 【为什么只有手机出】
- * 桌面的粘贴是一个「一次性替换」：Monaco 的 PasteOperation 拿整段文本建一条 ReplaceCommand
- * （见 `monaco-editor/esm/vs/editor/common/cursor/cursorTypeEditOperations.js` 的
- * `PasteOperation._simplePaste`），文本原样落进 model，与缩进毫无关系。
- * 安卓输入法的「粘贴」**不是**真的 paste 事件 —— 它是 IME 提交：Chrome 把含换行的文本按行拆开，
- * 逐行 textupdate + 一次 insertLineBreak（EditContext 那条路，见
- * `editor/browser/controller/editContext/native/nativeEditContext.js` 的 `beforeinput` / `textupdate`），
- * 于是每两行之间都真的走了一次「回车」。回车走 `EnterOperation._enter`，而 autoIndent 的口径是
- * 「把**当前行**的前导空白复制给新行」；紧接着 IME 又把下一行自带的缩进贴上去 —— 两级相加。
- * 下一行再照此复制，于是逐行 +1，阶梯就是这么来的。
+ * 【根因（2026-11-07 实测：无头 Chrome + CDP `Input.insertText`，它走的正是 IME 提交通道）】
+ * 1. 手机上的「粘贴」不是 `paste` 事件，是 IME 提交。Chrome 走 `NativeEditContext`（EditContext
+ *    API），**一次 `textupdate` 带整段文本，而 DOM 上连一条 `beforeinput` / `input` 都收不到**
+ *    （探针实测：document 上零事件）。不支持 EditContext 的浏览器退回隐藏 textarea，那时才有
+ *    `beforeinput`（一次带整段，`cancelable: true`）。
+ * 2. Monaco 收到这整段后自己按行拆开、**逐字符** type，行与行之间那一次仍走 `EnterOperation`。
+ * 3. `EnterOperation._enter` 按 `config.autoIndent` 决定新行缩进 —— 但**运行时改 autoIndent 不生效**：
+ *    `editor.updateOptions({ autoIndent: 'none' })` 之后 `getOption` 明明返回 0，阶梯照旧（实测）。
+ *    只有**创建编辑器时**就传 `autoIndent: 'none'` 才真的关掉。所以第一版守卫「粘贴时临时把
+ *    autoIndent 设成 none」从根上就是空转 —— 用户 2026-11-07 复测「仍然每行多一个缩进」即此。
  *
- * 【怎么拦】不改 Monaco，也不去猜「哪一发换行属于粘贴」，只认「这一发输入是整段灌进来的」：
- *   1) `beforeinput` 带着长度 ≥ 2 的文本（或 inputType 直接就是 insertFromPaste / insertFromDrop）；
- *   2) 它前面 `KEYDOWN_GRACE_MS` 之内**一次 keydown 都没有** —— 真人打字每一下都有 keydown，
- *      输入法灌文本一发都没有。
- * 两条同时成立就开一个 burst 窗口（`BURST_IDLE_MS` 内没有新的整段输入就自动关），窗口期间把
- * autoIndent 临时改成 'none'：中间那些回车不再复制缩进，各行自带的缩进就是最终缩进，阶梯消失。
+ * 【现在的做法】不跟 Monaco 的缩进逻辑掰扯，直接把这一发输入**截下来自己插**：
+ * - **EditContext 通道**：模块加载时把 `window.EditContext` 换成子类，在构造函数里挂 `textupdate`
+ *   （早于 Monaco 注册自己的监听）。命中就 `stopImmediatePropagation()` + 整段 `executeEdits` ——
+ *   Monaco 根本收不到这一发，自然不拆行、不走 Enter。
+ * - **textarea 通道**：host 捕获阶段拦 `beforeinput`，`cancelable` 时 `preventDefault()` 再自己插。
  *
- * 【为什么是改选项，而不是把换行拦下来】换行有两条来路：`beforeinput` 的 insertParagraph /
- * insertLineBreak（拦得住），以及 EditContext 的 `textupdate`（拦不住 —— 它不是 cancelable 的
- * DOM 事件，Monaco 直接拿去走 `_onType`）。改 autoIndent 两条来路一起管。
+ * 【什么算「整段粘贴」】只认 `text` 含换行**且长度 > 1**。真人敲键盘时 Enter 那一发就是单个
+ * `'\n'`，永远进不来 —— 正常回车、自动缩进、括号补全、中文组词一律不受影响。另有一条窄兜底：
+ * 紧跟一次「多字符输入」之后的单个 `'\n'`（真机若把整段拆行送，行间那一发就是它），且 150ms
+ * 内没有 keydown。
  *
- * 【代价有多小】窗口只在「刚灌进来一整段文字」时打开，而**任何一次 keydown 都会立刻把窗口关掉**
- * （见 onKeyDown）—— 真人按回车之前手上总有 keydown，所以正常回车永远走 autoIndent 的老路。
- * 唯一会碰上的情形是「输入法灌完文本后 400ms 内、且一次 keydown 都没有就按了回车」，那时表现
- * 只是这一下回车回到行首，再按一次就正常。比阶梯式毁掉整段代码轻得多。
- *
- * 【探针怎么验】见 HANDOFF 第 3 节「触屏编辑区的编辑手势」最后那一条。
+ * 【为什么敢抢在 Monaco 前面吞掉】吞掉之后两边状态仍一致：EditContext 里的文本是浏览器自己写
+ * 进去的，model 里是我们用同一份文本 `executeEdits` 写的，下次 `_updateEditContext` 一 diff 就是
+ * 零差异；textarea 通道那边 Monaco 会在 model 变更时自己回写 textarea。实测粘贴完再输入一个字符，
+ * 落点与内容都对。
  */
 import { monaco } from '../../monaco-setup.js'
 
-/** 判定「这一发输入不是真人敲的」时，往前看多久内不能有 keydown */
+/** 判定「这一发不是真人敲的」时，往前看多久内不能有 keydown */
 const KEYDOWN_GRACE_MS = 150
-/** burst 窗口的静默长度：这么久没有新的整段输入就恢复 autoIndent */
-const BURST_IDLE_MS = 400
+/** 拆行灌入时，行间那发 '\n' 距上一次多字符输入超过这么久，就不再当粘贴 */
+const FRAGMENT_WINDOW_MS = 300
 /** 「一段文字」的下限：单个字符按打字算，不可能是粘贴 */
 const BULK_MIN_CHARS = 2
 
 /**
- * Monaco 的 `autoIndent` 取值。`getOption` 给的是 `EditorAutoIndentStrategy` 的数字，
- * `updateOptions` 收的是名字 —— 两边的顺序见 monaco 的 `EditorAutoIndentStrategy`。
+ * 每个已安装的守卫登记在这里；EditContext 的 textupdate 是全局派发的，命中谁由 `hasTextFocus()` 定。
+ * @type {Set<(event: TextUpdateEvent) => boolean>}
  */
-const AUTO_INDENT_NAMES = ['none', 'keep', 'brackets', 'advanced', 'full']
+const handlers = new Set()
 
-/** @param {string|number} value @returns {string} */
-function autoIndentName(value) {
-  if (typeof value === 'string') return value
-  return AUTO_INDENT_NAMES[value] ?? 'full'
+/** `window.EditContext` 只换一次（模块是单例，热更新时也不会重复替换） */
+let editContextHooked = false
+
+/**
+ * 把 `window.EditContext` 换成子类，只为在构造时抢到第一条 `textupdate` 监听。
+ * 必须是**模块加载**时做 —— 编辑器创建之后 EditContext 已经构造完，再换就晚了。
+ */
+function hookNativeEditContext() {
+  if (editContextHooked) return
+  if (typeof window === 'undefined' || typeof window.EditContext !== 'function') return
+  editContextHooked = true
+  const NativeEditContext = window.EditContext
+  window.EditContext = class GuardedEditContext extends NativeEditContext {
+    constructor(...args) {
+      super(...args)
+      this.addEventListener('textupdate', (event) => {
+        for (const handler of handlers) {
+          if (handler(event)) {
+            // 吞掉这一发：Monaco 的监听注册在我们后面，stopImmediatePropagation 之后它就收不到了
+            event.stopImmediatePropagation()
+            return
+          }
+        }
+      })
+    }
+  }
+}
+
+hookNativeEditContext()
+
+/**
+ * 插入点之后的光标位置（整段文本可能多行，按行拆开算）
+ * @param {import('monaco-editor').Selection} selection
+ * @param {string} text
+ */
+function endPositionOf(selection, text) {
+  const start = selection.getStartPosition()
+  const lines = text.split('\n')
+  const column = lines.length === 1 ? start.column + text.length : lines[lines.length - 1].length + 1
+  return { lineNumber: start.lineNumber + lines.length - 1, column }
+}
+
+/**
+ * 把整段文本原样插到每个光标处（多光标口径与 Monaco 自己的粘贴一致：每处都插整段）。
+ * 一次 `executeEdits` 不经过逐字符 type，也就没有行间回车、没有自动缩进。
+ * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor
+ * @param {string} raw
+ */
+function insertVerbatim(editor, raw) {
+  const model = editor.getModel()
+  const selections = editor.getSelections()
+  if (!model || !selections?.length) return
+  // 剪贴板里可能是 CRLF，先归一，免得 model 里混进 \r
+  const text = raw.replace(/\r\n?/g, '\n')
+  const ends = selections.map((selection) => endPositionOf(selection, text))
+  const cursorState = ends.map((end) => new monaco.Selection(end.lineNumber, end.column, end.lineNumber, end.column))
+  editor.pushUndoStop()
+  editor.executeEdits(
+    'paste-indent-guard',
+    selections.map((selection) => ({ range: selection, text, forceMoveMarkers: true })),
+    cursorState,
+  )
+  editor.pushUndoStop()
 }
 
 /**
  * @param {import('monaco-editor').editor.IStandaloneCodeEditor} editor
- * @param {HTMLElement} host 编辑区容器（监听挂它的捕获阶段：Monaco 自己的输入面是它的后代）
+ * @param {HTMLElement} host 编辑区容器（textarea 通道监听挂它的捕获阶段）
  * @returns {() => void} 注销函数
  */
 export function installPasteIndentGuard(editor, host) {
   /** 最近一次 keydown 的时刻 */
   let lastKeydownAt = 0
-  /** burst 的静默计时器（0 = 没在跑） */
-  let idleTimer = 0
-  /** 是否正处在 burst 窗口里 */
-  let bursting = false
-  /** burst 之前那份 autoIndent，恢复时原样写回（不写死 'full'，将来加设置项也不必改这里） */
-  let savedAutoIndent = 'full'
+  /** 最近一次「多字符输入」的时刻（拆行灌入时用来认行间那发换行） */
+  let lastBulkAt = 0
 
   const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+  /** 刚按过键 = 这一发是真人敲的 */
+  const typedRecently = () => now() - lastKeydownAt < KEYDOWN_GRACE_MS
 
-  function endBurst() {
-    if (idleTimer) {
-      window.clearTimeout(idleTimer)
-      idleTimer = 0
+  /**
+   * 这一发输入该不该由我们接手。
+   * @param {string} text
+   */
+  function shouldTakeOver(text) {
+    if (!text) return false
+    const multiline = text.length >= BULK_MIN_CHARS && text.includes('\n')
+    if (multiline) {
+      // 无论接不接管，都记下这是「多字符输入」——拆行灌入时行间那发换行靠它认
+      lastBulkAt = now()
+      return !typedRecently()
     }
-    if (!bursting) return
-    bursting = false
-    editor.updateOptions({ autoIndent: savedAutoIndent })
+    if (text === '\n') {
+      // 兜底：真机若把整段拆成「一行 + 一次换行」逐发送，行间这发换行也要拦，否则照样缩进
+      return !typedRecently() && now() - lastBulkAt < FRAGMENT_WINDOW_MS
+    }
+    if (text.length >= BULK_MIN_CHARS) lastBulkAt = now()
+    return false
   }
 
-  function startBurst() {
-    if (!bursting) {
-      bursting = true
-      savedAutoIndent = autoIndentName(editor.getOption(monaco.editor.EditorOption.autoIndent))
-      editor.updateOptions({ autoIndent: 'none' })
-    }
-    if (idleTimer) window.clearTimeout(idleTimer)
-    idleTimer = window.setTimeout(endBurst, BURST_IDLE_MS)
+  /** EditContext 通道：抢在 Monaco 之前把整段吞掉 */
+  function onTextUpdate(event) {
+    if (!editor.hasTextFocus()) return false
+    if (!shouldTakeOver(event.text)) return false
+    insertVerbatim(editor, event.text)
+    return true
+  }
+
+  /** textarea 通道：`beforeinput` 可取消，拦下来自己插 */
+  function onBeforeInput(event) {
+    const data = typeof event.data === 'string' ? event.data : ''
+    if (!shouldTakeOver(data)) return
+    event.preventDefault()
+    insertVerbatim(editor, data)
   }
 
   function onKeyDown() {
     lastKeydownAt = now()
-    // 真人动手了：窗口立刻关掉，下一次回车照旧吃 autoIndent
-    if (bursting) endBurst()
   }
 
-  function onBeforeInput(event) {
-    const inputType = event.inputType
-    const data = typeof event.data === 'string' ? event.data : ''
-    const bulk =
-      inputType === 'insertFromPaste' ||
-      inputType === 'insertFromDrop' ||
-      data.length >= BULK_MIN_CHARS
-    if (!bulk) return
-    // 有 keydown 就是人在打字（含中文输入法逐键上屏），那不是粘贴，一律不接管
-    if (now() - lastKeydownAt < KEYDOWN_GRACE_MS) return
-    startBurst()
-  }
-
+  handlers.add(onTextUpdate)
   host.addEventListener('keydown', onKeyDown, true)
   host.addEventListener('beforeinput', onBeforeInput, true)
 
   return () => {
-    endBurst()
+    handlers.delete(onTextUpdate)
     host.removeEventListener('keydown', onKeyDown, true)
     host.removeEventListener('beforeinput', onBeforeInput, true)
   }
