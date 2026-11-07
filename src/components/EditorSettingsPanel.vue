@@ -1160,18 +1160,24 @@ function revealNavItem() {
 }
 
 /**
- * 跟手位移落在这一层上（整排页一起挪）；静止时不写，交给样式表。
+ * 跟手位移落在这一层上（整排页一起挪）。
  * 只有它逐帧变，各页自己的 transform 只在换页那一帧变一次 —— 一次手势里就只碰一个节点。
+ *
+ * ⚠️ **静止时也写 `translate3d(0, 0, 0)`，绝不能让这个属性消失**（2026-11-08）。原来静止时
+ * 返回 `null`，Vue 就 `removeAttribute('style')`，transform 从 `translate3d(…)` 归到 `none`。
+ * 浏览器会为这趟过渡临时提升一个合成层，**过渡一结束、transform 变成 `none`，层就被丢掉**，
+ * 内容并回文档层重新栅格化 —— 那一帧新位图还没好，观感就是「落定的最后一下整块内容消失一瞬」。
+ * 常驻一个零位移 transform，层就不会在过渡收尾时被销毁，插值也只剩 `transform → transform`
+ * 一种（不必再走 `none` 那个特例）。代价是这一层常驻显存，见 HANDOFF §3。
  *
  * `minHeight` 也走这一份：换页那趟要撑住旧高度（见 `holdContentHeight`），而 Vue 在
  * `:style` 从对象变成 null 时是 `removeAttribute('style')` —— 在元素上手动写 min-height
  * 会被它一并抹掉（2026-11-07 实测：撑高完全没生效）。
  */
 const contentStyle = computed(() => {
-  const style = {}
-  if (swipeShift.value) style.transform = `translate3d(${swipeShift.value}px, 0, 0)`
+  const style = { transform: `translate3d(${swipeShift.value}px, 0, 0)` }
   if (holdHeight.value) style.minHeight = `${holdHeight.value}px`
-  return Object.keys(style).length ? style : null
+  return style
 })
 
 /**

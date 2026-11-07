@@ -418,6 +418,8 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **⚠️ 裁切必须挂在一层「不动的取景框」上**（2026-11-08）：邻页常驻之后必须裁 —— 桌面端 `.settings-view` 的滚动条槽位（`scrollbar-gutter: stable both-edges`，左右各 18px）里能看见它们探出来的版面。所以模板在 `.settings-content` 外面多包了一层 `<div class="settings-panes">`，`overflow-x: clip` 写在它身上（宽度 / 两栏的 `flex` 与 `max-width` / `touch-action: pan-y` 也一并归它）。
   - **不能挂在 `.settings-content` 上**：那一层自己就是被 `translate3d` 平移的「整排」，`clip` 的裁剪矩形相对它自己的盒 —— 从盒外滑进来的那一页**整片不画**（实测：拖动 135px 时右半边是空的背景色；改挂取景框之后，同一帧右半边是「模板」那一页的正文）。曾经试过「静止时裁、`is-swiping` / `is-settling` 时放成 `visible`」，那只是把这个 bug 藏起来：手势那一趟恰恰是唯一需要看见邻页的时候。
   - 用 `clip` 不用 `hidden`：`hidden` 会让这一层变成滚动容器，撑高那一趟的纵向溢出会被它自己吃掉；`clip` 只裁、不建滚动容器，且 `overflow-x: clip` 与 `overflow-y: visible` 可以共存（`hidden` + `visible` 会被规范算成 `auto`）。
+- **⚠️ 落定的最后一下「整块内容消失一帧」→ `.settings-content` 常驻零位移 transform**（2026-11-08 试）：静止时 `contentStyle` 原来返回 `null`，Vue 执行 `removeAttribute('style')`，过渡收尾时 transform 从 `translate3d(…)` 归到 `none`。浏览器为这趟过渡临时提升的合成层**在 transform 变 `none` 时被丢弃**，内容并回文档层重新栅格化，新位图没好的那一帧就是空白。现在静止时也写 `translate3d(0px, 0, 0)`：层不在收尾时被销毁，插值也只剩 `transform → transform`（不必走 `none` 那个特例）。代价是这一层常驻一份合成层显存（内容高 3000px 级）。
+  - **这条没有在本机验证成功**：无头 Chrome（软件合成 / `--enable-gpu` + DPR 1 与 3）对改前改后逐帧像素统计**完全相同**，空白帧复现不出来（`probe7.mjs` 的那个「墨迹占比」度量两版都一样）。所以它是按机制修的，效果只能真机看。
 - **落位那一帧不补挂邻页**：`mountNeighbours()` 在 `finishSettle()` 之后再延 140ms（`mountTimer`）。落位是最该稳的一帧，而现挂一整页（几百个节点）会掉第一帧。
 - **⚠️ 不在目录里的分类要返回 `null`**（`paneOffset`）：这类平台裁掉的分类（网页版没有「工作区」、桌面端没有「插件」）`findIndex` 给 −1，拿它直接减，当前页正好是第一类时就冒充成 −1 号页被挂出来 —— 到头那一侧的橡皮筋里会露出半截版面（探针逮到过：第一类右滑时左缘露出 54px 的另一页）。
 - **上下留白搬到 `.settings-pane` 上**（`padding-top: 14px` / `padding-bottom: 32px`，`.setting-group` 的 `margin` 相应清零）：绝对定位的那两页没有可折叠的外边距，留白留在 `.setting-group` 上就对不齐；云端那页的包裹层则会叠成两层 14px。
