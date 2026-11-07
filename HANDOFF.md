@@ -407,9 +407,15 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **⚠️ 换页那趟过渡只放「正在出去」那一页**（2026-11-07 修，症状是**松手时闪一下**）：换页那一刻，另一侧那页的页码正好等于**新页的起点**（都是 `+100%`），两页在屏上完全重合；而 `.is-settling` 把两页都 `display: block` 了，于是松手后一路是**两页的字叠着画**（实测最宽处重影 238px、持续约 200ms，探针帧上「键盘快捷键」与「新建文件时填」糊成一片）。现在换页那趟（`.is-paging`，由 `leavingId` 决定）只放 `is-leaving` 那一页 —— 它整页停在屏外、藏着看不出来；正在出去那页必须留着，否则最后一段露白。**弹回那趟（没换页）仍然两页都放**，那时两侧都在往回收、都得画。
   - 反证：用 `addStyleTag` 把这条规则中和掉（`.is-settling.is-paging .settings-pane--peek { display: block !important }`）→ 同一手势立刻重现 5 帧重叠（68..200ms，最大 238px）；规则在时 0 帧。
   - 判据写法：逐帧取所有 `display !== none` 且与内容框相交的页，算「相邻两页的重叠宽度」与「内容框内没被任何页盖住的连续段」，两个数都必须是 0（左右各 18px 的 `__inner` 留白要排除，否则全是假缺口）。
+- **⚠️ 落位时的纵向突跳：撑住高度 + 自己收滚动**（2026-11-07 修，症状是**新页面落下时闪一下**）：`scrollTop` 会被浏览器夹两次，而且第二次正好落在「出去那页被 `display: none`」的那一帧 —— 实测滚动 382 → 松手 364 → 落位 274，**一帧跳 90px**（页高度差越大跳得越狠）。修法两条：换页那一刻给 `.settings-content` 撑住旧高度（`minHeight`，撑到落位），中间那两处夹取就不发生；同时用 rAF 把 `scrollTop` 收 0（`SWIPE_GLIDE_MS = 220`，与 CSS 那趟同长，`from * (1-p)³` 先快后慢），落位时再放开高度 —— 那时已经在顶上，缩高不会再夹。新页从顶上开始，本来也是翻页该有的行为。
+  - 用 rAF 收而不是 `scrollTo({ behavior: 'smooth' })`：原生那趟时长由浏览器定（300~500ms），收不完就得卡着高度不放、或者提前放开再被夹一下；自己收才知道哪一帧结束。`prefers-reduced-motion` 时直接到位（这一趟是替代「硬夹一下」，不该反过来变成滑动）。
+  - **纵深那一维会一起动**：滚动较深时，翻页过程中内容会同时往上滑到新页顶部。这是有意为之（否则任一帧都可能硬夹），不是 bug。
+  - **撑高必须走 `:style` 绑定的那一份**：Vue 在 `:style` 从对象变成 `null` 时执行的是 `removeAttribute('style')`，手动在元素上写 `minHeight` 会被整条抹掉（实测：撑高完全没生效，落位照旧跳 90px）。
+  - 判据写法：录合成器帧（`Page.startScreencast`）拍落位前后三帧，像素差必须是 0；另一路按 rAF 采 `scrollTop`，相邻帧位移 > 120px 即判为一次硬夹（正常收滚动最大约 75px）。
+- **落位那一帧不补挂邻页**：`mountNeighbours()` 从「过渡结束」挪到此后 140ms（`mountTimer`）。落位是最该稳的一帧，而现挂一整页（几百个节点）会掉第一帧；这中间真滑了，`onSwipePointerUp` 会自己先补挂。
 - **⚠️ 不在目录里的分类要返回 `null`**（`paneOffset`）：这类平台裁掉的分类（网页版没有「工作区」、桌面端没有「插件」）`findIndex` 给 −1，拿它直接减，当前页正好是第一类时就冒充成 −1 号页被挂出来 —— 到头那一侧的橡皮筋里会露出半截版面（探针逮到过：第一类右滑时左缘露出 54px 的另一页）。
 - **上下留白搬到 `.settings-pane` 上**（`padding-top: 14px` / `padding-bottom: 32px`，`.setting-group` 的 `margin` 相应清零）：绝对定位的那两页没有可折叠的外边距，留白留在 `.setting-group` 上就对不齐；云端那页的包裹层则会叠成两层 14px。
-- **页是陆续挂上去的，但不在过渡里挂**：`mountNeighbours()` 只把当前页两侧各一页塞进 `renderedIds`（首次进来跑一次、`watch(activeSection)` 里 `nextTick` 再跑一次、每趟过渡结束时补一次），翻到过的都留着不卸载。滑动途中现挂一整页（几百个节点）会让过渡第一帧卡一下 —— 连滑两次那种「上一趟过渡没走完就再划一手」是唯一的例外，`onSwipePointerUp` 里会先补挂再换页。
+- **页是陆续挂上去的，但不在过渡里挂**：`mountNeighbours()` 只把当前页两侧各一页塞进 `renderedIds`（首次进来跑一次、`watch(activeSection)` 里 `nextTick` 再跑一次、每趟过渡结束后再延 140ms 补一次），翻到过的都留着不卸载。滑动途中现挂一整页（几百个节点）会让过渡第一帧卡一下 —— 连滑两次那种「上一趟过渡没走完就再划一手」是唯一的例外，`onSwipePointerUp` 里会先补挂再换页。
 - **判据是布局结果，不是宽度数字**：`isSingleColumn()` 读 `.settings-view__inner` 的 `flex-direction`（`row` = 两栏）。两栏时横滑没有「翻页」的语义，整套手势直接不启动；`touch-action` 也在那条 `@container` 里改回 `auto`，别白白收掉宽屏的双指缩放。
 - **手势归属靠 `touch-action: pan-y`，不靠 `preventDefault()`**：`.settings-content` 上声明 `pan-y` —— 纵向仍归浏览器滚页面，横向没人管，`pointermove` 才一路送进来。触摸的手势归属在起手那一刻按这条定下，之后 `preventDefault()` 改不动（第 1 节硬约束）。代价是这个区块里没有双指缩放；设置页自己的「界面缩放」就是出口，不必两套。
 - **`.settings-view` 补了 `overflow-x: hidden`**：只有 `overflow-y` 不是 `visible` 时，`overflow-x` 的 `visible` 按规范算成 `auto`，于是被 translate 的内容会撑出横向可滚区（拖动中可能冒滚动条、内容也能被横向拖动）。裁掉它，位移就只走 `transform`。

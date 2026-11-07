@@ -811,12 +811,15 @@ const SWIPE_MIN = 28 // 但位移本身至少这么远（甩一下也算数，�
 const SWIPE_FLING = 0.5 // px/ms：划得够快时不必划满
 const SWIPE_LIMIT = 0.34 // 跟手最多挪内容宽度的这么多，再往外只剩橡皮筋
 const SWIPE_SETTLE_MS = 260 // 松手那一趟过渡（CSS 0.22s）之外再留一点余量
+const SWIPE_GLIDE_MS = 220 // 换页时纵向收到顶的那趟，与 CSS 的 0.22s 同长
 
 const viewEl = ref(null)
 const navEl = ref(null)
 const contentEl = ref(null)
 /** 跟手位移（px）。0 = 静止，只有非 0 时才写内联 transform */
 const swipeShift = ref(0)
+/** 换页那趟要撑住的高度（px）。0 = 不撑；见 `holdContentHeight` */
+const holdHeight = ref(0)
 /** 拖动中：挂上 `.is-swiping` 把过渡关掉，位移才是逐帧贴手的 */
 const isSwiping = ref(false)
 /** 松手之后那一趟过渡还没走完：旁边那一页要留到它落位（见 `.is-settling`） */
@@ -831,6 +834,10 @@ const isSettling = ref(false)
 const leavingId = ref('')
 const isPaging = computed(() => isSettling.value && leavingId.value !== '')
 let settleTimer = 0
+/** 落位之后补挂邻页的那一下（见 `beginSettle`：不在落位那一帧挂） */
+let mountTimer = 0
+/** 换页时收滚动那趟 rAF */
+let glideRaf = 0
 /**
  * 已经在 DOM 里的分类。
  *
@@ -969,6 +976,9 @@ function onSwipePointerDown(event) {
   }
   window.clearTimeout(swallowTimer)
   swallowClick = false
+  // 上一趟还在收滚动（220ms）：手又按下来了，就让它停在这儿，别和手势抢
+  window.cancelAnimationFrame(glideRaf)
+  glideRaf = 0
   if (event.pointerType !== 'touch' || !event.isPrimary) return
   if (!isSingleColumn()) return
   const target = event.target
@@ -1026,6 +1036,9 @@ function onSwipePointerUp(event) {
     // 连滑两次时它可能还没挂上（上一趟的过渡没走完，mountNeighbours 会跳过）
     renderedIds.value.add(next.id)
     leavingId.value = activeSection.value
+    // 撑高与收滚动都要在换页之前定下来：高度取的还是旧页的，滚动也从旧页这一刻开始收
+    holdContentHeight()
+    glideScrollToTop()
     activeSection.value = next.id
   }
 }
@@ -1052,7 +1065,12 @@ function beginSettle() {
   settleTimer = window.setTimeout(() => {
     isSettling.value = false
     leavingId.value = ''
-    mountNeighbours()
+    // 这时滚动已经收到顶上（或本来就在顶上），放开高度不会再夹一次
+    releaseContentHeight()
+    // 补挂邻页别压在落位这一帧：一次挂一整页（几百个节点）会掉第一帧，
+    // 而落位正是最该稳的那一帧。挪到空闲时补 —— 这中间真滑了，onSwipePointerUp 会自己补挂。
+    window.clearTimeout(mountTimer)
+    mountTimer = window.setTimeout(mountNeighbours, 140)
   }, SWIPE_SETTLE_MS)
 }
 
@@ -1096,15 +1114,66 @@ function revealNavItem() {
 /**
  * 跟手位移落在这一层上（整排页一起挪）；静止时不写，交给样式表。
  * 只有它逐帧变，各页自己的 `--pane-k` 只在换页那一帧变一次 —— 一次手势里就只碰一个节点。
+ *
+ * `minHeight` 也走这一份：换页那趟要撑住旧高度（见 `holdContentHeight`），而 Vue 在
+ * `:style` 从对象变成 null 时是 `removeAttribute('style')` —— 在元素上手动写 min-height
+ * 会被它一并抹掉（2026-11-07 实测：撑高完全没生效）。
  */
-const contentStyle = computed(() =>
-  swipeShift.value ? { transform: `translate3d(${swipeShift.value}px, 0, 0)` } : null,
-)
+const contentStyle = computed(() => {
+  const style = {}
+  if (swipeShift.value) style.transform = `translate3d(${swipeShift.value}px, 0, 0)`
+  if (holdHeight.value) style.minHeight = `${holdHeight.value}px`
+  return Object.keys(style).length ? style : null
+})
+
+/**
+ * 换页时把纵向滚动接到新页上 —— **落位那一「闪」的真身就是这里**。
+ *
+ * 内容比新页高时，浏览器会夹一次 `scrollTop`，而且是在「出去的那一页」被 `display: none`
+ * 的**那一帧**（2026-11-07 实测：滚动 382 → 松手 364 → 落位 274，一帧跳 90px）。看着就是
+ * 新页面落下时整块内容往上闪一下；页与页高度差越大跳得越狠。
+ *
+ * 两件事一起做：
+ * 1. 换页那一刻给 `.settings-content` 撑住旧高度（`minHeight`），中间那两处夹取就不会发生；
+ * 2. 同时自己把 `scrollTop` 平滑收到 0（缓动与那趟过渡同一口径，220ms），落位时高度再放开 ——
+ *    那时已经在顶上，缩高也不会再夹。新页从顶上开始，本来也是翻页该有的行为，不是副作用。
+ *
+ * 用 rAF 收而不是 `scrollTo({ behavior: 'smooth' })`：原生那趟时长由浏览器定（300~500ms），
+ * 收不完就要卡着高度不放，或者提前放开再被夹一下 —— 自己收才知道哪一帧结束。
+ */
+function holdContentHeight() {
+  const el = contentEl.value
+  // 连划两手时第一趟还撑着，别用已经变了的高度覆盖它
+  if (el && !holdHeight.value) holdHeight.value = el.offsetHeight
+}
+
+function releaseContentHeight() {
+  holdHeight.value = 0
+}
+
+function glideScrollToTop() {
+  const view = viewEl.value
+  if (!view || view.scrollTop <= 0) return
+  window.cancelAnimationFrame(glideRaf)
+  // 减弱动效时直接到位：这一趟本来就是为了替代「硬夹一下」，不该反过来变成一段滑动
+  const dur = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : SWIPE_GLIDE_MS
+  const from = view.scrollTop
+  const started = performance.now()
+  const step = (now) => {
+    const p = dur ? Math.min(1, (now - started) / dur) : 1
+    // 与 CSS 那条 ease-out 同向：先快后慢，最后稳稳停在 0
+    view.scrollTop = from * (1 - p) ** 3
+    glideRaf = p < 1 ? window.requestAnimationFrame(step) : 0
+  }
+  glideRaf = window.requestAnimationFrame(step)
+}
 
 onBeforeUnmount(() => {
   stopSwipe()
+  window.cancelAnimationFrame(glideRaf)
   window.clearTimeout(swallowTimer)
   window.clearTimeout(settleTimer)
+  window.clearTimeout(mountTimer)
 })
 
 // ------------------------------------------------------------ 工作区（仅桌面端）
