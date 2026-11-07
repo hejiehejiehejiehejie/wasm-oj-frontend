@@ -410,7 +410,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **位置写内联 transform，不用 `--pane-k` + `calc()`**（2026-11-08 改）：换页那一帧要靠 `.settings-pane` 那条 transition 把新的一页送进来，而「内联 transform 变了」是最通用的过渡触发方式；`translate3d(calc(var(--k) * 100%))` 要多绕一层自定义属性失效路径，没必要。
 - **一次手势只碰两个节点**：逐帧变的只有 `.settings-content` 的 `transform`（跟手位移），各页的 transform 只在换页那一帧变一次。换页时「页码挪一格」与「位移归零」在同一次渲染里落下 —— 两层各自过渡（时长与缓动一致），一层走 d、一层走 W−d，合起来与一条曲线等价，于是两页是接着走的，不会先跳一下再动。
 - **⚠️⚠️ 旁边那两页必须常驻渲染，绝不能用 `display: none` 开关**（2026-11-08 修，症状是**短促快甩松手时闪一下**，慢滑不闪）。根因是 CSS 过渡的前置条件：元素在**变化前样式**里必须是渲染着的，从 `display: none` 变可见的那一帧**没有过渡可跑**，`transform` 直接落到终值。于是「新的一页当场落位、旧的一页还在慢慢出去」—— 看上去就是内容闪了一下。**慢滑看不出来**是因为拖了很久，`is-swiping` 早把邻页放出来好几十帧了；**短而快的甩**可能整个手势都落在同一帧里（`is-swiping` 一帧都没落过），抬手那一帧邻页才第一次可见 → 必现。
-  - 现在邻页一直 `display: block`、停在 ±100%（被外层取景框 `.settings-panes` 的 `overflow-x: clip` 裁在内容盒外），每一页都有完整的过渡，`is-paging` / `leavingId` / `.is-leaving` 那套「只放正在出去那一页」的补丁随之删掉（它当初修的就是「某页没过渡可跑、直接跳到终值」叠出来的重影 —— 见下一条）。
+  - 现在邻页一直 `display: block`、停在 ±100%（被外层取景框 `.settings-panes` 的 `overflow: clip` 裁在内容盒外），每一页都有完整的过渡，`is-paging` / `leavingId` / `.is-leaving` 那套「只放正在出去那一页」的补丁随之删掉（它当初修的就是「某页没过渡可跑、直接跳到终值」叠出来的重影 —— 见下一条）。
   - **反证**（`probe3.mjs` 造「三个 pointer 事件塞进同一个任务、中间一帧不落」的单帧手势，量进来那一页的屏上 left）：改前 `display: none → flex` 那一帧直接 `left = 18`（**一步落位**，只有 1 帧在动）；改后 13 帧从 `412 → 18` 平滑推进（单帧最大 −81.6px）。
   - 代价：常驻的页要参与布局。所以 DOM 里只留「当前页 ±1」，`renderedIds` 改成**每趟空闲时重置**（不再「翻到过的都留着」），`paneRendered` 只认这个集合（当前页单独放行，否则从目录点到一个没挂过的分类会空一帧白底）。
 - **⚠️ 过渡里一个新节点都不许长出来**：换页那一帧新当前页的右侧邻居（原来隔两格那页）要是当场挂上来，它出生就在 `+100%`，正好压在「正在滑进来的那一页」的起点上，两页的字叠一帧（探针实测 64px 宽的重影）。所以挂载只发生在 `mountNeighbours()`（空闲时）。**唯一例外**是「上一趟过渡刚落定就又划了一手」—— 那一页可能还没挂：这时**分两帧**，这一帧只挂进 DOM，下一帧再挪页码（`pageRaf`），否则它会在原地出现、整块内容跳一页。
@@ -443,9 +443,12 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 用 rAF 收而不是 `scrollTo({ behavior: 'smooth' })`：原生那趟时长由浏览器定（300~500ms），收不完就得卡着高度不放、或者提前放开再被夹一下；自己收才知道哪一帧结束。`prefers-reduced-motion` 时直接到位（这一趟是替代「硬夹一下」，不该反过来变成滑动）。
   - **纵深那一维会一起动**：滚动较深时，翻页过程中内容会同时往上滑到新页顶部。这是有意为之（否则任一帧都可能硬夹），不是 bug。
   - **撑高必须走 `:style` 绑定的那一份**：Vue 在 `:style` 从对象变成 `null` 时执行的是 `removeAttribute('style')`，手动在元素上写 `minHeight` 会被整条抹掉（实测：撑高完全没生效，落位照旧跳 90px）。
-- **⚠️ 裁切必须挂在一层「不动的取景框」上**（2026-11-08）：邻页常驻之后必须裁 —— 桌面端 `.settings-view` 的滚动条槽位（`scrollbar-gutter: stable both-edges`，左右各 18px）里能看见它们探出来的版面。所以模板在 `.settings-content` 外面多包了一层 `<div class="settings-panes">`，`overflow-x: clip` 写在它身上（宽度 / 两栏的 `flex` 与 `max-width` / `touch-action: pan-y` 也一并归它）。
+- **⚠️ 裁切必须挂在一层「不动的取景框」上，而且两轴都要裁**（2026-11-08）：邻页常驻之后必须裁 —— 桌面端 `.settings-view` 的滚动条槽位（`scrollbar-gutter: stable both-edges`，左右各 18px）里能看见它们探出来的版面。所以模板在 `.settings-content` 外面多包了一层 `<div class="settings-panes">`，`overflow: clip` 写在它身上（宽度 / 两栏的 `flex` 与 `max-width` / `touch-action: pan-y` 也一并归它）。
+  - **纵向那条不是可选项**：邻页是绝对定位（`top: 0`）、高度是它自己的内容高度，跟当前页毫无关系。只裁横向时，它超出当前页的那一截照样计入 `.settings-view` 的可滚动区域 —— 当前页「浏览器插件」446px、邻页「帮助」4557px，整页于是滚到 4603px，下面 4000px 全是空白（实测 `scrollH − 当前页底 = 4069px`；「外观」邻着 3378px 的「编辑器」时是 1866px）。改成两轴 `clip` 之后滚动高度只由当前页决定（「外观」3424 → 1534）。
+  - 裁纵向不会误伤：邻页内部的 `position: absolute` 只有几条装饰（改动指示线、主题缩略图、`select` 的箭头、开关圆点、测试标签），都在自己父盒之内；真正的浮层（卸载确认）`Teleport` 到 body，目录的 `sticky` 在取景框**外面**。
+  - 判据：**`view.scrollHeight` 必须 ≈ 当前页 `offsetTop + offsetHeight`**（差几十像素是上下 padding），**每个分类都量一遍** —— 邻页长短差十倍，只测一个分类会漏（`/tmp/panegap/probe.mjs` 的写法：逐个 `openSettingsTab(id)` 再量，顺带打印每页 `top` / `h` / `底`）。
   - **不能挂在 `.settings-content` 上**：那一层自己就是被 `translate3d` 平移的「整排」，`clip` 的裁剪矩形相对它自己的盒 —— 从盒外滑进来的那一页**整片不画**（实测：拖动 135px 时右半边是空的背景色；改挂取景框之后，同一帧右半边是「模板」那一页的正文）。曾经试过「静止时裁、`is-swiping` / `is-settling` 时放成 `visible`」，那只是把这个 bug 藏起来：手势那一趟恰恰是唯一需要看见邻页的时候。
-  - 用 `clip` 不用 `hidden`：`hidden` 会让这一层变成滚动容器，撑高那一趟的纵向溢出会被它自己吃掉；`clip` 只裁、不建滚动容器，且 `overflow-x: clip` 与 `overflow-y: visible` 可以共存（`hidden` + `visible` 会被规范算成 `auto`）。
+  - 用 `clip` 不用 `hidden`：`hidden` 会让这一层变成滚动容器，撑高那一趟的纵向溢出会被它自己吃掉，页面就滚不动；`clip` 只裁、不建滚动容器，也不留滚动条槽位。
 - **⚠️ 落定的最后一下「整块内容消失一帧」→ `.settings-content` 常驻零位移 transform**（2026-11-08 试）：静止时 `contentStyle` 原来返回 `null`，Vue 执行 `removeAttribute('style')`，过渡收尾时 transform 从 `translate3d(…)` 归到 `none`。浏览器为这趟过渡临时提升的合成层**在 transform 变 `none` 时被丢弃**，内容并回文档层重新栅格化，新位图没好的那一帧就是空白。现在静止时也写 `translate3d(0px, 0, 0)`：层不在收尾时被销毁，插值也只剩 `transform → transform`（不必走 `none` 那个特例）。代价是这一层常驻一份合成层显存（内容高 3000px 级）。
   - **这条没有在本机验证成功**：无头 Chrome（软件合成 / `--enable-gpu` + DPR 1 与 3）对改前改后逐帧像素统计**完全相同**，空白帧复现不出来（`probe7.mjs` 的那个「墨迹占比」度量两版都一样）。所以它是按机制修的，效果只能真机看。
 - **落位那一帧不补挂邻页**：`mountNeighbours()` 在 `finishSettle()` 之后再延 140ms（`mountTimer`）。落位是最该稳的一帧，而现挂一整页（几百个节点）会掉第一帧。
