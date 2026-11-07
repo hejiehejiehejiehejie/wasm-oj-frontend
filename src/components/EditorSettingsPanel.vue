@@ -781,6 +781,220 @@ const visibleSections = computed(() =>
   ),
 )
 
+// ------------------------------------------------------- 触屏横滑换分类（窄屏）
+/**
+ * 窄屏左右滑动内容区，切换设置分类（2026-11-07 加）。
+ *
+ * **只在「目录折到内容上方」的那一档生效**：够宽时目录是左栏、内容在右栏，横滑没有「翻页」
+ * 的语义（判据见 `isSingleColumn`）。窄屏上目录是顶上横滚的一行，翻一页要先去够那个不起眼的
+ * 标签 —— 手势才是手机上该有的那一半。
+ *
+ * 【手势归属靠 touch-action，不靠 preventDefault】触摸的手势归属是浏览器在 touchstart /
+ * pointerdown 那一刻按 `touch-action` 定下的，之后 `preventDefault()` 改不动它（第 1 节
+ * 那条硬约束）。所以 `.settings-content` 声明的是 `touch-action: pan-y`：纵向仍归浏览器滚
+ * 页面，横向没人管，`pointermove` 就一路送到这里来。
+ *
+ * 【跟手与回弹都落在 transform 上】拖动中挂 `.is-swiping` 关掉过渡（位移逐帧贴手），松手
+ * （含换页那一下）由过渡把位移送回 0：划够了就换内容、不够就弹回原处。换页那一帧「新内容 +
+ * 位移归零」在同一次渲染里落下，看着就是新的一页从手指停住的位置滑回来。
+ */
+const SWIPE_SLOP = 12 // 起手多少像素之后才判方向
+const SWIPE_AXIS = 1.2 // 横向得比纵向大这么多才认；斜着划一律让给滚动
+const SWIPE_RATIO = 0.18 // 不看速度时要划掉内容宽度的这么多
+const SWIPE_MIN = 28 // 但位移本身至少这么远（甩一下也算数，见 SWIPE_FLING）
+const SWIPE_FLING = 0.5 // px/ms：划得够快时不必划满
+const SWIPE_LIMIT = 0.34 // 跟手最多挪内容宽度的这么多，再往外只剩橡皮筋
+
+const viewEl = ref(null)
+const navEl = ref(null)
+const contentEl = ref(null)
+/** 跟手位移（px）。0 = 静止，只有非 0 时才写内联 transform */
+const swipeShift = ref(0)
+/** 拖动中：挂上 `.is-swiping` 把过渡关掉，位移才是逐帧贴手的 */
+const isSwiping = ref(false)
+/** 这一次触摸的现场：`{ id, x, y, dx, t, axis }`，横向锁上之后才开始动内容 */
+let swipe = null
+/**
+ * 起手落在这些地方就不算翻页。
+ *
+ * 判据是「横向拖动在这儿本来就有别的含义」：文本框 / 模板文本域 / contenteditable 里那是
+ * 选字与移光标，目录（`.settings-nav`）自己会横滚。
+ * **故意不含 `<select>` 与勾选框** —— 设置页大半行是「标签 + 右侧控件」，横滑从控件上起手
+ * 是常态；下拉框横向拖不出任何事，把它们排除在外只会让手势「时灵时不灵」（2026-11-07
+ * 实测：窄屏「编辑器」那一栏整页都点得到 `select`，按老判据一格都滑不动）。
+ */
+const SWIPE_IGNORE = [
+  '.settings-nav',
+  'textarea',
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+  'input[type="text"]',
+  'input[type="search"]',
+  'input[type="number"]',
+  'input[type="url"]',
+  'input[type="email"]',
+  'input[type="password"]',
+  'input[type="tel"]',
+  'input:not([type])',
+].join(', ')
+/**
+ * 抬手之后浏览器补的那发合成 click 要不要吃掉。
+ *
+ * 划过一手之后，那发 click 落在的已经是**刚换上的那一页**（比如正好压在某张主题卡上），
+ * 不收就成了「切分类顺带把主题也改了」。只在自己确实划过（位移 ≥ SWIPE_MIN）时上膛。
+ */
+let swallowClick = false
+let swallowTimer = 0
+
+/** 内容区宽度：手势阈值都按它算，别写死像素 */
+function contentWidth() {
+  return contentEl.value?.clientWidth || 320
+}
+
+/** 目录此刻是单栏（折在内容上方）吗 —— 直接读布局结果，不在这里重算 35rem 那道断点 */
+function isSingleColumn() {
+  const inner = viewEl.value?.querySelector('.settings-view__inner')
+  return inner ? getComputedStyle(inner).flexDirection !== 'row' : false
+}
+
+/** 当前分类往 delta（-1 / +1）挪一格；已经在头 / 尾时给 null */
+function neighbourSection(delta) {
+  const list = visibleSections.value
+  const at = list.findIndex((section) => section.id === activeSection.value)
+  return list[at + delta] ?? null
+}
+
+/**
+ * 跟手位移：夹到内容宽的 34%，越过之后只剩 1/4 的余量（橡皮筋）；
+ * 已经到头 / 尾的那一侧再打三折 —— 手指一推就顶住，比「纹丝不动」更能说明没有下一页。
+ */
+function dampShift(dx) {
+  const limit = contentWidth() * SWIPE_LIMIT
+  const atEdge = dx > 0 ? !neighbourSection(-1) : !neighbourSection(1)
+  const raw = Math.abs(dx) * (atEdge ? 0.3 : 1)
+  const damped = raw <= limit ? raw : limit + (raw - limit) * 0.25
+  return Math.sign(dx) * damped
+}
+
+function onSwipePointerDown(event) {
+  // 上一场没收干净（抬手落在窗口外），或这是第二根手指（双指缩放）：先把在跑的这场收掉
+  if (swipe) {
+    stopSwipe()
+    swipeShift.value = 0
+  }
+  window.clearTimeout(swallowTimer)
+  swallowClick = false
+  if (event.pointerType !== 'touch' || !event.isPrimary) return
+  if (!isSingleColumn()) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  // 目录自己会横滚，输入框 / 文本域里横拉是选字 —— 见 SWIPE_IGNORE
+  if (target.closest(SWIPE_IGNORE)) return
+  swipe = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    dx: 0,
+    t: performance.now(),
+    axis: null,
+  }
+  // 监听挂在 window 上：手指划出内容区（或划到视口边缘）时仍要收到 move / up
+  window.addEventListener('pointermove', onSwipePointerMove)
+  window.addEventListener('pointerup', onSwipePointerUp)
+  window.addEventListener('pointercancel', stopSwipe)
+}
+
+function onSwipePointerMove(event) {
+  if (!swipe || event.pointerId !== swipe.id) return
+  const dx = event.clientX - swipe.x
+  const dy = event.clientY - swipe.y
+  if (!swipe.axis) {
+    if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return
+    // 主要是纵向：这一次触摸就是滚动，整场都不再当手势（纵向本来就归浏览器）
+    if (Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS) {
+      stopSwipe()
+      return
+    }
+    swipe.axis = 'x'
+    isSwiping.value = true
+  }
+  swipe.dx = dx
+  swipeShift.value = dampShift(dx)
+}
+
+function onSwipePointerUp(event) {
+  if (!swipe || event.pointerId !== swipe.id) return
+  const { dx, axis } = swipe
+  const moved = Math.abs(dx)
+  const held = Math.max(1, performance.now() - swipe.t)
+  const far = moved >= Math.max(SWIPE_MIN, contentWidth() * SWIPE_RATIO)
+  // 甩一下也算：手机上一半的翻页都是这么来的，非要划满半屏反而别扭
+  const fling = moved >= SWIPE_MIN && moved / held >= SWIPE_FLING
+  const next = axis === 'x' && (far || fling) ? neighbourSection(dx < 0 ? 1 : -1) : null
+  // 划过一手：抬手那发合成 click 不许落到刚换上的那一页上
+  if (axis === 'x' && moved >= SWIPE_MIN) armClickSwallow()
+  stopSwipe()
+  // 换页与「位移归零」在同一次渲染里落下，过渡于是从手指停住的那个位置滑回 0
+  swipeShift.value = 0
+  if (next) activeSection.value = next.id
+}
+
+/** 收手势：三个 window 监听一起摘掉（每个出口都走这里，别只清状态） */
+function stopSwipe() {
+  swipe = null
+  isSwiping.value = false
+  window.removeEventListener('pointermove', onSwipePointerMove)
+  window.removeEventListener('pointerup', onSwipePointerUp)
+  window.removeEventListener('pointercancel', stopSwipe)
+}
+
+/** 上膛：合成 click 紧跟 touchend，留 350ms 的窗口；过了就作废，免得吞掉下一步真正的轻点 */
+function armClickSwallow() {
+  swallowClick = true
+  window.clearTimeout(swallowTimer)
+  swallowTimer = window.setTimeout(() => {
+    swallowClick = false
+  }, 350)
+}
+
+/** 捕获阶段拦在根上：吞掉那一发就收工（`preventDefault` 也做，别让它冒到默认动作上） */
+function onSwipeClickCapture(event) {
+  if (!swallowClick) return
+  swallowClick = false
+  window.clearTimeout(swallowTimer)
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+/**
+ * 把目录里当前那一项滚进可视区。
+ *
+ * 窄屏上目录是横向可滚的一行，换过分类之后当前项可能正停在屏幕外 —— 顶上那排标签就失去了
+ * 「现在在哪一类」的指示作用。只滚目录自己（`scrollBy`），不碰页面：`scrollIntoView` 会把
+ * 外层滚动容器一起滚，往下翻过一屏再换分类时页面会被拉回顶端。
+ */
+function revealNavItem() {
+  const nav = navEl.value
+  if (!nav || nav.scrollWidth <= nav.clientWidth + 1) return
+  const item = nav.querySelector('.settings-nav__item--active')
+  if (!item) return
+  const navBox = nav.getBoundingClientRect()
+  const itemBox = item.getBoundingClientRect()
+  const delta = itemBox.left - navBox.left - (nav.clientWidth - itemBox.width) / 2
+  if (Math.abs(delta) < 2) return
+  nav.scrollBy({ left: delta, behavior: 'smooth' })
+}
+
+/** 位移落到内联样式上；静止时不写，交给样式表 */
+const contentStyle = computed(() =>
+  swipeShift.value ? { transform: `translate3d(${swipeShift.value}px, 0, 0)` } : null,
+)
+
+onBeforeUnmount(() => {
+  stopSwipe()
+  window.clearTimeout(swallowTimer)
+})
+
 // ------------------------------------------------------------ 工作区（仅桌面端）
 // 模式与根路径在页面加载时就定下来（切换会 reload，见 workspaceMode.js），所以这里读一次即可。
 const workspaceMode = ref(getWorkspaceMode())
@@ -1011,8 +1225,10 @@ async function copyShortcutsUrl() {
 }
 
 // 插件可能在页面打开之后才装上或才被重载，所以每次切到「浏览器插件」那一栏都重探一次
+// 另外每次换分类都把目录里那一项滚进可视区（窄屏上目录是横滚的一行，见 revealNavItem）
 watch(activeSection, (section) => {
   if (section === 'extension') refreshExtension()
+  nextTick(revealNavItem)
 })
 
 // 侧栏设置菜单选中某分类后，把设置视图定位到那一类。菜单在 SidebarSwitcher，落点经
@@ -1848,10 +2064,17 @@ watch(pendingUnbind, (open) => {
   <!-- 设置是个普通页签，内容就铺在编辑区里（Monaco 被 v-show 让开）。
        原来是 Teleport 到 body 的右侧抽屉，改成视图后不再有遮罩、头部和「完成」按钮：
        关它靠页签上的 ×，改动本来就即时生效，不需要一个「确认」动作。 -->
-  <div class="settings-view" role="region" :aria-label="t('settings.ariaLabel')">
+  <div
+    ref="viewEl"
+    class="settings-view"
+    role="region"
+    :aria-label="t('settings.ariaLabel')"
+    @pointerdown="onSwipePointerDown"
+    @click.capture="onSwipeClickCapture"
+  >
     <div class="settings-view__inner">
       <!-- 目录：点哪一项，右边就只渲染那一组设置（原来是四段纵向平铺） -->
-      <nav class="settings-nav" :aria-label="t('settings.navAriaLabel')">
+      <nav ref="navEl" class="settings-nav" :aria-label="t('settings.navAriaLabel')">
         <button
           v-for="section in visibleSections"
           :key="section.id"
@@ -1867,8 +2090,14 @@ watch(pendingUnbind, (open) => {
       </nav>
 
       <!-- 设置正文：卡片都挂在这一层里（宽面板时它才是目录右边那一栏）。
-           危险区域要能与主体卡片并排成两张卡，所以不能把卡片直接放在 inner 下。 -->
-      <div class="settings-content">
+           危险区域要能与主体卡片并排成两张卡，所以不能把卡片直接放在 inner 下。
+           这一层同时是横滑翻页的那一页：位移走内联 transform，样式表里有它的过渡。 -->
+      <div
+        ref="contentEl"
+        class="settings-content"
+        :class="{ 'is-swiping': isSwiping }"
+        :style="contentStyle"
+      >
 
       <!-- 工作区（仅桌面端）：显示当前工作区，提供「打开本机文件夹」与「切回虚拟工作区」。
            切换会重新加载界面（见 services/vfs/workspaceMode.js），所以这里不做热切换。 -->
@@ -3272,6 +3501,10 @@ watch(pendingUnbind, (open) => {
   position: absolute;
   inset: 0;
   overflow-y: auto;
+  /* 横滑翻页时 `.settings-content` 会被 translate 到一侧，这一层的 overflow-x 本会跟着
+     变成 auto（只有 y 不是 visible 时，x 的 visible 按规范算成 auto），于是拖动中可能冒出
+     一条横向滚动条、内容也能被横向拖动。裁掉它，翻页的位移就只走 transform。 */
+  overflow-x: hidden;
   /* 滚动条槽位常驻，且左右都留：内容居中（见 .settings-view__inner 的 margin-inline: auto）
      靠的是「内容盒宽度」，而原生滚动条一出现就从右边挖掉 11px（base.css 的 ::-webkit-scrollbar），
      内容盒于是变窄、居中的块跟着左移 5.5px。分类之间内容长短不同，滚动条时有时无 ——
@@ -3306,6 +3539,18 @@ watch(pendingUnbind, (open) => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* 横滑换分类（见脚本那一节）：
+     `pan-y` 把纵向留给浏览器滚页面、横向留给手势 —— 触摸的手势归属在起手那一刻就按这条
+     定下了，`preventDefault()` 改不动它（第 1 节硬约束）。代价是这一块里没有双指缩放，
+     设置页本来就靠「外观 › 界面缩放」，不必两套。 */
+  touch-action: pan-y;
+  /* 跟手位移与松手回弹都走这一条；拖动中 `.is-swiping` 把它关掉，位移才是逐帧贴手的。
+     减弱动效的场景由 base.css 那条全局规则压成 0.01ms，这里不再写一遍。 */
+  transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.settings-content.is-swiping {
+  transition: none;
 }
 
 .settings-nav {
@@ -3392,6 +3637,9 @@ watch(pendingUnbind, (open) => {
   .settings-content {
     flex: 1 1 auto;
     max-width: 640px;
+    /* 两栏时没有横滑（手势只在单栏生效，见脚本的 isSingleColumn），
+       把 touch-action 还回默认，别白白收掉这一块的双指缩放 */
+    touch-action: auto;
   }
 }
 
