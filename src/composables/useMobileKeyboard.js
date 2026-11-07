@@ -57,6 +57,10 @@ const SETTLE_DELAYS = [60, 180, 420]
 const WATCHDOG_MS = 250
 // 连续这么多拍读数都没变、键盘也不在、焦点也不在输入框上，就把看门狗停掉（别让空转的定时器常驻）
 const WATCHDOG_QUIET_TICKS = 8
+// 「接下来这一发轻点是关浮层用的」登记的有效期（见 swallowNextTap）。
+// 700ms：Tap 的两种来源（`Gesture.HOLD_DELAY` 450ms 之内的抬手、以及滚动那一路）都在这个
+// 窗口里落地，再留一点余量。超时即作废 —— 点在侧栏 / 按钮上时压根不会有 Tap 来消费它。
+const TAP_SWALLOW_MS = 700
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
 // 普通输入框。刻意**不含 textarea**：测试样例的 `.ta` 走既有口径「轻点别处 → 焦点不动」
@@ -92,6 +96,34 @@ export const isTouchPointer = () => window.matchMedia('(pointer: coarse)').match
 // 还留在 Monaco 的输入面上（见上面 onTouchStart 那段），两者并不等价。
 let keyboardShown = false
 export const isKeyboardShown = () => keyboardShown
+
+// ------------------------------------------------------------------ 吞点（关浮层专用）
+/**
+ * 「接下来这一发轻点是在关浮层，别让它落到编辑器上」的登记（见 `swallowNextTap`）。
+ * 时刻制而不是布尔：这一次点击若压根不产生 Tap（点在侧栏 / 按钮上），登记必须自己过期，
+ * 不然往后第一下点编辑器会被白白吃掉。
+ */
+let swallowTapUntil = 0
+
+/**
+ * 登记「接下来这一发轻点是用来关浮层的」。
+ *
+ * 【为什么需要】浮层（设置菜单 / 组件弹窗 / 右键菜单 —— 都走 `usePopoverLayer.js`）是在
+ * 文档**捕获阶段**的 `pointerdown` 上关的，可那一发触摸照样继续往下派发：手指底下就是编辑区，
+ * Monaco 在 `touchend` 里把它认成轻点，而它 `onTap()` 的第一句就是 `focusTextArea()` ——
+ * 于是「点空白关菜单」变成了「关菜单 + 弹软键盘」（2026-11-08 用户报）。
+ * 关闭浮层的那一下因此要在这里登记，让 `onMonacoGestureTap` 把整发吃掉。
+ *
+ * 【只吃这一发】Monaco 的 `onTap` 收不到（`stopPropagation` 在 document 捕获阶段就把路掐了），
+ * `useEditorMenu` 的单击防抖同样收不到 —— 光标不动、键盘不弹，也不会有 400ms 后那次补聚焦。
+ * **下一次点编辑区照常聚焦**，不会变成「点了没反应」。
+ *
+ * 【为什么不用布尔】点了浮层外面、但落在不是编辑器的位置（侧栏、按钮）时不会产生 Tap，
+ * 布尔标记就会一直挂着。所以带时间窗 + 一次性消费。
+ */
+export function swallowNextTap() {
+  swallowTapUntil = performance.now() + TAP_SWALLOW_MS
+}
 
 /**
  * 可视视口几何（`--vvh` / `--vv-top`）**真的变了**时的订阅。
@@ -244,6 +276,19 @@ export function useMobileKeyboard() {
   // 于是在编辑器上小幅滑动（10–30px）也会聚焦、弹键盘。这里按我们自己的阈值先截下来：
   // 判定为滑动就掐掉这次 Tap，Monaco 压根收不到，也就不会聚焦（不会有「闪一下又收」）。
   function onMonacoGestureTap(event) {
+    // 这一发是「点空白关浮层」的那一下（见 `swallowNextTap`）：整发吃掉。
+    // 必须排在下面 `panning` 那道闸之前 —— 关浮层的点击绝大多数都是原地轻点（不是滑动），
+    // 走不到那条分支去；这里拦不住的话 Monaco 的 `focusTextArea()` 立刻把键盘弹起来。
+    if (swallowTapUntil) {
+      const fresh = performance.now() <= swallowTapUntil
+      // 一次性：过期的登记也在这里顺手清掉（点在侧栏 / 按钮上时不会有 Tap 来消费它）
+      swallowTapUntil = 0
+      if (fresh) {
+        event.stopPropagation()
+        event.preventDefault()
+        return
+      }
+    }
     if (!panning) return
     event.stopPropagation()
     event.preventDefault()
@@ -413,6 +458,8 @@ export function useMobileKeyboard() {
     window.visualViewport?.removeEventListener('scroll', onViewportSignal)
     for (const timer of settleTimers) window.clearTimeout(timer)
     settleTimers = []
+    // 这条拦截已经摘了，登记留着没人消费：清掉，免得下次挂载后第一下轻点被白白吃掉
+    swallowTapUntil = 0
     stopWatchdog()
   }
 

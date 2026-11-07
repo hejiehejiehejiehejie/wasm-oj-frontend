@@ -316,6 +316,11 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - **可视高度**：`.app.is-keyboard` 是 `position: fixed; top: var(--vv-top); height: var(--vvh)`。这两个变量由 composable 从 `window.visualViewport` 的 `height` / `offsetTop` 写进 `documentElement.style`（`resize` / `scroll` / `orientationchange` 都跟）。用 `top` 一起对齐是因为 iOS 上可视区会被顶上去（`offsetTop > 0`），只改高度的话底部仍会被键盘盖住。**没有用 `interactive-widget=resizes-content`**（Chrome 专用）。工作区是 flex、Monaco 是 `automaticLayout`，都不需要额外写高度。
   - ⚠️ **但不能只「跟事件」**（2026-11-07 加）：收键盘那一下有的引擎**一个事件都不派发**，两个变量会冻在「键盘弹着」那一份上 —— 整块应用被压在下半屏、顶上留一条空底。现在的口径是「幂等实测 + 三条兜底（补拍 / 看门狗 / 归一化）」，见第 5 节坑 75；顺带导出了 `onViewportChange()`，给浮层与菜单锚点用同一条信号。
   - **浮层（菜单 / 设置下拉）的定位收敛同样以可视视口为准**（2026-10-14 加）：`composables/usePopoverLayer.js` 的 `clampIntoViewport()` 夹的是 `visualViewport` 而不是 `window.innerWidth / innerHeight` —— 理由与上面这条完全一样（键盘弹起时布局视口不动，拿它当匣菜单就会伸到键盘底下），见第 5 节坑 54。
+  - **关浮层的那一下不许把焦点送进编辑器**（2026-11-08 加）：设置菜单 / 组件弹窗 / 编辑区右键菜单都是「点浮层外面就关」，而它们是在文档**捕获阶段**的 `pointerdown` 上关的（`usePopoverLayer.js`）。浮层一关，那一发触摸**照样继续往下派发** —— 手指底下正好是编辑区，Monaco 在 `touchend` 里把它认成 Tap，而 `onTap()` 的第一句就是 `focusTextArea()`。用户看到的就是「想点空白关掉菜单，结果唤出了键盘」（三类浮层都会）。
+    - 修法：关闭之前先登记一次吞点（`useMobileKeyboard.js` 的 `swallowNextTap()`，**只有不是鼠标时才登记** —— 桌面点空白本来就该把光标落进编辑器），由**已有的那道 Tap 拦截**把整发吃掉：`stopPropagation()` + `preventDefault()` 发生在 `document` 捕获阶段，Monaco 的 `onTap` 与 `useEditorMenu` 的单击防抖（那条 400ms 后补聚焦）**都收不到**。光标不动、键盘不弹，也**不会变成「点了没反应」**：下一次点编辑区照常聚焦。
+    - 登记用**时刻制 + 一次性消费**（`TAP_SWALLOW_MS = 700`），不是布尔：点在侧栏 / 按钮上时压根不会产生 Tap，布尔标记会一直挂着、把下一次点编辑器白白吃掉。过期的那次在消费点上顺手清掉。
+    - 只吞 Tap，**不碰 click、不碰浮层内**：点浮层外的按钮（「新建文件」、页签）时浮层照常关、按钮的 `click` 照常派发（探针里挂了捕获阶段的 `click` 监听验的）；点浮层里那一项时 `root.contains(target)` 为真，既不关闭也不登记。
+    - 判据（触屏 430×900，`Input.dispatchTouchEvent` 的 touchStart/touchEnd）：无浮层时点编辑器 → `activeElement` 进 `div.native-edit-context`（对照组，证明这条路本身是通的）；三类浮层各自「开着 → 点编辑器」→ 浮层关闭且 `activeElement` 停在 `body`（**改前三处全红**，都落在 `native-edit-context` 上 —— 那就是真机上会弹键盘的那一下）；之后再点编辑器 → 又能进。
 - **保焦 = 只拦默认行为，不抢焦点**：键盘收起是因为焦点被移走了，所以监听 `document` 的 **`mousedown`（capture）**，目标不是可编辑元素时 `preventDefault()`：焦点不再移给 body，键盘不落。
   - 可编辑元素**一律放行**（`input, textarea, select, [contenteditable]`）。Monaco 的输入面是它自己那个 `textarea.inputarea`（Chrome 里实际聚焦到 `.native-edit-context`），卡片输入框是 `.ta`——挡掉它们就等于「焦点进不去编辑器」。
   - **唯一不进保焦的地方是 CF 抽题面板**（根节点标了 `data-native-focus`，见本节末）：它要的是原生行为——点按钮就收键盘。
