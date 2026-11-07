@@ -810,19 +810,53 @@ const SWIPE_SLOP = 12 // 起手多少像素之后才判方向
 const SWIPE_AXIS = 1.2 // 横向得比纵向大这么多才认；斜着划一律让给滚动
 const SWIPE_RATIO = 0.18 // 不看速度时要划掉内容宽度的这么多
 const SWIPE_MIN = 28 // 但位移本身至少这么远（甩一下也算数，见 SWIPE_FLING）
-const SWIPE_FLING = 0.5 // px/ms：划得够快时不必划满
+/** px/ms：抬手的**瞬时**速度到这个数就算甩（不是整手的平均速度，见 `onSwipePointerMove`） */
+const SWIPE_FLING = 0.5
 const SWIPE_LIMIT = 0.34 // 跟手最多挪内容宽度的这么多，再往外只剩橡皮筋
-const SWIPE_SETTLE_MS = 400 // 兜底：过渡结束由 `transitionend` 说了算，这个只用防它不来
-const SWIPE_GLIDE_MS = 220 // 换页时纵向收到顶的那趟，与 CSS 的 0.22s 同长
+const SWIPE_SETTLE_MS = 600 // 兜底：过渡结束由 `transitionend` 说了算，这个只用防它不来
+// 落位那趟的时长按「剩下的路 ÷ 手速」算（见 `settleDuration`），两个端点：
+const SWIPE_DUR_MAX = 320 // 慢慢划、慢慢松手：路走完就该有这么久，别急着收
+const SWIPE_DUR_MIN = 160 // 快甩：手越快剩下的路越短，动画不能比手慢
+/**
+ * 松手后那趟的曲线 —— **开头必须是满速**。
+ *
+ * 抬手那一刻内容已经有初速度了，用 `ease` / `ease-in-out` 会在开头重新「加速」，观感就是
+ * 手指离开后先顿一下再窜出去。这条前段极陡、后段长尾，正好接住手指的速度（2026-11-08）。
+ *
+ * ⚠️ 必须与样式表里 `.settings-content` / `.settings-pane` 那两条 `transition` 完全一致：
+ * 两层各自过渡、合成一条曲线，曲线不同就等于两层打在两个位置（拖动中会看出错位）。
+ */
+const SWIPE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const SWIPE_GLIDE_MS = 220 // 收滚动的兜底时长；正常情况下跟着 `--swipe-dur` 走
 
 const viewEl = ref(null)
 const navEl = ref(null)
 const contentEl = ref(null)
-/** 跟手位移（px）。0 = 静止，只有非 0 时才写内联 transform */
-const swipeShift = ref(0)
+/**
+ * 跟手位移（px），0 = 静止 —— **故意不是 ref**（2026-11-08）。
+ *
+ * `pointermove` 在 120Hz 的手机上一秒来 120 次，每写一次 ref 就把这个组件重渲一遍（几千行
+ * 模板、三整页设置行都在它的作用域里）。所以热路径改成直接写 `contentEl.style.transform`
+ * （见 `setShift`），整趟手势一个响应式值都不碰，只在抬手那一下改一次状态。
+ *
+ * 需要读它的只有手势自己（跟手基准、现挂页要补的距离），模块变量就够。
+ */
+let shiftPx = 0
+/**
+ * 这一趟落位过渡的时长（ms），0 = 用样式表里的默认值。
+ *
+ * 快速连翻时两手间隔常常只有 120ms，而过渡固定 0.22s —— 每一趟都播不完，观感就是
+ * 「上一个动画还没走完就翻到下一页」。松手时按「剩下的路 ÷ 瞬时手速」算成 160~320ms，
+ * 快甩那一趟能在一手之内走完，接力就不再是常态。见 `settleDuration`。
+ */
+const swipeDur = ref(0)
 /** 换页那趟要撑住的高度（px）。0 = 不撑；见 `holdContentHeight` */
 const holdHeight = ref(0)
-/** 拖动中：挂上 `.is-swiping` 把过渡关掉，位移才是逐帧贴手的 */
+/**
+ * 拖动中：给窗格挂 `.is-swiping`（关掉**每一页**的过渡，见样式表）。
+ * 「整排」那一层的过渡由内联 `transition: none` 负责（`freezeContentTransition`）——
+ * 那一层不再有任何 Vue 管的 transform，过渡开关也就不必绕类名。
+ */
 const isSwiping = ref(false)
 /**
  * 这一趟过渡还没走完：正在出去的那一页要留到它落位（走到 `finishSettle`）。
@@ -844,7 +878,19 @@ let pageRaf = 0
  * 换页那一帧会临时把即将进来的那一页塞进来，`mountNeighbours()` 再在空闲时收回去。
  */
 const renderedIds = ref(new Set([activeSection.value]))
-/** 这一次触摸的现场：`{ id, x, y, dx, t, axis }`，横向锁上之后才开始动内容 */
+/**
+ * 接管上一趟动画时的「页位置快照」：`id → 相对内容左缘的像素偏移`，`null` = 没接管。
+ *
+ * 有值时 `paneProps` 输出像素而不是「页码 × 100%」，这样上一趟走到一半的那一页就停在原地，
+ * 新手势从那儿接着走（见 `takeOverShift`）。回弹或换页时清空，页码重新说了算。
+ */
+const frozenOffsets = ref(null)
+/**
+ * 这一次触摸的现场，横向锁上之后才开始动内容。
+ *
+ * `vx` 是**瞬时**速度（px/ms，正 = 往右），由每帧位移差做一阶低通得到 —— 抬手拿它判「甩」
+ * 与判方向。用整手的 `dx / t` 会把起手那几帧的慢速一起摊进来，快速轻扫常常判不出甩。
+ */
 let swipe = null
 /**
  * 起手落在这些地方就不算翻页。
@@ -935,6 +981,9 @@ function paneRendered(id) {
 function paneProps(id) {
   const offset = paneOffset(id) ?? 0
   const current = offset === 0
+  // 接管期间用快照里的像素，让上一趟走到一半的那一页停在原地（见 `takeOverShift`）
+  const frozen = frozenOffsets.value?.[id]
+  const tx = frozen == null ? `${offset * 100}%` : `${frozen}px`
   return {
     class: {
       'settings-pane': true,
@@ -943,7 +992,9 @@ function paneProps(id) {
     },
     // 位置写在**内联** transform 上：换页那一帧它一变，`.settings-pane` 的 transition 就
     // 把新的一页送进来（为什么不走 `calc(var(--pane-k) * 100%)` 见样式表里那条注释）
-    style: { transform: `translate3d(${offset * 100}%, 0, 0)` },
+    style: { transform: `translate3d(${tx}, 0, 0)` },
+    // 冻结 / 解冻时要按 id 找回每一页（见 `takeOverShift`）
+    'data-pane': id,
     ...(current ? {} : { 'aria-hidden': 'true', inert: '' }),
   }
 }
@@ -988,11 +1039,90 @@ function dampShift(dx) {
   return Math.sign(dx) * damped
 }
 
+/**
+ * 跟手位移：**直接写 DOM**，整趟手势不经过 Vue（2026-11-08）。
+ *
+ * 这么做的理由只有一条，但足够：`pointermove` 在 120Hz 的机器上一秒 120 次，而写一次 ref
+ * 就会把这一个组件重渲一遍 —— 几千行模板、三整页设置行全在它的作用域里。真机上的跟手顿感
+ * 大半来自这里（桌面 Chrome 上量不出来，那是 CPU 差着两个数量级）。
+ *
+ * 还有一个附带的好处：`.settings-content` 的 transform 从此**不归 Vue 管**。Vue 的
+ * `patchStyle` 每次重渲都会把所有 style key 无条件重写一遍，transform 留在 `:style` 里就意味着
+ * 「任何时候来一次无关的重渲，都可能把手势刚写进去的位置打回上一个值」。
+ *
+ * 静止时的 `translate3d(0, 0, 0)` 兜在样式表里（那条注释见 `.settings-content`）：这里即使
+ * 一次都没被调用过，这一层也永远是合成层，不会退回 `transform: none`。
+ */
+function setShift(px) {
+  shiftPx = px
+  const el = contentEl.value
+  if (el) el.style.transform = `translate3d(${px}px, 0, 0)`
+}
+
+/**
+ * 拖动开始：关掉这一层的过渡。
+ *
+ * 用内联的 `transition: none` 而不是类名 —— 类名要等一次 Vue 刷新才落到 DOM 上，而这一帧
+ * 必须原地停住（否则元素会用剩下的 200ms 慢慢挪到内联值上，手指一开始动就发现内容在追）。
+ */
+function freezeContentTransition() {
+  const el = contentEl.value
+  if (el) el.style.transition = 'none'
+}
+
+/**
+ * 松手：过渡交回样式表（曲线与默认时长都在 CSS 里，时长由 `--swipe-dur` 覆盖）。
+ *
+ * 与 `setShift` 必须在**同一个任务**里一前一后：先撤内联值、再写新位移，浏览器在渲染前
+ * 重算一次样式，看到的就是「过渡从无到有 + 位移变了」，这一趟才会动起来。反过来写（先改
+ * 位移、后撤内联）就是当场落位 —— 那正是「快甩闪一下」的老症状。
+ */
+function releaseContentTransition() {
+  const el = contentEl.value
+  if (el) el.style.transition = ''
+}
+
+/**
+ * 接管上一趟还没走完的过渡 —— **「快速连翻不流畅」的真身就是这里**（2026-11-08）。
+ *
+ * 两手之间的间隔常常短于 0.22s 的落位过渡，第二手起手时 `is-swiping` 会把两层过渡一起
+ * 关掉，元素于是立刻跳到内联 style 的值：`.settings-content` 跳回 0，每一页跳回「页码 ×
+ * 100%」的终值。上一趟没播完的动画被硬切，观感是「内容猛一顿、然后才开始跟手」。
+ * 实测（`probe11`，第二手落在上一趟起身后 120ms）：正在被送进来的那一页从 `left 42`
+ * 一步跨到 `−37`，单帧 79px —— 中间那 24px 的余路被瞬间抹平，还叠上了当帧的跟手位移。
+ *
+ * 所以起手那一刻先把**当前视觉位置**冻下来：每页量出此刻的像素偏移塞进 `frozenOffsets`，
+ * 内容层的位移（`m41`）也接着算（`setShift` 的基准就是它）。关掉过渡时元素因此不动，
+ * 之后的跟手、回弹、换页全都从这一帧接着走 —— 上一趟没播完的由新手势接力。
+ *
+ * **页的冻结值必须回到 `paneProps` 的数据流里**，不能直接写 DOM：Vue 的 `patchStyle` 每次
+ * 重渲都会把 style 里所有 key 无条件重写，直接写进去的像素值活不过一帧就被
+ * `translate3d(0%, 0, 0)` 盖掉（2026-11-08 实测）。内容层不受这条约束 —— 它的 transform
+ * 已经整个搬出 `:style` 了（见 `setShift`）。
+ *
+ * 只在上一趟还没落定（`isSettling`）时才需要；静止时两层的值本来就等于终值，白读一次布局。
+ */
+function takeOverShift() {
+  const content = contentEl.value
+  if (!content) return { shift: 0, offsets: null }
+  const tf = getComputedStyle(content).transform
+  const shift = tf && tf !== 'none' ? new DOMMatrixReadOnly(tf).m41 : 0
+  // 先取 content 的 rect 再逐页取：同一批读，浏览器只做一次布局
+  const contentLeft = content.getBoundingClientRect().left
+  const offsets = {}
+  for (const el of content.querySelectorAll('.settings-pane')) {
+    const id = el.dataset.pane
+    if (!id) continue
+    offsets[id] = Math.round((el.getBoundingClientRect().left - contentLeft) * 100) / 100
+  }
+  return { shift, offsets }
+}
+
 function onSwipePointerDown(event) {
   // 上一场没收干净（抬手落在窗口外），或这是第二根手指（双指缩放）：先把在跑的这场收掉
   if (swipe) {
     stopSwipe()
-    swipeShift.value = 0
+    setShift(0)
   }
   window.clearTimeout(swallowTimer)
   swallowClick = false
@@ -1012,11 +1142,17 @@ function onSwipePointerDown(event) {
     dx: 0,
     t: performance.now(),
     axis: null,
+    // 接上一趟的位移（见 `takeOverShift`）；静止时起手就是 0
+    base: 0,
+    // 瞬时速度（px/ms）与它的采样点
+    vx: 0,
+    lastDx: 0,
+    lastT: performance.now(),
   }
   // 监听挂在 window 上：手指划出内容区（或划到视口边缘）时仍要收到 move / up
   window.addEventListener('pointermove', onSwipePointerMove)
   window.addEventListener('pointerup', onSwipePointerUp)
-  window.addEventListener('pointercancel', stopSwipe)
+  window.addEventListener('pointercancel', onSwipePointerCancel)
 }
 
 function onSwipePointerMove(event) {
@@ -1031,10 +1167,32 @@ function onSwipePointerMove(event) {
       return
     }
     swipe.axis = 'x'
+    // 上一趟还没落定就把当前位置接过来（**读在关过渡之前**：读到的是动画进行中的真实值）
+    if (isSettling.value) {
+      const { shift, offsets } = takeOverShift()
+      swipe.base = shift
+      frozenOffsets.value = offsets
+    }
+    // 关过渡用**内联** `transition: none`：这一层不再有 Vue 管的 transform，也就不必靠类名
+    // 开关过渡 —— 类名要等一次刷新，而这一帧必须原地停住。
+    freezeContentTransition()
     isSwiping.value = true
+    swipe.lastDx = dx
+    swipe.lastT = performance.now()
+    swipe.vx = 0
+  } else {
+    // 瞬时速度：一阶低通（单帧抖动不至于把「甩」判错、也不至于把慢慢划判成甩）
+    const now = performance.now()
+    const dt = now - swipe.lastT
+    if (dt > 0) {
+      swipe.vx = swipe.vx * 0.35 + ((dx - swipe.lastDx) / dt) * 0.65
+      swipe.lastT = now
+      swipe.lastDx = dx
+    }
   }
   swipe.dx = dx
-  swipeShift.value = dampShift(dx)
+  // 热路径：只写这一个节点的 transform，一个响应式值都不碰（见 `shiftPx` 的注释）
+  setShift(swipe.base + dampShift(dx))
 }
 
 function onSwipePointerUp(event) {
@@ -1042,16 +1200,27 @@ function onSwipePointerUp(event) {
   const { dx, axis } = swipe
   const moved = Math.abs(dx)
   const held = Math.max(1, performance.now() - swipe.t)
-  const far = moved >= Math.max(SWIPE_MIN, contentWidth() * SWIPE_RATIO)
+  // 抬手前手停住了（最后一次 move 之后过了 60ms 以上）就不算甩：速度按 0 算
+  const speed = performance.now() - swipe.lastT > 60 ? 0 : Math.abs(swipe.vx)
+  const width = contentWidth()
+  const far = moved >= Math.max(SWIPE_MIN, width * SWIPE_RATIO)
   // 甩一下也算：手机上一半的翻页都是这么来的，非要划满半屏反而别扭
-  const fling = moved >= SWIPE_MIN && moved / held >= SWIPE_FLING
-  const next = axis === 'x' && (far || fling) ? neighbourSection(dx < 0 ? 1 : -1) : null
+  const fling = moved >= SWIPE_MIN && speed >= SWIPE_FLING
+  // 方向听谁：甩的时候听**速度**（先往左划、收手时往右一甩，该往右翻），否则听总位移
+  const toward = fling ? Math.sign(swipe.vx) : Math.sign(dx)
+  const next = axis === 'x' && (far || fling) ? neighbourSection(toward < 0 ? 1 : -1) : null
   // 划过一手：抬手那发合成 click 不许落到刚换上的那一页上
   if (axis === 'x' && moved >= SWIPE_MIN) armClickSwallow()
+  // 时长要在改位移**之前**定下来：同一帧重算样式，这一趟才用得上新值。
+  // 剩下的路：换页看「进来那一页还要走多远」（一页宽减去已经露出的部分），回弹看内容自己。
+  const remaining = next ? Math.max(0, width - Math.abs(shiftPx)) : Math.abs(shiftPx)
+  swipeDur.value = settleDuration(speed || moved / held, remaining)
+  // `stopSwipe` 会把这一层的过渡交回样式表 —— 必须在改位移之前，否则还是 `none`，当场落位
   stopSwipe()
   if (!next) {
-    // 弹回：位移归零，由过渡滑回原处
-    swipeShift.value = 0
+    // 弹回：位移归零，由过渡滑回原处。快照已在 `stopSwipe` 里清掉 —— 页码没变，页的位置
+    // 交回给「页码 × 100%」，那一趟于是带着过渡从停下的地方归位，而不是停在半截。
+    setShift(0)
     return
   }
   // 撑高与收滚动都要在换页之前定下来：高度取的还是旧页的，滚动也从旧页这一刻开始收
@@ -1060,20 +1229,42 @@ function onSwipePointerUp(event) {
   if (renderedIds.value.has(next.id)) {
     // 换页与「位移归零」在同一次渲染里落下：两页于是各自接着走完剩下那一截
     // （页码挪一格 = 新的一页接着进来，位移归零 = 手指松开后由过渡收尾）
-    swipeShift.value = 0
+    setShift(0)
     activeSection.value = next.id
     return
   }
   // 这一页还没挂上（上一趟过渡刚落定就又划了一手，`mountNeighbours` 还没来得及补）。
   // **分两帧**：这一帧只把它挂进 DOM（它出生就在 `+100%`，过渡没得可跑），下一帧再挪页码 ——
   // 一次性做完的话它会在原地出现，观感就是整块内容「闪」着跳了一页。
+  //
+  // 出生位置要**补上当前的跟手位移**：`+100%` 是相对内容原点的，而这一帧内容还偏着
+  // `shiftPx` —— 不补的话它落在一页外−shift 的地方，正好从取景框里探出半个身位，
+  // 压在正在进来的那一页右边（实测连翻时同屏三页、重叠 47.6px）。补成 `一页宽 − shift`，
+  // 它才真的在框外。下一帧 `pageRaf` 清掉快照、页码归零，它从框外平滑滑进来。
+  const dir = toward < 0 ? 1 : -1
+  frozenOffsets.value = { ...(frozenOffsets.value ?? {}), [next.id]: dir * width - shiftPx }
   renderedIds.value.add(next.id)
   window.cancelAnimationFrame(pageRaf)
   pageRaf = window.requestAnimationFrame(() => {
     pageRaf = 0
-    swipeShift.value = 0
+    setShift(0)
     activeSection.value = next.id
+    frozenOffsets.value = null
   })
+}
+
+/**
+ * 系统把这一手收走了（来电、切后台、弹出原生选择器）：退回原位。
+ *
+ * 不走 `onSwipePointerUp` —— 那时 `dx` 可能是任意中途值，按它判翻页等于替用户做决定。
+ * 只把内容滑回去，页码不动；过渡交回样式表，别让内容留在半路上。
+ */
+function onSwipePointerCancel() {
+  const paged = isSwiping.value
+  stopSwipe()
+  if (!paged) return
+  swipeDur.value = SWIPE_DUR_MAX
+  setShift(0)
 }
 
 /** 收手势：三个 window 监听一起摘掉（每个出口都走这里，别只清状态） */
@@ -1081,9 +1272,14 @@ function stopSwipe() {
   const paged = isSwiping.value
   swipe = null
   isSwiping.value = false
+  // 快照随这一手一起结束（换页的调用点在 `pointerup`，页码已经/即将更新，百分比才是终点）
+  frozenOffsets.value = null
   window.removeEventListener('pointermove', onSwipePointerMove)
   window.removeEventListener('pointerup', onSwipePointerUp)
-  window.removeEventListener('pointercancel', stopSwipe)
+  window.removeEventListener('pointercancel', onSwipePointerCancel)
+  // 过渡交回样式表（曲线与默认时长都在 CSS，时长由 `--swipe-dur` 覆盖）。
+  // 必须在这里、而且在调用方改位移之前：晚一步写，元素会先「瞬时」跳到目标再开始过渡。
+  releaseContentTransition()
   // 真的横着划过一手：旁边那一页要留到过渡走完 —— 否则它在松手那一帧就消失，
   // 最后那一小段路程会露出底下的空白
   if (paged) beginSettle()
@@ -1106,6 +1302,11 @@ function onContentTransitionEnd(event) {
 function finishSettle() {
   window.clearTimeout(settleTimer)
   isSettling.value = false
+  // 这一趟的量身时长用完了，交还给样式表的默认值（目录点选等非手势切换还要用它）
+  swipeDur.value = 0
+  // 兜底收尾有可能落在下一手已经起手之后（`settleTimer` 到点，而手指已经在拖了）：
+  // 那时**不能**把过渡放回去 —— 一放，跟手就变成「每帧都在追一个动画」，手感立刻发飘。
+  if (!isSwiping.value) releaseContentTransition()
   // 这时滚动已经收到顶上（或本来就在顶上），放开高度不会再夹一次
   releaseContentHeight()
   // 补挂邻页别压在落位这一帧：一次挂一整页（几百个节点）会掉第一帧，
@@ -1160,25 +1361,55 @@ function revealNavItem() {
 }
 
 /**
- * 跟手位移落在这一层上（整排页一起挪）。
- * 只有它逐帧变，各页自己的 transform 只在换页那一帧变一次 —— 一次手势里就只碰一个节点。
+ * 这一层还想让 Vue 管的两件事 —— **transform 不在这里了**（见 `setShift`）。
  *
- * ⚠️ **静止时也写 `translate3d(0, 0, 0)`，绝不能让这个属性消失**（2026-11-08）。原来静止时
- * 返回 `null`，Vue 就 `removeAttribute('style')`，transform 从 `translate3d(…)` 归到 `none`。
- * 浏览器会为这趟过渡临时提升一个合成层，**过渡一结束、transform 变成 `none`，层就被丢掉**，
- * 内容并回文档层重新栅格化 —— 那一帧新位图还没好，观感就是「落定的最后一下整块内容消失一瞬」。
- * 常驻一个零位移 transform，层就不会在过渡收尾时被销毁，插值也只剩 `transform → transform`
- * 一种（不必再走 `none` 那个特例）。代价是这一层常驻显存，见 HANDOFF §3。
+ * 原来跟手位移也走这一份 `:style`，那有两个毛病：
+ * 1. 每帧写一次 ref 就重渲一遍组件（120Hz 的机器上一秒 120 次），真机上就是跟手发顿；
+ * 2. 更阴的是 `patchStyle`：Vue 重渲时会把 style 里所有 key **无条件**重写，于是任何一次
+ *    无关的重渲都可能把手势刚写进去的位置打回上一个 ref 值 —— 位移靠数据流就必须每帧同步
+ *    数据流，等于第 1 条躲不掉。
+ * 现在 transform 归 JS 直接写，Vue 只管下面这两项，重渲多少次都碰不到它。
  *
- * `minHeight` 也走这一份：换页那趟要撑住旧高度（见 `holdContentHeight`），而 Vue 在
- * `:style` 从对象变成 null 时是 `removeAttribute('style')` —— 在元素上手动写 min-height
- * 会被它一并抹掉（2026-11-07 实测：撑高完全没生效）。
+ * ⚠️ **静止时也必须是 `translate3d(0, 0, 0)`，绝不能让这一层退回 `transform: none`**
+ * （2026-11-08）。原来静止时 `:style` 返回 null，Vue 就 `removeAttribute('style')`，
+ * transform 从 `translate3d(…)` 归到 `none`：浏览器为这趟过渡临时提升的合成层随之被丢弃，
+ * 内容并回文档层重新栅格化 —— 那一帧新位图还没好，观感就是「落定的最后一下整块内容消失
+ * 一瞬」。兜底那条现在写在样式表里（`.settings-content` 的 `transform` + `will-change`），
+ * 比「永远返回一个对象」更稳：不管谁清掉内联样式，这一层都还在。
+ *
+ * `minHeight` 走这一份：换页那趟要撑住旧高度（见 `holdContentHeight`）。它**必须**留在
+ * `:style` 里 —— 反过来手动写 DOM 的话，`patchStyle` 在 `minHeight` 消失时会把它一并清掉
+ * （2026-11-07 实测：撑高完全没生效）。
  */
 const contentStyle = computed(() => {
-  const style = { transform: `translate3d(${swipeShift.value}px, 0, 0)` }
+  const style = {}
   if (holdHeight.value) style.minHeight = `${holdHeight.value}px`
+  // 两层过渡共用的时长（见 `settleDuration`）：写在 content 上，`.settings-pane` 继承过去
+  if (swipeDur.value) style['--swipe-dur'] = `${swipeDur.value}ms`
   return style
 })
+
+/**
+ * 这一趟落位过渡走多久 —— **直接对着「动画来不及播完」这个问题**（2026-11-08）。
+ *
+ * 原来是固定 0.22s。可快速连翻时两手间隔常常只有 120ms（探针里实测每手 121~134ms），
+ * 于是每一趟都在半路被下一手接走：即便接力接得连续，观感仍旧是「一直被催着、
+ * 永远落不到位」。按「剩下的路 ÷ 手速」算之后，快甩那一趟 160ms 就能走完，
+ * 下一手落下时它已经停了 —— 接力从常态退回到例外。
+ *
+ * 两个量都要：
+ * - **速度**决定「该有多急」：同一个 300px，慢慢划和甩一下的观感差着两倍；
+ * - **剩余距离**决定「还要走多久」：甩到一半时剩下的路只有一页宽的三分之一，
+ *   再按固定时长走就成了慢镜头。`0.45` 是把「匀速走完」压成一条减速曲线的经验系数。
+ *
+ * 夹在 `SWIPE_DUR_MIN`~`SWIPE_DUR_MAX` 之间：太短看不出方向，太长就永远被下一手接走。
+ */
+function settleDuration(speed, remaining) {
+  // 0.3 以下按 0.3 算：几乎没动过的「慢慢挪」，不该算出无穷长的时长
+  const s = Math.min(Math.max(speed, 0.3), 2.5)
+  const ms = Math.round((remaining / s) * 0.45)
+  return Math.min(SWIPE_DUR_MAX, Math.max(SWIPE_DUR_MIN, ms))
+}
 
 /**
  * 换页时把纵向滚动接到新页上 —— **落位那一「闪」的真身就是这里**。
@@ -1213,8 +1444,11 @@ function glideScrollToTop() {
   const view = viewEl.value
   if (!view || view.scrollTop <= 0) return
   window.cancelAnimationFrame(glideRaf)
-  // 减弱动效时直接到位：这一趟本来就是为了替代「硬夹一下」，不该反过来变成一段滑动
-  const dur = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : SWIPE_GLIDE_MS
+  // 减弱动效时直接到位：这一趟本来就是为了替代「硬夹一下」，不该反过来变成一段滑动。
+  // 时长跟横向那趟对齐（`swipeDur`），否则一边收完另一边还在滑，看着是两件事。
+  const dur = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 0
+    : swipeDur.value || SWIPE_GLIDE_MS
   const from = view.scrollTop
   const started = performance.now()
   const step = (now) => {
@@ -3833,7 +4067,7 @@ watch(pendingUnbind, (open) => {
   touch-action: pan-y;
 }
 
-/* 设置正文：一排「页」的容器 —— 跟手位移走它的内联 transform。
+/* 设置正文：一排「页」的容器 —— 跟手位移走它的 transform（由 `setShift` 直接写 DOM）。
    宽度、横向裁切、两栏时「目录右边那一栏」的身份都归外层取景框，它只管「整排」这一件事。
    危险区域要能与主体卡片并排成两张卡，所以不能把卡片直接放在 inner 下。 */
 .settings-content {
@@ -3842,13 +4076,34 @@ watch(pendingUnbind, (open) => {
   min-width: 0;
   /* 两侧那几页的定位基准：它们按「页码 × 一页宽」推到左右去（见 .settings-pane） */
   position: relative;
-  /* 跟手位移与松手回弹都走这一条；拖动中 `.is-swiping` 把它关掉，位移才是逐帧贴手的。
-     减弱动效的场景由 base.css 那条全局规则压成 0.01ms，这里不再写一遍。 */
-  transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
 
-.settings-content.is-swiping {
-  transition: none;
+  /* ⚠️ 这一层**永远**带着一个零位移 transform，并预先声明会动 —— 这是「落定的最后一下
+     整块内容消失一瞬」的修法（2026-11-08）。
+
+     原来 transform 只在动的时候有，静止时整条属性消失（`transform: none`）。浏览器为这趟
+     过渡临时提升一个合成层，**过渡一结束、transform 归到 none，层就被丢掉**，内容并回文档层
+     重新栅格化；新位图还没好，那一帧就是空白 —— 位置正好是「落定的最后一下」。
+     常驻一个 translate3d(0,0,0) 之后，插值只发生在 `transform → transform` 之间（连 `none`
+     那个特例都不必走），层也不会在收尾时被销毁。`will-change` 进一步让浏览器**提前**把它
+     提成层，而不是等第一帧位移才提。
+
+     兜底必须有这一条：移交给 JS 直写之后（见 `setShift`），一旦某次内联样式被清掉（Vue 的
+     `patchStyle`、热更新、别处的 `removeAttribute('style')`），这一层就退回 `none` 了 ——
+     把它写在样式表里，谁清都清不掉。
+     代价：这一层常驻一张全高的合成贴图（只栅格化视口那一带，不是整页），手机上可接受；
+     见 HANDOFF §3。 */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+
+  /* 跟手位移与松手回弹都走这一条。拖动期间由脚本写内联 `transition: none` 关掉（见
+     `freezeContentTransition`）：类名要等一次 Vue 刷新，而这一帧必须原地停住。
+     时长由 `--swipe-dur` 给（松手时按「剩下的路 ÷ 手速」算，见 `settleDuration`）：固定
+     0.22s 在快速连翻时永远播不完 —— 两手间隔常常只有 120ms，每一趟都被下一手接走。
+     曲线开头必须满速（抬手时已经有初速度了），用 ease / ease-in-out 会先顿一下再窜出去。
+     减弱动效的场景由 base.css 那条全局规则压成 0.01ms，这里不再写一遍。 */
+  transition: transform var(--swipe-dur, 0.22s) cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ---- 一页 = 一类设置（窄屏横滑时左右两页跟着一起走的那个「页」） ---- */
@@ -3861,15 +4116,34 @@ watch(pendingUnbind, (open) => {
   /* 位置（`translate3d(页码 × 100%)`）由 `paneProps` 写成**内联样式**，不在这里用
      `calc(var(--pane-k) * 100%)` 算：换页那一帧要靠这条 transition 把新的一页送进来，
      而内联 transform 的变化是最通用的过渡触发方式（变量算出来的值要多绕一层失效路径）。
-     它只在换页那一帧变一次，跟手位移走的是上一层 `.settings-content`。 */
-  transition: transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+     它只在换页那一帧变一次，跟手位移走的是上一层 `.settings-content`。
+     时长与上一层共用一个 `--swipe-dur`（变量从 `.settings-content` 继承下来）：两层必须
+     同长同缓动，合起来才等价于一条曲线。
+     兜底那条零位移 transform 同理（内联永远带着，样式表这条防它被清掉）；
+     `backface-visibility: hidden` 让它稳定占住一个合成层、并免掉背面判定带来的逐帧抖动。 */
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition: transform var(--swipe-dur, 0.22s) cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* 拖动中每一页也不许有过渡。
+   平时这没用（拖动时页的位置根本不变）；**接管**那一帧才有用：`frozenOffsets` 把页位置换成
+   像素值是一次数据更新，而上一趟过渡还在跑，不关掉的话页会从「动画中的位置」再过渡到
+   「快照位置」（两者本来相等，过渡一次反而抖）。
+   整排那一层的过渡不在这条里管 —— 它归内联 `transition: none`（见 `freezeContentTransition`）。 */
 .settings-content.is-swiping .settings-pane {
   transition: none;
 }
 
-/* 当前页留在流里（内容高度由它定），左右各一页绝对定位叠在同一处、靠 transform 推出去 */
+/* 当前页留在流里（内容高度由它定），左右各一页绝对定位叠在同一处、靠 transform 推出去。
+   换页那一帧这两条会互换角色（出去的那页 absolute、进来的那页 relative），听起来像
+   「过渡结束时改定位」那个经典闪烁源，实际不是：
+   1. 互换发生在 `pointerup`（过渡**开始**那一帧），不是 `transitionend`；
+   2. 每一页本来就带 `transform`，早就自成层与层叠上下文，互换只改变「要不要参与流」，
+      **盒子的位置、尺寸、层都不变** —— 不会有重新栅格化。
+   真做成「三页全部 absolute、高度交给 JS 量」也行，但高度得靠 ResizeObserver 手动维持，
+   一旦某帧量错就是滚动位置乱跳，比现在这条稳。 */
 .settings-pane--current {
   position: relative;
 }
