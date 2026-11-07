@@ -821,6 +821,15 @@ const swipeShift = ref(0)
 const isSwiping = ref(false)
 /** 松手之后那一趟过渡还没走完：旁边那一页要留到它落位（见 `.is-settling`） */
 const isSettling = ref(false)
+/**
+ * 这趟过渡是「换页」还是「弹回」。
+ *
+ * 换页时**另一侧那一页要藏起来**：换页那一刻它的页码正好等于新页的起点（`+100%`），
+ * 两个页在屏上完全重合，一起画就是重影（2026-11-07 实测：松手后第一帧右缘能明显看到
+ * 两页的字叠着）。它整页停在屏外，藏起来看不出来 —— 真正要留的是正在出去的那一页。
+ */
+const leavingId = ref('')
+const isPaging = computed(() => isSettling.value && leavingId.value !== '')
 let settleTimer = 0
 /**
  * 已经在 DOM 里的分类。
@@ -915,6 +924,8 @@ function paneProps(id) {
       'settings-pane': true,
       'settings-pane--current': current,
       'settings-pane--peek': Math.abs(offset) === 1,
+      // 换页那趟过渡里正在出去的那一页：见 `.is-paging` 那条规则
+      'is-leaving': id === leavingId.value,
     },
     style: { '--pane-k': offset },
     ...(current ? {} : { 'aria-hidden': 'true', inert: '' }),
@@ -1014,6 +1025,7 @@ function onSwipePointerUp(event) {
   if (next) {
     // 连滑两次时它可能还没挂上（上一趟的过渡没走完，mountNeighbours 会跳过）
     renderedIds.value.add(next.id)
+    leavingId.value = activeSection.value
     activeSection.value = next.id
   }
 }
@@ -1034,9 +1046,12 @@ function stopSwipe() {
 /** 过渡窗（CSS 的 0.22s 再加一点余量）：这期间旁边那一页继续挂着 */
 function beginSettle() {
   isSettling.value = true
+  // 每趟过渡重新算：真的换页的话，紧接着 onSwipePointerUp 会把它填上
+  leavingId.value = ''
   window.clearTimeout(settleTimer)
   settleTimer = window.setTimeout(() => {
     isSettling.value = false
+    leavingId.value = ''
     mountNeighbours()
   }, SWIPE_SETTLE_MS)
 }
@@ -2195,7 +2210,7 @@ watch(pendingUnbind, (open) => {
       <div
         ref="contentEl"
         class="settings-content"
-        :class="{ 'is-swiping': isSwiping, 'is-settling': isSettling }"
+        :class="{ 'is-swiping': isSwiping, 'is-settling': isSettling, 'is-paging': isPaging }"
         :style="contentStyle"
       >
 
@@ -3717,9 +3732,14 @@ watch(pendingUnbind, (open) => {
 }
 
 /* 手指真的横着划起来（以及松手后那一趟过渡）才把旁边那一页放出来 —— 只放紧邻的一页，
-   更远的那几页（翻到过的都在 DOM 里）不参与 */
+   更远的那几页（翻到过的都在 DOM 里）不参与。
+   **换页那一趟只放「正在出去」的那一页**：换页那一刻，另一侧那页的页码正好等于新页的起点
+   （都是 `+100%`），两页在屏上完全重合，一起画就是重影（2026-11-07 实测：松手后第一帧右缘
+   能明显看到两页的字叠在一起）。它整页停在屏外、藏着看不出来；正在出去那一页则必须留着，
+   否则最后那一小段路程会露出底下的空白。 */
 .settings-content.is-swiping .settings-pane--peek,
-.settings-content.is-settling .settings-pane--peek {
+.settings-content.is-settling:not(.is-paging) .settings-pane--peek,
+.settings-content.is-settling.is-paging .settings-pane--peek.is-leaving {
   display: block;
 }
 
