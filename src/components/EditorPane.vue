@@ -26,6 +26,7 @@ import { languageForPath } from '../services/monaco/language.js'
 import { editorModelOptions, editorOptions, themeScheme } from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { releaseSyntaxDiagnostics, scheduleSyntaxCheck } from '../services/monaco/syntaxDiagnostics.js'
+import { installPasteIndentGuard } from '../services/monaco/pasteIndentGuard.js'
 import {
   anyViewOpen,
   codeforcesTab,
@@ -199,6 +200,12 @@ function openDroppedFile(node) {
 
 /** 注销函数，onBeforeUnmount 里调 */
 let unregisterDropZone = null
+
+/**
+ * 手机输入法「粘贴」时压住自动缩进的窗户（见 services/monaco/pasteIndentGuard.js）。
+ * 只影响「整段文本一次性灌进来」那几百毫秒，键盘 Ctrl+V / 菜单粘贴都不经过它。
+ */
+let releasePasteGuard = null
 
 // ------------------------------------------------------------ 题解（.md）
 // 题解不判题、只编辑，于是多出一行工具栏（视图模式）与一块预览面板。
@@ -532,6 +539,9 @@ onMounted(() => {
   })
   editor.value = instance
 
+  // 手机输入法的粘贴是逐行 IME 提交，行间的回车会把缩进越叠越深（见该文件头）
+  releasePasteGuard = installPasteIndentGuard(instance, host.value)
+
   // 启动时安静挂上当前 model（不抢焦点；会话恢复已建好 model）
   if (workspace.activeId) {
     const model = modelManager.getExistingModel(workspace.activeId)
@@ -590,6 +600,8 @@ const stopBackFullscreen = watchBackLayer(mdFullscreen, exitFullscreen)
 
 onBeforeUnmount(() => {
   stopBackFullscreen()
+  releasePasteGuard?.()
+  releasePasteGuard = null
   unregisterDropZone?.()
   unregisterDropZone = null
   window.removeEventListener('keydown', onWindowKeydown, true)

@@ -90,11 +90,12 @@ const TAP_SETTLE_MS = 400
  * 菜单项 → Monaco 的 action id。
  * 走 action 而不是自己做剪贴板：选区、撤销栈、只读判断都由 Monaco 自己兜，
  * 也能拿到系统剪贴板（触屏上这是唯一能拿到「系统里刚复制的东西」的路）。
+ *
+ * ⚠️ **「粘贴」不在这张表里**（2026-11-07 移出）：触屏上它点了没反应，见 `pasteFromClipboard`。
  */
 const ACTIONS = {
   cut: 'editor.action.clipboardCutAction',
   copy: 'editor.action.clipboardCopyAction',
-  paste: 'editor.action.clipboardPasteAction',
   selectAll: 'editor.action.selectAll',
   changeAll: 'editor.action.changeAll',
   commandPalette: 'editor.action.quickCommand',
@@ -381,6 +382,87 @@ export function useEditorMenu({ editor, host }) {
     return `${stem || 'code'}.png`
   }
 
+  // ------------------------------------------------------------ 粘贴
+
+  /**
+   * 「粘贴」为什么不走 Monaco 的 `editor.action.clipboardPasteAction`（2026-11-07 用户报
+   * 「触屏上长按唤出菜单，点粘贴直接没反应」）：
+   *
+   * 1. 那条 action 取剪贴板走 `BrowserClipboardService.readText()`，内部就是
+   *    `navigator.clipboard.readText()`，而它**失败时 catch 掉、直接返回空串**
+   *    （`monaco-editor/esm/vs/platform/clipboard/browser/clipboardService.js`）。触屏浏览器里
+   *    这次读取经常被拒（权限 / 手势时序 / 非安全上下文），于是「读到空串 → 什么都不做」，
+   *    画面上就是点了没反应，连个提示都没有。
+   * 2. 它还是 Monaco action 表里的一条，带 `editorTextFocus` 之类的前置条件；而菜单是 Teleport
+   *    到 body 的按钮，点它时焦点已离开 Monaco 的输入面，触屏上 `focus()` 又常常不产生真正的
+   *    DOM focus（键盘不弹就没有），条件不成立时 action 直接不跑。
+   *
+   * 所以这里自己读、自己落地：读不到就明说（通知），读得到就**整段一次 executeEdit** ——
+   * 一次编辑不经过「回车 + 自动缩进」，粘出来的代码与剪贴板逐字一致（桌面的 Ctrl+V 也是这个结果）。
+   */
+  async function readClipboardText() {
+    try {
+      const text = await navigator.clipboard?.readText?.()
+      return typeof text === 'string' ? text : ''
+    } catch {
+      // 权限被拒 / 非安全上下文 / 手势过期：一律按「读不到」处理，由调用方给提示
+      return ''
+    }
+  }
+
+  /** 插入点之后的光标位置（粘贴的文本可能很多行，按行拆开算） */
+  function endPositionOf(position, text) {
+    const lines = text.split('\n')
+    return lines.length === 1
+      ? {
+          lineNumber: position.lineNumber,
+          column: position.column + text.length,
+        }
+      : {
+          lineNumber: position.lineNumber + lines.length - 1,
+          column: lines[lines.length - 1].length + 1,
+        }
+  }
+
+  /**
+   * 把整段文本原样插到每个光标处（多光标口径与 Monaco 自己的粘贴一致：每处都插整段）。
+   * 前后各推一个撤销点 —— 一次粘贴正好是一步 Ctrl+Z。
+   */
+  function insertVerbatim(instance, raw) {
+    const model = instance.getModel()
+    if (!model) return
+    // 剪贴板里可能是 CRLF，先归一，免得 model 里混进 \r
+    const text = raw.replace(/\r\n?/g, '\n')
+    const selections = instance.getSelections() ?? []
+    if (!selections.length) return
+    const ends = selections.map((selection) => endPositionOf(selection.getStartPosition(), text))
+    instance.pushUndoStop()
+    instance.executeEdits(
+      'editor-menu-paste',
+      selections.map((selection) => ({ range: selection, text, forceMoveMarkers: true })),
+      ends.map((end) => new monaco.Selection(end.lineNumber, end.column, end.lineNumber, end.column)),
+    )
+    instance.pushUndoStop()
+    instance.revealPositionInCenterIfOutsideViewport?.(ends[0])
+  }
+
+  /** 菜单里的「粘贴」。读剪贴板必须在点击手势里发出，所以中间不要插别的 await */
+  async function pasteFromClipboard() {
+    const instance = editor.value
+    if (!instance?.getModel()) return
+    const text = await readClipboardText()
+    if (!text) {
+      notify({
+        type: 'warning',
+        title: t('app.editorMenu.pasteBlockedTitle'),
+        message: t('app.editorMenu.pasteBlockedBody'),
+        duration: 4000,
+      })
+      return
+    }
+    insertVerbatim(instance, text)
+  }
+
   function onMenuSelect(id) {
     const instance = editor.value
     closeMenu()
@@ -388,11 +470,18 @@ export function useEditorMenu({ editor, host }) {
       exportEditorImage()
       return
     }
+    if (id === 'paste') {
+      // 与其它条目一样先把焦点还给 Monaco：粘完通常接着打字，焦点本该在编辑器里。
+      // ⚠️ 这一步要留在读剪贴板**之前**（读剪贴板要在手势里、且不能等一个 await）
+      instance?.focus()
+      pasteFromClipboard()
+      return
+    }
     if (!instance || !ACTIONS[id]) return
     // 先把焦点还给 Monaco 再触发。菜单是 Teleport 到 body 的按钮，点它会把 DOM 焦点从
     // Monaco 的 textarea 上抢走；而「命令面板」（editor.action.quickCommand）这类 action
     // 明确要求当前有聚焦的编辑器，否则直接抛 "Quick input service needs a focused editor
-    // to work."。剪贴板那几条不挑焦点，但也一并没有坏处。
+    // to work."。剪贴板那几条不挑焦点，但也一并没有坏处。（「粘贴」已在上面单独处理。）
     instance.focus()
     instance.trigger('editor-menu', ACTIONS[id], null)
   }
