@@ -434,6 +434,31 @@ defineExpose({
   border-top: 1px solid var(--border-soft);
 }
 
+/* 软键盘弹着时（.app.is-typing）把侧栏里两条**不参与打字**的行一起收掉：
+   一条是评测面板的页脚（TestPanel 的 .panel__foot —— 「提交」+「运行全部」那一排，
+   含它上面那句跑不了的原因），另一条是底部那条面板菜单（.sidebar__switcher ——
+   胶囊 + 抽题 + 齿轮 + 收起箭头）。2026-11-09 用户报：窄屏上唤出键盘、在评测栏的
+   输入框里打字，这两行还留着，样例列表剩下的可视区小得几乎不能看。
+   道理也直白：键盘已经按 --vvh 把整块应用砍成一半（见 App.vue 的 .app.is-keyboard），
+   再让两条常驻行各吃四十来个像素，列表就只剩一张半卡片；而打字这一刻它们本来也用不上
+   —— 底部那条是切面板用的，页脚那条更是「打完字才按」的动作。收起键盘（is-typing
+   被实测摘掉）它们就回来，不需要额外状态。
+   ⚠️ 判据必须是 is-typing（键盘**真的**弹着），不能换成 is-keyboard（那个只表示
+   「这是台触摸设备」，在整台设备上恒真）—— 同 App.vue 收贴底图标栏那条，见 HANDOFF 坑 47。
+   ⚠️ 只认 html.is-narrow：宽屏上这两处是排版的骨架，键盘也顶不到它们。
+   ⚠️ 规则放在这里而不是 TestPanel.vue / SidebarSwitcher.vue：判据只有一份
+   （shellSettings 的 isNarrowLayout），为一个 display: none 不必再问一次 —— 与上面
+   .add__label 那条同款。`.panel__foot` 是跨组件的，所以要 :deep 打进去。
+   ⚠️ 别改成 visibility: hidden / height: 0：要的是把这两块**地方**让给列表
+   （.cases 是 flex: 1 1 auto，收掉谁它才长到谁身上），留着盒子照样吃空间。 */
+:where(html.is-narrow) .app.is-typing .sidebar__switcher {
+  display: none;
+}
+
+:where(html.is-narrow) .app.is-typing .sidebar__body :deep(.panel__foot) {
+  display: none;
+}
+
 /* 底部这条上多出的「收起侧栏」（箭头指哪就往哪收）：**只在窄屏出现**。
    宽屏不给它位置 —— 那边有分隔条可拖、也有快捷键，多一颗入口是重复。
    显示开关写在子组件里（基础 display: none），这里带着 .sidebar__switcher 这个祖先打开它：
