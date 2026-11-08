@@ -1,5 +1,6 @@
 <script setup>
 import { nextTick, onBeforeUnmount, ref } from 'vue'
+import { isHoverable } from '../services/hoverCapability.js'
 
 /**
  * 轻量提示框：包住触发元素，悬停 / 键盘聚焦后在它正上方弹一枚无边框的深色气泡。
@@ -14,6 +15,16 @@ import { nextTick, onBeforeUnmount, ref } from 'vue'
  * 定位匣是**可视视口**（与 usePopoverLayer 同一口径，理由见那里）：软键盘弹起时
  * window.innerHeight 不变，拿它当匣会让气泡停到键盘底下。默认在上方，
  * 上方放不下就翻到下方，左右夹进视口。
+ *
+ * 【触屏不弹】（2026-11-09，用户报「触屏点击运行单个样例的按钮之后，会出现一个悬浮的提示」）
+ * 手指抬起之后浏览器会补一串**兼容鼠标事件**，mouseover / mouseenter 都在其中 —— 于是轻点
+ * 一下 ▶ 就被当成「悬停」，排出 300ms 后的气泡，而它要一直挂到下一次按下别处才被
+ * pointerdown 收掉。触屏上压根没有「悬停」这个动作，这枚气泡永远不是用户要的。
+ * 判据是 services/hoverCapability.js 的 `isHoverable()` —— 与 `<html>` 上的 `is-hoverable`
+ * 同一个值：手指按下当刻为假、真鼠标划过又回真。
+ * ⚠️ 别换成 `matchMedia('(hover: hover)')`：设备级判据挡不住「触屏本 / 手机开桌面版」
+ * 上补出来的那串鼠标事件，理由见那个文件头。也**别把键盘那条一起挡掉**：它由
+ * `:focus-visible` 把关（触屏轻点不会命中），是纯粹的无障碍通路。
  */
 const props = defineProps({
   text: { type: String, default: '' },
@@ -99,6 +110,8 @@ function show() {
 
 function scheduleShow() {
   if (!props.text || visible.value) return
+  // 悬停这条路要「此刻真的能悬停」：触屏轻点补出来的 mouseenter 不算（见文件头那条）
+  if (!isHoverable()) return
   clearTimer()
   timer = window.setTimeout(() => {
     timer = null

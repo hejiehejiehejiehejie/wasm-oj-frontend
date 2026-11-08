@@ -81,3 +81,16 @@ window.addEventListener(
 
 // 平板插拔键盘 / 接上鼠标这类切换会让媒体查询自己变，跟着它复位
 deviceHoverQuery.addEventListener('change', () => apply(deviceCanHover()))
+
+/**
+ * 「此刻这个指针能不能悬停」——与 `<html>` 上的 `is-hoverable` **同一个值**。
+ *
+ * 给 JS 侧的悬停**动作**用：CSS 那边靠类名把关（`:where(html.is-hoverable) …:hover`），
+ * 而有的东西不是样式、是事件驱动的（例如 `AppTooltip` 在 mouseenter 上排一个定时器弹气泡），
+ * 那类地方读这个函数，别自己再写一份 matchMedia（判不了「这一次是手指按的」，
+ * 理由见文件头）。
+ *
+ * 现值而不是常量：手指按下当刻就为假、真鼠标划过又回真，恰恰是调用方要的时间语义。
+ * @returns {boolean}
+ */
+export const isHoverable = () => hoverable
