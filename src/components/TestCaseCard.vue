@@ -4,7 +4,8 @@ import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
 import { locale, t } from '../i18n/index.js'
 import { px, uiScale } from '../composables/useUiScale.js'
-import { DEFAULT_CHECKER_ID, checkerLabelKey } from '../services/checkers.js'
+import { DEFAULT_CHECKER_ID } from '../services/checkers.js'
+import { editorSettings } from '../services/editorSettings.js'
 import { diffOutput, markSegments } from '../services/outputDiff.js'
 
 const props = defineProps({
@@ -267,7 +268,7 @@ const outputView = computed(() => {
   return { long: true, text: `${body}${MARKER_SEED}`, hidden: fmt(text.length - body.length) }
 })
 
-// ---------- 差异标记（2026-11-09 加）----------
+// ---------- 差异染色（2026-11-09 加；当晚改版：只改字色、两侧各标各的）----------
 // 判定口径在 services/checkers.js，差异本身在 services/outputDiff.js，这里只负责显示。
 // `checker` 跟着**这一轮结果**走（runner 的 evaluateCase 写在补丁里）：用户在跑完之后去设置里
 // 换了档，不能把上一轮 WA 的差异改写成另一种口径 —— 那会让人以为「刚才其实是这里错了」。
@@ -275,32 +276,116 @@ const checkerId = computed(() => props.testCase.checker || DEFAULT_CHECKER_ID)
 
 /**
  * WA 时算一次差异；AC / 运行中 / 没跑过都不算。
- * `diffOutput` 在两侧等价时返回 null，所以「判定 WA 但两段一模一样」这种矛盾不会显示成
- * 一个空块（不过逐行那一支里已经先对过账，见 outputDiff.js）。
+ * 返回 `{ got, want }`：`got` 落在 ACTUAL 原文上，`want` 落在 EXPECTED 原文上。
+ * 两侧各有各的颜色，所以「实际少了内容」不再需要往实际侧硬塞一个标记 ——
+ * 它落在期望侧那一段上，而那里本来就有字可染色。
+ *
+ * **总开关**（设置 › 评测 › 差异高亮，`cp.editorSettings.diffHighlights`，2026-11-09 加）：
+ * 关掉就在第一行返回 null —— 不是算完再丢掉标记，`outputDiff` 根本不进，两个框里一个字都不染，
+ * 期望那一格也照旧是可编辑的 `<textarea>`（它切成只读视图的前提就是「期望侧有要标的东西」）。
+ * 它关的只是**显示**：判定口径与 verdict 都不受影响。
  */
-const diffResult = computed(() => {
+const diffMarks = computed(() => {
   const record = props.testCase
   if (record.status !== 'failed') return null
+  if (!editorSettings.value.diffHighlights) return null
   return diffOutput(record.actualOutput ?? '', record.expectedOutput ?? '', checkerId.value)
 })
 
 /**
- * 框内高亮的片段（实际输出原文 + 差异区间）。
+ * 框里最多能染到第几个字符。
  *
- * 截断态（超长样例只显示开头一段 + 省略行）**不做内联高亮**：那时框里渲染的是
- * `outputView.text`（尾巴已经换成 `……`），而差异区间是按完整原文算的 —— 两边不是同一
- * 份字符串，套上去就会标错位置。差异块那一路不受影响，它自己会截窗口。
+ * 截断态（超长样例只显示开头一段 + 省略行）里，框里渲染的是「前缀 + 省略号」，
+ * 而标记是按完整原文算的 —— 前缀部分的偏移仍然成立，越过前缀的那些必须丢掉，
+ * 否则会标到省略号上。只截标记、不整段放弃：大输出的第一处差异常常就在开头。
  */
-const outputMarks = computed(() => {
-  const marks = diffResult.value?.marks
-  if (!marks?.length || outputView.value.long) return null
-  return markSegments(outputText.value, marks)
+function shownLength(text, truncated) {
+  return truncated ? Math.max(0, text.length - MARKER_SEED.length) : text.length
+}
+
+/** ACTUAL 框的片段；没有能画出来的标记时返回 null（`markSegments` 会这样答），模板退回纯文本 */
+const actualSegments = computed(() => {
+  const marks = diffMarks.value?.got
+  if (!marks?.length) return null
+  const view = outputView.value
+  return markSegments(view.text, marks, shownLength(view.text, view.long))
 })
 
-/** 一处差异的位置文案（行 / 第几个词 / 第几个字符）；忽略行序那一支没有位置，给空串 */
-function whereText(entry) {
-  if (!entry.where?.length) return ''
-  return entry.where.map((part) => t(part.key, part.params)).join(' · ')
+/**
+ * 期望输出的片段。只要**期望侧有标记**就存在 —— 包括 `replace` 那一份只在悬停时着色的
+ * quiet 标记（见 outputDiff.js）：没有它，鼠标停到 ACTUAL 的红字上就没东西可以点亮。
+ */
+const expectedSegments = computed(() => {
+  const marks = diffMarks.value?.want
+  if (!marks?.length) return null
+  const text = expectedDisplay.value
+  return markSegments(text, marks, shownLength(text, expectedHidden.value > 0))
+})
+
+/**
+ * 鼠标停在哪一处差异上（`pair` 编号，-1 = 没停在任何一处）。
+ *
+ * 一处差异在两侧各有一段标记（`replace`），或只在一侧（`extra` / `missing`），它们共用
+ * 一个 `pair` —— 所以停到任意一段上，同号的那一段都会跟着亮，两个框之间的「对应位置」
+ * 因此不用靠数行号去猜。`mouseover` / `mouseleave` 挂在外层 `<pre>` 上做事件委托：
+ * 标记最多 120 段 × 两侧，逐个挂监听不值当。
+ */
+const hoverPair = ref(-1)
+
+function onMarkOver(event) {
+  const hit = event.target instanceof Element ? event.target.closest('[data-pair]') : null
+  hoverPair.value = hit ? Number(hit.getAttribute('data-pair')) : -1
+}
+
+/** 段上的类：`mk` + kind 色，quiet 是「平时不着色、悬停才亮」，is-lit 是本轮悬停命中 */
+function markClass(seg) {
+  if (!seg.kind) return null
+  return ['mk', `mk--${seg.kind}`, { 'mk--quiet': seg.quiet, 'is-lit': seg.pair === hoverPair.value }]
+}
+
+/**
+ * 期望输出平时是可编辑的 `<textarea>`，而 textarea 由浏览器画字，没法只给其中几个字符染色。
+ * 所以「期望侧有要标的内容」时切成只读的 `<pre>`（结构与 ACTUAL 那个一致），点一下换回输入框
+ * —— 改期望输出仍然是一步，不是另一种模式。
+ *
+ * 2026-11-09 深夜起，WA 的 `replace` 也会让期望侧带一份 quiet 标记（悬停才着色），所以
+ * **WA 卡片上这一格基本都是只读视图**：先看清差在哪、要改再点一下，比反过来顺手。
+ */
+const editingExpected = ref(false)
+
+function openExpectedEditor() {
+  if (props.locked) return
+  editingExpected.value = true
+  nextTick(() => {
+    autoGrow(expectedEl.value)
+    const el = expectedEl.value
+    if (!el) return
+    el.focus()
+    // 光标放末尾：点开多半是为了补一段，放开头会让下一个字符插到最前面去
+    el.setSelectionRange(el.value.length, el.value.length)
+  })
+}
+
+function editExpected(event) {
+  // 单击（没选中任何文字）才进编辑：拖选是在挑要复制的片段，别把选择打断
+  const picked = String(window.getSelection() ?? '').trim()
+  if (picked) return
+  // `<pre>` 自己带 tabindex，不拦掉默认动作的话，浏览器会在下一帧把焦点放回那个即将被
+  // 换掉的角色上 —— 输入框明明挂上了，光标却不在里面（探针实测 focused=false）。
+  // 这一步挡的是 mousedown 已经把焦点交给 `<pre>` 之后的那次回落，和下面 nextTick 里的
+  // `focus()` 是两件事，缺一都不稳。
+  event?.preventDefault()
+  openExpectedEditor()
+}
+
+/**
+ * 键盘入口（2026-11-09 深夜加）：`<pre tabindex="0">` 能被 Tab 聚焦，但原来只绑了 click，
+ * 键盘用户停在这儿按什么都没反应 —— 一个能聚焦、却不能操作的控件比不可聚焦更糟。
+ * 这里**不走拖选判断**：键盘上不存在「正在挑要复制的片段」这回事。
+ */
+function editExpectedByKey(event) {
+  event?.preventDefault()
+  openExpectedEditor()
 }
 
 /**
@@ -533,7 +618,25 @@ function onLongCopy(event, full) {
           </div>
           <div class="field">
             <label class="field__label" :for="expectedId">Expected</label>
+            <!-- 期望侧「有内容没被打出来」时，这一格换成只读视图：textarea 由浏览器画字，
+                 没法只给其中几个字符染色。点一下换回输入框（见脚本里的 editExpected）。
+                 ⚠️ 这一整段必须写在**同一行**里：`<pre>` 内的空白是内容，缩进会变成输出里的空格。 -->
+            <pre
+              v-if="expectedSegments && !editingExpected"
+              :id="expectedId"
+              class="ta ta--view"
+              :class="{ 'ta--truncated': expectedHidden > 0 }"
+              :style="{ maxHeight: `${px(MAX_IO_HEIGHT)}px` }"
+              tabindex="0"
+              @click="editExpected"
+              @keydown.enter="editExpectedByKey"
+              @copy="onLongCopy($event, testCase.expectedOutput)"
+              @mouseover="onMarkOver"
+              @mouseleave="hoverPair = -1"
+              ><span v-for="(seg, i) in expectedSegments" :key="i" :class="markClass(seg)" :data-pair="seg.pair">{{ seg.text }}</span></pre
+            >
             <textarea
+              v-else
               :id="expectedId"
               ref="expectedEl"
               v-model="expectedModel"
@@ -543,6 +646,7 @@ function onLongCopy(event, full) {
               :placeholder="t('tests.card.expectedPlaceholder')"
               :disabled="locked"
               @copy="onLongCopy($event, testCase.expectedOutput)"
+              @blur="editingExpected = false"
             ></textarea>
             <div v-if="expectedHidden > 0" class="ionote">
               <span class="ionote__text">
@@ -594,19 +698,26 @@ function onLongCopy(event, full) {
                  -O2 把 `a / 0` 折成常量，程序照样退出 0，那个 0 本身没有意义，只是看起来像 AC。
                  它不进 outputText（否则「复制输出」会把提示一起递出去），只占框内顶部一行。 -->
             <p v-if="testCase.note" class="out-box__note">{{ testCase.note }}</p>
-            <!-- WA 时把「不同的那几个字符」在原文里标出来（2026-11-09 加）。
+            <!-- WA 时把「不一样的字符」直接染色（2026-11-09 加；当晚由底色高亮改成字色）。
                  ⚠️ 这一整段必须写在**同一行**里：`<pre>` 内的空白是内容（Vue 的 condense
                  在 pre 里不生效），换行 / 缩进会原样变成输出里的空行与空格。
-                 复制不受影响：onLongCopy 走的是选区 / 全文，与这里怎么切片无关。 -->
+                 三种 kind 见 services/outputDiff.js：replace 红 / extra 黄 / missing 黄（落在期望侧）。
+                 复制不受影响：走的是选区与全文，与这里怎么切片无关。
+                 `is-diffed` 只在**这一框真画出标记**时才撤掉 --fail-soft（2026-11-09 深夜收紧）：
+                 旧写法 `Boolean(diffMarks)` 让「纯 missing」「差异全在 4000 字符截断区外」这两种
+                 ACTUAL 一个字都不染的情况也改成常规字色 —— 判了 WA，实际框却和 AC 长得一样。 -->
             <pre
               class="out"
               :class="{
-                'is-empty': !outputView.text,
-                'is-hint': !outputView.text && testCase.status !== 'running',
+                'is-empty': !outputView.text && !actualSegments,
+                'is-hint': !outputView.text && !actualSegments && testCase.status !== 'running',
+                'is-diffed': Boolean(actualSegments),
               }"
               tabindex="0"
               @copy="onLongCopy($event, outputText)"
-              ><span v-if="outputMarks" class="out__marks"><span v-for="(seg, i) in outputMarks" :key="i" :class="{ out__mark: seg.mark }">{{ seg.text }}</span></span><template v-else>{{ outputView.text || actualPlaceholder }}</template></pre
+              @mouseover="onMarkOver"
+              @mouseleave="hoverPair = -1"
+              ><template v-if="actualSegments"><span v-for="(seg, i) in actualSegments" :key="i" :class="markClass(seg)" :data-pair="seg.pair">{{ seg.text }}</span></template><template v-else>{{ outputView.text || actualPlaceholder }}</template></pre
             >
           </div>
           <div v-if="outputView.long" class="ionote">
@@ -615,43 +726,6 @@ function onLongCopy(event, full) {
             </span>
           </div>
 
-          <!-- 差异块（2026-11-09 加）：只列前几处不同，每处两行（期望 / 实际），
-               真正不同的字符打底。判定那一路（AC / WA）完全不受它影响 —— 它只是把
-               「差在哪」说出来，替掉原先 WA 时一片沉默的卡片。 -->
-          <div v-if="diffResult" class="diff">
-            <p class="diff__head">
-              <span>{{ t('tests.diff.title') }}</span>
-              <span class="diff__mode">{{ t(checkerLabelKey(checkerId)) }}</span>
-            </p>
-            <div v-for="(entry, i) in diffResult.entries" :key="i" class="diff__entry">
-              <p v-if="whereText(entry) || entry.kind !== 'replace'" class="diff__where">
-                <span v-if="whereText(entry)">{{ whereText(entry) }}</span>
-                <span v-if="entry.kind !== 'replace'" class="diff__kind" :data-kind="entry.kind">
-                  {{ t(`tests.diff.kind.${entry.kind}`) }}
-                </span>
-              </p>
-              <p v-if="entry.want" class="diff__row">
-                <span class="diff__tag">{{ t('tests.diff.want') }}</span>
-                <span class="diff__text"><span
-                    v-for="(seg, k) in entry.want"
-                    :key="k"
-                    :class="{ diff__mark: seg.mark }"
-                    >{{ seg.text }}</span></span>
-              </p>
-              <p v-if="entry.got" class="diff__row">
-                <span class="diff__tag">{{ t('tests.diff.got') }}</span>
-                <span class="diff__text"><span
-                    v-for="(seg, k) in entry.got"
-                    :key="k"
-                    :class="{ diff__mark: seg.mark }"
-                    >{{ seg.text }}</span></span>
-              </p>
-            </div>
-            <p v-if="diffResult.truncated" class="diff__note">{{ t('tests.diff.tooLong') }}</p>
-            <p v-if="diffResult.more" class="diff__note">
-              {{ t('tests.diff.more', { n: diffResult.more }) }}
-            </p>
-          </div>
         </div>
       </div>
     </div>
@@ -1253,6 +1327,13 @@ function onLongCopy(event, full) {
   color: var(--fail-soft);
 }
 
+/* 有差异可指时，ACTUAL 正文回到常规字色（2026-11-09 晚）：整框的淡红（--fail-soft）
+   会把红 / 黄标记衬得没有对比 —— 浅色主题里 --fail-soft #a02a22 与 --fail #c93c2c
+   几乎分不出来。判定结论仍由徽标交代，框里只负责「指到哪几个字符」。 */
+.card[data-status='failed'] .out.is-diffed {
+  color: var(--text);
+}
+
 .out.is-empty {
   color: var(--text-faint);
 }
@@ -1268,113 +1349,53 @@ function onLongCopy(event, full) {
   font-size: 12px;
 }
 
-/* ---------- 差异标记（2026-11-09 加）----------
-   两处共用同一套长相：框内（`.out__mark`，标记 stdout 原文里那几个字符）与差异块
-   （`.diff__mark`）。底色是 base.css 的 --diff-mark —— 比 --fail-face 深一档，
-   因为这里只有几个字符的宽度，同透明度下淡到看不见（见那支变量的注释）。
-   不加圆角以外的装饰：行内元素跨行折行时，圆角会被切成两段，再多画就更碎了。
+/* ---------- 差异染色（2026-11-09 加；当晚由「铺底色」改成「只换字色」）----------
+   `.mk` 只出现在 ACTUAL / EXPECTED 两个框的行内片段上，三种 kind 一一对应：
 
-   ⚠️ 只标**真正不同**的那几个字符（前后公共段已在 outputDiff 里掐掉）。整行整段变红
-   等于没标 —— 用户还是得自己找。 */
-.out__mark,
-.diff__mark {
-  background: var(--diff-mark);
-  border-radius: 4px;
-  /* 阴影当作一圈极细的描边：标的是一个**空格**时，只有底色的话在行尾几乎看不出来 */
-  box-shadow: 0 0 0 1px var(--diff-mark);
+     replace  与期望不同的那一段               → WA 红（--fail）
+     extra    实际输出多出来的那一段            → RE 黄（--err）
+     missing  期望里有、实际没打出来的那一段     → RE 黄（--err）
+
+   不铺底、不加描边、不改字重：一段 60 列的输出里，几个字换色比刷一片底色更容易一眼找到，
+   也不会在折行时被切成两截色块。⚠️ 纯空白的差异段在 outputDiff.js 里已经换成
+   `·` / `⇥` / `↵` —— 空格染红了还是空格，只能靠字形把它显出来。 */
+.mk--replace {
+  color: var(--fail);
 }
 
-/* 差异块：ACTUAL 框下面那一小块，只在 WA 且有差异时出现（见模板与脚本里的 diffResult）。
-   字号比正文（14.5）小一档：它是「解释上面那块为什么不对」，不是输出本身。 */
-.diff {
-  display: grid;
-  gap: 5px;
-  margin-top: 6px;
-  font-family: var(--mono-font);
-  font-size: 12.5px;
-  line-height: 1.4;
+.mk--extra,
+.mk--missing {
+  color: var(--err);
 }
 
-/* 头部：左边「差异」，右边这次用的口径。与 .field__label 同一套小字语汇（10px / 字距 0.6） */
-.diff__head {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+/* 悬停某一处差异时，两侧同一个 pair 的标记一起亮（2026-11-09 深夜）。
+   不能用底色、也不能改字重：底色就是刚撤掉的那种「高亮框」，字重会改变字符宽度 ——
+   在 <pre> 里那就是整行跟着错位。所以只用下划线与光晕，两者都只参与绘制、不参与排版。 */
+.mk.is-lit {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+  text-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
+}
+
+/* 期望侧「对应着不同」的那一段（quiet）：平时完全不着色，只在悬停实际侧那一处时亮起来。
+   必须排在 .mk--replace 之后 —— 同为单类选择器，靠顺序才盖得掉那份红色。 */
+.mk--quiet {
+  color: inherit;
+}
+
+.mk--quiet.is-lit {
+  color: var(--fail);
+}
+
+/* 期望输出在「有内容没打出来」时换成只读视图（textarea 由浏览器画字，没法只染几个字符）。
+   除了 pre 必须自己声明的空白处理，尺寸全部沿用 .ta —— 两个形态要看得出是同一个框。 */
+.ta--view {
   margin: 0;
-  padding-left: 10px;
-  font-family: inherit;
-  font-size: 10px;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-/* 口径名贴右：它解释的是「下面按什么规则比出来的」，属于附注，不跟标题抢行首 */
-.diff__mode {
-  margin-left: auto;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/* 一处差异 = 位置行 + 两行正文。条目之间靠 gap 分开，不画线、不铺底：
-   这个块已经在一张无框卡片里，再加一层框就回到了「卡片套卡片」。 */
-.diff__entry {
-  display: grid;
-  gap: 2px;
-  padding-left: 10px;
-}
-
-/* 位置行：第 N 行 / 第 N 个词，后面跟一个「缺少 / 多出」的小标签（不一致时不显示 ——
-   两行并排摆着已经说明问题了）。 */
-.diff__where {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 0;
-  font-family: inherit;
-  font-size: 10.5px;
-  color: var(--text-faint);
-}
-
-.diff__kind {
-  color: var(--warn);
-}
-
-/* 期望 / 实际各一行。两行的标签同宽（min-width 按英文 Expected 对齐），正文起点才会齐 ——
-   中文「期望 / 实际」两个字自然等宽，但英文界面下 Expected / Actual 会差出半截。 */
-.diff__row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 0;
-}
-
-.diff__tag {
-  flex: 0 0 auto;
-  min-width: 3.6em;
-  font-family: inherit;
-  font-size: 10.5px;
-  color: var(--text-faint);
-}
-
-/* 正文：保留空白（样例里连续空格常是有意义的差异），但**允许折行** ——
-   侧栏最窄只有 158px，一行 60 列的输出不折行就只能横滚。 */
-.diff__text {
-  flex: 1 1 auto;
-  min-width: 0;
+  overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--text-dim);
-}
-
-/* 「还有 N 处不同」「输出过长」这两句附注：比条目再淡一档，它们说的是「这里没列全」。
-   字体换回界面字体 —— 它是一句说明，不是输出内容。 */
-.diff__note {
-  margin: 0;
-  padding-left: 10px;
-  font-family: var(--ui-font);
-  font-size: 10.5px;
-  color: var(--text-faint);
+  cursor: text;
 }
 
 /* ---------- 窄容器下的降级 ----------

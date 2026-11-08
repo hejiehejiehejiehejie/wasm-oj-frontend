@@ -99,6 +99,7 @@ const EXTRA_LABEL_KEYS = {
   templatesEnabled: 'settings.templates.enable.label',
   celebration: 'settings.judge.celebration.label',
   crossCheck: 'settings.judge.crossCheck.label',
+  diffHighlights: 'settings.judge.diffHighlights.label',
 }
 
 const labelKeyFor = (id) => EXTRA_LABEL_KEYS[id] ?? `settings.editor.${id}.label`

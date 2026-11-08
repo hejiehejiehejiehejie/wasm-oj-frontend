@@ -101,32 +101,6 @@ export default {
       },
 
       /**
-       * WA 时的「差异」块（2026-11-09 加）。只列前几处不同，把不同的那几个字符标出来。
-       * 这里只有标签与位置词 —— `−` `+` `↵` 那些记号是纯符号，写在 outputDiff.js 里。
-       */
-      diff: {
-        title: '差异',
-        /** 期望侧 / 实际侧的标签。卡片上三个小标题是写死的英文（见 card 那段说明），
-            这里跟着界面语言走：它说的是「哪一边」，不是在标注框名 */
-        want: '期望',
-        got: '实际',
-        /** 位置词。`{n}` 已格式化过（行号 / 第几个词 / 第几个字符） */
-        whereLine: '第 {n} 行',
-        whereToken: '第 {n} 个词',
-        whereChar: '第 {n} 个字符',
-        /** 条目类型：不一致的那一行 / 期望有实际没有 / 实际多出来的 */
-        kind: {
-          replace: '不一致',
-          missing: '缺少',
-          extra: '多出',
-        },
-        /** 还有多少处没列出来（只显示前 3 处） */
-        more: '还有 {n} 处不同',
-        /** 输出过长，没做逐处比对（见 outputDiff.js 的 MAX_CHARS） */
-        tooLong: '输出过长，未逐处比对',
-      },
-
-      /**
        * 「一键提交到 Codeforces」（2026-10-23 加）。
        * 按钮文案与三条闸门说的是同一件事：能不能交、为什么不能交。
        * verdict 里翻的是判定码的含义，判定码本身（AC / WA …）当标题用，不翻。
@@ -351,23 +325,6 @@ export default {
         strict: 'Strict, exact',
         float: 'Numeric tolerance',
         unordered: 'Ignore line order',
-      },
-
-      /** 同 zh-CN：WA 时那块「差异」（2026-11-09 加） */
-      diff: {
-        title: 'Diff',
-        want: 'Expected',
-        got: 'Actual',
-        whereLine: 'line {n}',
-        whereToken: 'token {n}',
-        whereChar: 'char {n}',
-        kind: {
-          replace: 'differs',
-          missing: 'missing',
-          extra: 'extra',
-        },
-        more: '{n} more differences',
-        tooLong: 'Output too long to diff',
       },
 
       /** 同 zh-CN：一键提交的按钮 / 闸门 / 失败原因 / 判定码说明（2026-10-23 加） */

@@ -3098,6 +3098,30 @@ watch(pendingUnbind, (open) => {
           </span>
         </label>
 
+        <!-- 差异染色开关（2026-11-09 加）：紧跟着上面那条「输出比对」—— 前者决定「怎么算对」，
+             这一条决定「判错之后要不要把不同的字符染出来」。只关显示，不改判定：
+             关掉时 TestCaseCard 的 diffMarks 直接返回 null，连 outputDiff 都不进。 -->
+        <div class="setting-row setting-row--switch">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.judge.diffHighlights.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.judge.diffHighlights.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <button
+              class="switch"
+              :class="{ 'is-on': settings.diffHighlights }"
+              role="switch"
+              :aria-checked="settings.diffHighlights"
+              :aria-label="t('settings.judge.diffHighlights.label')"
+              @click="set('diffHighlights', !settings.diffHighlights)"
+            >
+              <span class="switch__thumb"></span>
+            </button>
+          </span>
+        </div>
+
         <!-- 全部样例通过时的纸屑（2026-10-23 加，落点就在样例栏那块面板里）。摆在时限 / 内存 / 比对之后、
              引擎之前：它讲的是「评测结果怎么反馈」，与上面几条同属「这一次怎么判」。
              开关本体在 services/confetti.js，关掉后连那块 canvas 都不建。 -->

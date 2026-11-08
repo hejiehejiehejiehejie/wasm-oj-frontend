@@ -287,44 +287,93 @@ const CHECKER_CASES = [
 ]
 
 /**
- * 差异块（services/outputDiff.js）：`want` 是第一条差异的类型，`null` 表示「等价、不该有差异块」。
+ * 差异染色（services/outputDiff.js，2026-11-09 晚改成「两侧各标各的 + 只改字色」）。
+ *
+ * `got` / `want` = 两侧**被染色的那几段原文**拼起来的样子（空串 = 那一侧不该有标记）。
+ * 它是 `markSegments` 走完之后的可见文本 —— 纯空白的差异段会被换成 `·` / `⇥` / `↵`，
+ * 所以「多了一个空格」在这里是可断言的 `·`，不是看不见的空字符串。
+ * `same: true` = 这个口径下两段等价，`diffOutput` 必须返回 null。
  *
  * 这里守两条不变量，比单看某条文案重要：
- * ① 判定说 WA 的地方，差异必须说得出「差在哪」；
- * ② 判定说 AC 的地方，**绝不能**冒出差异（否则卡片会指着一模一样的两段文本说「不同」）。
+ * ① 判定说 WA 的地方，差异必须落在**某一侧**（否则卡片会一片白，用户只知道错了、不知道哪错）；
+ * ② 判定说 AC 的地方，**绝不能**冒出标记（否则卡片会指着一模一样的两段文本说「不同」）。
  * 第 ② 条由上面那批 CHECKER_CASES 全量交叉验（见下面「比对器 ↔ 差异」那一段）。
  */
-// `want` = 首条差异的类型（null = 这个口径下应当没有差异）；
-// `markText` = 框内高亮应当覆盖的**原文**片段（空串 = 不该高亮）；
-// `entryCount` = 条目数（不给就不查）。
-//
-// `markText` 专盯 `marks` 的偏移是否落在原文上：`lines` / `strict` / `unordered` 一旦拿
-// 归一化之后的下标去切原文，实际输出里只要有一个 `\r`，高亮就会往前错一位。
-// `entryCount` 盯的是对齐策略：行**只按行号配**（`positionalOps`），所以「期望 3 行、
-// 实际只有 1 行 2」必须给 3 条（第 1 行不一致 + 缺第 2、3 行），而不是 LCS 的 2 条「缺 1、缺 3」。
+// `got` / `want` 盯的是偏移是否落在原文上：`lines` / `strict` / `unordered` 一旦拿归一化
+// 之后的下标去切原文，实际输出里只要出现一个回车，标记就会往前错一位。
+// 标哪一侧盯的是对齐策略：元素（行 / 行内的词）**只按位置配**，配不上的一律挂尾巴，所以
+// 「期望 3 行、实际只有 1 行 2」要在实际侧标第 1 行、期望侧标第 2、3 行；`1 2 3` 对 `2 3`
+// 要把第 1、2 个词都标成不一致，而不是拿公共后缀把 `2 3` 对上、只报「多了个 1」。
+// 「缺内容标在期望侧」是这一版的核心：实际侧那个区间长度是 0，画不出来。
+// 唯一的反例是「实际是期望的前缀」（`10` / `100`）：边界吸附会把切点推回词首，两侧整词 replace。
+// 一旦这条短路写成单边的，多一位数字标 replace、少一位实际框全白 —— 2026-11-09 修掉的就是它。
 const DIFF_CASES = [
-  { id: 'lines', actual: '1 2\n4', expected: '1 2\n3', want: 'replace', markText: '4', entryCount: 1 },
-  { id: 'lines', actual: '1 2', expected: '1 2\n3', want: 'missing', markText: '', entryCount: 1 },
-  { id: 'lines', actual: '1 2\n3\n4', expected: '1 2\n3', want: 'extra', markText: '4', entryCount: 1 },
-  { id: 'lines', actual: '1 2 ', expected: '1 2', want: null, markText: '', entryCount: 0 },
-  { id: 'tokens', actual: '1 2', expected: '1 2 3', want: 'missing', markText: '', entryCount: 1 },
-  { id: 'tokens', actual: '1  2', expected: '1 2', want: null, markText: '', entryCount: 0 },
-  { id: 'strict', actual: '1 2 \n3', expected: '1 2\n3', want: 'extra', markText: ' ', entryCount: 1 },
-  { id: 'strict', actual: '1 2\r\n3', expected: '1 2\n3', want: null, markText: '', entryCount: 0 },
-  { id: 'unordered', actual: '3\n1\n2\n9', expected: '1\n2\n3', want: 'extra', markText: '9', entryCount: 1 },
+  { id: 'lines', actual: '1 2\n4', expected: '1 2\n3', got: '4', want: '3', pairs: 1 },
+  { id: 'lines', actual: '1 2', expected: '1 2\n3', got: '', want: '3', pairs: 0 },
+  { id: 'lines', actual: '1 2\n3\n4', expected: '1 2\n3', got: '4', want: '', pairs: 0 },
+  { id: 'lines', actual: '1 2 ', expected: '1 2', same: true },
+  { id: 'tokens', actual: '1 2', expected: '1 2 3', got: '', want: '3', pairs: 0 },
+  { id: 'tokens', actual: '1  2', expected: '1 2', same: true },
+  { id: 'strict', actual: '1 2 \n3', expected: '1 2\n3', got: '·', want: '', pairs: 0 },
+  { id: 'strict', actual: '1 2\r\n3', expected: '1 2\n3', same: true },
+  { id: 'unordered', actual: '3\n1\n2\n9', expected: '1\n2\n3', got: '9', want: '', pairs: 0 },
   // CRLF 回归：判定时 `\r\n` 抹成 `\n`，但标记必须落在原文上
-  { id: 'lines', actual: '1\r\n2', expected: '1\n3', want: 'replace', markText: '2', entryCount: 1 },
-  { id: 'strict', actual: 'a\r\nb', expected: 'a\nc', want: 'replace', markText: 'b', entryCount: 1 },
-  { id: 'lines', actual: '1\r\n2\r\n9', expected: '1\n2', want: 'extra', markText: '9', entryCount: 1 },
-  { id: 'lines', actual: '1\r\n2', expected: '1\n2', want: null, markText: '', entryCount: 0 },
-  { id: 'tokens', actual: '1\r\n2', expected: '1 2', want: null, markText: '', entryCount: 0 },
+  { id: 'lines', actual: '1\r\n2', expected: '1\n3', got: '2', want: '3', pairs: 1 },
+  { id: 'strict', actual: 'a\r\nb', expected: 'a\nc', got: 'b', want: 'c', pairs: 1 },
+  { id: 'lines', actual: '1\r\n2\r\n9', expected: '1\n2', got: '9', want: '', pairs: 0 },
+  { id: 'lines', actual: '1\r\n2', expected: '1\n2', same: true },
+  { id: 'tokens', actual: '1\r\n2', expected: '1 2', same: true },
   // 单独出现的 `\r`（老式 Mac 换行）同样只算一个换行
-  { id: 'lines', actual: 'x\ry', expected: 'x\nz', want: 'replace', markText: 'y', entryCount: 1 },
+  { id: 'lines', actual: 'x\ry', expected: 'x\nz', got: 'y', want: 'z', pairs: 1 },
   // 行按行号配：孤立的 `2` 不许跳到第 2 行去对齐（用户 2026-11-09 口径）
-  { id: 'lines', actual: '2', expected: '1\n2\n3', want: 'replace', markText: '2', entryCount: 3 },
-  { id: 'lines', actual: '2\n3', expected: '1\n2\n3', want: 'replace', markText: '23', entryCount: 3 },
-  // 代价：实际多插一行时，后面每一行都标成不一致（换 LCS 会说「第 2 行多出 X」）
-  { id: 'lines', actual: '1\nX\n2\n3', expected: '1\n2\n3', want: 'replace', markText: 'X23', entryCount: 3 },
+  { id: 'lines', actual: '2', expected: '1\n2\n3', got: '2', want: '123', pairs: 1 },
+  { id: 'lines', actual: '2\n3', expected: '1\n2\n3', got: '23', want: '123', pairs: 2 },
+  // 代价：实际多插一行时，后面每一行都标成不同（换 LCS 会说「第 2 行多出 X」）
+  { id: 'lines', actual: '1\nX\n2\n3', expected: '1\n2\n3', got: 'X23', want: '23', pairs: 2 },
+  // 缺内容落在期望侧：实际侧那一段长度为 0，染不出来
+  { id: 'lines', actual: '1 3', expected: '1 2 3', got: '3', want: '23', pairs: 1 },
+  { id: 'lines', actual: '10', expected: '100', got: '10', want: '100', pairs: 1 },
+  // 反方向（实际多一位）本来就是整词 replace；两边必须对称，否则同一个错误一侧有红一侧全白
+  { id: 'lines', actual: '100', expected: '10', got: '100', want: '10', pairs: 1 },
+  // float：数值算错不是「漏打了 0001」，整词标出
+  { id: 'float', actual: '1.5', expected: '1.50001', got: '1.5', want: '1.50001', pairs: 1 },
+  { id: 'lines', actual: '1 2', expected: '1 2\n3\n4', got: '', want: '34', pairs: 0 },
+  { id: 'strict', actual: '13', expected: '123', got: '', want: '2', pairs: 0 },
+  { id: 'lines', actual: '', expected: '1\n2\n3', got: '', want: '123', pairs: 0 },
+  { id: 'unordered', actual: '1\n2', expected: '1\n2\n3', got: '', want: '3', pairs: 0 },
+  // 元素对元素（2026-11-09 第四轮）：行内 / 全局都按位置配，不跨位置找配对。
+  // `1 2 3` 对 `2 3`：旧的公共后缀会整段对上、只报「多了个 1」；现在第 1 个词 1↔2、
+  // 第 2 个词 2↔3 各算一处不一致，第 3 个词只有期望侧有 → 标「少了 3」。
+  { id: 'lines', actual: '1 2 3', expected: '2 3', got: '123', want: '23', pairs: 2 },
+  { id: 'lines', actual: '1\n3', expected: '1\n2 3', got: '3', want: '23', pairs: 1 },
+  { id: 'tokens', actual: '1 2 3', expected: '2 3', got: '123', want: '23', pairs: 2 },
+  // LCS 把 `1 2` 救回来之后只剩「3 换了 3」—— 位置全错。按位置配就是三处都不一致。
+  { id: 'tokens', actual: '3 1 2', expected: '1 2 3', got: '312', want: '123', pairs: 3 },
+  // float 同一支：容差内不算差异，超了按位置标
+  { id: 'float', actual: '1.0000001 2', expected: '1.0 2', same: true },
+  { id: 'float', actual: '1.0 2.0', expected: '1.0 3.0', got: '2.0', want: '3.0', pairs: 1 },
+  // 纯空白差异：只染色看不见，换行 / 空格 / 制表要换成可见符号
+  { id: 'strict', actual: '1 2\n\n3', expected: '1 2\n3', got: '↵\n', want: '', pairs: 0 },
+  { id: 'lines', actual: '1  2', expected: '1 2', got: '·', want: '', pairs: 0 },
+  { id: 'lines', actual: '1 2', expected: '1  2', got: '', want: '·', pairs: 0 },
+  // 空白换成符号后两侧都看得到：制表 vs 空格属于「两边都有、但不一样」。
+  // 期望侧那一份是 quiet（平时不着色），所以**不换字形** —— 这里断言的就是一个真空格，
+  // 悬停时才靠下划线与光晕露出来（换成 `·` 就等于提前把差异画在静默态上）。
+  { id: 'lines', actual: '1\t2', expected: '1 2', got: '⇥', want: ' ', pairs: 1 },
+  // 空行也算一行：多出来的那个空行只能标在它后面那个换行上
+  { id: 'unordered', actual: '\r\n100800', expected: '100800', got: '↵\n', want: '', pairs: 0 },
+  // 前 `shared` 行里一侧是空行：词元切出来是空数组，按词配会让空行那一侧一个标记都没有
+  // （真正的罪魁祸首毫无高亮，反而是后面正确的行被标成多出）→ 整行落标，空行退到它的换行上
+  { id: 'lines', actual: '1\n\n3', expected: '1\n2\n3', got: '↵\n', want: '2', pairs: 1 },
+  { id: 'lines', actual: '\n10 20', expected: '10 20', got: '↵\n10 20', want: '10 20', pairs: 1 },
+  // 纯空格行：裁掉行尾空白后是空行，换行在下标 3 而不是 0 —— 标错位置就会去染第一个空格
+  { id: 'lines', actual: '   \n1', expected: '1', got: '···↵\n1', want: '1', pairs: 1 },
+  // 同词异距：只比词间缝隙，不许把头尾两处多余空格之间的正确内容一起吞进去
+  { id: 'lines', actual: '1  2 3 4 5  6', expected: '1 2 3 4 5 6', got: '··', want: '', pairs: 0 },
+  { id: 'lines', actual: ' 1 2', expected: '1 2', got: '·', want: '', pairs: 0 },
+  // 词元边界吸附：数字 / 单词被切开时整段染色（只标中间一个字符读不出改了什么）
+  { id: 'lines', actual: '1 100800 3', expected: '1 100000 3', got: '100800', want: '100000', pairs: 1 },
+  { id: 'lines', actual: 'Impossible', expected: 'Possible', got: 'Impossible', want: 'Possible', pairs: 1 },
 ]
 
 // ---------------------------------------------------------------- 启动骨架
@@ -425,42 +474,116 @@ try {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} ${ok ? '' : `got ${item.got}, want ${item.want}`}`)
   }
 
-  // ---- 差异块：语义 + 「判定 ↔ 差异」两条不变量
+  // ---- 差异染色：两侧各标各的 + 「判定 ↔ 差异」两条不变量
   const diffResults = await page.evaluate(async (cases) => {
     const { diffOutput, markSegments } = await import('/src/services/outputDiff.js')
+    // 一侧「被染色的那几段」拼起来 —— 走的就是界面那次切片，所以纯空白差异在这里是 `·` / `↵`
+    // （`markSegments` 在没有可染段时回 null：那是「这一侧不用染色」，不是「染了 0 段」）
+    const marked = (text, marks) =>
+      (markSegments(text, marks ?? []) ?? [])
+        .filter((seg) => seg.kind)
+        .map((seg) => seg.text)
+        .join('')
     return cases.map((item) => {
       const diff = diffOutput(item.actual, item.expected, item.id)
-      // 框内高亮实际覆盖的原文片段（空串 = 不该高亮）：走的就是界面的那一次切片
-      const marked = diff
-        ? markSegments(item.actual, diff.marks)
-            .filter((seg) => seg.mark)
-            .map((seg) => seg.text)
-            .join('')
-        : ''
+      const got = diff?.got ?? []
+      const want = diff?.want ?? []
+      // 两侧共用的 pair 数：这就是「鼠标停到一处，对侧能跟着亮」的那条线。
+      // 数字不对 = 某处差异只有单侧标记，或两侧编号错开（悬停会亮错地方）。
+      const shared = got.filter((mark) => want.some((peer) => peer.pair === mark.pair)).length
+      // 偏移必须落在原文里、同一侧不许互相压盖：`lineRange` 要把空行推到它的换行上，
+      // 换行位置一旦从 `start + brk` 算（而不是抹空白之前的位置），纯空格行就会压到前一格上。
+      const sound = (marks, text) => {
+        let at = 0
+        for (const mark of marks) {
+          if (mark.from < at || mark.to > text.length || mark.to <= mark.from) return false
+          at = mark.to
+        }
+        return true
+      }
       return {
         ...item,
-        kind: diff?.entries?.[0]?.kind ?? null,
-        entries: diff?.entries?.length ?? 0,
-        marks: diff?.marks?.length ?? 0,
-        marked,
+        none: diff === null,
+        gotText: marked(item.actual, got),
+        wantText: marked(item.expected, want),
+        total: got.length + want.length,
+        shared,
+        quiet: want.filter((mark) => mark.quiet).length,
+        sound: sound([...got].sort((x, y) => x.from - y.from), item.actual) &&
+          sound([...want].sort((x, y) => x.from - y.from), item.expected),
       }
     })
   }, DIFF_CASES)
 
-  console.log('\n输出差异')
+  console.log('\n输出差异（不一致标在实际侧，多出 / 缺少标在期望侧）')
   for (const item of diffResults) {
-    const okKind = item.kind === item.want
-    const okMark = item.marked === item.markText
-    const okCount = item.entryCount === item.entries
-    const ok = okKind && okMark && okCount
+    const ok =
+      item.same === true
+        ? item.none
+        : !item.none &&
+          item.gotText === item.got &&
+          item.wantText === item.want &&
+          item.shared === item.pairs
     if (!ok) exitCode = 1
     const note = ok
-      ? `entries=${item.entries} marks=${item.marks}`
-      : `${okKind ? '' : `kind got ${item.kind}, want ${item.want}; `}${okMark ? '' : `marked ${JSON.stringify(item.marked)}, want ${JSON.stringify(item.markText)}; `}${okCount ? '' : `entries ${item.entries}, want ${item.entryCount}`}`
+      ? item.same
+        ? '无差异'
+        : `ACTUAL ${JSON.stringify(item.gotText)} / EXPECTED ${JSON.stringify(item.wantText)} 配对 ${item.shared}`
+      : item.same
+        ? `判定等价，却给了 ${item.total} 段标记`
+        : `ACTUAL ${JSON.stringify(item.gotText)} 期望 ${JSON.stringify(item.got)}; EXPECTED ${JSON.stringify(item.wantText)} 期望 ${JSON.stringify(item.want)}; 配对 ${item.shared} 期望 ${item.pairs}`
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} ${note}`)
   }
 
-  // 交叉验：判定 WA ⇒ 差异必须说得出话；判定 AC ⇒ 差异必须为空。
+  // quiet 只该出现在期望侧：它是「对侧那一处换掉了我」，本身不该常驻着色。
+  // 反过来（实际侧出现 quiet）会让 ACTUAL 里冒出一段没有颜色的标记 —— 点了没反应、还挡选区。
+  const quietOk =
+    diffResults.every((item) => item.quiet === 0 || item.quiet <= (item.pairs ?? 0)) &&
+    diffResults.every((item) => item.quiet === 0 || item.wantText.length > 0)
+  if (!quietOk) exitCode = 1
+  console.log(`  ${quietOk ? 'PASS' : 'FAIL'}  ${pad('quiet', 14)} 期望侧静默标记数 = 配对数`)
+
+  // 偏移的自洽性：不越界、不零宽、同一侧不互相压盖（重叠了 `markSegments` 会跳段，标记就丢了）
+  const soundOk = diffResults.every((item) => item.sound)
+  if (!soundOk) exitCode = 1
+  console.log(`  ${soundOk ? 'PASS' : 'FAIL'}  ${pad('bounds', 14)} 同一侧标记有序、不越界、不重叠`)
+  if (!soundOk) {
+    for (const item of diffResults.filter((one) => !one.sound)) {
+      console.log(`        越界/重叠：${item.id} ${JSON.stringify([item.actual, item.expected])}`)
+    }
+  }
+
+  // 切片层的渲染契约（2026-11-09 深夜，用户评审后加）。这四条都不是「颜色对不对」，
+  // 而是「调用方能不能靠返回值判断有没有东西可染」，错了会表现为「判了 WA 却长得像 AC」：
+  //   ① 一段都画不出来 → null。旧版会返回 `[{text: 全文, kind: null}]`，是真值数组，
+  //      于是 EXPECTED 被拴进只读 <pre>、ACTUAL 又被撤掉 --fail-soft 兜底红字。
+  //   ② quiet 段不换字形 —— 换了就等于在未悬停时先露出 `·` / `↵`，静默失效。
+  //   ③ 有可见字符的标记段只换首尾空白：整行 `10 20` 不该变成 `10·20`。
+  //   ④ 纯空白段照旧全换：一道多余缝隙、一个空行、一整行空格，只有字形能指出来。
+  const renderCases = await page.evaluate(async () => {
+    const { markSegments } = await import('/src/services/outputDiff.js')
+    const kindText = (segs) => segs?.filter((seg) => seg.kind).map((seg) => seg.text).join('') ?? null
+    const long = 'x'.repeat(6000)
+    return [
+      // 差异全在截断点（4000）之后：框里一个字都染不到
+      { name: 'clipped', actual: kindText(markSegments(long, [{ from: 5000, to: 5001, kind: 'extra', pair: 1 }], 4000)), want: null },
+      { name: 'no-marks', actual: markSegments('abc', []), want: null },
+      { name: 'quiet-blank', actual: kindText(markSegments('a b', [{ from: 1, to: 2, kind: 'replace', pair: 1, quiet: true }])), want: ' ' },
+      { name: 'row-blank', actual: kindText(markSegments('10 20', [{ from: 0, to: 5, kind: 'extra', pair: 1 }])), want: '10 20' },
+      { name: 'tail-blank', actual: kindText(markSegments('10 ', [{ from: 0, to: 3, kind: 'extra', pair: 1 }])), want: '10·' },
+      { name: 'gap-blank', actual: kindText(markSegments('1  2', [{ from: 1, to: 3, kind: 'extra', pair: 1 }])), want: '··' },
+    ]
+  })
+  const renderOk = renderCases.every((one) => one.actual === one.want)
+  if (!renderOk) exitCode = 1
+  console.log(
+    `  ${renderOk ? 'PASS' : 'FAIL'}  ${pad('render', 14)} 切片：无可染回 null / quiet 静默 / 只换边界空白`,
+  )
+  for (const one of renderCases.filter((row) => row.actual !== row.want)) {
+    console.log(`        ${one.name}: 实得 ${JSON.stringify(one.actual)} 期望 ${JSON.stringify(one.want)}`)
+  }
+
+  // 交叉验：判定 WA ⇒ 两侧至少有一处标记；判定 AC ⇒ 一处都没有。
   // 两条模块的前处理（换行 / 行尾空白 / 末尾空行）只要有一处写歪，这一组就会红。
   const crosses = await page.evaluate(async (cases) => {
     const { checkOutput } = await import('/src/services/checkers.js')
@@ -468,15 +591,15 @@ try {
     return cases.map((item) => {
       const match = checkOutput(item.actual, item.expected, item.id)
       const diff = diffOutput(item.actual, item.expected, item.id)
-      return { id: item.id, match, hasDiff: Boolean(diff?.entries?.length) }
+      return { id: item.id, match, hasDiff: diff !== null }
     })
   }, CHECKER_CASES)
 
-  console.log('\n比对器 ↔ 差异（WA 必须有差异，AC 必须没有）')
+  console.log('\n比对器 ↔ 差异（WA 必须有标记，AC 必须没有）')
   for (const item of crosses) {
     const ok = item.match ? !item.hasDiff : item.hasDiff
     if (!ok) exitCode = 1
-    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} 判定=${item.match ? 'AC' : 'WA'} 差异=${item.hasDiff}`)
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} 判定=${item.match ? 'AC' : 'WA'} 标记=${item.hasDiff}`)
   }
 
   // ---- 判定矩阵

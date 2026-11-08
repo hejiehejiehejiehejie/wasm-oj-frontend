@@ -272,6 +272,18 @@ export const EDITOR_SETTINGS_DEFAULTS = {
    */
   crossCheck: false,
   /**
+   * WA 卡片上的**差异染色**（2026-11-09 加，见 services/outputDiff.js 与 TestCaseCard.vue）。
+   *
+   * 不是说「判定要不要比较输出」—— 那是 checkers.js 的事，这个开关只关显示：关掉之后
+   * `diffMarks` 直接返回 null，两个框里一个字都不染，连 `outputDiff.js` 都不进。
+   *
+   * **默认开**：染色是 WA 卡片上唯一能直接指出「哪几个字符错了」的东西，默认关等于
+   * 让绝大多数人看不到它。关掉的人是「已经知道错在哪、只想看干净的输出」那一档。
+   * 与 statusBar / crossCheck 同理，不是 Monaco 选项，攒在这份存档里只是图「新增一项偏好
+   * 不用再开一份 localStorage」；随云同步（`cp.editorSettings` 在 SYNC_KEYS 里）一起走。
+   */
+  diffHighlights: true,
+  /**
    * 低配模式：只影响**编辑器内的后台语法检查**（`services/monaco/syntaxDiagnostics.js`）。
    *
    * 开着眼务于老机器 —— 那条检查每触发一次就要起一个 WASI worker、实例化 30MB 的 clang、

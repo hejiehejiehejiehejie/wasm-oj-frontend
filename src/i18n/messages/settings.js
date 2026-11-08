@@ -329,6 +329,11 @@ export default {
           hint: '逐行忽略行尾空格；忽略空白按词比；严格逐字符要求完全一致。题目信息里指定过则优先',
         },
         celebration: { label: '通过动画', hint: '所有样例都通过时，在样例栏飘落彩色纸屑' },
+        /** 差异染色（2026-11-09 加）：只关显示，不改判定 —— 关掉后两个框里一个字都不染 */
+        diffHighlights: {
+          label: '差异高亮',
+          hint: '把与期望不同的字符染成红色 / 黄色；关掉后只留判定结果',
+        },
         crossCheck: {
           label: '关闭优化重跑比对',
           hint: '用 -O0 重编一遍跑同一条用例，两次输出不同就提示（查未定义行为，多占一份内存）',
@@ -952,6 +957,10 @@ export default {
             'Line by line ignores trailing spaces; ignore whitespace compares tokens; strict compares every character. A problem’s own setting wins',
         },
         celebration: { label: 'Pass animation', hint: 'Confetti falls over the sample panel when every test case passes' },
+        diffHighlights: {
+          label: 'Highlight differences',
+          hint: 'Tints characters that differ from the expected output; off shows the verdict only',
+        },
         crossCheck: {
           label: 'Re-run without optimisation',
           hint: 'Recompiles at -O0 and reruns one case; a differing output is reported (catches undefined behaviour, costs an extra host)',
