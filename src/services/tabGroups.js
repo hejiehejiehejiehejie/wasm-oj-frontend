@@ -43,6 +43,7 @@
  *   else groupTabs(ids, { name: title, color: 'blue' })
  */
 import { reactive, watch } from 'vue'
+import { isViewOpen } from './editorViews.js'
 import { isViewId, moveStripItem, stripOrder } from './tabStrip.js'
 import { closeFocus, closeTab, createFile, workspace } from './vfs/workspaceStore.js'
 import { templateForPath } from './fileTemplates.js'
@@ -231,32 +232,50 @@ export function isHiddenTab(tabId) {
 }
 
 /**
+ * 这张页签此刻**看得见**吗：在条带上、还开着、不属于已折叠的分组。
+ *
+ * 「焦点必可见」那条铁律的就地实现（2026-11-09 从 findNextVisibleTab 里抽出来，供
+ * 焦点记忆回溯复用 —— 记忆里可能有早就关掉 / 被折叠藏起来的 id，落点前得逐个筛）。
+ * **不判类型**：合成视图 id 只要开着就算可见，装不装得下是调用方的事（见 includeViews）。
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isTabVisible(id) {
+  if (!id || stripOrder.indexOf(id) === -1) return false
+  if (isViewId(id)) return isViewOpen(id)
+  return workspace.openTabIds.includes(id) && !isHiddenTab(id)
+}
+
+/**
  * 可见页签寻址（2026-10-20 十四改抽出的公共方法；2026-10-26 加 includeViews）：
  * 折叠组转移焦点与「关闭激活页签」共用同一套「先向右、兜底向左」的优先级。从 anchorIndex
  * 起（**含**）向右找第一个可见页签，右侧没有再从 anchorIndex-1 起向左逆序找。
  *
- * 「可见」= 在 stripOrder 里、还开着（openTabIds 里有 —— 关闭场景 stripOrder 可能要等
- * watch 才清掉旧 id）、不属于任何已折叠分组。**合成视图页签默认不算候选**：关闭页签的焦点
- * 只能落到文件上（activeId 装不了视图 id，见 workspaceStore.closeTab 的注入约定）。
- * 折叠组转移焦点要把它算进来（传 includeViews）—— 视图页签就排在组旁边时，它才是「离得
- * 最近的那一格」，跳过它会跳到更远的文件上、整条只剩视图时还会误判成全折叠。
+ * 「可见」= 在 stripOrder 里、还开着（文件看 openTabIds —— 关闭场景 stripOrder 可能要等
+ * watch 才清掉旧 id；视图看它自己的 open 标志，同理）、不属于任何已折叠分组。
+ * `includeViews` 说的是**这个调用方装不装得下视图 id**，不是「视图算不算页签」：
+ *   · services/tabFlow.js 的关闭交接传 true —— 那一层认的是「条带上的一张页签」，
+ *     视图与文件一视同仁，这正是「关掉文件后焦点跳到旁边的 Codeforces」能成立的地方；
+ *   · tabGroups 自己的 closeFocus.pick（注入给 workspaceStore.closeTab）**不能**传 true：
+ *     那条路上焦点要写进 `activeId`，而 activeId 装不下视图 id。它返回 null 时由
+ *     closeTabItem 接手把焦点交给视图（两条路分工，不是互相兜底）。
+ * 折叠组转移焦点也传 true（视图页签就排在组旁边时，它才是「离得最近的那一格」）。
  * anchor 的两个调用口径：
  *   · 折叠组：传**组内第一名成员**的下标 —— 向右从它起扫，组内其余成员因已折叠被
  *     跳过，天然等效「从组末之后开始」；向左也从组首左边开始，两向都正确。
- *   · 关闭页签：传**被关页签**的下标（closeTab 里 splice 之后 index 处顶上来的是
- *     原来右邻那张，向右扫描必须含它）。
+ *   · 关闭页签：传**被关页签**的下标 —— 先右后左，右邻就是「原来站在它右边那张」。
  * @param {number} anchorIndex stripOrder 里的参照下标
  * @param {string} [excludeId] 额外排除的页签 id（关闭场景传被关的那张，双保险）
- * @param {boolean} [includeViews] 视图页签算不算候选（折叠组传 true；关闭页签不传）
+ * @param {boolean} [includeViews] 视图页签算不算候选（调用方装不装得下视图 id，见上）
  * @returns {string|null} 可见页签 id；一个都没有（全部折叠）时 null
  */
 export function findNextVisibleTab(anchorIndex, excludeId, includeViews = false) {
-  const open = new Set(workspace.openTabIds)
   const visibleAt = (i) => {
     const id = stripOrder[i]
     if (!id || id === excludeId) return null
-    if (isViewId(id)) return includeViews ? id : null
-    return open.has(id) && !isHiddenTab(id) ? id : null
+    if (!isTabVisible(id)) return null
+    if (isViewId(id) && !includeViews) return null
+    return id
   }
   for (let i = Math.max(0, anchorIndex); i < stripOrder.length; i += 1) {
     const hit = visibleAt(i)
@@ -274,6 +293,11 @@ export function findNextVisibleTab(anchorIndex, excludeId, includeViews = false)
 // 全折叠等「一张可见页签都没有」的极端情况返回 null —— closeTab 据此把焦点置 null
 //（2026-10-20 审计改，「焦点必可见」铁律；原先退回「原下标顶上来」，可能指到折叠组里
 // 藏着的页签，与十七改的折叠路径自相矛盾）。
+//
+// 这里**不传 includeViews**：这条路的结论要写进 activeId，装不下视图 id。邻居是视图页签时
+// 它照旧只认文件（找不到就给 null），而「焦点其实该交给那张视图」由 tabFlow.closeTabItem
+// 在更上一层结算 —— 它拿 includeViews=true 重算一次，两队结论不会打架：closeTabItem 只在
+// 「关的正是焦点」时接手，而它选出的邻居只可能比这里更近，不会更远。
 closeFocus.pick = (closedId, index) => findNextVisibleTab(index, closedId)
 
 /**

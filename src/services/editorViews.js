@@ -23,16 +23,52 @@
  * 下面那条「活跃文件一变就让开」的 watch 会立刻把刚恢复的活跃视图让开。
  *
  * 【为什么合成一张表】视图铺在编辑器内容的同一层（见 EditorPane 的 stage），
- * 同一时刻只能有一个：切到设置就得把抽题收起来，反之亦然。用一张 EDITOR_VIEW_IDS
+ * 同一时刻只能有一个：切到设置就得把抽题收起来，反之亦然。用一张 EDITOR_VIEWS
  * 表统一收口「只让一个 active」，比每个视图各写一遍互斥逻辑安全得多。
  * 弹窗式的做法（Teleport 到 body）在 2026-10 被替换掉：与设置同形态更贴本项目的界面语言，
  * 也不会遮住工作区。
+ *
+ * 【加一种视图要动哪里】只有两处：下面 EDITOR_VIEWS 加一行（id / 图标 / 文案 key），
+ * 以及 EditorPane 的 stage 里给它一格渲染（外加它自己的入口按钮）。
+ * **流转一概不用改** —— 焦点、关闭交接、排序、拖动都是按「条带上的一个 id」办事的，
+ * 见 services/tabFlow.js；本文件只回答「有哪些视图、各自开着没、谁盖着编辑器」。
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { codeViewIntent, workspace } from './vfs/workspaceStore.js'
 
-/** 全部合成视图 id。这里只回答「有哪些视图」，**不决定页签顺序**（顺序见 tabStrip.stripOrder） */
-export const EDITOR_VIEW_IDS = ['settings', 'codeforces']
+/**
+ * 合成视图的**登记表** —— 这是「有哪些视图」的唯一出处（顺序见 tabStrip.stripOrder）。
+ *
+ * 每条只写界面需要的三样：id、图标名（AppIcon 的 name）、文案 key。**不写死译名**：
+ * 数据表里存 key、由消费处（EditorTabs 的 viewMeta）现 `t()`，切语言才跟着变
+ * （见 HANDOFF 第 5 节坑 28）。
+ *
+ * 刻意**不含**任何流转信息（怎么开、怎么关、焦点归谁）：那些对所有视图完全一致，
+ * 收在 services/tabFlow.js。要加一种视图时，除了这里加一行，只需再给它一格渲染
+ * （EditorPane 的 stage）与一个入口。
+ */
+export const EDITOR_VIEWS = [
+  {
+    id: 'settings',
+    icon: 'gear',
+    labelKey: 'app.settings',
+    closeLabelKey: 'app.tabs.closeSettings',
+  },
+  {
+    id: 'codeforces',
+    icon: 'codeforces',
+    labelKey: 'cf.view.title',
+    closeLabelKey: 'cf.tab.close',
+  },
+]
+
+/** 全部合成视图 id（由登记表派生，别另抄一份） */
+export const EDITOR_VIEW_IDS = EDITOR_VIEWS.map((view) => view.id)
+
+/** 按 id 取登记项；认不出来的 id 返回 null（调用方据此判「这不是视图」） */
+export function viewOf(id) {
+  return EDITOR_VIEWS.find((view) => view.id === id) ?? null
+}
 
 /**
  * 存档键：`{ order: string[], active: string|null }`。
@@ -83,11 +119,23 @@ function readSaved() {
  */
 export const viewOrder = reactive([])
 
-/** 每个视图两个开关：open=页签在不在页签栏里，active=视图有没有正盖在编辑器上 */
-const state = reactive({
-  settings: { open: false, active: false },
-  codeforces: { open: false, active: false },
-})
+/**
+ * 每个视图两个开关：open=页签在不在页签栏里，active=视图有没有正盖在编辑器上。
+ * 由登记表派生 —— 加一种视图时这里**不用动**；两开关的读写一律走下面的 viewState / isViewOpen。
+ */
+const state = reactive(
+  Object.fromEntries(EDITOR_VIEW_IDS.map((id) => [id, { open: false, active: false }])),
+)
+
+/** 某个视图的两个开关（认不出来的 id 返回 null，调用方不必自己判存在） */
+export function viewState(id) {
+  return state[id] ?? null
+}
+
+/** 这张视图页签开着没（焦点结算要跳过已经关掉、但 stripOrder 还没跟上的那一格） */
+export function isViewOpen(id) {
+  return state[id]?.open === true
+}
 
 /** 点视图入口 / 点它的页签：亮出这一个，其余一律让开（它们铺在同一层）。
  *  本来没开着的，这一次才排进 viewOrder 的最右 —— 已经开着的只是切活跃，顺序不动。 */
@@ -104,8 +152,15 @@ function show(id) {
   }
 }
 
-/** 关页签（× 或中键）：代码视图随即回到 workspace.activeId 指向的文件 */
-function close(id) {
+/**
+ * 关页签（× / 中键 / tabFlow 的关闭交接）：只摘掉这一个视图自己的两开关与次序。
+ *
+ * **它不负责「关完之后焦点给谁」** —— 那是 services/tabFlow.js 的 closeTabItem 的事：
+ * 那边会按条带上的次序把焦点交给邻居（可能是另一个视图，也可能是一份代码）。
+ * 本函数只被 closeTabItem 与各视图的「收起面板」入口调用。
+ */
+export function closeView(id) {
+  if (!state[id]) return
   state[id].open = false
   state[id].active = false
   const at = viewOrder.indexOf(id)
@@ -117,7 +172,7 @@ function close(id) {
  * 条带现在是混排的一条序列，一次拖动可能同时改变多个视图的相对位置，所以不是「把某一个
  * 挪过去」而是整段重排；进来的 id 先按 EDITOR_VIEW_IDS 过滤并去重，碎片值掉不进来。
  *
- * ⚠️ 这里只改**顺序**，不改成员（增删走 close() / show()），否则会与 tabStrip 的成员同步
+ * ⚠️ 这里只改**顺序**，不改成员（增删走 closeView() / show()），否则会与 tabStrip 的成员同步
  * 互相推来推去。
  * @param {string[]} ids
  */
@@ -133,8 +188,8 @@ export function deactivateViews() {
 
 /**
  * 按 id 打开 / 切到某个合成视图（只走视图自己的激活轴）。
- * 给「手里只有一个 stripOrder id」的调用方用 —— 目前是折叠分组时把焦点转交给相邻的视图页签
- * （见 EditorTabs 的 transferFocusOutOfGroup），调用方不必自己拼各视图 activate 的分支。
+ * 给「手里只有一个 stripOrder id」的调用方用 —— 现在基本只有 services/tabFlow.js 的
+ * focusTab 会调它（它替调用方判类型），调用方不必自己拼各视图 activate 的分支。
  * @param {string} id
  */
 export function activateView(id) {
@@ -149,6 +204,15 @@ export const viewActive = computed(() => EDITOR_VIEW_IDS.some((id) => state[id].
  *  这两颗页签会跟着整条横栏一起凭空消失（2026-10-10 修的正是这个）。 */
 export const anyViewOpen = computed(() => EDITOR_VIEW_IDS.some((id) => state[id].open))
 
+/**
+ * 此刻正盖着编辑器的视图 id（都没有就是 null，编辑器露着代码）。
+ * 这是「焦点在哪」的**视图半边**：与 workspace.activeId 合起来才是完整答案，
+ * 合成的地方是 services/tabFlow.js 的 focusedTabId（那个才是调用方该读的）。
+ */
+export function activeViewId() {
+  return EDITOR_VIEW_IDS.find((id) => state[id].active) ?? null
+}
+
 // ------------------------------------------------------------ 跨刷新记着
 
 /**
@@ -158,11 +222,6 @@ export const anyViewOpen = computed(() => EDITOR_VIEW_IDS.some((id) => state[id]
  * 就再也恢复不出东西来 —— 与 workspaceStore 的 `workspace.ready` 同一个理由、同一道闸。
  */
 let persistReady = false
-
-/** 此刻正盖着编辑器的视图 id（都没有就是 null，编辑器露着代码） */
-function activeViewId() {
-  return EDITOR_VIEW_IDS.find((id) => state[id].active) ?? null
-}
 
 function persist() {
   if (!persistReady) return
@@ -180,7 +239,7 @@ function persist() {
  * 任何一处改动都写一次盘：开 / 关（成员）、切活跃（哪个盖着编辑器）、拖动换位（先后）。
  * 一次动作可能同时改到其中两三项，watch 的回调是批量的，所以只会落一次。
  *
- * `open` 也一起盯：正常情况下它与 viewOrder 同进同退（show 先 push 再置 open、close 反之），
+ * `open` 也一起盯：正常情况下它与 viewOrder 同进同退（show 先 push 再置 open、closeView 反之），
  * 但同一次事件里两者各自变过一次的话，只盯 viewOrder 会漏掉「只剩 open 变了」的那一帧 ——
  * 而存档要的正是「哪些开着」，宁可多盯一个数组。
  */
@@ -233,21 +292,22 @@ export const settingsTab = state.settings
 export const settingsSectionEntry = ref(null)
 
 /**
- * 点设置入口（顶栏齿轮 / 窄屏菜单项 / 侧栏设置菜单）：没开就开，被切走了就切回来。关只归页签上的 × 管。
+ * 点设置入口（齿轮菜单 / 窄屏菜单项 / 侧栏设置菜单）：没开就开，被切走了就切回来。
  * 侧栏菜单点某项时带上 sectionId：先把落点记进 settingsSectionEntry，再打开设置页签让它落到那一类。
+ *
+ * 【这个入口 = 「把设置亮出来」，不是「关」】页签上的 × 与中键走 services/tabFlow.js 的
+ * closeTabItem（关掉之后焦点交给邻居）；而「收起面板」类入口（侧栏那颗齿轮再点一次、
+ * 设置快捷键再按一次）走下面的 closeSettingsTab / deactivateSettingsTab —— 那是
+ * 「离开设置、回到代码」，与「关一张页签」是两种意图，别混。
  */
 export function openSettingsTab(sectionId) {
   if (sectionId) settingsSectionEntry.value = sectionId
   show('settings')
 }
 
+/** 收起设置（回到代码）。与页签上的 × 不同：这里不搬焦点，只让开 —— 语义是「关掉这个面板」 */
 export function closeSettingsTab() {
-  close('settings')
-}
-
-/** 点页签本体 */
-export function activateSettingsTab() {
-  show('settings')
+  closeView('settings')
 }
 
 /** 让设置视图让开（切文件、拖文件进来、抽中题目要跳过去时用） */
@@ -265,12 +325,9 @@ export function openCodeforcesTab() {
   show('codeforces')
 }
 
+/** 收起 Codeforces（模块没装好 / 抽完题要跳去看代码时用）。焦点结算归 tabFlow，见上 */
 export function closeCodeforcesTab() {
-  close('codeforces')
-}
-
-export function activateCodeforcesTab() {
-  show('codeforces')
+  closeView('codeforces')
 }
 
 // 「活跃文件变了」就等于用户想看代码：点资源管理器、点文件页签、会话恢复都走 activeId，

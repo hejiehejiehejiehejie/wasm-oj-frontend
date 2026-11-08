@@ -2,6 +2,11 @@
 /**
  * EditorTabs —— 编辑器标签栏（单编辑器组）。
  * - 点击切换活跃标签；中键关闭；× 按钮关闭；双击钉住预览页签。
+ * - **焦点与关闭交接归 services/tabFlow.js**（2026-11-09 收口）：本文件只负责报出「点了 /
+ *   关的是哪一格」，文件页签与合成视图走**同一条路**（focusTab / closeTabItem）。关掉一张
+ *   之后焦点交给条带上最近的可见邻居（不分类型），关到一张不剩才清空 —— 原先每个类型、
+ *   每条路径各写一份「关完切谁」，才会出现「关掉文件页签、旁边的 Codeforces 不接手」。
+ *   加一种视图时本文件不用动（它长什么样见 editorViews.EDITOR_VIEWS）。
  * - **拖动页签改顺序**（2026-10-10 加；2026-10-20 十一改改「实时让位」）：按住页签横向拖，
  *   其余页签实时滑出空位（Chrome 原生手感），松手才提交顺序。文件页签与合成视图页签
  *   （设置 / Codeforces）**混排在同一条序列里**、可以跨类换位（2026-10-11 起），
@@ -56,37 +61,21 @@ import {
   solvedSourceOfUrl,
   toggleSolvedUrl,
 } from '../services/solvedIndex.js'
-import {
-  activateCodeforcesTab,
-  activateSettingsTab,
-  activateView,
-  closeCodeforcesTab,
-  closeSettingsTab,
-  codeforcesTab,
-  deactivateViews,
-  settingsTab,
-  viewActive,
-} from '../services/editorViews.js'
+import { viewOf, viewState } from '../services/editorViews.js'
+import { closeTabItem, focusTab, focusedTabId } from '../services/tabFlow.js'
 import { isViewId, moveStripItem, moveStripRun, stripOrder } from '../services/tabStrip.js'
 import {
   clearActiveTab,
-  closeTab,
   getNodeById,
   pinTab,
-  setActiveTab,
   workspace,
 } from '../services/vfs/workspaceStore.js'
 
-/** 激活一个文件页签（不挡拖动收尾的 click）—— pointerdown 抢焦与 click 共用 */
-function activateNow(id) {
-  // 点文件页签＝要看代码：先把合成视图（设置 / 抽题）让开。已经停在同一个文件上时
-  // activeId 不变，editorViews 里那条 watch 不会触发，所以这里必须显式让一次。
-  deactivateViews()
-  setActiveTab(id)
-}
-
 /**
  * 点页签（含 ⌘ / Ctrl + 单击打开题目）。
+ *
+ * 切页签本身不在这里拼各类型的激活分支：文件与合成视图都交给 tabFlow.focusTab，
+ * 它按 id 判类型（本文件只需要知道「点的是哪一格」）。
  *
  * 修饰键那一下与文件树同一个语义：**只开题目，不切页签**。开成了就到此为止；没链接
  * （`openTabProblem` 回 false）整条退化成普通单击，照旧切过去。
@@ -97,7 +86,7 @@ function activate(id, event) {
   // 拖动收尾那一下会顺带来一个 click：吃掉它，否则拖完顺带把页签切过去
   if (consumeClickSuppression()) return
   if (event && isProblemClick(event) && openTabProblem(id)) return
-  activateNow(id)
+  focusTab(id)
 }
 
 /** 双击钉住预览页签；拖动收尾那一串点击同样要挡掉（否则拖完会顺带把它钉住） */
@@ -139,58 +128,50 @@ function tabIcon(id) {
  */
 function onCloseClick(id) {
   if (consumeClickSuppression()) return
-  closeTab(id)
+  closeTabItem(id)
 }
 
-/** 合成视图页签上的 ×（同一条抑制规则） */
+/** 合成视图页签上的 ×（同一条抑制规则；关完的焦点交接同样归 tabFlow） */
 function onViewCloseClick(view) {
   if (consumeClickSuppression()) return
-  view.close?.()
+  closeTabItem(view.id)
 }
 
-/** 中键关掉合成视图页签（设置 / 抽题同一套） */
-function onViewMouseDown(event, close) {
+/** 中键关掉合成视图页签（设置 / Codeforces 同一套） */
+function onViewMouseDown(event, id) {
   if (event.button === 1) {
     event.preventDefault()
-    close()
+    closeTabItem(id)
   }
 }
 
 /** 点视图页签本体：拖动收尾那一下会顺带来一个 click，先吃掉（与 activate 同一条路），
- *  否则拖完换位会顺带把视图切过去。 */
+ *  否则拖完换位会顺带把视图切过去。激活走 tabFlow（与文件页签同一条路）。 */
 function onViewClick(view) {
   if (consumeClickSuppression()) return
-  view.activate()
+  focusTab(view.id)
 }
 
 /**
  * 合成视图页签（设置 / Codeforces）的渲染描述。图标 / 文案 / 开关都在这里现取，render 期间执行，
  * 所以语言切换、视图开关变化都会让它重算。
- * 「谁先开谁靠左」这条规矩已经不是这里的事了 —— 2026-10-11 起条带是一条**混排**序列，
+ *
+ * **这里没有 if 分支**：一个视图长什么样全在 editorViews.EDITOR_VIEWS 那张登记表里
+ * （id / 图标 / 文案 key），加一种视图不用回来加一档。开关与激活也不在这里拼 ——
+ * 前者是 viewState(id)，后者统一 `focusTab(id)`。
+ * 「谁先开谁靠左」这条规矩也不是这里的事 —— 2026-10-11 起条带是一条**混排**序列，
  * 顺序归 services/tabStrip.js 的 stripOrder（文件页签与视图页签可以互相穿插）。
  */
 function viewMeta(id) {
-  if (id === 'codeforces') {
-    return {
-      id,
-      key: 'view:codeforces',
-      icon: 'codeforces',
-      label: t('cf.view.title'),
-      closeLabel: t('cf.tab.close'),
-      active: codeforcesTab.active,
-      activate: activateCodeforcesTab,
-      close: closeCodeforcesTab,
-    }
-  }
+  const view = viewOf(id)
+  const state = viewState(id)
   return {
     id,
-    key: 'view:settings',
-    icon: 'gear',
-    label: t('app.settings'),
-    closeLabel: t('app.tabs.closeSettings'),
-    active: settingsTab.active,
-    activate: activateSettingsTab,
-    close: closeSettingsTab,
+    key: `view:${id}`,
+    icon: view.icon,
+    label: t(view.labelKey),
+    closeLabel: t(view.closeLabelKey),
+    active: !!state?.active,
   }
 }
 
@@ -266,7 +247,7 @@ function onMouseDown(event, id) {
   // 中键关闭（auxclick 在部分时机不一致，统一在 mousedown 处理）
   if (event.button === 1) {
     event.preventDefault()
-    closeTab(id)
+    closeTabItem(id)
   }
 }
 
@@ -327,7 +308,7 @@ const { draggingId, draggingIds, dragEdge, touchDrag, pressingId, armedId, liveG
  * pointermove 全程跟着走。三条豁免：中键（关页签，Chrome 同款不抢焦）、落点在关闭
  * 按钮上（`.editor-tabs__close` 的 click.stop 关闭，按下那一下不能顺带切走别的焦点）、
  * 以及 ⌘ / Ctrl + 单击（只开题目，不抢焦 —— 见下面那条注释）。
- * 走 activateNow 而不是 activate：这里的时机在拖拽开始前，绝不能吃掉拖拽收尾那 300ms
+ * 走 focusTab 而不是 activate：这里的时机在拖拽开始前，绝不能吃掉拖拽收尾那 300ms
  * 的 click 抑制窗口。
  *
  * **触屏不在这里切**（十九改）：手指落在页签上很可能只是想横向滚一下条带，按下就切
@@ -340,23 +321,23 @@ function onTabPointerDown(event, id) {
   // ⌘ / Ctrl + 单击只开题目，**按下也不抢焦点**（与树行同一条语义：修饰键不是「看这个文件」，
   // 是「开它的题目页」）。没链接就照旧按下即获焦。
   const problemClick = !touch && isProblemClick(event) && !!tabProblemUrl(id)
-  if (event.button !== 1 && !hitClose && !touch && !problemClick) activateNow(id)
+  if (event.button !== 1 && !hitClose && !touch && !problemClick) focusTab(id)
   // × 上按下连拖拽起手都不给：关按钮不是拖把柄，按住 × 横移不该拖走页签
   if (!hitClose) dragPointerDown(event, id)
 }
 
 /**
- * 视图页签（设置 / 抽题 / 比赛）pointerdown：与文件页签同一套判据（鼠标按下即获焦、
- * 触屏等 tap），激活走 viewMeta 的 activate —— 视图是另一条激活轴，不能碰 setActiveTab。
+ * 视图页签（设置 / Codeforces）pointerdown：与文件页签同一套判据（鼠标按下即获焦、
+ * 触屏等 tap）。激活同样走 tabFlow.focusTab —— 它会自己判类型，本文件不必再分一套。
  */
 function onViewPointerDown(event, viewItem) {
   const hitClose = event.target.closest?.('.editor-tabs__close')
   const touch = (event.pointerType ?? 'mouse') !== 'mouse'
-  if (event.button !== 1 && !hitClose && !touch) viewItem.activate()
+  if (event.button !== 1 && !hitClose && !touch) focusTab(viewItem.id)
   if (!hitClose) dragPointerDown(event, viewItem.id)
 }
 
-/** 触屏轻点：文件页签切 activeId、合成视图走各自的 activate、芯片折叠 / 展开分组。
+/** 触屏轻点：切页签（文件与视图同一条路）、芯片折叠 / 展开分组。
  *  这里已经晚了 click 一步（useTabDrag 先压了 click 抑制），所以两条路只走一条。 */
 function onStripTap({ id, gid }) {
   if (gid) {
@@ -366,17 +347,14 @@ function onStripTap({ id, gid }) {
     if (group) toggleGroup(group, { fromGesture: true })
     return
   }
-  if (!id) return
-  if (isViewId(id)) viewMeta(id).activate()
-  else activateNow(id)
+  if (id) focusTab(id)
 }
 
 /** 触屏拖拽真正开始的那一帧：拖谁就切谁（与鼠标「按下即获焦」对齐）。
  *  芯片没有 id，搬组不改焦点。 */
 function onStripDragStart({ id, gid }) {
   if (gid || !id) return
-  if (isViewId(id)) viewMeta(id).activate()
-  else activateNow(id)
+  focusTab(id)
 }
 
 /** 触屏长按满 500ms 仍不动：在手指位置弹各自的菜单（页签 = 右键菜单，芯片 = 分组卡片） */
@@ -481,12 +459,13 @@ function isProblemClick(event) {
 
 /**
  * 页签右键：文件页签给「打开题目」（有链接才给）+ 分组两项 + 关闭；合成视图页签只有关闭。
+ * 关闭这一项两类共用一个 id（`close`）—— 关的动作归 tabFlow.closeTabItem，它按 id 自己判类型。
  * 「打开题目」与文件树同款：右列不是 keydown 组合键，而是 ⌘ / Ctrl + 单击这个**手势**本身，
  * 走不了 formatCombo，但它是真的能按的，所以照旧填右列。
- * @param {{kind: string, id: string, close?: Function}} item stripItems 里那一项
+ * @param {{kind: string, id: string}} item stripItems 里那一项
  */
 function buildTabMenuItems(item) {
-  if (item.kind !== 'file') return [{ id: 'close-view', label: t('app.tabs.closeTab') }]
+  if (item.kind !== 'file') return [{ id: 'close', label: t('app.tabs.closeTab') }]
   const items = []
   if (tabProblemUrl(item.id)) {
     items.push({
@@ -522,7 +501,7 @@ function buildTabMenuItems(item) {
 /**
  * 页签右键（条目见 buildTabMenuItems：打开题目 / 分组 / 关闭）。
  * @param {MouseEvent} event
- * @param {{kind: string, id: string, close?: Function}} item stripItems 里那一项
+ * @param {{kind: string, id: string}} item stripItems 里那一项
  */
 function openTabMenu(event, item) {
   event.preventDefault()
@@ -531,7 +510,7 @@ function openTabMenu(event, item) {
 
 /** 在指定位置弹页签菜单（右键与触屏长按共用；长按拿不到 MouseEvent，只有坐标） */
 function openTabMenuAt(item, x, y) {
-  menu.value = { x, y, tabId: item.id, viewItem: item, items: buildTabMenuItems(item) }
+  menu.value = { x, y, tabId: item.id, items: buildTabMenuItems(item) }
 }
 
 function onMenuSelect(id) {
@@ -544,8 +523,7 @@ function onMenuSelect(id) {
   else if (id === 'toggle-solved') toggleTabSolved(m.tabId)
   else if (id === 'add-to-new-group') tabGroups.createGroupWithTab(m.tabId)
   else if (id === 'remove-from-group') tabGroups.removeFromGroup(m.tabId)
-  else if (id === 'close') closeTab(m.tabId)
-  else if (id === 'close-view') m.viewItem?.close?.()
+  else if (id === 'close') closeTabItem(m.tabId)
 }
 
 /* ------------------------------------------------------------ 展开 / 折叠的动画
@@ -611,11 +589,11 @@ function finishGroupAnim(gid, rec) {
  * 隐藏，右扫天然越过整段组）；焦点不在组内则不动。
  *
  * **视图页签也是候选（2026-10-26 用户口径「转至离得最近的一个标签页」）**：条带是文件与
- * 合成视图混排的一条序列，紧挨着组的可能就是设置 / 抽题 / 比赛页签。以前 findNextVisibleTab
+ * 合成视图混排的一条序列，紧挨着组的可能就是设置 / Codeforces 页签。以前 findNextVisibleTab
  * 一律跳过视图，于是焦点会越过它落到更远的文件上；整条只剩视图页签时还会误判成「全折叠」
- * 把焦点清空。视图走它自己的激活轴（activateView），activeId 装不进视图 id —— 所以先把
- * 被藏起来的那个文件从 activeId 上撤下来（否则关掉视图会露出一张条带里看不见的页签），
- * 并记进 lastActiveTabId，展开时与全折叠兜底同一条路还回去。
+ * 把焦点清空。视图走它自己的激活轴，activeId 装不进视图 id —— 所以先把被藏起来的那个文件
+ * 从 activeId 上撤下来（否则关掉视图会露出一张条带里看不见的页签），并记进 lastActiveTabId，
+ * 展开时与全折叠兜底同一条路还回去。落地统一走 focusTab（任意类型都由它判）。
  *
  * **全折叠兜底（十七改）**：向右向左都找不到可见页签 = 折叠之后条带上一张页签都看不见了。
  * 这时绝不能把焦点留在被藏起来的那张上 —— 否则编辑区还开着那个文件、页签栏里却找不到它
@@ -636,10 +614,8 @@ function transferFocusOutOfGroup(gid) {
       const group = tabGroups.groupOfId(gid)
       if (group) group.lastActiveTabId = workspace.activeId
       clearActiveTab()
-      activateView(next)
-      return
     }
-    setActiveTab(next)
+    focusTab(next)
     return
   }
   const group = tabGroups.groupOfId(gid)
@@ -659,9 +635,9 @@ function restoreFocusIntoGroup(gid) {
   const members = tabGroups.membersOf(gid)
   if (!members.length) return
   const saved = tabGroups.groupOfId(gid)?.lastActiveTabId
-  // 走 activateNow 而不是 setActiveTab：与「点页签」同一条路 —— 合成视图若正盖在编辑区上，
+  // 走 focusTab 而不是 setActiveTab：与「点页签」同一条路 —— 合成视图若正盖在编辑区上，
   // 恢复焦点同时要把它让开，否则文件回来了却仍被视图挡着
-  activateNow(saved && members.includes(saved) ? saved : members[0])
+  focusTab(saved && members.includes(saved) ? saved : members[0])
 }
 
 /** 折叠 / 展开之后的焦点结算：折叠走转移（含全折叠兜底），展开走恢复 */
@@ -1114,7 +1090,7 @@ function onTabEnter(el) {
           type="button"
           class="editor-tabs__item"
           :class="{
-            'editor-tabs__item--active': item.id === workspace.activeId && !viewActive,
+            'editor-tabs__item--active': item.id === focusedTabId,
             'editor-tabs__item--preview': item.id === workspace.previewTabId,
             'editor-tabs__item--dragging': draggingIds.includes(item.id),
             'editor-tabs__item--pressing': item.id === pressingId,
@@ -1132,7 +1108,7 @@ function onTabEnter(el) {
           :data-tab-id="item.id"
           :data-group-id="item.group?.id"
           :data-preview="item.id === workspace.previewTabId || undefined"
-          :aria-selected="item.id === workspace.activeId && !viewActive"
+          :aria-selected="item.id === focusedTabId"
           :title="getNodeById(item.id)?.path"
           @click="activate(item.id, $event)"
           @dblclick="onTabDblClick(item.id)"
@@ -1205,7 +1181,7 @@ function onTabEnter(el) {
           :aria-selected="item.active"
           :title="item.label"
           @click="onViewClick(item)"
-          @mousedown="onViewMouseDown($event, item.close)"
+          @mousedown="onViewMouseDown($event, item.id)"
           @pointerdown="onViewPointerDown($event, item)"
           @contextmenu="openTabMenu($event, item)"
         >
