@@ -668,11 +668,16 @@ const handlers = {
     const contestIds = await contestIdsOfCategories(filters.divisions, problems)
 
     // 「排除已通过的题」支持多个账号：取各自已 AC 的**并集**，
-    // 于是留下的就是「这些账号都没做过的题」
+    // 于是留下的就是「这些账号都没做过的题」。
+    // 主线程还会递来 `solvedExtra`（站内提交判 AC + 手动标记的键）：这些题在 user.status
+    // 的 12h 缓存里还看不见，不并进去就会出现「勾着已通过、又被抽出来」。
     const handles = normalizeHandles(filters.handles)
+    const extraSolved = Array.isArray(filters.solvedExtra)
+      ? filters.solvedExtra.filter((key) => typeof key === 'string' && key)
+      : []
     let solvedSet = null
-    if (filters.excludeSolved && handles.length) {
-      solvedSet = new Set()
+    if (filters.excludeSolved && (handles.length || extraSolved.length)) {
+      solvedSet = new Set(extraSolved)
       for (const handle of handles) {
         for (const key of await loadSolvedKeys(handle)) solvedSet.add(key)
       }

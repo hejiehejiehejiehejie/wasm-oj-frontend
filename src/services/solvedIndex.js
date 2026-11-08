@@ -1,17 +1,29 @@
 /**
  * solvedIndex —— 「这道题我通过了吗」的唯一出处。
  *
- * 【两个来源，一个答案】
- * 1. **自动**：本机填的 Codeforces 账号已 AC 的题。数据来自 Worker 的 `user.status`
+ * 【三个来源，一个答案】
+ * 1. **本站提交**（'earned'）：用户点站内「提交」交给 Codeforces、判定回来是 AC 的那一道，
+ *    落在 `cp.cf.earned`。见下面那段「为什么要有它」。
+ * 2. **自动**（'auto'）：本机填的 Codeforces 账号已 AC 的题。数据来自 Worker 的 `user.status`
  *    （12h 缓存），与抽题面板「排除已通过的题」读的是**同一份** `loadSolvedKeys` ——
  *    两处不会各拉一次接口，也不会出现「被排除掉了却没标上勾」这种自相矛盾的画面。
- * 2. **手动**：用户自己点的「标记为已通过」，落在 `cp.cf.solved`。
- * 两个集合取并集，谁也不覆盖谁。
+ * 3. **手动**（'manual'）：用户自己点的「标记为已通过」，落在 `cp.cf.solved`。
+ * 三个集合取并集，谁也不覆盖谁；显示时按上面的顺序取第一个命中的。
  *
- * 【为什么手动不能取消自动的】自动命中意味着 CF 上确实有一条 OK 提交。允许手动抹掉它，
- * 「已通过」就变成一件可以撒谎的事 —— 而它同时是抽题的排除判据（Worker 里那份
- * solvedSet）。所以手动只负责「CF 不知道的那部分」（本地做过的题、别的 OJ），
- * 自动命中时切换入口直接不给。
+ * 【为什么要有「本站提交」这一半（2026-11-08 用户口径）】站内的提交按钮本来就能拿到
+ * 判定（扩展推 cp-submit-status，见 App.vue 的 submitActiveFile）。既然刚 AC 的那一秒
+ * 就知道结果了，却非要等下一趟 `user.status`（12h 缓存，且刚交的题在缓存窗口里根本
+ * 看不见）才亮勾 —— 用户会觉得「我明明过了，勾呢」。所以判定为 ac 的那一刻直接记下来。
+ *
+ * 它比自动那一半**更强也更及时**：自动要等接口、要 12h 缓存过期；这个不需要网络、
+ * 不需要填 handle，交完就有。而且它是「我自己在这台机器上交出来的」事实，
+ * 删掉账号也不该跟着消失 —— 所以它单独落盘，`refreshSolved` 清空 autoKeys 时不动它。
+ *
+ * 【为什么手动不能取消自动的 / 本站提交的】自动命中意味着 CF 上确实有一条 OK 提交，
+ * 本站提交命中意味着刚刚亲手交出一条 AC 的代码。允许手动抹掉它们，「已通过」就变成
+ * 一件可以撒谎的事 —— 而自动那边同时是抽题的排除判据（Worker 里那份 solvedSet）。
+ * 所以手动只负责「CF 不知道、我也没交过的那部分」（本地做过的题、别的 OJ），
+ * 这两类命中时切换入口直接不给。
  *
  * 【键怎么定】CF 的题统一成 `cf/pick.js` 里 problemKey 的写法（`1234:A`），与 Worker
  * 回的键逐字相同，所以这里不做格式转换、只做大小写收敛；认不出是 CF 题的（洛谷、AtCoder、
@@ -27,8 +39,9 @@
  * 引了它，代码早就在首屏包里），所以这里省下的不是下载量，而是**请求**。
  *
  * 【刷新时机】只在「组件已装 + 填了账号」时拉，且账号串变化做 600ms 防抖 ——
- * 账号是输入框绑定的，逐字符都会变，不防抖就是边打字边打接口。12h 内刚 AC 的题要靠
- * `refreshSolved({ force: true })` 才看得见（缓存口径与「排除已通过的题」一致）。
+ * 账号是输入框绑定的，逐字符都会变，不防抖就是边打字边打接口。12h 缓存窗口里刚在 CF
+ * 上交 AC 的题要靠 `refreshSolved({ force: true })` 才看得见（缓存口径与「排除已通过的题」
+ * 一致）；但**从本站在站内交出来的 AC 不必等它** —— 判定一到就进 `earnedKeys`（见上）。
  */
 import { computed, ref, watch } from 'vue'
 
@@ -44,8 +57,15 @@ import { problemUrlKey } from './vfs/workspaceStore.js'
  */
 export const SOLVED_STORAGE_KEY = 'cp.cf.solved'
 
-/** 手动标记的条数上限：防手改 / 防异常值把 localStorage 写爆 */
+/**
+ * 本站提交判为 AC 的题的落盘键（2026-11-08 加）。同样**不进云同步白名单** ——
+ * 它记的是「这台设备上交出过哪几道 AC」，换台设备把别人的交题记录摆过来没有意义。
+ */
+export const EARNED_STORAGE_KEY = 'cp.cf.earned'
+
+/** 两个集合各自的条数上限：防手改 / 防异常值把 localStorage 写爆 */
 const MANUAL_MAX = 4000
+const EARNED_MAX = 4000
 
 /** 防抖：账号串是输入框绑定的，逐字符都会变 */
 const HANDLE_DEBOUNCE_MS = 600
@@ -53,16 +73,16 @@ const HANDLE_DEBOUNCE_MS = 600
 /** `www.` 已在下面剥掉；m1 / m2 是同一站点的镜像入口，题目键要与主站一致 */
 const CF_HOST = /^(?:m\d+\.)?codeforces\.com$/
 
-/** 读手动标记。坏值 / 非数组 / 空串一律按空集 —— 标记丢了顶多少一个勾，不能白屏 */
-function readManual() {
+/** 读一份题目键存档。坏值 / 非数组 / 空串一律按空集 —— 标记丢了顶多少一个勾，不能白屏 */
+function readKeySet(storageKey, max) {
   try {
-    const raw = window.localStorage.getItem(SOLVED_STORAGE_KEY)
+    const raw = window.localStorage.getItem(storageKey)
     if (!raw) return new Set()
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return new Set()
     const keys = parsed
       .filter((key) => typeof key === 'string' && key)
-      .slice(0, MANUAL_MAX)
+      .slice(0, max)
     return new Set(keys)
   } catch {
     return new Set()
@@ -73,7 +93,14 @@ function readManual() {
  * 手动标记集合（题目键）。**改动要整体换一个新 Set**（`manualKeys.value = next`）：
  * 这里用的是浅监听，原地 add 不会触发写盘，刷新后就丢了。
  */
-export const manualKeys = ref(readManual())
+export const manualKeys = ref(readKeySet(SOLVED_STORAGE_KEY, MANUAL_MAX))
+
+/**
+ * 本站提交判为 AC 的集合（题目键），只读 —— 它记的是既成事实，切换入口不碰它；
+ * 唯一的写入方是 `markSolvedBySubmission()`（App.vue 拿到 ac 判定时调）。
+ * 同样必须整体换 Set（理由见上）。
+ */
+export const earnedKeys = ref(readKeySet(EARNED_STORAGE_KEY, EARNED_MAX))
 
 /** 自动集合（来自 CF 账号），只读 —— 切换入口不碰它，见文件头 */
 export const autoKeys = ref(new Set())
@@ -94,13 +121,17 @@ export const solvedFetchedAt = ref(0)
  */
 export const solvedError = ref(false)
 
-watch(manualKeys, (value) => {
+/** 两份存档的写盘口径一致：值都是字符串数组，写不进去就只活在内存里 */
+function persistKeySet(storageKey, value) {
   try {
-    window.localStorage.setItem(SOLVED_STORAGE_KEY, JSON.stringify([...value]))
+    window.localStorage.setItem(storageKey, JSON.stringify([...value]))
   } catch {
     /* 隐私模式 / 配额满：这一趟只在内存里生效，与 usePersistentRef 同一取舍 */
   }
-})
+}
+
+watch(manualKeys, (value) => persistKeySet(SOLVED_STORAGE_KEY, value))
+watch(earnedKeys, (value) => persistKeySet(EARNED_STORAGE_KEY, value))
 
 /**
  * 把 Worker 回的 problemKey（`<contestId>:<INDEX>`）收敛成同一把尺子。
@@ -175,22 +206,74 @@ export function solvedKeyOfUrl(url) {
 }
 
 /**
- * 这个链接的通过状态：`'auto'`（CF 账号）、`'manual'`（手动标记）、`''`（没有）。
- * 自动优先 —— 它更强、且手动取消不了（见文件头）。
+ * 这个链接的通过状态：`'earned'`（本站提交判为 AC）、`'auto'`（CF 账号）、
+ * `'manual'`（手动标记）、`''`（没有）。
+ *
+ * 取第一个命中的，顺序即优先级：`earned` 最新鲜（就是刚才那一趟提交）、
+ * `auto` 更强（整个账号的历史），两者都不可手动取消（见文件头）。
  * @param {string} url
- * @returns {'auto'|'manual'|''}
+ * @returns {'earned'|'auto'|'manual'|''}
  */
 export function solvedSourceOfUrl(url) {
   const key = solvedKeyOfUrl(url)
   if (!key) return ''
+  if (earnedKeys.value.has(key)) return 'earned'
   if (autoKeys.value.has(key)) return 'auto'
   if (manualKeys.value.has(key)) return 'manual'
   return ''
 }
 
+/**
+ * 这个链接的勾是不是「锁住」的 —— 即点击 / 菜单都改不动它（earned 与 auto）。
+ * 界面据此决定给不给「标记 / 取消」入口：给了却点不动，比没有更糟。
+ * @param {string} url
+ */
+export function solvedLockedOfUrl(url) {
+  const source = solvedSourceOfUrl(url)
+  return source === 'earned' || source === 'auto'
+}
+
 /** 这道题通过了吗（不论来源） */
 export function isSolvedUrl(url) {
   return solvedSourceOfUrl(url) !== ''
+}
+
+/**
+ * 本机已知「已通过」的全部题目键（本站提交 + 手动标记），给抽题的「排除已通过的题」用。
+ *
+ * 为什么需要它：Worker 那份排除集只认 `user.status`（12h 缓存），刚在站内交 AC 的题
+ * 在那个窗口里还不存在 —— 不把这两个集合递过去，用户会看到「勾着已通过、却又被抽出来」
+ * 的画面。自动那一半由 Worker 自己按账号取，不在这里重复。
+ *
+ * 回数组而不是 Set：它要经 postMessage 交给 Worker。
+ * @returns {string[]}
+ */
+export function localSolvedKeys() {
+  return [...new Set([...earnedKeys.value, ...manualKeys.value])]
+}
+
+/**
+ * 记下「这一道题本站提交判为 AC」。**唯一的写入方是 App.vue 的提交流程**
+ * （`onVerdict` / 回执里看到 `ac` 时调），界面上的点击不会走到这里。
+ *
+ * 幂等：已经记过就早退，不产生新 Set、也就不触发一次多余的写盘 ——
+ * 扩展可能对同一条提交重复推几次终态。
+ *
+ * @param {string} url 题目链接（活跃文件的 `meta.url`）
+ * @returns {'earned'|''} 记下了（或本来就有）返回 `'earned'`；链接认不出题目键返回 `''`
+ */
+export function markSolvedBySubmission(url) {
+  const key = solvedKeyOfUrl(url)
+  if (!key) return ''
+  if (earnedKeys.value.has(key)) return 'earned'
+
+  // 新的放最前，同键去重；超上限时丢掉最旧的（与手动那份同一套「留最近」的思路）
+  const next = [key, ...[...earnedKeys.value].filter((item) => item !== key)]
+  earnedKeys.value = new Set(next.slice(0, EARNED_MAX))
+  // 这道题以前可能被手动标过：现在有这么硬的一条记录，那条手动标记就是会复活的僵尸
+  // （用户删掉存档里这一份之后它又冒出来），顺手剔掉
+  pruneManualOverlap()
+  return 'earned'
 }
 
 /**
@@ -203,18 +286,20 @@ export function isSolvedNode(node) {
 }
 
 /**
- * 切换手动标记。返回切换后的来源（`'manual'` = 现在标着，`''` = 现在没标）。
+ * 切换手动标记。返回切换后的来源（`'manual'` = 现在标着，`''` = 现在没标，
+ * `'earned'` / `'auto'` = 本来就有更硬的记录，这一下没动）。
  *
  * 三种情况不写盘、只回现状：
  * - 链接认不出题目键（没有 url / 不是 URL）；
- * - 自动已经命中（CF 上真有 OK 提交，不给手动抹，见文件头）；
+ * - 本站提交或自动已经命中（既成事实，不给手动抹，见文件头）；
  * - 手动条数已到上限（MANUAL_MAX）。
  * @param {string} url
- * @returns {'auto'|'manual'|''}
+ * @returns {'earned'|'auto'|'manual'|''}
  */
 export function toggleSolvedUrl(url) {
   const key = solvedKeyOfUrl(url)
   if (!key) return ''
+  if (earnedKeys.value.has(key)) return 'earned'
   if (autoKeys.value.has(key)) return 'auto'
 
   const next = new Set(manualKeys.value)
@@ -240,14 +325,19 @@ const RETRY_MAX = 2
 const RETRY_DELAY_MS = 3000
 
 /**
- * 自动集合到手后，把与它重叠的手动标记剔掉。
+ * 把与「更硬的记录」重叠的手动标记剔掉。
  *
  * 场景：首屏那 600ms 里用户先手动标了一道其实已经 AC 的题（自动数据还没回来），
- * 两条记录于是同时存在。留着不显示（自动优先），但一旦用户把账号删掉，那条手动标记
- * 就会「凭空复活」成一个勾。剔掉它更干净：自动那边给出的答案一样，而来源更权威。
+ * 或者手动标过一道后来自己在站内交 AC 了的题 —— 两条记录于是同时存在。留着不显示
+ * （更硬的来源优先），但一旦那份硬记录没了（删账号 / 清掉本站提交的存档），那条手动标记
+ * 就会「凭空复活」成一个勾。剔掉它更干净：那些来源给出的答案一样，且更权威。
+ *
+ * 两个来源都算：`autoKeys`（账号）与 `earnedKeys`（本站提交判 AC）。
  */
 function pruneManualOverlap() {
-  const overlapping = [...manualKeys.value].filter((key) => autoKeys.value.has(key))
+  const overlapping = [...manualKeys.value].filter(
+    (key) => autoKeys.value.has(key) || earnedKeys.value.has(key),
+  )
   if (!overlapping.length) return
   const next = new Set(manualKeys.value)
   for (const key of overlapping) next.delete(key)

@@ -39,6 +39,9 @@ import { IS_WEB } from './platform.js'
  * - `cp.cf.solved`：手动标记的「已通过」。同步过去会和另一台设备的 Codeforces 状态打架
  *   —— 自动那一半本来就跟着账号走（换台设备填同一个 handle 就回来），手动这半是本机补充
  *   （见 services/solvedIndex.js 文件头与 HANDOFF §30）。
+ * - `cp.cf.earned`：站内提交判为 AC 的题（同上，2026-11-08 加）。记的是「这台设备上交过
+ *   哪几道」，换台设备把别人的交题记录摆过来没有意义；真在 CF 上 AC 过的，换设备填同一个
+ *   handle 后自动那一半会照样回来。
  * - `cp.countdown`：整个状态桶都不同步 —— 里面既有 `installed`（事实），也有卡片的位置与
  *   尺寸（跟的是这台设备的屏幕，见 HANDOFF §16）。只有 `cp.countdown.autoInstall` 这条
  *   「要不要自动装」的偏好进白名单，与上面那条同一口径。

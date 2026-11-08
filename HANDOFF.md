@@ -192,7 +192,7 @@ src/
     confetti.js                 # 「全部样例通过」的庆祝纸屑（2026-10-23 加）：`canvas-confetti` 唯一消费者，`mountConfetti(canvas)` / `unmountConfetti()` / `celebrateAllPassed()` 三个出口，canvas 由 `TestPanel.vue` 摆在样例面板里、盖满整块面板。**只认「全过」**（整轮 ▶ 的判据在 App.vue 的 `celebrateIfAllPassed`；逐张 ▶ 只在「这一跑刚好凑齐全过」时放、单样例每次 AC 都放，见 `runOne`），任一失败不放；可在 设置 › 评测 关掉；**刻意不给 `useWorker`**（控制权会被交给 OffscreenCanvas、尺寸只跟 window resize 走）；尺寸每次自己量、`1 CSS px = 1 位图 px`；颜色现读 `--confetti-1..4`。为什么挂在这些点上，见第 17 节
     shellSettings.js            # 「外壳」偏好的模块级单例（2026-10-11 从 App.vue 下沉）：侧边栏位置 `cp.panelPosition`（含 `flipPanelPosition()` / `setPanelPosition()` 那套 View Transitions 换边 —— flip 只是「另一边」的简写；档位表 `PANEL_POSITIONS` 也在这里，设置面板与菜单共用）、窄屏折叠方向 `cp.narrowCollapseSide`（2026-10-13 加：**窄屏**折叠后图标栏贴上边还是下边，`top` / `bottom`，默认 `bottom`；档位表 `NARROW_COLLAPSE_SIDES` 与写入入口 `setNarrowCollapseSide()` 也在这里，设置面板与菜单共用。它**不走 View Transitions** —— 只在窄屏生效、只是把主轴换头换尾，没有「两栏互换」那种重排）与全局缩放 `cp.uiScale`（含 `applyUiScale` 落地根字号）。另导出**窄屏判据 `isNarrowLayout()`**（2026-10-13 加，同日晚从 CSS 那三处 `@media` 挪进本文件 —— **判据的唯一副本**：触摸设备 + **设备**竖屏（读 `screen` 的朝向，键盘改不动它），或视口宽 ≤ 600px；命中时给 `<html>` 挂 `is-narrow`，三处样式的规则写 `:where(html.is-narrow) …`（`:where()` 不贡献特异性，各块的 (0,x,0) 算式照旧）。为什么不在 CSS 里：键盘会把布局视口削矮、`(orientation: portrait)` 随之翻面，见第 5 节坑 53。三个消费方：`App.vue` 的 `measureLimits`（窄屏折点改用固定的指针容差 `NARROW_HINGE_PX = 30`：离边缘 30px 内就折叠，见第 5 节坑 48）、设置菜单与设置面板外观栏里「窄屏折叠方向」那一行的 `when`（只在窄屏出现，见坑 49）。底层是一个 ref，由 `matchMedia` 的 `change` 写回来 —— 那两处设置入口按响应式依赖缓存，现查 `matches` 会把首帧答案缓存住）。**这几个键自己读写 localStorage，刻意不用 `usePersistentRef`** —— 那份 composable 的「首次访问也落盘」靠 `onMounted`，而服务层模块没有组件实例，那条钩子根本不执行（首次打开站点会不留下存档，回归脚本读 `cp.panelPosition` 得 null，见第 5 节坑 36）。体例同 `editorSettings.js` / `i18n/index.js`：模块自己读盘 + `immediate` 的 watch 写回
     ojSubmit.js                 # ★ 「一键提交到 Codeforces」的唯一前端边界（2026-10-23 加）：`parseCodeforcesProblem(url)`（认 contest / problemset / gym / group 四种地址 → 提交页 + `/my` 页，**与扩展 background 的解析一一对应**，改一处就得改另一处）、`shouldShowSubmit(node)`（有 `meta.url` 就显示按钮 —— 不支持的 OJ 也显示，置灰比凭空消失好懂）、`submitBlockedReason({ node, language, capability, checking })`（空串 = 可提交；顺序 = 桌面端 → 没文件 → 没题目 → 不认识的 OJ → 没语言 → 握手未定 → 扩展没这条能力）、`submitActiveSolution`（取 `peekActiveContent()` 的**未保存正文**，不要求先存盘）、失败原因 / 判定码 → 人话两张表（`submitReasonText` / `submitVerdictText` / `submitVerdictType`）。动作编排与通知在 `App.vue` 的 `submitActiveFile`
-    solvedIndex.js              # ★ 「这道题我通过了吗」的唯一出处（2026-11-08 加）：两个来源合成一个答案 —— CF 账号已 AC（Worker 的 `loadSolvedKeys`，12h 缓存，与抽题「排除已通过」读同一份）+ 手动标记 `cp.cf.solved`。键：CF 题用 `problemKey` 的写法（`1234:A`），其它 OJ 用 `problemUrlKey` —— 手动标记因此对任何 OJ 都成立。三个消费方：抽题结果行（可点切换）/ 文件树 / 页签（后两处只显示，标记与取消走右键菜单）。**自动命中不给手动取消**（它同时是抽题的排除判据），理由与「为什么不写进题目元数据」见 §30
+    solvedIndex.js              # ★ 「这道题我通过了吗」的唯一出处（2026-11-08 加）：三个来源合成一个答案，按 earned > auto > manual 取第一个命中的 —— 站内提交判 AC（`cp.cf.earned`，见 §31）+ CF 账号已 AC（Worker 的 `loadSolvedKeys`，12h 缓存，与抽题「排除已通过」读同一份）+ 手动标记 `cp.cf.solved`。键：CF 题用 `problemKey` 的写法（`1234:A`），其它 OJ 用 `problemUrlKey` —— 手动标记因此对任何 OJ 都成立。三个消费方：抽题结果行（earned / auto 时点不动）/ 文件树 / 页签（后两处只显示，标记与取消走右键菜单）。**earned 与 auto 命中都不给手动取消**（既成事实，且 auto 同时是抽题的排除判据），理由与「为什么不写进题目元数据」见 §30
     problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()。meta **五项**：url / oj / difficulty / date / **timeLimit**（毫秒，100–60000，0 = 未设置；判题时优先于全局档位，见第 5 节坑 17）
     engines/                    # 引擎注册表：wasm（网页默认）/ native（桌面默认）/ piston / judge0 / echo。平台专属引擎在对象上写 `platforms: ['web'|'desktop']` 限定，注册表的 engineChoices / defaultBases / getEngine / DEFAULT_ENGINE_ID 都按它过滤（见第 14 节）
     wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热。**另外它还兼着「运行时」这个概念的三个出口**（probeRuntime / preload / uninstallRuntime），`language === 'markdown'` 时转给 mdRuntime —— 设置视图「应用 › 本地运行环境」才能用同一套代码渲染三行
@@ -1014,6 +1014,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 | `cp.cfPicker.autoInstall` / `cp.countdown.autoInstall`（2026-10-25 并列记在这里；后者这一天新加，前者一直在用、只是漏记） | 两个组件的**「默认安装」偏好**（JSON bool，缺省 / 坏值一律按 `true`）。与上面那些 `*Ready` / `installed` 的事实键严格分开：事实键说的是「**这台设备**此刻有没有」，所以不进白名单；这两条说的是「要不要自动装」，跟人走，**在 `cloudProfile.js` 的同步白名单里**。键名常量各自定义在 `cfRuntime.js`（`CF_AUTO_INSTALL_KEY`）与 `countdown.js`（`COUNTDOWN_AUTO_INSTALL_KEY`），设置面板只 import 常量、不写字面量。两条的配套动作一致：打开时若本机没装就补装；设置里卸载时把开关一并关掉（否则下次启动又装回来，那次卸载等于没卸） | `services/cfRuntime.js` / `services/countdown.js`（写入方是设置面板的 `cfAutoInstall` / `countdownAutoInstall`；启动读取在 `main.js`） |
 | `cp.cloudActive`（2026-10-10 加） | **本机现在跟着谁的云端配置**：`{ handle, updatedAt }`，`updatedAt` 是**已套用过的那一版**云端的更新时间（空串 = 不知道，于是下次打开一定会对齐一次）。启动时地址里没有 `/<handle>` 就用它去对齐那一份 —— 这就是「下次打开网站直接用它那一套」。写入点：四条认下 handle 的入口（导入 / 上传 / 登录 / 下载到本机，与 `writeCloudEntryPath` 同四处；上传两处直接调 `writeActiveProfile`、其余走 `adoptCloudProfile`）+ **解绑时删掉它**（`forgetActiveProfile`：留着的话下次打开站点会把刚解绑那位的配置又套回来）。**门闩就是 `updatedAt`**：与云端相同则一个字节都不写 —— 拆掉它等于「每次打开都覆盖本机 + 套用→刷新→又套用」的死循环（那次 reload 是无条件的），改这里前先读 `cloudEntry.js` 的 `applyCloudProfile`。**刻意不进云同步白名单**：它是「**这台设备**在跟谁」的事实，同步过去等于让另一台设备自动套用一份它从没认领过的配置。**顺带把地址栏补成 `/<handle>`（2026-10-10 加）**：启动对齐时若当前是网页版的站点根路径、且云端确实有这份配置，地址就写成 `/<handle>`（此后可收藏 / 可分享）——两道闸门见 `cloudEntry.js` 的文件头，壳端与静态页都不能写 | `services/cloudEntry.js`（`readActiveProfile` / `writeActiveProfile` / `forgetActiveProfile`；键名定义在 `services/storageNames.js` 的 `CLOUD_ACTIVE_KEY`） |
 | `cp.cf.solved`（**手动标记的「已通过」**，字符串数组，2026-11-08 加，见 §30；唯一出处是 `services/solvedIndex.js`） | 元素是题目键：CF 的题用 `problemKey` 的写法（`1234:A`），其它 OJ 用 `problemUrlKey` 的产出（`luogu.com.cn/problem/P1001`）—— 两套写法不会撞车（前者一定不含 `/`），所以手动标记对任何 OJ 都成立。**只有手动那一半在这里**：自动那一半来自 CF 账号的 `user.status`（Worker 的 12h 缓存），换台设备填同一个 handle 就会回来，不用存。刻意**不进云同步白名单**（理由见 §30.4）。上限 4000 条（`MANUAL_MAX`），防手改 / 异常值写爆 localStorage |
+| `cp.cf.earned`（**站内提交判为 AC 的题**，字符串数组，2026-11-08 加，见 §31；唯一出处是 `services/solvedIndex.js`） | 元素是题目键，写法与上面 `cp.cf.solved` 完全一致（CF 题 `1234:A`，其它 OJ `host/path`）。写入方**只有** App.vue 的提交流程（`markSolvedBySubmission`，判定码 `ac`）—— 界面上的点击改不动它，与自动那一半同一条口径：这是既成事实。上限 4000 条（`EARNED_MAX`）。刻意**不进云同步白名单**（理由见 §31.1）。注意它与 `cp.cf.solved` 撞键时会**剔掉后者**（`pruneManualOverlap`）：同一条记录没必要留两份，留硬的 |
 | `cp.cf.*`（抽题面板 / 比赛的**表单偏好** + 上次抽到的结果，共 9 键；唯一出处是 `useCfPicker.js` 与 `useCfContest.js` 顶部的 `KEY`） | `ratingMin` / `ratingMax` / `tags` / `count` / `preferNew` / `excludeSolved` / `handle`（抽题表单）+ `picked`（**上次抽到的那一批结果**，2026-11-08 加，见 §29）+ `contestSpec`（**比赛链接或裸 ID 的原始输入串**，刷新与换会话都回填上次查的那场）。`contestOpen`（比赛区块是否展开）2026-10-19 晚随比赛拆出独立组件而**废除**——看板自成页签，没有折叠态了。三条口径：① 它们只是「上次填了什么 / 上次抽到了什么」，**不参与任何判据**；② `contestSpec` 存的是**原始串而不是解析后的 spec** —— 解析永远走 `parseContestSpec`，存解析结果会把 `kind` 判据（如裸 ID 的 gym 分界）钉死在写盘那一刻；③ 与设置页的 `cp.cfPicker.ready` 同前缀但不是一回事（后者是组件安装标记） | `composables/useCfPicker.js` / `composables/useCfContest.js` |
 
 另外 PCH 二进制（约 8.6MB，v3 起；v2 的微型版是 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cp-pch`（2026-10-01 从 `cph-pch` 改名；`pchStore.js` 打开库时会把旧库静默删掉——PCH 是缓存，下次编译自己会重建）、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:PCH 源码内容哈希:PCH 编译参数哈希`（当前形如 `6:23.1.0:<头文件指纹>:<参数指纹>`），任一段变化旧存档自然失效，取存档只按这个 id。**参数段是 2026-11-03 加的**：它覆盖 `PCH_ARGS` 整条命令行，改 `-std` / 异常 / RTTI / 宏 / 包含路径都不再需要手工 +1 `PCH_CACHE_VERSION`（手工那步漏过：clang 拒载被降级重试吃掉，只剩「参数改了但 PCH 一直是旧行为」）。`PCH_CACHE_VERSION` 从此只表示**存档格式**变化。**PCH 的持久层只有 IndexedDB 这一处**（2026-11-03 起）：SW 对 `*.pch.br` 直通网络、既不读也不写 Cache Storage（见第 9 节边界 6），`pruneLegacyToolchainCache()` 会把桶里遗留的 `*.pch.br` 一并清掉；启动预取的 `prefetchPch()` 命中内存 / 存档就直接返回，不再发 fetch（以前每次都重取 + 解压 + 覆写 18MB）。
@@ -4211,7 +4212,7 @@ CF / Polygon 的题面源文本不是标准 Markdown + LaTeX：数学定界符�
 
 ### 30.1 结构：一个新服务，三个消费方
 
-新增 `services/solvedIndex.js` —— 「这道题我通过了吗」的**唯一出处**，两个来源合成一个答案：
+新增 `services/solvedIndex.js` —— 「这道题我通过了吗」的**唯一出处**，两个来源合成一个答案（§31 又补了第三个：站内提交判 AC）：
 
 1. **自动**：本机填的 Codeforces 账号已 AC 的题。Worker 里新加一条 `solved` 消息（复用 `loadSolvedKeys`，12h 缓存，多账号取并集），`cfClient.cfSolved(handles, { force })` 是它的出口。它和抽题面板「排除已通过的题」读的是**同一份**数据 —— 不会各拉一次 `user.status`，也不会出现「被排除掉了却没标上勾」这种自相矛盾。
 2. **手动**：`cp.cf.solved`（字符串数组，上限 4000）。
@@ -4264,6 +4265,56 @@ CF / Polygon 的题面源文本不是标准 Markdown + LaTeX：数学定界符�
 - **不进云同步白名单**：自动那一半本来就跟着 CF 账号走，手动这半是本机补充；同步过去会和另一台设备的 CF 状态打架（`cloudProfile.js` 的清单已补记）。
 - **页签上不做可点的勾**：页签要拖动、要中键关闭，一颗可点的勾会和这些手势抢命中区。标记入口统一在右键菜单。
 - **不标目录**：键来自 `meta.url`，目录没有链接。
-- **12h 缓存内刚 AC 的题不会立刻出现**：与「排除已通过的题」同一口径（同一个 `loadSolvedKeys` 缓存）。要绕过只有 `refreshSolved({ force: true })`，本轮没有给它做界面入口。
+- **12h 缓存内刚 AC 的题不会立刻出现**：与「排除已通过的题」同一口径（同一个 `loadSolvedKeys` 缓存）。要绕过只有 `refreshSolved({ force: true })`，本轮没有给它做界面入口。**但站内提交出来的 AC 不必等它** —— 判定一到就进 `cp.cf.earned`（§31）。
 - **卸载组件不清这个键**：与 `cp.cf.ratingMin` 那批表单偏好同一档。
 - **删账号后手动标记仍留着**：那是用户的判断，与账号无关；只有「与自动集合重叠」的那些会在自动数据到手时被剔掉（`pruneManualOverlap`，避免删账号之后凭空复活一个勾）。
+
+## 31. 站内提交判 AC 就地记为「已通过」（2026-11-08）
+
+用户提：「通过网站的提交按钮提交的时候，是可以获取提交的状态的，何不在 AC 之后直接标记为通过，打个勾」。这正是 §30 那条「12h 缓存内刚 AC 的题不会立刻出现」的正解 —— 判定本来就在手上。
+
+### 31.1 第三个来源 `earned`
+
+`solvedIndex.js` 从两个来源变三个，谁也不覆盖谁（显示时按 `earned` > `auto` > `manual` 取第一个命中的）：
+
+| 来源 | 数据 | 落盘 | 能手动取消吗 |
+| --- | --- | --- | --- |
+| `earned` | 站内提交、判定 `ac` | `cp.cf.earned`（上限 `EARNED_MAX` = 4000） | **不能**（既成事实） |
+| `auto` | CF 账号的 `user.status` | 不落盘（跟着 handle 走） | 不能 |
+| `manual` | 用户点的「标记为已通过」 | `cp.cf.solved`（§30） | 能 |
+
+改动点：
+
+1. **`markSolvedBySubmission(url)`** 是 `earnedKeys` 的**唯一写入方**，只由 App.vue 的提交流程调 —— 界面上的点击永远走不到这里。幂等（已经记过就早退，不产生新 Set、也就不多写一次盘）：扩展对同一条提交重复推终态是允许的。
+2. **App.vue `submitActiveFile` 两处触发**：`onVerdict` 里 `status.verdict === 'ac'`；以及回执里 `result.verdict === 'ac'` —— 扩展有时在 `cp-submit-result` 里就直接给了判定，`cp-submit-status` 这一趟可能一次都不来。
+3. **`solvedLockedOfUrl(url)`**（新导出）：`earned` 与 `auto` 都算「锁住」。结果行的勾据此打 `is-auto`（点不动），文件树与页签的右键菜单据此**不给**「标记 / 取消」那一项 —— 之前这一处判的是 `source !== 'auto'`，不改的话会出现「菜单里有『取消已通过标记』、点下去什么也没发生」。
+4. **`pruneManualOverlap` 的判据扩成 `auto ∪ earned`**：手动标过、后来自己在站内交 AC 了的题，那条手动记录会「复活」成勾（删掉 earned 存档之后），顺手剔掉。
+5. **抽题的「排除已通过的题」也认这两个本机集合**：`localSolvedKeys()`（earned ∪ manual）经 `filters.solvedExtra` 递给 Worker，并进 `solvedSet`。Worker 那份只认 `user.status`（12h 缓存）—— 不并进去就会出现「勾着已通过、又被抽出来」。`excludeSolved` 仍要求填账号（`handleRequired` 那条闸门没动）。
+6. **文案**：`cf.solved.earned` =「已通过（本站提交判为 AC）」/「Solved (your submission from this site got AC)」。文件树与页签的勾仍是那句「已通过」（它们没有悬停解释来源的义务）。
+7. `cloudProfile.js` 的「刻意不同步」清单补 `cp.cf.earned`：记的是「这台设备上交过哪几道」，换设备把别人的交题记录摆过来没有意义；真在 CF 上 AC 过的，换设备填同一个 handle 后 `auto` 那半会照样回来。
+
+### 31.2 实测（探针 18/18；假扩展喂 `cp-info` / `cp-submit-result` / `cp-submit-status`，走真实的 `submitActiveFile`）
+
+种子：`cp.cf.picked` 预置 CF4A + CF1A、`cp.cf.solved = ["4:A"]`（先手动标上）、`cp.cf.handle = tourist`、Codeforces 页签开着。假扩展对 `contest/4/problem/A` 回 `ac`、对其它题回 `wa`。
+
+| 场景 | 结果 |
+| --- | --- |
+| 首屏 | 结果区两行；CF4A 的勾 `is-on` 且**不是** `is-auto`，文案「已通过（手动标记）· 再点一次取消」 |
+| 导入 CF4A → 点提交 → 确认 | 假扩展收到 `cp-submit`：url = `contest/4/problem/A`、`language: cpp`、正文 224 字节 |
+| 判定 ac 之后 | `cp.cf.earned` = `["4:A"]`；`cp.cf.solved` 被剔成 `[]`；勾变 `is-on is-auto`，文案「已通过（本站提交判为 AC）」；文件树与页签**同时**出现勾 |
+| 点那颗锁住的勾 | 存档不变、`is-on` 仍在（点不掉） |
+| 锁住时树行右键 | 菜单：打开题目 / 题目信息 / 导出 / 重命名 / 删除 —— **没有**「标记 / 取消」那一项 |
+| 刷新（账号清空、手动标记清空） | 勾还在、仍是「本站提交判为 AC」→ 证明不依赖账号与扩展，只靠 `cp.cf.earned` |
+| 导入 CF1A → 提交 → 判 `wa` | `cp.cf.earned` 仍是 `["4:A"]`；CF1A 那一行**没有**勾，文案回到「标记为已通过」 |
+
+两套主题各拍了一张：深色 / 浅色下勾都在题号前，颜色仍是 `--ok`。
+
+`npx vite build` 通过，`npm run lint` exit 0（只剩 7 处存量圆角提示）。
+
+### 31.3 边界
+
+- **只认站内提交**：在 Codeforces 网站上交的 AC 不写 `earned`，那是 `auto` 那一半的事（下次拉 `user.status` 就会亮）。这么切是为了不把「网页上发生的事」凭空猜出来。
+- **`earned` 没有界面上的清除入口**：它是「我确实交过一条 AC」的记录，与 `auto` 同一条口径。要清只能改 `cp.cf.earned`（清掉之后，若账号那半也认这道题，勾会以 `manual` / `auto` 的身份回来）。
+- **`excludeSolved` 仍要求填账号**：本机集合只用来补全排除集，没有放宽「没有 handle 就不给排除」这条闸门 —— 那是本来的口径，本轮不动。
+- **判定是 `testing` / `submitted` 时什么也不做**：只有终态里的 `ac` 才写。
+- **不写进题目元数据、不进云同步白名单**（同 §30）。

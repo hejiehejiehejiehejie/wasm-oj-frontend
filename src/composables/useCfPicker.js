@@ -51,6 +51,7 @@ import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
 import { closeCodeforcesTab } from '../services/editorViews.js'
 import { notify } from '../services/notifications.js'
+import { localSolvedKeys } from '../services/solvedIndex.js'
 import { addTabsToGroup, groupOfId, groupTabs } from '../services/tabGroups.js'
 import { importProblem } from '../services/vfs/problemImport.js'
 import { findProblemByUrl, workspace } from '../services/vfs/workspaceStore.js'
@@ -402,6 +403,10 @@ export function useCfPicker() {
         preferNew: preferNew.value,
         excludeSolved: excludeSolved.value,
         handles,
+        // 本机记下的「已通过」（站内提交判 AC + 手动标记）：Worker 那份排除集只认账号的
+        // user.status（12h 缓存），刚交 AC 的题在窗口里还不存在 —— 不递过去就会出现
+        // 「勾着已通过、又被抽出来」。见 services/solvedIndex.js 的 localSolvedKeys
+        solvedExtra: localSolvedKeys(),
         excludeKeys: previousKeys,
       })
       results.value = response.problems || []

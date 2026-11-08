@@ -52,6 +52,7 @@ import { modelManager } from '../services/monaco/modelManager.js'
 import { openProblemUrl, problemUrlOf } from '../services/problemMeta.js'
 import {
   isSolvedNode,
+  solvedLockedOfUrl,
   solvedSourceOfUrl,
   toggleSolvedUrl,
 } from '../services/solvedIndex.js'
@@ -495,11 +496,12 @@ function buildTabMenuItems(item) {
     })
   }
   // 「已通过」标记：与文件树右键菜单同一份文案与判据（cf.solved.*）。
-  // 自动命中时**不给这一项** —— 那是 CF 上的 OK 提交，手动取消不了（见 solvedIndex 文件头）。
+  // 锁住的（CF 上的 OK 提交 / 本站刚交过 AC）时**不给这一项** —— 手动取消不了
+  // （见 solvedIndex 文件头）。
   const url = tabProblemUrl(item.id)
   if (url) {
     const source = solvedSourceOfUrl(url)
-    if (source !== 'auto') {
+    if (!solvedLockedOfUrl(url)) {
       items.push({
         id: 'toggle-solved',
         label: source === 'manual' ? t('cf.solved.unmark') : t('cf.solved.mark'),

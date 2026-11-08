@@ -50,6 +50,7 @@ import {
   submitVerdictType,
 } from './services/ojSubmit.js'
 import { clearRunNotify, notifyRunOutcome } from './services/runNotify.js'
+import { markSolvedBySubmission } from './services/solvedIndex.js'
 import { modelManager } from './services/monaco/modelManager.js'
 import {
   MD_VIEW_SHORTCUT,
@@ -1168,9 +1169,15 @@ async function submitActiveFile({ duplicate = false } = {}) {
       // testing 只是「评测机接单了」的中转，不是结果 —— 常驻那条「提交中」刚刚换成
       // 「已提交」，这里再弹一条「其他结果」只会是噪音
       if (status.verdict === 'testing') return
+      // 判定到手了：AC 就地记成「已通过」，文件树 / 页签 / 抽题结果区的那几枚勾立刻亮
+      // （不必等 user.status 那一趟：它有 12h 缓存，刚交的题在窗口里根本看不见）
+      if (status.verdict === 'ac') markSolvedBySubmission(url)
       void reportSubmitVerdict({ seq, tag, node, status, url, loadDetail })
     },
   })
+
+  // 扩展有时在回执里就直接给了判定（cp-submit-status 只推后续变化，这一趟可能一次都不来）
+  if (result.ok && result.verdict === 'ac') markSolvedBySubmission(url)
 
   if (result.ok && result.submissionId) void loadDetail(result.submissionId)
 

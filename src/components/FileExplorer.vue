@@ -94,7 +94,11 @@ import {
   todayISO,
 } from '../services/problemMeta.js'
 import { CHECKERS, DEFAULT_CHECKER_ID } from '../services/checkers.js'
-import { solvedSourceOfUrl, toggleSolvedUrl } from '../services/solvedIndex.js'
+import {
+  solvedLockedOfUrl,
+  solvedSourceOfUrl,
+  toggleSolvedUrl,
+} from '../services/solvedIndex.js'
 import { watchBackLayer } from '../services/backStack.js'
 
 /** 弹窗里的比对方式选项：默认逐行用「留空」表示，其余几种按题开启 */
@@ -375,16 +379,17 @@ function buildMenuItems(node) {
     // 右列不是 keydown 组合键，是 ⌘ / Ctrl + 单击这个**手势**本身 —— 走不了 formatCombo
     // （它只吃 'Mod+KeyX' 那种串），但它是真的能按的，所以照旧填右列、不留空。
     if (problemUrl(node)) {
+      const problemLink = problemUrl(node)
       items.push({
         id: 'open-url',
         label: t('explorer.menu.openUrl'),
         shortcut: t('explorer.menu.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
       })
       // 「已通过」标记就挂在「打开题目」下面 —— 两者都只对有题目链接的文件成立。
-      // 自动命中（CF 上真有 OK 提交）时**不给这一项**：手动取消不了它，给了就是个点了
-      // 没反应的菜单（判据见 services/solvedIndex.js 文件头）。
-      const source = solvedSourceOfUrl(problemUrl(node))
-      if (source !== 'auto') {
+      // 锁住的（CF 上真有 OK 提交 / 本站刚交过 AC）时**不给这一项**：手动取消不了它，
+      // 给了就是个点了没反应的菜单（判据见 services/solvedIndex.js 文件头）。
+      const source = solvedSourceOfUrl(problemLink)
+      if (!solvedLockedOfUrl(problemLink)) {
         items.push({
           id: 'toggle-solved',
           label: source === 'manual' ? t('cf.solved.unmark') : t('cf.solved.mark'),

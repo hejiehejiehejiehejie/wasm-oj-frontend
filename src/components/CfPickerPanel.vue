@@ -360,13 +360,13 @@
               <li v-for="problem in results" :key="`${problem.contestId}-${problem.index}`">
                 <div class="cf-result cf-list__row">
                   <span class="cf-result__title">
-                    <!-- 已通过标记：自动（CF 账号）只读、手动可点。放题号前 —— 每条结果行
-                         都在同一个位置，不看题名长短（见 cf-console.css 的 .cf-result__ac） -->
+                    <!-- 已通过标记：本站提交判 AC / CF 账号命中时只读，手动标记可点。放题号前 ——
+                         每条结果行都在同一个位置，不看题名长短（见 cf-console.css 的 .cf-result__ac） -->
                     <span
                       class="cf-result__ac"
                       :class="{
                         'is-on': !!solvedSource(problem),
-                        'is-auto': solvedSource(problem) === 'auto',
+                        'is-auto': isSolvedLocked(problem),
                       }"
                       role="button"
                       :aria-pressed="!!solvedSource(problem)"
@@ -480,6 +480,7 @@ import {
 import { useCfPicker } from '../composables/useCfPicker.js'
 import {
   autoHandles,
+  solvedLockedOfUrl,
   solvedSourceOfUrl,
   toggleSolvedUrl,
 } from '../services/solvedIndex.js'
@@ -601,17 +602,23 @@ const allImported = computed(
 )
 
 /**
- * 这一道题的通过状态：`'auto'`（CF 账号）/ `'manual'`（手动标记）/ `''`（没有）。
- * 内部读的是模块级 ref，模板里调用会正常建立依赖 —— 标记一变，结果区、文件树、页签
- * 三处同时更新（同一份索引，见 services/solvedIndex.js）。
+ * 这一道题的通过状态：`'earned'`（本站提交判 AC）/ `'auto'`（CF 账号）/
+ * `'manual'`（手动标记）/ `''`（没有）。内部读的是模块级 ref，模板里调用会正常建立
+ * 依赖 —— 标记一变，结果区、文件树、页签三处同时更新（同一份索引，见 services/solvedIndex.js）。
  */
 function solvedSource(problem) {
   return solvedSourceOfUrl(problem?.task?.url)
 }
 
-/** 悬停文案：说清这个勾是哪来的、能不能点掉（自动命中的点不掉，理由见 solvedIndex） */
+/** 这颗勾点不动吗（本站提交判 AC 与 CF 账号命中的都点不动，见 solvedIndex 文件头） */
+function isSolvedLocked(problem) {
+  return solvedLockedOfUrl(problem?.task?.url)
+}
+
+/** 悬停文案：说清这个勾是哪来的、能不能点掉（锁住的点不掉，理由见 solvedIndex） */
 function solvedTitle(problem) {
   const source = solvedSource(problem)
+  if (source === 'earned') return t('cf.solved.earned')
   if (source === 'auto') {
     const handles = autoHandles.value.join(', ')
     return handles ? t('cf.solved.auto', { handles }) : t('cf.solved.autoBare')
@@ -619,7 +626,7 @@ function solvedTitle(problem) {
   return source === 'manual' ? t('cf.solved.manual') : t('cf.solved.mark')
 }
 
-/** 点勾：手动标记来回切换；自动命中的点了没反应（判据在 solvedIndex.toggleSolvedUrl） */
+/** 点勾：手动标记来回切换；锁住的点了没反应（判据在 solvedIndex.toggleSolvedUrl） */
 function markSolved(problem) {
   toggleSolvedUrl(problem?.task?.url)
 }
