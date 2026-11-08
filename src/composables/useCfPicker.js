@@ -30,7 +30,17 @@
 import { computed, nextTick, ref, toRaw, watch } from 'vue'
 
 import { t } from '../i18n/index.js'
-import { COUNT_MAX, COUNT_MIN, normalizeHandles, normalizeTags, problemKey } from '../cf/pick.js'
+import {
+  CONTEST_CATS,
+  COUNT_MAX,
+  COUNT_MIN,
+  PROBLEM_LETTERS,
+  normalizeCats,
+  normalizeHandles,
+  normalizeLetters,
+  normalizeTags,
+  problemKey,
+} from '../cf/pick.js'
 import { applyCanonicalHandles, cfHandle } from '../cf/myHandle.js'
 import { cfCheckHandles, cfPick, onCfProgress } from '../services/cfClient.js'
 import { cfReady } from '../services/cfRuntime.js'
@@ -58,6 +68,8 @@ watch(cfReady, (ready) => {
 const KEY = {
   ratingMin: 'cp.cf.ratingMin',
   ratingMax: 'cp.cf.ratingMax',
+  divisions: 'cp.cf.divisions',
+  letters: 'cp.cf.letters',
   tags: 'cp.cf.tags',
   count: 'cp.cf.count',
   preferNew: 'cp.cf.preferNew',
@@ -90,6 +102,8 @@ function toRating(raw) {
 export function useCfPicker() {
   const ratingMin = usePersistentRef(KEY.ratingMin, '')
   const ratingMax = usePersistentRef(KEY.ratingMax, '')
+  const divisions = usePersistentRef(KEY.divisions, '')
+  const letters = usePersistentRef(KEY.letters, '')
   const tags = usePersistentRef(KEY.tags, '')
   const count = usePersistentRef(KEY.count, 1)
   const preferNew = usePersistentRef(KEY.preferNew, true)
@@ -169,6 +183,36 @@ export function useCfPicker() {
   /** 清掉上一次校验点出来的「不存在」名单 */
   function resetHandleState() {
     handleBad.value = []
+  }
+
+  /**
+   * 已选的比赛类别（CONTEST_CATS 的 id 数组）。持久化仍是 `cp.cf.divisions` 那一个逗号串，
+   * 与标签同一种存法：一格里存一串、点一下就重写一次，省掉「数组 vs JSON」的第二种格式。
+   * 归一化复用 Worker 那份 normalizeCats —— 界面与筛选对「什么算同一个类别」不会有两套说法。
+   */
+  const selectedDivisions = computed(() => normalizeCats(divisions.value))
+
+  /** 已选题号（A–M 的大写字母数组），存法与上面同一个口径（`cp.cf.letters`） */
+  const selectedLetters = computed(() => normalizeLetters(letters.value))
+
+  /** 点一颗类别芯片：在就撤掉，不在就追加（顺序即点选顺序，与标签芯片同一套） */
+  function toggleDivision(cat) {
+    const id = String(cat ?? '').trim().toLowerCase()
+    if (!CONTEST_CATS.includes(id)) return
+    const next = selectedDivisions.value.includes(id)
+      ? selectedDivisions.value.filter((item) => item !== id)
+      : [...selectedDivisions.value, id]
+    divisions.value = next.join(', ')
+  }
+
+  /** 点一颗题号芯片：同上 */
+  function toggleLetter(letter) {
+    const key = String(letter ?? '').trim().toUpperCase()
+    if (!PROBLEM_LETTERS.includes(key)) return
+    const next = selectedLetters.value.includes(key)
+      ? selectedLetters.value.filter((item) => item !== key)
+      : [...selectedLetters.value, key]
+    letters.value = next.join(', ')
   }
 
   /**
@@ -252,7 +296,10 @@ export function useCfPicker() {
       const response = await cfPick({
         ratingMin: min,
         ratingMax: max,
-        // 原样交给 Worker —— normalizeTags / normalizeHandles 都在那边，主线程不必知道怎么归一化
+        // 原样交给 Worker —— normalizeTags / normalizeHandles / normalizeCats / normalizeLetters
+        // 都在那边，主线程不必知道怎么归一化
+        divisions: divisions.value,
+        letters: letters.value,
         tags: tags.value,
         count: count.value,
         preferNew: preferNew.value,
@@ -409,10 +456,14 @@ export function useCfPicker() {
     handle,
     // 派生
     stageText,
+    selectedDivisions,
+    selectedLetters,
     selectedTags,
     // 动作
     clampCount,
     applyPreset,
+    toggleDivision,
+    toggleLetter,
     toggleTag,
     run,
     importOne,

@@ -88,6 +88,8 @@ export default {
           ratingMax: '上限',
           unlimited: '不限',
           presets: '常用区间',
+          contest: '比赛',
+          letter: '题号',
           tags: '标签',
           tagPresets: '常用标签',
           tagsExpand: '展开',
@@ -95,6 +97,21 @@ export default {
           count: '数量',
           decrease: '减少数量',
           increase: '增加数量',
+        },
+        /**
+         * 比赛类别（2026-11-08）。这八个名字是 CF 官方的分组写法（比赛名里就长这样），
+         * 中英两栏刻意一致 —— 译成「第一赛区」反而跟题库里那行比赛名对不上号。
+         * key 与 cf/pick.js 的 CONTEST_CATS 一一对应，改名要两边一起改。
+         */
+        cats: {
+          div1: 'Div. 1',
+          div2: 'Div. 2',
+          div3: 'Div. 3',
+          div4: 'Div. 4',
+          edu: 'Edu',
+          div12: 'Div. 1+2',
+          global: 'Global',
+          others: 'Others',
         },
         options: {
           preferNew: '优先近期新题',
@@ -438,6 +455,8 @@ export default {
           ratingMax: 'Max',
           unlimited: 'Any',
           presets: 'Presets',
+          contest: 'Contest',
+          letter: 'Problem',
           tags: 'Tags',
           tagPresets: 'Common tags',
           tagsExpand: 'Expand',
@@ -445,6 +464,17 @@ export default {
           count: 'Count',
           decrease: 'Decrease count',
           increase: 'Increase count',
+        },
+        /** 同 zh-CN：CF 官方分组名，两栏一致 */
+        cats: {
+          div1: 'Div. 1',
+          div2: 'Div. 2',
+          div3: 'Div. 3',
+          div4: 'Div. 4',
+          edu: 'Edu',
+          div12: 'Div. 1+2',
+          global: 'Global',
+          others: 'Others',
         },
         options: {
           preferNew: 'Prefer recent problems',

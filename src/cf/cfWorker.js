@@ -33,7 +33,10 @@
 import {
   pickRandomCF,
   cfProblemToTask,
+  contestCategory,
+  normalizeCats,
   normalizeHandles,
+  normalizeLetters,
   normalizeTags,
   problemKey,
 } from './pick.js'
@@ -318,6 +321,40 @@ async function loadContestList(gym, { force = false } = {}) {
     await writeRecord(key, list)
     return { list, fetchedAt: Date.now() }
   })
+}
+
+/**
+ * 选中的比赛类别 → 允许抽的 contestId 集合（空 = 不限）。
+ *
+ * 【为什么要借 contest.list】题库接口只给 contestId，没有「这场比赛是 Div 几」这种字段，
+ * 唯一能判的依据是比赛名（见 pick.js 的 contestCategory）。列表本身 1h 缓存、与赛程共用，
+ * 抽题页开着时通常已经在库里，不必额外付配额；第一次勾类别时最多多下一份 400KB。
+ *
+ * 【为什么按题目遍历，而不是直接把列表里同类的场次全塞进来】集合只装「题库里真的出现过」
+ * 的场次，于是「Others」天然涵盖了 contest.list 里没有的那些（group / 私有场次）——
+ * 过滤时不必再为「查不到的 contestId 算不算 Others」多写一条分支。
+ *
+ * @param {unknown} rawCats 主线程传来的类别（字符串或数组）
+ * @param {Array<Record<string, any>>} problems 题库
+ * @returns {Promise<Set<number>|null>} null 表示这一项没设条件
+ */
+async function contestIdsOfCategories(rawCats, problems) {
+  const wanted = new Set(normalizeCats(rawCats))
+  if (!wanted.size) return null
+
+  const { list } = await loadContestList(false)
+  const categoryOf = new Map(
+    list.map((contest) => [contest.id, contestCategory(contest.name, contest.id)]),
+  )
+
+  const ids = new Set()
+  for (const problem of problems) {
+    if (ids.has(problem.contestId)) continue
+    // 不在列表里的场次不属于任何 Div，归 Others
+    const category = categoryOf.get(problem.contestId) ?? 'others'
+    if (wanted.has(category)) ids.add(problem.contestId)
+  }
+  return ids
 }
 
 /**
@@ -607,6 +644,10 @@ const handlers = {
     const filters = message.filters || {}
     const problems = await loadProblemset()
 
+    // 比赛类别（Div. 1/2/3/4、Edu、Div. 1+2、Global、Others）：把选中的几类翻成一个
+    // contestId 集合。没勾就是 null，题库整个参与抽取。见 contestIdsOfCategories。
+    const contestIds = await contestIdsOfCategories(filters.divisions, problems)
+
     // 「排除已通过的题」支持多个账号：取各自已 AC 的**并集**，
     // 于是留下的就是「这些账号都没做过的题」
     const handles = normalizeHandles(filters.handles)
@@ -630,6 +671,9 @@ const handlers = {
       // 「换一批」：主线程把当前这批题的键发过来，剔掉它们。
       // 走数组而不是 Set —— postMessage 虽然能克隆 Set，但显式传数组更省心
       excludeKeys: new Set(filters.excludeKeys || []),
+      contestIds,
+      // 题号（A–M）：只留首字母命中的，`B1` / `B2` 也算 B 题（见 pick.js 的 problemLetter）
+      letters: normalizeLetters(filters.letters),
     })
 
     if (!picked.length) {

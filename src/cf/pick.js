@@ -49,6 +49,120 @@ export const TAG_PRESETS = [
 export const COUNT_MIN = 1
 export const COUNT_MAX = 10
 
+/**
+ * 比赛类别（2026-11-08）。八个桶照 cftracker 的 ContestCat 原样搬来：
+ * Div. 1 / Div. 2 / Div. 3 / Div. 4 / Edu / Div. 1+2 / Global / Others。
+ *
+ * **id 是进偏好与消息的那一份**，界面文案在 i18n（`cf.picker.cats.*`）——
+ * 与 tags 同一条纪律：数据层只认机器码，切语言不必改存储。
+ * 数组顺序即芯片顺序（Div. 1 → 4，再两种混合场，最后兜底）。
+ * 注意 `div12` 排在 `div2` 之后、`global` 之前：它们是「这场算不算 Div. 1+2」的并列答案，
+ * 判据只维护在 contestCategory 里，这里只是渲染顺序。
+ */
+export const CONTEST_CATS = ['div1', 'div2', 'div3', 'div4', 'edu', 'div12', 'global', 'others']
+
+/**
+ * 题号（A–M）。CF 的 index 绝大多数是单个字母，超过 M 的（N–R）历史上不到 20 道，
+ * 不值得为它们在 330px 的卡片里多挤两格 —— 用户要的就是「第几题」这一层。
+ */
+export const PROBLEM_LETTERS = 'ABCDEFGHIJKLM'.split('')
+
+/**
+ * 按名字判不准的场次，照 cftracker 的硬编码清单（判定本身仍然优先于名字）：
+ *  - 2010 `Testing Round 19 (Div. 3)`：名字里有 Div. 3，但它是测试场，不是真 Div. 3；
+ *  - 1930 `think-cell Round 1`、2029 `Refact.ai Match 1 (Codeforces Round 985)`：
+ *    赞助商冠名的合场，名字里没有 `Div`，实际是 Div. 1 + Div. 2。
+ */
+const CATEGORY_OVERRIDES = new Map([
+  [2010, 'others'],
+  [1930, 'div12'],
+  [2029, 'div12'],
+])
+
+/**
+ * 比赛名 → 类别 id。
+ *
+ * 【为什么按名字判】CF 的接口没有「这场比赛是 Div 几」这个字段，`contest.list` 只给名字；
+ * 名字里的写法还不统一（`Div. 1` / `Div.1` / `Div 2` / `Rated for Div. 2` 都出现过），
+ * 所以先收敛成一种再判。判据顺序与 cftracker 一致：
+ * Educational → Global → 同时有 1 和 2（Div. 1 + Div. 2）→ 单个 1/2/3/4 → Good Bye / Hello（合场）→ 其余。
+ *
+ * 【为什么 Educational / Global 排最前】`Educational ... (Rated for Div. 2)` 与
+ * `Global Round 31 (Div. 1 + Div. 2)` 都带着 Div 字样，先判 Div 会把它们拆进 Div. 2 / Div. 1+2，
+ * 而它们各自是一类独立的比赛（题量、难度曲线都不一样）。
+ *
+ * @param {string} name 比赛名（`contest.list` 的那份）
+ * @param {number} [contestId] 用于特例表
+ * @returns {string} CONTEST_CATS 里的一个 id
+ */
+export function contestCategory(name, contestId) {
+  const override = CATEGORY_OVERRIDES.get(Number(contestId))
+  if (override) return override
+
+  // `Div.1` / `Div 2` / `Div. 2` 一律收敛成 `Div. 1` 这种写法，下面只认这一种
+  const text = String(name ?? '').replace(/Div\s*\.?\s*([1-4])/gi, 'Div. $1')
+
+  if (/Educational/i.test(text)) return 'edu'
+  if (/Global/i.test(text)) return 'global'
+
+  const divisions = new Set()
+  for (const match of text.matchAll(/Div\.\s*([1-4])/g)) divisions.add(match[1])
+  if (divisions.has('1') && divisions.has('2')) return 'div12'
+  if (divisions.has('1')) return 'div1'
+  if (divisions.has('2')) return 'div2'
+  if (divisions.has('3')) return 'div3'
+  if (divisions.has('4')) return 'div4'
+
+  // 「Good Bye 2025」「Hello 2026」这类年末 / 年初场是 Div. 1 + Div. 2，名字里却没有 Div
+  if (/\b(Good Bye|Hello)\b/i.test(text)) return 'div12'
+  return 'others'
+}
+
+/**
+ * 题目的「第几题」：取 index 的首字母。
+ * CF 的 index 可能是 `B`、`B1`、`B2`（同一题的两个子任务）—— 用户按题号筛「B」时，
+ * 这三道都是 B 题，所以只取首字母，不要求整串相等。
+ * 数字 index（`14`、`09`，题库里十几道远古 ACM 题）没有首字母，返回 `''`，任何题号筛选都不命中。
+ * @param {unknown} index
+ * @returns {string} 单个大写字母，或空串
+ */
+export function problemLetter(index) {
+  const match = /^[A-Za-z]/.exec(String(index ?? '').trim())
+  return match ? match[0].toUpperCase() : ''
+}
+
+/**
+ * 比赛类别输入归一化：接受 `"div2, edu"` 字符串或数组，只留 CONTEST_CATS 里认识的 id。
+ * 认不出的（拼错、旧版残留）直接丢掉 —— 留着会让筛选「条件在生效、界面上却看不见」，
+ * 与 normalizeTags 里那条纪律同一个理由。
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function normalizeCats(raw) {
+  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(',')
+  const cats = []
+  for (const item of list) {
+    const id = String(item ?? '').trim().toLowerCase()
+    if (CONTEST_CATS.includes(id) && !cats.includes(id)) cats.push(id)
+  }
+  return cats
+}
+
+/**
+ * 题号输入归一化：接受 `"A,B"` / `['A','b']`，收敛成大写的单个字母，且只认 A–M。
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function normalizeLetters(raw) {
+  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(',')
+  const letters = []
+  for (const item of list) {
+    const letter = String(item ?? '').trim().toUpperCase()
+    if (PROBLEM_LETTERS.includes(letter) && !letters.includes(letter)) letters.push(letter)
+  }
+  return letters
+}
+
 /** 「优先近期新题」时的远古题软过滤阈值：contestId 小于它的算旧题 */
 const RECENT_CUTOFF = 1000
 
@@ -136,6 +250,8 @@ export function cfProblemToTask(problem) {
  * @param {Set<string>|null} [options.solvedSet] 已 AC 的题目键集合（problemKey 的产物）
  * @param {boolean} [options.preferNew] 优先近期新题（加权算法）
  * @param {Set<string>|null} [options.excludeKeys] 要额外剔掉的一批题目键（「换一批」传上一批）
+ * @param {Set<number>|null} [options.contestIds] 允许的比赛 id 集合（按比赛类别筛出来的），null/空 = 不限
+ * @param {string[]} [options.letters] 题号（A–M），只留首字母命中的；空 = 不限
  * @returns {Array<Record<string, any>>} 抽中的原始 problem（可能为空数组 = 无匹配）
  */
 export function pickRandomCF(problems, options = {}) {
@@ -149,9 +265,13 @@ export function pickRandomCF(problems, options = {}) {
     solvedSet = null,
     preferNew = false,
     excludeKeys = null,
+    contestIds = null,
+    letters = [],
   } = options
 
   const targetCount = Math.max(COUNT_MIN, Math.min(Number(count) || 1, COUNT_MAX))
+  // 题号是逐题比对的，先用 Set 收一遍：一场比赛抽 10 道题时这是最内层的那条判断
+  const letterSet = new Set(letters)
 
   /** 这道题是否满足全部硬性条件；skipKeys 是要额外剔掉的一批（只在后一轮过滤里给 null） */
   const matches = (problem, skipKeys) => {
@@ -159,6 +279,13 @@ export function pickRandomCF(problems, options = {}) {
     if (requireRated && rating == null) return false
     if (ratingMin != null && rating != null && rating < ratingMin) return false
     if (ratingMax != null && rating != null && rating > ratingMax) return false
+    // 比赛类别：主线程只把「选中的那几类」翻成一个 contestId 集合送进来，
+    // 类别怎么判（名字 → Div 几）是 Worker 的事，这里只认集合。
+    // ⚠️ 判据是 `contestIds != null` 而不是 `size`：勾了类别却一道题都不沾（集合是空的）
+    // 必须**抽不到**并照实报 NO_MATCH；若按 size 判，空集合会被当成「不限」，
+    // 于是用户勾着一个什么都没有的类别，抽出来的却是全题库的题。
+    if (contestIds && !contestIds.has(problem.contestId)) return false
+    if (letterSet.size && !letterSet.has(problemLetter(problem.index))) return false
     // 交互 / special 题（`*special`）不适合当练习，直接剔掉
     if ((problem.tags || []).some((tag) => tag === '*special')) return false
     if (tags.length) {

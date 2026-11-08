@@ -86,6 +86,110 @@
             </div>
           </div>
 
+          <!-- 比赛类别（2026-11-08）：Div. 1 / 2 / 3 / 4、Edu、Div. 1+2、Global、Others。
+               判据在 cf/pick.js 的 contestCategory（CF 接口没有这个字段，只能按比赛名判，
+               与 cftracker 的 ContestCat 同一套）。
+               形态与难度、标签一致（同日用户口径「做成和难度、标签一样可折叠的」）：
+               右端一颗箭头，掀开才是八颗芯片；收起时这一行念已选的那几类，
+               一个都没选就念「不限」—— 与标签行同一种读法。 -->
+          <div class="pk-field">
+            <span class="pk-label">{{ t('cf.picker.fields.contest') }}</span>
+            <div class="pk-field__body">
+              <div class="pk-row-head">
+                <p
+                  class="pk-selected"
+                  :class="{ 'is-empty': !selectedDivisions.length }"
+                  :title="divisionSummary"
+                >
+                  {{ divisionSummary || t('cf.picker.fields.unlimited') }}
+                </p>
+                <!-- 这两句就是通用的「展开 / 收起」（难度、标签、比赛、题号四处共用），
+                     键名带 tags 是历史遗留 —— 不新开一份同文案的键，免得四处要同步改。 -->
+                <button
+                  type="button"
+                  class="pk-fold"
+                  :class="{ 'is-open': catsOpen }"
+                  :aria-expanded="catsOpen"
+                  :aria-label="catsOpen ? t('cf.picker.fields.tagsCollapse') : t('cf.picker.fields.tagsExpand')"
+                  :title="catsOpen ? t('cf.picker.fields.tagsCollapse') : t('cf.picker.fields.tagsExpand')"
+                  aria-controls="pk-contest-cats"
+                  @click="catsOpen = !catsOpen"
+                >
+                  <AppIcon name="chevron" :size="14" class="pk-fold__icon" />
+                </button>
+              </div>
+              <span
+                v-show="catsOpen"
+                id="pk-contest-cats"
+                class="pk-cats"
+                role="group"
+                :aria-label="t('cf.picker.fields.contest')"
+              >
+                <button
+                  v-for="cat in CONTEST_CATS"
+                  :key="cat"
+                  type="button"
+                  class="cf-chip pk-chip"
+                  :class="{ 'is-on': selectedDivisions.includes(cat) }"
+                  :aria-pressed="selectedDivisions.includes(cat)"
+                  @click="toggleDivision(cat)"
+                >
+                  {{ t(`cf.picker.cats.${cat}`) }}
+                </button>
+              </span>
+            </div>
+          </div>
+
+          <!-- 题号（2026-11-08）：A–M 一格一个字母，13 格排成一条（列数写死 13，
+               见 .pk-letters）—— 等距的一排才读得成「第几题」这条轴，换行会断。
+               只取 index 的首字母，所以 `B1` / `B2` 也算 B 题。
+               同样是折叠形态；摘要把连续的字母压成区间（`A–C · F`），见 letterSummary。 -->
+          <div class="pk-field">
+            <span class="pk-label">{{ t('cf.picker.fields.letter') }}</span>
+            <div class="pk-field__body">
+              <div class="pk-row-head">
+                <p
+                  class="pk-selected"
+                  :class="{ 'is-empty': !selectedLetters.length }"
+                  :title="letterSummary"
+                >
+                  {{ letterSummary || t('cf.picker.fields.unlimited') }}
+                </p>
+                <button
+                  type="button"
+                  class="pk-fold"
+                  :class="{ 'is-open': lettersOpen }"
+                  :aria-expanded="lettersOpen"
+                  :aria-label="lettersOpen ? t('cf.picker.fields.tagsCollapse') : t('cf.picker.fields.tagsExpand')"
+                  :title="lettersOpen ? t('cf.picker.fields.tagsCollapse') : t('cf.picker.fields.tagsExpand')"
+                  aria-controls="pk-letter-options"
+                  @click="lettersOpen = !lettersOpen"
+                >
+                  <AppIcon name="chevron" :size="14" class="pk-fold__icon" />
+                </button>
+              </div>
+              <span
+                v-show="lettersOpen"
+                id="pk-letter-options"
+                class="pk-letters"
+                role="group"
+                :aria-label="t('cf.picker.fields.letter')"
+              >
+                <button
+                  v-for="letter in PROBLEM_LETTERS"
+                  :key="letter"
+                  type="button"
+                  class="cf-chip pk-chip"
+                  :class="{ 'is-on': selectedLetters.includes(letter) }"
+                  :aria-pressed="selectedLetters.includes(letter)"
+                  @click="toggleLetter(letter)"
+                >
+                  {{ letter }}
+                </button>
+              </span>
+            </div>
+          </div>
+
           <div class="pk-field">
             <span class="pk-label">{{ t('cf.picker.fields.tags') }}</span>
             <div class="pk-field__body">
@@ -321,6 +425,13 @@
  * 主操作（开始抽取）是低饱和度的 --accent 微光面 + 一颗骰子图标（2026-10-29 照「运行全部」）；
  * 2026-10-29 起账号不再在表单里填 —— 抬头右侧那颗胶囊是三个模式共用的同一份（cf/myHandle.js）。
  *
+ * 【2026-11-08 多了两行】比赛类别（Div. 1 / 2 / 3 / 4、Edu、Div. 1+2、Global、Others）与
+ * 题号（A–M）—— 照 cftracker 的「按比赛分类」那一层做的：题库接口只有 contestId，
+ * 类别得靠比赛名判（见 cf/pick.js 的 contestCategory）。
+ * 两片芯片与难度、标签同一种折叠形态（同日用户口径）：收起时这一行只念已选的值，
+ * 右端一颗箭头摊开选项 —— 于是卡片里**四处可折叠、四颗箭头落在同一条竖线上**。
+ * 判据全在 Worker：这里只记「选了哪几个 id」，把 id 原样发过去。
+ *
  * 【颜色一律走设计令牌】不用 rgba(255,255,255,x) 这类字面量：本项目有浅色主题
  * （base.css 的 :root[data-scheme='light']），白色系硬编码在浅色下会整体失效。
  *
@@ -335,7 +446,14 @@ import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
-import { COUNT_MAX, COUNT_MIN, RATING_PRESETS, TAG_PRESETS } from '../cf/pick.js'
+import {
+  CONTEST_CATS,
+  COUNT_MAX,
+  COUNT_MIN,
+  PROBLEM_LETTERS,
+  RATING_PRESETS,
+  TAG_PRESETS,
+} from '../cf/pick.js'
 import { useCfPicker } from '../composables/useCfPicker.js'
 
 const {
@@ -345,9 +463,13 @@ const {
   preferNew,
   excludeSolved,
   stageText,
+  selectedDivisions,
+  selectedLetters,
   selectedTags,
   clampCount,
   applyPreset,
+  toggleDivision,
+  toggleLetter,
   toggleTag,
   run,
   importOne,
@@ -384,6 +506,52 @@ const tagsOpen = ref(false)
  * 由上面那两块输入自己交代，这里只管「要不要掀开快捷项」。
  */
 const presetsOpen = ref(false)
+
+/**
+ * 比赛类别 / 题号两片芯片是否展开。默认收起，口径与上面两处一致（2026-11-08 用户：
+ * 「做成和难度、标签一样可折叠的」）。同样是纯界面状态，不落盘 —— 选了哪几类 / 哪几题
+ * 已经由 cp.cf.divisions 与那一行摘要交代，这里只管「要不要掀开」。
+ */
+const catsOpen = ref(false)
+const lettersOpen = ref(false)
+
+/**
+ * 已选类别念成一行摘要。按**芯片那一行的顺序**排（CONTEST_CATS 的下标），不按点选顺序 ——
+ * 收起时读摘要，掀开后能在八颗里对着位置找到它。
+ */
+const divisionSummary = computed(() =>
+  [...selectedDivisions.value]
+    .sort((a, b) => CONTEST_CATS.indexOf(a) - CONTEST_CATS.indexOf(b))
+    .map((cat) => t(`cf.picker.cats.${cat}`))
+    .join(' · '),
+)
+
+/**
+ * 已选题号念成一行摘要：连续的字母压成区间（勾了 A、B、C、F → `A–C · F`）。
+ * 题号是一条 A–M 的轴，全勾上时逐个念是 51 个字，在 250px 的控件列里被省略号切成
+ * 「A · B · C · D …」—— 恰好是最该一眼认出「没筛」的情形。区间外的仍按 ` · ` 分隔，
+ * 与标签行的读法一致。排序用下标而不是字符序，`B1` 这类多字符 index 已在 normalize 里剔掉。
+ */
+const letterSummary = computed(() => {
+  const picked = selectedLetters.value
+    .map((letter) => PROBLEM_LETTERS.indexOf(letter))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)
+
+  const parts = []
+  let cursor = 0
+  while (cursor < picked.length) {
+    let end = cursor
+    while (end + 1 < picked.length && picked[end + 1] === picked[end] + 1) end += 1
+    parts.push(
+      end > cursor
+        ? `${PROBLEM_LETTERS[picked[cursor]]}–${PROBLEM_LETTERS[picked[end]]}`
+        : PROBLEM_LETTERS[picked[cursor]],
+    )
+    cursor = end + 1
+  }
+  return parts.join(' · ')
+})
 
 /**
  * 难度里有没有填过东西。空着的时候整行只该念一个「不限」（与标签行同一种读法）；
@@ -790,6 +958,61 @@ function stepCount(delta) {
 }
 
 :where(html.is-hoverable) .pk-tags .pk-chip:hover:not(.is-on) {
+  background: var(--bg-control);
+  color: var(--text);
+}
+
+/* ---------------- 比赛类别 / 题号 ---------------- */
+/* 两片都是「可点的选项」，与常用标签那一片同一套面孔（30px 高、6px 圆角、--bg-field 面），
+   所以卡片里三处芯片读起来是一套东西。区别只在排法：
+
+   比赛类别按**内容宽度换行**（.pk-cats 照 .pk-tags 抄）—— `Edu` 与 `Div. 1+2` 本来就
+   不等长，等宽会把长的挤成省略号；
+   题号则**等距排成一条**（.pk-letters 写死 13 列）—— 它是一条「第几题」的轴，
+   等距才读得出顺序，换行或宽度参差都会把这条轴打断。 */
+.pk-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pk-cats .pk-chip {
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--bg-field);
+  /* 与常用标签一样用比例体：`Div. 1+2` 在等宽体里宽出近三成，一行立刻只剩三颗 */
+  font-family: var(--ui-font);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+:where(html.is-hoverable) .pk-cats .pk-chip:hover:not(.is-on) {
+  background: var(--bg-control);
+  color: var(--text);
+}
+
+/* 13 列均分：minmax(0, 1fr) 允许在极窄的编辑区里压缩，而不是把最后一个字母挤到第二行。
+   单字符不需要左右内边距（padding: 0），宽度全给格子，所以字母永远居中。 */
+.pk-letters {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.pk-letters .pk-chip {
+  height: 30px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 6px;
+  background: var(--bg-field);
+  /* 字母是单字符，等宽体读起来像一排刻度 */
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+:where(html.is-hoverable) .pk-letters .pk-chip:hover:not(.is-on) {
   background: var(--bg-control);
   color: var(--text);
 }
