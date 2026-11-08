@@ -634,6 +634,28 @@ const TEMPLATE_EXTENSIONS = {
 }
 
 /**
+ * 哪几行模板是展开的（2026-11-09）。
+ *
+ * 三份模板各是一个 220px 高的多行框，全展开时这一页光输入框就 660px —— 而绝大多数人
+ * 一辈子不会改模板，却每次进设置都要滚过它们。所以默认全部收起，行里只剩「语言名 +
+ * 恢复默认」，点一下才长出输入框。
+ *
+ * 状态放组件里、不落 localStorage：这是「我现在要看哪一份」的一次性意图，不是偏好。
+ * 换个页签再回来重新收起是对的 —— 那时你也确实不需要它了。
+ *
+ * 用 `Set` 的副本替换而不是原地 `add` / `delete`：`ref` 追的是引用，原地改不触发重渲。
+ * 三行、互不影响，不做手风琴（展开一份会把另一份收掉反而更意外）。
+ */
+const openTemplates = ref(new Set())
+const isTemplateOpen = (id) => openTemplates.value.has(id)
+function toggleTemplate(id) {
+  const next = new Set(openTemplates.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  openTemplates.value = next
+}
+
+/**
  * 模板文本框里按 Tab 插入制表符，而不是跳到下一个控件。
  *
  * 这里装的是代码，编辑器默认也是「按 Tab 出制表符」（设置 › 编辑器 › 空格代替 Tab 默认关），
@@ -2947,11 +2969,24 @@ watch(pendingUnbind, (open) => {
         <div
           v-for="id in TEMPLATE_LANGUAGE_IDS"
           :key="id"
-          class="setting-row setting-row--template"
+          class="setting-row setting-row--template setting-row--template-field"
           :class="{ 'is-modified': isTemplateModified(id) }"
         >
           <span class="setting-row__head">
-            <span class="setting-row__label">{{ t(TEMPLATE_LABEL_KEYS[id]) }}</span>
+            <!-- 语言名 + 箭头是一颗按钮：整块都能点，热区比只点箭头大得多。
+                 「恢复默认」留在外面 —— 收起时也该能一键还原。 -->
+            <button
+              type="button"
+              class="setting-row__fold-toggle"
+              :aria-expanded="isTemplateOpen(id)"
+              :aria-controls="`template-field-${id}`"
+              @click="toggleTemplate(id)"
+            >
+              <span class="setting-row__chevron">
+                <AppIcon name="chevron" :size="16" :stroke-width="2" />
+              </span>
+              <span class="setting-row__label">{{ t(TEMPLATE_LABEL_KEYS[id]) }}</span>
+            </button>
             <button
               type="button"
               class="download-button setting-row__restore"
@@ -2963,19 +2998,31 @@ watch(pendingUnbind, (open) => {
               <span>{{ t('settings.templates.restore.label') }}</span>
             </button>
           </span>
-          <span class="setting-row__hint">
-            {{ t('settings.templates.hint', { ext: TEMPLATE_EXTENSIONS[id] }) }}
-          </span>
-          <textarea
-            class="setting-textarea"
-            :value="templateForLanguage(id)"
-            :maxlength="TEMPLATE_MAX_LENGTH"
-            :spellcheck="false"
-            :aria-label="t(TEMPLATE_LABEL_KEYS[id])"
-            rows="10"
-            @input="setTemplate(id, $event.target.value)"
-            @keydown="onTemplateKeydown($event, id)"
-          ></textarea>
+          <!-- 折叠用 grid 行高 `1fr ↔ 0fr`（与 TestCaseCard 的 .card__fold 同一手）：
+               这是纯 CSS 里唯一能「过渡到内容高度」的写法，不用猜一个 max-height 上限。
+               收起后 `visibility: hidden` 把里面的输入框移出 Tab 序 —— 它仍在 DOM 里，
+               只是被 0 高度的行裁掉，`display: none` 会让展开那一下没有过渡。 -->
+          <div
+            :id="`template-field-${id}`"
+            class="setting-row__fold"
+            :class="{ 'is-open': isTemplateOpen(id) }"
+          >
+            <div class="setting-row__fold-inner">
+              <span class="setting-row__hint">
+                {{ t('settings.templates.hint', { ext: TEMPLATE_EXTENSIONS[id] }) }}
+              </span>
+              <textarea
+                class="setting-textarea"
+                :value="templateForLanguage(id)"
+                :maxlength="TEMPLATE_MAX_LENGTH"
+                :spellcheck="false"
+                :aria-label="t(TEMPLATE_LABEL_KEYS[id])"
+                rows="10"
+                @input="setTemplate(id, $event.target.value)"
+                @keydown="onTemplateKeydown($event, id)"
+              ></textarea>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -4921,6 +4968,91 @@ watch(pendingUnbind, (open) => {
 .setting-row--template .setting-row__head {
   align-items: center;
   row-gap: 6px;
+}
+
+/* 可折叠的那三行（2026-11-09）：行内只剩「语言名 + 箭头 + 恢复默认」，输入框在折叠体里。
+   间距归折叠体自己管（见 `.setting-row__fold-inner` 的 padding-top）—— 留在这里的
+   gap 在收起时不会跟着消失，会在头栏下面留一条空档。
+   选择器写成两节是为了压过下面 `@container settings (max-width: 26rem)` 里那条
+   `.setting-row { gap: 8px }`：同为单类、它排在更后面，窄屏上会把这条盖掉（实测
+   收起态多出 8px 空白）。 */
+.setting-row.setting-row--template-field {
+  gap: 0;
+}
+
+/* 折叠头：语言名 + 箭头整块一颗按钮，热区比只点箭头大得多。
+   外观全交给里面的 `.setting-row__label`，这颗按钮只负责布局与指针。 */
+.setting-row__fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 箭头：16px 下 chevron 的墨迹只有 4px 高（字形占 24 网格里的 12×6），配 14px 的标签
+   正合适。展开朝下、收起转 -90° 朝右 —— 与 TestCaseCard 那颗折叠箭头同一手。 */
+.setting-row__chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  transition: transform 0.18s ease, color 0.15s ease;
+}
+
+.setting-row__fold-toggle[aria-expanded='false'] .setting-row__chevron {
+  transform: rotate(-90deg);
+}
+
+:where(html.is-hoverable) .setting-row__fold-toggle:hover .setting-row__chevron {
+  color: var(--text-dim);
+}
+
+:where(html.is-hoverable) .setting-row__fold-toggle:hover .setting-row__label {
+  color: var(--text);
+}
+
+/* 展开 / 收起：grid 行高 1fr ↔ 0fr。
+   这是纯 CSS 里唯一能「过渡到内容高度」的写法 —— max-height 得先猜一个上限，猜大了
+   折叠后半程在空转、猜小了直接把输入框截断，而这里的正文高度是活的（textarea 还能被
+   用户拉高）。子项必须 min-height: 0 + overflow: hidden，否则 0fr 那一行仍被内容的最小
+   高度撑着，收不下去。 */
+.setting-row__fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.2s ease;
+}
+
+.setting-row__fold:not(.is-open) {
+  grid-template-rows: 0fr;
+}
+
+/* 收起后把输入框移出 Tab 序。不能用 `display: none`（不可过渡，展开那一下会硬跳），
+   改成 visibility：延迟 0.2s 与行高动画同步 —— 收起过程中内容还看得见，收完才隐藏；
+   展开时没有延迟，立刻可见。
+   上下内边距要跟着收到 0：**padding 不可压缩**，min-height: 0 只把内容盒收到 0，
+   0 + 10 那 10px 仍然撑着行 —— 不补这一脚，收起后会卡在头栏下面留一条空档。 */
+.setting-row__fold-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 10px;
+  visibility: visible;
+  transition: visibility 0s linear, padding 0.2s ease;
+}
+
+.setting-row__fold:not(.is-open) .setting-row__fold-inner {
+  padding-top: 0;
+  visibility: hidden;
+  transition: visibility 0s linear 0.2s, padding 0.2s ease;
 }
 
 .setting-row__restore {

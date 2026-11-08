@@ -468,6 +468,17 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 - 阈值（都在脚本顶部）：起手 12px 判方向、横向得大于纵向 1.2 倍、松手要划到内容宽的 18%（**也认甩**：28px 且 ≥0.5px/ms）、跟手最多挪 **65%**（2026-11-09 由 34% 放宽 —— 34% 是一道离手太近的墙，而「划掉 18% 就翻页」的判据远在墙内，墙根本不该参与决策），越界只剩 1/4 余量，到头 / 到尾那一侧再打三折。
 - 验证口径（临时探针，跑完即删）：430×900 / 1400×860 + `hasTouch` + `setTouchEmulationEnabled`，**先等会话恢复落定再 `openSettingsTab()`**（恢复那一下会 `deactivateViews()` 把刚铺开的设置视图收掉，症状是宽高全 0）；**侧栏抽屉存档要种成 `cp.panelVisible: false`** —— 窄屏下它覆盖编辑区，留着它触摸全打在文件树上（症状是「手势一动不动、连滚动都不滚」）。除手势那三条，还要量 45 条断言：单栏 / `pan-y` / 没有横向可滚区；拖动中当前页与邻页的屏上位置；邻页带 `aria-hidden` + `inert`；左滑是下一类、右滑是上一类；短滑弹回；第一类右滑只给橡皮筋；竖向拖动只滚页面；目录上横滑不翻页；两栏时只有一页参与渲染、`touch-action: auto`、点目录整排只跳 1 帧。
 
+### 设置视图「模板」三行：收起后只剩一行（2026-11-09 加）
+
+三份模板各是一个 220px 高的多行框，全展开时这一页光输入框就 660px —— 而绝大多数人不会改模板，却每次进设置都要滚过它们。现在默认全部收起，点一下才长出输入框。
+
+- **结构**：三份模板行（`.setting-row--template-field`）里多一层 `.setting-row__fold`，是行高 `1fr ↔ 0fr` 的 grid。这是纯 CSS 里唯一能「过渡到内容高度」的写法（与 `TestCaseCard` 的 `.card__fold` 同一手）：`max-height` 得先猜上限，猜大了折叠后半程空转、猜小了直接截断输入框，而这里的正文高度是活的（`textarea` 还能被用户拉高）。子项必须 `min-height: 0` + `overflow: hidden`。
+- **收起后要移出 Tab 序**：`visibility: hidden`，延迟 0.2s 与行高同步（展开时不延迟）。**不能用 `display: none`** —— 不可过渡，展开那一下会硬跳。`padding` 也要跟着收到 0：它不可压缩，`min-height: 0` 只把内容盒收到 0，剩下的 10px 仍会撑着行。
+- **行的 `gap` 必须是 0**，间距交给折叠体的 `padding-top`（10px）：留在行上的 gap 收起时不会跟着消失。选择器要写成 `.setting-row.setting-row--template-field` —— 单类会被 `@container settings (max-width: 26rem)` 里那条 `.setting-row { gap: 8px }` 盖掉（它排在更后面；实测收起态多出 8px 空白，行高 67 而不是 59）。
+- **头栏**：语言名 + 箭头是一颗按钮（`aria-expanded` / `aria-controls`），热区比只点箭头大得多；「恢复默认」留在折叠体外面 —— 收起时也该能一键还原，而且它不能被卷进开合（否则点还原顺带展开）。箭头复用 `AppIcon` 的 `chevron`：展开朝下、收起 `rotate(-90deg)`，与用例卡那颗一致。
+- **展开态不落存档**：`openTemplates` 是组件里的一个 `Set`（每次换新副本才触发重渲），换页签回来重新收起是对的 —— 那是「我现在要看哪一份」的一次性意图，不是偏好。三行互不影响，不做手风琴。
+- 量法（`/tmp/navanim/tpl.mjs`，430 / 1400 两档）：收起态三行各 **59px**、`grid-template-rows` 是 `0px`、`textarea` 的 `visibility: hidden`、`aria-expanded="false"`、箭头矩阵为 `rotate(-90deg)`；展开中途（100ms）行高 181px、落定 259px；再收起回到 59px；展开那一行的 `textarea` 能聚焦，另外两行仍在 DOM 里但不可见。
+
 ## 4. 主题与 CSS 变量
 
 - 主题落在 `<html data-theme="...">` 上（`App.vue:79` 的 watch），由 `base.css` 的变量接管；不带 `data-theme` 时即深色。
