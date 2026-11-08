@@ -94,6 +94,7 @@ import {
   todayISO,
 } from '../services/problemMeta.js'
 import { CHECKERS, DEFAULT_CHECKER_ID } from '../services/checkers.js'
+import { solvedSourceOfUrl, toggleSolvedUrl } from '../services/solvedIndex.js'
 import { watchBackLayer } from '../services/backStack.js'
 
 /** 弹窗里的比对方式选项：默认逐行用「留空」表示，其余几种按题开启 */
@@ -347,6 +348,16 @@ function openProblem(node) {
 }
 
 /**
+ * 切换这一行题目的「已通过」手动标记。自动命中的切换不动（见 solvedIndex 文件头），
+ * 所以菜单项在那种情况下压根不给（判据与这里同一个函数）。
+ * @param {object} node
+ */
+function toggleSolved(node) {
+  const url = problemUrl(node)
+  if (url) toggleSolvedUrl(url)
+}
+
+/**
  * 题目信息只对文件有意义；新建 / 导入只对目录有意义——目标就是被右键的那个目录。
  * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
  *
@@ -369,6 +380,16 @@ function buildMenuItems(node) {
         label: t('explorer.menu.openUrl'),
         shortcut: t('explorer.menu.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
       })
+      // 「已通过」标记就挂在「打开题目」下面 —— 两者都只对有题目链接的文件成立。
+      // 自动命中（CF 上真有 OK 提交）时**不给这一项**：手动取消不了它，给了就是个点了
+      // 没反应的菜单（判据见 services/solvedIndex.js 文件头）。
+      const source = solvedSourceOfUrl(problemUrl(node))
+      if (source !== 'auto') {
+        items.push({
+          id: 'toggle-solved',
+          label: source === 'manual' ? t('cf.solved.unmark') : t('cf.solved.mark'),
+        })
+      }
     }
     items.push({ id: 'meta', label: t('explorer.menu.meta') })
   } else if (node?.type === 'directory') {
@@ -425,6 +446,7 @@ async function onMenuSelect(id) {
   else if (!node) return
   else if (id === 'meta') beginEditMeta(node)
   else if (id === 'open-url') openProblem(node)
+  else if (id === 'toggle-solved') toggleSolved(node)
   else if (id === 'export') requestExport(node.id)
   else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node.id)

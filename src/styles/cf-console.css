@@ -472,6 +472,50 @@
   white-space: nowrap;
 }
 
+/* 「已通过」勾（2026-11-08）：塞在 `.cf-result__title` 里、题号前面 —— 结果行是四列
+   grid，再挂一个子项就会挤到第二行被 44px 的行高裁掉（见上面 .cf-result 的列定义）。
+   放在题号前还有个好处：每条都在同一个 x 上，不随题名长短漂。
+   三种态：没标记（几乎隐形，悬停这一行才浮出来，静止时结果区不添噪音）、
+   手动标记（常亮 --ok，可点掉）、自动命中（常亮，不可点 —— 那是 CF 上的 OK 提交，
+   见 services/solvedIndex.js 文件头）。
+   触屏没有 hover，未标记态压低到 .45：不留一点痕迹的话，触屏用户根本没有入口。 */
+.cf-result__ac {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+:where(html.is-hoverable) .cf-result:hover .cf-result__ac {
+  opacity: 0.5;
+}
+
+:where(html.is-hoverable) .cf-result__ac:hover {
+  color: var(--text);
+  opacity: 1;
+}
+
+:where(html:not(.is-hoverable)) .cf-result__ac {
+  opacity: 0.45;
+}
+
+.cf-result__ac.is-on {
+  color: var(--ok);
+  opacity: 1;
+}
+
+/* 自动命中：勾是真的，点不动（cursor 与 aria 一起说清这一点） */
+.cf-result__ac.is-auto {
+  cursor: default;
+}
+
 :where(html.is-hoverable) .cf-result__name:hover {
   color: var(--accent-text);
 }

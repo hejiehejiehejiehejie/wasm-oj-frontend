@@ -37,6 +37,7 @@ import {
 } from '../services/vfs/workspaceStore.js'
 import { dirname, join, stem } from '../services/vfs/paths.js'
 import { formatMetaTooltip } from '../services/problemMeta.js'
+import { isSolvedNode } from '../services/solvedIndex.js'
 
 defineOptions({ name: 'FileTreeItem' })
 
@@ -101,6 +102,13 @@ const metaTooltip = computed(() => formatMetaTooltip(props.node.meta))
  *  于是这里也就不需要再区分 folder / folder-open 了。
  *  映射本身在 services/fileIcons.js —— 编辑器页签用的是同一份，别在这里另写一套。 */
 const iconName = computed(() => fileIconName(props.node.name))
+
+/**
+ * 这道题通过了吗（CF 账号 AC 或手动标记，见 services/solvedIndex.js）。
+ * 只有带题目链接的文件才可能为真 —— 键就是从 `meta.url` 认出来的。
+ * 读的是模块级 ref，所以在别处点了标记，这一行会自己更新。
+ */
+const solved = computed(() => isSolvedNode(props.node))
 
 // ------------------------------------------------------------ 点击 / 右键
 
@@ -462,6 +470,15 @@ function focusRowAt(el, extend) {
         :size="15"
       />
       <span v-if="!renameMode" class="tree-item__label">{{ node.name }}</span>
+      <!-- 已通过的题：一枚小勾。与页签栏、抽题结果区同一份判据（services/solvedIndex.js），
+           这里只显示、不做交互 —— 标记与取消都在右键菜单里（菜单项按同一份状态给） -->
+      <AppIcon
+        v-if="!renameMode && solved"
+        name="check"
+        :size="12"
+        class="tree-item__solved"
+        :title="t('cf.solved.label')"
+      />
       <span v-if="!renameMode && dirty" class="tree-item__dot" :title="t('app.tabs.dirty')"></span>
       <!-- data-keep-focus-on-pan：这张框失焦即提交（下面的 @blur），滑动时不许被
            useMobileKeyboard 代劳 blur —— 那会把「拖选一段文字」变成「提交改名」，选区也一起丢。
@@ -733,6 +750,14 @@ function focusRowAt(el, extend) {
   margin-left: 6px;
   border-radius: 50%;
   background: var(--text-dim);
+}
+
+/* 已通过的勾：与 dirty 圆点同档（都挂在名字后面），但它是状态而不是「未保存」，
+   所以用 --ok 而不是 --text-dim，也不与圆点抢位置 —— 两个都出现时勾在前、点在後 */
+.tree-item__solved {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  color: var(--ok);
 }
 
 .tree-item__input {

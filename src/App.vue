@@ -59,7 +59,12 @@ import {
   mdFullscreen,
 } from './services/mdView.js'
 import { MD_SHORTCUTS } from './services/mdFormat.js'
-import { deactivateSettingsTab, openSettingsTab, settingsTab } from './services/editorViews.js'
+import {
+  deactivateSettingsTab,
+  openSettingsTab,
+  restoreEditorViews,
+  settingsTab,
+} from './services/editorViews.js'
 import { confirmCloudEntry } from './services/cloudEntry.js'
 import { celebrateAllPassed } from './services/confetti.js'
 import {
@@ -1870,6 +1875,11 @@ onMounted(async () => {
   } catch {
     /* 存储不可用时静默；界面仍可使用 */
   }
+  // 上次开着的设置 / Codeforces 页签摆回来（含「哪一个正盖着编辑器」）。**必须在会话恢复之后**：
+  // 那边会把 workspace.activeId 设回上次那个文件，editorViews 的「活跃文件一变就让开」会把
+  // 早一步恢复的视图立刻按下去（见 services/editorViews.js 的 restoreEditorViews）。
+  // 放在 try 之外：存储出错时视图页签照样该恢复。
+  restoreEditorViews()
   // 云配置的两条入口都在 confirmCloudEntry 里，这一次调用同时照顾它们：
   // - 地址里带了 /<handle> → 先确认云端有没有这份配置，再决定要不要打开设置页；
   //   云端没有配置时会把地址抹回根路径、只弹一句提示，这里就不开设置页。

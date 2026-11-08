@@ -639,6 +639,25 @@ const handlers = {
     return { results }
   },
 
+  /**
+   * 这几个账号已通过（AC）的题，多账号取**并集**。抽题结果区的「已通过」标记与
+   * 「排除已通过的题」读的是同一份 `loadSolvedKeys` 缓存（12h），所以两处不会各拉一次
+   * user.status，也不会出现「排除掉了但没标上」这种自相矛盾的画面。
+   *
+   * 回的是 `problemKey` 字符串数组（`<contestId>:<INDEX>`），**不在这里换成 url** ——
+   * 键的口径归 `pick.js` 一处管，主线程按同一把尺子转（见 services/solvedIndex.js）。
+   * 没有账号时回空数组（不是错误）：手动标记照样能用，只是没有自动那一半。
+   */
+  async solved(message) {
+    const keys = new Set()
+    for (const handle of normalizeHandles(message.handles)) {
+      for (const key of await loadSolvedKeys(handle, { force: message?.force === true })) {
+        keys.add(key)
+      }
+    }
+    return { keys: [...keys] }
+  },
+
   /** 抽题：读库 → （可选）取已 AC → 跑算法 → 只回抽中的那几道 */
   async pick(message) {
     const filters = message.filters || {}

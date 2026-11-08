@@ -34,6 +34,11 @@ import { IS_WEB } from './platform.js'
  *   同步过去只会让新设备显示一个假的「已就绪」；
  * - `cp.cfPicker.ready`：同理，是「这台设备的库里有没有题库」的事实。
  *   而 `cp.cfPicker.autoInstall`（在白名单里）是「要不要自动装」的偏好，才值得跟人走。
+ * - `cp.cf.picked`：抽题上次抽到的那一批。是「这台设备上刚才抽到了什么」的事实，
+ *   换台设备把上一次抽的结果摆在眼前没有意义（题目本身该靠「导入工作区」带走）。
+ * - `cp.cf.solved`：手动标记的「已通过」。同步过去会和另一台设备的 Codeforces 状态打架
+ *   —— 自动那一半本来就跟着账号走（换台设备填同一个 handle 就回来），手动这半是本机补充
+ *   （见 services/solvedIndex.js 文件头与 HANDOFF §30）。
  * - `cp.countdown`：整个状态桶都不同步 —— 里面既有 `installed`（事实），也有卡片的位置与
  *   尺寸（跟的是这台设备的屏幕，见 HANDOFF §16）。只有 `cp.countdown.autoInstall` 这条
  *   「要不要自动装」的偏好进白名单，与上面那条同一口径。

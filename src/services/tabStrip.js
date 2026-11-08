@@ -25,7 +25,9 @@
  * 视图是「谁先开谁靠左」，开的时候一律追加到最右。
  *
  * 【不落盘】这份顺序本身不进 localStorage：文件部分的相对顺序由 openTabIds 顺带持久化，
- * 而合成视图本来就不跨会话恢复（刷新后回到代码文件是预期行为）。
+ * 视图部分由 editorViews 的 `cp.editorViews` 记住「开着哪几个、彼此先后如何」。
+ * 于是刷新后条带是「文件按存档次序在前、视图按存档次序追加在最右」——
+ * **混排的绝对位置不恢复**（把视图拖到两个文件中间去，下次刷新它会回到最右）。
  */
 import { reactive, watch } from 'vue'
 import { EDITOR_VIEW_IDS, setViewOrder, viewOrder } from './editorViews.js'

@@ -232,6 +232,21 @@ export function cfCheckHandles(handles) {
 }
 
 /**
+ * 取这些账号**已通过（AC）**的题目键（`<contestId>:<INDEX>`，多账号并集）。
+ *
+ * 与「排除已通过的题」共用 Worker 里那份 12h 缓存（`loadSolvedKeys`），
+ * 所以界面上的「已通过」标记与抽题时的排除判据永远是同一份数据。
+ * 没有账号时 Worker 回空数组 —— 那不是失败，只表示自动那一半不可用。
+ *
+ * @param {string[]} handles
+ * @param {{ force?: boolean }} [options] force=true 无视缓存重拉（12h 内刚 AC 的题要靠它）
+ * @returns {Promise<{ keys: string[] }>}
+ */
+export function cfSolved(handles, { force = false } = {}) {
+  return request({ type: 'solved', handles, force })
+}
+
+/**
  * 取一场比赛的元数据（名字、阶段、开赛时间）。`parseContestSpec` 的产物直接传进来。
  *
  * 与 cfContestProblems 分两条消息是刻意的：倒计时要在开赛前就能看，

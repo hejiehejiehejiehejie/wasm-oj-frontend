@@ -156,6 +156,19 @@ export default {
       },
 
       /**
+       * 「已通过」标记。四个消费方共用这一份：抽题结果行的勾、文件树的勾、页签的勾，
+       * 以及文件树 / 页签两处右键菜单 —— 同一件事写四遍必然漂移。
+       */
+      solved: {
+        label: '已通过',
+        mark: '标记为已通过',
+        unmark: '取消已通过标记',
+        auto: '已通过（Codeforces 账号 {handles}）',
+        autoBare: '已通过（Codeforces 账号）',
+        manual: '已通过（手动标记）· 再点一次取消',
+      },
+
+      /**
        * 比赛（P1）。导入按钮那三种状态复用 `picker.result.*`
        * —— 「导入 / 导入中 / 已导入」是同一件事，写两遍必然漂移。
        */
@@ -513,6 +526,16 @@ export default {
           fetch: 'Could not fetch Codeforces data: {detail}',
           importFailed: 'Import into the workspace failed: {detail}',
         },
+      },
+
+      /** 同 zh-CN：结果行 / 文件树 / 页签 / 两处右键菜单共用这一份 */
+      solved: {
+        label: 'Solved',
+        mark: 'Mark as solved',
+        unmark: 'Clear the solved mark',
+        auto: 'Solved (Codeforces account {handles})',
+        autoBare: 'Solved (Codeforces account)',
+        manual: 'Solved (marked by you) · click again to clear',
       },
 
       /** 同 zh-CN：导入按钮那三种状态复用 `picker.result.*` */

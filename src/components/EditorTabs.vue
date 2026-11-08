@@ -51,6 +51,11 @@ import { fileIconName } from '../services/fileIcons.js'
 import { modelManager } from '../services/monaco/modelManager.js'
 import { openProblemUrl, problemUrlOf } from '../services/problemMeta.js'
 import {
+  isSolvedNode,
+  solvedSourceOfUrl,
+  toggleSolvedUrl,
+} from '../services/solvedIndex.js'
+import {
   activateCodeforcesTab,
   activateSettingsTab,
   activateView,
@@ -437,6 +442,22 @@ function tabProblemUrl(id) {
 }
 
 /**
+ * 这个文件页签的题通过了吗（CF 账号 AC 或手动标记，见 services/solvedIndex.js）。
+ * 判据与文件树那一行同一个函数（`isSolvedNode`）—— 两处不会对同一道题给出两种答案。
+ * @param {string} id
+ * @returns {boolean}
+ */
+function isSolvedTab(id) {
+  return isSolvedNode(getNodeById(id))
+}
+
+/** 切换这个页签的「已通过」手动标记（自动命中的切换不动，判据在 solvedIndex 里） */
+function toggleTabSolved(id) {
+  const url = tabProblemUrl(id)
+  if (url) toggleSolvedUrl(url)
+}
+
+/**
  * 在新标签页打开这个页签对应的题目。返回「到底开没开」—— ⌘ / Ctrl + 单击要靠它决定
  * 要不要退化成普通单击（没链接时照旧切页签）。
  * @param {string} id
@@ -472,8 +493,20 @@ function buildTabMenuItems(item) {
       label: t('app.tabs.openUrl'),
       shortcut: t('app.tabs.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
     })
-    items.push({ id: 'div-open', divider: true })
   }
+  // 「已通过」标记：与文件树右键菜单同一份文案与判据（cf.solved.*）。
+  // 自动命中时**不给这一项** —— 那是 CF 上的 OK 提交，手动取消不了（见 solvedIndex 文件头）。
+  const url = tabProblemUrl(item.id)
+  if (url) {
+    const source = solvedSourceOfUrl(url)
+    if (source !== 'auto') {
+      items.push({
+        id: 'toggle-solved',
+        label: source === 'manual' ? t('cf.solved.unmark') : t('cf.solved.mark'),
+      })
+    }
+  }
+  if (items.length) items.push({ id: 'div-open', divider: true })
   items.push(
     tabGroups.groupOf(item.id)
       ? { id: 'remove-from-group', label: t('app.tabs.removeFromGroup') }
@@ -506,6 +539,7 @@ function onMenuSelect(id) {
   menu.value = null
   if (!m) return
   if (id === 'open-url') openTabProblem(m.tabId)
+  else if (id === 'toggle-solved') toggleTabSolved(m.tabId)
   else if (id === 'add-to-new-group') tabGroups.createGroupWithTab(m.tabId)
   else if (id === 'remove-from-group') tabGroups.removeFromGroup(m.tabId)
   else if (id === 'close') closeTab(m.tabId)
@@ -1126,6 +1160,15 @@ function onTabEnter(el) {
           <span class="editor-tabs__label">{{
             getNodeById(item.id)?.name ?? t('app.tabs.untitled')
           }}</span>
+          <!-- 已通过的题：名字后面一枚小勾。只显示、不做交互（页签上一颗可点的勾会与
+               中键关闭 / 拖动抢命中区），标记与取消都在右键菜单里（菜单项按同一份状态给） -->
+          <AppIcon
+            v-if="isSolvedTab(item.id)"
+            name="check"
+            :size="10"
+            class="editor-tabs__solved"
+            :title="t('cf.solved.label')"
+          />
           <span
             class="editor-tabs__close"
             role="button"
@@ -1818,6 +1861,15 @@ function onTabEnter(el) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 已通过的勾（2026-11-08）：与文件树、抽题结果区同一份判据。
+   只出现在通过的题上，所以页签宽度只会为它多 14px，且它排在 × 左边、
+   不参与标签的省略号（label 有自己的 max-width）。 */
+.editor-tabs__solved {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  color: var(--ok);
 }
 
 /* 预览页签：斜体是唯一的视觉信号（VS Code 同款）。只动标签文字，

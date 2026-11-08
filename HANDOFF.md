@@ -192,13 +192,14 @@ src/
     confetti.js                 # 「全部样例通过」的庆祝纸屑（2026-10-23 加）：`canvas-confetti` 唯一消费者，`mountConfetti(canvas)` / `unmountConfetti()` / `celebrateAllPassed()` 三个出口，canvas 由 `TestPanel.vue` 摆在样例面板里、盖满整块面板。**只认「全过」**（整轮 ▶ 的判据在 App.vue 的 `celebrateIfAllPassed`；逐张 ▶ 只在「这一跑刚好凑齐全过」时放、单样例每次 AC 都放，见 `runOne`），任一失败不放；可在 设置 › 评测 关掉；**刻意不给 `useWorker`**（控制权会被交给 OffscreenCanvas、尺寸只跟 window resize 走）；尺寸每次自己量、`1 CSS px = 1 位图 px`；颜色现读 `--confetti-1..4`。为什么挂在这些点上，见第 17 节
     shellSettings.js            # 「外壳」偏好的模块级单例（2026-10-11 从 App.vue 下沉）：侧边栏位置 `cp.panelPosition`（含 `flipPanelPosition()` / `setPanelPosition()` 那套 View Transitions 换边 —— flip 只是「另一边」的简写；档位表 `PANEL_POSITIONS` 也在这里，设置面板与菜单共用）、窄屏折叠方向 `cp.narrowCollapseSide`（2026-10-13 加：**窄屏**折叠后图标栏贴上边还是下边，`top` / `bottom`，默认 `bottom`；档位表 `NARROW_COLLAPSE_SIDES` 与写入入口 `setNarrowCollapseSide()` 也在这里，设置面板与菜单共用。它**不走 View Transitions** —— 只在窄屏生效、只是把主轴换头换尾，没有「两栏互换」那种重排）与全局缩放 `cp.uiScale`（含 `applyUiScale` 落地根字号）。另导出**窄屏判据 `isNarrowLayout()`**（2026-10-13 加，同日晚从 CSS 那三处 `@media` 挪进本文件 —— **判据的唯一副本**：触摸设备 + **设备**竖屏（读 `screen` 的朝向，键盘改不动它），或视口宽 ≤ 600px；命中时给 `<html>` 挂 `is-narrow`，三处样式的规则写 `:where(html.is-narrow) …`（`:where()` 不贡献特异性，各块的 (0,x,0) 算式照旧）。为什么不在 CSS 里：键盘会把布局视口削矮、`(orientation: portrait)` 随之翻面，见第 5 节坑 53。三个消费方：`App.vue` 的 `measureLimits`（窄屏折点改用固定的指针容差 `NARROW_HINGE_PX = 30`：离边缘 30px 内就折叠，见第 5 节坑 48）、设置菜单与设置面板外观栏里「窄屏折叠方向」那一行的 `when`（只在窄屏出现，见坑 49）。底层是一个 ref，由 `matchMedia` 的 `change` 写回来 —— 那两处设置入口按响应式依赖缓存，现查 `matches` 会把首帧答案缓存住）。**这几个键自己读写 localStorage，刻意不用 `usePersistentRef`** —— 那份 composable 的「首次访问也落盘」靠 `onMounted`，而服务层模块没有组件实例，那条钩子根本不执行（首次打开站点会不留下存档，回归脚本读 `cp.panelPosition` 得 null，见第 5 节坑 36）。体例同 `editorSettings.js` / `i18n/index.js`：模块自己读盘 + `immediate` 的 watch 写回
     ojSubmit.js                 # ★ 「一键提交到 Codeforces」的唯一前端边界（2026-10-23 加）：`parseCodeforcesProblem(url)`（认 contest / problemset / gym / group 四种地址 → 提交页 + `/my` 页，**与扩展 background 的解析一一对应**，改一处就得改另一处）、`shouldShowSubmit(node)`（有 `meta.url` 就显示按钮 —— 不支持的 OJ 也显示，置灰比凭空消失好懂）、`submitBlockedReason({ node, language, capability, checking })`（空串 = 可提交；顺序 = 桌面端 → 没文件 → 没题目 → 不认识的 OJ → 没语言 → 握手未定 → 扩展没这条能力）、`submitActiveSolution`（取 `peekActiveContent()` 的**未保存正文**，不要求先存盘）、失败原因 / 判定码 → 人话两张表（`submitReasonText` / `submitVerdictText` / `submitVerdictType`）。动作编排与通知在 `App.vue` 的 `submitActiveFile`
+    solvedIndex.js              # ★ 「这道题我通过了吗」的唯一出处（2026-11-08 加）：两个来源合成一个答案 —— CF 账号已 AC（Worker 的 `loadSolvedKeys`，12h 缓存，与抽题「排除已通过」读同一份）+ 手动标记 `cp.cf.solved`。键：CF 题用 `problemKey` 的写法（`1234:A`），其它 OJ 用 `problemUrlKey` —— 手动标记因此对任何 OJ 都成立。三个消费方：抽题结果行（可点切换）/ 文件树 / 页签（后两处只显示，标记与取消走右键菜单）。**自动命中不给手动取消**（它同时是抽题的排除判据），理由与「为什么不写进题目元数据」见 §30
     problemMeta.js              # 题目元数据的单一出处：OJ 表（洛谷/Codeforces/AtCoder/牛客/LeetCode/其它）+ 难度口径（CF·AtCoder 分数段 800…3500 / 洛谷八级 / 其余自由文本）+ 逐键校验 normalizeMeta() + 悬停文案 formatMetaTooltip()。meta **五项**：url / oj / difficulty / date / **timeLimit**（毫秒，100–60000，0 = 未设置；判题时优先于全局档位，见第 5 节坑 17）
     engines/                    # 引擎注册表：wasm（网页默认）/ native（桌面默认）/ piston / judge0 / echo。平台专属引擎在对象上写 `platforms: ['web'|'desktop']` 限定，注册表的 engineChoices / defaultBases / getEngine / DEFAULT_ENGINE_ID 都按它过滤（见第 14 节）
     wasmRuntime.js              # 本地沙箱的唯一入口：语言路由 + 阶段播报 + 看门狗 + 串行队列 + PCH 后台预热。**另外它还兼着「运行时」这个概念的三个出口**（probeRuntime / preload / uninstallRuntime），`language === 'markdown'` 时转给 mdRuntime —— 设置视图「应用 › 本地运行环境」才能用同一套代码渲染三行
     runnoSandbox.js             # runno 双管线：C++ 编译（工具链地址、编译产物缓存、PCH 生成）+ Python 解释运行
     vfs/runnoFs.js              # VFS → runno fs 的转换层（fsEntry 记录形状的唯一出处，两个管线共用）
     pchStore.js                 # PCH 的 IndexedDB 存档（原生 API，任何失败都按「没有存档」处理）
-    editorViews.js              # ★ 编辑区「合成视图」页签（设置 / Codeforces）的 UI 状态（2026-10-11 起由已删的 settingsTab.js 扩成一张表，删除见提交 21aa244；2026-10-27 抽题与比赛合并成一个 `codeforces` 视图 id，`EDITOR_VIEW_IDS` 只剩两项）：`EDITOR_VIEW_IDS` 收口两视图的互斥共层、`viewOrder` 只记视图**彼此之间**的相对次序（条带上的绝对位置归 tabStrip）、`show()/close()` 开关页签、`openSettingsTab(sectionId)` 让侧栏菜单定位到某分类（`settingsSectionEntry` 消费完复位）。刻意不进 workspaceStore/openTabIds、不建 model、不落 localStorage，见第 5 节坑 7；`viewActive`（stage 让位）与 `anyViewOpen`（页签栏去留）两个 computed 从这里出。本模块还负责把 `deactivateViews` 注册进 `workspaceStore.codeViewIntent`（「打开文件 = 要看代码」，见坑 7）
+    editorViews.js              # ★ 编辑区「合成视图」页签（设置 / Codeforces）的 UI 状态（2026-10-11 起由已删的 settingsTab.js 扩成一张表，删除见提交 21aa244；2026-10-27 抽题与比赛合并成一个 `codeforces` 视图 id，`EDITOR_VIEW_IDS` 只剩两项）：`EDITOR_VIEW_IDS` 收口两视图的互斥共层、`viewOrder` 只记视图**彼此之间**的相对次序（条带上的绝对位置归 tabStrip）、`show()/close()` 开关页签、`openSettingsTab(sectionId)` 让侧栏菜单定位到某分类（`settingsSectionEntry` 消费完复位）。刻意不进 workspaceStore/openTabIds、不建 model；页签的开合 / 先后 / 哪个盖着编辑器记在 `cp.editorViews`（2026-11-08 起，`restoreEditorViews()` 在会话恢复之后摆回来），其余纪律见第 5 节坑 7；`viewActive`（stage 让位）与 `anyViewOpen`（页签栏去留）两个 computed 从这里出。本模块还负责把 `deactivateViews` 注册进 `workspaceStore.codeViewIntent`（「打开文件 = 要看代码」，见坑 7）
     tabStrip.js                 # ★ **页签栏顺序的唯一权威**（2026-10-11 加）：`stripOrder` 是一条**混排**序列，文件页签 id 与合成视图 id（`settings` / `codeforces`）穿插排列，所以页签拖动**可以跨类换位**（文件插到设置左边、Codeforces 排到某个 .cpp 前面都成立）。为什么必须单独一份：顺序要跨两类，而 `workspace.openTabIds` 装不了合成视图（装了会被 rebuildTree 当「文件已删除」清掉，纪律见第 5 节坑 7），`editorViews.viewOrder` 也只记视图。**规则是单向的** —— 顺序只由这里改（拖动 → `moveStripItem()` → 分部写回 openTabIds（走 store 的 `moveTab`，含持久化）与 viewOrder（走 `setViewOrder()`））；成员反过来由两头同步进来（文件看 openTabIds、视图看 viewOrder，两个 watch **只同步增减、不同步顺序**，否则两边互相纠会来回抖）。导出 `isViewId()` 判类别；id 空间天然不冲突（VFS 节点 id 是 UUID / `f_*`）。**这份顺序自己不落盘**：文件部分的相对次序由 openTabIds 顺带持久化，合成视图本来就不跨会话恢复（刷新后回到代码文件是预期行为）
     cloudSession.js             # 云同步的**会话状态与动作**（2026-10-11 从 EditorSettingsPanel.vue 下沉）：账号 `cp.cloudAccount` / 令牌 `cp.cloudToken`（键名常量在 storageNames.js，按坑 36 的规矩自己读写 localStorage）+ 一次会话里的用户名框 / 验证码 / busy / 报错 / 提示，以及取码（`requestCloudCode`）、登录（`loginCloud`）、验证（`confirmCloudCode` → 登录 / 上传两条路）、带令牌上传（`uploadWithToken`）、**已绑定态那三颗按钮的动作**（`uploadCloud` 有令牌直接写、没令牌退回取码；`downloadCloud` 拉云端并落本机；`unbindCloud` 只清本机存档、不发请求）、拉取并落本机（`probeCloud` + `adoptCloud`）与「整句里嵌一个链接」的劈法（`splitLinkText`）。**面板与齿轮菜单共用这一份**（2026-10-11 菜单的二级里也要填用户名、取码、验证），所以在面板里**不许再自己 `usePersistentRef` 一份云状态**、也不许重写这些动作 —— 两边各一份必然走偏（一边取了码另一边看不见）。2026-10-11 又加了取码那一步的两处便利，同样放这里共用：`codeCopied` / `copyCloudCode`（复制验证码，2s 复位）、`filling` / `fillCloudCode`（请扩展代填，失败原因枚举 → 中文案），并把 `canFillCode` 从 `useCompanionBridge.js` 转出来，好让面板与菜单**只认这一个入口**就读全这块 UI 的状态。**2026-10-20 把代填串成一条链路**：`fillCloudCode` 在 `fill-saved` 能力下会等扩展报「保存完了」（那一刻它已关掉那个 Codeforces 标签页），然后直接 `verifyAndLogin()` —— 填 / 保存 / 关页 / 验证 / 登录一次点完；`fillCodeChained`（= `canFillSaved && codeMode === 'login'`）是**唯一判据**，面板、菜单、通知三处按钮文案都读它，**上传那条路刻意不串**（覆盖云端，最后一下该由用户按）
     cloudProfile.js             # ★ 云同步的前端唯一边界：`SYNC_KEYS` 白名单（16 个键）+ `collectProfile` / `applyProfile` + 四个接口封装（`requestCode` / `verifyAndSave` / `saveWithToken` / `fetchCloudProfile`）+ `postJson`（网络失败折成 `{success:false}`、失败带 `status` 以区分 401 与 400）。接口地址按平台分岔：网页版走同源相对路径 `/api/*`，Tauri 壳走 `https://www.998244353.best/api/*`（壳的资源协议不认 `/api`，理由与坑见 `docs/云端同步服务.md` 第 1 节，落地记录见 14.K）
@@ -607,7 +608,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 4. **localStorage 里存的是 JSON 字符串**：`cp.panelPosition` 的值是 `"left"`（带引号）。直接比较原始字符串会误判。
 5. **统一侧边栏里全是 `v-show`**：整栏折叠（分隔条要能用鼠标/键盘把它拖回来）、栏内两个面板的切换，都不能改成 `v-if`——文件树的展开状态与样例里手填的输入都挂在 DOM 上，切换一次就被销毁重建，用户数据直接丢。副作用有两个：（a）「页签内容在 `display: none` 期间量不到尺寸」，凡是靠 `scrollHeight` / 宽高做自适应的组件（如 `TestCaseCard` 的输入框自增）都得自己接住「从不可见变为可见」那一刻，见坑 8；（b）切换器（`SidebarSwitcher`）2026-10-11 起是**全站单实例**、渲染在 Sidebar 的共享页头 `.sidebar__head` 里（此前两个面板的页头里各有一份实例，按选择器取它必须先落到「当前可见的那个 `.sidebar__panel`」里）。单实例后查询直接认 `.sidebar__head` 作用域即可。（c）单实例也让「跨面板的运动」成了**真的 `transition`**：蓝色指示块是胶囊里一个绝对定位元素（`.sidebar-switcher__indicator`），active 变化只改它的 `transform`、由 transition 补间。旧版那套「两份胶囊互换 + `sidebar-indicator-from-*` keyframes 假装滑动 + `[data-switched]` 挡首屏误播」的 Hack 已整体删除（历史：两份实例时高亮不是同一个元素在动，`transition` 永远看不到，只能用 animation）。
 6. `@media (prefers-reduced-motion: reduce)` 会全局压掉动画，新增动画不用额外处理。
-7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/editorViews.js`，原 `settingsTab.js` 已并入）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不落 localStorage（刷新后回到代码文件是预期行为）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态有三条路，缺一条就漏一种「点了文件还在看设置」：① `editorViews.js` 里 `watch(() => workspace.activeId)` 管「活跃文件**变了**」；② **`workspaceStore.openFile()` 里的 `codeViewIntent.show`**（`editorViews` 加载时把 `deactivateViews` 注册进去，那边不能反向 import，成环）管「**打开某个文件**」这个意图本身 —— 判据与 activeId 变不变无关，所以「文件树焦点停在某文件上、屏幕上却是设置页，再点一次它」（2026-10-25 用户报的）也能收起来；③ `EditorTabs.activate()` 里显式再让一次，因为点页签走的是 `setActiveTab`、根本不进 `openFile`。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身**默认单列**（目录折成顶部横向标签条、内容在下），编辑区够宽时才升级成**「目录 + 内容」两栏**（2026-09 建，2026-10 反转默认值）：`.settings-nav` 是分类目录（工作区（仅桌面端）/ 外观 / 编辑器 / 模板 / 快捷键 / 评测 / 云端同步 / 应用 / 浏览器插件（仅网页版）/ 帮助，`SECTIONS` 常量驱动），内容区同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「浏览器插件」那一栏会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」组是 2026-09 新加的（见第 13 节）；「浏览器插件」原先也是独立一组，2026-10-01 与「本地运行环境」一起并入「应用」；**2026-10-11 又按内容独立回一栏**（桌面端不出现）—— 搬走的同时把「应用」与插件两栏那套**卡片化版式**（描边卡片、卡片吞掉小标题、参考稿尺寸的开关）一并去掉，回归其余栏的「分组大标题 + 朴素行（无边框、悬浮出底色）」，只留三样自己的信息特征：状态胶囊、运行环境行的图标方块、下载/卸载按钮的实心与警示态。**别再往这两栏加卡片外框**：`.app-card` / `.setting-group--app` 两个类名已删。宽度判断不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `container-name: settings`，用 `@container settings (min-width: 35rem)` 把默认的单列升级成两栏（阈值与目录项字号都是 rem，全局缩放后目录与内容都会变大、要更早翻回竖排）。**方向必须保持「默认单列 + `min-width` 升级」，别改回「默认两栏 + `max-width` 降级」**：生产构建会把 `max-width` 压成区间语法 `width<=35rem`，不支持它的浏览器（荣耀自带浏览器实测，2026-10）整条查询匹配不上、直接回落到基线两栏，手机上就被挤成两列；反着写的话认不认容器查询都落在安全的一列（代价是不支持的浏览器上永远吃横条目录，可接受）。
+7. **「设置」是编辑区里的一个合成页签，不是抽屉**（`src/services/editorViews.js`，原 `settingsTab.js` 已并入）：它刻意**不进** `workspaceStore.openTabIds`——那边的 `openTabIds` / `nodeIndex` / 会话恢复全建立在「一个页签 = 一个真实 VFS 节点」之上，塞一个没有节点的 id 进去，`rebuildTree` 会把它当「文件已删除」顺手清掉，`modelManager.release` 也会去找一个不存在的 model。所以它不建模型、不进 `openTabIds`；但**页签本身要跨会话**——开着的视图、它们的先后、哪一个正盖着编辑器记在 `cp.editorViews`（2026-11-08 改；此前是不落盘、刷新即回代码文件），由 App.vue 在 `initWorkspaceStore()` 之后调 `restoreEditorViews()` 摆回来（早一步会被下面那条 `watch(activeId)` 按下去）。视图与 Monaco 用 **`v-show` 互斥**（不是 `v-if`）：Monaco 实例与设置组件的运行环境探针订阅因此只建立一次。让出激活态有三条路，缺一条就漏一种「点了文件还在看设置」：① `editorViews.js` 里 `watch(() => workspace.activeId)` 管「活跃文件**变了**」；② **`workspaceStore.openFile()` 里的 `codeViewIntent.show`**（`editorViews` 加载时把 `deactivateViews` 注册进去，那边不能反向 import，成环）管「**打开某个文件**」这个意图本身 —— 判据与 activeId 变不变无关，所以「文件树焦点停在某文件上、屏幕上却是设置页，再点一次它」（2026-10-25 用户报的）也能收起来；③ `EditorTabs.activate()` 里显式再让一次，因为点页签走的是 `setActiveTab`、根本不进 `openFile`。（「本地运行环境」原先是独立抽屉 + `composables/useLocalRuntime.js`，现两者都不在仓库里了——运行时 UI 已并进设置视图。）设置视图自身**默认单列**（目录折成顶部横向标签条、内容在下），编辑区够宽时才升级成**「目录 + 内容」两栏**（2026-09 建，2026-10 反转默认值）：`.settings-nav` 是分类目录（工作区（仅桌面端）/ 外观 / 编辑器 / 模板 / 快捷键 / 评测 / 云端同步 / 应用 / 浏览器插件（仅网页版）/ 帮助，`SECTIONS` 常量驱动），内容区同一时刻**只渲染一组设置**（`v-if` / `v-else-if`，不是 v-show 平铺），当前分类存在组件内的 `activeSection` 里（不落盘，关掉页签再打开仍记得）；切到「浏览器插件」那一栏会顺带 `refreshExtension()` 重探一次扩展状态（`watch(activeSection)`）。原顶栏的「评测引擎设置」弹层与「帮助」抽屉（`HelpPanel.vue`）在 2026-09-28 都并进了这里：引擎列表 / 服务地址 / 自检成为 `EngineSettingsPanel.vue`，挂在「评测」组的「运行时限」下面（`.setting-subtitle` 分开两块）；帮助的问答列表成为「帮助」组，`HelpPanel.vue` 已瘦身成纯内容组件（无按钮 / 无 Teleport / 无 Esc 逻辑）；「应用」组装 `useInstallPrompt()` 的安装按钮（原顶栏那颗）；「快捷键」组是 2026-09 新加的（见第 13 节）；「浏览器插件」原先也是独立一组，2026-10-01 与「本地运行环境」一起并入「应用」；**2026-10-11 又按内容独立回一栏**（桌面端不出现）—— 搬走的同时把「应用」与插件两栏那套**卡片化版式**（描边卡片、卡片吞掉小标题、参考稿尺寸的开关）一并去掉，回归其余栏的「分组大标题 + 朴素行（无边框、悬浮出底色）」，只留三样自己的信息特征：状态胶囊、运行环境行的图标方块、下载/卸载按钮的实心与警示态。**别再往这两栏加卡片外框**：`.app-card` / `.setting-group--app` 两个类名已删。宽度判断不靠 `@media`（设置视图活在编辑区里，视口宽是错的代理），而是在 `.settings-view` 上挂 `container-type: inline-size` + `container-name: settings`，用 `@container settings (min-width: 35rem)` 把默认的单列升级成两栏（阈值与目录项字号都是 rem，全局缩放后目录与内容都会变大、要更早翻回竖排）。**方向必须保持「默认单列 + `min-width` 升级」，别改回「默认两栏 + `max-width` 降级」**：生产构建会把 `max-width` 压成区间语法 `width<=35rem`，不支持它的浏览器（荣耀自带浏览器实测，2026-10）整条查询匹配不上、直接回落到基线两栏，手机上就被挤成两列；反着写的话认不认容器查询都落在安全的一列（代价是不支持的浏览器上永远吃横条目录，可接受）。
 8. **用例输入框的高度是 JS 撑的**（`TestCaseCard.vue` 的 `autoGrow`，上限 320px）：改 `.ta` 的内边距 / 字号后高度会自己重算，不用手改。但卡片折叠、以及整个「评测样例」页签被切走时元素都是 `display: none`，此刻 `scrollHeight` 为 0，代码会跳过重算——别把这个空值保护删了，否则折叠一次输入框就被压成 0 高。重算的触发有两处：`watch`（输入变化 / 卡片展开）+ 一个挂在输入框上的 **`ResizeObserver`**（只认宽度从 0 变有值、或面板被拖宽，宽度变大才算，避免回调环）。页签是 `v-show` 切换的，没有重新挂载的时刻，**没有这个 observer 就会一直塌成一行**（旧版只在 `onMounted` 跑一次，切到「评测样例」时必然塌）。
 9. **头栏右侧是两颗 32×32 的幽灵按钮**（2026-10-24 晚第三次改）：删除在左、运行在右，默认都无底色、无描边；运行只在悬停图标本身时浮出 `--icon-hover-bg`，垃圾桶休眠 `opacity: .18`、鼠标进入卡片升到 1 并转危险色（**键盘意图另算，别写 `:focus-within`**：鼠标点一下旁边的运行按钮，焦点就留在头栏里，垃圾桶会被它带着点亮、指针移出卡片后也不灭；亮起条件用 `.card__head:has(:focus-visible)`，键盘 Tab 进头栏仍会显形，焦点真正落到垃圾桶上才转危险色 —— 2026-10-24 修，探针实测「点运行后移开鼠标」0.18 / 「Shift+Tab 回到垃圾桶」1 + 危险色）。`.icon-btn--run` 用 `aria-disabled` 而不是原生 `disabled` —— 原生禁用会吞掉按钮的鼠标事件，`runBlocked` 的提示就永远弹不出来。2026-10-24 晚更早那版「`.run-zone` 撑满中段、整条空白都能点运行」已随两钮互换取消：两枚按钮旁边再没有隐藏的大热区，**只有 ▶ 本体 32×32 可点**。提示框统一走 `AppTooltip.vue`（Teleport 到 body、无边框深底 `--tooltip-bg` + `--tooltip-shadow`、相对图标居中、上方放不下自动翻到下方），别退回原生 `title`。
 10. **`theme-color` 是 JS 写的，不是静态 meta**：`editorSettings.js` 里那条 `watch(theme)` 把 `--bg-chrome` 读出来写进 `<meta name="theme-color">`（装成独立应用后浏览器拿它画系统栏 / 窗口标题栏）。`index.html` 里那个 `content` 只是首帧兜底，别在那里维护第二份色值。⚠️ **这个色值一共写三处，改一处就得三处一起改**：`base.css` 的 `--bg-chrome` + `index.html` 的静态 meta + `manifest.webmanifest` 的 `theme_color` —— **Firefox 安卓不认运行期写的那条，只读 manifest 里那个静态值**（2026-10-12 定，判据与实测见第 9 节 9.1）。
@@ -1012,7 +1013,8 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
 | `cp.countdown`（2026-10-20 加） | 悬浮倒计时卡的**整份现场**：`{ open, locked, phase, endAt, totalMs, pausedRemain, withHours, form: { h, m, s }, x, y, w, h }`。三条口径：① 时间只存 `endAt` 时间戳与 `pausedRemain`，**不存累加秒数**（后台被降频也不会走慢）；② `x/y/w/h` 是**设计 px**（100% 缩放下的值），渲染处过 `px()`，拖拽时物理位移除以当前倍数再落盘；`x/y = null` 表示「还没摆过」，首次打开落右下角；③ 读盘时把越界 / 认不出的值逐项收回（`phase` 白名单、`totalMs` ≤ 99h、`pausedRemain` 夹在总时长内、过了点的 `running` 直接转 `done`）。**这份状态桶刻意不进云同步白名单**：窗口摆哪、屏幕多大是**这台设备**的事实（2026-10-25 起「要不要自动装」那条偏好另立一个键 `cp.countdown.autoInstall`，那个进白名单，见下一行）。**也刻意不用 `usePersistentRef`**：卡要在首帧就恢复上次的显隐与位置（见本节末尾那条「必须早于组件挂载」） | `services/countdown.js`（`COUNTDOWN_KEY` 在 `services/storageNames.js`；体例、几何与交互见第 16 节） |
 | `cp.cfPicker.autoInstall` / `cp.countdown.autoInstall`（2026-10-25 并列记在这里；后者这一天新加，前者一直在用、只是漏记） | 两个组件的**「默认安装」偏好**（JSON bool，缺省 / 坏值一律按 `true`）。与上面那些 `*Ready` / `installed` 的事实键严格分开：事实键说的是「**这台设备**此刻有没有」，所以不进白名单；这两条说的是「要不要自动装」，跟人走，**在 `cloudProfile.js` 的同步白名单里**。键名常量各自定义在 `cfRuntime.js`（`CF_AUTO_INSTALL_KEY`）与 `countdown.js`（`COUNTDOWN_AUTO_INSTALL_KEY`），设置面板只 import 常量、不写字面量。两条的配套动作一致：打开时若本机没装就补装；设置里卸载时把开关一并关掉（否则下次启动又装回来，那次卸载等于没卸） | `services/cfRuntime.js` / `services/countdown.js`（写入方是设置面板的 `cfAutoInstall` / `countdownAutoInstall`；启动读取在 `main.js`） |
 | `cp.cloudActive`（2026-10-10 加） | **本机现在跟着谁的云端配置**：`{ handle, updatedAt }`，`updatedAt` 是**已套用过的那一版**云端的更新时间（空串 = 不知道，于是下次打开一定会对齐一次）。启动时地址里没有 `/<handle>` 就用它去对齐那一份 —— 这就是「下次打开网站直接用它那一套」。写入点：四条认下 handle 的入口（导入 / 上传 / 登录 / 下载到本机，与 `writeCloudEntryPath` 同四处；上传两处直接调 `writeActiveProfile`、其余走 `adoptCloudProfile`）+ **解绑时删掉它**（`forgetActiveProfile`：留着的话下次打开站点会把刚解绑那位的配置又套回来）。**门闩就是 `updatedAt`**：与云端相同则一个字节都不写 —— 拆掉它等于「每次打开都覆盖本机 + 套用→刷新→又套用」的死循环（那次 reload 是无条件的），改这里前先读 `cloudEntry.js` 的 `applyCloudProfile`。**刻意不进云同步白名单**：它是「**这台设备**在跟谁」的事实，同步过去等于让另一台设备自动套用一份它从没认领过的配置。**顺带把地址栏补成 `/<handle>`（2026-10-10 加）**：启动对齐时若当前是网页版的站点根路径、且云端确实有这份配置，地址就写成 `/<handle>`（此后可收藏 / 可分享）——两道闸门见 `cloudEntry.js` 的文件头，壳端与静态页都不能写 | `services/cloudEntry.js`（`readActiveProfile` / `writeActiveProfile` / `forgetActiveProfile`；键名定义在 `services/storageNames.js` 的 `CLOUD_ACTIVE_KEY`） |
-| `cp.cf.*`（抽题面板 / 比赛的**表单偏好**，共 8 键；唯一出处是 `useCfPicker.js` 与 `useCfContest.js` 顶部的 `KEY`） | `ratingMin` / `ratingMax` / `tags` / `count` / `preferNew` / `excludeSolved` / `handle`（抽题表单）+ `contestSpec`（**比赛链接或裸 ID 的原始输入串**，刷新与换会话都回填上次查的那场）。`contestOpen`（比赛区块是否展开）2026-10-19 晚随比赛拆出独立组件而**废除**——看板自成页签，没有折叠态了。三条口径：① 它们只是「上次填了什么」，**不参与任何判据**；② `contestSpec` 存的是**原始串而不是解析后的 spec** —— 解析永远走 `parseContestSpec`，存解析结果会把 `kind` 判据（如裸 ID 的 gym 分界）钉死在写盘那一刻；③ 与设置页的 `cp.cfPicker.ready` 同前缀但不是一回事（后者是组件安装标记） | `composables/useCfPicker.js` / `composables/useCfContest.js` |
+| `cp.cf.solved`（**手动标记的「已通过」**，字符串数组，2026-11-08 加，见 §30；唯一出处是 `services/solvedIndex.js`） | 元素是题目键：CF 的题用 `problemKey` 的写法（`1234:A`），其它 OJ 用 `problemUrlKey` 的产出（`luogu.com.cn/problem/P1001`）—— 两套写法不会撞车（前者一定不含 `/`），所以手动标记对任何 OJ 都成立。**只有手动那一半在这里**：自动那一半来自 CF 账号的 `user.status`（Worker 的 12h 缓存），换台设备填同一个 handle 就会回来，不用存。刻意**不进云同步白名单**（理由见 §30.4）。上限 4000 条（`MANUAL_MAX`），防手改 / 异常值写爆 localStorage |
+| `cp.cf.*`（抽题面板 / 比赛的**表单偏好** + 上次抽到的结果，共 9 键；唯一出处是 `useCfPicker.js` 与 `useCfContest.js` 顶部的 `KEY`） | `ratingMin` / `ratingMax` / `tags` / `count` / `preferNew` / `excludeSolved` / `handle`（抽题表单）+ `picked`（**上次抽到的那一批结果**，2026-11-08 加，见 §29）+ `contestSpec`（**比赛链接或裸 ID 的原始输入串**，刷新与换会话都回填上次查的那场）。`contestOpen`（比赛区块是否展开）2026-10-19 晚随比赛拆出独立组件而**废除**——看板自成页签，没有折叠态了。三条口径：① 它们只是「上次填了什么 / 上次抽到了什么」，**不参与任何判据**；② `contestSpec` 存的是**原始串而不是解析后的 spec** —— 解析永远走 `parseContestSpec`，存解析结果会把 `kind` 判据（如裸 ID 的 gym 分界）钉死在写盘那一刻；③ 与设置页的 `cp.cfPicker.ready` 同前缀但不是一回事（后者是组件安装标记） | `composables/useCfPicker.js` / `composables/useCfContest.js` |
 
 另外 PCH 二进制（约 8.6MB，v3 起；v2 的微型版是 6.9MB）存 IndexedDB 而不是 localStorage：库名 `cp-pch`（2026-10-01 从 `cph-pch` 改名；`pchStore.js` 打开库时会把旧库静默删掉——PCH 是缓存，下次编译自己会重建）、store 名 `pch`，记录形状 `{ id, bytes: Uint8Array, size, createdAt }`；`id = 存档版本:工具链版本:PCH 源码内容哈希:PCH 编译参数哈希`（当前形如 `6:23.1.0:<头文件指纹>:<参数指纹>`），任一段变化旧存档自然失效，取存档只按这个 id。**参数段是 2026-11-03 加的**：它覆盖 `PCH_ARGS` 整条命令行，改 `-std` / 异常 / RTTI / 宏 / 包含路径都不再需要手工 +1 `PCH_CACHE_VERSION`（手工那步漏过：clang 拒载被降级重试吃掉，只剩「参数改了但 PCH 一直是旧行为」）。`PCH_CACHE_VERSION` 从此只表示**存档格式**变化。**PCH 的持久层只有 IndexedDB 这一处**（2026-11-03 起）：SW 对 `*.pch.br` 直通网络、既不读也不写 Cache Storage（见第 9 节边界 6），`pruneLegacyToolchainCache()` 会把桶里遗留的 `*.pch.br` 一并清掉；启动预取的 `prefetchPch()` 命中内存 / 存档就直接返回，不再发 fetch（以前每次都重取 + 解压 + 覆写 18MB）。
 
@@ -4141,7 +4143,127 @@ CF / Polygon 的题面源文本不是标准 Markdown + LaTeX：数学定界符�
 - 若源文件里是 JSON 转义残留的 `\\,`，KaTeX 会当换行处理 —— 这是数据层问题，不在渲染器里猜。
 - `\text{&#95;}` 这类「文本模式里的下划线」解码成 `_` 会被 KaTeX 判错（真 LaTeX 同样会错），CF 题面一般不会这么写。
 
+## 28. 设置 / Codeforces 页签跨刷新保留（2026-11-08）
 
+用户报「刷新之后设置和 Codeforces 页签会消失」。原因不是 bug 而是当初的口径：`editorViews.js` 刻意不落盘（视图没有未保存内容，刷新回代码文件）。本轮改成**记住开着的视图**，其余纪律一条没松。
 
+### 28.1 改了什么
 
+1. **新增存档 `cp.editorViews`**（`{ order: string[], active: string|null }`）：`order` 既是「开着哪几个视图」也是它们**彼此的先后**（就是 `viewOrder`），`active` 是正盖着编辑器的那个（`null` = 编辑器露着代码）。读盘时按 `EDITOR_VIEW_IDS` 过滤 + 去重，`active` 不在 `order` 里就归 `null`。
+2. **写盘闸门 `persistReady`**：`restoreEditorViews()` 之前绝不写。少了它，启动那一瞬的空状态会先把存档覆盖掉 —— 与 `workspace.ready` 同一个理由。
+3. **恢复时机**：`App.vue` 的 `onMounted` 里 `restoreEditorViews()` 放在 `await initWorkspaceStore()` **之后**。早一步的话会话恢复把 `workspace.activeId` 设回去，末尾那条「活跃文件一变就让开」的 watch 会把刚恢复的视图按下去。
+4. 文档同步：`editorViews.js` / `tabStrip.js` 文件头、本文件第 3 节模块表与第 5 节坑 7 里「不落 localStorage / 刷新后回到代码文件是预期行为」的说法已改写，别照旧引用。
 
+### 28.2 实测（dev server + 无头 Chrome，探针放 `/tmp`、跑完即删，12/12）
+
+| 场景 | 结果 |
+| --- | --- |
+| `Cmd+,` 开设置页签 | `cp.editorViews` = `{order:['settings'],active:'settings'}` |
+| 刷新 | 设置页签还在、选中态、面板真的盖着编辑器（`.editor-pane__host` 被 v-show 收起），文件页签没被挤掉 |
+| 点 × 关掉设置页签 | 存档同步成 `{order:[],active:null}`；再刷新确实不回来，编辑器回到代码 |
+| 存档种 `{order:['codeforces','settings'],active:'codeforces'}` | 两颗页签都回来、顺序照存档、Codeforces 面板盖着编辑器、设置面板让位 |
+| 再点回文件页签 | 存档成 `active:null`；刷新后两颗页签仍在、都不活跃、编辑器露着代码 |
+
+`npx vite build` 通过。
+
+### 28.3 边界（都是刻意的降级）
+
+- **条带上的绝对位置不恢复**：`stripOrder` 仍不落盘。刷新后是「文件按 `cp.openTabs` 在前、视图按 `cp.editorViews` 追加在最右」，把设置拖到两个文件中间去，下次刷新它回到最右。
+- **设置页里的分类不恢复**：`settingsSectionEntry` 仍是纯跳转状态（菜单点哪一栏落哪一栏，消费完复位），刷新后落在默认分类。
+- **Codeforces 的模块没就绪时页签照样在**：面板是常驻挂载的（`v-show`），恢复页签不会去下载模块。
+
+## 29. 抽题结果跨刷新保留（2026-11-08）
+
+用户报「上次抽到的题目，刷新或者重新打开就没了」。原因是 `useCfPicker` 的 `results` 一直是纯内存 `ref([])`（注释里写的就是「不落盘 —— 落盘是导入工作区那一步的事」）：抽完去写代码、回来刷新一下，结果区就空了，等于白抽。
+
+### 29.1 改了什么
+
+1. **`results` 换成 `usePersistentRef(KEY.picked, [])`**（`cp.cf.picked`）：抽完即写、换一批写新的一批、关页签重开也还在。只存结果那一小串（≤10 条，各带 `contestId` / `index` / `name` / `rating` / `tags` / `task`），几 KB。
+2. **读盘体检**（`useCfPicker` 里紧跟 ref 的那一段）：去掉不是「结果形状」的条目（没有 `task.url` / `contestId` 不是数字的），缺的 `tags` / `name` / `index` 补齐。模板直接读 `problem.tags.join(...)`，留着一条坏数据就是一次渲染报错。
+3. **「已导入」按工作区现状标回来**（`markImportedFromWorkspace`，`watch(workspace.ready)` 触发）：`importedUrls` 本身是会话内的（导入成功的那一刻才加），刷新后必然空 —— 不补标的话，恢复出来的那一批每颗按钮都写着「导入」，点下去其实只是重开页签（幂等，但等于让用户猜）。判据走 `findProblemByUrl`（同步扫内存树、按 `problemUrlKey` 归一化），所以「抽题用的 `/contest/…`」与「用户后来从题库逛到的 `/problemset/…`」认成同一道。**必须等 `workspace.ready`**：本 composable 在 `CfPickerPanel` setup 里创建，比 `initWorkspaceStore()` 早得多，那时树还是空的。
+4. `cloudProfile.js` 的「刻意不同步」清单补上 `cp.cf.picked`（「这台设备上刚才抽到了什么」的事实，换台设备摆上一次抽的结果没有意义 —— 题目该靠「导入工作区」带走）。
+
+其余口径一条没动：**抽中 ≠ 落盘**（工作区一个字节都不动，落正文与样例仍然只在「导入」那一步），`batchGroupId` 仍是会话内的（刷新后没有「批」这层容器，下次导入会另建一个组），换一批仍然把上一批交给 Worker 排掉。
+
+### 29.2 实测（dev server + 无头 Chrome + 真实 Codeforces API，探针放 `/tmp`、跑完即删，11/11）
+
+种子：`cp.cfPicker.ready` 真、难度 800–900、数量 2、`cp.editorViews` 开着 Codeforces 页签。
+
+| 场景 | 结果 |
+| --- | --- |
+| 首屏 | 结果区是空态（`cp.cf.picked` 没有时行为与改动前一致） |
+| 点「抽取」 | 抽到 2 道（CF2102A / CF1669A），`cp.cf.picked` 立刻有两条、`task.url` 齐全，抬头「抽中 2 道题 平均 850」，主按钮变「换一批」 |
+| 刷新 | 两道题 id / rating 一字不差地还在，仍非空态，筛选区间仍是 800/900 |
+| 点某行的「导入」→ 刷新 | 该行仍是「已导入」并停用，另一行仍是「导入」；`findProblemByUrl` 在工作区里查得到那道题 |
+| 点「换一批」 | 换成两道新题（CF1285A / CF1017A），存档同步成新的一批 |
+
+`npx vite build` 通过。
+
+### 29.3 边界
+
+- **抽失败会把上一批一起清掉**：`run()` 一直是「先清空再抽」，所以 NO_MATCH / 网络失败之后屏幕上和存档里都是空的。这与改动前的屏幕行为一致（失败不留旧结果冒充新结果），没有另外改。
+- **不记「这批是什么时候抽的」**：结果区只写「抽中 N 道题」，没有「上次抽于 x 时」的字样 —— 要加得同时补 i18n 的六个域，本轮不做。
+- **卸载组件不清这个键**：与 `cp.cf.ratingMin` 等表单偏好同一档（它们也不清）；重装后上次那批仍在。
+
+## 30. 「已通过」标记：CF 账号自动 + 手动补标（2026-11-08）
+
+用户提「我也想标记一下通过了的题目」。口径当场问清了两件事：**自动读 CF 账号，同时允许手动补标**；并且**要标到工作区与页签**，不只是抽题结果区。
+
+### 30.1 结构：一个新服务，三个消费方
+
+新增 `services/solvedIndex.js` —— 「这道题我通过了吗」的**唯一出处**，两个来源合成一个答案：
+
+1. **自动**：本机填的 Codeforces 账号已 AC 的题。Worker 里新加一条 `solved` 消息（复用 `loadSolvedKeys`，12h 缓存，多账号取并集），`cfClient.cfSolved(handles, { force })` 是它的出口。它和抽题面板「排除已通过的题」读的是**同一份**数据 —— 不会各拉一次 `user.status`，也不会出现「被排除掉了却没标上勾」这种自相矛盾。
+2. **手动**：`cp.cf.solved`（字符串数组，上限 4000）。
+
+三个消费方共用 `isSolvedNode` / `solvedSourceOfUrl`：
+
+| 位置 | 形态 | 交互 |
+| --- | --- | --- |
+| 抽题结果行 | 题号**前面**一枚小勾（放进 `.cf-result__title`，不新增 grid 列 —— 结果行是四列，多一个子项会挤到第二行被 44px 行高裁掉） | 未标记几乎隐形（悬停该行才浮出），**可点**切换；自动命中时 `is-auto`、点不动 |
+| 文件树行 | 文件名后一枚小勾（`.tree-item__solved`） | 只读；标记 / 取消走右键菜单 |
+| 编辑器页签 | 文件名后一枚小勾（`.editor-tabs__solved`） | 只读；标记 / 取消走右键菜单 |
+
+**为什么自动的不能手动取消**：自动命中意味着 CF 上确实有一条 `verdict: 'OK'` 的提交。允许手动抹掉它，「已通过」就变成一件可以撒谎的事 —— 而它同时是抽题的排除判据。所以手动只负责「CF 不知道的那部分」（本地做的题、别的 OJ），自动命中时**右键菜单压根不给那一项**（给了就是个点了没反应的菜单）。
+
+**键怎么定**（`solvedKeyOfUrl`）：CF 的题统一成 `cf/pick.js` 的 `problemKey` 写法（`1234:A`，与 Worker 回的键逐字一致，所以自动集合能直接对上）；认不出是 CF 题的（洛谷、AtCoder、用户自建）退回 `problemUrlKey`（`luogu.com.cn/problem/P1001`）。两套写法不会撞车：**前者一定不含 `/`**。手动标记因此对任何 OJ 都成立。CF 的路径解析覆盖 `contest/<cid>/problem/<idx>`（含 group 里同一段）、`gym/<cid>/problem/<idx>`、`problemset/problem/<cid>/<idx>`，以及 edu 那种深层路径（扫 `contest` 段命中）。
+
+**为什么⾃动那一半不写进题目元数据**：那要改写 VFS 节点（每点一次标记就动一次工作区），而「通过」是账号侧的事实、会变（换账号、重测），元数据是题目自身的属性。放在索引里还有个实际好处：换台设备只要填同一个 handle，自动那一半立刻回来。
+
+**什么时候去拉**：`watch([cfReady, cfHandle])` 触发，账号串 600ms 防抖（它是输入框绑定的，逐字符都会变）。`cfReady` 为假（组件没装）时**一个请求都不发** —— 没装 Codeforces 的人不该为一个勾付后台线程与一趟网络。
+
+### 30.2 实测（dev server + 无头 Chrome + 真实 Codeforces API，探针放 `/tmp`、跑完即删，18/18，连跑两遍稳定）
+
+种子：`cp.cfPicker.ready` 真、`cp.cf.picked` 预置一道 CF4A、`cp.editorViews` 开着 Codeforces 页签、界面中文。
+
+| 场景 | 结果 |
+| --- | --- |
+| 首屏 | 结果行渲染出 `CF4A`，勾**无** `is-on`，存档为空，悬停文案「标记为已通过」 |
+| 点勾 | `is-on` 且**不是** `is-auto`，颜色 `rgb(137, 209, 133)`（`--ok`）；存档 = `["4:A"]`；文案变「已通过（手动标记）· 再点一次取消」 |
+| 刷新 | 勾仍在（读盘恢复），存档仍 `["4:A"]` |
+| 点「导入」 | 树行 `CF4A Watermelon.cpp` 与页签**同时**带上勾 —— 三处同一份索引 |
+| 树行右键 | 菜单：打开题目 / **取消已通过标记** / 题目信息 / 导出 / 重命名 / 删除 |
+| 点「取消已通过标记」 | 树与页签的勾**一起**消失，存档清空为 `[]` |
+| 账号 `tourist`（3060 道 AC） | 启动时那次拉取自己跑起来（未手动干预），`autoKeys` = 3060 |
+| 种一道 tourist 真 AC 过的题（`2279:E`） | 勾带 `is-auto`，文案「已通过（Codeforces 账号 tourist）」；**不写手动存档** |
+| 点自动命中那个勾 | 仍是 `is-auto`，存档仍空（取消不了） |
+| 删掉账号再刷新 | 勾消失（自动那一半随账号走，不留一个用户取消不了的勾） |
+
+`npx vite build` 通过，`npm run lint` exit 0（只有 7 处存量圆角提示）。
+
+两套主题各拍了图（结果区 / 页签 / 文件树）：深色 `--ok` = `#89d185`、浅色 = `#17803d`，勾都在题号或文件名后一格，省略号与关闭按钮没被挤变形。
+
+### 30.3 探针抓到的一个真 bug：启动那次拉取会被 Worker 冷启动吃掉
+
+第一版写完跑探针，界面上的手动那一半全绿，但 B0（「启动时自动拉取自己跑了」）红：模块状态 `autoKeys: 0, fetchedAt: 0, loading: false` —— 说明**请求已经结束且失败**，而手动调一次 `cfSolved(['tourist'])` 却能拿回 3060 条。
+
+原因是时机：启动后 600ms 那一次撞上 cf Worker 的**首次创建**（页面刚打开，Worker 脚本才第一次被编译 / 加载），失败一次之后就没有第二次机会 —— 表现是「整场会话一道题都不显示已通过」，且不会自愈。修法：失败不静默置空，加 `solvedError` 状态 + **隔 3 秒重试，最多两次**（`scheduleRetry`）。`loadedFor` 只在成功时写，所以下一个成功的机会不会被跳过；下一条账号变化会清掉旧的重试计数。
+
+### 30.4 刻意不做 / 边界
+
+- **不进云同步白名单**：自动那一半本来就跟着 CF 账号走，手动这半是本机补充；同步过去会和另一台设备的 CF 状态打架（`cloudProfile.js` 的清单已补记）。
+- **页签上不做可点的勾**：页签要拖动、要中键关闭，一颗可点的勾会和这些手势抢命中区。标记入口统一在右键菜单。
+- **不标目录**：键来自 `meta.url`，目录没有链接。
+- **12h 缓存内刚 AC 的题不会立刻出现**：与「排除已通过的题」同一口径（同一个 `loadSolvedKeys` 缓存）。要绕过只有 `refreshSolved({ force: true })`，本轮没有给它做界面入口。
+- **卸载组件不清这个键**：与 `cp.cf.ratingMin` 那批表单偏好同一档。
+- **删账号后手动标记仍留着**：那是用户的判断，与账号无关；只有「与自动集合重叠」的那些会在自动数据到手时被剔掉（`pruneManualOverlap`，避免删账号之后凭空复活一个勾）。

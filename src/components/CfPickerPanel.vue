@@ -64,7 +64,9 @@
               </div>
               <!-- 常用区间：等宽网格（2026-10-29）。五个区间在控件列里排成整齐的格子，
                    与范围框左右缘严丝合缝；列数由 minmax(74px, 1fr) 自己算（宽时 3 列、
-                   窄时 2 列），不靠媒体查询硬折。 -->
+                   窄时 2 列），不靠媒体查询硬折。
+                   芯片是开关，不是「一键填入」：点已亮的那一档再点一次就撤空，回到
+                   「不限 – 不限」（2026-11-08 用户口径），与下面几片芯片同一个手势。 -->
               <span
                 v-show="presetsOpen"
                 id="pk-rating-presets"
@@ -77,7 +79,7 @@
                   :key="`${preset.min}-${preset.max}`"
                   type="button"
                   class="cf-chip pk-chip"
-                  :class="{ 'is-on': ratingMin === String(preset.min) && ratingMax === String(preset.max) }"
+                  :class="{ 'is-on': isPresetActive(preset) }"
                   @click="applyPreset(preset)"
                 >
                   {{ preset.min }}–{{ preset.max }}
@@ -358,6 +360,22 @@
               <li v-for="problem in results" :key="`${problem.contestId}-${problem.index}`">
                 <div class="cf-result cf-list__row">
                   <span class="cf-result__title">
+                    <!-- 已通过标记：自动（CF 账号）只读、手动可点。放题号前 —— 每条结果行
+                         都在同一个位置，不看题名长短（见 cf-console.css 的 .cf-result__ac） -->
+                    <span
+                      class="cf-result__ac"
+                      :class="{
+                        'is-on': !!solvedSource(problem),
+                        'is-auto': solvedSource(problem) === 'auto',
+                      }"
+                      role="button"
+                      :aria-pressed="!!solvedSource(problem)"
+                      :aria-label="solvedTitle(problem)"
+                      :title="solvedTitle(problem)"
+                      @click.stop="markSolved(problem)"
+                    >
+                      <AppIcon name="check" :size="11" />
+                    </span>
                     <span class="cf-result__id">
                       CF{{ problem.contestId }}{{ String(problem.index).toUpperCase() }}
                     </span>
@@ -439,7 +457,12 @@
  * 一项，与比赛并列），页签栏负责开关/切换，这里只渲染内容。
  *
  * 【表单/结果为什么留在常驻实例里】它由 EditorPane 用 v-show 常挂，切走再切回来
- * 表单值与抽到的题目都还在；偏好另有 usePersistentRef 落盘，刷新也不丢。
+ * 表单值与抽到的题目都还在；表单与**上次抽到的那一批结果**都另有 usePersistentRef 落盘
+ * （`cp.cf.*` / `cp.cf.picked`），刷新、重开站点也不丢。
+ *
+ * 【结果行题号前那颗勾】「这道题我通过了吗」来自 services/solvedIndex.js —— 与文件树、
+ * 页签是同一份索引（CF 账号自动 + 手动标记），点一下只切手动那一半；自动命中的勾点不动
+ * （那是 CF 上真实存在的 OK 提交，理由见那个文件的文件头）。
  */
 import { computed, ref } from 'vue'
 
@@ -455,6 +478,11 @@ import {
   TAG_PRESETS,
 } from '../cf/pick.js'
 import { useCfPicker } from '../composables/useCfPicker.js'
+import {
+  autoHandles,
+  solvedSourceOfUrl,
+  toggleSolvedUrl,
+} from '../services/solvedIndex.js'
 
 const {
   ratingMin,
@@ -467,6 +495,7 @@ const {
   selectedLetters,
   selectedTags,
   clampCount,
+  isPresetActive,
   applyPreset,
   toggleDivision,
   toggleLetter,
@@ -570,6 +599,30 @@ const allImported = computed(
     results.value.length > 0 &&
     results.value.every((problem) => importState(problem) === 'imported'),
 )
+
+/**
+ * 这一道题的通过状态：`'auto'`（CF 账号）/ `'manual'`（手动标记）/ `''`（没有）。
+ * 内部读的是模块级 ref，模板里调用会正常建立依赖 —— 标记一变，结果区、文件树、页签
+ * 三处同时更新（同一份索引，见 services/solvedIndex.js）。
+ */
+function solvedSource(problem) {
+  return solvedSourceOfUrl(problem?.task?.url)
+}
+
+/** 悬停文案：说清这个勾是哪来的、能不能点掉（自动命中的点不掉，理由见 solvedIndex） */
+function solvedTitle(problem) {
+  const source = solvedSource(problem)
+  if (source === 'auto') {
+    const handles = autoHandles.value.join(', ')
+    return handles ? t('cf.solved.auto', { handles }) : t('cf.solved.autoBare')
+  }
+  return source === 'manual' ? t('cf.solved.manual') : t('cf.solved.mark')
+}
+
+/** 点勾：手动标记来回切换；自动命中的点了没反应（判据在 solvedIndex.toggleSolvedUrl） */
+function markSolved(problem) {
+  toggleSolvedUrl(problem?.task?.url)
+}
 
 /** 这批题的平均难度（只算有 rating 的题；一道都没有时不占位） */
 const avgRating = computed(() => {
