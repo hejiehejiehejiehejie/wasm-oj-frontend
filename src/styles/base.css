@@ -182,6 +182,11 @@
   --fail-face: rgba(244, 135, 113, 0.14);
   --warn-face: rgba(201, 164, 92, 0.16);
   --info-face: rgba(79, 193, 255, 0.14);
+  /* 输出差异的标记底色（唯一消费者：TestCaseCard 的差异块与 ACTUAL 框内高亮，2026-11-09）。
+     比 --fail-face 深一档：那一支铺的是「一整块面」（徽标、危险按钮），而这里只有几个
+     字符的宽度，同透明度下淡到几乎看不见（实测 0.14 在深色底上只剩一层雾）。
+     带一点点实色感即可 —— 它不是告警，只是「看这里」。 */
+  --diff-mark: rgba(244, 135, 113, 0.3);
   --fail-soft: #f0d7cf;
   --danger-bg: #6d3a3a;
   --danger-bg-hover: #854545;
@@ -458,6 +463,8 @@
   --fail-face: rgba(201, 60, 44, 0.1);
   --warn-face: rgba(138, 97, 22, 0.12);
   --info-face: rgba(11, 111, 184, 0.1);
+  /* 见深色那支：差异标记比 --fail-face 深一档。白底上 0.3 会糊成一块砖红，压到 0.18 */
+  --diff-mark: rgba(201, 60, 44, 0.18);
   --fail-soft: #a02a22;
   --danger-bg: #f6dcd9;
   --danger-bg-hover: #eec7c3;

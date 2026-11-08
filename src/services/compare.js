@@ -1,10 +1,19 @@
 /**
+ * 换行统一成 `\n`：Windows（`\r\n`）与老式 Mac（`\r`）都抹平。
+ *
+ * 这一支是**所有比对方式的共同前处理**（见 services/checkers.js）：
+ * 严格逐字符也不例外 —— 现代评测机先统一换行符格式，再逐字节比。
+ */
+export function normalizeNewlines(text) {
+  return String(text ?? '').replace(/\r\n?/g, '\n')
+}
+
+/**
  * Judge-style output comparison: trailing spaces on each line are ignored and
  * trailing blank lines do not matter.
  */
 export function normalizeLines(text) {
-  const lines = String(text ?? '')
-    .replace(/\r\n?/g, '\n')
+  const lines = normalizeNewlines(text)
     .split('\n')
     .map((line) => line.replace(/[ \t]+$/, ''))
   while (lines.length && lines[lines.length - 1] === '') lines.pop()

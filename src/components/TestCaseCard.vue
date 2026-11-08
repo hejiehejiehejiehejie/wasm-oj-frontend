@@ -4,6 +4,8 @@ import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
 import { locale, t } from '../i18n/index.js'
 import { px, uiScale } from '../composables/useUiScale.js'
+import { DEFAULT_CHECKER_ID, checkerLabelKey } from '../services/checkers.js'
+import { diffOutput, markSegments } from '../services/outputDiff.js'
 
 const props = defineProps({
   testCase: { type: Object, required: true },
@@ -264,6 +266,42 @@ const outputView = computed(() => {
   const body = previewBody(text)
   return { long: true, text: `${body}${MARKER_SEED}`, hidden: fmt(text.length - body.length) }
 })
+
+// ---------- 差异标记（2026-11-09 加）----------
+// 判定口径在 services/checkers.js，差异本身在 services/outputDiff.js，这里只负责显示。
+// `checker` 跟着**这一轮结果**走（runner 的 evaluateCase 写在补丁里）：用户在跑完之后去设置里
+// 换了档，不能把上一轮 WA 的差异改写成另一种口径 —— 那会让人以为「刚才其实是这里错了」。
+const checkerId = computed(() => props.testCase.checker || DEFAULT_CHECKER_ID)
+
+/**
+ * WA 时算一次差异；AC / 运行中 / 没跑过都不算。
+ * `diffOutput` 在两侧等价时返回 null，所以「判定 WA 但两段一模一样」这种矛盾不会显示成
+ * 一个空块（不过逐行那一支里已经先对过账，见 outputDiff.js）。
+ */
+const diffResult = computed(() => {
+  const record = props.testCase
+  if (record.status !== 'failed') return null
+  return diffOutput(record.actualOutput ?? '', record.expectedOutput ?? '', checkerId.value)
+})
+
+/**
+ * 框内高亮的片段（实际输出原文 + 差异区间）。
+ *
+ * 截断态（超长样例只显示开头一段 + 省略行）**不做内联高亮**：那时框里渲染的是
+ * `outputView.text`（尾巴已经换成 `……`），而差异区间是按完整原文算的 —— 两边不是同一
+ * 份字符串，套上去就会标错位置。差异块那一路不受影响，它自己会截窗口。
+ */
+const outputMarks = computed(() => {
+  const marks = diffResult.value?.marks
+  if (!marks?.length || outputView.value.long) return null
+  return markSegments(outputText.value, marks)
+})
+
+/** 一处差异的位置文案（行 / 第几个词 / 第几个字符）；忽略行序那一支没有位置，给空串 */
+function whereText(entry) {
+  if (!entry.where?.length) return ''
+  return entry.where.map((part) => t(part.key, part.params)).join(' · ')
+}
 
 /**
  * 耗时文案。三档，分界点是 10ms 而不是 1ms：
@@ -556,6 +594,10 @@ function onLongCopy(event, full) {
                  -O2 把 `a / 0` 折成常量，程序照样退出 0，那个 0 本身没有意义，只是看起来像 AC。
                  它不进 outputText（否则「复制输出」会把提示一起递出去），只占框内顶部一行。 -->
             <p v-if="testCase.note" class="out-box__note">{{ testCase.note }}</p>
+            <!-- WA 时把「不同的那几个字符」在原文里标出来（2026-11-09 加）。
+                 ⚠️ 这一整段必须写在**同一行**里：`<pre>` 内的空白是内容（Vue 的 condense
+                 在 pre 里不生效），换行 / 缩进会原样变成输出里的空行与空格。
+                 复制不受影响：onLongCopy 走的是选区 / 全文，与这里怎么切片无关。 -->
             <pre
               class="out"
               :class="{
@@ -564,13 +606,51 @@ function onLongCopy(event, full) {
               }"
               tabindex="0"
               @copy="onLongCopy($event, outputText)"
-              >{{ outputView.text || actualPlaceholder }}</pre
+              ><span v-if="outputMarks" class="out__marks"><span v-for="(seg, i) in outputMarks" :key="i" :class="{ out__mark: seg.mark }">{{ seg.text }}</span></span><template v-else>{{ outputView.text || actualPlaceholder }}</template></pre
             >
           </div>
           <div v-if="outputView.long" class="ionote">
             <span class="ionote__text">
               {{ t('tests.card.omitted', { n: outputView.hidden }) }}
             </span>
+          </div>
+
+          <!-- 差异块（2026-11-09 加）：只列前几处不同，每处两行（期望 / 实际），
+               真正不同的字符打底。判定那一路（AC / WA）完全不受它影响 —— 它只是把
+               「差在哪」说出来，替掉原先 WA 时一片沉默的卡片。 -->
+          <div v-if="diffResult" class="diff">
+            <p class="diff__head">
+              <span>{{ t('tests.diff.title') }}</span>
+              <span class="diff__mode">{{ t(checkerLabelKey(checkerId)) }}</span>
+            </p>
+            <div v-for="(entry, i) in diffResult.entries" :key="i" class="diff__entry">
+              <p v-if="whereText(entry) || entry.kind !== 'replace'" class="diff__where">
+                <span v-if="whereText(entry)">{{ whereText(entry) }}</span>
+                <span v-if="entry.kind !== 'replace'" class="diff__kind" :data-kind="entry.kind">
+                  {{ t(`tests.diff.kind.${entry.kind}`) }}
+                </span>
+              </p>
+              <p v-if="entry.want" class="diff__row">
+                <span class="diff__tag">{{ t('tests.diff.want') }}</span>
+                <span class="diff__text"><span
+                    v-for="(seg, k) in entry.want"
+                    :key="k"
+                    :class="{ diff__mark: seg.mark }"
+                    >{{ seg.text }}</span></span>
+              </p>
+              <p v-if="entry.got" class="diff__row">
+                <span class="diff__tag">{{ t('tests.diff.got') }}</span>
+                <span class="diff__text"><span
+                    v-for="(seg, k) in entry.got"
+                    :key="k"
+                    :class="{ diff__mark: seg.mark }"
+                    >{{ seg.text }}</span></span>
+              </p>
+            </div>
+            <p v-if="diffResult.truncated" class="diff__note">{{ t('tests.diff.tooLong') }}</p>
+            <p v-if="diffResult.more" class="diff__note">
+              {{ t('tests.diff.more', { n: diffResult.more }) }}
+            </p>
           </div>
         </div>
       </div>
@@ -1186,6 +1266,115 @@ function onLongCopy(event, full) {
 .out.is-empty.is-hint {
   color: var(--hint-goose);
   font-size: 12px;
+}
+
+/* ---------- 差异标记（2026-11-09 加）----------
+   两处共用同一套长相：框内（`.out__mark`，标记 stdout 原文里那几个字符）与差异块
+   （`.diff__mark`）。底色是 base.css 的 --diff-mark —— 比 --fail-face 深一档，
+   因为这里只有几个字符的宽度，同透明度下淡到看不见（见那支变量的注释）。
+   不加圆角以外的装饰：行内元素跨行折行时，圆角会被切成两段，再多画就更碎了。
+
+   ⚠️ 只标**真正不同**的那几个字符（前后公共段已在 outputDiff 里掐掉）。整行整段变红
+   等于没标 —— 用户还是得自己找。 */
+.out__mark,
+.diff__mark {
+  background: var(--diff-mark);
+  border-radius: 4px;
+  /* 阴影当作一圈极细的描边：标的是一个**空格**时，只有底色的话在行尾几乎看不出来 */
+  box-shadow: 0 0 0 1px var(--diff-mark);
+}
+
+/* 差异块：ACTUAL 框下面那一小块，只在 WA 且有差异时出现（见模板与脚本里的 diffResult）。
+   字号比正文（14.5）小一档：它是「解释上面那块为什么不对」，不是输出本身。 */
+.diff {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+  font-family: var(--mono-font);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* 头部：左边「差异」，右边这次用的口径。与 .field__label 同一套小字语汇（10px / 字距 0.6） */
+.diff__head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding-left: 10px;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* 口径名贴右：它解释的是「下面按什么规则比出来的」，属于附注，不跟标题抢行首 */
+.diff__mode {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* 一处差异 = 位置行 + 两行正文。条目之间靠 gap 分开，不画线、不铺底：
+   这个块已经在一张无框卡片里，再加一层框就回到了「卡片套卡片」。 */
+.diff__entry {
+  display: grid;
+  gap: 2px;
+  padding-left: 10px;
+}
+
+/* 位置行：第 N 行 / 第 N 个词，后面跟一个「缺少 / 多出」的小标签（不一致时不显示 ——
+   两行并排摆着已经说明问题了）。 */
+.diff__where {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.diff__kind {
+  color: var(--warn);
+}
+
+/* 期望 / 实际各一行。两行的标签同宽（min-width 按英文 Expected 对齐），正文起点才会齐 ——
+   中文「期望 / 实际」两个字自然等宽，但英文界面下 Expected / Actual 会差出半截。 */
+.diff__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+}
+
+.diff__tag {
+  flex: 0 0 auto;
+  min-width: 3.6em;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* 正文：保留空白（样例里连续空格常是有意义的差异），但**允许折行** ——
+   侧栏最窄只有 158px，一行 60 列的输出不折行就只能横滚。 */
+.diff__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+}
+
+/* 「还有 N 处不同」「输出过长」这两句附注：比条目再淡一档，它们说的是「这里没列全」。
+   字体换回界面字体 —— 它是一句说明，不是输出内容。 */
+.diff__note {
+  margin: 0;
+  padding-left: 10px;
+  font-family: var(--ui-font);
+  font-size: 10.5px;
+  color: var(--text-faint);
 }
 
 /* ---------- 窄容器下的降级 ----------

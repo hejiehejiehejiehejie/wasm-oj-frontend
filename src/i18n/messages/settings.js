@@ -319,6 +319,15 @@ export default {
       judge: {
         timeLimit: { label: '运行时限', hint: '只计运行阶段，不含编译' },
         memoryLimit: { label: '内存上限', hint: '超出判 MLE' },
+        /**
+         * 输出比对方式（2026-11-09 加）。hint 把三档口径一句话讲完 —— 下拉里的名字
+         * （逐行比对 / 忽略空白 / 严格逐字符）只够分辨，说不清「到底放过什么」。
+         * 题目信息里显式指定过的优先，这一点也要写出来，否则用户改不动某个题目时会当成 bug。
+         */
+        checker: {
+          label: '输出比对',
+          hint: '逐行忽略行尾空格；忽略空白按词比；严格逐字符要求完全一致。题目信息里指定过则优先',
+        },
         celebration: { label: '通过动画', hint: '所有样例都通过时，在样例栏飘落彩色纸屑' },
         crossCheck: {
           label: '关闭优化重跑比对',
@@ -936,6 +945,12 @@ export default {
       judge: {
         timeLimit: { label: 'Time limit', hint: 'Run phase only, excluding compilation' },
         memoryLimit: { label: 'Memory limit', hint: 'Exceeding it reports MLE' },
+        /** 同 zh-CN：输出比对方式，三档口径写在 hint 里，并说明按题覆盖优先 */
+        checker: {
+          label: 'Output check',
+          hint:
+            'Line by line ignores trailing spaces; ignore whitespace compares tokens; strict compares every character. A problem’s own setting wins',
+        },
         celebration: { label: 'Pass animation', hint: 'Confetti falls over the sample panel when every test case passes' },
         crossCheck: {
           label: 'Re-run without optimisation',

@@ -69,6 +69,8 @@ import {
 } from '../services/countdown.js'
 import { AUTO_PRELOAD_KEY } from '../services/runtimePreload.js'
 import { MEMORY_LIMIT_OPTIONS, TIME_LIMIT_OPTIONS } from '../services/runner.js'
+// 输出比对方式的选项表（id + i18n key）与判定逻辑同一份，见 services/checkers.js
+import { CHECKERS } from '../services/checkers.js'
 import {
   clearPendingCloudHandle,
   cloudEntryMissingHandle,
@@ -149,6 +151,8 @@ const props = defineProps({
   timeLimit: { type: Number, required: true },
   // 全局内存上限（字节），与 App.vue 的 cp.memoryLimitBytes 同源
   memoryLimit: { type: Number, required: true },
+  // 全局输出比对方式（services/checkers.js 的 id），与 App.vue 的 cp.checker 同源
+  checker: { type: String, required: true },
   // 评测引擎状态（引擎列表 / 服务地址 / 自检结果）从 App 一路传下来，
   // 与侧边栏「评测样例」面板读到的是同一份
   judge: { type: Object, required: true },
@@ -164,6 +168,7 @@ const emit = defineEmits([
   'update:settings',
   'update:time-limit',
   'update:memory-limit',
+  'update:checker',
   'update:ui-scale',
   'toggle-layout',
   'select-engine',
@@ -2262,6 +2267,11 @@ function setMemoryLimit(event) {
   emit('update:memory-limit', Number(event.target.value))
 }
 
+/** 输出比对方式：整份偏好只有一个键，直接发 id（校验在 App 落盘那一层 + checkers 注册表） */
+function setChecker(event) {
+  emit('update:checker', String(event.target.value))
+}
+
 // ------------------------------------------------------------ 云端同步
 /**
  * 账号 / 令牌 / 验证码那一套**会话状态与动作都在 `services/cloudSession.js`**，这里只是把它们
@@ -2990,8 +3000,30 @@ watch(pendingUnbind, (open) => {
           </span>
         </label>
 
-        <!-- 全部样例通过时的纸屑（2026-10-23 加，落点就在样例栏那块面板里）。摆在这两条限制之后、引擎之前：
-             它讲的是「评测结果怎么反馈」，与上面两条同属「这一次怎么判」。
+        <!-- 输出比对方式（2026-11-09 加）：AC / WA 的判定口径。摆在两条限制之后 ——
+             时限 / 内存管「跑不跑得完」，这一条管「跑完了算不算对」，是同一件事的后半段。
+             题目信息里显式指定过的（meta.checker）优先于这里，见 services/checkers.js。 -->
+        <label class="setting-row setting-row--select">
+          <span class="setting-row__main">
+            <span class="setting-row__head">
+              <span class="setting-row__label">{{ t('settings.judge.checker.label') }}</span>
+            </span>
+            <span class="setting-row__hint">{{ t('settings.judge.checker.hint') }}</span>
+          </span>
+          <span class="setting-row__control">
+            <span class="select">
+              <select :value="checker" @change="setChecker">
+                <option v-for="item in CHECKERS" :key="item.id" :value="item.id">
+                  {{ t(item.labelKey) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="select__chevron" />
+            </span>
+          </span>
+        </label>
+
+        <!-- 全部样例通过时的纸屑（2026-10-23 加，落点就在样例栏那块面板里）。摆在时限 / 内存 / 比对之后、
+             引擎之前：它讲的是「评测结果怎么反馈」，与上面几条同属「这一次怎么判」。
              开关本体在 services/confetti.js，关掉后连那块 canvas 都不建。 -->
         <div class="setting-row setting-row--switch">
           <span class="setting-row__main">

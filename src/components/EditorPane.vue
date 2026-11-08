@@ -72,6 +72,8 @@ const props = defineProps({
   timeLimit: { type: Number, required: true },
   // 全局内存上限（字节）：设置视图「评测」分组用，透传（见 services/runner.js 的 MEMORY_LIMIT_*）
   memoryLimit: { type: Number, required: true },
+  // 全局输出比对方式（services/checkers.js 的 id）：同样只给「评测」分组，透传
+  checker: { type: String, required: true },
   // 评测引擎状态：只有设置视图里的「评测」分组用得到，这里只做透传
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
@@ -84,6 +86,7 @@ const emit = defineEmits([
   'update:settings',
   'update:time-limit',
   'update:memory-limit',
+  'update:checker',
   'update:ui-scale',
   'toggle-layout',
   'select-engine',
@@ -934,6 +937,7 @@ defineExpose({
         :panel-position="panelPosition"
         :time-limit="timeLimit"
         :memory-limit="memoryLimit"
+        :checker="checker"
         :judge="judge"
         :connection="connection"
         :active="settingsTab.active"
@@ -941,6 +945,7 @@ defineExpose({
         @update:settings="emit('update:settings', $event)"
         @update:time-limit="emit('update:time-limit', $event)"
         @update:memory-limit="emit('update:memory-limit', $event)"
+        @update:checker="emit('update:checker', $event)"
         @update:ui-scale="emit('update:ui-scale', $event)"
         @toggle-layout="emit('toggle-layout')"
         @select-engine="emit('select-engine', $event)"

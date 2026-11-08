@@ -97,9 +97,9 @@ export default {
         date: '日期',
         timeLimit: '时限（秒）',
         timeLimitPlaceholder: '留空用默认',
-        /** 输出比对方式（2026-10-25 加）：空 = 默认逐行，其余几种按题开启 */
+        /** 输出比对方式（2026-10-25 加；2026-11-09 改为「按题覆盖」）：空 = 跟随全局设置 */
         checker: '输出比对',
-        checkerDefault: '默认（逐行）',
+        checkerDefault: '跟随全局设置',
       },
 
       /** 文件树上那行 title 的多行提示，前缀 */
@@ -206,9 +206,9 @@ export default {
         date: 'Date',
         timeLimit: 'Time limit (s)',
         timeLimitPlaceholder: 'Blank uses the default',
-        /** 同 zh-CN：输出比对方式，空 = 默认逐行 */
+        /** 同 zh-CN：输出比对方式，空 = 跟随全局设置 */
         checker: 'Output check',
-        checkerDefault: 'Default (line by line)',
+        checkerDefault: 'Use the judge setting',
       },
 
       tooltip: {

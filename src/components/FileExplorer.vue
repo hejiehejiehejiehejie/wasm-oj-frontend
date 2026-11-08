@@ -93,7 +93,7 @@ import {
   problemUrlOf,
   todayISO,
 } from '../services/problemMeta.js'
-import { CHECKERS, DEFAULT_CHECKER_ID } from '../services/checkers.js'
+import { CHECKERS } from '../services/checkers.js'
 import {
   solvedLockedOfUrl,
   solvedSourceOfUrl,
@@ -101,8 +101,14 @@ import {
 } from '../services/solvedIndex.js'
 import { watchBackLayer } from '../services/backStack.js'
 
-/** 弹窗里的比对方式选项：默认逐行用「留空」表示，其余几种按题开启 */
-const CHECKER_OPTIONS = CHECKERS.filter((checker) => checker.id !== DEFAULT_CHECKER_ID)
+/**
+ * 弹窗里的比对方式选项：**全部五档都列**（2026-11-09 改）。
+ *
+ * 原来只列「默认逐行之外的几种」，因为默认值不落盘、选了也是空串。现在全局设置
+ * （cp.checker）可能是「忽略空白」，题目若需要「逐行」就得能显式钉住 —— 把 `lines`
+ * 从选项里剔掉，那道题就永远跟着全局走了。留空一项表示「跟随全局设置」。
+ */
+const CHECKER_OPTIONS = CHECKERS
 
 const rootEl = ref(null)
 
@@ -954,7 +960,7 @@ function beginEditMeta(node) {
     difficulty: saved.difficulty ?? '',
     date: saved.date || todayISO(),
     timeLimit: saved.timeLimit ? String(saved.timeLimit / 1000) : '',
-    // 空 = 默认逐行；其余几种是显式配置（normalizeMeta 只认注册表里的 id）
+    // 空 = 跟随全局设置（cp.checker）；选了就是这一道题的固定口径，优先级高于全局
     checker: saved.checker ?? '',
   }
   metaError.value = ''
@@ -1489,7 +1495,8 @@ defineExpose({
             />
           </label>
 
-          <!-- 输出比对方式（2026-10-25 加）：留空 = 默认逐行，其余几种按题开启。
+          <!-- 输出比对方式（2026-10-25 加，2026-11-09 改为「按题覆盖」）：留空 = 跟随
+               设置 › 评测 › 输出比对；选了就把这道题钉死，与全局设置无关。
                只影响 exit 0 之后的 AC / WA 判定，不改变 TLE / MLE / RE 的口径。 -->
           <label class="meta__field">
             <span class="meta__label">{{ t('explorer.meta.checker') }}</span>

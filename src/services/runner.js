@@ -1,4 +1,4 @@
-import { DEFAULT_CHECKER_ID, checkOutput } from './checkers.js'
+import { DEFAULT_CHECKER_ID, checkOutput, isCheckerId } from './checkers.js'
 import { editorSettings } from './editorSettings.js'
 import { t } from '../i18n/index.js'
 
@@ -8,7 +8,7 @@ import { t } from '../i18n/index.js'
  *
  * @typedef {'idle'|'running'|'passed'|'failed'|'error'} CaseStatus
  * @typedef {'AC'|'WA'|'CE'|'TLE'|'MLE'|'RE'|'ERR'} Verdict 卡片徽标上的判定码，只有跑完才有
- * @typedef {{status: CaseStatus, verdict: Verdict|'', actualOutput: string, detail: string, note: string, durationMs: number|null}} CasePatch
+ * @typedef {{status: CaseStatus, verdict: Verdict|'', actualOutput: string, detail: string, note: string, durationMs: number|null, checker?: string}} CasePatch
  */
 
 const LANGUAGE_UNSUPPORTED = (engine) =>
@@ -83,6 +83,9 @@ export async function evaluateCase({ engine, base, languageId, entryPath, code, 
         status: match ? 'passed' : 'failed',
         verdict: match ? 'AC' : 'WA',
         actualOutput: result.stdout,
+        // 这次判定用的比对方式（卡片据此算「差在哪」，见 services/outputDiff.js）。
+        // 必须随结果落盘：用户在跑完之后改设置，不能把上一轮 WA 的差异改写成另一种口径。
+        checker: isCheckerId(checker) ? checker : DEFAULT_CHECKER_ID,
         detail: '',
         // 编译期诊断（当前只有「编译期确定的除以零」）单独占一行 `note`，**不进 detail**：
         // detail 会与 stdout 一起拼成 ACTUAL 的内容，那样「复制输出」会把这句提示也复制走，

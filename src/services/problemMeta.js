@@ -11,7 +11,7 @@
  */
 
 import { t } from '../i18n/index.js'
-import { DEFAULT_CHECKER_ID, checkerLabelKey, isCheckerId } from './checkers.js'
+import { checkerLabelKey, isCheckerId } from './checkers.js'
 
 /**
  * 全部支持的 OJ。**id 持久化进 VFS 节点，不许随意改字面量**。
@@ -170,12 +170,10 @@ export function normalizeMeta(raw) {
   const date = DATE_PATTERN.test(rawDate) ? rawDate : ''
   const difficulty = normalizeDifficulty(oj, source.difficulty)
   const timeLimit = normalizeTimeLimit(source.timeLimit)
-  // 默认值不落盘：checker 为空就表示「逐行」，存一个 'lines' 只是噪音。
-  // 非法 id 同样退空 —— 比对器注册表里没有的值不能把一次评测拖进未知状态。
-  const checker =
-    isCheckerId(source.checker) && source.checker !== DEFAULT_CHECKER_ID
-      ? String(source.checker)
-      : ''
+  // 比对方式：注册表里认得的 id 原样存，**包括 `lines`**。2026-11-09 起它不再是「内置默认值」
+  // 的同义词 —— 全局设置（cp.checker）可能就是别的档，此时题目显式选了「逐行」必须能存下来，
+  // 否则会被当成「没选」而跟着全局走。空串 / 未知 id 一律退空（= 跟随全局设置）。
+  const checker = isCheckerId(source.checker) ? String(source.checker) : ''
 
   if (!url && !oj && !date && !difficulty && !timeLimit && !checker) return null
   return { url, oj, difficulty, date, timeLimit, checker }

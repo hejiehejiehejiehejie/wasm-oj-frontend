@@ -59,6 +59,9 @@ export const SYNC_KEYS = [
   'cp.mdView', // 题解视图模式（仅编辑 / 双栏 / 仅预览）
   'cp.timeLimitMs', // 全局运行时限
   'cp.memoryLimitBytes', // 全局内存上限（判 MLE 用）
+  // 全局输出比对方式（2026-11-09 加）。是偏好不是事实：换台设备后「同一道题该按什么口径判」
+  // 不该变，所以跟人走；题目自己钉死的那一档存在 VFS 的 meta 里，本来就跟着工作区走。
+  'cp.checker',
   'cp.engine', // 评测引擎
   'cp.autoPreload', // 「启动时预下载」勾选的运行时 id（见 runtimePreload.js）
   'cp.cfPicker.autoInstall', // 抽题 / 比赛组件「默认安装」开关（见 cfRuntime.js）

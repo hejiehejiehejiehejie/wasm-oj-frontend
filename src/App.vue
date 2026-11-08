@@ -22,7 +22,7 @@ import { flush, initAutoSave } from './services/autoSave.js'
 import { watchBackLayer } from './services/backStack.js'
 import { DEFAULT_ENGINE_ID, defaultBases, getEngine } from './services/engines/index.js'
 import { MEMORY_LIMIT_DEFAULT_BYTES, TIME_LIMIT_DEFAULT_MS, runCases } from './services/runner.js'
-import { DEFAULT_CHECKER_ID } from './services/checkers.js'
+import { DEFAULT_CHECKER_ID, isCheckerId } from './services/checkers.js'
 import { scheduleAutoPreload } from './services/runtimePreload.js'
 import { prepareNativeToolchain } from './services/nativeToolchain.js'
 import { requestPersistence } from './services/storageQuota.js'
@@ -101,6 +101,18 @@ const judgeBases = usePersistentRef('cp.judgeBases', defaultBases())
 const timeLimitMs = usePersistentRef('cp.timeLimitMs', TIME_LIMIT_DEFAULT_MS)
 // 全局内存上限（字节）：所有用例统一，超了判 MLE。只有能兑现的引擎会用（wasm 沙箱 / Judge0）。
 const memoryLimitBytes = usePersistentRef('cp.memoryLimitBytes', MEMORY_LIMIT_DEFAULT_BYTES)
+/**
+ * 输出比对方式（全局默认档，设置 › 评测 › 输出比对，2026-11-09 加）。
+ *
+ * 在此之前只有「按题覆盖」一条路（题目 meta 的 checker），而那道门在资源管理器右键的
+ * 「题目信息」里 —— 手写 .cpp 练习的人根本碰不到。现在三档优先级：
+ * **题目 meta > 这里的全局设置 > 内置默认（逐行）**，见 services/checkers.js。
+ *
+ * 存档里的值必须先过一遍注册表：这条偏好跟云端同步走，另一端的版本可能比这里旧
+ * （甚至是从更早的存档迁过来的），认不出的 id 就地退回默认，别带进评测。
+ */
+const checkerId = usePersistentRef('cp.checker', DEFAULT_CHECKER_ID)
+if (!isCheckerId(checkerId.value)) checkerId.value = DEFAULT_CHECKER_ID
 // 实际生效的时限：活跃文件自带题目时限就用它，否则退回全局默认
 const effectiveTimeLimitMs = computed(() => {
   const fromMeta = activeNode.value?.meta?.timeLimit
@@ -114,9 +126,10 @@ const effectiveMemoryLimitBytes = computed(() => {
   const mb = activeNode.value?.config?.memoryLimit
   return typeof mb === 'number' && mb > 0 ? mb * 1024 * 1024 : memoryLimitBytes.value
 })
-// 输出比对方式：题目 meta 里显式选了就用它，否则全局默认逐行（见 services/checkers.js）。
-// 与时限同构 —— 也按题覆盖，普通文件永远走默认。
-const effectiveChecker = computed(() => activeNode.value?.meta?.checker || DEFAULT_CHECKER_ID)
+// 输出比对方式：题目 meta 里显式选了就用它（按题覆盖优先），否则用全局设置，
+// 全局设置再不认识就退回内置默认逐行 —— 三层都在 services/checkers.js 里定。
+// 与时限同构，只是多了一层全局档：普通文件走全局，题目文件可以自己指名。
+const effectiveChecker = computed(() => activeNode.value?.meta?.checker || checkerId.value)
 
 // 全局界面缩放（档位 100% / 110% / 125% / 150%，默认 100%）连同「写一次根字号」
 // 都搬到了 services/shellSettings.js（模块被 import 时就落地，早于首帧渲染）。
@@ -179,6 +192,9 @@ function createCase(seed = {}) {
     // 用例回写只取 input / expectedOutput 两栏，它不会进 config.tests。
     note: '',
     verdict: '',
+    // 这一轮判定用的比对方式（services/checkers.js 的 id）。空 = 还没跑过，
+    // 卡片据此按内置默认算差异；跑完之后固定成当时那一档，见 runner 的 evaluateCase。
+    checker: '',
     durationMs: null,
     stale: false,
     collapsed: false,
@@ -1968,12 +1984,14 @@ onBeforeUnmount(() => {
           :panel-position="panelPosition"
           :time-limit="timeLimitMs"
           :memory-limit="memoryLimitBytes"
+          :checker="checkerId"
           :judge="judgeSettings"
           :connection="connection"
           :ui-scale="uiScalePref"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
           @update:memory-limit="memoryLimitBytes = $event"
+          @update:checker="checkerId = $event"
           @update:ui-scale="uiScalePref = $event"
           @toggle-layout="flipPanelPosition"
           @select-engine="selectEngine"

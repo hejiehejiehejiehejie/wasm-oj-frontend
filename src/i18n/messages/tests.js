@@ -87,14 +87,43 @@ export default {
       elapsedTitle: '最慢用例 {time}（不含编译）',
 
       /**
-       * 输出比对方式（2026-10-25 加）。默认逐行；其余三种只能在题目信息弹窗里按题开启，
-       * 不对全局生效 —— 判定规范 §7.2 的约定。hint 供弹窗与后续的说明处复用。
+       * 输出比对方式（2026-10-25 加；2026-11-09 加 strict、全局设置）。
+       * 内置默认是逐行，其余几档在 设置 › 评测 › 输出比对 里选，或按题开启
+       * （题目信息弹窗的「输出比对」，优先级高于全局设置）。
+       * 名字要短 —— 它同时出现在设置页的下拉、题目信息的下拉和卡片差异块的角上。
        */
       checker: {
         lines: '逐行比对',
         tokens: '忽略空白',
+        strict: '严格逐字符',
         float: '浮点容差',
         unordered: '忽略行序',
+      },
+
+      /**
+       * WA 时的「差异」块（2026-11-09 加）。只列前几处不同，把不同的那几个字符标出来。
+       * 这里只有标签与位置词 —— `−` `+` `↵` 那些记号是纯符号，写在 outputDiff.js 里。
+       */
+      diff: {
+        title: '差异',
+        /** 期望侧 / 实际侧的标签。卡片上三个小标题是写死的英文（见 card 那段说明），
+            这里跟着界面语言走：它说的是「哪一边」，不是在标注框名 */
+        want: '期望',
+        got: '实际',
+        /** 位置词。`{n}` 已格式化过（行号 / 第几个词 / 第几个字符） */
+        whereLine: '第 {n} 行',
+        whereToken: '第 {n} 个词',
+        whereChar: '第 {n} 个字符',
+        /** 条目类型：不一致的那一行 / 期望有实际没有 / 实际多出来的 */
+        kind: {
+          replace: '不一致',
+          missing: '缺少',
+          extra: '多出',
+        },
+        /** 还有多少处没列出来（只显示前 3 处） */
+        more: '还有 {n} 处不同',
+        /** 输出过长，没做逐处比对（见 outputDiff.js 的 MAX_CHARS） */
+        tooLong: '输出过长，未逐处比对',
       },
 
       /**
@@ -315,12 +344,30 @@ export default {
 
       elapsedTitle: 'Slowest case: {time} (run phase only)',
 
-      /** 同 zh-CN：输出比对方式，默认逐行，其余按题开启 */
+      /** 同 zh-CN：输出比对方式（2026-11-09 加 strict，并改为全局设置 + 按题覆盖） */
       checker: {
         lines: 'Line by line',
         tokens: 'Ignore whitespace',
+        strict: 'Strict, exact',
         float: 'Numeric tolerance',
         unordered: 'Ignore line order',
+      },
+
+      /** 同 zh-CN：WA 时那块「差异」（2026-11-09 加） */
+      diff: {
+        title: 'Diff',
+        want: 'Expected',
+        got: 'Actual',
+        whereLine: 'line {n}',
+        whereToken: 'token {n}',
+        whereChar: 'char {n}',
+        kind: {
+          replace: 'differs',
+          missing: 'missing',
+          extra: 'extra',
+        },
+        more: '{n} more differences',
+        tooLong: 'Output too long to diff',
       },
 
       /** 同 zh-CN：一键提交的按钮 / 闸门 / 失败原因 / 判定码说明（2026-10-23 加） */

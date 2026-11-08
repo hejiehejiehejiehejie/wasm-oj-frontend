@@ -269,6 +269,12 @@ const CHECKER_CASES = [
   { id: 'lines', actual: '1\n2\n', expected: '1\n2\n', want: true },
   { id: 'lines', actual: '1   \n2\n\n', expected: '1\n2', want: true },
   { id: 'lines', actual: ' 1', expected: '1', want: false },
+  // strict（2026-11-09 加）：只抹平换行符，其余一个字符都不放过
+  { id: 'strict', actual: '1\n2\n', expected: '1\n2\n', want: true },
+  { id: 'strict', actual: '1 2\r\n3\r\n', expected: '1 2\n3\n', want: true },
+  { id: 'strict', actual: '1 2 \n3', expected: '1 2\n3', want: false },
+  { id: 'strict', actual: '1\n2\n\n', expected: '1\n2', want: false },
+  { id: 'strict', actual: '12', expected: '1 2', want: false },
   { id: 'tokens', actual: '1 2\n3', expected: '1\n2\n3', want: true },
   { id: 'tokens', actual: ' 1  2 ', expected: '1 2', want: true },
   { id: 'tokens', actual: '12', expected: '1 2', want: false },
@@ -278,6 +284,47 @@ const CHECKER_CASES = [
   { id: 'unordered', actual: '3\n1\n2', expected: '1\n2\n3', want: true },
   { id: 'unordered', actual: '1\n1\n2', expected: '1\n2\n2', want: false },
   { id: 'not-a-checker', actual: '1', expected: '1', want: true },
+]
+
+/**
+ * 差异块（services/outputDiff.js）：`want` 是第一条差异的类型，`null` 表示「等价、不该有差异块」。
+ *
+ * 这里守两条不变量，比单看某条文案重要：
+ * ① 判定说 WA 的地方，差异必须说得出「差在哪」；
+ * ② 判定说 AC 的地方，**绝不能**冒出差异（否则卡片会指着一模一样的两段文本说「不同」）。
+ * 第 ② 条由上面那批 CHECKER_CASES 全量交叉验（见下面「比对器 ↔ 差异」那一段）。
+ */
+// `want` = 首条差异的类型（null = 这个口径下应当没有差异）；
+// `markText` = 框内高亮应当覆盖的**原文**片段（空串 = 不该高亮）；
+// `entryCount` = 条目数（不给就不查）。
+//
+// `markText` 专盯 `marks` 的偏移是否落在原文上：`lines` / `strict` / `unordered` 一旦拿
+// 归一化之后的下标去切原文，实际输出里只要有一个 `\r`，高亮就会往前错一位。
+// `entryCount` 盯的是对齐策略：行**只按行号配**（`positionalOps`），所以「期望 3 行、
+// 实际只有 1 行 2」必须给 3 条（第 1 行不一致 + 缺第 2、3 行），而不是 LCS 的 2 条「缺 1、缺 3」。
+const DIFF_CASES = [
+  { id: 'lines', actual: '1 2\n4', expected: '1 2\n3', want: 'replace', markText: '4', entryCount: 1 },
+  { id: 'lines', actual: '1 2', expected: '1 2\n3', want: 'missing', markText: '', entryCount: 1 },
+  { id: 'lines', actual: '1 2\n3\n4', expected: '1 2\n3', want: 'extra', markText: '4', entryCount: 1 },
+  { id: 'lines', actual: '1 2 ', expected: '1 2', want: null, markText: '', entryCount: 0 },
+  { id: 'tokens', actual: '1 2', expected: '1 2 3', want: 'missing', markText: '', entryCount: 1 },
+  { id: 'tokens', actual: '1  2', expected: '1 2', want: null, markText: '', entryCount: 0 },
+  { id: 'strict', actual: '1 2 \n3', expected: '1 2\n3', want: 'extra', markText: ' ', entryCount: 1 },
+  { id: 'strict', actual: '1 2\r\n3', expected: '1 2\n3', want: null, markText: '', entryCount: 0 },
+  { id: 'unordered', actual: '3\n1\n2\n9', expected: '1\n2\n3', want: 'extra', markText: '9', entryCount: 1 },
+  // CRLF 回归：判定时 `\r\n` 抹成 `\n`，但标记必须落在原文上
+  { id: 'lines', actual: '1\r\n2', expected: '1\n3', want: 'replace', markText: '2', entryCount: 1 },
+  { id: 'strict', actual: 'a\r\nb', expected: 'a\nc', want: 'replace', markText: 'b', entryCount: 1 },
+  { id: 'lines', actual: '1\r\n2\r\n9', expected: '1\n2', want: 'extra', markText: '9', entryCount: 1 },
+  { id: 'lines', actual: '1\r\n2', expected: '1\n2', want: null, markText: '', entryCount: 0 },
+  { id: 'tokens', actual: '1\r\n2', expected: '1 2', want: null, markText: '', entryCount: 0 },
+  // 单独出现的 `\r`（老式 Mac 换行）同样只算一个换行
+  { id: 'lines', actual: 'x\ry', expected: 'x\nz', want: 'replace', markText: 'y', entryCount: 1 },
+  // 行按行号配：孤立的 `2` 不许跳到第 2 行去对齐（用户 2026-11-09 口径）
+  { id: 'lines', actual: '2', expected: '1\n2\n3', want: 'replace', markText: '2', entryCount: 3 },
+  { id: 'lines', actual: '2\n3', expected: '1\n2\n3', want: 'replace', markText: '23', entryCount: 3 },
+  // 代价：实际多插一行时，后面每一行都标成不一致（换 LCS 会说「第 2 行多出 X」）
+  { id: 'lines', actual: '1\nX\n2\n3', expected: '1\n2\n3', want: 'replace', markText: 'X23', entryCount: 3 },
 ]
 
 // ---------------------------------------------------------------- 启动骨架
@@ -376,6 +423,60 @@ try {
     const ok = item.got === item.want
     if (!ok) exitCode = 1
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} ${ok ? '' : `got ${item.got}, want ${item.want}`}`)
+  }
+
+  // ---- 差异块：语义 + 「判定 ↔ 差异」两条不变量
+  const diffResults = await page.evaluate(async (cases) => {
+    const { diffOutput, markSegments } = await import('/src/services/outputDiff.js')
+    return cases.map((item) => {
+      const diff = diffOutput(item.actual, item.expected, item.id)
+      // 框内高亮实际覆盖的原文片段（空串 = 不该高亮）：走的就是界面的那一次切片
+      const marked = diff
+        ? markSegments(item.actual, diff.marks)
+            .filter((seg) => seg.mark)
+            .map((seg) => seg.text)
+            .join('')
+        : ''
+      return {
+        ...item,
+        kind: diff?.entries?.[0]?.kind ?? null,
+        entries: diff?.entries?.length ?? 0,
+        marks: diff?.marks?.length ?? 0,
+        marked,
+      }
+    })
+  }, DIFF_CASES)
+
+  console.log('\n输出差异')
+  for (const item of diffResults) {
+    const okKind = item.kind === item.want
+    const okMark = item.marked === item.markText
+    const okCount = item.entryCount === item.entries
+    const ok = okKind && okMark && okCount
+    if (!ok) exitCode = 1
+    const note = ok
+      ? `entries=${item.entries} marks=${item.marks}`
+      : `${okKind ? '' : `kind got ${item.kind}, want ${item.want}; `}${okMark ? '' : `marked ${JSON.stringify(item.marked)}, want ${JSON.stringify(item.markText)}; `}${okCount ? '' : `entries ${item.entries}, want ${item.entryCount}`}`
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} ${note}`)
+  }
+
+  // 交叉验：判定 WA ⇒ 差异必须说得出话；判定 AC ⇒ 差异必须为空。
+  // 两条模块的前处理（换行 / 行尾空白 / 末尾空行）只要有一处写歪，这一组就会红。
+  const crosses = await page.evaluate(async (cases) => {
+    const { checkOutput } = await import('/src/services/checkers.js')
+    const { diffOutput } = await import('/src/services/outputDiff.js')
+    return cases.map((item) => {
+      const match = checkOutput(item.actual, item.expected, item.id)
+      const diff = diffOutput(item.actual, item.expected, item.id)
+      return { id: item.id, match, hasDiff: Boolean(diff?.entries?.length) }
+    })
+  }, CHECKER_CASES)
+
+  console.log('\n比对器 ↔ 差异（WA 必须有差异，AC 必须没有）')
+  for (const item of crosses) {
+    const ok = item.match ? !item.hasDiff : item.hasDiff
+    if (!ok) exitCode = 1
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${pad(item.id, 14)} 判定=${item.match ? 'AC' : 'WA'} 差异=${item.hasDiff}`)
   }
 
   // ---- 判定矩阵
