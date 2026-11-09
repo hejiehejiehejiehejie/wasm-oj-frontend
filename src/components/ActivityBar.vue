@@ -197,23 +197,30 @@ function closeCompMenu() {
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
 onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
 
+/** 把两颗按钮的新位置写回锚点；量不到尺寸（按钮正被收起）时就保留旧值 —— 理由同
+ *  SidebarSwitcher 里那份 `reanchorMenus()`：收键盘那一刻通知落在「已收起」那一帧上，
+ *  写回 0 尺寸的 rect 会把菜单锚到视口左上角。 */
+function reanchorMenus() {
+  const write = (anchor, button) => {
+    if (!anchor.value) return
+    const rect = button.value?.getBoundingClientRect()
+    if (!rect || (!rect.width && !rect.height)) return
+    anchor.value = rect
+  }
+  write(menuAnchor, menuButton)
+  write(compMenuAnchor, compMenuButton)
+}
+
 // 换边后整条图标栏搬到另一侧，开着的菜单要跟着自己的按钮走（理由同 SidebarSwitcher 那份）
-watch(
-  () => props.panelPosition,
-  () => {
-    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
-    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
-  },
-  { flush: 'post' },
-)
+watch(() => props.panelPosition, reanchorMenus, { flush: 'post' })
 
 // 同上，只是触发源换成软键盘：窄屏收起键盘时 `.app` 按 `--vvh` / `--vv-top` 重排，
 // 贴底那一簇按钮整块上下挪，而菜单是 body 上的 fixed 浮层 —— 重量一遍按钮，它才跟得上。
 // （理由展开见 SidebarSwitcher 同名那条与 useMobileKeyboard 头部。）
 onBeforeUnmount(
   onViewportChange(() => {
-    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
-    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
+    // 延后一帧再量：这条通知是同步发出来的，键盘态落到类名、再落到布局还要一帧
+    requestAnimationFrame(reanchorMenus)
   }),
 )
 

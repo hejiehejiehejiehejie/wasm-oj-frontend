@@ -24,6 +24,8 @@ import { onViewportChange, swallowNextTap } from './useMobileKeyboard.js'
  * 前四路走下面同一个 `dismiss`，第五路注册的也是它 —— 所以任何一路关闭都会把
  * 「当前最上层」一起清掉，不会在返回栈里留幽灵条目。
  * （视口尺寸变化那一路有例外：焦点在浮层里时只重匣位置、不收 —— 那是软键盘，见 onResize）。
+ * 「焦点在浮层里」的口径包含**浮层自己把焦点弄丢**的那一格（表单换相卸掉输入框，焦点掉到
+ * `body`），否则用户点「导入 / 登录」之后键盘一收，菜单就跟着没了 —— 见 `ownsFocus()`。
  * ⚠️ 「视口尺寸变化」有**两个来源**：`window.resize`，以及 useMobileKeyboard 实测出来的
  * `--vvh` / `--vv-top` 变化（`onViewportChange`）。后者不能省 —— 收键盘时有的引擎一个
  * resize 都不派发，而 `.app` 与浮层的锚点会跟着可视视口一起挪（2026-11-07 用户报
@@ -109,6 +111,45 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   }
 
   /**
+   * 最后一次 `focusin` 是不是落在浮层里（见 `ownsFocus`）。
+   *
+   * 只记落点、不记「浮层里有没有焦点」：元素被浮层自己卸掉时浏览器会把焦点交给
+   * `body`，而**没有**对应的 `focusin` 落在 `body` 上 —— 这时上一条落点仍然是浮层里
+   * 那一格，正是要继续沿用的那一份。
+   */
+  let focusOwned = false
+
+  function onFocusTrack(event) {
+    const el = root.value
+    if (!el || !(event.target instanceof Node)) return
+    focusOwned = el.contains(event.target)
+  }
+
+  /**
+   * 这一下视口变化，焦点算不算「还在我们手上」。
+   *
+   * 除了常规的「焦点还在浮层里」，还要接住一种：**浮层把焦点自己弄丢了** ——
+   * 落在 `body` / `null` 上，而最后一次 `focusin` 明明在浮层里。典型是设置菜单「云端同步」
+   * 那个小表单：点「导入 / 登录」之后表单从「填用户名」切成「看验证码 / 问一句确认」，
+   * 那个 `<input>` 被 `v-if` 卸掉，焦点无处可去、掉到 `body`；键盘随之收起 → 可视视口变高
+   * → 走到这里。
+   *
+   * 不接住的话后果就是用户报的那一下（2026-11-09）：菜单被当成「焦点在外面」直接收掉，
+   * 刚换出来的验证码 / 确认按钮根本点不到，整件事只能从头再来一遍。
+   *
+   * 判据刻意收得很窄：只有「焦点真的丢在 body 上」才算 —— 焦点若跑到了浮层外的某个
+   * 元素上，必有一发 `focusin` 落在那里（`focusOwned` 同步变假，照旧收掉）；而用户点到
+   * 浮层外面时，那一发 `pointerdown` 已经先把浮层关了。
+   */
+  function ownsFocus() {
+    const el = root.value
+    if (!el) return false
+    const active = document.activeElement
+    if (active && el.contains(active)) return true
+    return (!active || active === document.body) && focusOwned
+  }
+
+  /**
    * 量到真实尺寸后把左上角夹进**可视视口**（匣的定义见 `viewportBox()`）。
    *
    * 挂载时走一次（夹完才显形，否则会看见「先在期望位置闪一下再被拉回来」），
@@ -134,9 +175,11 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
    * **例外：焦点在浮层里面时不收**。手机上点进输入框会顶起软键盘，安卓因此把视口压矮
    * 并派发 resize —— 照默认口径收掉，等于把用户正在填的表单当场销毁（实测：414×896
    * 点进设置菜单里那个用户名框，视口一变矮整个菜单就没了）。所以只重匣一次位置。
+   * 「焦点还在不在浮层里」的判据见 `ownsFocus()` —— 它把「浮层自己把焦点弄丢了」也算作
+   * 还在，不然点「导入 / 登录」换相那一下照样会收掉菜单（2026-11-09 用户报）。
    */
   function onResize() {
-    if (root.value?.contains(document.activeElement)) {
+    if (ownsFocus()) {
       clampIntoViewport()
       return
     }
@@ -192,6 +235,10 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('blur', dismiss)
     window.addEventListener('resize', onResize)
+    // 记「最后一次 focusin 落在哪儿」给 `ownsFocus()` 用。与上面几路一样当场挂：
+    // 浮层里第一个聚焦动作（菜单打开时的高亮行、表单自动送进用户名框）可能就发生在
+    // 这一拍里，晚挂会漏掉它，`focusOwned` 便永远是假。
+    document.addEventListener('focusin', onFocusTrack, true)
 
     /**
      * 应用层跟着可视视口挪动时（`--vvh` / `--vv-top` 变了）也必须重匣一次。
@@ -239,6 +286,7 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     window.removeEventListener('keydown', onKeyDown, true)
     window.removeEventListener('blur', dismiss)
     window.removeEventListener('resize', onResize)
+    document.removeEventListener('focusin', onFocusTrack, true)
     root.value?.removeEventListener('animationend', onOwnAnimationEnd)
     offViewport?.()
     offViewport = null

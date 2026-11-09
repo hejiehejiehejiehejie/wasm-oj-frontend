@@ -115,14 +115,29 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerD
  *
  * 必须是 post：量位置要等 `order` 换完、新一帧的布局落地之后。
  */
-watch(
-  panelPosition,
-  () => {
-    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
-    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
-  },
-  { flush: 'post' },
-)
+/**
+ * 把两颗按钮的新位置写回锚点（菜单跟着按钮走，见下面两处调用点）。
+ *
+ * 两条纪律：
+ * - **量不到尺寸就不写**：按钮此刻若正被收起来（`display: none`，`getBoundingClientRect()`
+ *   全 0），写回去等于把菜单锚到视口左上角 —— 收键盘时窄屏贴底那一簇先是 `is-typing`
+ *   收掉、再恢复，通知恰好落在「已收起」那一帧上（2026-11-09 与「点导入后菜单被收掉」
+ *   一并暴露）。保留旧锚点，等下一帧恢复后重量。
+ * - 因此由 `onViewportChange` 那一路**延后一帧**调用：那条通知是同步发出来的，而键盘态
+ *   落到类名、再落到布局要等 Vue 渲染完。
+ */
+function reanchorMenus() {
+  const write = (anchor, button) => {
+    if (!anchor.value) return
+    const rect = button.value?.getBoundingClientRect()
+    if (!rect || (!rect.width && !rect.height)) return
+    anchor.value = rect
+  }
+  write(menuAnchor, menuButton)
+  write(compMenuAnchor, compMenuButton)
+}
+
+watch(panelPosition, reanchorMenus, { flush: 'post' })
 
 /**
  * 同一个「跟着按钮走」，还差软键盘那一条：窄屏唤出 / 收起键盘时，`.app` 按 `--vvh` /
@@ -134,8 +149,8 @@ watch(
  */
 onBeforeUnmount(
   onViewportChange(() => {
-    if (menuAnchor.value) menuAnchor.value = menuButton.value?.getBoundingClientRect() ?? null
-    if (compMenuAnchor.value) compMenuAnchor.value = compMenuButton.value?.getBoundingClientRect() ?? null
+    // 延后一帧：此刻布局可能还没跟上键盘态（见 `reanchorMenus` 上面那两条纪律）
+    requestAnimationFrame(reanchorMenus)
   }),
 )
 
