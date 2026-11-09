@@ -65,6 +65,7 @@
             :title="t('cf.view.handle.label')"
             @click="toggleHandle"
           >
+            <AppIcon name="user" :size="14" class="cf-handle__icon" />
             <span class="cf-handle__text">
               <template v-if="handleList.length">
                 <span class="cf-handle__name" :class="rankClass">{{ handleList[0] }}</span>
@@ -530,6 +531,14 @@ watch(handleOpen, (open) => {
   white-space: nowrap;
 }
 
+/* 窄容器的替身（2026-11-09）：胶囊里的文字与箭头都被挤掉时，靠这枚人形图标撑住
+   入口 —— 之前窄容器把它整块隐成了 12px 的透明按钮，抽题页的「先在右上角设置」
+   就成了指路指到一个看不见的地方。宽容器下它不出现（文字比图标清楚）。 */
+.cf-handle__icon {
+  flex: 0 0 auto;
+  display: none;
+}
+
 /* 名字按 CF 段位色上色 + 加粗（2026-10-29 用户口径） */
 .cf-handle__name.is-ranked {
   font-weight: 600;
@@ -627,13 +636,20 @@ watch(handleOpen, (open) => {
     display: none;
   }
 
+  /* 账号胶囊退成图标。文字与箭头一律让位，**但按钮本身必须留着东西可看**：
+     全隐之后它仍占着托盘、仍能点，只是肉眼看不见 —— 窄屏用户既找不到入口，
+     也读不懂「先在右上角设置」（2026-11-09）。 */
   .cf-handle__text,
   .cf-handle__chevron {
     display: none;
   }
 
+  .cf-handle__icon {
+    display: block;
+  }
+
   .cf-handle__btn {
-    padding: 0 6px;
+    padding: 0 7px;
   }
 }
 
