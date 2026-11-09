@@ -4660,8 +4660,8 @@ unordered 缺行、词元吸附 2）/ 交叉不变量 17 / 判定矩阵 20，全
   （`closest('[data-pair]')`）：最多 120 段 × 两侧，逐个挂监听不值当；`@mouseleave` 复位。
 - `markClass(seg)` 返回 `['mk', 'mk--<kind>', { 'mk--quiet': seg.quiet, 'is-lit': seg.pair === hoverPair }]`，
   同一 `pair` 的所有段一起进 `is-lit` —— 鼠标所在的那段和它对侧那段同时亮，天然满足「也」。
-- `.mk.is-lit` 只用两个属性：`text-decoration: underline`（2px，`offset 2px`）与
-  `text-shadow: 0 0 6px currentColor, 0 0 14px currentColor`。
+- `.mk.is-lit` 只用下划线：`text-decoration: underline`（2px，`offset 2px`）。（原先是下划线 +
+  `text-shadow` 光晕两件，光晕在 §40 撤掉。）
   **不用底色**（那正是 §34 撤掉的高亮框）、**不改字重**（会改变字符宽度，`<pre>` 里整行错位）。
 - `.mk--quiet { color: inherit }` 必须排在 `.mk--replace` 之后（同为单类，靠顺序盖掉红），
   `.mk--quiet.is-lit { color: var(--fail) }` 再把它点亮成 WA 红。
@@ -4915,7 +4915,7 @@ return text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, (c) => showBlank(c))  // 否则�
 ```
 
 效果：`10 20 30` 保持原样；`10 ` → `10·`；一道多余缝隙 / 一个空行 / 一整行空格照旧全换。
-`quiet` 段悬停时靠下划线与光晕露出来 —— 空白上的下划线仍然看得见。
+`quiet` 段悬停时靠下划线露出来 —— 空白上的下划线仍然看得见（光晕已在 §40 撤掉）。
 
 顺带删掉 `BLANK_ONLY`（定义了从没被用过，`showBlank` 是直接调的；文件头那句「只在整段都是空白时
 替换」也因此不准了，改成 `markText` 的三档说明）。
@@ -5126,3 +5126,37 @@ return text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, (c) => showBlank(c))  // 否则�
 - 带动作列（装了扩展）的行没有在探针里跑——本机没装扩展时那一格整列都不出现。按模板算式
   （`1fr + fit-content + 56 + 20`，三道 8px 列距）推算：同样宽度下名字比无动作列时少 64px，
   所以这一档只会更该收，不需要另开阈值。
+
+## 40. 悬停点亮去掉光晕，只留下划线（2026-11-09 傍晚）
+
+用户：「去掉那个鼠标悬停到差异部分上的时候的光晕」。§35 那版 `.mk.is-lit` 是下划线 + `text-shadow`
+两件套，光晕在深色底上会糊成一圈发亮的雾，指认作用全被它抢了。
+
+```diff
+ .mk.is-lit {
+   text-decoration: underline;
+   text-decoration-thickness: 2px;
+-  text-underline-offset: 2px;
+-  text-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
++  text-underline-offset: 2px;
+ }
+```
+
+`text-decoration` 系列不参与排版、不改字宽，`<pre>` 里不会整行错位 —— 这也是当初为什么不用底色和字重。
+`quiet` 段悬停时靠 `color: var(--fail)` + 下划线露出来，空白上的下划线仍然看得见（§39 的静默设计不受影响）。
+
+### 40.1 验收
+
+浏览器探针（`/tmp`，dev server + 无头 Chrome，`echo` 引擎造 WA：输入 `1 2 3`、期望 `2 3`，**11/11 绿**）：
+
+| 断言 | 实测 |
+| --- | --- |
+| ACTUAL 3 段 / EXPECTED 2 段静默标记 | `["1","2","3"]` / `["2","3"]` |
+| 未悬停：全部 `text-shadow: none`、`text-decoration: none` | 5 段全 none |
+| 悬停 ACTUAL 首段 → 两侧各点亮一段且同号 | `actual:1` + `expected:1` |
+| 悬停态 `text-shadow` **仍是 `none`**（光晕已撤） | `["none","none"]` |
+| 悬停态仍有下划线（2px / offset 2px） | `["underline","underline"]` |
+| 移开后 `is-lit` 归零 | 0 |
+| 静默段悬停后：`color` 变 WA 红、`shadow: none`、`deco: underline` | 三项都成立 |
+
+`npm run lint` exit 0、`npx vite build --outDir /tmp` 通过。探针已删。

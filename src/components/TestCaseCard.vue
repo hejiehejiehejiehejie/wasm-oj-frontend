@@ -1370,12 +1370,11 @@ function onLongCopy(event, full) {
 
 /* 悬停某一处差异时，两侧同一个 pair 的标记一起亮（2026-11-09 深夜）。
    不能用底色、也不能改字重：底色就是刚撤掉的那种「高亮框」，字重会改变字符宽度 ——
-   在 <pre> 里那就是整行跟着错位。所以只用下划线与光晕，两者都只参与绘制、不参与排版。 */
+   在 <pre> 里那就是整行跟着错位。所以只留下划线，它只参与绘制、不参与排版。 */
 .mk.is-lit {
   text-decoration: underline;
   text-decoration-thickness: 2px;
   text-underline-offset: 2px;
-  text-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
 }
 
 /* 期望侧「对应着不同」的那一段（quiet）：平时完全不着色，只在悬停实际侧那一处时亮起来。
