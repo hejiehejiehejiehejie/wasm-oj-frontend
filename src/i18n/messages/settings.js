@@ -611,6 +611,9 @@ export default {
         errorNetwork: '请求没有发出去，请检查网络后重试',
         errorBadBody: '接口返回 HTTP {status}，但内容格式不对（请求可能未到达本站 /api）',
         tokenExpired: '设备令牌已失效，请重新取码验证',
+        publicUrlLabel: '公开取回地址',
+        copyUrl: '复制地址',
+        copyUrlTitle: '复制公开取回地址，无需登录即可在别处取回这份配置',
         publicNotice:
           '上传后这份配置是公开的：无需登录，在网址后接 cfid（如 www.998244353.best/he-jie）即可取回。上传即表示同意公开，同步内容仅限主题、快捷键、界面缩放等偏好。',
       },
@@ -1227,6 +1230,9 @@ export default {
         errorBadBody:
           'The endpoint answered HTTP {status} but the body was not the expected JSON (the request may not have reached this site’s /api)',
         tokenExpired: 'The device token is no longer valid — request a new code',
+        publicUrlLabel: 'Public fetch URL',
+        copyUrl: 'Copy URL',
+        copyUrlTitle: 'Copy the public fetch URL to retrieve this config elsewhere without signing in',
         publicNotice:
           'Once uploaded, this copy is public: no sign-in needed — append the cfid to the site URL (e.g. www.998244353.best/he-jie) to fetch it. Uploading means agreeing to make it public; only preferences such as theme, shortcuts and UI scale are synced.',
       },

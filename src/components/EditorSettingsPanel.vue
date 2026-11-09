@@ -1910,12 +1910,12 @@ const downloadingAny = computed(() =>
 
 function hintFor(entry) {
   if (entry.state.value === 'downloading') return live.value.message || t('runtime.downloading')
-  // 就绪时只留耗时：状态本身交给行首那颗绿点，再说一遍「运行环境已就绪」是重复。
-  // 没耗时（比如这次是上次会话就装好的）就什么都不说，只留绿点。
+  // 就绪时只留一句状态词：状态由行首绿点表达，文字只补耗时或一句「已就绪」。
+  // 没耗时（比如这次是上次会话就装好的）就落到 ready 那一句，避免行里只剩一颗孤零零的绿点。
   if (entry.state.value === 'ready') {
     return entry.elapsedMs.value
       ? t('runtime.readyWithTime', { seconds: (entry.elapsedMs.value / 1000).toFixed(1) })
-      : ''
+      : t('runtime.ready')
   }
   if (entry.state.value === 'failed') return entry.failureReason.value || t('runtime.failed')
   return t(entry.idleHintKey)
@@ -2088,10 +2088,11 @@ const cfHint = computed(() => {
     return (cfStage.value && t(CF_STAGE_KEYS[cfStage.value])) || t('cf.module.downloading')
   }
   if (cfReady.value) {
-    // 同运行环境行：就绪由绿点表达，这里只补耗时
+    // 同运行环境行：就绪由绿点表达，这里补一句耗时；没耗时就落一句「已就绪」，
+    // 避免行里只剩一颗孤零零的绿点
     return cfElapsedMs.value
       ? t('runtime.readyWithTime', { seconds: (cfElapsedMs.value / 1000).toFixed(1) })
-      : ''
+      : t('runtime.ready')
   }
   if (cfFailureReason.value) return cfFailureReason.value
   return t('cf.module.idleHint')
@@ -2153,9 +2154,9 @@ const countdownInstalled = computed(() => countdown.installed)
 
 const countdownDotClass = computed(() => (countdownInstalled.value ? 'is-ok' : 'is-idle'))
 
-// 已安装时不写字（同 cfContestHint：装好了还有什么可提示的，状态点已经说了）
+// 已安装时落一句「已就绪」（状态点已表达状态，这里补一句，避免行里只剩一颗孤零零的绿点）
 const countdownHint = computed(() =>
-  countdownInstalled.value ? '' : t('countdown.module.idleHint'),
+  countdownInstalled.value ? t('runtime.ready') : t('countdown.module.idleHint'),
 )
 
 function requestCountdownUninstall() {
@@ -2402,6 +2403,31 @@ const cloudUpdatedHint = computed(() => {
     ? t('settings.cloud.updatedAt', { time: cloudTimeFormat.format(ms) })
     : t('settings.cloud.neverUpdated')
 })
+
+/** 公开取回地址：`<站点根>/<handle>`。用 location.origin 拼（本地开发也显示 localhost，
+   不硬编码线上域名），未绑定时为空串，模板据此不渲染地址栏。 */
+const cloudPublicUrl = computed(() =>
+  cloudAccount.value.handle ? `${window.location.origin}/${cloudAccount.value.handle}` : '',
+)
+
+/** 地址栏里「站点根」那半段（不带 handle 后缀），后缀单独高亮，所以拆开给模板 */
+const cloudPublicOrigin = computed(() => window.location.origin)
+
+const cloudUrlCopied = ref(false)
+let cloudUrlCopyTimer = 0
+
+async function copyCloudPublicUrl() {
+  try {
+    await navigator.clipboard.writeText(cloudPublicUrl.value)
+    cloudUrlCopied.value = true
+    window.clearTimeout(cloudUrlCopyTimer)
+    cloudUrlCopyTimer = window.setTimeout(() => {
+      cloudUrlCopied.value = false
+    }, 2000)
+  } catch {
+    /* 非安全上下文或未授权：保持原样，地址本身可见可手选 */
+  }
+}
 
 /**
  * 验证步骤第一步里「Codeforces 个人资料」那半句是个链接（指向 Social 设置页）。
@@ -3336,7 +3362,7 @@ watch(pendingUnbind, (open) => {
                    （要卸的话右边那颗还在），也免得下载/重试的入口和状态徽标混作一谈 -->
               <button
                 v-if="entry.state.value !== 'ready'"
-                class="download-button is-primary"
+                class="download-button"
                 :class="{ 'is-failed': entry.state.value === 'failed' }"
                 :disabled="downloadingAny"
                 :title="t(entry.downloadTitleKey)"
@@ -3389,7 +3415,7 @@ watch(pendingUnbind, (open) => {
               <!-- 与运行环境行同一套：未装 / 下载中是「下载（重试）」一颗，就绪后换成「卸载」一颗 -->
               <button
                 v-if="!cfReady"
-                class="download-button is-primary"
+                class="download-button"
                 :class="{ 'is-failed': !!cfFailureReason }"
                 :disabled="cfBusy"
                 :title="t('cf.module.downloadTitle')"
@@ -3438,7 +3464,7 @@ watch(pendingUnbind, (open) => {
             <div class="runtime-row__actions">
               <button
                 v-if="!countdownInstalled"
-                class="download-button is-primary"
+                class="download-button"
                 :title="t('countdown.module.install')"
                 @click="installCountdown"
               >
@@ -3863,6 +3889,26 @@ watch(pendingUnbind, (open) => {
                 <span>{{ t('settings.cloud.upload') }}</span>
               </button>
             </span>
+
+            <!-- 公开取回地址栏：把散落在脚注里的「网址后接 cfid」那句彩蛋收进卡片底部，
+                 做成终端风等宽地址框，后缀 /<handle> 高亮、可一键复制。
+                 未绑定时 cloudPublicUrl 为空，这一段整体不渲染。 -->
+            <div v-if="cloudPublicUrl" class="cloud-account__url">
+              <span class="cloud-account__url-label">{{ t('settings.cloud.publicUrlLabel') }}</span>
+              <code class="cloud-account__url-pill">
+                <span class="cloud-account__url-base">{{ cloudPublicOrigin }}</span>/<strong>{{ cloudAccount.handle }}</strong>
+              </code>
+              <button
+                type="button"
+                class="download-button cloud-account__url-copy"
+                :class="{ 'is-copied': cloudUrlCopied }"
+                :title="t('settings.cloud.copyUrlTitle')"
+                @click="copyCloudPublicUrl"
+              >
+                <AppIcon :name="cloudUrlCopied ? 'check' : 'copy'" :size="13" />
+                <span>{{ t(cloudUrlCopied ? 'settings.cloud.copied' : 'settings.cloud.copyUrl') }}</span>
+              </button>
+            </div>
           </div>
         </template>
 
@@ -3925,14 +3971,25 @@ watch(pendingUnbind, (open) => {
              排在登录之后：这一栏第一眼要看到的是「怎么把配置同步过来 / 传上去」。
              桌面端没有那套自托管运行时（同上），这一组偏好一并收起。 -->
         <template v-if="!isDesktop">
-          <p class="setting-subtitle">{{ t('runtime.autoPreload.label') }}</p>
-          <div v-for="item in RUNTIMES" :key="item.id" class="setting-row setting-row--switch">
-            <span class="setting-row__main">
-              <span class="setting-row__head">
-                <span class="setting-row__label">{{ t(item.titleKey) }}</span>
-              </span>
-            </span>
-            <span class="setting-row__control">
+          <p class="setting-subtitle setting-subtitle--code">{{ t('runtime.autoPreload.label') }}</p>
+          <!-- 只有标题 + 开关，没必要占满 640px 整行：收成紧凑多列小卡片，点整卡切换。
+               开启态卡片带微弱 accent 亮边框，一眼看出哪些已勾。 -->
+          <div class="bento-grid">
+            <div
+              v-for="item in RUNTIMES"
+              :key="item.id"
+              class="bento-item"
+              :class="{ 'is-active': isAutoPreload(item.id) }"
+              role="button"
+              :tabindex="0"
+              :aria-pressed="isAutoPreload(item.id)"
+              :title="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
+              @click="toggleAutoPreload(item.id)"
+              @keydown.enter="toggleAutoPreload(item.id)"
+              @keydown.space.prevent="toggleAutoPreload(item.id)"
+            >
+              <span class="bento-item__icon"><AppIcon :name="item.icon" :size="16" /></span>
+              <span class="bento-item__label">{{ t(item.titleKey) }}</span>
               <button
                 type="button"
                 class="switch"
@@ -3941,11 +3998,11 @@ watch(pendingUnbind, (open) => {
                 :aria-checked="isAutoPreload(item.id)"
                 :aria-label="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
                 :title="t('runtime.autoPreload.switchTitle', { title: t(item.titleKey) })"
-                @click="toggleAutoPreload(item.id)"
+                @click.stop="toggleAutoPreload(item.id)"
               >
                 <span class="switch__thumb"></span>
               </button>
-            </span>
+            </div>
           </div>
           <p class="setting-group__note">{{ t('runtime.autoPreload.note') }}</p>
         </template>
@@ -3957,15 +4014,22 @@ watch(pendingUnbind, (open) => {
              **两行之间不留说明段落**：说明一旦插在行与行中间，`.setting-row + .setting-row`
              那条分割线就因为不再是相邻兄弟而消失，而且两行本来就是一个整齐的开关组，
              注释放进 tooltip 与分组末尾就够了。 -->
-        <p class="setting-subtitle">{{ t('cf.module.autoInstall.label') }}</p>
-        <div class="setting-row setting-row--switch">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('cf.view.title') }}</span>
-              <span class="setting-row__tag">{{ t('cf.module.testing') }}</span>
-            </span>
-          </span>
-          <span class="setting-row__control">
+        <p class="setting-subtitle setting-subtitle--code">{{ t('cf.module.autoInstall.label') }}</p>
+        <div class="bento-grid">
+          <div
+            class="bento-item"
+            :class="{ 'is-active': cfAutoInstall }"
+            role="button"
+            :tabindex="0"
+            :aria-pressed="cfAutoInstall"
+            :title="t('cf.module.autoInstall.switchTitle')"
+            @click="toggleCfAutoInstall"
+            @keydown.enter="toggleCfAutoInstall"
+            @keydown.space.prevent="toggleCfAutoInstall"
+          >
+            <span class="bento-item__icon is-codeforces"><AppIcon name="codeforces" :size="16" /></span>
+            <span class="bento-item__label">{{ t('cf.view.title') }}</span>
+            <span class="bento-item__tag">{{ t('cf.module.testing') }}</span>
             <button
               type="button"
               class="switch"
@@ -3974,19 +4038,24 @@ watch(pendingUnbind, (open) => {
               :aria-checked="cfAutoInstall"
               :aria-label="t('cf.module.autoInstall.switchTitle')"
               :title="t('cf.module.autoInstall.switchTitle')"
-              @click="toggleCfAutoInstall"
+              @click.stop="toggleCfAutoInstall"
             >
               <span class="switch__thumb"></span>
             </button>
-          </span>
-        </div>
-        <div class="setting-row setting-row--switch">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('countdown.title') }}</span>
-            </span>
-          </span>
-          <span class="setting-row__control">
+          </div>
+          <div
+            class="bento-item"
+            :class="{ 'is-active': countdownAutoInstall }"
+            role="button"
+            :tabindex="0"
+            :aria-pressed="countdownAutoInstall"
+            :title="t('countdown.module.autoInstall.switchTitle')"
+            @click="toggleCountdownAutoInstall"
+            @keydown.enter="toggleCountdownAutoInstall"
+            @keydown.space.prevent="toggleCountdownAutoInstall"
+          >
+            <span class="bento-item__icon is-countdown"><AppIcon name="clock" :size="16" /></span>
+            <span class="bento-item__label">{{ t('countdown.title') }}</span>
             <button
               type="button"
               class="switch"
@@ -3995,11 +4064,11 @@ watch(pendingUnbind, (open) => {
               :aria-checked="countdownAutoInstall"
               :aria-label="t('countdown.module.autoInstall.switchTitle')"
               :title="t('countdown.module.autoInstall.switchTitle')"
-              @click="toggleCountdownAutoInstall"
+              @click.stop="toggleCountdownAutoInstall"
             >
               <span class="switch__thumb"></span>
             </button>
-          </span>
+          </div>
         </div>
       </section>
 
@@ -4431,17 +4500,20 @@ watch(pendingUnbind, (open) => {
 .setting-group__title {
   margin: 0;
   padding: 0 18px 4px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--text-dim);
+  /* 分组标题升到与设置项标题同一档纯度（--text），靠「13px 小字号 + 上边距」建立层级，
+     而不是靠更暗的灰色 —— 原来的 --text-dim 让它比下面的列表项标题还暗，层级倒挂。
+     页头感再补一点：13px 压过 12.5px 的小节标题，保证「分组 > 小节 > 行」不塌。 */
+  color: var(--text);
 }
 
 /* 组内的小标题：把「运行时限」与「评测引擎」在同一个「评测」分组里分开。
    规范 3 要求用留白而不是实线分割：这里撤掉原来那条 border-top，只留更宽的上边距。 */
 .setting-subtitle {
   margin: 0;
-  padding: 22px 18px 4px;
+  padding: 28px 18px 4px;
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0;
@@ -4451,6 +4523,18 @@ watch(pendingUnbind, (open) => {
 /* 编辑器分组里的第一小节紧跟在分组标题下面，不用再留一大段 */
 .setting-subtitle--first {
   padding-top: 8px;
+}
+
+/* 「// 预下载本地运行环境」这类开关偏好的小节标题：前缀等宽斜杠 + 小方块，
+   借一点代码编辑器里的注释符号，给纯文字标题压上「这是工具」的辨识度。
+   只加在云同步页三处开关组标题上（class 显式标注），不污染其他页的小节标题。 */
+.setting-subtitle--code::before {
+  content: '//';
+  margin-right: 7px;
+  font-family: var(--mono-font);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
 }
 
 .setting-group__note {
@@ -4482,11 +4566,22 @@ watch(pendingUnbind, (open) => {
   background: var(--bg-panel);
 }
 
-/* 相邻行之间的分割线：只画在行与行直接相接的地方，标题 / 说明后面不画 */
-.setting-row + .setting-row,
-.setting-rows .setting-row + .setting-row,
-.runtime-row + .runtime-row {
-  border-top: 1px solid var(--border-divider);
+/* 相邻行之间的分割线：只画在行与行直接相接的地方，标题 / 说明后面不画。
+   画成行上的 border-top 时，线是跟着整行盒走的 —— 行左右各有 18px 内边距，
+   于是线比文字左缘多出 18px、比右侧控件再多出一截，整排看着像没对齐的表格。
+   改用伪元素，把线收回文字列里（内缩量与行的左右内边距相等）。
+   用 `::after` 而不是 `border`：线不占布局、hover 底色铺满时也不会被框住。 */
+.setting-row + .setting-row::after,
+.setting-rows .setting-row + .setting-row::after,
+.runtime-row + .runtime-row::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  background: var(--border-divider);
+  pointer-events: none;
 }
 
 /* 「已改动」指示线：只有当前值偏离默认值时才出现，小圆角贴在行左侧 */
@@ -4713,7 +4808,10 @@ watch(pendingUnbind, (open) => {
   min-width: 150px;
   padding: 6px 30px 6px 11px;
   border-radius: 6px;
-  background: var(--bg-input);
+  /* 表单面统一走 --bg-field：深色比底色亮一档、比 --bg-control 暗一档，正好浮起一点点。
+     用过 --bg-input（比底色还深，像黑洞）和 --bg-control（#343434，又亮过头），两头都不对
+     —— 2026-11-09 用户两轮反馈后收敛到这个中间调 */
+  background: var(--bg-field);
   border: 1px solid var(--border);
   font-size: 12.5px;
   color: var(--text);
@@ -4732,14 +4830,15 @@ watch(pendingUnbind, (open) => {
 }
 
 /* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗小钮显示当前档（如「<左侧>」），
-   点一下翻到另一档。底色用输入框底色，描边走 --border，颜色全部走变量、两套主题各取各的。 */
+   点一下翻到另一档。底色与 select / 输入框同走 --bg-field，描边走 --border，
+   颜色全部走变量、两套主题各取各的。 */
 .toggle-seg {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
   padding: 5px 12px;
   border-radius: 6px;
-  background: var(--bg-input);
+  background: var(--bg-field);
   border: 1px solid var(--border);
   font-size: 12.5px;
   line-height: 1.4;
@@ -4762,7 +4861,7 @@ watch(pendingUnbind, (open) => {
   width: 84px;
   padding: 6px 9px;
   border-radius: 6px;
-  background: var(--bg-input);
+  background: var(--bg-field);
   border: 1px solid var(--border);
   font-size: 12.5px;
   color: var(--text);
@@ -4782,8 +4881,8 @@ watch(pendingUnbind, (open) => {
 .switch {
   flex: 0 0 auto;
   position: relative;
-  width: 38px;
-  height: 22px;
+  width: 34px;
+  height: 19px;
   border-radius: 999px;
   background: var(--bg-control);
   border: 1px solid var(--border);
@@ -4794,22 +4893,24 @@ watch(pendingUnbind, (open) => {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: var(--text-dim);
   transition: transform 0.18s ease, background-color 0.18s ease;
 }
 
-/* 规范 4：关闭态是一块融进卡片的暗灰轨道；打开态走品牌色（--accent），不用高饱和绿 */
+/* 规范 4：关闭态是一块融进卡片的暗灰轨道。
+   打开态不走纯实心 accent（满屏高饱和色块抢注意力），改成「低饱和半透明 accent 底 + 1px
+   高亮描边」，圆点提亮。半透明底色随主题走，深色下是克制的微光、浅色下同样不刺眼。 */
 .switch.is-on {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
 }
 
 .switch.is-on .switch__thumb {
-  transform: translateX(16px);
-  background: var(--text-on-accent);
+  transform: translateX(15px);
+  background: var(--accent);
 }
 
 /* ---------- 本地运行环境 ---------- */
@@ -4823,6 +4924,9 @@ watch(pendingUnbind, (open) => {
 /* 一行：图标方块 + 标题 / 状态 + 行尾按钮。左右内边距与 .setting-row 对齐，
    好让图标方块和同栏其他行的文字落在同一条左边线上 */
 .runtime-row {
+  /* 相邻行的分割线是 `::after`（见 .setting-row 那条），没有定位就没有可锚的盒，
+     线会跑到外层取景框上去 */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -4832,11 +4936,15 @@ watch(pendingUnbind, (open) => {
   transition: background-color 0.15s ease;
 }
 
+/* 行 hover：整行变色太重，改成 60% 透明的抬升 —— 微变色而非色块铺满，
+   与下载按钮的 transition-colors 节奏一致（2026-11-09 视觉精炼） */
 :where(html.is-hoverable) .runtime-row:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
 }
 
-/* 图标方块：比行内文字大一号，好认 */
+/* 图标方块：比行内文字大一号，好认。
+   去背景填充、只留 1px 极细描边 —— 实心色块会让这一组图标看起来像「功能按钮」，
+   纯描边更接近线性图标的克制质感（2026-11-09 视觉精炼：配合整体的微质感方向）。 */
 .runtime-row__icon {
   position: relative;
   display: grid;
@@ -4847,7 +4955,7 @@ watch(pendingUnbind, (open) => {
   border-radius: 6px;
   border: 1px solid var(--border-hairline);
   color: var(--text-dim);
-  background: var(--bg-control);
+  background: transparent;
 }
 
 /* 「测试」小标签（2026-10-27）：贴在图标方块右上角，标识这一组件仍在测试中。
@@ -4906,6 +5014,8 @@ watch(pendingUnbind, (open) => {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
+  /* 标题收紧字距（tracking-tight 的克制版）：拉开与正文（--text-dim）的明度对比 */
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
@@ -5075,7 +5185,7 @@ watch(pendingUnbind, (open) => {
   padding: 10px 11px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--bg-input);
+  background: var(--bg-field);
   color: var(--text);
   font-family: var(--mono-font);
   font-size: 12.5px;
@@ -5138,7 +5248,7 @@ a.download-button {
   padding: 0 11px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-input);
+  background: var(--bg-field);
   color: var(--text);
   font-family: var(--ui-font);
   font-size: 12px;
@@ -5163,7 +5273,9 @@ a.download-button {
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--bg-control);
-  font-family: inherit;
+  /* 等宽：`-O0`、URL、docker 命令这类技术文本，原本 font-family: inherit 会跟着正文
+     走无衬线，和中文混排时看不出是「代码」。等宽之后一眼就能区分 */
+  font-family: var(--mono-font);
   font-size: 11px;
 }
 
@@ -5175,7 +5287,7 @@ a.download-button {
   width: 168px;
   padding: 6px 10px;
   border-radius: 6px;
-  background: var(--bg-input);
+  background: var(--bg-field);
   border: 1px solid var(--border);
   font-size: 12.5px;
   color: var(--text);
@@ -5213,6 +5325,11 @@ a.download-button {
   border: 1px solid var(--border-hairline);
   border-radius: 6px;
   background: var(--bg-panel);
+  /* 顶部 1px 高光 + 极淡的斜向微光，让这张主卡从平面的页面底色里「浮」出来。
+     只用半透明白，深浅两套主题都不需要新颜色 */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.12);
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
@@ -5258,6 +5375,139 @@ a.download-button {
   flex: 1 1 auto;
   width: auto;
   min-width: 120px;
+}
+
+/* 公开取回地址栏：卡片底部的一段终端风地址框，把「网址后接 cfid」那句彩蛋从脚注里
+   提到主卡内、做成可复制的一等公民。上沿一条极细虚线，与上面的账号信息区隔开。 */
+.cloud-account__url {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-hairline);
+}
+
+.cloud-account__url-label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* 地址框：等宽 + 弱底，后缀 /<handle> 用 accent 高亮 */
+.cloud-account__url-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-control);
+  border: 1px solid var(--border);
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cloud-account__url-base {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-account__url-pill strong {
+  color: var(--accent-strong);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.cloud-account__url-copy {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.cloud-account__url-copy.is-copied {
+  border-color: var(--ok);
+  background: transparent;
+  color: var(--ok);
+}
+
+/* ---------- 开关偏好 Bento 网格 ----------
+   预下载 / 默认安装这两组只有「标题 + 开关」，单列占满 640px 会在左右留一大片真空。
+   收成紧凑多列小卡片：图标 + 名称在左、开关在右，点整卡切换；开启态带微弱 accent 亮边框。
+   窄屏自动折成单列（minmax 下限），不与容器查询里的降级规则打架。 */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 2px 18px 12px;
+}
+
+.bento-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+:where(html.is-hoverable) .bento-item:hover {
+  border-color: var(--border);
+  background: var(--bg-control);
+}
+
+.bento-item:focus-visible {
+  outline: 1px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+/* 开启态：微弱 accent 底色 + 亮边框，关态保持静默灰 */
+.bento-item.is-active {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-hairline));
+}
+
+.bento-item__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.bento-item__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* 「测试」小角标：跟默认安装卡片里的 Codeforces 一起走 */
+.bento-item__tag {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-control);
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 /* 主按钮：实心 accent，与旁边描边的次要按钮（下载 / 解绑）一眼分开 */
@@ -5595,6 +5845,14 @@ a.download-button {
     padding-right: 12px;
   }
 
+  /* 极窄时行内边距收到 12px，分割线的内缩要跟着一起收，否则又比文字短一截 */
+  .setting-row + .setting-row::after,
+  .setting-rows .setting-row + .setting-row::after,
+  .runtime-row + .runtime-row::after {
+    left: 12px;
+    right: 12px;
+  }
+
   .cloud-account,
   .cloud-flow {
     margin-left: 10px;
@@ -5641,7 +5899,8 @@ a.download-button {
   padding: 2px 8px;
   border: 1px solid var(--border-faint);
   border-radius: 6px;
-  background: var(--bg-input);
+  /* 去背景填充、只留极细描边：状态徽章是辅助信息，实心底色会抢标题（2026-11-09 视觉精炼） */
+  background: transparent;
   font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;

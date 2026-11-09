@@ -98,9 +98,11 @@ export default {
         downloading: '正在下载题解渲染器…',
         progress: '正在下载题解渲染器（{done}/{total}）…',
       },
-      /** 状态行（行首那颗状态点右边那行说明）。就绪不再写「已就绪」—— 状态由绿点表达，
-          这里只补一句耗时；没耗时（上次会话就装好的）就整句省略 */
+      /** 状态行（行首那颗状态点右边那行说明）。就绪态：
+          - 有时耗 → readyWithTime（只补一句耗时）；
+          - 无耗时（上次会话就装好的）→ ready（一句话，避免行里只剩一颗孤零零的绿点） */
       downloading: '正在下载…',
+      ready: '已就绪',
       readyWithTime: '用时 {seconds} s',
       failed: '下载失败',
       /** 按钮文案（就绪后这颗按钮整颗收起，所以没有「已就绪」这一条） */
@@ -298,10 +300,12 @@ export default {
         downloading: 'Downloading the editorial renderer…',
         progress: 'Downloading the editorial renderer ({done}/{total})…',
       },
-      /** The status line to the right of the status dot. "Ready" is no longer spelled
-          out — the green dot says it; only the elapsed time is added here, and the whole
-          line is omitted when there is no timing (installed in an earlier session) */
+      /** The status line to the right of the status dot. Ready state:
+          - with timing → readyWithTime (only the elapsed time);
+          - no timing (installed in an earlier session) → ready (one word, so the line
+            isn't left with a lone dot) */
       downloading: 'Downloading…',
+      ready: 'Ready',
       readyWithTime: 'Took {seconds} s',
       failed: 'Download failed',
       button: {
