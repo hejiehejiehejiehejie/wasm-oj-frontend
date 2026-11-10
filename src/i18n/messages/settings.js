@@ -292,7 +292,7 @@ export default {
           hint: '焦点需在资源管理器 · 选中焦点所在文件夹的全部内容（含子目录；空白处 = 根目录）',
         },
 
-        restore: { label: '恢复默认', hint: '把所有快捷键还原成初始设置', title: '恢复默认快捷键' },
+        restore: { label: '恢复默认', title: '恢复默认快捷键' },
 
         /** 整组的说明 */
         note: '点右侧输入框后按下组合键即可改绑；Delete 清除绑定，Esc 取消录制。与浏览器或其它功能冲突时会拒绝并说明原因。',
@@ -408,9 +408,11 @@ export default {
             '三星浏览器没有一键安装接口：点地址栏的「＋」→「主屏幕」（需站点请求独立窗口），或用菜单 ›「添加页面到」›「主屏幕」。',
           noApiGeneric:
             '这个浏览器没有一键安装接口，请用浏览器菜单安装。',
-          /** 「应用」栏末尾那颗手动引导按钮（通知内容见 services/installGuides.js） */
+          /** 引导动作的全名：齿轮菜单那一行与按钮 title 用它（按钮面上写的是下面那个短词；
+              通知正文见 services/installGuides.js） */
           guide: '安装引导',
-          guideHint: '用通知再演示一遍安装步骤',
+          /** 安装按钮左边那颗幽灵按钮：同一件事，只留一个词的按钮标签（title 用上面那条） */
+          guideButton: '引导',
         },
         installAction: '安装',
         installedAction: '已安装',
@@ -919,7 +921,6 @@ export default {
 
         restore: {
           label: 'Restore defaults',
-          hint: 'Reset all shortcuts above',
           title: 'Restore default shortcuts',
         },
 
@@ -1036,9 +1037,11 @@ export default {
             'Samsung Internet has no one-click install API: tap “+” by the address bar → “Home screen” (shown when the site asks for a standalone window), or use menu › “Add page to” › “Home screen”.',
           noApiGeneric:
             'This browser has no one-click install API — use its own menu to install.',
-          /** Manual guide button at the end of the App section (notification copy: services/installGuides.js) */
+          /** Full name of the guide action: used by the gear-menu row and the button title
+              (the button face shows the short word below; notification copy: services/installGuides.js) */
           guide: 'Install guide',
-          guideHint: 'Replay the install steps in a notification',
+          /** Ghost button left of Install: same action, one-word label (title reuses the line above) */
+          guideButton: 'Guide',
         },
         installAction: 'Install',
         installedAction: 'Installed',

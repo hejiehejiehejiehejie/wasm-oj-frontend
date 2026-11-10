@@ -97,6 +97,10 @@ function applyBase() {
     <!-- 承诺矩阵（判定规范 §8）：native / piston 不设内存上限，别让界面的内存设置看起来生效 -->
     <p v-if="memoryLimitGap" class="engine-note">{{ t('engine.noMemoryLimit') }}</p>
 
+    <!-- 本地引擎（浏览器沙箱 / 桌面端原生）没有服务地址可填，整个输入行不出；
+         2026-11-10 用户要求连那句「该引擎在本机运行，不需要服务地址。」一起去掉 ——
+         左边那张引擎卡片上写着「浏览器内运行」「本机原生」，「不用填地址」本身就是从这来的。
+         `v-if` 不再带 `v-else`，所以删掉之后下面直接是自检那一行。 -->
     <div v-if="!localEngine" class="engine-field">
       <span class="engine-field__label">{{ t('engine.baseLabel') }}</span>
       <input
@@ -109,11 +113,12 @@ function applyBase() {
         {{ t('app.save') }}
       </button>
     </div>
-    <p v-else class="engine-note">{{ t('engine.localNoBase') }}</p>
 
     <div class="engine-probe">
+      <!-- 自检＝幽灵按钮（2026-11-10 与设置页「恢复默认 / 复制地址」统一降权）：
+           它只是复读一次状态，不该和「保存」那颗实心按钮平起平坐 -->
       <button
-        class="engine-button"
+        class="engine-probe__button"
         :disabled="connection.state === 'checking'"
         @click="emit('test-connection')"
       >
@@ -284,6 +289,35 @@ function applyBase() {
 }
 
 .engine-button:disabled {
+  cursor: default;
+  color: var(--text-faint);
+}
+
+/* 自检：无描边、无底色的幽灵按钮，12px 次级灰 + 左侧 ↺，hover 才浮一层浅底并提亮。
+   与设置页「恢复默认 / 复制地址」同一套观感（那边是 .ghost-button，作用域不同没复用）。 */
+.engine-probe__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+:where(html.is-hoverable) .engine-probe__button:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+  color: var(--text);
+}
+
+.engine-probe__button:disabled {
   cursor: default;
   color: var(--text-faint);
 }

@@ -2996,7 +2996,8 @@ watch(pendingUnbind, (open) => {
         >
           <span class="setting-row__head">
             <!-- 语言名 + 箭头是一颗按钮：整块都能点，热区比只点箭头大得多。
-                 「恢复默认」留在外面 —— 收起时也该能一键还原。 -->
+                 「恢复默认」留在外面 —— 收起时也该能一键还原；但它**只在这行改过时才画**
+                 （2026-11-10 方案一：没改的几行右侧直接留白，左侧蓝条已替「已修改」说话）。 -->
             <button
               type="button"
               class="setting-row__fold-toggle"
@@ -3010,13 +3011,13 @@ watch(pendingUnbind, (open) => {
               <span class="setting-row__label">{{ t(TEMPLATE_LABEL_KEYS[id]) }}</span>
             </button>
             <button
+              v-if="isTemplateModified(id)"
               type="button"
-              class="download-button setting-row__restore"
-              :disabled="!isTemplateModified(id)"
+              class="ghost-button setting-row__restore"
               :title="t('settings.templates.restore.title')"
               @click="resetTemplate(id)"
             >
-              <AppIcon name="reset" :size="13" />
+              <AppIcon name="reset" :size="12" />
               <span>{{ t('settings.templates.restore.label') }}</span>
             </button>
           </span>
@@ -3084,13 +3085,10 @@ watch(pendingUnbind, (open) => {
           </span>
         </div>
 
-        <div class="setting-row setting-row--action">
-          <span class="setting-row__main">
-            <span class="setting-row__head">
-              <span class="setting-row__label">{{ t('settings.shortcut.restore.label') }}</span>
-            </span>
-            <span class="setting-row__hint">{{ t('settings.shortcut.restore.hint') }}</span>
-          </span>
+        <!-- 2026-11-10：原来这行是「恢复默认 + 把所有快捷键还原成初始设置」那一对标题与说明，
+             用户要求只留按钮 —— 按钮上本来就写着「恢复默认」，左边再复述一遍标题、下面再解释
+             一句「还原成初始设置」，等于同一件事说三遍。现在整行只剩一颗贴右的按钮。 -->
+        <div class="setting-row setting-row--action setting-row--end">
           <span class="setting-row__control">
             <button
               class="download-button"
@@ -3254,9 +3252,9 @@ watch(pendingUnbind, (open) => {
            浏览器插件原本也挤在这一栏里，现已按内容独立成一个「浏览器插件」分类。 -->
       <section v-if="paneRendered('app')" v-bind="paneProps('app')" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.app') }}</p>
-        <!-- 「基础设置」这一小节的内容**全部**是「装成应用」那几行（安装按钮 / 灰按钮的解释 /
-             安装引导）。装好之后它们只剩「已安装」这一个事实可读，而那个事实别处已经说清了 ——
-             齿轮菜单那两行直接消失（`canInstall` / `appInstalled`）、通知里也有一条 —— 再留三行
+        <!-- 「基础设置」这一小节的内容**全部**是「装成应用」那几行（安装按钮 + 旁边的引导 /
+             灰按钮的解释）。装好之后它们只剩「已安装」这一个事实可读，而那个事实别处已经说清了 ——
+             齿轮菜单那两行直接消失（`canInstall` / `appInstalled`）、通知里也有一条 —— 再留两行
              点了没用的东西只是噪声，所以连小节标题一起收起（2026-11-10 用户要求）。
              判据用 `appIsInstalled`（`appinstalled` 事件与独立窗口写的是同一份模块级 ref，见
              `useInstallPrompt.js`）：装完那一刻界面自己就收起，卸掉后事件再来一次它自己又回来，
@@ -3279,7 +3277,20 @@ watch(pendingUnbind, (open) => {
                 <span>{{ t(installStatusKey) }}</span>
               </span>
             </span>
-            <span class="setting-row__control">
+            <span class="setting-row__control setting-row__control--pair">
+              <!-- 引导：把这一栏的安装步骤改成通知再发一遍（`installGuides.js` 的 fireSectionGuide）。
+                   与状态无关 —— 已经装好了也照样有话说，而且**不看「自动弹过」的记录**；
+                   「有 API 却拿不到入口」那一格（见下面 installUnavailable）正是靠它才能变成通知，
+                   那一格 2026-10-12 起已退出自动弹（见 installGuides.js 的 available），这里是它唯一的出口。
+                   2026-11-10：原来它自成一行（左边一句「用通知再演示一遍安装步骤」），现在收回主按钮左边、
+                   走幽灵样式 —— 一句话说明和一个次要动作不值得各占一行。 -->
+              <button
+                class="ghost-button"
+                :title="t('settings.app.install.guide')"
+                @click="fireSectionGuide('app')"
+              >
+                <span>{{ t('settings.app.install.guideButton') }}</span>
+              </button>
               <button
                 class="download-button is-primary"
                 :disabled="!canInstall"
@@ -3304,7 +3315,7 @@ watch(pendingUnbind, (open) => {
             </span>
             <span class="setting-row__control">
               <button
-                class="download-button"
+                class="ghost-button"
                 :class="{ 'is-copied': appsCopied }"
                 :title="t('settings.app.install.copyAppsTitle')"
                 @click="copyAppsUrl"
@@ -3313,26 +3324,6 @@ watch(pendingUnbind, (open) => {
                 <span>
                   {{ t(appsCopied ? 'settings.app.install.copied' : 'settings.app.install.copyApps') }}
                 </span>
-              </button>
-            </span>
-          </div>
-          <!-- 引导不只是躺在这一栏里等人来看：这颗按钮把它**改成通知再发一次**
-               （`installGuides.js` 的 fireSectionGuide）。与状态无关 —— 已经装好了也照样有话说，
-               而且**不看「自动弹过」的记录**。上面那行 `installUnavailable` 的说明正是靠它才能变成
-               通知：「有 API 却拿不到入口」那一格 2026-10-12 起已退出自动弹（见 installGuides.js 的
-               available），这里是它唯一的出口。自动弹那一趟见 App.vue 的 useInstallGuides。 -->
-          <div v-if="!isDesktop" class="setting-row setting-row--action">
-            <span class="setting-row__main">
-              <span class="setting-row__hint">{{ t('settings.app.install.guideHint') }}</span>
-            </span>
-            <span class="setting-row__control">
-              <button
-                class="download-button"
-                :title="t('settings.app.install.guideHint')"
-                @click="fireSectionGuide('app')"
-              >
-                <AppIcon name="install" :size="13" />
-                <span>{{ t('settings.app.install.guide') }}</span>
               </button>
             </span>
           </div>
@@ -3687,7 +3678,7 @@ watch(pendingUnbind, (open) => {
               </span>
               <span class="setting-row__control">
                 <button
-                  class="download-button"
+                  class="ghost-button"
                   :class="{ 'is-copied': shortcutsCopied }"
                   :title="t(shortcutsTitleKey)"
                   @click="copyShortcutsUrl"
@@ -3905,7 +3896,7 @@ watch(pendingUnbind, (open) => {
               </code>
               <button
                 type="button"
-                class="download-button cloud-account__url-copy"
+                class="ghost-button cloud-account__url-copy"
                 :class="{ 'is-copied': cloudUrlCopied }"
                 :title="t('settings.cloud.copyUrlTitle')"
                 @click="copyCloudPublicUrl"
@@ -4800,6 +4791,12 @@ watch(pendingUnbind, (open) => {
   min-height: 52px;
 }
 
+/* 行里只剩右侧控件（没有 `.setting-row__main`）时用它：那个「靠左文字 flex:1 把控件挤到行尾」
+   的排列方式没了载体，`space-between` 会把孤零零的控件顶到最左，所以显式改成贴右 */
+.setting-row--end {
+  justify-content: flex-end;
+}
+
 .select {
   position: relative;
   display: inline-flex;
@@ -5199,8 +5196,10 @@ watch(pendingUnbind, (open) => {
   transition: visibility 0s linear 0.2s, padding 0.2s ease;
 }
 
+/* 「恢复默认」＝幽灵按钮：位置推到最后（语言名 + 箭头那一颗占左边），高度比正文按钮矮一档 */
 .setting-row__restore {
   margin-left: auto;
+  height: 24px;
 }
 
 /* 总开关那颗：与「恢复默认」同一摆法（推到行尾）。别照抄 .setting-row__control，
@@ -5264,6 +5263,42 @@ watch(pendingUnbind, (open) => {
 
 .is-spinning {
   animation: settings-spin 0.9s linear infinite;
+}
+
+/* 幽灵按钮：无描边、无底色，12px 次级灰的图标 + 文字，只在 hover 时浮一层浅底并提亮。
+   给「恢复默认 / 复制地址」这类次要动作用 —— 同一行里已经有主按钮或说明文字，
+   再摆一颗灰框按钮就会跟主操作抢注意力（2026-11-10 与「恢复默认」一并降权）。
+   复制成功沿用 .is-copied 的绿字，但不画边框色：本来就没有边框。 */
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+:where(html.is-hoverable) .ghost-button:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+  color: var(--text);
+}
+
+.ghost-button:disabled {
+  cursor: default;
+  color: var(--text-faint);
+}
+
+.ghost-button.is-copied {
+  background: transparent;
+  color: var(--ok);
 }
 
 /* 下载按钮同时用在 <button>（复制地址）和 <a>（下载安装包）上，链接要去掉下划线 */
@@ -5462,12 +5497,6 @@ a.download-button {
   padding: 0 9px;
   font-size: 12px;
   flex: 0 0 auto;
-}
-
-.cloud-account__url-copy.is-copied {
-  border-color: var(--ok);
-  background: transparent;
-  color: var(--ok);
 }
 
 /* ---------- 开关偏好 Bento 网格 ----------

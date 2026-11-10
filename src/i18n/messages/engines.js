@@ -65,7 +65,6 @@ export default {
       noMemoryLimit: '该引擎不兑现内存上限，不会判 MLE。',
       /** 服务地址输入框的标签与保存按钮 */
       baseLabel: '服务地址',
-      localNoBase: '该引擎在本机运行，不需要服务地址。',
       selfTest: '自检',
       checking: '探测中…',
       /** 引擎对象上没有 health() 时，自检按钮给出的说明 */
@@ -268,7 +267,6 @@ export default {
       /** 同 zh-CN：不兑现内存上限的引擎提示 */
       noMemoryLimit: 'This engine does not enforce the memory limit and never reports MLE.',
       baseLabel: 'Service URL',
-      localNoBase: 'This engine runs on this machine and needs no service URL.',
       selfTest: 'Test connection',
       checking: 'Testing…',
       selfTestUnsupported: 'This engine does not provide a connection test',
