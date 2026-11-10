@@ -72,26 +72,25 @@ export default {
       selfTestUnsupported: '该引擎未提供自检接口',
     },
 
-    /** 本地运行时（设置 › 本地运行环境） */
+    /** 本地运行时（设置 › 编译器） */
     runtime: {
-      groupNote: '在浏览器里直接编译运行，代码不出本机。',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 23 + libc++（C++20），约 31MB（含预编译头），仅下载一次',
+        idleHint: 'clang 23 + libc++（C++20），约 31MB（含预编译头）',
         downloadTitle: '下载 clang 工具链',
         uninstallHint:
           '删除本机 clang 工具链（约 31MB，含预编译头）；下次运行 C++ 需重新下载。',
       },
       python: {
         title: 'Python 3',
-        idleHint: 'CPython 3.11 + 标准库，约 24MB，仅下载一次',
+        idleHint: 'CPython 3.11 + 标准库，约 24MB',
         downloadTitle: '下载 Python 运行时',
         uninstallHint:
           '删除本机 Python 运行时（约 24MB）；下次运行 Python 需重新下载。',
       },
       markdown: {
         title: 'Markdown / LaTeX',
-        idleHint: '题解预览与公式渲染（katex + marked，约 0.6MB），仅下载一次',
+        idleHint: '题解预览与公式渲染（katex + marked，约 0.6MB）',
         downloadTitle: '下载题解渲染器',
         uninstallHint:
           '删除本机题解渲染器（约 0.6MB）；下次预览题解需重新下载。',
@@ -276,24 +275,23 @@ export default {
     },
 
     runtime: {
-      groupNote: 'Compile and run right inside your browser. Your code never leaves this machine.',
       cpp: {
         title: 'C++',
-        idleHint: 'clang 23 + libc++ (C++20), ~31MB including the precompiled header, downloaded once',
+        idleHint: 'clang 23 + libc++ (C++20), ~31MB including the precompiled header',
         downloadTitle: 'Download the clang toolchain',
         uninstallHint:
           'Deletes the cached clang toolchain (~31MB, including the precompiled header); it will be downloaded again on the next C++ run.',
       },
       python: {
         title: 'Python 3',
-        idleHint: 'CPython 3.11 + standard library, ~24MB, downloaded once',
+        idleHint: 'CPython 3.11 + standard library, ~24MB',
         downloadTitle: 'Download the Python runtime',
         uninstallHint:
           'Deletes the cached Python runtime (~24MB); it will be downloaded again on the next Python run.',
       },
       markdown: {
         title: 'Markdown / LaTeX',
-        idleHint: 'Editorial preview and math rendering (katex + marked, ~0.6MB), downloaded once',
+        idleHint: 'Editorial preview and math rendering (katex + marked, ~0.6MB)',
         downloadTitle: 'Download the editorial renderer',
         uninstallHint:
           'Deletes the cached editorial renderer (~0.6MB); it will be downloaded again on the next preview.',

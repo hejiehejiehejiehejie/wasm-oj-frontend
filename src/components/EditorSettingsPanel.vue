@@ -3348,7 +3348,10 @@ watch(pendingUnbind, (open) => {
              Cache Storage；桌面端的 webview 里没有 Cache Storage，改用系统 clang++ 直接跑，
              所以这一整块在桌面端收起（见 HANDOFF 第 14 节第 3、4 条）。
              装好之后上面「基础设置」整块收起（见那一块的条件），这一条就成了本栏第一小节，
-             于是改用 `--first` 那档更小的上边距，免得分组标题下面空出一条大缝。 -->
+             于是改用 `--first` 那档更小的上边距，免得分组标题下面空出一条大缝。
+             2026-11-10：小节名从「本地运行环境」改成「编译器」，下面那句「在浏览器里直接编译
+             运行，代码不出本机」删掉 —— 三行自己会说话（clang 23 / CPython 3.11 / 渲染器），
+             不必再用一句话解释这一栏是干什么的。 -->
         <p
           v-if="!isDesktop"
           class="setting-subtitle"
@@ -3356,7 +3359,6 @@ watch(pendingUnbind, (open) => {
         >
           {{ t('settings.section.runtime') }}
         </p>
-        <p v-if="!isDesktop" class="setting-group__note">{{ t('runtime.groupNote') }}</p>
 
         <div v-if="!isDesktop" class="runtime-list">
           <div v-for="entry in runtimeEntries" :key="entry.id" class="runtime-row">

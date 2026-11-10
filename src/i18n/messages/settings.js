@@ -19,7 +19,7 @@ export default {
         templates: '模板',
         shortcuts: '快捷键',
         judge: '评测',
-        runtime: '本地运行环境',
+        runtime: '编译器',
         extension: '浏览器插件',
         cloud: '云端同步',
         app: '应用',
@@ -418,7 +418,7 @@ export default {
 
       extension: {
         groupNote:
-          '装好插件后，在题目页点插件图标，题面、样例和限制会直接送进本站。',
+          '能把 OJ 的单题或整场比赛抓进本站与本地工具，也能自动帮你完成 Codeforces 账号核对、报名比赛开 VP、提交题目与获取榜单。',
         /**
          * 安装引导按浏览器只给一条；认不出时给 `hintChromium` 那条通用步骤 ——
          * **fail-open 是刻意的**：猜错的代价是用户看不到入口，比多给一条路糟得多。
@@ -632,7 +632,7 @@ export default {
         templates: 'Templates',
         shortcuts: 'Shortcuts',
         judge: 'Judge',
-        runtime: 'Local runtime',
+        runtime: 'Compiler',
         extension: 'Browser extension',
         cloud: 'Cloud sync',
         app: 'App',
@@ -1046,7 +1046,9 @@ export default {
 
       extension: {
         groupNote:
-          'With the extension installed, click its icon on a problem page to push the statement, samples and limits into this site.',
+          'Pulls a single problem or a whole contest from an OJ into this site and into local tools, ' +
+          'and handles Codeforces account checks, registration, virtual participation, submissions ' +
+          'and standings for you.',
         /**
          * One path per browser; `hintChromium` is the fail-open fallback when the
          * browser cannot be told apart. Mobile gets its own two lines, because what
