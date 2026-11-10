@@ -45,7 +45,7 @@ import { OJ_LIST, normalizeDifficulty, normalizeMeta, todayISO } from '../proble
 import { deactivateViews } from '../editorViews.js'
 import { dirname, join, normalize, stem } from './paths.js'
 import { getVFS } from './vfsFactory.js'
-import { openFile, problemUrlKey } from './workspaceStore.js'
+import { findProblemByUrl, openFile, problemUrlKey } from './workspaceStore.js'
 
 /** 难度为空时的占位目录名（扩展抓的题都属于这一类）；用户手填难度后也不搬动已有文件 */
 const UNCATEGORIZED = '未分类'
@@ -334,4 +334,29 @@ export async function importProblem(task, options = {}) {
   }
 
   return { name, ojDir: dir, codePath, created: !existingCode, config, node }
+}
+
+/**
+ * 打开一道**已经在工作区里**的题：按 url 找回那个文件，再把编辑器切过去。
+ *
+ * 【为什么要单独一个出口】2026-11-10 用户口径：抽题 / 比赛的题目行，导入之后点「除了题名
+ * 与那颗勾之外的空白处」就该打开这道题的文件 —— 题名那颗链接去的是 Codeforces 网页，
+ * 两个落点各归各位，同一行里不必再为「站内那份文件」找一个按钮。
+ * 认题走 `findProblemByUrl`（`problemUrlKey` 归一化），所以 `/contest/…` 与
+ * `/problemset/problem/…` 两种写法都能对上同一个文件。
+ *
+ * 【找不到就静默返回 false】没导过、或导过又被删掉，这一行本质上只是列表里的一行字，
+ * 点它的空白不该冒出错误框 —— 判据（导没导过）本来就在按钮上写着。
+ *
+ * @param {string} url 题目地址
+ * @returns {Promise<boolean>} 真的打开了文件才是 true
+ */
+export async function openProblemByUrl(url) {
+  const node = findProblemByUrl(url)
+  if (!node) return false
+  // 与上面 importProblem 非 quiet 的收尾同一写法：合成视图（抽题 / 比赛页）此刻可能正盖着
+  // 编辑器，先显式让开；openFile 负责建 model、开页签、展开祖先目录
+  deactivateViews()
+  await openFile(node.id, node)
+  return true
 }

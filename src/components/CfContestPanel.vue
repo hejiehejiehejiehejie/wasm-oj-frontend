@@ -182,7 +182,18 @@
                      用来挑题的，打比赛时用不上（2026-10-28 用户要求去掉）。
                      通过人数来自载入时顺手算好的榜单快照（cfWorker.loadContestProblems），
                      不额外发请求 —— 所以这一列是「截至载入时」，不是实时 -->
-                <div class="cf-result cf-result--slim cf-list__row">
+                <!-- 导过之后整行空白处可点 = 打开这道题在工作区里的那份文件（2026-11-10 用户口径，
+                     与抽题结果行同一套）。题名那颗 <a> 与导入按钮各自 .stop，落在行上的只有空白处 -->
+                <div
+                  class="cf-result cf-result--slim cf-list__row"
+                  :class="{ 'is-openable': canOpen(problem) }"
+                  :role="canOpen(problem) ? 'button' : null"
+                  :tabindex="canOpen(problem) ? 0 : null"
+                  :aria-label="canOpen(problem) ? t('cf.picker.result.openFile', { name: problem.name }) : null"
+                  @click="openImported(problem)"
+                  @keydown.enter.prevent="openImported(problem)"
+                  @keydown.space.prevent="openImported(problem)"
+                >
                   <span class="cf-result__title">
                     <span class="cf-result__id">{{ problem.contestId }}{{ problem.index }}</span>
                     <a
@@ -191,6 +202,8 @@
                       target="_blank"
                       rel="noreferrer"
                       :title="problem.name"
+                      @click.stop
+                      @keydown.stop
                     >
                       {{ problem.name }}
                     </a>
@@ -206,7 +219,8 @@
                     class="cf-mini cf-result__import"
                     :class="{ 'is-done': importState(problem) === 'imported' }"
                     :disabled="importState(problem) !== 'import'"
-                    @click="importOne(problem)"
+                    @click.stop="importOne(problem)"
+                    @keydown.stop
                   >
                     <LoadingSpinner v-if="importState(problem) === 'importing'" :size="10" />
                     <span>{{ t(`cf.picker.result.${importState(problem)}`) }}</span>
@@ -261,6 +275,10 @@
  * 子组件调 —— 它们只在被切到那一页时才取数（active 由这里给，空状态下也一律为 false）。
  *
  * 【版式】共享语汇在 src/styles/cf-console.css，这里只放比赛自己特有的规则（抬头两态、页签行）。
+ *
+ * 【2026-11-10：导入之后整行空白处可点】与抽题结果行同一套 —— 题名去 CF 网页、按钮管导入，
+ * 空白处打开工作区里那份文件。判据同样是那颗按钮上的「已导入」（`canOpen`），所以刷新之后
+ * `importedUrls` 空着时这些行点不开，与按钮重新写「导入」保持一致。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -305,6 +323,7 @@ const {
   importAll,
   importAllAndOpenFirst,
   importState,
+  openImported,
   importingAll,
   allImported,
   scrapeAvailable,
@@ -445,6 +464,18 @@ const refreshAge = computed(() => {
 
 function tabLabel(item) {
   return t(`cf.contest.tabs.${item}`)
+}
+
+/**
+ * 这一行此刻能不能点开（导过才有文件可开）。判据与那颗导入按钮上写着的「已导入」同源
+ * （`importState`），模板里问四处（class / role / tabindex / aria-label），所以收成一个函数。
+ *
+ * 【已知的边界】`importedUrls` 是**这一场、这一次**的记账：刷新之后它空着，按钮会重新
+ * 写「导入」（与改版前一致），于是这些行的空白处也点不开 —— 宁可少给一个入口，
+ * 也不要让一行写着「导入」的字点出别的反应。
+ */
+function canOpen(problem) {
+  return importState(problem) === 'imported'
 }
 
 /** 点子页签 = 换一屏（记进后退 / 前进的历史）。空状态下页签是藏着的，碰不到。 */

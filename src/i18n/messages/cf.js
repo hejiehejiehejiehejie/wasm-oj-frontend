@@ -134,6 +134,8 @@ export default {
         result: {
           count: { one: '抽中 {n} 道题', other: '抽中 {n} 道题' },
           open: '在 Codeforces 打开',
+          /** 导入之后，题目行的空白处可点 = 打开工作区里那份文件（抽题与比赛两处共用） */
+          openFile: '打开 {name} 的文件',
           import: '导入',
           importing: '导入中…',
           imported: '已导入',
@@ -508,6 +510,8 @@ export default {
         result: {
           count: { one: 'Picked {n} problem', other: 'Picked {n} problems' },
           open: 'Open on Codeforces',
+          /** 同 zh-CN：导入之后点题目行的空白处 = 打开工作区里那份文件 */
+          openFile: 'Open the file for {name}',
           import: 'Import',
           importing: 'Importing…',
           imported: 'Imported',

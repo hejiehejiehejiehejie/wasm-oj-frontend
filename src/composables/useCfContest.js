@@ -51,7 +51,7 @@ import {
   groupTabs,
   renameGroup,
 } from '../services/tabGroups.js'
-import { importProblem } from '../services/vfs/problemImport.js'
+import { importProblem, openProblemByUrl } from '../services/vfs/problemImport.js'
 import { findProblemByUrl, openFile } from '../services/vfs/workspaceStore.js'
 import { canScrapeContest, requestContestScrape } from './useCompanionBridge.js'
 import { compactContestName } from './useCfSchedule.js'
@@ -503,6 +503,17 @@ export function useCfContest() {
     return 'import'
   }
 
+  /**
+   * 点题目行的空白处：打开这道题在工作区里的那个文件（2026-11-10 用户口径，与抽题面板同一套）。
+   *
+   * 只有**这一场里导过**的行才响应 —— 判据与那颗按钮上的「已导入」是同一个（`importState`），
+   * 看得见的状态与能不能点不会打架。题名那颗链接仍去 Codeforces 网页。
+   */
+  async function openImported(problem) {
+    if (importState(problem) !== 'imported') return
+    await openProblemByUrl(problem?.task?.url)
+  }
+
   const allImported = computed(
     () =>
       problems.value.length > 0 &&
@@ -701,6 +712,7 @@ export function useCfContest() {
     importAll,
     importAllAndOpenFirst,
     importState,
+    openImported,
     importedUrls,
     importingAll,
     allImported,

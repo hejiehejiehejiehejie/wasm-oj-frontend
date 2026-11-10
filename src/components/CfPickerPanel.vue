@@ -358,7 +358,19 @@
             </div>
             <ul class="cf-list">
               <li v-for="problem in results" :key="`${problem.contestId}-${problem.index}`">
-                <div class="cf-result cf-list__row">
+                <!-- 导过之后整行空白处可点 = 打开这道题在工作区里的那份文件（2026-11-10 用户口径）。
+                     行本身挂 role/tabindex 只在导过时才有 —— 没导过它只是一行字，给了焦点环却点不出
+                     反应比不给更糟。题名那颗 <a>、勾、导入按钮各自 .stop，落在行上的只有空白处。 -->
+                <div
+                  class="cf-result cf-list__row"
+                  :class="{ 'is-openable': canOpen(problem) }"
+                  :role="canOpen(problem) ? 'button' : null"
+                  :tabindex="canOpen(problem) ? 0 : null"
+                  :aria-label="canOpen(problem) ? t('cf.picker.result.openFile', { name: problem.name }) : null"
+                  @click="openImported(problem)"
+                  @keydown.enter.prevent="openImported(problem)"
+                  @keydown.space.prevent="openImported(problem)"
+                >
                   <span class="cf-result__title">
                     <!-- 已通过标记：本站提交判 AC / CF 账号命中时只读，手动标记可点。放题号前 ——
                          每条结果行都在同一个位置，不看题名长短（见 cf-console.css 的 .cf-result__ac） -->
@@ -385,6 +397,8 @@
                       target="_blank"
                       rel="noreferrer"
                       :title="problem.name"
+                      @click.stop
+                      @keydown.stop
                     >
                       {{ problem.name }}
                     </a>
@@ -398,7 +412,8 @@
                     class="cf-mini cf-result__import"
                     :class="{ 'is-done': importState(problem) === 'imported' }"
                     :disabled="importState(problem) !== 'import'"
-                    @click="importOne(problem)"
+                    @click.stop="importOne(problem)"
+                    @keydown.stop
                   >
                     <LoadingSpinner v-if="importState(problem) === 'importing'" :size="10" />
                     <span>{{ t(`cf.picker.result.${importState(problem)}`) }}</span>
@@ -463,6 +478,12 @@
  * 【结果行题号前那颗勾】「这道题我通过了吗」来自 services/solvedIndex.js —— 与文件树、
  * 页签是同一份索引（CF 账号自动 + 手动标记），点一下只切手动那一半；自动命中的勾点不动
  * （那是 CF 上真实存在的 OK 提交，理由见那个文件的文件头）。
+ *
+ * 【2026-11-10：导入之后整行空白处可点】题名那颗链接一直去 Codeforces 网页，而「我导进来的
+ * 那份文件」此前只有一个入口 —— 点那颗「导入」按钮（它导完就停用）。于是同一行里写着「已导入」，
+ * 却没有任何地方能把它再打开一次。现在的分工：**题名 = 去 CF 网页**，**勾 = 标记**，
+ * **按钮 = 导入**，**其余空白处 = 打开工作区里那份文件**（用户口径）。可点的范围只限导过的行
+ * （判据同那颗按钮的「已导入」），打开走 services/vfs/problemImport.js 的 openProblemByUrl。
  */
 import { computed, ref } from 'vue'
 
@@ -505,6 +526,7 @@ const {
   importOne,
   importAll,
   importState,
+  openImported,
   picking,
   importingAll,
   error,
@@ -629,6 +651,17 @@ function solvedTitle(problem) {
 /** 点勾：手动标记来回切换；锁住的点了没反应（判据在 solvedIndex.toggleSolvedUrl） */
 function markSolved(problem) {
   toggleSolvedUrl(problem?.task?.url)
+}
+
+/**
+ * 这一行此刻能不能点开（导过才有文件可开）。
+ *
+ * 模板里要问四处（class / role / tabindex / aria-label），所以收成一个函数；
+ * 判据与那颗导入按钮上写着的「已导入」同源（`importState`）—— 看得见的状态与
+ * 能不能点因而不可能打架。
+ */
+function canOpen(problem) {
+  return importState(problem) === 'imported'
 }
 
 /** 这批题的平均难度（只算有 rating 的题；一道都没有时不占位） */

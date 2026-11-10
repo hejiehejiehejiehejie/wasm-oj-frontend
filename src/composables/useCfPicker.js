@@ -53,7 +53,7 @@ import { closeCodeforcesTab } from '../services/editorViews.js'
 import { notify } from '../services/notifications.js'
 import { localSolvedKeys } from '../services/solvedIndex.js'
 import { addTabsToGroup, groupOfId, groupTabs } from '../services/tabGroups.js'
-import { importProblem } from '../services/vfs/problemImport.js'
+import { importProblem, openProblemByUrl } from '../services/vfs/problemImport.js'
 import { findProblemByUrl, workspace } from '../services/vfs/workspaceStore.js'
 import { usePersistentRef } from './usePersistentRef.js'
 
@@ -548,6 +548,19 @@ export function useCfPicker() {
     return 'import'
   }
 
+  /**
+   * 点结果行的空白处：打开这道题在工作区里的那个文件（2026-11-10 用户口径）。
+   *
+   * 只有**导过**的行才响应 —— 与那颗按钮上的「已导入」是同一个判据，界面上看得见的状态
+   * 与实际能不能点因而不会打架。没导过的行点了什么也不发生（连手型都不给，见模板的 is-openable）。
+   *
+   * 题名那颗链接仍去 Codeforces 网页：站外看一眼题面、站内接着写代码，两个落点各归各位。
+   */
+  async function openImported(problem) {
+    if (importState(problem) !== 'imported') return
+    await openProblemByUrl(problem?.task?.url)
+  }
+
   return {
     // 表单
     ratingMin,
@@ -573,6 +586,7 @@ export function useCfPicker() {
     importOne,
     importAll,
     importState,
+    openImported,
     // 结果
     picking,
     importingAll,
