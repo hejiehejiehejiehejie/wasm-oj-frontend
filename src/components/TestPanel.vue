@@ -1,6 +1,7 @@
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import AppTooltip from './AppTooltip.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
@@ -80,7 +81,11 @@ const addTitle = computed(() => {
   return combo ? t('tests.panel.addCaseTip', { key: combo }) : t('tests.panel.addCase')
 })
 // 「提交到 Codeforces」那颗同上（2026-10-24 凌晨，用户逐颗点名到第三颗）。
-// 行动 id 是 `submit-solution`；它是纯图标按钮，title 就是它唯一的可见说明，所以更要带全。
+// 行动 id 是 `submit-solution`；它是纯图标按钮，这行字就是它唯一的可见说明，所以更要带全。
+// 2026-11-10：从**原生 title** 换成站内自绘气泡（AppTooltip，与样例卡片里那两颗图标钮同一套）。
+// 原生 title 在这颗上一直悬不出来（用户报「不像运行全部那样有个 hover 提示」）——它是浏览器
+// 自己那套灰框，触发时机与位置都不受我们控制，图上又只有 12px 图标、鼠标稍有移动就被收掉；
+// 换成自绘气泡后 300ms 稳定弹出，位置居中于按钮。文案仍是「动作名（快捷键）」这一条口径。
 const submitTitle = computed(() => {
   const combo = formatCombo(bindings.value['submit-solution'])
   return combo ? t('tests.submit.buttonTip', { key: combo }) : t('tests.submit.button')
@@ -246,7 +251,8 @@ const elapsedText = computed(() => {
       />
 
       <!-- 添加用例：从页脚挪到列表末尾（2026-10-23，用户：「移到样例栏中去，
-           到所有样例的后面」）。它是这条列表的收尾项，仍然整宽。
+           到所有样例的后面」）。它是这条列表的收尾项；2026-11-10 起不再通栏，
+           左右各让 12 / 6，与卡片里 INPUT / Expected 那些框同宽（见 .cases__add 那条注释）。
            `flex: 0 0 auto` 不能省：卡片也靠同一条避免被压扁（见 .card 的头注），
            用例一多、列表开始滚动时它同样不该被压。
            空列表时它由 .cases.is-empty 推回列表底部（见样式里那条），
@@ -276,20 +282,21 @@ const elapsedText = computed(() => {
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
              一起收掉，页脚不留占位（原因走快捷键那条通知）。
              2026-10-24：与「运行全部」交换左右顺序，提交落在最左。
-             2026-10-24 凌晨：原生 title 里也带上它的快捷键（见脚本 submitTitle）。
              2026-10-29：图标从 arrow-up 换成纸飞机 send —— 箭头与「把输出誊进期望」
-             那颗同形，且只表达「朝上」；纸飞机的「发送出去」更贴提交。 -->
-        <button
-          v-if="showSubmit"
-          class="submit-inline"
-          :class="{ 'is-submitting': submitting }"
-          :disabled="running || submitting"
-          :title="submitTitle"
-          :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
-          @click="emit('submit')"
-        >
-          <AppIcon name="send" :size="12" />
-        </button>
+             那颗同形，且只表达「朝上」；纸飞机的「发送出去」更贴提交。
+             2026-11-10：悬停说明改由 AppTooltip 自绘气泡承担（见脚本 submitTitle 那段），
+             不再挂原生 title —— 原生那条在这颗图标钮上悬不出来，用户对照「运行全部」报的。 -->
+        <AppTooltip v-if="showSubmit" class="submit-wrap" :text="submitTitle">
+          <button
+            class="submit-inline"
+            :class="{ 'is-submitting': submitting }"
+            :disabled="running || submitting"
+            :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
+            @click="emit('submit')"
+          >
+            <AppIcon name="send" :size="12" />
+          </button>
+        </AppTooltip>
         <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
              图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
              文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
@@ -512,10 +519,19 @@ const elapsedText = computed(() => {
 /* 列表末尾那条「添加测试样例」（2026-10-23 从页脚搬进来）。
    `flex: 0 0 auto` 与卡片同一条纪律：列表溢出时不许被压矮。
    上下留白：gap 10 + 这里的 margin-top 10 = 20，与样例之间的「线到下一块」同距；
-   底部 padding 8 由 .cases 出 —— 它不再是页脚里那颗需要自己撑间距的按钮。 */
+   底部 padding 8 由 .cases 出 —— 它不再是页脚里那颗需要自己撑间距的按钮。
+
+   左右 12 / 6（2026-11-10，用户：「添加测试样例的按钮宽度调整为与上方的输入框宽度相同」）：
+   它原先是通栏的 —— 宽度等于 .cases 内容盒整宽，比卡片的代码面左边多出 12、右边多出 6，
+   那 12 / 6 正是 .card__body 的 `padding: 0 6px 10px 12px`（见 TestCaseCard）。现在收进
+   同一条轨：左边 12 接上标签与代码文字那条 22px 左轨（12 + 1 描边 + 9 内边距），右边 6 与
+   代码面同止，于是这颗按钮的外框（含自身的 1px 虚线）与上方 .ta / .out 的外框等宽 ——
+   300px 面板下实测两者都是 266px（原先按钮是 284）。
+   ⚠️ 宽度账写在这一层 li、别挪到 .add 上：按钮自己是 `width: 100%`，与页脚 .submit-wrap
+   一个套路（外层定框、内层撑满）；给按钮加左右 margin 会和它的禁用态 / hover 边框算式打架。 */
 .cases__add {
   flex: 0 0 auto;
-  margin-top: 10px;
+  margin: 10px 6px 0 12px;
 }
 
 /* 空列表：按钮落回列表底部（也就是它原先在页脚正上方的位置）。
@@ -633,10 +649,17 @@ const elapsedText = computed(() => {
 
 /* 一键提交：与主条同高同圆角（36px / 6px），仍然是纯图标 + 发丝线 ——
    它是这一排的次要动作，不能和「运行全部」抢视觉权重。
-   用 --accent 而不是运行那颗绿：「跑」和「交」是两件事，颜色分开才不用读 title 就知道点的是哪颗。
-   禁用态与另外两颗同一档 0.45（见 .add 那条注释）。 */
-.submit-inline {
+   用 --accent 而不是运行那颗绿：「跑」和「交」是两件事，颜色分开才不用读悬停提示就知道点的是哪颗。
+   禁用态与另外两颗同一档 0.45（见 .add 那条注释）。
+
+   外面套着 AppTooltip（2026-11-10）：气泡的触发体是它自己那个 span，所以**不吃宽度的那条
+   改成写在这个 span 上**（与 TestCaseCard 的 .trash-wrap / .run-wrap 同一手），
+   按钮本身仍是定宽 36px 的方块。 */
+.submit-wrap {
   flex: 0 0 auto;
+}
+
+.submit-inline {
   display: inline-flex;
   align-items: center;
   justify-content: center;
