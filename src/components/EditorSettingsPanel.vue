@@ -22,8 +22,8 @@ import {
   FIREFOX_EXTENSION_URL,
   isExtensionOutdated,
 } from '../services/extensionPackage.js'
-// 安装引导（应用 / 插件）的通知内容，以及**按浏览器分岔的唯一出处**：下面那几行说明的
-// 变体与 key 表都从这里 import —— 通知与面板说的是同一批句子，不再各写一份分岔
+// 安装引导（现在只剩「应用」那一栏有这颗按钮）的通知内容，以及**按浏览器分岔的唯一出处**：
+// 下面那几行说明的变体与 key 表都从这里 import —— 通知与面板说的是同一批句子，不再各写一份分岔
 import {
   APPS_URL,
   EXTENSION_HINT_KEYS,
@@ -725,6 +725,10 @@ const appIsInstalled = computed(() => appInstalled.value || runningStandalone.va
  * - 引擎有可用的一键安装 → 「当前浏览器支持」
  * - 没有 → 「当前浏览器不支持」
  *
+ * ⚠️ 「已装」那一支 2026-11-10 起**没有机会上屏**了：装好之后整行都不渲染（见模板里
+ * 「基础设置」那块的条件）。这里仍然按三态写，是因为它回答的是「此刻是什么状态」，
+ * 而「要不要显示」是模板的事 —— 两件事分开放，别为了那一天把状态词改成两态。
+ *
  * 原来这里是「看 `canInstall` 猜按钮为什么灰」，再按浏览器挂五句长解释。问题在于
  * `canInstall` 是**事件**判据：事件不来既可能是「不支持」、也可能是「这一刻条件不满足」，
  * 于是两种情况被塞进同一句「已安装或不支持」，还得靠猜浏览器去补救
@@ -737,7 +741,7 @@ const installStatusKey = computed(() => {
     : 'settings.app.install.statusUnsupported'
 })
 
-/** 按钮上的字：只有真知道装过了才写「已安装」，其余一律「安装」 */
+/** 按钮上的字：只有真知道装过了才写「已安装」，其余一律「安装」（同上，那一格现在不渲染） */
 const installButtonKey = computed(() =>
   appIsInstalled.value ? 'settings.app.installedAction' : 'settings.app.installAction',
 )
@@ -1629,24 +1633,13 @@ const EXTENSION_COMMAND_KEYS = {
   _execute_action: 'settings.extension.commandParsePage',
 }
 
-const {
-  extensionInfo,
-  checking: extensionChecking,
-  refresh: refreshExtension,
-  setExtensionConfig,
-} = useCompanionBridge()
+const { extensionInfo, checking: extensionChecking, refresh: refreshExtension, setExtensionConfig } =
+  useCompanionBridge()
 
-// 状态点：检测中偏「等待」，装好了绿，没探到红（与下面那个短标签同一套语义）
-const extensionDotClass = computed(() => {
-  if (extensionChecking.value) return 'is-busy'
-  return extensionInfo.value ? 'is-ok' : 'is-fail'
-})
-
-// 标签就放在原来那行说明的位置：说明和它说的是同一件事，留一句就够
-const extensionStatusLabel = computed(() => {
-  if (extensionChecking.value) return t('settings.extension.checkingHint')
-  return t(extensionInfo.value ? 'settings.extension.statusRunning' : 'settings.extension.statusMissing')
-})
+// 原来这里还有 `extensionDotClass` / `extensionStatusLabel` 两个给「安装状态」那一行用的
+// computed（检测中 / 已安装并运行中 / 未检测到），2026-11-10 那一行删掉后它们没有消费者了，
+// 一并撤掉；`settings.extension.status*` / `recheck` / `checking*` 那几条文案同日也从 i18n 删了
+// （只剩 `recheckTitle` 给行尾那颗刷新按钮当 title / aria-label）。
 
 // ------------------------------------------------------------ 按浏览器推荐安装路径
 // 判据是 platform.js 的 BROWSER / BROWSER_PLATFORM，**只用来挑文案与摆哪颗按钮**（Safari 那一档
@@ -1688,6 +1681,9 @@ const extensionOutdated = computed(() => isExtensionOutdated(extensionVersion.va
  * 知道该更新、却没有任何途径拿到新包。
  *
  * 反过来，「装好了且是最新版」时这一行必须收起来：摆着安装说明只会让人以为哪里没配对。
+ *
+ * 这一行也是本栏**唯一**随插件状态伸缩的行 —— 原来那颗「安装引导」按钮 2026-11-10 删掉后，
+ * 只剩它和它的右端那颗刷新（刷新跟着一起收，见模板里的说明）。
  */
 const extensionActionVisible = computed(() => !extensionInfo.value || extensionOutdated.value)
 
@@ -3258,9 +3254,18 @@ watch(pendingUnbind, (open) => {
            浏览器插件原本也挤在这一栏里，现已按内容独立成一个「浏览器插件」分类。 -->
       <section v-if="paneRendered('app')" v-bind="paneProps('app')" class="setting-group">
         <p class="setting-group__title">{{ t('settings.section.app') }}</p>
-        <p class="setting-subtitle setting-subtitle--first">{{ t('settings.app.basics') }}</p>
+        <!-- 「基础设置」这一小节的内容**全部**是「装成应用」那几行（安装按钮 / 灰按钮的解释 /
+             安装引导）。装好之后它们只剩「已安装」这一个事实可读，而那个事实别处已经说清了 ——
+             齿轮菜单那两行直接消失（`canInstall` / `appInstalled`）、通知里也有一条 —— 再留三行
+             点了没用的东西只是噪声，所以连小节标题一起收起（2026-11-10 用户要求）。
+             判据用 `appIsInstalled`（`appinstalled` 事件与独立窗口写的是同一份模块级 ref，见
+             `useInstallPrompt.js`）：装完那一刻界面自己就收起，卸掉后事件再来一次它自己又回来，
+             不需要刷新。桌面端不受影响 —— 那台机器上 `appIsInstalled` 恒为假。 -->
+        <p v-if="!appIsInstalled" class="setting-subtitle setting-subtitle--first">
+          {{ t('settings.app.basics') }}
+        </p>
 
-        <div class="setting-rows">
+        <div v-if="!appIsInstalled" class="setting-rows">
           <!-- 安装到设备是网页版独有的入口：桌面端本身就是个独立应用，没有「再装一次」
                这回事，也没有 beforeinstallprompt（见 HANDOFF 第 14 节第 5 条） -->
           <div v-if="!isDesktop" class="setting-row setting-row--action">
@@ -3341,8 +3346,16 @@ watch(pendingUnbind, (open) => {
 
         <!-- 本地运行环境（C++ / Python / 题解渲染器）是网页版自托管的那套资产，全靠
              Cache Storage；桌面端的 webview 里没有 Cache Storage，改用系统 clang++ 直接跑，
-             所以这一整块在桌面端收起（见 HANDOFF 第 14 节第 3、4 条） -->
-        <p v-if="!isDesktop" class="setting-subtitle">{{ t('settings.section.runtime') }}</p>
+             所以这一整块在桌面端收起（见 HANDOFF 第 14 节第 3、4 条）。
+             装好之后上面「基础设置」整块收起（见那一块的条件），这一条就成了本栏第一小节，
+             于是改用 `--first` 那档更小的上边距，免得分组标题下面空出一条大缝。 -->
+        <p
+          v-if="!isDesktop"
+          class="setting-subtitle"
+          :class="{ 'setting-subtitle--first': appIsInstalled }"
+        >
+          {{ t('settings.section.runtime') }}
+        </p>
         <p v-if="!isDesktop" class="setting-group__note">{{ t('runtime.groupNote') }}</p>
 
         <div v-if="!isDesktop" class="runtime-list">
@@ -3501,29 +3514,13 @@ watch(pendingUnbind, (open) => {
         <p class="setting-group__note">{{ t('settings.extension.groupNote') }}</p>
 
         <div class="setting-rows">
-          <div class="setting-row setting-row--action">
-            <span class="setting-row__main">
-              <span class="setting-row__head">
-                <span class="setting-row__label">{{ t('settings.extension.status') }}</span>
-              </span>
-              <!-- 状态框挪到原来那行说明的位置（说明删了，它和框说的是同一件事） -->
-              <span class="app-status" :class="extensionDotClass">
-                <span class="app-status__dot"></span>
-                <span>{{ extensionStatusLabel }}</span>
-              </span>
-            </span>
-            <span class="setting-row__control">
-              <button
-                class="download-button"
-                :disabled="extensionChecking"
-                :title="t('settings.extension.recheckTitle')"
-                @click="refreshExtension"
-              >
-                <AppIcon name="reset" :size="13" :class="{ 'is-spinning': extensionChecking }" />
-                <span>{{ t(extensionChecking ? 'settings.extension.checking' : 'settings.extension.recheck') }}</span>
-              </button>
-            </span>
-          </div>
+          <!-- 原来这里还有一行「安装状态 + 重新检测」，2026-11-10 用户要求去掉：装好之后它是
+               整页唯一的一行，而「装没装」从下面几块的长相上已经看得出来（没装才出现「下载
+               插件」，装了才有「投递目标 / 插件快捷键」）。
+               手动重探**没有**跟着消失，只是换了形态：缩成下载 / 更新那一行右端一颗无边框的
+               图标按钮（见下面那颗 `setting-refresh`）。自动探活照旧 —— 开机时
+               `useCompanionBridge` 连探三轮，每次切到本栏又重探一次（见脚本里
+               `watch(activeSection)`）。 -->
 
           <!-- 这一行管「把包拿到手」，两种状态都要在：一个都没探到 → 怎么装；
                探到旧版 → 怎么换新。**旧版这一档不能把这行收掉** —— Chromium 这边没有
@@ -3574,24 +3571,30 @@ watch(pendingUnbind, (open) => {
                 <AppIcon name="install" :size="15" />
                 <span>{{ t('settings.extension.download.edge') }}</span>
               </a>
-            </span>
-          </div>
-          <!-- 与「应用」栏那颗同一个用途：把这一栏的引导改成通知再发一次（不看已弹记录） -->
-          <div class="setting-row setting-row--action">
-            <span class="setting-row__main">
-              <span class="setting-row__hint">{{ t('settings.extension.guideHint') }}</span>
-            </span>
-            <span class="setting-row__control">
+              <!-- 无边框的刷新：手动重探一次（版本、快捷键都在这次快照里）。
+                   探活本身不靠它 —— 开机连探三轮、每次切到本栏也重探；这颗只是给
+                   「刚在扩展管理页点过刷新 / 刚改过快捷键」的人一个当场重读的入口，
+                   所以做成图标按钮，不跟左边那几颗描边按钮争视觉重心 -->
               <button
-                class="download-button"
-                :title="t('settings.extension.guideHint')"
-                @click="fireSectionGuide('extension')"
+                class="setting-refresh"
+                :disabled="extensionChecking"
+                :title="t('settings.extension.recheckTitle')"
+                :aria-label="t('settings.extension.recheckTitle')"
+                @click="refreshExtension"
               >
-                <AppIcon name="plugin" :size="13" />
-                <span>{{ t('settings.extension.guide') }}</span>
+                <AppIcon name="reset" :size="15" :class="{ 'is-spinning': extensionChecking }" />
               </button>
             </span>
           </div>
+          <!-- 原来这里还有一行「安装引导」（说明 + 一颗再发一次通知的按钮），2026-11-10 用户
+               要求删掉，理由是这行**没有任何独家信息**：
+               - 上面那一行的说明（`hint*` / `updateHint*`）就是通知正文的同一句话，同一批 key；
+               - 通知本身会自动弹 —— 开机 2.5s 后 `runAutoGuides()` 跑一趟（没装过一次、旧版则每次
+                 打开都弹），不需要人点；
+               - 下载 / Firefox 版按钮上面那一行自带，通知里那几颗是重复的。
+               于是它只剩下「不看已弹记录、把同样的话再发一遍」这层作用，删掉不丢信息。
+               「应用」栏那颗「安装引导」保留着：那边通知正文与面板说明并不是同一段（通知多出
+               按浏览器分岔的出路说明），不是纯复读。 -->
         </div>
 
         <!-- 装的是旧版时提示一行（版本号来自扩展自报的 cp-info）：放在 rows 外面，
@@ -5061,6 +5064,35 @@ watch(pendingUnbind, (open) => {
 }
 
 .download-button:disabled {
+  cursor: default;
+  color: var(--text-faint);
+}
+
+/* 无边框的图标按钮 —— 目前只有「浏览器插件」那一行右端的刷新。
+   与 .download-button 同高（30px），和左边几颗描边按钮在同一条基线上；区别是不出描边、
+   不占文字宽度，静止时看着就是一个图标，只在 hover 时铺一层底色。
+   摘掉描边是刻意的：它做的是「重读一次快照」这种次要动作，不该跟「下载 / 更新」争注意力 */
+.setting-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+:where(html.is-hoverable) .setting-refresh:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+  color: var(--text);
+}
+
+.setting-refresh:disabled {
   cursor: default;
   color: var(--text-faint);
 }

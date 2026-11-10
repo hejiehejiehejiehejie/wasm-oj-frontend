@@ -424,7 +424,7 @@ export default {
          * **fail-open 是刻意的**：猜错的代价是用户看不到入口，比多给一条路糟得多。
          * 移动端单独两句：那边能装的东西与桌面完全不是一回事。
          */
-        hintFirefox: '点「Firefox 版」从附加组件商店安装；装完回来点「重新检测」。',
+        hintFirefox: '点「Firefox 版」从附加组件商店安装；装完回到本栏（或刷新页面）会重新检测。',
         hintEdge:
           'Edge 加载项暂未上架，先按通用步骤：下载 zip 并解压 → 打开 edge://extensions → 开「开发人员模式」→「加载解压缩的扩展」并选中解压目录。',
         hintChrome:
@@ -442,13 +442,8 @@ export default {
         /** Firefox 的快捷键不在 chrome://extensions/shortcuts（那个地址在 Firefox 上不存在） */
         shortcutsManagedSuffixFx:
           '（about: 页面网页同样打不开）。打开后点右上角齿轮 ›「管理扩展快捷键」即可查看与修改。',
-        status: '安装状态',
-        statusRunning: '已安装并运行中',
-        statusMissing: '未检测到',
-        recheck: '重新检测',
+        /** 下载 / 更新那一行右端那颗无边框刷新按钮：当场重探一次插件（版本、快捷键都在快照里） */
         recheckTitle: '重新检测插件',
-        checking: '检测中',
-        checkingHint: '检测中…',
         download: {
           label: '下载插件',
           firefox: 'Firefox 版',
@@ -466,9 +461,6 @@ export default {
         updateAvailable: '你装的是 v{current}，本站最新是 v{latest}。',
         updateHintManual: '重新下载安装包、替换旧目录，再在扩展管理页点刷新。',
         updateHintFirefox: 'Firefox 会自动更新，也可在附加组件管理器里手动检查。',
-        /** 这一栏末尾那颗手动引导按钮（通知内容见 services/installGuides.js） */
-        guide: '安装引导',
-        guideHint: '用通知再演示一遍安装或更新步骤',
         destinations: '投递目标',
         destinationsNote:
           '插件解析的题目送往何处。两项可同时开启；关闭后仍会解析，只是不再向该侧发送。',
@@ -486,10 +478,10 @@ export default {
          * 必须说清「为什么没有」和「去哪儿绑」。（2026-10-12）
          */
         shortcutUnassignedNote:
-          '浏览器未给此命令分配键位：Chrome 只在安装时绑定一次建议键位，被占用或清除后不再自动绑。复制上方地址，在设置页给「激活该扩展程序」绑一个空闲键，再点「重新检测」。',
+          '浏览器未给此命令分配键位：Chrome 只在安装时绑定一次建议键位，被占用或清除后不再自动绑。复制上方地址，在设置页给「激活该扩展程序」绑一个空闲键，回来刷新页面即可看到。',
         /** 插件一条命令都没报上来（重探没救回来时，多半是插件版本过旧） */
         shortcutEmptyNote:
-          '没读到插件上报的快捷键。先点「重新检测」；仍为空多半是插件版本过旧，请按上方那一行更新。',
+          '没读到插件上报的快捷键。切到别的分类再回来、或刷新页面会重新检测；仍为空多半是插件版本过旧，请按上方那一行更新。',
         shortcutsPage: '快捷键设置页',
         shortcutsHint: '复制后在地址栏粘贴打开',
         shortcutsCopiedHint: '已复制，粘贴到地址栏回车即可',
@@ -1060,7 +1052,8 @@ export default {
          * browser cannot be told apart. Mobile gets its own two lines, because what
          * can be installed there is a completely different story.
          */
-        hintFirefox: 'Click “Firefox version” to install from the add-ons store, then hit “Check again”.',
+        hintFirefox:
+          'Click “Firefox version” to install from the add-ons store; coming back to this section (or reloading) re-detects it.',
         hintEdge:
           'Edge Add-ons is not available yet — use the generic steps: download and unzip → open edge://extensions → enable “Developer mode” → “Load unpacked” and pick the extracted folder.',
         hintChrome:
@@ -1079,13 +1072,8 @@ export default {
         /** Firefox has no chrome://extensions/shortcuts — its shortcuts live in the Add-ons Manager */
         shortcutsManagedSuffixFx:
           '(pages cannot open about: either). Open it, then use the gear menu › “Manage Extension Shortcuts”.',
-        status: 'Installation status',
-        statusRunning: 'Installed and running',
-        statusMissing: 'Not detected',
-        recheck: 'Check again',
+        /** Borderless refresh at the right of the download / update row — re-reads the board (version + shortcuts) */
         recheckTitle: 'Check for the extension again',
-        checking: 'Checking',
-        checkingHint: 'Checking…',
         download: {
           label: 'Download the extension',
           firefox: 'Firefox version',
@@ -1103,9 +1091,6 @@ export default {
         updateAvailable: 'You have v{current}; this site ships v{latest}.',
         updateHintManual: 'Download the archive again, replace the old folder, then refresh the extension manager page.',
         updateHintFirefox: 'Firefox updates it automatically; you can also check in the add-ons manager.',
-        /** Manual guide button at the end of this section (notification copy: services/installGuides.js) */
-        guide: 'Install guide',
-        guideHint: 'Replay the install or update steps in a notification',
         destinations: 'Delivery targets',
         destinationsNote:
           'Where parsed problems go. Both can be on; turning one off still parses, it just stops sending there.',
@@ -1118,10 +1103,10 @@ export default {
         shortcutUnset: 'Not set',
         /** An empty key is not a bug: Chrome only binds suggested_key at install time and skips it on conflict */
         shortcutUnassignedNote:
-          'The browser assigned no key: Chrome binds the suggested shortcut once at install time and skips it on conflict. Copy the address above, bind a free key to “Activate the extension”, then hit “Check again”.',
+          'The browser assigned no key: Chrome binds the suggested shortcut once at install time and skips it on conflict. Copy the address above, bind a free key to “Activate the extension”, then reload this page to see it.',
         /** The extension reported no commands at all (usually an outdated build) */
         shortcutEmptyNote:
-          'No shortcuts came back from the extension. Hit “Check again”; if still empty, update it with the row above.',
+          'No shortcuts came back from the extension. Switching sections or reloading re-checks; if it stays empty the build is usually outdated — update it with the row above.',
         shortcutsPage: 'Shortcut settings page',
         shortcutsHint: 'Copy it, then paste it into the address bar',
         shortcutsCopiedHint: 'Copied — paste it into the address bar and press Enter',

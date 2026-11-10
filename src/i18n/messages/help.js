@@ -151,7 +151,7 @@ export default {
                 '（Firefox）点**Firefox 版**从商店安装，完成后跳到第 5 步',
                 '（Chromium）点**下载**并解压，打开 chrome://extensions（Edge 为 edge://extensions），启用**开发者模式**',
                 '（Chromium）点**加载已解压的扩展程序**，选中解压目录',
-                '回到本站点**重新检测**，状态会显示版本号',
+                '回到本站点再打开这一栏（或刷新页面），会自动检测到插件',
                 '打开任意 OJ 题目页，点工具栏上的插件图标',
               ],
               notes: [
@@ -390,7 +390,7 @@ export default {
                 '(Firefox) Click **Firefox version** to install from the store, then skip to step 5',
                 '(Chromium) Click **Download** and unzip, open chrome://extensions (edge://extensions on Edge) and enable **Developer mode**',
                 '(Chromium) Click **Load unpacked** and pick the unzipped folder',
-                'Back on this site, click **Check again** — the status line shows the version',
+                'Back on this site, reopen this section (or reload the page) — the extension is detected automatically',
                 'Open any problem page and click the extension icon in the toolbar',
               ],
               notes: [

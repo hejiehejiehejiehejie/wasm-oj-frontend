@@ -17,7 +17,8 @@
  * 【自动弹一次的记录】`cp.installGuides`（本文件唯一读写），存**已自动弹过的引导 id 数组**。
  * 四条各记各的：见过「可以装应用」不等于见过「插件有新版」，所以状态变了仍会再提示一次。
  * 例外是 `ext-update`：它不落这份记录，每次打开 / 刷新页面只要插件还旧就再弹一次。
- * 手动触发（设置里那颗「安装引导」按钮）**不看这份记录** —— 那是用户点名要看。
+ * 手动触发（设置「应用」栏那颗「安装引导」按钮）**不看这份记录** —— 那是用户点名要看。
+ * （插件那栏的同名按钮 2026-11-10 删了：正文与面板说明同一句，没有复读的必要。）
  *
  * 【`app-manual` 只有「引擎没有可用的一键入口」那半自动弹】2026-10-12 用户反馈那条警告
  * 「出现的有些频繁了」，于是「有 API 却拿不到入口」那一格退出自动弹（理由见 `available`），
@@ -41,7 +42,6 @@ import { appInstalled, canInstall, INSTALL_API_SUPPORTED, install } from '../com
 import { extensionInfo } from '../composables/useCompanionBridge.js'
 import {
   EXTENSION_ROUTES,
-  EXTENSION_VERSION,
   downloadExtensionPackage,
   isExtensionOutdated,
   openExtensionStore,
@@ -234,8 +234,10 @@ function extensionGuide() {
   }
 
   const variant = extensionVariant()
-  // 那六条 `hint*` 里只有 Firefox 那条自带「装完回来点重新检测」，其余的得在通知里补一句 ——
-  // 通知上没有「重新检测」那颗按钮，不说的话用户装完不知道下一步在哪儿
+  // 那六条 `hint*` 里只有 Firefox 那条自带「装完回来会重新检测」（切到那一栏就重探），其余的
+  // 得在通知里补一句 —— 通知上没有可点的重探入口，不说的话用户装完不知道下一步在哪儿。
+  // 2026-11-10 起设置面板里那颗「重新检测」按钮也删了，重探只剩两条自动路径：开机三轮、
+  // 每次切到「浏览器插件」那一栏一次（见 EditorSettingsPanel 的 watch(activeSection)）。
   const hint = t(EXTENSION_HINT_KEYS[variant] ?? EXTENSION_HINT_KEYS.chromium)
   const recheck = !outdated && variant !== 'firefox' ? ` ${t('notifications.guide.extRecheck')}` : ''
 
@@ -333,19 +335,14 @@ export function runAutoGuides() {
  * 手动触发（设置面板里那颗「安装引导」）：**不看已弹记录**，用户点名要看。
  * 已经装好 / 已是最新版时也有话说，不会点了没反应。
  *
- * @param {'app'|'extension'} section
+ * 2026-11-10 起只剩「应用」一栏还用这颗按钮：插件那栏的同名行已删 —— 它的正文与上面
+ * 「下载 / 更新」那行说明是同一批 key，通知本身又会自动弹（开机 2.5s 一趟），纯复读，
+ * 于是 `extension` 这一支跟着没了调用方，一并撤掉（要恢复就把下面那段补回来：
+ * `extensionGuide() ?? { success, settings.menu.updateExtension, notifications.guide.extUpToDate }`）。
+ *
+ * @param {'app'} section
  */
 export function fireSectionGuide(section) {
   if (section === 'app') return show(TAG_APP, appGuide())
-  if (section === 'extension') {
-    return show(
-      TAG_EXTENSION,
-      extensionGuide() ?? {
-        type: 'success',
-        title: t('settings.menu.updateExtension'),
-        message: t('notifications.guide.extUpToDate', { version: EXTENSION_VERSION }),
-      },
-    )
-  }
   return null
 }

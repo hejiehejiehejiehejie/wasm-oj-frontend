@@ -61,9 +61,9 @@ export default {
       guide: {
         appReady: '装好后可从程序坞 / 开始菜单直接打开。',
         appInstalled: '本站已装成应用。',
-        /** 插件那几条安装步骤里只有 Firefox 那条自带「装完回来点重新检测」，其余的在通知里补这一句 */
-        extRecheck: '装完回设置 →「浏览器插件」点一次「重新检测」。',
-        extUpToDate: '插件已是最新版（v{version}）。',
+        /** 插件那几条安装步骤里只有 Firefox 那条自带「装完回来会重新检测」，其余的在通知里补这一句。
+         *  2026-11-10 起设置里那颗「重新检测」按钮已随「安装状态」一行删掉，改指「切到这一栏」。 */
+        extRecheck: '装完回设置 →「浏览器插件」这一栏，切过去会自动重新检测。',
         later: '以后再说',
         /** Chromium 那条更新的按钮字：动作就是重下一份 zip。叫「更新」与没装那条的「下载」分开
             （2026-10-20 用户要求；标题已经是「更新浏览器插件」，按钮不重复全称） */
@@ -156,8 +156,7 @@ export default {
       guide: {
         appReady: 'It then opens from the Dock / Start menu.',
         appInstalled: 'This site is already installed as an app.',
-        extRecheck: 'Then go to Settings → “Browser extension” and hit “Check again”.',
-        extUpToDate: 'The extension is up to date (v{version}).',
+        extRecheck: 'Then open Settings → “Browser extension”; switching to that section re-detects it.',
         later: 'Not now',
         update: 'Update',
         copyFailed: 'Copy failed — copy it manually',
