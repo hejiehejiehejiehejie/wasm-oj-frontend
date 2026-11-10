@@ -366,6 +366,25 @@ function openExpectedEditor() {
   })
 }
 
+/**
+ * 期望侧当前渲染的是不是只读视图（`<pre>`）。
+ *
+ * 这只读视图与下面的 `<textarea>` 是 v-if / v-else 两个分支，**换边就是一次元素重建**：
+ * `autoGrow` 把高度写在元素自己的 style 上，切到只读视图时那个高度跟着 textarea 一起销毁，
+ * 切回来则是个新建的空壳 —— 只剩 CSS 的 `min-height`（三行出头），而 `.ta` 的 `overflow-y`
+ * 是 hidden，后面几行既露不出来、也拖不出滚动条（用户 2026-11-10 报的就是这个）。
+ *
+ * 点进编辑那条路不用管（`openExpectedEditor` 里自带一次 autoGrow）；这里接的是
+ * **没人碰过期望框**的那一路：WA 之后改代码重跑、判定转成 AC，差异标记归零，
+ * 只读视图自动退回输入框 —— 高度没有任何人重算过。
+ *
+ * 盯「渲染成哪个分支」而不是盯 `expectedSegments`：编辑态下标记仍在，但渲染的已经是
+ * textarea，那一次不需要也不该多算一遍。
+ */
+const expectedInView = computed(() => Boolean(expectedSegments.value) && !editingExpected.value)
+
+watch(expectedInView, () => nextTick(growAll))
+
 function editExpected(event) {
   // 单击（没选中任何文字）才进编辑：拖选是在挑要复制的片段，别把选择打断
   const picked = String(window.getSelection() ?? '').trim()
