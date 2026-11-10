@@ -25,6 +25,18 @@ import { isHoverable } from '../services/hoverCapability.js'
  * ⚠️ 别换成 `matchMedia('(hover: hover)')`：设备级判据挡不住「触屏本 / 手机开桌面版」
  * 上补出来的那串鼠标事件，理由见那个文件头。也**别把键盘那条一起挡掉**：它由
  * `:focus-visible` 把关（触屏轻点不会命中），是纯粹的无障碍通路。
+ * 【排定之后再确认一次】（2026-11-10，用户要求「触屏手势点击之后不要出现 hover 悬浮残留」）
+ * 定时器排下去之后，能撤掉它的只有 `hide()` —— 而 `hide()` 只在两种时候被调到：手指落在
+ * **触发体自己**身上（模板上那条 pointerdown），或者气泡已经显示着（window 那条捕获监听
+ * 才挂着）。所以「鼠标停在按钮上、手指点在别处」理论上能把定时器留到点：300ms 后气泡照样
+ * 从这只按钮上方冒出来，看上去就是「刚点完屏幕就多了一枚悬停提示」。
+ * 实测（Chrome，混合设备模拟）这条路目前走不通 —— 手指按下后浏览器会把虚拟鼠标挪到触点，
+ * 顺带在触发体上补一发 mouseleave、把定时器清了。但那是浏览器的情分，不是我们的约定
+ * （Safari / 安卓补不补那串 compat 事件向来说不准）。所以回调里自己再读一次
+ * `isHoverable()`，成本为零。键盘那条直接调 `show()`，不经过这个定时器，不受影响。
+ * 【配色跟明暗走】底色 / 字色 / 投影全由 --tooltip-* 三个变量给（styles/base.css）：
+ * 深色系是近黑底白字，浅色系是白底深字 + 一圈头发丝勾边（2026-11-10 用户报浅色下仍是深色）。
+ * 别在组件里写死颜色 —— 这个组件同时被评测面板、样例卡片、编辑器页签等好几处用。
  */
 const props = defineProps({
   text: { type: String, default: '' },
@@ -115,6 +127,9 @@ function scheduleShow() {
   clearTimer()
   timer = window.setTimeout(() => {
     timer = null
+    // 到点前这 300ms 里手指可能刚按过：那一刻悬停能力已关，此时再弹就是「点完冒出提示」。
+    // 与进 scheduleShow 那条同源，只是把判据挪到真正要显形的一刻（见文件头那段）。
+    if (!isHoverable()) return
     show()
   }, props.delay)
 }

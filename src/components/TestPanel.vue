@@ -60,11 +60,12 @@ const props = defineProps({
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit'])
 
-// 页脚主条的原生 title 里带上它的快捷键（2026-10-24 凌晨用户要求「鼠标在运行全部按钮上时，
-// 显示它的快捷键」；口径明确是**原生描述**，不自绘气泡）。组合键走 formatCombo(bindings.run)
-// —— 绑定表是唯一口径，设置里改键这里跟着变；解绑了退回纯动作名。
-// 跑不了时仍填原因（与改前同义）：原生禁用按钮收不到鼠标事件、title 悬不出来，
+// 页脚主条里面那行气泡文案（2026-10-24 凌晨用户要求「鼠标在运行全部按钮上时，显示它的快捷键」）。
+// 组合键走 formatCombo(bindings.run) —— 绑定表是唯一口径，设置里改键这里跟着变；解绑了退回纯动作名。
+// 跑不了时仍填原因（与改前同义）：禁用按钮收不到鼠标事件、气泡弹不出来，
 // 那行原因由页脚 .run-blocked 那行看得见的字负责。
+// 2026-11-10：口径从「原生 title」改成站内自绘气泡（用户：「运行全部按钮的 hover 悬浮提示
+// 和这几个都不同」）—— 页脚这一排与样例卡片里那几颗现在共用 AppTooltip 一套观感。
 const { bindings } = useShortcutManager()
 const runDisabled = computed(
   () => props.running || !props.cases.length || Boolean(props.runBlocked),
@@ -301,17 +302,22 @@ const elapsedText = computed(() => {
              图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
              文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
              「▶ 运行全部」仍有富余（见样式里那条宽高账）。
-             2026-10-24 凌晨：原生 title 里带上它的快捷键（用户要求「鼠标在运行全部按钮上时，
-             显示它的快捷键」；口径是原生描述，不自绘气泡），组合键走绑定表，见脚本 runTitle。 -->
-        <button
-          class="run-inline"
-          :disabled="runDisabled"
-          :title="runTitle"
-          @click="emit('run-all')"
-        >
-          <AppIcon name="play" :size="14" />
-          <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
-        </button>
+             2026-10-24 凌晨：title 里带上它的快捷键（用户要求「鼠标在运行全部按钮上时，
+             显示它的快捷键」），组合键走绑定表，见脚本 runTitle。
+             2026-11-10：跟提交那颗一样换成 AppTooltip 自绘气泡（用户：「运行全部的 hover
+             悬浮提示和这几个都不同」）—— 原生那条灰框在同一个排里独一份，其余几颗早就是
+             站内气泡了。`.run-inline` 的 `flex: 1 1 auto` 随之挪到外层 .run-all-wrap 上：
+             气泡的触发体是它自己那个 span，只有它才是这一排的 flex 子项。 -->
+        <AppTooltip class="run-all-wrap" :text="runTitle">
+          <button
+            class="run-inline"
+            :disabled="runDisabled"
+            @click="emit('run-all')"
+          >
+            <AppIcon name="play" :size="14" />
+            <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
+          </button>
+        </AppTooltip>
       </div>
     </footer>
 
@@ -610,14 +616,26 @@ const elapsedText = computed(() => {
   color: var(--text-faint);
 }
 
+/* 主操作条外面套着 AppTooltip（2026-11-10，与提交那颗同一天）：气泡的触发体是它自己那个
+   span（display: inline-flex），所以**吃剩余宽度**这条从按钮挪到了这里 —— 现在它才是
+   .panel__foot-row 的 flex 子项，`min-width: 0` 也一并跟过来，否则窄侧栏下按钮那串
+   nowrap 文字会把这一排顶出去。
+   宽高账（与原来同一笔）：侧栏下限 158px 时页脚内容宽 142，主条 = 142 - 36 - 8 = 98px，
+   内容「14(图标) + 7(间距) + 50(四个 12.5px 汉字)」= 71px，再加左右 24px 内边距 = 95px，
+   刚好放得下（英文 Run all 更短）。
+   ⚠️ 名字叫 run-all-wrap 而不是 run-wrap：样例卡片里那颗 ▶ 的外套就叫 .run-wrap
+   （TestCaseCard），同名虽然被 scoped 隔开、不会串样式，但调试时两个名字会认错人。 */
+.run-all-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .run-inline {
   /* 主操作条（2026-10-24 改）：从 32px 的线框图标改成整条图文按钮。
-     `flex: 1 1 auto` 让它吃掉这一排的剩余宽度 —— 提交按钮不出现时就是通栏；
+     宽度由外面 .run-all-wrap 定（见上），这里撑满它；提交按钮不出现时就是通栏，
      出现时它也让出 36 + 8px 给提交那颗（提交在最左），主条仍占满其余宽度。
-     宽高账：侧栏下限 158px 时页脚内容宽 142，主条 = 142 - 36 - 8 = 98px，
-     内容「14(图标) + 7(间距) + 50(四个 12.5px 汉字)」= 71px，再加左右 24px 内边距 = 95px，
-     刚好放得下（英文 Run all 更短）。所以这颗字不用藏；完整动作名与快捷键走原生 title
-     （见脚本里的 runTitle，2026-10-24 凌晨加快捷键）。 */
+     完整动作名与快捷键走悬停气泡（见脚本里的 runTitle，2026-10-24 凌晨加快捷键，
+     2026-11-10 由原生 title 换成 AppTooltip）。 */
   flex: 1 1 auto;
   min-width: 0;
   display: inline-flex;
