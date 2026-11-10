@@ -157,7 +157,7 @@ function onViewClick(view) {
  * 所以语言切换、视图开关变化都会让它重算。
  *
  * **这里没有 if 分支**：一个视图长什么样全在 editorViews.EDITOR_VIEWS 那张登记表里
- * （id / 图标 / 文案 key），加一种视图不用回来加一档。开关与激活也不在这里拼 ——
+ * （id / 图标 / 描边粗细 / 文案 key），加一种视图不用回来加一档。开关与激活也不在这里拼 ——
  * 前者是 viewState(id)，后者统一 `focusTab(id)`。
  * 「谁先开谁靠左」这条规矩也不是这里的事 —— 2026-10-11 起条带是一条**混排**序列，
  * 顺序归 services/tabStrip.js 的 stripOrder（文件页签与视图页签可以互相穿插）。
@@ -172,6 +172,8 @@ function viewMeta(id) {
     label: t(view.labelKey),
     closeLabel: t(view.closeLabelKey),
     active: !!state?.active,
+    // 没登记就留 undefined，交给 AppIcon 的默认值（2）——别在这里再写一份默认数
+    strokeWidth: view.strokeWidth,
   }
 }
 
@@ -1220,7 +1222,12 @@ function onTabEnter(el) {
           @pointerdown="onViewPointerDown($event, item)"
           @contextmenu="openTabMenu($event, item)"
         >
-          <AppIcon :name="item.icon" :size="12" class="editor-tabs__icon" />
+          <AppIcon
+            :name="item.icon"
+            :size="12"
+            :stroke-width="item.strokeWidth"
+            class="editor-tabs__icon"
+          />
           <span class="editor-tabs__label">{{ item.label }}</span>
           <span
             class="editor-tabs__close"

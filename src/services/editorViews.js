@@ -39,8 +39,8 @@ import { codeViewIntent, workspace } from './vfs/workspaceStore.js'
 /**
  * 合成视图的**登记表** —— 这是「有哪些视图」的唯一出处（顺序见 tabStrip.stripOrder）。
  *
- * 每条只写界面需要的三样：id、图标名（AppIcon 的 name）、文案 key。**不写死译名**：
- * 数据表里存 key、由消费处（EditorTabs 的 viewMeta）现 `t()`，切语言才跟着变
+ * 每条只写界面需要的几样：id、图标名（AppIcon 的 name）、描边粗细（可省，省了用 AppIcon 的默认 2）、
+ * 文案 key。**不写死译名**：数据表里存 key、由消费处（EditorTabs 的 viewMeta）现 `t()`，切语言才跟着变
  * （见 HANDOFF 第 5 节坑 28）。
  *
  * 刻意**不含**任何流转信息（怎么开、怎么关、焦点归谁）：那些对所有视图完全一致，
@@ -51,6 +51,10 @@ export const EDITOR_VIEWS = [
   {
     id: 'settings',
     icon: 'gear',
+    // 页签里这枚齿轮单独加粗一档（AppIcon 默认为 2）。页签图标只有 12px，同排的 cpp / python /
+    // markdown 是实心字标、墨色本来就重，Lucide 标准的 2 号线在中间显得偏淡 —— 只在本页签
+    // 提高描边，别动全站默认值。
+    strokeWidth: 2.4,
     labelKey: 'app.settings',
     closeLabelKey: 'app.tabs.closeSettings',
   },

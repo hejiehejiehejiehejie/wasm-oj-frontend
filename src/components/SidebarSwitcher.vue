@@ -106,6 +106,13 @@ function closeCompMenu() {
   compMenuAnchor.value = null
 }
 
+// 组件那颗的图标：菜单弹出时换成「掀盖的箱子」（Lucide `package-open`），收起时是
+// 封好的箱子（`package`，见 Sidebar 的 componentsEntry）。判据就是 compMenuAnchor ——
+// 与 aria-expanded 同源，不会出现「图标开着、菜单已关」。
+// 注意 `components` 是从 inject 拿到的 computed ref，在 script 里要写 `.value`
+// （模板里才自动解包）。
+const compIcon = computed(() => (compMenuAnchor.value ? 'grid-open' : components.value.icon))
+
 onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
 onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
 
@@ -154,31 +161,18 @@ onBeforeUnmount(
   }),
 )
 
-// ------------------------------------------------------------ 页头图标的墨迹口径
-// 两颗独立钮（组件 / 设置）过去同画布 size=16，但两个字形在 24 网格里的外接框不同：
-// gear 22/24、grid 只有 16/24（外框实测与 ActivityBar 的 ICON_INK 表同源，改字形两边一起改）。
-// 画布一样大、墨迹差约 4px —— 组件那颗看着小一圈（2026-10-22 用户要求对齐到齿轮）。
-// 换算：对齐的是「字形外框」（gear@16 的外框 22×16/24 ≈ 14.67px），按各自外框反解 size
-// （grid → 22）。描边基准取**页头现状**而不是 1.9：两颗钮在 size=16 画布上的视觉描边
-// 一直是 1.9×16/24 ≈ 1.27px（ActivityBar 那套「补偿到 1.9」是折叠栏 21px 墨迹的口径，
-// 搬过来会把齿轮凭空描粗一圈 —— 2026-10-22 首版踩到，读数 2.85 当场露馅）。
-// 所以补偿写成 HEAD_ICON_STROKE × HEAD_ICON_SIZE / size：gear 走恒等映射（16 / 1.9 原样），
-// grid 拿到 1.38，两颗的视觉描边与墨迹（≈15.93px）都相等。
-// 表里没有的图标保持 size=16 原样（与胶囊段位、收起箭头同档）；gear 走同一函数是恒等映射，
-// 把「与设置相同」的基准显式写在同一处，防两边漂移。
-const HEAD_ICON_SIZE = 16
-const HEAD_ICON_STROKE = 1.9
-const HEAD_ICON_INK = { grid: 16, gear: 22 }
-
-function headIconOptics(name) {
-  const ink = HEAD_ICON_INK[name]
-  if (!ink) return { size: HEAD_ICON_SIZE }
-  const size = (HEAD_ICON_INK.gear * HEAD_ICON_SIZE) / ink
-  return {
-    size: Number(size.toFixed(2)),
-    strokeWidth: Number(((HEAD_ICON_STROKE * HEAD_ICON_SIZE) / size).toFixed(2)),
-  }
-}
+// ------------------------------------------------------------ 页头图标尺寸
+// 两颗独立钮（组件 / 设置）**同一个 size** 就好。
+//
+// 换库前这里有一段「墨迹补偿」：那套手绘字形里 gear 的外框是 22/24、grid 只有 16/24，
+// 同一画布下组件那颗看着小一圈，于是把 grid 的 size 从 16 反解到 22、描边再按比例回补。
+// 换成 Lucide 之后 `layout-grid` 与 `settings` 的外框都是 18 上下（实测 18.00 / 18.49），
+// 天生齐平 —— 补偿整段删掉，两颗钮回到同一个 size。
+//
+// 19 而不是段位用的 16：Lucide 的墨迹约占 20/24，19px 下是 15px 左右，与旧字形 16px 时的
+// 14.7px 同档（旧字形外框更满，gear 就到 22/24）。页头这两颗独立钮本来就比段位里的图标
+// 大一号，别按段位的 16 对齐。
+const HEAD_ICON_SIZE = 19
 </script>
 
 <template>
@@ -242,7 +236,7 @@ function headIconOptics(name) {
       :aria-expanded="Boolean(compMenuAnchor)"
       @click="toggleCompMenu"
     >
-      <AppIcon :name="components.icon" v-bind="headIconOptics(components.icon)" />
+      <AppIcon :name="compIcon" :size="HEAD_ICON_SIZE" />
     </button>
 
     <button
@@ -256,7 +250,7 @@ function headIconOptics(name) {
       :aria-expanded="Boolean(menuAnchor)"
       @click="toggleMenu"
     >
-      <AppIcon :name="settings.icon" v-bind="headIconOptics(settings.icon)" />
+      <AppIcon :name="settings.icon" :size="HEAD_ICON_SIZE" />
     </button>
 
     <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="below-end" @close="closeMenu" />
@@ -363,14 +357,9 @@ function headIconOptics(name) {
   transition: color 0.16s ease 0.06s;
 }
 
-/* 「文件」段的文件夹字形在 24 viewBox 里墨迹是 4.5~22（本来就偏下），16px 盒居中后
-   视觉重心仍低 ~0.9px（4 倍截图逐像素量：22px 段内上留白 5.5、下 3.75）。
-   这里补 -1px，让上下回到 ~4.5 / 4.75。只按 data-panel 打，别去改 AppIcon 里
-   folder 的路径 —— 那条会牵连文件树等所有用 folder 的地方；transform 只改绘制，
-   不动 16px 图标盒、3px 上下留白与点击区域。 */
-.sidebar-switcher__seg[data-panel='explorer'] svg {
-  transform: translateY(-1px);
-}
+/* 「文件」段的文件夹：Lucide 的 folder 墨迹在 24 viewBox 里是 y 3→20，重心只比网格中心
+   高 0.5 个单位（16px 下 0.3px），居中即可。旧字形自己画到 4.5~22 才需要补 -1px，
+   换库后那条 transform 已删 —— 图标不做任何移位。 */
 
 .sidebar-switcher__label {
   font-size: 12px;

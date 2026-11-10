@@ -57,100 +57,29 @@ const props = defineProps({
 })
 defineEmits(['select'])
 
-// ------------------------------------------------------------ 图标大小统一
-// 同一套 `size="24"` 下，各枚图标的**字形外接框**差得很远（实测，不含描边）：
-//   codeforces 24 / gear 22 / files 20 / clock 18 / cases 18 / flag 17.5 / grid 16 ——
-// 极差 50%。各拿各的图形画在同一个 24 网格里，并排到一条 44px 栏上就读成「大小不一」
-// （2026-10-22 用户提出）。
+// ------------------------------------------------------------ 图标尺寸
+// 2026-11-11 图标库整体换成 Lucide 之后，这一节从「三步换算」缩成了两行。
 //
-// 做法分两步（同一天加的）：
-// ① **长边**统一到 **21 CSS px**。描边按 vb/size 反比补偿 —— `stroke-width` 是 viewBox 单位，
-//    size 一变描边就跟着变粗细：不补的话 gear（缩到 20.93）描边会到 2.18px、grid（放大到 28.78）
-//    只剩 1.58px，刚统一了尺寸又冒出一粗一细。补偿后各枚的**视觉**描边都还是 1.9px。
-// ② **短边也顶到 21**（用户要求「等宽等高」）：三轮方案才定 —— 单向 scale 拉伸（files
-//    拉宽 22%、cases 拉高 25%，嫌变形）→ 重画字形（files 页签 20 宽 / cases 行距拉开成
-//    18×18，嫌影响观感）→ **换文件夹 + 单独画高**：资源管理器用 20×20 的方形文件夹
-//    （零拉伸），cases 标 `keep` 豁免、保持扁宽原样。拉伸机制对没标 `keep` 的字形仍然
-//    生效（兜住以后新增的不方字形）—— 但正解永远是改字形。
+// 换库前这里有一张 ICON_INK 表（逐枚登记字形外框与 viewBox）+ 一套换算：长边归一到
+// 21 CSS px、按 viewBox 反比补描边粗细、短边不够就单向 `scale()` 拉伸 —— 因为那套字形
+// 是手绘的，各枚外框极差到 50%（codeforces 24 / gear 22 / files 20 / clock 18 / grid 16），
+// 并排到一条 44px 栏上就读成「大小不一」。
 //
-// ⚠️ 目标值试过四档，全在同一天（统一只能挑一档，挑错就是整栏缩水或胀大）：
-//   20 → 整条栏比改之前小了一圈（原来那套 `size="24"` 的墨迹是 17.9~23.9），用户报「比原来小了」；
-//   24 → 对齐到原来最大的那枚（设置 gear 23.9），比原来还胀一点；
-//   22 → 落在原来那几枚的**中上区间**；
-//   21 → 用户回头再收一档，定稿。比 22 每枚小 1px，四项读数仍齐平，chevron 余量还更宽。
+// Lucide 的字形共用一套 24×24 网格（描边 2、安全边距一致、视觉重量已对齐），
+// 同一个 `size` 下去掉所有补偿反而最齐 —— 所以换算表、拉伸、描边补偿**全部删除**，
+// 栏上的图标不再带任何 transform。这也正是「恢复原样」的那一步。
 //
-// ⚠️ 三件事分开算：
-// 1. 视觉墨迹 = 字形外框 × size/vb + 1.9（描边在 CSS 里恒为 1.9）。
-//    所以要对齐的不是 21 本身，是 `21 − 1.9 = 19.1` 这个「字形外框」——
-//    直接拿 (字形 + 描边) 的比例去缩放会差 1~2%（首版就是这么写的，实测 20.3 vs 19.77）。
-// 2. `vb` 不是恒等于 24：AppIcon 给 cpp / markdown / codeforces 三枚收过框
-//    （codeforces 是 `-2 -2 28 28`），缩放系数按各自的 viewBox 宽算。
-// 3. 实心字形（`solid`: cpp / markdown / codeforces，用 fill 上色不描边）没有描边外扩，
-//    它的外框就是视觉边缘 —— 目标直接取 21，不用减 1.9。
-//
-// 只在本组件里换算、不动 AppIcon 的 VIEWBOX：那里是全局映射，收框会一并改掉
-// 组件菜单 / 设置页等别处的排法。表里没有的图标按原样 24 / 1.9 走（新增面板时不至于错位）。
-const ICON_BASE = 24
-const ICON_STROKE = 1.9
-const ICON_INK_BOX = 21 // 目标墨迹长边（含描边）—— 2026-10-22 用户定的口径，别再随手改
-// 短边下限：短边墨迹不足这个值就单向 scale 拉齐（见上面 ②）。**2026-10-22 结局**：
-// 「全栏见方」试了拉伸、重画各一轮都被否，最后 folders 单独画高成方形、零拉伸在用；
-// cases 标 `keep` 豁免、保持扁宽原样。机制保留作兜底，别再顺手扩大适用面。
-const ICON_MIN_SIDE = ICON_INK_BOX
-// w / h = 字形外框（viewBox 单位，不含描边）。**长边 = max(w, h)**，size 由它算出来。
-// `keep: true` = 天然长条形、**不参与短边拉伸**（见 iconOptics）——files / cases 在
-// AppIcon 里注释写明了：方形化（重画或拉伸）都试过、都被否，形状自然优先于墨迹见方。
-const ICON_INK = {
-  // 资源管理器 = 文件夹（2026-10-22 从文档折角换过来）。三版演进都记在 AppIcon 注释里：
-  // 照抄 folder（20×17）拉伸补高 → 画高 20×20 → 最终用户从对照图里挑了**自画矮盖方**
-  // （外框 20×17.5，盖沿压低、tab 更矮的 mac 风）。h 写 17.5 是字形实情；`keep` 豁免
-  // 短边拉伸 —— 用户嫌拉伸丑，这枚就按近方原样上栏（墨迹 21×18.6，与候选图里看到的一致）。
-  files: { w: 20, h: 17.5, vb: 24, keep: true },
-  cases: { w: 18, h: 14, vb: 24, keep: true },
-  grid: { w: 16, h: 16, vb: 24 },
-  gear: { w: 22, h: 22, vb: 24 },
-  // 以下是可固定到上簇的三颗组件图标（见 services/activityBarPins.js）。
-  // 比赛 = flag、倒计时 = clock（2026-10-25 用户要求把倒计时的 logo 换成圆表盘时钟；
-  // 2026-10-22 那轮换沙漏是为了和 timer 区分形，而比赛改用旗子之后栏上已经没有第二枚圆表盘）。
-  // clock 的字形是 r9 的正圆（3..21），墨迹 18×18、中心正好落在 viewBox 中心，
-  // 所以既不用拉伸（inkW = 21 恰达下限）也不用补视觉重心；算出来
-  // size 25.47 / strokeWidth 1.79，视觉描边仍是 1.9px。
-  // 另两枚 2026-10-22 重画成了方形外框，写多少就是多少。
-  codeforces: { w: 24, h: 24, vb: 28, solid: true },
-  flag: { w: 17.5, h: 17.5, vb: 24 },
-  // clock / timer / hourglass 目前的分工：clock 在栏上（倒计时），另两枚不在栏上但
-  // AppIcon 里还留着 —— timer 给设置里「运行时长」、hourglass 目前没有消费方（留作备选）。
-  // 三行的外框照样是对的，以后有面板拿它们当图标时直接可用。
-  clock: { w: 18, h: 18, vb: 24 },
-  timer: { w: 19, h: 19, vb: 24 },
-  hourglass: { w: 17, h: 17, vb: 24 },
-}
+// 只剩 Codeforces 一枚还要单独算：实心品牌字形，原始 24 网格铺满、viewBox 收过框到 28，
+// 不在 Lucide 里。按 21px 墨迹目标反推 size = 21 × 28 / 24 ≈ 24.5。
+const ICON_SIZE = 23 // 24 网格 + 描边 2 → 视觉墨迹 ≈ (20 + 2) / 24 × 23 ≈ 21px
+const ICON_STROKE = 2 // Lucide 官方描边宽度（viewBox 单位）
+const ICON_CODEFORCES_SIZE = 24.5
 
 function iconOptics(name) {
-  const ink = ICON_INK[name]
-  if (!ink) return { size: ICON_BASE, strokeWidth: ICON_STROKE }
-  const pad = ink.solid ? 0 : ICON_STROKE
-  const target = ICON_INK_BOX - pad
-  const long = Math.max(ink.w, ink.h)
-  const size = (ink.vb * target) / long
-  const k = size / ink.vb // viewBox 单位 → CSS px
-  const inkW = ink.w * k + pad
-  const inkH = ink.h * k + pad
-  const sx = inkW < ICON_MIN_SIDE && !ink.keep ? ICON_MIN_SIDE / inkW : 1
-  const sy = inkH < ICON_MIN_SIDE && !ink.keep ? ICON_MIN_SIDE / inkH : 1
-  const optics = {
-    size: Number(size.toFixed(2)),
-    strokeWidth: Number(((ICON_STROKE * ink.vb) / size).toFixed(2)),
+  return {
+    size: name === 'codeforces' ? ICON_CODEFORCES_SIZE : ICON_SIZE,
+    strokeWidth: ICON_STROKE,
   }
-  // 单向拉伸不补描边：两向的视觉描边会差 0.2~0.3px（横向被拉的一侧略粗），
-  // 21px 墨迹上肉眼无感；真要补也只能补平均，反而让两个方向都不准。
-  if (sx !== 1 || sy !== 1) {
-    optics.style = {
-      transform: `scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`,
-      transformOrigin: 'center',
-    }
-  }
-  return optics
 }
 
 // ------------------------------------------------------------ 两个下拉菜单
@@ -161,6 +90,11 @@ const menuAnchor = ref(null)
 const menuButton = ref(null)
 const compMenuAnchor = ref(null)
 const compMenuButton = ref(null)
+
+// 组件那颗的图标：菜单弹出来时换成「掀盖的箱子」（Lucide `package-open`），
+// 收起时是封好的箱子（`package`）。判据就是 compMenuAnchor 本身 —— 与 aria-expanded
+// 同源，不会出现「图标已经开着、菜单已经关了」。
+const compIcon = computed(() => (compMenuAnchor.value ? 'grid-open' : 'grid'))
 
 let suppressOpen = false
 let suppressCompOpen = false
@@ -304,8 +238,8 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
          各格同形，语义却是两类：面板格点下去**推开侧栏并切面板**，浮层格只开界面、
          不动布局 —— 差别由样式表那几条 `.activity-bar__item--menu` 规则表达
          （不画 chevron、开着时提亮图标；明暗与面板格一致）。
-         图标本身的大小另有一套换算（见上面 iconOptics）—— 各枚字形在各自的 viewBox 里
-         外框差 50%，不换算就一大一小。
+         图标大小由 iconOptics 统一给一个 size（Lucide 共用 24 网格，本来就一样大），
+         只有实心的 Codeforces 那枚单独换算。
          菜单本身是 position: fixed 的浮层（ComponentsMenu），挂在按钮旁边只为就近读，
          不受 .activity-bar 的 overflow: hidden 影响。 -->
     <div class="activity-bar__group activity-bar__group--panels">
@@ -355,7 +289,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
         :aria-expanded="Boolean(compMenuAnchor)"
         @click="toggleCompMenu"
       >
-        <AppIcon name="grid" v-bind="iconOptics('grid')" />
+        <AppIcon :name="compIcon" v-bind="iconOptics(compIcon)" />
       </button>
 
       <ComponentsMenu v-if="compMenuAnchor" :anchor="compMenuAnchor" placement="beside" @close="closeCompMenu" />

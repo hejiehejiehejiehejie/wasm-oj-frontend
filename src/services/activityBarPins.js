@@ -57,9 +57,9 @@ export const COMPONENT_GROUPS = [
         id: 'countdown',
         // 圆表盘时钟（2026-10-25 用户要求：从沙漏换回来）。2026-10-22 当初从 timer 换到沙漏，
         // 理由是「两枚都是圆表盘 + 指针、缩到同一墨迹后分不出来」—— 那说的是 clock / timer
-        // **并排**的情形；现在比赛那一格是 flag（旗子），圆表盘在栏上没有第二个同形字，
-        // 形近问题不存在了。墨迹口径见 ActivityBar 的 ICON_INK（clock 18×18 / vb 24，
-        // 长边照样归一 21，视觉描边 1.9）。
+        // **并排**的情形；现在比赛那一格是 codeforces 的三条竖条，圆表盘在栏上没有第二个同形字，
+        // 形近问题不存在了。图标换成 Lucide 后墨迹口径不再逐枚换算，见 ActivityBar 的
+        // iconOptics（除 Codeforces 外一律同一个 size）。
         icon: 'clock',
         labelKey: 'countdown.title',
         run: openCountdown,

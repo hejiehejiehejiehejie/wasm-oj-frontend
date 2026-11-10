@@ -285,6 +285,8 @@ const elapsedText = computed(() => {
              2026-10-24：与「运行全部」交换左右顺序，提交落在最左。
              2026-10-29：图标从 arrow-up 换成纸飞机 send —— 箭头与「把输出誊进期望」
              那颗同形，且只表达「朝上」；纸飞机的「发送出去」更贴提交。
+             2026-11-11：又换回箭头，但换成 arrow-up-from-line（箭头 + 底线）—— 用户指定；
+             底线把「交上去 / 落到底」这层意思补上，也就与「誊进期望」那颗光箭头区分开了。
              2026-11-10：悬停说明改由 AppTooltip 自绘气泡承担（见脚本 submitTitle 那段），
              不再挂原生 title —— 原生那条在这颗图标钮上悬不出来，用户对照「运行全部」报的。 -->
         <AppTooltip v-if="showSubmit" class="submit-wrap" :text="submitTitle">
@@ -295,7 +297,7 @@ const elapsedText = computed(() => {
             :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
             @click="emit('submit')"
           >
-            <AppIcon name="send" :size="12" />
+            <AppIcon name="arrow-up-from-line" :size="12" />
           </button>
         </AppTooltip>
         <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
