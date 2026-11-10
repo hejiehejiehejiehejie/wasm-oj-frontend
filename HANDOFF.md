@@ -5166,3 +5166,67 @@ return text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, (c) => showBlank(c))  // 否则�
 | 静默段悬停后：`color` 变 WA 红、`shadow: none`、`deco: underline` | 三项都成立 |
 
 `npm run lint` exit 0、`npx vite build --outDir /tmp` 通过。探针已删。
+
+## 41. 删标签页组时，包络线要跟组一起消失（2026-11-10）
+
+用户：「删除标签页组的时候，绘制出的彩色线条消失的时间比标签页组消失有一点延迟」。
+
+### 41.1 真因：滞后期是**一整个 FLIP**，不是一帧
+
+包络线（`groupLines`）是「量 DOM → 写 ref → 渲染 `<g>`」的派生数据，而**删除标签页组会连带
+关掉整组页签**（`closeGroup` = 逐张 `closeTab` → `ungroup`），兄弟页签要走一段 180ms 的
+`.tab-move` 补位。`scheduleGroupLineMeasure` 在 FLIP 期间**一律不量**（那条注释解释过：量了
+就会写 ref → 重渲染 → 又把 FLIP 搅动一遍，永远收敛不了）。于是：
+
+| 时刻 | 芯片 / 组员 | 包络线 |
+| --- | --- | --- |
+| t≈0 | 加上 `-leave-active`，`opacity` 当场归 0（`.tab-move` 的 `transition: transform` 覆盖了离场那条，淡出其实并不发生） | 还在，全不透明 |
+| t≈120ms | 视觉上早已消失 | 还在 |
+| t≈192ms | 移出 DOM、`tab-move` 摘掉 | 仍在（这一次 DOM 变动才会重排测量） |
+| t≈208ms | — | 消失 |
+
+改前探针实测：`t=8.7ms lines=1`（`moves=4`）→ `t=192.6ms` 芯片出 DOM、`lines` 仍是 1 →
+`t=208.6ms` 才 `lines=0`。滞后 ≈ 190ms，用户读成「线比组慢一拍」。
+
+### 41.2 修法：两层过滤，各管一半
+
+```diff
+ const groupLines = ref([])
+ const glineWidth = ref(0)
++const aliveGroupIds = computed(() => new Set(tabGroups.tabGroups.groups.map((g) => g.id)))
++const visibleGroupLines = computed(() =>
++  groupLines.value.filter((line) => aliveGroupIds.value.has(line.id)),
++)
++const visibleGlineWidth = computed(() => (visibleGroupLines.value.length ? glineWidth.value : 0))
++
++function isLeaving(el) {
++  return el.classList.contains('tab-leave-active') ||
++    el.classList.contains('tab-instant-leave-active')
++}
+```
+
+- **渲染期过滤（`visibleGroupLines`）**：组从 `tabGroups.groups` 里一消失（解散 / 关闭整组 /
+  删光成员），线在**同一次 patch** 里跟着芯片与组员一起退场 —— 不等 FLIP，不等测量。
+- **测量期过滤（`isLeaving`）**：芯片与组员在 120ms 的离场里仍挂在 DOM 上、仍带着
+  `data-group-id`，量进去的话下一次测量会把这条线**又画回来**。跳过后顺带修好另一件事：
+  组内关掉一张页签时，线的右端当轮就收到新组尾，不会先包着残影、等 FLIP 结束再跳一下。
+- **宽度**：没有线可画时 SVG 宽度取 0。它虽是 `absolute` 不占 flex 位，但上一次的宽度会留在
+  元素上（实测 241px），留着就白撑一小段横向滚动行程。
+
+模板只把 `v-for` 与 `width` 换成这两个 computed，别的地方一个字没改。
+
+### 41.3 验收（`/tmp` 探针 + dev server + 无头 Chrome，1400×900、深色、`uiScale=1`）
+
+| 断言 | 改前 | 改后 |
+| --- | --- | --- |
+| 删组那一帧起 `lines` 就归零 | 192→208ms 才归零 | **t=16.7ms**（与芯片加 `-leave-active` 同一帧） |
+| 删组后 `svgW` | 241 滞留到 208ms | 0，同帧 |
+| 建组仍有一行线、路径 3 条（含两只脚） | ✓ | ✓ |
+| 换色：`stroke` 跟着 `--group-c` 变 | ✓ | ✓ |
+| 折叠 → `lines=0` / 展开 → `lines=1` | ✓ | ✓ |
+| 组内关掉一张：线仍在、包络宽度 215.1 → 116.7 | ✓ | ✓ |
+| 取消分组：线与芯片同帧消失（t=23.4ms） | 滞后 | ✓ |
+| 两个组删掉左边那个：剩下那条线 `x` 与芯片左缘对齐（Δ0） | ✓ | ✓ |
+| 重建组 | ✓ | ✓ |
+| `npm run verify` | A–H 全 PASS | A–H 全 PASS（`ERR_CACHE_MISS` 是既有噪声） |
+| `npm run lint` / 页面报错 | 只有存量提示 | 只有存量提示 / none |

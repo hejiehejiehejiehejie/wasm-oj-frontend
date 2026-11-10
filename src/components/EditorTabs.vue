@@ -748,6 +748,25 @@ const GROUP_LINE_R = 8
 const TAB_RAISE = 2.5
 const groupLines = ref([])
 const glineWidth = ref(0)
+
+/**
+ * 只画「`tabGroups` 里还存在的组」的线。**这一层不能省，也不能只靠下一轮测量**：
+ * 删除标签页组（`closeGroup` → 逐张 closeTab → `ungroup`）会顺手关掉整组页签，兄弟页签
+ * 的 FLIP（`.tab-move`）要跑 180ms，而 `scheduleGroupLineMeasure` 在 FLIP 期间一律不量
+ * （见那里的说明）—— 于是一条**已经不存在的组**的线会滞留整整一个 FLIP，实测点击后
+ * 192ms 才消失（芯片 120ms 就淡完了），用户读到的正是「彩色线条比组慢一拍」。
+ * 放在渲染期过滤，线与芯片、组员落在**同一次 patch** 里退场；`measureGroupLines` 里那份
+ * isLeaving 过滤负责另一半：残影还在 DOM 上时，别让下一次测量把这条线又画回来。
+ */
+const aliveGroupIds = computed(() => new Set(tabGroups.tabGroups.groups.map((g) => g.id)))
+
+const visibleGroupLines = computed(() =>
+  groupLines.value.filter((line) => aliveGroupIds.value.has(line.id)),
+)
+
+/** 没有线可画时 SVG 不占宽：它是条带的子元素，留着上一次的宽度会白白撑出横向滚动行程 */
+const visibleGlineWidth = computed(() => (visibleGroupLines.value.length ? glineWidth.value : 0))
+
 /** 上一次测量结果的签名。**必须比对后再写 ref**：groupLines 每次赋新数组都会触发组件
  *  重渲染，而 TransitionGroup 的 onUpdated 又会往条带上 append/remove 一个探测用克隆
  *  （hasCSSTransform），那是一次新的 DOM 变动 → MutationObserver → 再测量 → 再渲染
@@ -755,6 +774,20 @@ const glineWidth = ref(0)
  *  （2026-10-20 实测 1.2s 内 761 次 childList 变更，页签的 FLIP 过渡被它冻死在第一帧，
  *  currentTime 永远停在 0）。签名不变就不写 ref，循环在一轮后自然断掉。 */
 let glineSig = ''
+
+/**
+ * 这个元素是不是正在退场（TransitionGroup 的离场过渡里，它还留在 DOM 上，带 `-leave-active`）。
+ * 包络线**不认退场元素**：被关掉的页签、被删掉的组在 120ms 的淡出里仍然挂着自己的
+ * data-group-id，把它们量进去，线就会跟着那半透明的残影多留一会儿。跳过的直接后果是
+ * 「组一删、线当场跟着组员一起退场」，而不是等残影散尽。
+ * @param {Element} el
+ */
+function isLeaving(el) {
+  return (
+    el.classList.contains('tab-leave-active') ||
+    el.classList.contains('tab-instant-leave-active')
+  )
+}
 
 function measureGroupLines() {
   const strip = rootEl.value?.querySelector('.editor-tabs__strip')
@@ -799,10 +832,12 @@ function measureGroupLines() {
   for (const chip of strip.querySelectorAll('.editor-tabs__chip[data-group-id]')) {
     // 折叠组不画（用户口径「展开之后才有下划线」；成员都 display:none，也量不到）
     if (chip.classList.contains('editor-tabs__chip--collapsed')) continue
+    // 退场中的芯片是「已经删掉的组」的残影（见 isLeaving）
+    if (isLeaving(chip)) continue
     const gid = chip.dataset.groupId
     let members = [
       ...strip.querySelectorAll(`.editor-tabs__item[data-group-id="${gid}"]`),
-    ].filter((el) => !el.classList.contains('is-group-hidden'))
+    ].filter((el) => !el.classList.contains('is-group-hidden') && !isLeaving(el))
     if (dragEl) {
       members = members.filter((el) => el !== dragEl)
       if (liveGroup.value === gid) members.push(dragEl)
@@ -1206,10 +1241,10 @@ function onTabEnter(el) {
       <svg
         key="group-lines"
         class="editor-tabs__gline"
-        :style="{ width: `${glineWidth}px` }"
+        :style="{ width: `${visibleGlineWidth}px` }"
         aria-hidden="true"
       >
-        <g v-for="line in groupLines" :key="line.id" :style="{ '--group-c': line.colorVar }">
+        <g v-for="line in visibleGroupLines" :key="line.id" :style="{ '--group-c': line.colorVar }">
           <path v-for="(fd, i) in line.fills" :key="i" class="editor-tabs__gline-fill" :d="fd" />
           <path class="editor-tabs__gline-stroke" :d="line.d" />
         </g>
