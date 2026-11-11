@@ -624,6 +624,35 @@ function focusRowAt(el, extend) {
   background: var(--bg-hover);
 }
 
+/* 浅色方案专用（2026-11-12 加）：面板 --bg-panel 是 #f4f4f4，而悬停 --bg-hover-soft 只比它
+   深 7 阶、选中 --bg-hover 只深 12 阶 —— 用户报「资源管理器里选中的文件、以及指针停在文件上
+   的高亮，颜色都太浅了」，实机上确实几乎看不出选中了哪一行。
+   深色那对相对面板是 +7 / +21，浅色这一支按同样的相对关系再抬一档：悬停约 −20 阶、
+   选中约 −35 阶，亮度差翻倍之后才读得出。
+   用 color-mix 掺黑而不是写死灰度：paper / leaf / mist 也走 light scheme，各有自己的暖 / 绿 /
+   蓝底色，掺黑能保留色相，写死 #d8d8d8 会让它们变灰。
+   ⚠️ **不动** base.css 的 --bg-hover / --bg-hover-soft：那两支还被按钮、面板标题等处共用，
+   这里只覆盖文件树的这两条状态。
+   ⚠️ `:root[data-scheme='light']:where(html.is-hoverable)` 中间**不能有空格**：这些选择器
+   共用一条「第一个复合选择器是 html 自己」的约定，一旦空格隔开，`:where(html.is-hoverable)`
+   就成了 `:root` 的后代 —— 而 <html> 永远不是自己的后代，整条规则永不命中（2026-11-12 踩过：
+   悬停那一条死活不生效，选中那一条却好着，因为后者不带这个闸门）。 */
+:root[data-scheme='light']:where(html.is-hoverable) .tree-item__row:hover {
+  background: color-mix(in srgb, var(--bg-hover-soft) 94%, black);
+}
+
+:root[data-scheme='light'] .tree-item__row--active,
+:root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active:hover {
+  background: color-mix(in srgb, var(--bg-hover) 87%, black);
+}
+
+/* 触屏长按的两条同色（进度条终点 / 就绪底色）：它们原本取 --bg-hover，浅色下会比上面新的
+   悬停色还浅，长按走到一半会「回亮」一下。特异性 (0,4,0) 压得住 (0,2,0) 的那两条。 */
+:root[data-scheme='light'] .tree-item__row.tree-item__row--pressing,
+:root[data-scheme='light'] .tree-item__row.tree-item__row--armed {
+  background: color-mix(in srgb, var(--bg-hover) 87%, black);
+}
+
 /* 正在被拖的那一行 */
 .tree-item__row--dragging {
   opacity: 0.5;
