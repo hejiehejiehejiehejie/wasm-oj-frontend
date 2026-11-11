@@ -287,6 +287,12 @@ const elapsedText = computed(() => {
              那颗同形，且只表达「朝上」；纸飞机的「发送出去」更贴提交。
              2026-11-11：又换回箭头，但换成 arrow-up-from-line（箭头 + 底线）—— 用户指定；
              底线把「交上去 / 落到底」这层意思补上，也就与「誊进期望」那颗光箭头区分开了。
+             2026-11-12：换成 upload（箭头 + 托盘）—— 用户指定，托盘的方框比一根底线更像
+             「交到一个地方去」，与光箭头 arrow-up 也更容易分开。
+             **尺寸 13 是算出来的**：右边「运行全部」的 play 用 14，但两枚字形占的格数不同 ——
+             play 只占 16×18（viewBox 单位），upload 铺满 18×18，同样 14 下 upload 的墨迹会宽
+             1.1px、看着比 ▶ 大一圈。取 13 后 DSF8 实测墨迹 11.0×10.9，对着 play@14 的
+             10.6×11.75 是同档（宽 0.4、矮 0.9），并排看不出谁大谁小。
              2026-11-10：悬停说明改由 AppTooltip 自绘气泡承担（见脚本 submitTitle 那段），
              不再挂原生 title —— 原生那条在这颗图标钮上悬不出来，用户对照「运行全部」报的。 -->
         <AppTooltip v-if="showSubmit" class="submit-wrap" :text="submitTitle">
@@ -297,7 +303,7 @@ const elapsedText = computed(() => {
             :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
             @click="emit('submit')"
           >
-            <AppIcon name="arrow-up-from-line" :size="12" />
+            <AppIcon name="upload" :size="13" />
           </button>
         </AppTooltip>
         <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
