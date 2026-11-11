@@ -262,6 +262,9 @@ function onMouseDown(event, id) {
    offsetLeft / offsetTop 相对的是 .editor-tabs__strip（它已设为 position: relative）。
    预览页签被顶替是例外，走瞬时切换，见下面的 instantSwap。 */
 function onTabBeforeLeave(el) {
+  // 顶替是瞬时换人：退场节点由 .tab-instant-leave-active 直接 display: none，
+  // 不必（也不该）再量一次几何 —— 那是一次同步回流，量出来的结果没人用。
+  if (instantSwap.value) return
   el.style.left = `${el.offsetLeft}px`
   el.style.top = `${el.offsetTop}px`
   el.style.width = `${el.offsetWidth}px`
@@ -1131,8 +1134,14 @@ watch(
     )
     swapFromWidth = outdated?.offsetWidth ?? 0
     instantSwap.value = true
-    nextTick(() => {
-      instantSwap.value = false
+    // 复位必须跨过**一次绘制**：整段过渡期间 `:name` 都得是 tab-instant（它没有 -move
+    // 规则，Vue 因而跳过 move-FLIP，宽度过渡才不会被抢走）。nextTick 落在同一批微任务
+    // 里 —— 浏览器还没画就已经改回来了，属于「靠巧合正确」（enter/leave 的类名在 patch
+    // 那一刻就定死了，所以现在没坏）。两帧 rAF 才是「第一帧画完、再复位」。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        instantSwap.value = false
+      })
     })
   },
 )
@@ -1150,7 +1159,12 @@ function onTabEnter(el) {
   if (!instantSwap.value || !swapFromWidth) return
   const naturalWidth = el.offsetWidth
   if (!naturalWidth || naturalWidth === swapFromWidth) return
-  el.style.overflow = 'hidden'
+  // ⚠️ 这里**不能**给容器加 overflow: hidden（2026-11-12 用户反馈「切换时页签脚部的圆角
+  // 消失」）。顶替落地的新页签基本就是激活签，而它那两只 Chrome 风格的脚
+  // （`.editor-tabs__item--active::before/::after`）是**画在盒子外面**的，left/right: -8px、
+  // 8×8。容器一裁切，这 220ms 里两道凹弧整段不见，切换看着就像「圆角被吃掉又长回来」。
+  // 宽度收窄时的文字截断本来就不靠外层：`.editor-tabs__label` 自己带 overflow: hidden +
+  // ellipsis + max-width，且 overflow≠visible 让它的 flex 最小尺寸归零，会正常让位。
   el.style.width = `${swapFromWidth}px`
   // 先让「起始宽度」落定，下一帧再上 transition 并改成自然宽度，过渡才会发生
   void el.offsetWidth
@@ -1160,7 +1174,6 @@ function onTabEnter(el) {
     el.style.width = `${naturalWidth}px`
     window.setTimeout(() => {
       el.style.transition = ''
-      el.style.overflow = ''
       el.style.width = ''
     }, 220)
   })
@@ -2191,5 +2204,9 @@ function onTabEnter(el) {
 .tab-instant-leave-active {
   position: absolute;
   opacity: 0;
+  /* 顶替是「这一格换了个人」，旧节点当帧就得让开：留它在原地会继续参与命中测试
+     （新页签出来的头几十毫秒里点不动），也让人分不清是「换人」还是「关一个开一个」。
+     display: none 也算不出过渡时长，Vue 会当帧结束 leave 并摘掉节点。 */
+  display: none;
 }
 </style>

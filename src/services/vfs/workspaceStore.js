@@ -381,13 +381,50 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   // 这一支 activeId 一定会变（下面那次赋值），editorViews 的 watch 也会兜一次 ——
   // 两条路都走得到，重复调用是无害的（只改视图的 active 标志）。
   codeViewIntent.show?.()
-  // 顶替上一个预览页签：走 closeTab 才顺带 release model（refs 归零即 dispose）
-  if (preview && workspace.previewTabId && workspace.previewTabId !== id) {
-    closeTab(workspace.previewTabId)
-  }
+
+  // ① 先把 model 备好，**这一段不许碰任何响应式状态**。
+  //
+  // getModel 是新文件唯一真正异步的一步（要 vfs.readFile 读正文）。它原先排在
+  // 「顶掉旧预览页签」之后，一次 await 就把一次顶替劈成两次渲染：closeTab 引发的
+  // 「条带少一格」先落地（Vue 的 flush 是微任务，await 一让出就执行），push 引发的
+  // 「条带多一格」后落地。屏幕上于是是旧页签淡出、新页签再淡入；而 EditorTabs 那条
+  // 「长度不变 + 只有一处 id 不同 = 预览顶替」的判据两次都不命中（长度分别是 -1、+1），
+  // instantSwap 成了死代码。
+  // 提到最前面之后，下面整段落在一个同步调用栈里，Vue 只渲染一次。
   await modelManager.getModel(node)
+
+  // 等读盘这期间，同一个文件可能已经被另一次点击打开了（连点两下）：别再 push 一次
+  if (workspace.openTabIds.includes(id)) {
+    workspace.activeId = id
+    revealId(id)
+    return
+  }
+
   modelManager.retain(id)
-  workspace.openTabIds.push(id)
+
+  // ② 顶替预览槽：**原位换人**，不走 closeTab。
+  //
+  // closeTab 的语义是「关掉一张页签」，会连带把焦点交给邻居（closeFocus.pick）、往 MRU
+  // 记一笔 —— 对顶替来说这两件都是噪声：编辑器会先切到邻居再切回来（屏幕上闪一下别的
+  // 文件），条带也多播一次关闭动画。这里只做一件事：这一格换了个人，长度与位置都不动。
+  //
+  // 现读 previewTabId、不用 await 之前的快照：连点两个文件时两次续体依次落地，各自按
+  // **当时**的槽位接力，最后停下的是最后一次点的那个 —— 比拿 token 丢弃旧请求安全
+  //（丢弃时那次已经建好的 model 没 retain 也没进 tabs，会留下无引用的孤儿）。
+  const replacedId =
+    preview && workspace.previewTabId && workspace.previewTabId !== id
+      ? workspace.previewTabId
+      : null
+  const replacedAt = replacedId ? workspace.openTabIds.indexOf(replacedId) : -1
+  if (replacedId && replacedAt !== -1) {
+    // 预览页签理论上是干净的（编辑即钉住，见下面那条 watch），这里只是兜底：
+    // 与 closeTab 同一口径 —— 开关开着就先落盘，再释放 model。
+    if (isAutoSaveEnabled() && modelManager.isDirty(replacedId)) void modelManager.save(replacedId)
+    workspace.openTabIds.splice(replacedAt, 1, id)
+    modelManager.release(replacedId)
+  } else {
+    workspace.openTabIds.push(id)
+  }
   workspace.activeId = id
   if (preview) workspace.previewTabId = id
   revealId(id)

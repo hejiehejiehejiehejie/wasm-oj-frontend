@@ -44,22 +44,58 @@ export function isViewId(id) {
  */
 export const stripOrder = reactive([])
 
-/** 文件侧的成员同步：只处理增删，已有成员的位置保持 stripOrder 的现状 */
-function syncFiles(ids) {
+/**
+ * 文件侧上一次的成员快照：用来认出「一出一进、且新 id 顶的正是旧 id 那一格」——
+ * 那是预览页签被顶替（见 workspaceStore.openFile 的原位替换），要**原位换人**。
+ * 若照旧按「新开的贴到最右」处理，条带会跳一下（预览页签左边站着视图页签时尤其明显）。
+ * @type {string[]}
+ */
+let lastFileIds = []
+
+/**
+ * 文件侧的成员同步：只处理增删，已有成员的位置保持 stripOrder 的现状。
+ * @param {string[]} ids 新的 openTabIds
+ * @param {string[]} prevIds 上一次的 openTabIds（只用来认顶替，见 swappedOut）
+ */
+function syncFiles(ids, prevIds) {
+  const movedOut = prevIds.filter((id) => !ids.includes(id))
+  const movedIn = ids.filter((id) => !prevIds.includes(id))
+  // 顶替的判据：恰好一出一进，且新 id 在 openTabIds 里的下标与被顶掉的那个相同。
+  // 普通「关一个再开一个」新 id 追加在末尾，下标对不上，不会误命中。
+  const swappedOut =
+    movedOut.length === 1 &&
+    movedIn.length === 1 &&
+    !isViewId(movedOut[0]) &&
+    ids.indexOf(movedIn[0]) === prevIds.indexOf(movedOut[0])
+      ? movedOut[0]
+      : null
+
+  // 1) 删：不在 ids 里的文件页签摘掉，顺手记下被顶掉那一格在条带上的位置
+  let swapAt = -1
   for (let i = stripOrder.length - 1; i >= 0; i -= 1) {
     const id = stripOrder[i]
-    if (!isViewId(id) && !ids.includes(id)) stripOrder.splice(i, 1)
+    if (isViewId(id) || ids.includes(id)) continue
+    if (id === swappedOut) swapAt = i
+    stripOrder.splice(i, 1)
   }
-  // 新开的按 openTabIds 的次序排：**最后一位直接贴到条带最右端**（越过视图页签），
-  // 其余贴到「前一位文件页签」右边。常规打开（openFile / 预览顶替 / 题目导入）都是 push 到
+
+  // 2) 增：新开的按 openTabIds 的次序排：**最后一位直接贴到条带最右端**（越过视图页签），
+  // 其余贴到「前一位文件页签」右边。常规打开（openFile / 题目导入）都是 push 到
   // openTabIds 末尾，于是新页签总在用户眼皮底下的最右边；若照旧按「前一位文件」插，条带
   // 末尾常站着视图页签（设置 / 抽题 / 比赛），新页签会插到它前面、看着像从中间冒出来。
+  // 顶替那一格是唯一例外：还回原位（见 swappedOut）。
   let cursor = -1
   for (let k = 0; k < ids.length; k += 1) {
     const id = ids[k]
     const at = stripOrder.indexOf(id)
     if (at !== -1) {
       cursor = at
+      continue
+    }
+    if (swappedOut && id === movedIn[0] && swapAt !== -1) {
+      const target = Math.min(swapAt, stripOrder.length)
+      stripOrder.splice(target, 0, id)
+      cursor = target
       continue
     }
     if (k === ids.length - 1) {
@@ -83,7 +119,17 @@ function syncViews(ids) {
   }
 }
 
-watch(() => [...workspace.openTabIds], syncFiles, { immediate: true })
+// 成员同步要拿到「上一份」openTabIds 才能认出顶替（见 syncFiles 的 swappedOut），
+// 所以这里自己留一份快照 —— watch 的回调只有新值。
+watch(
+  () => [...workspace.openTabIds],
+  (next) => {
+    const prev = lastFileIds
+    lastFileIds = next
+    syncFiles(next, prev)
+  },
+  { immediate: true },
+)
 watch(() => [...viewOrder], syncViews, { immediate: true })
 
 /**
