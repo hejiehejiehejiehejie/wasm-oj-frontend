@@ -15,8 +15,6 @@ export default {
         /** 设置 › 应用 里的分区标题 */
         group: '组件',
         title: 'Codeforces',
-        /** 图标右上角那枚小标签：这个组件仍在测试中 */
-        testing: '测试',
         idleHint: '按难度与标签抽题；题库约 2MB，仅下载一次',
         downloadTitle: '下载 / 重试 Codeforces 题库',
         /** 卸载：与运行环境那三行共用同一颗确认弹窗，所以要的也是这两个 key
@@ -408,8 +406,6 @@ export default {
       module: {
         group: 'Components',
         title: 'Codeforces',
-        /** 同 zh-CN：图标右上角那枚小标签 */
-        testing: 'Beta',
         idleHint: 'Random problems by difficulty and tags; the problem bank (~2MB) is downloaded once',
         downloadTitle: 'Download / retry the Codeforces problemset',
         /** 同 zh-CN：卸载走运行环境那颗共用弹窗，要的也是这两个 key */

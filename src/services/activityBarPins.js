@@ -41,8 +41,6 @@ export const COMPONENT_GROUPS = [
         id: 'codeforces',
         icon: 'codeforces',
         labelKey: 'cf.view.title',
-        /** 组件菜单在那格图标上挂一枚「测试」小标签（2026-10-27） */
-        testing: true,
         run: openCodeforcesTab,
         available: () => cfReady.value,
         active: () => codeforcesTab.active,

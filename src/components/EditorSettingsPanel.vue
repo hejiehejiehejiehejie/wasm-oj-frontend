@@ -3403,12 +3403,10 @@ watch(pendingUnbind, (open) => {
         <div class="runtime-list">
           <!-- Codeforces（2026-10-27 合并）：随机抽题与比赛在组件菜单里已是同一格，
                磁盘上也是**一份资产**（同一份题库、同一个 cfReady），设置这边同样只留一行 ——
-               「下载」与「卸载」都挂在这一行。
-               图标右上角那枚「测试」小标签：这个组件还在测试中。 -->
+               「下载」与「卸载」都挂在这一行。 -->
           <div class="runtime-row">
             <span class="runtime-row__icon is-codeforces">
               <AppIcon name="codeforces" :size="17" />
-              <span class="runtime-row__tag">{{ t('cf.module.testing') }}</span>
             </span>
             <span class="runtime-row__text">
               <span class="runtime-row__title">{{ t('cf.view.title') }}</span>
@@ -4025,7 +4023,6 @@ watch(pendingUnbind, (open) => {
           >
             <span class="bento-item__icon is-codeforces"><AppIcon name="codeforces" :size="16" /></span>
             <span class="bento-item__label">{{ t('cf.view.title') }}</span>
-            <span class="bento-item__tag">{{ t('cf.module.testing') }}</span>
             <button
               type="button"
               class="switch"
@@ -4960,25 +4957,6 @@ watch(pendingUnbind, (open) => {
   background: transparent;
 }
 
-/* 「测试」小标签（2026-10-27）：贴在图标方块右上角，标识这一组件仍在测试中。
-   字小、不抢戏，但要让「这个功能和别的不一样」一眼看得出来。 */
-.runtime-row__tag {
-  position: absolute;
-  top: -6px;
-  right: -7px;
-  padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-panel);
-  color: var(--text-dim);
-  font-size: 9px;
-  line-height: 1.5;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 /* 语言标志用各自的官方色，其它图标仍跟随主题文字色 */
 .runtime-row__icon.is-cpp {
   color: var(--icon-cpp);
@@ -5556,21 +5534,6 @@ a.download-button {
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
-}
-
-/* 「测试」小角标：跟默认安装卡片里的 Codeforces 一起走 */
-.bento-item__tag {
-  flex: 0 0 auto;
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-control);
-  color: var(--text-dim);
-  font-size: 9px;
-  line-height: 1.5;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
 /* 主按钮：实心 accent，与旁边描边的次要按钮（下载 / 解绑）一眼分开 */

@@ -139,9 +139,6 @@ watch(ready, (shown) => {
                    dpr 3 更明显（18% → 9%）。非整数 dpr（系统缩放 125% / 150%）下两者一样，
                    那是浏览器光栅化的固有限制。 -->
               <AppIcon :name="item.icon" :size="24" />
-              <!-- 仍在测试中的组件（眼下只有 Codeforces）：图标右上角挂一枚小标签。
-                   aria-hidden 的容器里，读屏只念下面那行组件名，不会把这枚标签当名字。 -->
-              <span v-if="item.testing" class="components-menu__tag">{{ t('cf.module.testing') }}</span>
             </span>
             <span class="components-menu__label">{{ item.label }}</span>
           </button>
@@ -250,24 +247,6 @@ watch(ready, (shown) => {
   border-radius: calc(10px * var(--menu-scale));
   background: var(--menu-tile-bg);
   color: var(--menu-text);
-}
-
-/* 「测试」小标签：贴在图标方块右上角，与设置页那枚同语言（2026-10-27）。
-   尺寸也跟 --menu-scale 走 —— 组件菜单里所有尺寸都只从这里缩放（见文件头）。 */
-.components-menu__tag {
-  position: absolute;
-  top: calc(-7px * var(--menu-scale));
-  right: calc(-7px * var(--menu-scale));
-  padding: 0 calc(4px * var(--menu-scale));
-  border: 1px solid var(--menu-border);
-  border-radius: calc(4px * var(--menu-scale));
-  background: var(--menu-bg);
-  color: var(--menu-text);
-  font-size: calc(10px * var(--menu-scale));
-  line-height: 1.5;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
 :where(html.is-hoverable) .components-menu__item:hover .components-menu__tile,
