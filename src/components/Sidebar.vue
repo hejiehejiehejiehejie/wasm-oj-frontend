@@ -42,12 +42,17 @@ const emit = defineEmits(['collapse'])
 // 侧边栏里的两个面板。数组顺序就是页头胶囊里两段的顺序。
 // 只存 key：翻译必须发生在渲染那一刻（见 i18n 的调用纪律），下面的两个 computed 负责 t()。
 // labelKey 是全称（title / aria-label 用），shortLabelKey 是胶囊段位上图标旁的短标签。
+// iconActive 是「这一栏正开着」时的图标（可选，2026-11-12 加）：资源管理器开着一枚
+// 掀盖的文件夹（Lucide `folder-open`），与组件那颗的 grid / grid-open 是同一套语言。
+// ⚠️ 折叠态那条图标栏（ActivityBar）**不吃** iconActive：那时侧栏整个收着、面板并没有
+// 打开，它照旧画合着的 folder —— 见 SidebarSwitcher 里选图标那一处。
 const PANEL_TABS = [
   {
     id: 'explorer',
     labelKey: 'app.sidebar.explorer',
     shortLabelKey: 'app.sidebar.explorerShort',
     icon: 'files',
+    iconActive: 'folder-open',
   },
   {
     id: 'tests',
@@ -74,7 +79,12 @@ if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'ex
 // 设置那颗独立：它开关的是编辑区里的合成页签，与面板互不排斥（见第 5 节坑 7），
 // 不进胶囊（进同一个胶囊就暗示它也是面板之一，且是同一个单选组）。
 const panels = computed(() =>
-  PANEL_TABS.map((tab) => ({ ...withLabel(tab), active: tab.id === activeTab.value })),
+  PANEL_TABS.map((tab) => ({
+    ...withLabel(tab),
+    active: tab.id === activeTab.value,
+    // 打开态图标一次性补齐：消费方只判 `active ? iconActive : icon`，不再自己查表
+    iconActive: tab.iconActive ?? tab.icon,
+  })),
 )
 
 // 胶囊上要写的是「将要去的那一个」：整枚是一个动作按钮，文案得说清点下去会去哪

@@ -37,10 +37,15 @@ import ComponentsMenu from './ComponentsMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { t } from '../i18n/index.js'
 import { onViewportChange } from '../composables/useMobileKeyboard.js'
+import { useGearSpin } from '../composables/useGearSpin.js'
 import { panelPosition } from '../services/shellSettings.js'
 
 const { panels, targetPanel, togglePanel, settings, components, collapse, compact } =
   inject('sidebarTabs')
+
+// 齿轮点一下转 120°（2026-11-12 用户要求，时长与曲线见 useGearSpin 头注释）。
+// 绑在图标上而不是按钮上：按钮还有「填亮＝设置页签开着」的蓝底，别跟着转。
+const { spin: spinGear, style: gearSpinStyle } = useGearSpin()
 
 // 指示块的位置信号：当前面板的 id 直接写在 pill 的 data-active 上，
 // CSS 按它给指示块写 translateX（见样式表）。无头回归另读段上的 data-current。
@@ -75,6 +80,8 @@ function toggleMenu() {
     suppressOpen = false
     return
   }
+  // 转一格：开、关都转。拦掉的那一发不算（什么都没变，见 useGearSpin 头注释）
+  spinGear()
   if (menuAnchor.value) {
     closeMenu()
     return
@@ -217,7 +224,10 @@ const HEAD_ICON_SIZE = 19
         :data-panel="panel.id"
         :data-current="panel.active ? 'true' : null"
       >
-        <AppIcon :name="panel.icon" size="16" />
+        <!-- 图标跟着「这一段是不是当前面板」走：资源管理器开着时是掀盖的文件夹
+             （`folder-open`），收起时是合着的 `folder`（2026-11-12 用户要求）。
+             折叠态那条图标栏不这样切，理由见 Sidebar 的 PANEL_TABS 注释 -->
+        <AppIcon :name="panel.active ? panel.iconActive : panel.icon" size="16" />
         <span v-if="!compact" class="sidebar-switcher__label">{{ panel.shortLabel }}</span>
       </span>
     </button>
@@ -250,7 +260,7 @@ const HEAD_ICON_SIZE = 19
       :aria-expanded="Boolean(menuAnchor)"
       @click="toggleMenu"
     >
-      <AppIcon :name="settings.icon" :size="HEAD_ICON_SIZE" />
+      <AppIcon :name="settings.icon" :size="HEAD_ICON_SIZE" :style="gearSpinStyle" />
     </button>
 
     <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="below-end" @close="closeMenu" />
@@ -359,7 +369,9 @@ const HEAD_ICON_SIZE = 19
 
 /* 「文件」段的文件夹：Lucide 的 folder 墨迹在 24 viewBox 里是 y 3→20，重心只比网格中心
    高 0.5 个单位（16px 下 0.3px），居中即可。旧字形自己画到 4.5~22 才需要补 -1px，
-   换库后那条 transform 已删 —— 图标不做任何移位。 */
+   换库后那条 transform 已删 —— 图标不做任何移位。
+   打开态那枚 `folder-open` 的墨迹是 x 2→21.94、y 3→19.5（重心 y 11.25，比 folder 低
+   0.25 个单位）：与合着的 folder 同一档大小，切换时不会忽大忽小，同样不需要补偿。 */
 
 .sidebar-switcher__label {
   font-size: 12px;

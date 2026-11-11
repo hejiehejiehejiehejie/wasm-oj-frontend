@@ -34,6 +34,7 @@ import ComponentsMenu from './ComponentsMenu.vue'
 import ContextMenu from './ContextMenu.vue'
 import SettingsMenu from './SettingsMenu.vue'
 import { isTouchPointer, onViewportChange } from '../composables/useMobileKeyboard.js'
+import { useGearSpin } from '../composables/useGearSpin.js'
 import { t } from '../i18n/index.js'
 import {
   availableComponents,
@@ -82,6 +83,10 @@ function iconOptics(name) {
   }
 }
 
+// 贴底那颗齿轮点一下转 120°（2026-11-12 用户要求）：与侧栏页头那颗是同一个动作，
+// 时长与曲线都从 useGearSpin 取，两边不会各写一份。绑在图标上、不绑按钮。
+const { spin: spinGear, style: gearSpinStyle } = useGearSpin()
+
 // ------------------------------------------------------------ 两个下拉菜单
 // 齿轮弹 SettingsMenu、组件那颗弹 ComponentsMenu，机制与侧栏页头同款。
 // 菜单在捕获阶段用 pointerdown 收自己，所以点按钮想关菜单时会先被那一层收掉、
@@ -109,6 +114,8 @@ function toggleMenu() {
     suppressOpen = false
     return
   }
+  // 与侧栏页头那颗同一个动作、同一套时长曲线（见 useGearSpin）
+  spinGear()
   menuAnchor.value = menuAnchor.value ? null : menuButton.value?.getBoundingClientRect() ?? null
 }
 
@@ -308,7 +315,7 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
         :aria-expanded="Boolean(menuAnchor)"
         @click="toggleMenu"
       >
-        <AppIcon name="gear" v-bind="iconOptics('gear')" />
+        <AppIcon name="gear" v-bind="iconOptics('gear')" :style="gearSpinStyle" />
       </button>
 
       <SettingsMenu v-if="menuAnchor" :anchor="menuAnchor" placement="beside" @close="closeMenu" />
