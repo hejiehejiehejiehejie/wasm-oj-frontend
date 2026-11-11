@@ -5230,3 +5230,95 @@ return text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, (c) => showBlank(c))  // 否则�
 | 重建组 | ✓ | ✓ |
 | `npm run verify` | A–H 全 PASS | A–H 全 PASS（`ERR_CACHE_MISS` 是既有噪声） |
 | `npm run lint` / 页面报错 | 只有存量提示 | 只有存量提示 / none |
+
+## 42. 包络线改成「结构归 Vue、几何归 DOM」（2026-11-11，接 §41）
+
+用户口径：「不止在删除的时候，关闭标签页组中的标签页的时候也有这个问题。只要这个线条的位置
+会改变，都要在同一帧改变」，并明确要求注意资源浪费（「没有对其改变，没有必要改变其绘制方式」）。
+
+### 42.1 真因：`measureGroupLines` 是「写 ref → 重渲染」，所以必须躲着 FLIP
+
+`scheduleGroupLineMeasure` 里那句 `if (strip.querySelector('.tab-move')) return`（旧 :925）
+不是随手写的：`groupLines` 曾被模板依赖，逐帧写它就是逐帧重渲染整个 EditorTabs，而内部那层
+`<TransitionGroup>` 的 `onUpdated` 会强行中断正在跑的 `.tab-move` 补间、重排后再开一段 180ms
+—— 每帧重置计时，动画永远收敛不了（§40 实测 1.2s 内 761 次 childList 变更、FLIP 卡在
+currentTime 0）。于是「关组内页签」和「删组」都被迫整段不量：线的坐标来自带 transform 的
+rect，只要兄弟页签还在滑，线就停在旧位置，等补间结束才跳一格。
+
+### 42.2 改法（用户给的方案）：模板只渲染结构，`d` / `width` / `--group-c` 直写 DOM
+
+| 层 | 现在 | 为什么 |
+| --- | --- | --- |
+| 模板 | `<g v-for="group in tabGroups.tabGroups.groups" :data-gline-id>`，每组固定两个 path（填充 / 描边） | 组从状态里消失 → `<g>` 当帧卸载，§41 那套 `aliveGroupIds` + `visibleGroupLines` + `visibleGlineWidth` 五个响应式变量整段删除 |
+| 填充 | 两只脚的楔形拼成**一条** `d`（多个 `M` 子路径） | 同一条 path 的多子路径共用一次填充，渲染结果与两条同 class 的 path 一致 |
+| 测量 | `rectCache` + `getBox()`：每元素只量一次、量化到 0.5px | 原实现同一成员要问 5～8 次 rect；量化顺手滤掉补间末端的浮点残差（否则签名每帧都"变"） |
+| 写入 | 签名不变不碰 DOM；变了才 `setAttribute('d')` / `style.width` | `d` 是字符串属性，没有「值相同就跳过」的优化 |
+| 调度 | 见 `.tab-move` → `startGlineFollow(200)`，不再 `return` | 补间期间逐帧跟，200ms 盖住 180ms |
+| 观察者 | 整批变动都落在 `.editor-tabs__gline` 内部就忽略 | 直写 DOM 后图层自己每帧都在变，不滤掉就是「量→写→再量」的白跑 |
+
+### 42.3 验收（`/tmp/gl2` 探针 + dev server + 无头 Chrome，1400×900 深色）
+
+建组 bbb+ccc+ddd（关掉中间那张，剩下的 ddd 要走 180ms 补位）：
+
+| 断言 | 结果 |
+| --- | --- |
+| 建组后线端 = 组尾右缘 − 8 | 517 vs 517.0（Δ0） |
+| 补间期间线的取值数 | 11 帧里 **10 个不同值**（逐帧滑，不是一次跳） |
+| 单帧位移 max / avg | 24.00 / 9.55 px（连续，无 96px 那种整段跳变；改前是 1 个值） |
+| **同帧性**（用 MutationObserver 在写入瞬间同步读页签 rect） | 偏差 **max 0.20px**（0.5px 量化 + 8px 收口的量级） |
+| 静止 500ms 内 `d` 的写入次数 | **0** |
+| 终态线端 = 剩余组尾右缘 − 8 | 420.5 vs 420.6 |
+| 有激活成员 | 路径含 `A` 指令、填充 2 个子路径、`--group-c: var(--group-blue)` |
+| 折叠 / 展开 | `d` 长度 0 / 宽 0px → 恢复 19 / 430px |
+| 删整组：`<g>` 与芯片同帧 | 两者都在 t=6ms 消失（Δ0） |
+| `npm run verify` / `lint` / 页面报错 | A–H 全 PASS（`ERR_CACHE_MISS` 既有噪声）/ 只有存量提示 / none |
+
+> 探针踩坑：`evaluateOnNewDocument` 里无条件 `localStorage.clear()` 会在**每次重载**再清一次
+> （工作区跟着没了，表现为「重载后页签全丢、label 取不到」）；要先落一个 `probeSeeded` 标记。
+> 另外首版探针用 rAF 采样，把「这一帧的 rect」和「上一帧写好的 `d`」放在一起比，量出 24px 的
+> 假滞后 —— 同帧性必须用 MutationObserver 在写入那一刻读 rect 才准。
+
+## 43. 包络线第二审：调度去硬编码、空载早退、观察者与签名加固（2026-11-11，接 §42）
+
+用户审阅 §42 后提了 5 条，逐条落地。**默认以用户给的写法为准**，只有一处按实测偏离（见 43.3）。
+
+### 43.1 改了什么
+
+| # | 位置 | 改动 |
+| --- | --- | --- |
+| 1 | `scheduleGroupLineMeasure` | 见到 `.tab-move` 不再 `return`，先 `startGlineFollow(50)` 再当帧 `measureGroupLines()`；200ms 硬编码删掉 |
+| 2 | `glineTick` | 续命条件加入 `strip.querySelector('.tab-move')`；最外层套 `hasGroups` |
+| 3 | `measureGroupLines` | chips 查询提到 `getBoundingClientRect()` **之前**，零线且已清空时直接 return |
+| 4 | `watch(draggingId)` | 无组且图层为空时不起 rAF 循环 |
+| 5 | 观察者 | 只忽略 `type === 'attributes'` 且落在图层内的批次；`childList`（`<g>` 增删）不再被吞 |
+| 6 | 签名 | 前置 `` `${gEls.length}@` ``，把「已挂载 `<g>` 数量」并入比较 |
+| 7 | 新状态 | `let glineEmpty = true`，每次完整测量后置 `!rows.length` |
+
+`glineEmpty` 是第 6 条带出来的：签名里有了 `0@`，「清空」不再等价于空串，原来 `!glineSig` 的早退判据会永远不成立。用它显式记「上一次测量后一层线都没有」。
+
+### 43.2 实测（`/tmp/gl3` 探针，1400×900 深色，5 个文件、组 = bbb+ccc+ddd、eee 留组外当右邻）
+
+| 断言 | 结果 |
+| --- | --- |
+| 无分组时关一张页签：`strip.getBoundingClientRect()` 的调用次数 | **0**（hack 了 `Element.prototype.getBoundingClientRect` 计数） |
+| 建组后 | `gs=1`、`d` 19 字符、`width 437px` |
+| 静止 500ms 内 `d` 的写入 | **0** |
+| 折叠 / 展开 | `d` 空、`0px` → 恢复 19 / 437px |
+| 关组内中间那张：`d` 写入次数 / 取值种数 | 10 / 10（逐帧） |
+| 同帧性（MutationObserver 在写入瞬间同步读 rect） | 偏差 max **0.20px** |
+| 删整组 | `<g>` 于 8ms 消失（芯片 DOM 移除在 206ms，是离场 120ms + FLIP，视觉上早已不可见） |
+| `npm run verify` / `lint` / 页面报错 | A–H 全 PASS / 只有存量提示 / none |
+
+**硬对照：把 `.tab-move` 的时长注入成 400ms，再关组内那张**（`probe3.mjs`）
+
+| 版本 | 补间期间 `d` 写入 | 首 / 末次写入 | `.tab-move` 摘除 |
+| --- | --- | --- | --- |
+| 改动前（HEAD，`return` 且不跟） | **0 次** | — | 422ms |
+| 本轮（`.tab-move` 续命 + 50ms 兜底） | 22 次 | 23ms / 389ms | 423ms |
+
+改前是整段跟丢（线不动，补间结束才跳），改后跟到 389ms、只差 34ms 收尾。这条同时说明「不再与 180ms 硬编码耦合」是真的：样式表改成 400ms，JS 一个字没动也照样跟到底。
+
+### 43.3 两处与审阅稿不同的地方
+
+1. **`chips` 选择器加了 `:not()`**（排除 `--collapsed` 与两个 `-leave-active`，主循环里那两行 `continue` 随之删掉）。理由：早退判据要的是「还有没有线可画」，而删组后的 120ms 里芯片残影还在 DOM 上带着 `data-group-id` —— 按「有没有 chip 元素」判，这段时间每帧都会白跑一遍完整测量（且每次都要读 rect），而结果恒为零行。
+2. **「首帧漏量」未能复现为可测差异**。理论上「`startGlineFollow` 后 `return`」会把首测推到下一帧，但实测两种写法首写都在 `schedule` 所在的那一帧：`probe2.mjs` 的时间线显示 `.tab-move` 在点击后 2ms 出现、`schedule` 的 rAF 落在第 2 个帧边界，而那一帧 `.tab-move` 尚未被那一次 `schedule` 看到（首次调度早于 move class 挂上），于是两条路径都走了直连 `measureGroupLines()`。首写分别为 18ms（新）/ 23ms（旧），是帧相位噪声而非一帧的差。结论：这条改动是**防线**，不是已观测 bug 的修复 —— 保留它，因为一旦某次 `schedule` 恰好在 `.tab-move` 已存在时被调度（补间中途再有 DOM 变动就会），旧写法就真的会空出一帧。

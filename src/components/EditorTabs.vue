@@ -748,34 +748,39 @@ const GROUP_LINE_R = 8
  *  ⚠️ 三处必须同值：这里的 TAB_RAISE、`:hover::before` 的 `inset: -2.5px 0 2.5px`、
  *  `--active` 的 `box-shadow: 0 -2.5px …`。改一处就得改三处。 */
 const TAB_RAISE = 2.5
-const groupLines = ref([])
-const glineWidth = ref(0)
+/**
+ * 【几何不进响应式】（2026-11-11 按用户审阅的方案重写）
+ * 模板只按 `tabGroups.tabGroups.groups` 渲染每组的 `<g>` —— 组一从状态里消失，那个 `<g>`
+ * 就在**当帧**被卸载，线与芯片、组员落在同一次 patch 里退场（2026-11-10 用
+ * `visibleGroupLines` 过滤想达到的正是这件事，现在由列表渲染直接做到，那 5 个响应式变量
+ * 全部删除）。而 `d` / `width` / `--group-c` 这三样每帧都可能变的东西**直写 SVG DOM**。
+ *
+ * 为什么非绕开响应式不可：`groupLines` 一旦是被模板依赖的 ref，逐帧写它就是逐帧重渲染
+ * 整个 EditorTabs，而里面那层 `<TransitionGroup>` 的 onUpdated 会强行中断正在跑的
+ * `.tab-move` 补间、重新量位置后再开一段 180ms —— 每帧重置一次计时，动画永远收敛不了
+ * （2026-10-20 实测 1.2s 内 761 次 childList 变更、FLIP 卡在 currentTime 0 永不出第一帧）。
+ * 直写 DOM 之后，逐帧跟随不必再躲着 FLIP 跑：`.tab-move` 只动 transform、
+ * `.tab-leave-active` 只动 opacity，都不让布局树失效，量 rect 时不会触发回流。
+ */
+const glineSvgEl = ref(null)
+
+/** 上一次测量结果的签名。**必须比对后再写 DOM**：签名不变还去写 `d` 的话，浏览器每帧都要
+ *  重新解析路径、重描一遍（`d` 是字符串属性，Vue / DOM 都没有「值相同就跳过」这层优化），
+ *  而绝大多数测量（观察者的一次合帧、拖拽暂停不动的那几帧）几何根本没变。 */
+let glineSig = ''
+
+/** 上一次写给 SVG 的宽度。跟签名同理：值没变就别碰 `style.width`（改它会让 SVG 重排） */
+let glineWidthVal = 0
 
 /**
- * 只画「`tabGroups` 里还存在的组」的线。**这一层不能省，也不能只靠下一轮测量**：
- * 删除标签页组（`closeGroup` → 逐张 closeTab → `ungroup`）会顺手关掉整组页签，兄弟页签
- * 的 FLIP（`.tab-move`）要跑 180ms，而 `scheduleGroupLineMeasure` 在 FLIP 期间一律不量
- * （见那里的说明）—— 于是一条**已经不存在的组**的线会滞留整整一个 FLIP，实测点击后
- * 192ms 才消失（芯片 120ms 就淡完了），用户读到的正是「彩色线条比组慢一拍」。
- * 放在渲染期过滤，线与芯片、组员落在**同一次 patch** 里退场；`measureGroupLines` 里那份
- * isLeaving 过滤负责另一半：残影还在 DOM 上时，别让下一次测量把这条线又画回来。
+ * 上一次测量后**一层线都没画**（无分组 / 全折叠 / 只剩退场残影）。
+ * 有了它，`measureGroupLines` 才能在一次布局读取都不做的情况下早退：判断「没有 chip」
+ * 只需要查一次 DOM 树（不触发布局），而 `getBoundingClientRect()` / `scrollLeft`
+ * 会强制浏览器同步算一遍布局 —— 在没有分组的页面上，普通页签的每一次拖拽、每一次
+ * FLIP 补位都会叫到这里，那一遍布局纯属白算。
+ * 不能拿 `!glineSig` 代替：签名里并入了已挂载 `<g>` 的数量，清空后的签名是 `0@` 而非空串。
  */
-const aliveGroupIds = computed(() => new Set(tabGroups.tabGroups.groups.map((g) => g.id)))
-
-const visibleGroupLines = computed(() =>
-  groupLines.value.filter((line) => aliveGroupIds.value.has(line.id)),
-)
-
-/** 没有线可画时 SVG 不占宽：它是条带的子元素，留着上一次的宽度会白白撑出横向滚动行程 */
-const visibleGlineWidth = computed(() => (visibleGroupLines.value.length ? glineWidth.value : 0))
-
-/** 上一次测量结果的签名。**必须比对后再写 ref**：groupLines 每次赋新数组都会触发组件
- *  重渲染，而 TransitionGroup 的 onUpdated 又会往条带上 append/remove 一个探测用克隆
- *  （hasCSSTransform），那是一次新的 DOM 变动 → MutationObserver → 再测量 → 再渲染
- *  —— 不设防的话，建组 / 拖拽之后的任何一次测量都会变成**每帧一次的永久重渲染循环**
- *  （2026-10-20 实测 1.2s 内 761 次 childList 变更，页签的 FLIP 过渡被它冻死在第一帧，
- *  currentTime 永远停在 0）。签名不变就不写 ref，循环在一轮后自然断掉。 */
-let glineSig = ''
+let glineEmpty = true
 
 /**
  * 这个元素是不是正在退场（TransitionGroup 的离场过渡里，它还留在 DOM 上，带 `-leave-active`）。
@@ -793,18 +798,46 @@ function isLeaving(el) {
 
 function measureGroupLines() {
   const strip = rootEl.value?.querySelector('.editor-tabs__strip')
-  if (!strip) return
+  const svg = glineSvgEl.value
+  if (!strip || !svg) return
+  // 先查 chip（纯 DOM 树查询，不触发布局），**再**去读 rect / scrollLeft。
+  // 顺序反了对没有分组的页面就是白算一遍布局：普通页签的每次拖拽、每次 FLIP 补位都会
+  // 叫到这里，而这里根本没有线要画。零线且已清空时直接走人。
+  //
+  // 选择器里一次排掉「折叠的」与「退场中的」：折叠组不画线；带 `-leave-active` 的芯片是
+  // 已删组的残影（还在 120ms 淡出里）。早退判据因此也准 —— 若只数「有没有 chip 元素」，
+  // 删组后的那 120ms 残影会让每一帧都白跑一遍完整测量，而结果是零行。
+  const chips = strip.querySelectorAll(
+    '.editor-tabs__chip[data-group-id]:not(.editor-tabs__chip--collapsed)' +
+      ':not(.tab-leave-active):not(.tab-instant-leave-active)',
+  )
+  if (!chips.length && glineEmpty && !glineWidthVal) return
   // 条带高必须量**小数**（2026-10-20 用户报「组线下面的横线比上面细」）：35px 在 rem 化 +
   // 界面缩放（如 1.1）之后是 38.5px，clientHeight 会取整成 39 —— 底边线锚在 h-1 = 38、
   // 2px 描边要占到 39，而 SVG 视口只有 38.5，下沿被裁掉半像素，看着就比顶边细一档。
   // getBoundingClientRect().height 保留小数，线正好画到条带底、粗细与顶边一致。
-  const h = strip.getBoundingClientRect().height
+  const stripRect = strip.getBoundingClientRect()
+  const h = stripRect.height
   // 视觉几何：getBoundingClientRect 换算回条带**内容坐标**（含 scrollLeft）。用 rect 而不是
-  // offsetLeft，是因为 rect 带着 transform —— 拖拽的实时让位、让位滑动的中途、WAAPI 展开
-  // 动画改的宽度全都反映在 rect 上，包络线才能逐帧贴合页签的**视觉**位置（见拖拽的 rAF 循环）。
-  const originX = strip.getBoundingClientRect().left - strip.scrollLeft
-  const vLeft = (el) => el.getBoundingClientRect().left - originX
-  const vWidth = (el) => el.getBoundingClientRect().width
+  // offsetLeft，是因为 rect 带着 transform —— 拖拽的实时让位、让位滑动的中途、FLIP 补位、
+  // WAAPI 展开动画改的宽度全都反映在 rect 上，包络线才能逐帧贴合页签的**视觉**位置。
+  const originX = stripRect.left - strip.scrollLeft
+  // **每个元素只量一次**：一次测量里同一个成员要被问 5～8 次（排序比较、两端极值、激活成员的
+  // 左右缘），每次都 getBoundingClientRect 就是同一份布局结果反复取。顺带把结果量化到
+  // 0.5px —— 补间末端的浮点残差（如 271.0000001 与 270.9999999）会让签名每帧都"变"，
+  // 于是每帧重写一遍 `d`、每帧重描一遍，而肉眼完全看不出差别。
+  const rectCache = new Map()
+  const getBox = (el) => {
+    let box = rectCache.get(el)
+    if (!box) {
+      const r = el.getBoundingClientRect()
+      const left = Math.round((r.left - originX) * 2) / 2
+      const width = Math.round(r.width * 2) / 2
+      box = { left, width, right: left + width }
+      rectCache.set(el, box)
+    }
+    return box
+  }
   // 拖拽中的**实时归属预览**：被拖页签的 data-group-id 还是旧值（真实归属松手才提交），
   // 包络线必须按 useTabDrag 维护的实时归属画 —— 从旧组的成员里剔掉它、往实时归属的那组
   // 并入它（拖进哪组、线就当场拉长包到哪；拖出组，线当场收缩）。
@@ -825,17 +858,13 @@ function measureGroupLines() {
   // 右邻不存在（组在条带最末）—— 以前这三种落点不同，现在线尾位置只由组尾自己决定。
   const straightTail = (end, floor) => Math.max(end - GROUP_LINE_R, floor)
   // ⚠️ maxX 只能从**元素几何**取，绝不能拿 strip.scrollWidth 当初值：SVG 是条带的子元素，
-  // scrollWidth 会把 SVG 自己的宽度算进去 —— 以 scrollWidth 为底就变成「glineWidth =
-  // scrollWidth + 1 → SVG 变宽 1px → scrollWidth 跟着大 1 → 再测再 +1」的自增长反馈，
-  // 每次测量都写 ref → 每帧重渲染 → TransitionGroup 的 onUpdated 克隆探测又喂 MutationObserver
-  // → 死循环（2026-10-20 实测每帧 +1、1.2s 内 754 次 childList 变更，页签 FLIP 被 churn
-  // 冻死在第一帧）。没有组时宽 0 即可 —— SVG 里没有任何路径，宽度无意义。
+  // scrollWidth 会把 SVG 自己的宽度算进去 —— 以 scrollWidth 为底就变成「宽 = scrollWidth + 1
+  // → SVG 变宽 1px → scrollWidth 跟着大 1 → 再测再 +1」的自增长反馈（2026-10-20 实测每帧 +1、
+  // 1.2s 内 754 次 childList 变更）。没有组时宽 0 即可 —— SVG 里没有任何路径，宽度无意义。
   let maxX = 0
-  for (const chip of strip.querySelectorAll('.editor-tabs__chip[data-group-id]')) {
-    // 折叠组不画（用户口径「展开之后才有下划线」；成员都 display:none，也量不到）
-    if (chip.classList.contains('editor-tabs__chip--collapsed')) continue
-    // 退场中的芯片是「已经删掉的组」的残影（见 isLeaving）
-    if (isLeaving(chip)) continue
+  for (const chip of chips) {
+    // 「折叠的不画」「退场中的是残影」这两条已在上面那个选择器里排除掉了（那里要它来做
+    // 早退判据，这里不重复判一遍类名）
     const gid = chip.dataset.groupId
     let members = [
       ...strip.querySelectorAll(`.editor-tabs__item[data-group-id="${gid}"]`),
@@ -846,12 +875,12 @@ function measureGroupLines() {
     }
     if (!members.length) continue
     // 被拖页签并进来后视觉位置未必在 DOM 序末尾（可能还在滑），按视觉左缘排序再取两端
-    members.sort((a, b) => vLeft(a) - vLeft(b))
+    members.sort((a, b) => getBox(a).left - getBox(b).left)
     // 两端都向成员的视觉极值取：被拖页签从左 / 从右吸进来时，线的两端跟着它的视觉
     // 位置当场拉长，把它整个包进包络线（x0 取 min 是给「从左吸入、页签还压着芯片」
     // 那一段用的 —— 此时页签左缘在芯片左边）
-    const x0 = Math.min(vLeft(chip), vLeft(members[0]))
-    const x1 = Math.max(...members.map((el) => vLeft(el) + vWidth(el)))
+    const x0 = Math.min(getBox(chip).left, getBox(members[0]).left)
+    const x1 = Math.max(...members.map((el) => getBox(el).right))
     const active = members.find((el) => el.classList.contains('editor-tabs__item--active'))
     let d
     const fills = []
@@ -859,8 +888,8 @@ function measureGroupLines() {
       d = `M ${x0} ${h - 1} L ${straightTail(x1, x0)} ${h - 1}`
     } else {
       // r 预留：两只外扩脚各要向左右多占 r px，路径弧指令见样式表那段的总说明
-      const left = vLeft(active)
-      const right = left + vWidth(active)
+      const left = getBox(active).left
+      const right = left + getBox(active).width
       const r = GROUP_LINE_R
       // 顶边的 y（2026-10-20「缩小高亮区域」）：原先是写死的 1（页签顶到条带顶时才成立）。
       // 现在页签自己矮了 5px、由条带的 align-items: flex-end 从**顶部**让出那一截，
@@ -900,13 +929,43 @@ function measureGroupLines() {
     maxX = Math.max(maxX, x1)
     rows.push({ id: gid, colorVar: chip.style.getPropertyValue('--group-c'), d, fills })
   }
-  const sig = rows.map((r) => `${r.id}|${r.colorVar}|${r.d}|${r.fills.join(';')}`).join('::')
+  // 签名里并入**已挂载 `<g>` 的数量**：芯片与 `<g>` 都由 tabGroups 驱动，但分成两次
+  // patch 落地。若某帧 chip 先到、`<g>` 晚一拍，那一帧算出的行集合与上一帧相同 → 签名不变
+  // → 跳过写入 → 新挂上的空 `<g>` 一直没人填 `d`，直到下一次无关的 DOM 变动。把节点数
+  // 拼进来就能让「挂载完备性」本身参与比较，这一格恰好补掉。
+  const gEls = svg.querySelectorAll('g[data-gline-id]')
+  const sig =
+    `${gEls.length}@` +
+    rows.map((r) => `${r.id}|${r.colorVar}|${r.d}|${r.fills.join(';')}`).join('::')
+  glineEmpty = !rows.length
   if (sig !== glineSig) {
     glineSig = sig
-    groupLines.value = rows
+    // 直写 DOM，**不经过响应式**：这是整条链路不惊动 TransitionGroup 的关键（见 glineSvgEl
+    // 上方那段）。两处写法上的讲究：
+    // · `fills` 拼成一条 `d`（多个 M 子路径）—— 同一条 path 的多个子路径共用一次填充，
+    //   渲染结果与「两个同 class 的 path」一致，每组从此固定只有一个填充节点；
+    // · 命中不到行（组刚没了、`<g>` 还等着被 Vue 摘）就把 `d` 清空，别留一段无人认领的线。
+    const rowById = new Map(rows.map((r) => [r.id, r]))
+    for (const gEl of gEls) {
+      const row = rowById.get(gEl.dataset.glineId)
+      const fillEl = gEl.querySelector('.editor-tabs__gline-fill')
+      const strokeEl = gEl.querySelector('.editor-tabs__gline-stroke')
+      if (!row) {
+        fillEl?.removeAttribute('d')
+        strokeEl?.removeAttribute('d')
+        continue
+      }
+      gEl.style.setProperty('--group-c', row.colorVar)
+      fillEl?.setAttribute('d', row.fills.join(' '))
+      strokeEl?.setAttribute('d', row.d)
+    }
   }
-  const width = maxX + 1
-  if (width !== glineWidth.value) glineWidth.value = width
+  // 没有线可画（全折叠 / 只剩退场残影）时宽度归 0：图层不占位，也不留下上一次的宽度
+  const width = rows.length ? Math.ceil(maxX) + 1 : 0
+  if (width !== glineWidthVal) {
+    glineWidthVal = width
+    svg.style.width = `${width}px`
+  }
 }
 
 // 量几何的调度口：DOM 任何相关变动（增删 / 换位 / 类名 / 文案宽度 / 改名）都汇到这里，
@@ -917,46 +976,73 @@ function scheduleGroupLineMeasure() {
   glineScheduled = true
   requestAnimationFrame(() => {
     glineScheduled = false
-    // **FLIP 挪位进行中不量**：此刻几何每一帧都在变，量了就会写 ref → 重渲染 →
-    // TransitionGroup 的 onUpdated 又搅动这轮 FLIP（callPendingCbs / 重设 transform）→
-    // 几何继续变 → 再量……实测能把 180ms 的挪位拖成永不收敛的亚像素蠕动，重渲染循环
-    // 跟着永动。FLIP 结束摘 `tab-move` 类本身就是一次 DOM 变动，会再调度一次测量，
-    // 终态几何在那时落定。拖拽 / 展开折叠走 glineTick 直连，不经过这里，不受影响。
-    if (rootEl.value?.querySelector('.editor-tabs__strip .tab-move')) return
+    const strip = rootEl.value?.querySelector('.editor-tabs__strip')
+    if (!strip) return
+    // **FLIP 挪位进行中：改成逐帧跟**（2026-11-11 用户报「关闭组内页签时线也比页签慢一拍」）。
+    // `.tab-move` 只是 transform 补间，DOM 一次都不动，观察者只在它开始（加类）和结束（摘类）
+    // 时被叫醒 —— 中间那 180ms 的视觉位置只能靠 rAF 一帧帧量。以前这里是 `return` 直接跳过
+    // （理由是「写 ref 会搅动 FLIP」），代价就是线整段停在旧位置、等补间结束才跳过去。
+    // 现在测量只写 SVG DOM、不走响应式，那条理由不再成立。
+    //
+    // ⚠️ **挂上循环之后不要 return**：这段回调本身就跑在 rAF 里，`startGlineFollow` 里的
+    // requestAnimationFrame(glineTick) 会排到**下一帧**；再 return 掉当帧的 measure，
+    // 这一次调度就白跑一趟，线要等下一帧才动。
+    // （实测补充：关页签这个场景里 `.tab-move` 是点击后 2ms 才挂上的，而首次调度比它更早，
+    //  于是两条写法都会当帧直连测量、看不出差别 —— 这条是防线，防的是「补间中途又有 DOM
+    //  变动」那种调度，那时 `.tab-move` 确实已经在 DOM 上。）
+    // 循环由 .tab-move 是否存在来续命（见 glineTick），50ms 只是首帧残余状态的兜底，
+    // 不再与样式表里的 180ms 硬编码耦合。
+    if (strip.querySelector('.tab-move')) startGlineFollow(50)
     measureGroupLines()
   })
 }
 
 // 展开动画是 WAAPI 逐帧改宽度（不走内联样式、MutationObserver 看不见）；拖拽的实时让位
 // 虽然改的是内联 transform（会触发观察者），但包络线要**每帧**贴着页签走，不能靠观察者
-// 合帧节流 —— 动画 / 拖拽期间一律挂 rAF 循环逐帧量。
+// 合帧节流 —— 动画 / 拖拽 / 补位期间一律挂 rAF 循环逐帧量。
 let glineRafId = 0
 /** 松手后的兜底跟随窗口（ms）：让位（200ms）与 settle 回弹（150ms）两段补间都在
  *  draggingId 归零**之后**才跑，循环不能跟着归零一起停 —— 否则包络线冻在动画起点的
  *  几何上，页签滑完了它才被下一次无关的 DOM 变动拽过去（2026-10-20 自查单第 3 项）。
- *  窗口盖住两段动画；结束时终态几何已被窗口内最后一次测量写进 ref，自然收敛。 */
+ *  窗口盖住两段动画；结束时终态几何已被窗口内最后一次测量写进 DOM，自然收敛。 */
 const GLINE_SETTLE_MS = 350
 let glineSettleUntil = 0
+/** 开一段跟随：`durationMs > 0` 时把跟随窗口至少撑到那时（与已有窗口取晚者）。
+ *  窗口到点后循环不会立刻死 —— 见 glineTick，最后还要再量一帧才收手。 */
+function startGlineFollow(durationMs = 0) {
+  if (durationMs > 0) {
+    glineSettleUntil = Math.max(glineSettleUntil, performance.now() + durationMs)
+  }
+  if (!glineRafId) glineRafId = requestAnimationFrame(glineTick)
+}
 function glineTick() {
   measureGroupLines()
-  glineRafId =
-    animatingGroups.size || draggingId.value || performance.now() < glineSettleUntil
-      ? requestAnimationFrame(glineTick)
-      : 0
+  // 续命条件里带上 `.tab-move` 本身：补间的时长由样式表决定，JS 不再猜 180ms。
+  // 摘类那一刻（transitionend）除了让这里变成 false，还会作为一次 attribute 变动
+  // 喂给观察者做收尾测量，两条路都通向终态。
+  // `hasGroups` 放在最外层：一层组都没有时，谁在动都不必跟着量（此时 measureGroupLines
+  // 已在上方的快速路径里零开销返回，但循环本身也不该再空转）。
+  const hasGroups = tabGroups.tabGroups.groups.length > 0
+  const strip = rootEl.value?.querySelector('.editor-tabs__strip')
+  const isAnimating =
+    hasGroups &&
+    (animatingGroups.size > 0 ||
+      Boolean(draggingId.value) ||
+      Boolean(strip?.querySelector('.tab-move')) ||
+      performance.now() < glineSettleUntil)
+  glineRafId = isAnimating ? requestAnimationFrame(glineTick) : 0
 }
 watch(animatingGroups, () => {
-  if (animatingGroups.size && !glineRafId) glineRafId = requestAnimationFrame(glineTick)
+  if (animatingGroups.size) startGlineFollow()
 })
 // 拖拽起手就把包络线切到逐帧跟随：被拖页签（含它是激活组员时那只外扩脚）与让位滑动
 // 的中途位置全部实时反映进 SVG 路径。松手 / 取消后循环**不**立刻停 —— 让位与 settle
 // 两段补间还在跑，撑 GLINE_SETTLE_MS 的窗口继续逐帧贴，跑完自然收敛归零。
 watch(draggingId, (v) => {
-  if (v) {
-    if (!glineRafId) glineRafId = requestAnimationFrame(glineTick)
-    return
-  }
-  glineSettleUntil = performance.now() + GLINE_SETTLE_MS
-  if (!glineRafId) glineRafId = requestAnimationFrame(glineTick)
+  // 没有任何分组、图层也是空的：拖普通页签根本不需要包络线跟手，连 rAF 都别挂。
+  // 判据读响应式状态而不是查 DOM —— 这只是「值不值得开循环」，精确性交给 glineTick。
+  if (!tabGroups.tabGroups.groups.length && glineEmpty) return
+  startGlineFollow(v ? 0 : GLINE_SETTLE_MS)
 })
 
 let glineObserver = null
@@ -966,7 +1052,23 @@ onMounted(() => {
   // 不如直接监听条带子树的 DOM 变动统一调度
   const strip = rootEl.value?.querySelector('.editor-tabs__strip')
   if (strip) {
-    glineObserver = new MutationObserver(scheduleGroupLineMeasure)
+    glineObserver = new MutationObserver((mutations) => {
+      // **图层自己的改写不算「条带变了」**：`d` / `width` / `--group-c` 现在是直写 DOM 的，
+      // 每帧都在改；不滤掉就是「量一次 → 写一次 → 又当成一次变动去量」的白跑一圈。
+      //
+      // 只滤 `attributes`，**不滤 `childList`**：`<g>` 的增删是 v-for 的结果，target 正好是
+      // 图层元素本身（`closest` 也成立），一起滤掉的话，若某次 `<g>` 的挂载与 `.chip` 的
+      // 插入不在同一批微任务里，就会漏掉一次「新建组」的测量。`d` / `width` / `--group-c`
+      // 这三样恰好全是属性写入（setAttribute / style.setProperty），按 type 判就够，且更窄。
+      const onlyLayerAttr = mutations.every(
+        (m) =>
+          m.type === 'attributes' &&
+          m.target instanceof Element &&
+          m.target.closest('.editor-tabs__gline'),
+      )
+      if (onlyLayerAttr) return
+      scheduleGroupLineMeasure()
+    })
     glineObserver.observe(strip, {
       childList: true,
       subtree: true,
@@ -1240,20 +1342,29 @@ function onTabEnter(el) {
         </button>
       </template>
 
-      <!-- 分组包络线图层（2026-10-20 十改）：盖在条带内容上统一画各组的线与激活脚的楔形
-           填充，几何由 measureGroupLines 现场量 DOM 生成（getBoundingClientRect 换算回
-           条带内容坐标 —— 带着 transform，拖拽 / 让位的实时位置才能跟得上）。
+      <!-- 分组包络线图层（2026-10-20 十改；2026-11-11 改成「结构归 Vue、几何归 DOM」）：
+           盖在条带内容上统一画各组的线与激活脚的楔形填充。
+           · **结构**：`<g>` 直接按 `tabGroups.groups` 渲染 —— 组一从状态里消失，节点当帧卸载，
+             这正是 2026-10-10 那次「线比组慢一拍」想要的同帧退场，现在不需要任何过滤计算。
+           · **几何**：`d` / `width` / `--group-c` 由 measureGroupLines 直写 DOM（每帧都可能变，
+             走响应式就会逐帧重渲染整条页签栏、把 TransitionGroup 的补间搅烂，见 glineSvgEl）。
+           每条组固定两个 path：填充（两只脚的楔形拼成一条 `d`）+ 描边。
            absolute 定位所以不占 flex 位；pointer-events:none 不挡命中。静态子元素给个固定
            key，TransitionGroup 不对它做进出场。 -->
       <svg
+        ref="glineSvgEl"
         key="group-lines"
         class="editor-tabs__gline"
-        :style="{ width: `${visibleGlineWidth}px` }"
+        v-show="tabGroups.tabGroups.groups.length > 0"
         aria-hidden="true"
       >
-        <g v-for="line in visibleGroupLines" :key="line.id" :style="{ '--group-c': line.colorVar }">
-          <path v-for="(fd, i) in line.fills" :key="i" class="editor-tabs__gline-fill" :d="fd" />
-          <path class="editor-tabs__gline-stroke" :d="line.d" />
+        <g
+          v-for="group in tabGroups.tabGroups.groups"
+          :key="group.id"
+          :data-gline-id="group.id"
+        >
+          <path class="editor-tabs__gline-fill" />
+          <path class="editor-tabs__gline-stroke" />
         </g>
       </svg>
     </TransitionGroup>
