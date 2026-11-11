@@ -74,6 +74,29 @@ function runAction(notif, action) {
   if (action.run) action.run(notif)
   if (!action.keep) dismissNotification(notif.id)
 }
+
+/**
+ * 点整条通知打开落地页（只有带 `link` 的那几条可点，见服务层文件头）。
+ *
+ * 三种情况不算数：
+ * - 点在按钮上（× 与操作按钮各有各的动作，别让冒泡把它们变成「顺带打开」）；
+ * - 用户拖选文字后松手的那一下 —— 想把「挂在第 3 个点 · 15ms」抄走，不该跳走；
+ * - 正在退场的条目（引用上已经作废）。
+ * 键盘那一路（Enter / Space）不看选区：焦点在卡片上就是要打开，那时残留的选区
+ * 是上一件事留下的。
+ *
+ * 打开后**不退场**：跳去 Codeforces 看完提交，回来时这条还在，30 秒自己会走。
+ */
+function openLink(notif, event) {
+  if (!notif.link || notif.leaving) return
+  if (event.type === 'click') {
+    const target = event.target
+    if (target instanceof Element && target.closest('button')) return
+    const selection = window.getSelection()
+    if (selection && String(selection).trim()) return
+  }
+  window.open(notif.link, '_blank', 'noopener')
+}
 </script>
 
 <template>
@@ -85,13 +108,21 @@ function runAction(notif, action) {
         v-for="notif in notifications"
         :key="notif.id"
         class="notif"
-        :class="[`is-${notif.type}`, { 'is-leaving': notif.leaving }]"
+        :class="[`is-${notif.type}`, { 'is-leaving': notif.leaving, 'is-clickable': notif.link }]"
         :style="{ order: orders.get(notif.id) }"
+        :role="notif.link ? 'link' : null"
+        :tabindex="notif.link ? 0 : null"
+        @click="openLink(notif, $event)"
+        @keydown.enter.prevent="openLink(notif, $event)"
+        @keydown.space.prevent="openLink(notif, $event)"
       >
         <AppIcon :name="ICONS[notif.type] ?? 'info'" :size="15" class="notif__icon" />
         <div class="notif__content">
           <div class="notif__body">
-            <p class="notif__title">{{ notif.title }}</p>
+            <p class="notif__title">
+              <span class="notif__title-text">{{ notif.title }}</span>
+              <AppIcon v-if="notif.link" name="external" :size="11" class="notif__link-icon" />
+            </p>
             <p v-if="notif.message" class="notif__message">{{ notif.message }}</p>
             <!-- 活倒计时（可选）：调用方给 deadline 与两句文案，这里只负责每秒重算 -->
             <p
@@ -237,10 +268,45 @@ function runAction(notif, action) {
 }
 
 .notif__title {
+  /* 标题与那枚「点得开」的图标排成一行：文本自己换行，图标钉在首行右侧。
+     flex 是为了让图标永远贴着**第一行**结尾，而不是被长标题的末行带走。 */
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
   margin: 0;
   font-size: 13px;
   line-height: 1.35;
   color: var(--text);
+}
+
+.notif__title-text {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* 可点的通知（带 link）在标题尾缀一枚 `external`：光标提示只对鼠标有用，
+   触屏上没人会去 hover，得有一个**看得见**的「这条点得开」。 */
+.notif__link-icon {
+  flex: 0 0 auto;
+  /* 13px × 1.35 的行盒里居中那 11px：与文字基线齐平，不抢视线 */
+  margin-top: 3px;
+  color: var(--text-faint);
+}
+
+/* 悬停时标题加下划线、图标提一档色，和 cursor 一起说「这里是个链接」。
+   判据同全站：只在真悬停指针上。 */
+:where(html.is-hoverable) .notif.is-clickable:hover .notif__link-icon {
+  color: var(--text-dim);
+}
+
+:where(html.is-hoverable) .notif.is-clickable:hover .notif__title {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 可点整条：光标给提示（触屏上没有 cursor，那里的提示交给上面那枚图标）。 */
+.notif.is-clickable {
+  cursor: pointer;
 }
 
 .notif__message {

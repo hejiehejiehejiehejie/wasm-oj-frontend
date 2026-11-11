@@ -45,13 +45,20 @@
  *   通知的 title / message / actions / duration / countdown，位置与出场动画都不动。给「同一件事连着来」
  *   的通知用 —— 设置连着改时不新发一条，而是复用同一条、把内容与「撤回」目标都换成最新的
  *   （见 services/settingsUndo.js）。条目已退场 / 已不在数组里时返回 false，调用方据此新发一条。
+ * - `link`（2026-11-12 加，随提交 / 判定通知）：给通知挂一个**可点的落地页**。
+ *   组件据此把整张卡片变成可点（`role="link"`、Enter / Space 也认），点了在新标签页打开；
+ *   只放行 http / https（`javascript:` 这类伪协议会被 window.open 当代码执行，口径同
+ *   services/problemMeta.js 的 problemUrlOf）。点开**不退场**：跳去别的页签之后这一条
+ *   刚好是回来后想再看一眼的东西（「过了几个点 / 耗时 / 内存」只有这里有），
+ *   误点一次也不该把信息点没 —— 到点它自己会走。
  * - 【唯一的持久化例外】`notifyAfterReload`（2026-10-12 加，随云端导入 / 登录成功）：
  *   这两件事**办完就整页刷新**（见 cloudSession 的 adoptCloud），刷新前发出去的通知
  *   跟着页面一起没了 —— 用户什么也看不到。所以那一条必须先寄存在 sessionStorage 里，
  *   由下一次启动 `flushFlashNotification()` 补发并**立即删除**。
  *   用 sessionStorage 而不是 localStorage 是刻意的：它只该跨过这一次刷新，随页签关掉
  *   一起消失；存 localStorage 会让用户下次开站时忽然弹出一条三天前的「导入成功」。
- *   除了这一次性寄存，全站通知仍然不落任何存档。
+ *   除了这一次性寄存，全站通知仍然不落任何存档。寄存只带 type / title / message /
+ *   duration：`actions` 与 `tag` 是本次会话的回调与归属，`link` 那两个场景也没有目标页。
  */
 import { ref } from 'vue'
 import { FLASH_NOTICE_KEY } from './storageNames.js'
@@ -72,10 +79,11 @@ let seq = 0
 
 /**
  * 当前在场（含退场中）的通知。展示顺序即插入顺序，**别对它排序**（理由见文件头）。
- * 每条：{ id, type, title, message, duration, expireAt, timerId, leaving, actions, countdown, tag }
+ * 每条：{ id, type, title, message, duration, expireAt, timerId, leaving, actions, countdown, tag, link }
  * - `expireAt`：绝对过期时刻；常驻为 Infinity。组件按它排 CSS order。
  * - `timerId`：自动消失的定时器；常驻与排队中为 0。
  * - `leaving`：退场动画播放中。置位后按钮再点也不重复计数。
+ * - `link`：可点落地页（已归一化，空串 = 不可点）。只在创建时给，updateNotification 不收它。
  */
 export const notifications = ref([])
 
@@ -124,6 +132,22 @@ function normalizeCountdown(countdown) {
   return { deadline, text: countdown.text, expiredText: countdown.expiredText }
 }
 
+/**
+ * 归一落地页：只认 http / https 的绝对地址，其余（空值、相对路径、`javascript:` 这类
+ * 伪协议、压根不是字符串）一律给空串 —— 空串就是「这条不可点」，组件侧据此不挂点击。
+ * 口径与 services/problemMeta.js 的 problemUrlOf 一致：同一个 `window.open` 入口，
+ * 不该在两处用两套判据。返回归一化后的 href（`?a=1` 之类会被补全）。
+ */
+function normalizeLink(link) {
+  if (typeof link !== 'string' || !link) return ''
+  try {
+    const target = new URL(link)
+    return target.protocol === 'http:' || target.protocol === 'https:' ? target.href : ''
+  } catch {
+    return ''
+  }
+}
+
 /** 队列里还有位就放一条上屏。上屏那一刻才起算时限（见文件头的行为契约）。 */
 function dequeue() {
   if (!queue.length || notifications.value.length >= MAX_VISIBLE) return
@@ -154,6 +178,8 @@ function show(notif) {
  *   默认随后退场；`keep: true` 的那颗点了不退场。没有 `run` 的按钮只做「点掉这条」。
  *   见文件头的行为契约。
  * @param {string} [options.tag=null] 归属标识，配 dismissByTag 用；无归属就不传
+ * @param {string} [options.link=''] 点击整条通知时打开的地址（只收 http / https）；
+ *   空串 = 这条不可点。点击后不退场，见文件头 `link` 那条
  * @param {{deadline: number, text: (remainingMs: number) => string, expiredText: () => string}} [options.countdown]
  *   活倒计时（见文件头 countdown 那条）。不传就没有那一行。
  */
@@ -164,6 +190,7 @@ export function notify({
   duration = 0,
   actions = [],
   tag = null,
+  link = '',
   countdown = null,
 } = {}) {
   const id = ++seq
@@ -180,6 +207,7 @@ export function notify({
     actions: normalizeActions(actions),
     countdown: normalizeCountdown(countdown),
     tag: tag == null || tag === '' ? null : String(tag),
+    link: normalizeLink(link),
   }
   if (notifications.value.length >= MAX_VISIBLE) {
     queue.push(notif)

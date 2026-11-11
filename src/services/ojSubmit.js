@@ -38,7 +38,7 @@ const CF_INDEX = /^[A-Z]\d{0,2}$/i
  *   /group/{gid}/contest/{cid}/problem/{index} → /group/{gid}/contest/{cid}/submit
  *
  * @param {string} url
- * @returns {{ contestPath: string, index: string, submitUrl: string, myUrl: string }|null}
+ * @returns {{ origin: string, contestPath: string, index: string, submitUrl: string, myUrl: string }|null}
  */
 export function parseCodeforcesProblem(url) {
   if (typeof url !== 'string' || !url) return null
@@ -81,11 +81,31 @@ export function parseCodeforcesProblem(url) {
 
   const origin = `https://${parsed.hostname}`
   return {
+    origin,
     contestPath,
     index: index.toUpperCase(),
     submitUrl: `${origin}${contestPath}/submit`,
     myUrl: `${origin}${contestPath}/my`,
   }
+}
+
+/**
+ * 这一条提交在 Codeforces 上的地址（2026-11-12 加，给「点通知打开提交页」用）。
+ *
+ * 路径与 `submitUrl` 同一份 `contestPath`，所以 contest / gym / group 四种写法都对；
+ * 拿不到合法提交号或认不出题目页就给空串 —— 调用方据此决定这条通知能不能点，
+ * 不猜一个大概能用的地址。
+ *
+ * @param {string} problemUrl 题目页地址（node.meta.url）
+ * @param {string|number} submissionId
+ * @returns {string}
+ */
+export function submissionPageUrl(problemUrl, submissionId) {
+  const id = String(submissionId ?? '').trim()
+  if (!/^\d+$/.test(id)) return ''
+  const parsed = parseCodeforcesProblem(problemUrl)
+  if (!parsed) return ''
+  return `${parsed.origin}${parsed.contestPath}/submission/${id}`
 }
 
 /**
@@ -103,7 +123,7 @@ export function shouldShowSubmit(node) {
  * 不可提交的原因（空串 = 可以提交）。
  *
  * `checking` 是扩展握手还在路上的那一小段时间：此时别急着说「没装插件」，
- * 与空态那句 awaitingNoExtension 同一个口径。
+ * 与空态那句 awaitingNoExtension* 同一个口径。
  */
 export function submitBlockedReason({ node, language, capability, checking }) {
   if (IS_DESKTOP) return t('tests.submit.blockedDesktop')

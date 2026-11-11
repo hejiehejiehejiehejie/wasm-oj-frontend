@@ -43,6 +43,7 @@ import {
   isDuplicateSubmission,
   rememberSubmission,
   shouldShowSubmit,
+  submissionPageUrl,
   submitActiveSolution,
   submitBlockedReason,
   submitReasonText,
@@ -1228,6 +1229,9 @@ async function submitActiveFile({ duplicate = false } = {}) {
       : t('tests.submit.submittedUnknown'),
     duration: 6000,
     tag,
+    // 点这条直接去 CF 看这次提交（2026-11-12）。没有提交号时 submissionPageUrl 给空串，
+    // 那条就不可点 —— 与其猜一个地址，不如老实不能点。
+    link: submissionPageUrl(url, result.submissionId),
   })
 }
 
@@ -1275,10 +1279,15 @@ async function reportSubmitVerdict({ seq, tag, node, status, url, loadDetail }) 
     type: submitVerdictType(status.verdict),
     title: status.submissionId ? `#${status.submissionId} ${verdict}` : verdict,
     message: node.name,
-    // 有提交号就有细节在路上（老题目要 10 秒上下，见 ojSubmit）：给足它在路上这段时间，
-    // 细节一到再把时限重置回 8 秒 —— 否则通知会在补细节之前自己消失
-    duration: status.submissionId ? 12000 : 8000,
+    // 30 秒（2026-11-12 由 12 / 8 秒提到 30 秒）：这条通知就是插件推来的判定本身，
+    // 而判定常常在用户低头写代码、或切到别的窗口时才到 —— 8 秒抬头就已经没了，AC 尤其
+    // 容易被错过（绿勾在文件树上，但「过了几个点 / 耗时 / 内存」只有这里有）。
+    // 有提交号时下面还会原地补细节并重置时限，两处同一个值，改一处记得改另一处。
+    duration: 30000,
     tag,
+    // 点这条去 CF 看提交原文（2026-11-12）。判定通知是「想深究」的那一条：
+    // 想知道挂在哪个点、想看 CF 上的 hack / 讨论，都从这一下进去。没有提交号就不可点。
+    link: submissionPageUrl(url, status.submissionId),
   })
 
   let detail = await loadDetail(status.submissionId)
@@ -1289,7 +1298,7 @@ async function reportSubmitVerdict({ seq, tag, node, status, url, loadDetail }) 
   if (!detail || seq !== submitSeq) return
   updateNotification(id, {
     message: verdictDetailMessage(node.name, detail),
-    duration: 8000,
+    duration: 30000,
   })
 }
 
@@ -1312,9 +1321,17 @@ const emptyNotice = computed(() => {
   if (state === 'fetching') return { text: t('tests.empty.fetching'), tone: 'info' }
   if (state === 'failed') return { text: t('tests.empty.fetchFailed'), tone: 'warn' }
   // 握手已确认「没装插件」时给另一句实话：此时点题目链接也不会有人抓。
-  // 握手还在路上（checking）时不急着下结论，先按正常文案显示，免得闪一下错话
+  // 握手还在路上（checking）时不急着下结论，先按正常文案显示，免得闪一下错话。
+  // 这句里的「安装或重载插件」是个**站内跳转**（2026-11-12 改）：插件装在浏览器里，
+  // 用户要的那份安装 / 下载入口就在设置面板的「浏览器插件」那一栏，把他送过去比让他自己找强。
   if (!extensionInfo.value && !extensionChecking.value) {
-    return { text: t('tests.empty.awaitingNoExtension'), tone: 'warn' }
+    return {
+      tone: 'warn',
+      before: t('tests.empty.awaitingNoExtensionBefore'),
+      linkText: t('tests.empty.awaitingNoExtensionLink'),
+      after: t('tests.empty.awaitingNoExtensionAfter'),
+      action: () => openSettingsTab('extension'),
+    }
   }
   // 「还没到手」这句中间的「题目链接」是可点的：给 TestPanel 一个 url，让它拼出 <a>
   return {

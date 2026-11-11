@@ -52,7 +52,9 @@ const props = defineProps({
   /**
    * 空态里追加的一行提示，没有就是 null（非题目文件、或样例已经在了）。两种形状：
    *   { text, tone }                            —— 纯文本（正在抓 / 抓失败）
-   *   { before, linkText, after, url, tone }    —— 中间带一个可点的题目链接（还没到手）
+   *   { before, linkText, after, tone, url?|action? } —— 中间带一个可点的链接（还没到手 /
+   *                                                   没装插件）。`url` 走外链 <a>，
+   *                                                   `action` 走站内跳转（按钮，样式同链接）
    * tone：'' 走常态的暗灰，'info' 是进行中，'warn' 是失败。
    */
   notice: { type: Object, default: null },
@@ -227,12 +229,22 @@ const elapsedText = computed(() => {
                转起来才知道它还在动 -->
           <LoadingSpinner v-if="notice.tone === 'info'" :size="11" />
           <span>
-            <!-- 带题目链接的形状：before + <a> + after 三段拼成一句（另两段是纯文本，见 props 说明） -->
+            <!-- 三段式：before + 中间可点的一段 + after 拼成一句（另两段是纯文本，见 props 说明）。
+                 中间那段两种走法：`url` 是外链（题目链接，新窗口打开），`action` 是站内跳转
+                 （「安装或重载插件」→ 设置面板的浏览器插件那一栏，2026-11-12）—— 后者必须是
+                 <button>，拿 <a href="#"> 会污染地址栏、还会被中键当成新页签。 -->
             <template v-if="notice.url">
               {{ notice.before
               }}<a class="empty__link" :href="notice.url" target="_blank" rel="noopener noreferrer">{{
                 notice.linkText
               }}</a
+              >{{ notice.after }}
+            </template>
+            <template v-else-if="notice.action">
+              {{ notice.before
+              }}<button type="button" class="empty__link" @click="notice.action()">{{
+                notice.linkText
+              }}</button
               >{{ notice.after }}
             </template>
             <template v-else>{{ notice.text }}</template>
@@ -526,8 +538,28 @@ const elapsedText = computed(() => {
   text-underline-offset: 2px;
 }
 
+/* 同一套外观的站内跳转（「安装或重载插件」）：它是个 <button>，把默认盒模型清零，
+   字号 / 行高跟着整行走（`font: inherit`），免得与旁边的外链长短高低不一致。
+   **颜色也继承整行**（2026-11-12 用户要求）：那句提示整行是 warn 色，跳转段跟着它同色，
+   只留一条下划线表明可点 —— 蓝字在这一行里太跳，像另一个控件。 */
+button.empty__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 :where(html.is-hoverable) .empty__link:hover {
   color: var(--accent-strong);
+}
+
+/* 站内跳转没有「变色」这层反馈了（颜色跟着整行走），改用下划线加粗一档顶上 ——
+   比 `<a>` 那个悬停变色的强度低，但鼠标扫过仍能看出这颗是可点的 */
+:where(html.is-hoverable) button.empty__link:hover {
+  color: inherit;
+  text-decoration-thickness: 2px;
 }
 
 /* 列表末尾那条「添加测试样例」（2026-10-23 从页脚搬进来）。

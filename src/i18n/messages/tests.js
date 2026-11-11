@@ -57,9 +57,16 @@ export default {
          * 开头，是空态还有说明文字时留下的 —— 现在空态标题已经把「没有用例」说完了
          * （写死的 No test cases yet.），再铺垫一遍就是啰嗦。现在只留「没人抓」这个坏消息
          * 与两步做法：原因 → 后果 → 怎么办，两句读完。
+         *
+         * 2026-11-12 起这句同样拆成三段，与上面 `awaitingFetch*` 一个体例：中间的
+         * 「安装或重载插件」是本页内部的一个跳转（打开设置 › 浏览器插件那一栏，
+         * 由 App.vue 的 emptyNotice 给 action），不是一个外链 —— 所以三段之间没有空格，
+         * 改任何一段都要看另外两段。
          */
-        awaitingNoExtension:
-          '未检测到浏览器插件，打开题目页不会自动抓取样例。安装或重载插件后刷新本页。',
+        awaitingNoExtensionBefore:
+          '未检测到浏览器插件，打开题目页不会自动抓取样例。',
+        awaitingNoExtensionLink: '安装或重载插件',
+        awaitingNoExtensionAfter: '后刷新本页。',
         fetching: '正在从题目页自动抓取样例…',
         fetchFailed: '抓取样例失败，重新打开题目页可重试',
       },
@@ -297,9 +304,11 @@ export default {
         awaitingFetchBefore: 'Open the ',
         awaitingFetchLink: 'problem link',
         awaitingFetchAfter: ' and the browser extension will fetch the samples',
-        /** 同 zh-CN：没检测到插件时的替代句（2026-10-06 收紧，与中文同结构） */
-        awaitingNoExtension:
-          'No browser extension detected, so samples won’t be fetched. Install or reload it, then refresh.',
+        /** 同 zh-CN：没检测到插件时的替代句（2026-10-06 收紧，与中文同结构；
+         *  2026-11-12 起同样拆三段，中间那段是站内跳转，见 zh-CN 那侧说明） */
+        awaitingNoExtensionBefore: 'No browser extension detected, so samples won’t be fetched. ',
+        awaitingNoExtensionLink: 'Install or reload it',
+        awaitingNoExtensionAfter: ', then refresh.',
         fetching: 'Fetching samples from the problem page…',
         fetchFailed: 'Could not fetch samples — reopen the problem page to retry',
       },
