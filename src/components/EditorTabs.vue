@@ -2090,9 +2090,29 @@ function onTabEnter(el) {
   pointer-events: auto;
 }
 
+/* × 自己悬停：整枚图标提亮到不透明 + 一块圆角底。
+   ⚠️ 第一条 `...:hover .editor-tabs__close:hover` 不是冗余（2026-11-12 修）：原来只写裸的
+   `:where(html.is-hoverable) .editor-tabs__close:hover`（0,2,0），被上面「页签悬停露出 ×」
+   那条 `.editor-tabs__item:hover .editor-tabs__close`（0,3,0）压着 —— 于是从 2026-10-20
+   加进来起，这条 opacity: 1 就**一次都没生效过**（实测三套主题下指针停在 × 上，opacity
+   恒为 0.75）。补一个 (0,4,0) 的复合选择器才压得住；裸的那条留着兜底（例如 × 不在页签里）。
+   触屏「非激活页签一律不露 ×」那条是 (0,3,0)，仍靠 html.is-hoverable 闸门挡着，不靠权重。 */
+:where(html.is-hoverable) .editor-tabs__item:hover .editor-tabs__close:hover,
 :where(html.is-hoverable) .editor-tabs__close:hover {
   opacity: 1;
   background: var(--bg-control-hover);
+}
+
+/* 浅色方案专用（2026-11-12 加）：上面那条 × 的悬停底色取 --bg-control-hover，浅色下是
+   #e0e0e0，而此刻它正压在页签的悬停高光（#e3e3e3）上 —— 只差 3 阶，眼睛读成
+   「高亮把 × 的高亮盖掉了」，其实是**同色看不见**（实测按钮内 #e1e1e1、旁边高光 #e7e7e7）。
+   深色主题不存在这一步：#3d3d3e 压在 #2d2d30 上差 12 阶，边界清楚，所以不受影响。
+   只给 light scheme 补一档：掺 7% 黑 → #d0d0d0，与高光面差约 19 阶（≈ 深色那 12 阶的量级）。
+   （× 悬停时 opacity 已是 1，不再有 0.75 的稀释，所以这个 7% 是净效果，别按老注释里的 10% 算。）
+   掺黑而不是写死灰度：paper / leaf / mist 同走 light scheme，各有暖 / 绿 / 蓝底，掺黑保色相。
+   只作用于**非激活**页签（悬停高光只出现在它们身上）；选中页签的 × 压在纯白底上，原色就够清楚。 */
+:root[data-scheme='light']:where(html.is-hoverable) .editor-tabs__item:not(.editor-tabs__item--active):hover .editor-tabs__close:hover {
+  background: color-mix(in srgb, var(--bg-control-hover) 93%, black);
 }
 
 /* ------------------------------------------------------------ 触屏上的 ×（十九改）
