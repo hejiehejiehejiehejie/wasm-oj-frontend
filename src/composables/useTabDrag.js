@@ -697,6 +697,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     const last = block[block.length - 1]
     drag = {
       id: press.id,
+      // 条带元素本身。拖拽期间每帧都要用它量几何 / 写 scrollLeft，缓存住省掉每帧几次
+      // querySelector（单元元素在 units 里也是这么缓存的，生命周期相同：同一个祖先被换掉
+      // 的话 units[].el 也一样失效）
+      strip,
       // 实时归属：页签拖动 = 真实归属（随出入组判定翻转）；芯片拖动 = 组自己的 id
       //（恒定 —— 搬组不改成员关系，无出入组判定）
       gid: press.gid ?? dragged.gid ?? null,
@@ -875,9 +879,21 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
 
   /** 拖拽中的每次移动：被拖块跟手 + 出入组判定（仅页签拖动）+ 前导边缘碰撞换位 + 必要时自动滚动 */
   function updateDrag(clientX, clientY) {
-    const strip = stripEl()
+    const strip = drag?.strip ?? stripEl()
     if (!strip || !drag) return
-    const px = clientX - stripOriginX(strip)
+    // 一帧只量一次几何：rect（原点换算 + 自动滚动的判定区）与 clientWidth（钳制界）都在这里
+    // 取，往下传给 updateAutoScroll。
+    // ⚠️ 别在写完 transform 之后再量第二次 —— 原先是 stripOriginX 与 updateAutoScroll 各量
+    // 一份，后一次正好落在写 transform 之后。2026-11-13 实测（CDP Performance 指标，17 / 32
+    // 个页签、左右扫 6 个来回）：
+    //   · LayoutCount 全程 0：transform 与 scrollLeft 都不脏布局，所以它**不是**「强制同步布局」，
+    //     后来人别拿这个理由去别处也拆读写；
+    //   · 但 RecalcStyleCount 被那次多余的读翻了倍（331 → 168、337 → 168），脚本耗时
+    //     0.20 → 0.13、0.24 → 0.08 ms/帧 —— 写完 transform 再读布局属性会强制刷一遍样式。
+    // 几何以这一份为准，别再在帧内补读。
+    const rect = strip.getBoundingClientRect()
+    const clientWidth = strip.clientWidth
+    const px = clientX - (rect.left - strip.scrollLeft)
     const prevVisual = drag.visual
 
     // 被拖块实时跟手：锁 X 轴、横向钳在**可视条带**内（内容坐标 = scrollLeft ~
@@ -902,7 +918,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 这一道，滚到底就真的停住（scrollLeft 停在 maxScroll，边缘自动滚动自己退出）。
     const minLeft = strip.scrollLeft
     const maxLeft = Math.min(
-      strip.scrollLeft + strip.clientWidth - drag.blockSpan,
+      strip.scrollLeft + clientWidth - drag.blockSpan,
       drag.contentRight - drag.blockSpan,
     )
     const rawVisual = px - drag.grabDX
@@ -1066,7 +1082,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     else if (drag.visual + drag.blockEdge >= contentRight - 0.5) edge = 'last'
     if (dragEdge.value !== edge) dragEdge.value = edge
     applyOthers()
-    updateAutoScroll(clientX, clientY)
+    updateAutoScroll(clientX, clientY, rect)
   }
 
   /** 让位：其余单元滑向自己在虚拟序列里的槽位（过渡由 EditorTabs 的 is-dragging 规则给）。
@@ -1160,11 +1176,12 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   }
 
   /** 指针贴近条带左右边缘时持续横向滚动（页签多到溢出时，拖到边缘能继续挪）。
-   *  只负责「这一帧该以多快滚」（写 scrollVelocity）与**点火**；续帧归 stepAutoScroll。 */
-  function updateAutoScroll(clientX, clientY) {
-    const strip = stripEl()
-    if (!strip) return
-    const rect = strip.getBoundingClientRect()
+   *  只负责「这一帧该以多快滚」（写 scrollVelocity）与**点火**；续帧归 stepAutoScroll。
+   *  @param {DOMRect} [measured] 调用方（updateDrag）本帧已量好的条带矩形，直接复用 */
+  function updateAutoScroll(clientX, clientY, measured) {
+    const strip = drag?.strip ?? stripEl()
+    const rect = measured ?? strip?.getBoundingClientRect()
+    if (!strip || !rect) return
     // 指针已不在条带的纵向范围内（比如拖到编辑区里去）：别滚。容差见 DRAG_Y_TOLERANCE
     if (clientY < rect.top - DRAG_Y_TOLERANCE || clientY > rect.bottom + DRAG_Y_TOLERANCE) {
       stopAutoScroll()
@@ -1236,7 +1253,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
 
   function stepAutoScroll(now = performance.now()) {
     scrollFrame = 0
-    const strip = stripEl()
+    const strip = drag?.strip ?? stripEl()
     if (!strip || !scrollVelocity || !press?.dragging) return
 
     // 帧间隔：切后台回来会给出巨大间隔，钳到 50ms；时间戳倒挂（个别实现的 rAF 时间戳可能
