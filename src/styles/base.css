@@ -1318,6 +1318,55 @@ textarea {
   outline-offset: 1px;
 }
 
+/* -------------------------------------------------- Monaco 悬停气泡的外观：圆角 / 底色 / 描边 / 阴影
+   （2026-11-12 加：先按要求把圆角改 4px，同日再把颜色收到「贴近编辑区地面 + 一点点阴影」，
+    参照用户给的 Copilot 悬停截图）
+
+   【为什么走变量】Monaco 的 hover.css 把这四样全写成 `var(--vscode-*)`，而 vs-dark / vs 那两套
+   默认值把气泡做得比编辑区亮一大截（实测 #252526 对 #181818）、描边是一条 20% 白（亮得像镶了
+   圈银线）、阴影用的 `--vscode-shadow-lg` **整个包里从不定义**（声明失效 → 根本没有阴影）。
+   在气泡自己身上重定义这几个变量，就能整套换掉外观，而不用跟 Monaco 的规则比优先级。
+
+   【只写在这两个类上，别上提】`.monaco-resizable-hover` 是带 1px 边框与底色的外框，
+   `.monaco-hover` 是它里面的内容盒（`border-radius: inherit`）；行号槽的 glyph 悬停、
+   按钮 / 菜单的单行提示（`.compact`）只有后者。这几个变量在 Monaco 里是共用的 ——
+   参数提示（parameterHints.css）、菜单、suggest、查找框、下拉框都吃同名的
+   `--vscode-editorHoverWidget-*` / `--vscode-cornerRadius-*`。给 `.monaco-editor` 统一赋值
+   会把它们一起改掉（实测反证：改后 `.find-widget` 仍是 0px 圆角、原底色）。
+
+   【取值都走站内调色板，不写死颜色】这样九套主题自动跟着变（每个主题块都定义了这几个 token）：
+   - 底色 `--bg-field`：HANDOFF 口径里「只离开地面一档」的那层字段面（深色 #202021 对地面
+     #181818、浅色 #f5f5f5 对 #ffffff）。比原来的 #252526 / #f3f3f3 更贴底色，正是要求里
+     「气泡内的颜色更接近底色」。
+   - 描边 `--border-soft`：深色 #2d2d32 / 浅色 #e4e4e4，只比气泡底色亮一档 —— 交代边界而不镶亮线。
+     再淡一档的 `--border-faint` 试过，实机几乎看不出边（只剩阴影在划界）。
+   - 阴影 `0 2px 8px rgba(0, 0, 0, 0.32)`：要的是「一点点」，比站内浮层的
+     `--tooltip-shadow`（0 8px 24px 0.45）轻得多 —— 气泡是跟着光标弹的临时物，不该有压场的重量。
+
+   【阴影挂在谁身上】`.monaco-hover` 那条规则吃 `--vscode-shadow-lg`，但可拖那一版里它缩在外框
+   里面 1px —— 让它自己画，阴影会压到外框那条边框的内圈上。所以外框单独画，嵌套时把内容盒的
+   阴影关掉；行号槽 / 单行提示没有外框，仍由 `--vscode-shadow-lg` 兜。
+
+   ⚠️ 这里写 px 且**不随界面缩放**是对的：vite.config.js 的 `selectorBlackList` 带 `/monaco/`，
+   postcss-pxtorem 不会转它；而气泡自身的 1px 边框、内边距、字号都是 Monaco 按 px 写死的
+   （字号跟编辑器设置走），圆角跟着 rem 放大反而会和同一块气泡里的其它尺寸脱节。 */
+.monaco-editor .monaco-resizable-hover,
+.monaco-editor .monaco-hover {
+  /* 4px 取自 HANDOFF 第 1.A 条那三档圆角（10 / 6 / 4）里最小的一档 */
+  --vscode-cornerRadius-large: 4px;
+  --vscode-editorHoverWidget-background: var(--bg-field);
+  --vscode-editorHoverWidget-border: var(--border-soft);
+  --vscode-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.32);
+}
+
+.monaco-editor .monaco-resizable-hover {
+  box-shadow: var(--vscode-shadow-lg);
+}
+
+.monaco-editor .monaco-resizable-hover > .monaco-hover {
+  box-shadow: none;
+}
+
 /* -------------------------------------------------- Monaco 控件提示条：不许折行
 
    唯一目的是几何，不是好看 —— **折行会把提示顶到它自己要说明的那颗按钮身上**
