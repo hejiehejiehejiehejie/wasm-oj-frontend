@@ -16,6 +16,9 @@ import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import './services/monaco/completion.js'
 // 同理：C / C++ 的静态悬停签名（见 hover.js 文件头）
 import './services/monaco/hover.js'
+// 副作用导入：把悬停气泡的尺寸与落点夹进编辑区（见 hoverBounds.js 文件头）。
+// 必须在编辑器建起来之前执行 —— 它改的是 ContentHoverWidget 的原型方法
+import './services/monaco/hoverBounds.js'
 
 self.MonacoEnvironment = {
   getWorker() {
