@@ -179,7 +179,10 @@ function writeFile(path, data, mtime = null) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
   if (baseFs.nodes.has(path)) {
     const node = baseFs.nodes.get(path)
+    // capacity 必须跟着换：MemoryFs 的写入是「后备缓冲 + 逻辑长度」两本账，
+    // 只换 data 会留下一个比真实缓冲大的陈旧容量。
     node.data = bytes
+    node.capacity = bytes.length
     node.mtime = mtime ?? Date.now()
     return
   }

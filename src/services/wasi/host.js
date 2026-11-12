@@ -241,9 +241,57 @@ export class MemoryFs {
     const parentNode = this.addDirectory(parent)
     if (parentNode.type !== 'dir') throw new Error(`wasi: ${parent} 不是目录`)
     this.children.get(parent).add(nameOf(path))
-    const node = { type: 'file', path, ino: this.nextIno++, data: toBytes(data), mtime: Date.now() }
+    // `data` 是**逻辑长度**，`capacity` 是后备缓冲的实际大小，两者分开记：
+    // 写大文件时按 2 倍扩容，避免逐块「精确扩容」把写入变成 O(n²) 次拷贝
+    // （见 reserve() 注释；96 MiB 的 .o 按 4 KiB 分块写，精确扩容要 115 s）。
+    const bytes = toBytes(data)
+    const node = { type: 'file', path, ino: this.nextIno++, data: bytes, capacity: bytes.length, mtime: Date.now() }
     this.nodes.set(path, node)
     return node
+  }
+
+  /**
+   * 后备缓冲可用字节数。`capacity` 是记账值，可能被外部**直接替换 `data`**
+   * （`wasi.worker.js` 的 `writeFile` 就这么干）而变陈旧，所以这里按真实缓冲夹一次，
+   * 不自愈的话 `bufferOf` 会越界抛 `RangeError`。
+   */
+  capacityOf(node) {
+    const data = node.data
+    const available = data.buffer.byteLength - data.byteOffset
+    return Math.min(Math.max(node.capacity, data.length), available)
+  }
+
+  /**
+   * `node.data` 的后备缓冲（长度 = capacity，可能比 `data.length` 长）。
+   * 所有写入都经由它落地，`data` 只是它的一个 `subarray` 视图，
+   * 所以 `data.length` 对外始终等于文件逻辑大小。
+   */
+  bufferOf(node) {
+    const data = node.data
+    const capacity = this.capacityOf(node)
+    if (data.length === capacity) return data
+    return new Uint8Array(data.buffer, data.byteOffset, capacity)
+  }
+
+  /**
+   * 保证后备缓冲至少 `need` 字节，2 倍增长。
+   *
+   * 原来写路径是「不够就 `new Uint8Array(end)` 再整段拷」——每写一块就把已有内容
+   * 搬一遍，n 字节文件写 m 次就是 O(m·n)。clang 写 96 MiB 的 `/program.o` 时这个
+   * 代价能把一次编译拖到分钟级（4 KiB 分块实测 115 s）；2 倍增长把总拷贝量压到
+   * 2n 以内、分配次数压到 O(log n)。溢出上限沿用 JS 数组本身的限制，不做额外夹取。
+   */
+  reserve(node, need) {
+    const size = node.data.length
+    const capacity = this.capacityOf(node)
+    node.capacity = capacity
+    if (need <= capacity) return
+    let next = capacity > 0 ? capacity : 16
+    while (next < need) next *= 2
+    const buffer = new Uint8Array(next)
+    buffer.set(node.data)
+    node.data = buffer.subarray(0, size)
+    node.capacity = next
   }
 
   isReadOnly(path) {
@@ -338,19 +386,27 @@ export class MemoryFs {
   }
 
   truncate(node, size) {
-    if (node.data.length === size) return
-    const next = new Uint8Array(size)
-    next.set(node.data.subarray(0, Math.min(node.data.length, size)))
-    node.data = next
+    const current = node.data.length
+    if (current === size) return
+    // 缩小时**保留** capacity（同一 fd 后续再长回来不必重新分配），只收逻辑长度；
+    // 后备缓冲是复用的，所以变长的部分必须显式清零，否则会读到截断前的旧字节。
+    this.reserve(node, size)
+    const buffer = this.bufferOf(node)
+    if (size > current) buffer.fill(0, current, size)
+    node.data = buffer.subarray(0, size)
     node.mtime = Date.now()
   }
 
   write(node, offset, bytes) {
     const end = offset + bytes.length
-    if (end > node.data.length) {
-      const next = new Uint8Array(end)
-      next.set(node.data)
-      node.data = next
+    const size = node.data.length
+    this.reserve(node, end)
+    const buffer = this.bufferOf(node)
+    if (end > size) {
+      // 稀疏写（`fd_seek` 越过末尾再写）中间的空洞按 POSIX 读作 0；缓冲复用后
+      // 那段可能是截断前的旧数据，必须补零。`fill` 是零拷贝路径，不用先分配临时数组。
+      if (offset > size) buffer.fill(0, size, offset)
+      node.data = buffer.subarray(0, end)
     }
     node.data.set(bytes, offset)
     node.mtime = Date.now()

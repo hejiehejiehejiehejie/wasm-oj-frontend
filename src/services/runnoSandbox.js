@@ -281,6 +281,30 @@ function clangArgs(pchPath, optimization = OPT_MAIN) {
     // 只把这条诊断带回去，由卡片在 ACTUAL 框下面补一行「结果不可预期」。
     '-Wdivision-by-zero',
     ...UB_WARN_ARGS,
+    // 新常量解释器（`clang/lib/AST/Interp` 的字节码求值器）：替换旧的 ExprConstant 递归树遍历，
+    // 只影响**编译期常量求值**这一段，不改代码生成（2026-11-12 实测后加的）。
+    //
+    // 为什么值得加：本站最贵的用户代码是「几十 MB 的零初始化全局结构体数组」
+    // （`Node tr[N << 3]`，N=3e5 → 240 万个元素 / 96MB）。这类声明的前端开销全在初始化器的
+    // 逐元素求值上，实测同一份线段树代码 -O2 3306ms → 2197ms（−33%，front end 1.83s → 0.53s），
+    // 裸 `struct N5 tr[2400008];` 2975ms → 1333ms（−55%）。后端（写 96MB 的 .o）一点没动。
+    //
+    // 顺带修掉一个真 bug：旧解释器遇到 `constexpr` 递归 ≥300 层会直接把 clang.wasm 打崩
+    // （exit=134，trap `RangeError: Maximum call stack size exceeded`，200 层还正常），
+    // 而 runCpp 走到「没有 .o 且 stderr 为空」的分支，界面只会显示「编译未通过」、一个字的原因都没有。
+    // 换成新解释器后 300 / 400 层都正常编过，600 层给出干净的 CE。
+    //
+    // 为什么落在这里、**不**进 FRONTEND_ARGS：那一份是 PCH 的编译参数，会顺着 PCH_ARGS_HASH
+    // 进 PCH_ASSET_ID（见下方注释），改它等于让线上那份 8.3MiB 预编译 PCH 直接 404、退回本机
+    // 生成（就是老机器会 OOM 的那条路）。而 `-emit-pch` 只解析头文件、不跑用户代码的常量求值，
+    // 加进去一秒也省不下来。兼容性实测过：用**不带**本 flag 编出来的 PCH 配本 flag 编译，
+    // exit 0、34–41ms（与不带时逐毫秒一致）—— clang 不校验这个开关，PCH 照常命中，不会被判废。
+    //
+    // ⚠️ 这是 experimental 开关，换 LLVM 版本必须复验。对拍记录（旧 vs 新，11 例）：尾后指针
+    // 取址 / 解引用、越界、union 活跃成员、无限递归、超长循环、嵌套聚合初始化、结构化绑定、
+    // constexpr 里用 vector、`new` 不 `delete`、引用成员 —— 10 例 exit 与首条诊断逐字相同，
+    // 唯一差异就是上面那条崩溃（新解释器更安全）。
+    '-fexperimental-new-constant-interpreter',
     ...(pchPath ? ['-include-pch', pchPath] : []),
     '-o',
     OBJECT_PATH,
