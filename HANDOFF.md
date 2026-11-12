@@ -5425,4 +5425,43 @@ dev / 本机 macOS / 无头 Chrome / `runCpp` 裸路径（不是卡片），每�
 
 - **编译前静态检查 + 提示**（扫到超大全局数组就给一行「建议搬到堆上」，实测能省 20 倍）用户暂缓，未做。
 - 语法检查与补全（`syntaxArgs` / `completionArgs`）仍是旧解释器：那边即使崩也只是白跑一趟、不产生假诊断，没有一并改。
-- 本轮改动**未提交**。
+- 本轮改动已提交：`9235e2d perf: 大数组代码首编 8s → 1.3s（新常量解释器 + MemoryFs 写放大）`。
+
+### 44.8 后续备忘：把 link 收进 Worker，以及 `capacity` 的真实水位（2026-11-12 实测）
+
+这两条是核对 `MemoryFs` 改动边界时顺带确认的，都不需要改代码，但决定下一轮「Worker 内直接 link」值不值得做、以及要不要加回收阈值。
+
+**① 编译产物现在被搬了两趟，`Worker 内 link` 能省掉两趟而不是一趟。**
+
+`client.js:446` 的投递是裸 `postMessage({ ...job.payload, id })`，**没有 transfer list**。所以一条 `runCpp` 里那份 `.o`（`96005103 B` ≈ 91.6 MiB，即十进制 96 MB；下文按 MiB 计）实际走了：
+
+| 步 | 位置 | 代价 |
+| --- | --- | --- |
+| 1 | worker 内 clang 写 `/program-<hash>.o.tmp`，capacity 涨到 128 MiB | 写入本身 |
+| 2 | `wasi.worker.js` 的 `object ? new Uint8Array(object) : null` | **91.6 MiB 拷贝**（不拷的话 transfer 会把 baseFs 常驻节点的 buffer detach 掉） |
+| 3 | `post({ type:'result' }, [result.object.buffer])` | 零拷贝转移，但主线程从此持有一份 91.6 MiB |
+| 4 | 主线程 `host.link({ object })` → `postMessage` **无 transfer** | **91.6 MiB 结构化克隆**（跨线程整份复制） |
+| 5 | worker 侧 `writeFile(message.objectPath, message.object)` 覆盖 `/program.o` | 旧 128 MiB 释放，capacity 被精确设为 91.6 MiB |
+
+第 2 步的拷贝和第 4 步的克隆是同一份数据搬两次，且主线程在整个 link 期间额外握着 91.6 MiB。**把 link 收进 worker、直接读 `/program.o` 后，这两步一起消失**，主线程也不再需要持有产物。收益比之前估计的「省 0.2–0.3s」更实在：时间上是两次 91.6 MiB 级 memcpy，内存上少一份跨线程峰值。
+
+**② `truncate(node, 0)` 保留 capacity 的那条水位推论，前提不成立 —— 不需要加回收阈值。**
+
+原推论是「下次编译 clang 以 `O_TRUNC` 打开 `/program.o` → `truncate(node, 0)` 保留 capacity → 128 MiB 常驻到 worker 销毁」。实测（worker 内给 `MemoryFs.prototype` 的 `addFile`/`truncate`/`write`/`rename`/`unlink` 全挂钩子，跑「大数组 → 小代码 → 小代码」三连）：
+
+| 观测 | 读数 |
+| --- | --- |
+| `/program.o` 上发生的 `truncate` / `unlink` | **0 次** |
+| 实际写入路径 | `/program-7e61ae9d.o.tmp`、`/program-38fe4728.o.tmp` …（hash 每次不同） |
+| 节点是否跨次复用 | 否，`ino` 2932 → 2936 → 2940（每次新建） |
+| 大数组编译后 `/program.o` | `len=96005103`、`capacity=91.6 MiB` |
+| 紧接着小代码编译后 | `len=4675`、`capacity=8192 B`（0.0 MiB） |
+| baseFs 全部文件 capacity 合计 | 大代码后 104.5 MiB → 小代码后 **12.9 MiB** |
+
+真因是 clang 的写入模式：它**先写 `<name>-<hash>.o.tmp`、再 `path_rename` 覆盖目标**，从来不以 `O_TRUNC` 打开既有 `/program.o`。而 `MemoryFs.rename()` 覆盖已存在目标时会 `this.nodes.delete(to)`，旧节点连同它的 128 MiB 后备缓冲一起失去引用。所以：
+
+- **不存在**「编过一次大数组，128 MiB 就一直常驻到 worker 销毁」；
+- 真正常驻的是**最近一次产物自己的大小**（91.6 MiB），改回小代码编译一次就回落到 12.9 MiB —— 这是文件本来就该占的空间，不是泄漏；
+- 而且 capacity 也没停在 128 MiB：第 5 步的 `writeFile` 会把 `node.capacity` 精确设成产物长度，2 倍余量只在编译那一段短暂存在。
+
+结论：`truncate(node, 0)` 里加「cap > 16 MiB 就释放」的阈值**针对的是不存在的场景**，不用做。如果以后真要压常驻，该看的是「上一次产物的大小」而不是 capacity —— 而那个值是用户自己代码决定的，本来也无法回收。
