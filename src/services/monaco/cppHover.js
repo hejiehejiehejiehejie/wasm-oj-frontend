@@ -86,6 +86,23 @@ function releaseTree(model) {
 }
 
 /**
+ * 签名一律压成一行。
+ *
+ * 签名取的是源码文本，源码却常把一条声明拆成几行（参数换行、`using` / `typedef` 续行、
+ * `#define` 的反斜杠续行），原样带进悬停就在气泡里断成好几行。悬停要的是「这条声明长什么样」，
+ * 排版不是信息 —— clangd 也是压平的。
+ *
+ * 反斜杠续行先单独并掉：它只是行拼接，留着会在行中间挂一个没有下文的 `\`。
+ * @param {string} text
+ */
+function singleLine(text) {
+  return text
+    .replace(/\\[ \t]*\r?\n[ \t]*/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+}
+
+/**
  * 从 `function_definition` / 带函数声明的 `declaration` 上切出签名。
  * @param {import('web-tree-sitter').SyntaxNode} node
  * @param {string | null} [className] 成员函数所属的类；自由函数传 null
@@ -119,7 +136,7 @@ function describeFunction(node, className = null) {
     }
     specifiers = words.length ? `${words.join(' ')} ` : ''
   }
-  const signature = `${templateHead}${specifiers}${typeText} ${declaratorText}`.trim()
+  const signature = singleLine(`${templateHead}${specifiers}${typeText} ${declaratorText}`)
 
   return {
     name,
@@ -198,7 +215,7 @@ function describeLambda(declaration) {
 
   return {
     name: nameNode.text,
-    signature: `${resultType} ${nameNode.text}${parameters?.text ?? '()'}`,
+    signature: singleLine(`${resultType} ${nameNode.text}${parameters?.text ?? '()'}`),
     definition: true,
     className: null,
     arity: parameters
@@ -220,7 +237,7 @@ function describeLambda(declaration) {
  * @returns {{ name: string, signature: string } | null}
  */
 function describeAlias(node) {
-  const signature = node.text.trim()
+  const signature = singleLine(node.text)
   if (signature === '') return null
   let nameNode = null
   if (node.type === 'alias_declaration') {
@@ -567,9 +584,9 @@ function declaratorSignature(declaration, declarator, vars) {
   if (text === '') return null
   if (/\bauto\b/u.test(type)) {
     const inferred = inferAutoType(declarator, vars)
-    if (inferred !== null) return `${inferred} ${text}`
+    if (inferred !== null) return singleLine(`${inferred} ${text}`)
   }
-  return type === '' ? text : `${type} ${text}`
+  return singleLine(type === '' ? text : `${type} ${text}`)
 }
 
 /**

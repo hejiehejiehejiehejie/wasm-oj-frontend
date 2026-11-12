@@ -398,8 +398,11 @@ function acceptsArity(body, arity) {
 }
 
 /**
- * `[#int#]solve(<#int n#>)` → `int solve(int n);`
- * `[#int#]x` → `int x;`
+ * `[#int#]solve(<#int n#>)` → `int solve(int n)`
+ * `[#int#]x` → `int x`
+ *
+ * 末尾不补分号：悬停展示的是「这条声明的形状」，不是一行可以直接粘回去的语句；
+ * 而补全输出里没有分号，硬加一个在 `int n`、`size_type size()` 这类条目上一律是废字符。
  *
  * 类型名（`using ll = long long;` 里的 `ll`、类名）在补全输出里**没有** `[#类型#]` 块，
  * 只剩一个裸名字；照常拼会得到 `ll;` 这种既不是签名也没信息量的东西。这类条目丢弃 ——
@@ -417,7 +420,7 @@ function formatItem(body, name) {
   // 构造 / 析构这类条目：正文本身就带类型名，再补返回值就成了 `Foo Foo()`
   const alreadyTyped =
     resultType === '' || text.startsWith(`${resultType}(`) || text.startsWith(`${resultType} `)
-  return alreadyTyped ? `${text};` : `${resultType} ${text};`
+  return alreadyTyped ? text : `${resultType} ${text}`
 }
 
 /** 补全文本里的 `[#…]` / `<#…#>` 是占位与高亮标记，不是签名的一部分 */
