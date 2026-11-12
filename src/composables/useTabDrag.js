@@ -149,9 +149,21 @@ const TOUCH_MENU_DRAG_PX = 10
 const TOUCH_TAP_MS = 200
 /** 指针距条带左右边缘多近开始自动滚动（用户口径 40px） */
 const EDGE_PX = 40
-/** 自动滚动速度：贴边每帧 14px、退到 40px 线时每帧 3px，中间线性过渡（不突变） */
-const SCROLL_MAX = 14
-const SCROLL_MIN = 3
+/** 拖拽中指针可以纵向偏出条带多远还不掐断自动滚动（px）。条带本身只有 35px 高，触屏手指
+ *  按在上面横向拖动时上下抖动远超 20px，20px 的容差会让「拖着拖着突然不滚了」；块本来就
+ *  锁 X 轴（纵向只在条带里跟手），放宽纵向容差没有副作用。 */
+const DRAG_Y_TOLERANCE = 90
+/**
+ * 自动滚动速度，**单位是 px/s 不是 px/帧**（2026-11-13 改）。按帧写等于把速度绑在
+ * rAF 频率上：60Hz 是 840px/s，120Hz ProMotion 直接翻倍到 1680px/s，240Hz 三倍 ——
+ * 同一份手感在两台机器上是两回事，「一碰边缘就飞到底」正是高刷屏上的表现。
+ * 数值按原 60Hz 手感折算：贴边 14px/帧 → 840，退到 40px 线 3px/帧 → 180（取 140 更柔一档）。
+ */
+const SPEED_MAX = 840
+const SPEED_MIN = 140
+/** 刚进边缘区的前 RAMP_UP_MS 里速度从 RAMP_START 爬到满，避免手指扫过边缘时视口惊跳 */
+const RAMP_UP_MS = 120
+const RAMP_START = 0.45
 /** 拖拽结束后用来吃掉紧随其后那次 click 的时间上限 */
 const CLICK_SUPPRESS_MS = 300
 /** 拖出分组的脱离阈值（px）：组末成员的左缘越过「组剩余部分右缘」这么多才算真出组。
@@ -238,7 +250,14 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   /** 当前这一轮按压的全部临时状态；null = 没有按压在途 */
   let press = null
   let scrollFrame = 0
-  let scrollDelta = 0
+  /** 目标滚动速度（px/s，带正负号）。0 = 不滚。原先是个每帧像素数，见 SPEED_MAX 那段 */
+  let scrollVelocity = 0
+  /** 上一帧时间戳（ms），算 dt 用；0 = 还没起过步 */
+  let scrollLastTs = 0
+  /** 这次进入边缘区的时间戳（ms），算渐入用 */
+  let scrollEnterTs = 0
+  /** 亚像素累加余数（px）：高刷屏单帧位移可能不足 1px，取整丢掉的部分存在这里等下一帧凑 */
+  let scrollRemainder = 0
   let suppressClick = false
   let suppressClickTimer = 0
   /** 条带的滚动锁是否已上（见 lockStripScroll）。按位记，解除时只清自己写的那两条内联 */
@@ -706,6 +725,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       start: units[0].left - units[0].ml,
       // 抓取锚点：指针相对被拖块首元左缘的偏移。全程按「指针 - 锚点」定位，起手那一帧不会跳
       grabDX: 0,
+      // 块是否被某一侧钳住（updateDrag 每帧写）、本帧朝向哪边推（粘性，仅边缘滚动用）
+      pinnedLeft: false,
+      pinnedRight: false,
+      pushDir: 0,
       // 被拖块首元当前的视觉左缘（内容坐标）；起手 = 它的自然左缘（第一帧的 dir 因此为 0）
       visual: dragged.left,
       // 上一帧指针 clientX（方向门控用，见 updateDrag）。null = 还没收到过移动
@@ -882,7 +905,14 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       strip.scrollLeft + strip.clientWidth - drag.blockSpan,
       drag.contentRight - drag.blockSpan,
     )
-    drag.visual = Math.max(minLeft, Math.min(maxLeft, px - drag.grabDX))
+    const rawVisual = px - drag.grabDX
+    drag.visual = Math.max(minLeft, Math.min(maxLeft, rawVisual))
+    // 块被哪一侧钳住了 —— 边缘自动滚动要用（见 updateAutoScroll 那段）。0.5px 容差吃亚像素：
+    // 撞墙那一帧的浮点误差会让严格不等号时真时假。注意这里记的是**未钳制**位置越界，
+    // 不是「理论最远端」：块本就贴在条带两端（第一张往左、最后一张往右）时同样算钳住，
+    // 那正是「已经推不动了」的情形，没有区别。
+    drag.pinnedLeft = rawVisual < minLeft - 0.5
+    drag.pinnedRight = rawVisual > maxLeft + 0.5
     const tx = drag.visual - drag.unit.left
     for (const u of drag.block) {
       u.tx = tx
@@ -896,6 +926,9 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     const moveX = drag.lastPointerX === null ? 0 : clientX - drag.lastPointerX
     drag.lastPointerX = clientX
     const dir = moveX !== 0 ? Math.sign(moveX) : Math.sign(drag.visual - prevVisual)
+    // 边缘滚动专用的「正在往哪边推」。与 dir 分开：dir 还供换位判据用，不能加死区。
+    // 1px 级的手抖不算换向 —— 否则贴着边滚的时候抖一下就会断一帧、渐入重来，看着发顿。
+    if (Math.abs(moveX) >= 2) drag.pushDir = Math.sign(moveX)
 
     // 前导边缘（十六改）：左缘 / 右缘。块拖动时右缘 = 首元视觉左缘 + 块视觉宽
     //（blockEdge 从自然位置算，拖拽中不变 —— 块内相对间距恒定）。
@@ -1126,70 +1159,138 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     }
   }
 
-  /** 指针贴近条带左右边缘时持续横向滚动（页签多到溢出时，拖到边缘能继续挪） */
+  /** 指针贴近条带左右边缘时持续横向滚动（页签多到溢出时，拖到边缘能继续挪）。
+   *  只负责「这一帧该以多快滚」（写 scrollVelocity）与**点火**；续帧归 stepAutoScroll。 */
   function updateAutoScroll(clientX, clientY) {
     const strip = stripEl()
     if (!strip) return
     const rect = strip.getBoundingClientRect()
-    // 指针已不在条带的纵向范围内（比如拖到编辑区里去）：别滚。触屏手指容易上下飘，
-    // 纵向容差放到 20px（条带本身只有 35px 高）
-    if (clientY < rect.top - 20 || clientY > rect.bottom + 20) {
+    // 指针已不在条带的纵向范围内（比如拖到编辑区里去）：别滚。容差见 DRAG_Y_TOLERANCE
+    if (clientY < rect.top - DRAG_Y_TOLERANCE || clientY > rect.bottom + DRAG_Y_TOLERANCE) {
       stopAutoScroll()
       return
     }
-    // 贴边 40px 内开始滚，速度随距离线性加快（3 → 14 px/帧）：
-    // 越靠边越急，靠近这 40px 边界时几乎不动，不会「一进边缘就窜出去」
-    let delta = 0
-    const leftGap = clientX - rect.left
-    const rightGap = rect.right - clientX
-    if (leftGap < EDGE_PX) delta = -scrollStepFor(leftGap)
-    else if (rightGap < EDGE_PX) delta = scrollStepFor(rightGap)
+    // 贴边 EDGE_PX 内开始滚，速度随距离按二次曲线加快（SPEED_MIN → SPEED_MAX）：
+    // 越靠边越急，靠近这 EDGE_PX 边界时几乎不动，不会「一进边缘就窜出去」
+    const pointerLeftGap = clientX - rect.left
+    const pointerRightGap = rect.right - clientX
+    let leftGap = pointerLeftGap
+    let rightGap = pointerRightGap
 
-    scrollDelta = delta
-    if (!delta) {
+    // 宽块死区（2026-11-13）：钳制按**整块**算（blockSpan），触发却只按指针 —— 页签最宽
+    // ~160px、芯片带整组能到几百 px。块撞墙停住时指针离墙还有大半个块宽（抓左端时约
+    // 140px），于是有上百像素的「抓手凭空拖动、块一动不动、也不滚」的死区；抓右端又几乎
+    // 没有死区，所以症状是「有时候顺、有时候卡」，很难归因。
+    // 修法：块被该侧钳住、且还在往那一侧推时，把**块的未钳制边缘**也纳入判定，gap 加半个
+    // 感应区（20px）留冲程 —— 撞墙那一刻取 20px（t=0.5 → 约 1/4 速度）柔和起步，继续往外
+    // 顶 20px 才拉满；直接用未钳制边缘的话撞墙瞬间 gap=0，速度一步到顶。
+    // ⚠️ 三条边界，缺一条都会退化成别的问题：
+    //   · 块**没被钳住**时不能用块边缘：指针必在块内，块边缘恒比指针更靠边，min() 会退化成
+    //     「只看块边缘」，滚动提前一个块宽就开始；
+    //   · 钳住但**方向相反**时不能用：宽块贴左墙、用户往右拖，块照样是 pinnedLeft，光看 gap
+    //     会一路向左滚；
+    //   · 钳住且方向相反时，那一侧的**指针** gap 也要屏蔽：从撞墙点往回收要收大半个块宽才
+    //     解钳，这期间指针可能还在 40px 区内，不屏蔽照样反向滚。
+    // 反过来，解钳之后（块开始跟手）就自动回落到只认指针，与改动前逐字相同。
+    const pushDir = drag?.pushDir ?? 0
+    if (drag && drag.pinnedRight && pushDir > 0) {
+      const blockRightGap = pointerRightGap - (drag.blockSpan - drag.grabDX)
+      rightGap = Math.min(pointerRightGap, blockRightGap + EDGE_PX * 0.5)
+      leftGap = Number.POSITIVE_INFINITY
+    } else if (drag && drag.pinnedLeft && pushDir < 0) {
+      leftGap = Math.min(pointerLeftGap, pointerLeftGap - drag.grabDX + EDGE_PX * 0.5)
+      rightGap = Number.POSITIVE_INFINITY
+    } else if (drag && drag.pinnedLeft) {
+      leftGap = Number.POSITIVE_INFINITY
+    } else if (drag && drag.pinnedRight) {
+      rightGap = Number.POSITIVE_INFINITY
+    }
+
+    let velocity = 0
+    if (leftGap < EDGE_PX) velocity = -scrollVelocityFor(leftGap)
+    else if (rightGap < EDGE_PX) velocity = scrollVelocityFor(rightGap)
+
+    if (!velocity) {
       stopAutoScroll()
       return
     }
+    const now = performance.now()
+    // **起滚 / 换向**才重置时间基准与余数。⚠️ 判据不能用 scrollFrame：帧循环里
+    // stepAutoScroll 一进来就把 scrollFrame 清 0，接力调到这里时同样是 0，「首次」判不出来。
+    if (!scrollVelocity || Math.sign(scrollVelocity) !== Math.sign(velocity)) {
+      scrollLastTs = now
+      scrollEnterTs = now
+      scrollRemainder = 0
+    }
+    scrollVelocity = velocity
     if (!scrollFrame) scrollFrame = window.requestAnimationFrame(stepAutoScroll)
   }
 
-  /** 离边缘还有多远 → 这一帧滚多少（贴边最大，退到 EDGE_PX 处最小；越界按 0 算） */
-  function scrollStepFor(gap) {
+  /** 离边缘还有多远 → 目标速度（px/s；贴边最大，退到 EDGE_PX 处最小；越界按 0 算）。
+   *  二次曲线而不是线性：前半段极缓，好让用户精准停在紧贴边缘的那张页签上；
+   *  最后十几像素才拉满。线性插值一进区就给 1/8 速度，会有「视口自己逃逸」的感觉。 */
+  function scrollVelocityFor(gap) {
     const t = 1 - Math.max(0, Math.min(gap, EDGE_PX)) / EDGE_PX
-    return Math.round(SCROLL_MIN + (SCROLL_MAX - SCROLL_MIN) * t)
+    return SPEED_MIN + (SPEED_MAX - SPEED_MIN) * t * t
   }
 
-  function stepAutoScroll() {
+  function stepAutoScroll(now = performance.now()) {
     scrollFrame = 0
     const strip = stripEl()
-    if (!strip || !scrollDelta || !press?.dragging) return
+    if (!strip || !scrollVelocity || !press?.dragging) return
 
-    const before = strip.scrollLeft
-    strip.scrollLeft = before + scrollDelta
-    // 已经到顶 / 到底：停下，别空转
-    if (strip.scrollLeft === before) return
+    // 帧间隔：切后台回来会给出巨大间隔，钳到 50ms；时间戳倒挂（个别实现的 rAF 时间戳可能
+    // 早于调度时记下的 performance.now()）按 0 算，别让 dt 变负把余数搅乱
+    const elapsed = Math.min(50, Math.max(0, now - scrollLastTs))
+    scrollLastTs = now
+    const dt = (elapsed > 0 ? elapsed : 16.67) / 1000
 
-    // 滚动把页签挪了位置，跟手与让位要按同一个指针位置重算。
-    // **下一帧由这一句接力**：updateDrag 尾巴上的 updateAutoScroll 会按「刷新后的条带几何」
-    // 重算 delta，并在 scrollFrame 还是 0 时排上新的一帧（见它的最后一行）。
-    // ⚠️ 这里**不能**再无条件排一次。两处各排一帧的话，第 n 帧就有 2^n 条循环在跑，而每条
-    // 都会把 scrollLeft 往前推一格 —— 帧数翻倍、scrollLeft 跟着指数暴涨。2026-11-12 用户报
-    // 「页签多到出现横向滚动条时，把页签往右拖就不知道拖到哪去了」的真因就是这一行：探针
-    // 实测 scrollLeft 260 → 575 → 33017 → 262393 → 2097401 → 1.7e7。被拖页签的 translate3d
-    // 又是按 scrollLeft 算出来的（visual - unit.left），两边同涨同落，于是它死死钉在条带
-    // 右缘、其余页签被滚到几百万像素之外，看起来就是「拖丢了」。
-    // 只在**溢出**时才滚得动（下面那句 `scrollLeft === before` 就 return），所以这个坑必须
-    // 等到「页签多到出现横向滚动条」才现形；鼠标与触屏共用这一条路径。
-    updateDrag(press.lastX, press.lastY)
-    // 兜底续帧：updateDrag 半路早退（条带没了 / 让位状态已收）时没人接力，不补一帧就会
-    // 滚到一半停住。正常路径下 scrollFrame 已被 updateAutoScroll 排上，这里不会进。
-    if (!scrollFrame && scrollDelta && press?.dragging) {
+    // 边缘驻留渐入：刚进区的前 RAMP_UP_MS 从 RAMP_START 爬到满
+    const ramp =
+      Math.min(1, RAMP_START + ((1 - RAMP_START) * Math.max(0, now - scrollEnterTs)) / RAMP_UP_MS)
+
+    // 亚像素累加：120Hz 下最低速一帧只有 0.5px，直接取整会永远不动，小数存起来等下一帧凑
+    const exact = scrollVelocity * ramp * dt + scrollRemainder
+    const intDelta = exact > 0 ? Math.floor(exact) : Math.ceil(exact)
+    scrollRemainder = exact - intDelta
+
+    // ⚠️ intDelta === 0 是「还在攒余数」，不是「滚到头了」，不能拿 scrollLeft === before
+    // 当终止判据 —— 那会在 120Hz 的第一帧就把循环掐死（高速下看不出来，慢速必现）。
+    if (intDelta !== 0) {
+      const before = strip.scrollLeft
+      strip.scrollLeft = before + intDelta
+      // 已经到顶 / 到底：停下，别空转
+      if (strip.scrollLeft === before) {
+        stopAutoScroll()
+        return
+      }
+
+      // 滚动把页签挪了位置，跟手与让位要按同一个指针位置重算。
+      // **下一帧由这一句接力**：updateDrag 尾巴上的 updateAutoScroll 会按「刷新后的条带几何」
+      // 重算速度，并在 scrollFrame 还是 0 时排上新的一帧（见它的最后一行）。
+      // ⚠️ 这里**不能**再无条件排一次。两处各排一帧的话，第 n 帧就有 2^n 条循环在跑，而每条
+      // 都会把 scrollLeft 往前推一格 —— 帧数翻倍、scrollLeft 跟着指数暴涨。2026-11-12 用户报
+      // 「页签多到出现横向滚动条时，把页签往右拖就不知道拖到哪去了」的真因就是这一行：探针
+      // 实测 scrollLeft 260 → 575 → 33017 → 262393 → 2097401 → 1.7e7。被拖页签的 translate3d
+      // 又是按 scrollLeft 算出来的（visual - unit.left），两边同涨同落，于是它死死钉在条带
+      // 右缘、其余页签被滚到几百万像素之外，看起来就是「拖丢了」。
+      // 只在**溢出**时才滚得动（下面那句 `scrollLeft === before` 就 return），所以这个坑必须
+      // 等到「页签多到出现横向滚动条」才现形；鼠标与触屏共用这一条路径。
+      updateDrag(press.lastX, press.lastY)
+    }
+
+    // 兜底续帧：攒余数那一帧、updateDrag 半路早退（条带没了 / 让位状态已收）时没人接力，
+    // 不补一帧就会滚到一半停住。正常路径下 scrollFrame 已被 updateAutoScroll 排上，这里不会进。
+    if (!scrollFrame && scrollVelocity && press?.dragging) {
       scrollFrame = window.requestAnimationFrame(stepAutoScroll)
     }
   }
 
   function stopAutoScroll() {
-    scrollDelta = 0
+    scrollVelocity = 0
+    scrollRemainder = 0
+    scrollLastTs = 0
+    scrollEnterTs = 0
     if (scrollFrame) {
       window.cancelAnimationFrame(scrollFrame)
       scrollFrame = 0
