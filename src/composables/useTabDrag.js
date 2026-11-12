@@ -692,6 +692,12 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       blockSpan: last.left + last.width + last.mr - (first.left - first.ml),
       units,
       hiddenByGroup,
+      // 内容总宽的右缘（内容坐标）：所有可见单元按边距盒首尾相接加起来即是。跟手钳制的
+      // 上界要用它 —— 见 updateDrag「右界取两者较小」那段。
+      contentRight: units.reduce(
+        (acc, u) => acc + u.ml + u.width + u.mr,
+        units[0].left - units[0].ml,
+      ),
       // 虚拟序列：拖拽期间的「逻辑顺序」。初始与 DOM 一致；换位只改它，DOM 不动
       order: units.slice(),
       // 虚拟序列里每个单元的目标左缘（内容坐标），layoutTargets 现算
@@ -862,8 +868,20 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 元素自身的 transition 已被 --dragging 关掉，这里写多少走多少，跟手无延迟。
     // 块内全体共用同一个 tx：它们的相对间距 == 槽位模型的间距（见 beginLiveReorder），
     // 钢性连体，一个 transform 值全员够用。
+    //
+    // ⚠️ 右界必须取「可视条带右缘」与「内容右缘」两者的**较小值**（2026-11-12 第二处
+    // 自增长，与 stepAutoScroll 那条是同一个报障的另一半）：只按可视条带钳的话，滚到底
+    // 之后 `scrollLeft + clientWidth` 就跑到内容右缘外面去了，被拖块被翻译到那儿 ——
+    // transform 会把元素的可滚动溢出算进 scrollWidth，于是 scrollWidth 跟着长、maxScroll
+    // 跟着长、下一帧又能多滚一点，一圈圈自喂。探针实测：只按可视条带钳时 scrollLeft 从
+    // 真实上限 1296 一路涨到 2718（3 秒，且不停），条带上只剩被拖的那一张吊在右缘、
+    // 其余全被滚到视口左边看不见 —— 用户看到的就是「不知道拖到哪去了」。补上内容右缘
+    // 这一道，滚到底就真的停住（scrollLeft 停在 maxScroll，边缘自动滚动自己退出）。
     const minLeft = strip.scrollLeft
-    const maxLeft = strip.scrollLeft + strip.clientWidth - drag.blockSpan
+    const maxLeft = Math.min(
+      strip.scrollLeft + strip.clientWidth - drag.blockSpan,
+      drag.contentRight - drag.blockSpan,
+    )
     drag.visual = Math.max(minLeft, Math.min(maxLeft, px - drag.grabDX))
     const tx = drag.visual - drag.unit.left
     for (const u of drag.block) {
@@ -1151,9 +1169,23 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 已经到顶 / 到底：停下，别空转
     if (strip.scrollLeft === before) return
 
-    // 滚动把页签挪了位置，跟手与让位要按同一个指针位置重算
+    // 滚动把页签挪了位置，跟手与让位要按同一个指针位置重算。
+    // **下一帧由这一句接力**：updateDrag 尾巴上的 updateAutoScroll 会按「刷新后的条带几何」
+    // 重算 delta，并在 scrollFrame 还是 0 时排上新的一帧（见它的最后一行）。
+    // ⚠️ 这里**不能**再无条件排一次。两处各排一帧的话，第 n 帧就有 2^n 条循环在跑，而每条
+    // 都会把 scrollLeft 往前推一格 —— 帧数翻倍、scrollLeft 跟着指数暴涨。2026-11-12 用户报
+    // 「页签多到出现横向滚动条时，把页签往右拖就不知道拖到哪去了」的真因就是这一行：探针
+    // 实测 scrollLeft 260 → 575 → 33017 → 262393 → 2097401 → 1.7e7。被拖页签的 translate3d
+    // 又是按 scrollLeft 算出来的（visual - unit.left），两边同涨同落，于是它死死钉在条带
+    // 右缘、其余页签被滚到几百万像素之外，看起来就是「拖丢了」。
+    // 只在**溢出**时才滚得动（下面那句 `scrollLeft === before` 就 return），所以这个坑必须
+    // 等到「页签多到出现横向滚动条」才现形；鼠标与触屏共用这一条路径。
     updateDrag(press.lastX, press.lastY)
-    scrollFrame = window.requestAnimationFrame(stepAutoScroll)
+    // 兜底续帧：updateDrag 半路早退（条带没了 / 让位状态已收）时没人接力，不补一帧就会
+    // 滚到一半停住。正常路径下 scrollFrame 已被 updateAutoScroll 排上，这里不会进。
+    if (!scrollFrame && scrollDelta && press?.dragging) {
+      scrollFrame = window.requestAnimationFrame(stepAutoScroll)
+    }
   }
 
   function stopAutoScroll() {
