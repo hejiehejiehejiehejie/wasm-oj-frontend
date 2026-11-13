@@ -1367,18 +1367,19 @@ textarea {
   box-shadow: none;
 }
 
-/* -------------------------------------------------- 窄屏：行号左右各留一格内边距
+/* -------------------------------------------------- 窄屏：行号左右各留一格半内边距
 
-   窄屏下正文左侧那一栏 = 「位数 + 2 个字符的行号列」+「2px 装饰区」（取值见
-   `services/editorOptions.js` 的 LINE_NUMBER_GUTTER）。行号列比数字本身宽两格字符，
-   那两格就是数字两侧的边距 —— 但 Monaco 默认 `text-align: right`（node_modules 里
+   窄屏下正文左侧那一栏 = 「位数 + 3 个字符的行号列」+「2px 装饰区」（取值见
+   `services/editorOptions.js` 的 LINE_NUMBER_GUTTER）。行号列比数字本身宽三格字符，
+   那三格就是数字两侧的边距 —— 但 Monaco 默认 `text-align: right`（node_modules 里
    lineNumbers.css 写死的），整格余量会全堆到数字左边，看着仍是「贴着正文」。
 
-   这里把两格劈开：`padding-right: calc(1ch - 1px)` 让右侧吃掉一格，剩下的一格自然落在左侧
-   —— 一位数 / 两位数 / 三位数都是「左右各约一格」（14px 等宽字体下 8.43px 一格）。
+   这里把三格劈开：`padding-right: calc(1.5ch - 1px)` 让右侧吃掉一格半，剩下的一格半
+   自然落在左侧 —— 一位数 / 两位数 / 三位数都是「左右各约一格半」（14px 等宽字体下
+   一格 8.43px，一格半约 12.6px）。
    减掉的那 1px 是在补装饰区：行号列右边还有 2px 装饰区（`editorOptions.js` 的
    `narrow.decorations`），它也是右侧留白的一部分，所以右边比左边少留半条，
-   两侧「数字到边缘」的视觉距离才真正相等（实测左 9.7 / 右到正文 9.4）。
+   两侧「数字到边缘」的视觉距离才真正相等（实测左 13.5 / 右到正文 13.6）。
 
    ⚠️ 用 `ch` 而不是写死像素：`ch` 在这个元素上就是编辑器字体的数字宽，字号 / 界面缩放
       一变，两侧边距跟着等比变，不用再同步一份常量（上一版写死的 `3px` 在实际换字号后
@@ -1386,14 +1387,14 @@ textarea {
    ⚠️ 若把 `narrow.decorations` 2px 改成别的值，这里的 1px 要跟着改成「装饰区的一半」。
    ⚠️ 为什么不用 `text-align: center`（更早一版的做法）：它让**整格**居中，行数一变位数、
       左右留白就跟着整体漂；而且用户 2026-11-13 第三轮明确「不需要让行号在整个区域强制居中」。
-   ⚠️ 行号列不会因此顶边：`minChars` 保证列宽比实际位数多两整格（`editorOptions.js` 里按
-      `lineCount` 现算），右边那 1ch 只吃掉其中一格，数字左边还剩一格。若把 `minChars`
+   ⚠️ 行号列不会因此顶边：`minChars` 保证列宽比实际位数多三整格（`editorOptions.js` 里按
+      `lineCount` 现算），右边那 1.5ch 只吃掉一格半，数字左边还剩一格半。若把 `minChars`
       改回「位数 + 1」，这里必须同时收到 0，否则数字会被挤出内容盒、右对齐失效。
    ⚠️ 选择器**不能**套 `:where(html.is-narrow)`：那条与 Monaco 自己那条同为 (0,3,0)，
       谁赢只看样式表先后，而 Monaco 的 CSS 是随 ESM 注入的、顺序不稳。这里让 `html.is-narrow`
       真参与特异性（(0,4,1)）才稳，用不着 `!important`。 */
 html.is-narrow .monaco-editor .margin-view-overlays .line-numbers {
-  padding-right: calc(1ch - 1px);
+  padding-right: calc(1.5ch - 1px);
 }
 
 /* -------------------------------------------------- 窄屏 / 题解：行号栏不画底色

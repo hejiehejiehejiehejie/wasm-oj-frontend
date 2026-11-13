@@ -143,16 +143,17 @@ export const WRAP_MODES = [
  *
  * 窄屏因此只留「行号列 + 一条 2px 的缝」这一小段（2026-11-13 用户报「窄屏下输入区和左边的空隙偏大」，
  * 随后又指出「行号右边那一列黑边在横向滚动时会盖住代码」），并按「有没有行号」分成两档：
- * - `narrow`（有行号）：**行号列宽 = 当前文件行数的位数 + 2 个字符**（下面 editorOptions 里按
- *   `lineCount` 现算，不写死）。多出来的这两格就是数字两侧的边距，一格给左、一格给右：
- *   `styles/base.css` 用 `padding-right: 1ch` 把右边那一格占掉（`1ch` = 一个数字的宽，
- *   14px 等宽字体下 8.43px），左边的 1 格由 `text-align: right` 自然剩下 ——
- *   于是不管文件是 9 行还是 999 行，两侧都各约一格（8.4px），随字号 / 界面缩放一起变，
+ * - `narrow`（有行号）：**行号列宽 = 当前文件行数的位数 + 3 个字符**（下面 editorOptions 里按
+ *   `lineCount` 现算，不写死）。多出来的这三格就是数字两侧的边距，左右各一格半：
+ *   `styles/base.css` 用 `padding-right: calc(1.5ch - 1px)` 把右边那一格半占掉（`1ch` = 一个数字的宽，
+ *   14px 等宽字体下 8.43px），左边的一格半由 `text-align: right` 自然剩下 ——
+ *   于是不管文件是 9 行还是 999 行，两侧都各约 1.5 格（约 13px），随字号 / 界面缩放一起变，
  *   而不是「两位数时左边空一大条、三位数时直接顶到栏边」。
- *   位数只增不减地跟着 `max(位数, minChars)` 走，所以 minChars 必须**比实际位数多 2** 才有这般余量；
+ *   位数只增不减地跟着 `max(位数, minChars)` 走，所以 minChars 必须**比实际位数多 3** 才有这般余量；
  *   行数跨过 10 / 100 / 1000 行时要重下发一次选项（`EditorPane.vue` 的 syncGutterDigits）。
- *   （2026-11-13 第六轮：原来只多留 1 格、右 padding 写死 3px，实测左 5.1–5.7 / 右 3，
- *   用户要求「增大行号左右的间距」，于是改成两侧各一格。）
+ *   （2026-11-13 这档改过三次：①②原为「+1 格 + 右 padding 3px」，实测左 5.1–5.7 / 右 3；
+ *   ⑥用户「增大一下行号左右的间距」→「+2 格 + `calc(1ch - 1px)`」，两侧各约 9.5px；
+ *   ⑦用户「再增加一点」→ 现在这版，两侧各约 13px。）
  * - **装饰区固定 2px**：这一格只加在行号列的**右侧**，是数字与正文之间那条缝（用户 2026-11-13
  *   第三轮指定：「仍然需要装饰区，只是将它的宽度收窄为 2px」）。
  *   这一档的 `showFoldingControls` 是 `'never'` —— 折叠控件那 16px 是「行号右边一条空白」的
@@ -179,7 +180,7 @@ export const WRAP_MODES = [
  */
 const LINE_NUMBER_GUTTER = {
   wide: { minChars: 5, decorations: 10, foldingControls: 'mouseover' },
-  // 窄屏：minChars 不在这里写死，由 editorOptions() 按「行数位数 + 2」现算（见函数体里的 gutter）
+  // 窄屏：minChars 不在这里写死，由 editorOptions() 按「行数位数 + 3」现算（见函数体里的 gutter）
   narrow: { decorations: 2, foldingControls: 'never' },
   // 题解没有行号列，这一档只留 8px：给正文一点左呼吸，同时把横向滚动的死区压到半个字符以内
   narrowPlain: { minChars: 4, decorations: 8, foldingControls: 'never' },
@@ -481,8 +482,8 @@ export function editorOptions(settings, scale = 1, { markdown = false, narrow = 
   const gutter = narrow
     ? lineNumbers === 'off'
       ? LINE_NUMBER_GUTTER.narrowPlain
-      : // 多留两格字符 = 数字左右各一格边距（CSS 的 padding-right: 1ch 吃掉右边那格，左边由右对齐剩下）
-        { ...LINE_NUMBER_GUTTER.narrow, minChars: String(Math.max(1, lineCount)).length + 2 }
+      : // 多留三格字符 = 数字左右各一格半边距（CSS 的 padding-right: calc(1.5ch - 1px) 吃掉右边，左边由右对齐剩下）
+        { ...LINE_NUMBER_GUTTER.narrow, minChars: String(Math.max(1, lineCount)).length + 3 }
     : LINE_NUMBER_GUTTER.wide
   // fontSize / lineHeight 必须是整数像素，Monaco 不接受小数
   const fontSize = Math.round(settings.fontSize * scale)
@@ -498,7 +499,7 @@ export function editorOptions(settings, scale = 1, { markdown = false, narrow = 
     // 三态存档 → Monaco 的 'on' / 'off'（「仅 Markdown 隐藏」按当前文件折算）；
     // 窄屏那一栏的宽度也看它（不显示行号 ⇒ 只剩装饰区那一段），所以上面先算出来再复用
     lineNumbers,
-    // 行号栏那两截（宽屏 = Monaco 默认值，窄屏 = 「位数 + 1」个字符 + 2px 缝；来历见 LINE_NUMBER_GUTTER）。
+    // 行号栏那两截（宽屏 = Monaco 默认值，窄屏 = 「位数 + 3」个字符 + 2px 缝；来历见 LINE_NUMBER_GUTTER）。
     // 两项都显式写出来：留空就是吃 Monaco 的默认值，而下面 folding 那 16px 是**加在**
     // lineDecorationsWidth 上的 —— 版本一改默认值，这一栏的宽度就跟着漂。
     lineNumbersMinChars: gutter.minChars,

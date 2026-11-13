@@ -321,7 +321,7 @@ function rememberGutterDigits(instance) {
 }
 
 /**
- * 行数跨过 10 / 100 / 1000 行时，窄屏的行号列要多两格（窄屏那档的 minChars = 位数 + 2），
+ * 行数跨过 10 / 100 / 1000 行时，窄屏的行号列要多三格（窄屏那档的 minChars = 位数 + 3），
  * 不重下发的话数字会顶到栏边。宽屏的 minChars 是定值，多跑一次也无害。
  */
 function syncGutterDigits(instance) {
