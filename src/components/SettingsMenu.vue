@@ -742,7 +742,7 @@ function currentOption(row) {
               />
 
               <!-- 两档一键切换（侧边栏位置 / 窄屏折叠方向）：行尾一颗钮，显示当前档
-                   （形如「<左侧>」），点一下翻到另一档。与步进器同款：内嵌在行按钮里，
+                   （形如「左侧」），点一下翻到另一档。与步进器同款：内嵌在行按钮里，
                    事件自己 .stop —— 点这颗钮翻面；点行空白处走外层的 trigger，同样是翻面。 -->
               <button
                 v-else-if="row.kind === 'toggle'"
@@ -752,7 +752,7 @@ function currentOption(row) {
                 @pointerdown.stop
                 @click.stop="trigger(index)"
               >
-                &lt;{{ optionLabel(currentOption(row)) }}&gt;
+                {{ optionLabel(currentOption(row)) }}
               </button>
 
               <template v-else-if="row.kind === 'stepper'">
@@ -1210,7 +1210,7 @@ function currentOption(row) {
   font-variant-numeric: tabular-nums;
 }
 
-/* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：行尾一颗小钮，显示当前档（如「<左侧>」），
+/* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：行尾一颗小钮，显示当前档（如「左侧」），
    点一下翻到另一档。**亮度**跟同列的步进器读数（.settings-menu__value）对齐 —— 它读的也是
    「当前值」，压成 muted 会在菜单里显得暗一档；**字号**比它小一档（12 对 13）：段钮是行尾
    的状态胶囊，跟正文同号会抢行首标签。2026-11-01 用户要求「再小一点」定的这一档。

@@ -2865,7 +2865,7 @@ watch(pendingUnbind, (open) => {
                 <AppIcon name="chevron" :size="12" class="select__chevron" />
               </span>
 
-              <!-- 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗钮显示当前档（如「<左侧>」），
+              <!-- 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗钮显示当前档（如「左侧」），
                    点一下翻到另一档，没有下拉这一层。 -->
               <button
                 v-else-if="row.control === 'toggle'"
@@ -2874,7 +2874,7 @@ watch(pendingUnbind, (open) => {
                 :aria-label="`${t(row.labelKey)}：${rowOptionLabel(row, currentOption(row))}`"
                 @click="rowSelect(row, otherOptionId(row))"
               >
-                &lt;{{ rowOptionLabel(row, currentOption(row)) }}&gt;
+                {{ rowOptionLabel(row, currentOption(row)) }}
               </button>
 
               <button
@@ -4828,7 +4828,7 @@ watch(pendingUnbind, (open) => {
   color: var(--text-dim);
 }
 
-/* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗小钮显示当前档（如「<左侧>」），
+/* 两档一键切换（侧边栏位置 / 窄屏折叠方向）：一颗小钮显示当前档（如「左侧」），
    点一下翻到另一档。底色与 select / 输入框同走 --bg-field，描边走 --border，
    颜色全部走变量、两套主题各取各的。 */
 .toggle-seg {
