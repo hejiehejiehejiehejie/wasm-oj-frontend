@@ -86,6 +86,11 @@ const { bindings } = useShortcutManager()
 // ---------------------------------------------------------------------- 展开位置
 const GAP = 4
 
+/** 二级那个盒子：Teleport 到 body、单独定位（见下面 placeSubmenu 那一段） */
+const subRoot = ref(null)
+/** 二级的定位结果；null = 还没量好（此时靠样式表的 visibility: hidden 藏着） */
+const subPos = ref(null)
+
 /**
  * 期望的那个点。
  *
@@ -110,20 +115,18 @@ const { root, position, ready } = usePopoverLayer({
   y: () => desired.value.y,
   align: () => desired.value.align,
   onDismiss: () => emit('close'),
+  // 二级 Teleport 到了 body，不再是主盒的子孙 —— 点它 / 焦点落进去都得算「还在菜单里」
+  alsoInside: () => subRoot.value,
 })
 
 /**
- * 一级菜单的内联样式 / 能否滚。
+ * 一级菜单能不能滚。
  *
- * 二级是 absolute 挂在所属那一行上的 —— 一级一旦成了滚动容器，二级就会被裁在它里面
- * （`overflow-y: auto` 会把横向也算成 auto）。所以「压高度 + 出滚动条」只在**没有展开
- * 二级**时生效：要滚的时候整份表都够得着，展开二级时优先保证二级完整可见。
+ * 二级曾经因为「absolute 挂在行上、会被滚动容器裁掉」而在展开时让开这个上限（HANDOFF §54），
+ * 代价是一级下沿露出屏幕。2026-11-14 起二级 Teleport 到 body、自己拿一条 fixed 坐标，
+ * 一级的 overflow 再也管不到它，所以上限任何时候都照用 —— 见 §55。
  */
-const menuStyle = computed(() => {
-  const { maxHeight, ...rest } = position.value
-  return maxHeight && openSubmenu.value !== null ? rest : position.value
-})
-const menuScrollable = computed(() => openSubmenu.value === null && Boolean(position.value.maxHeight))
+const menuScrollable = computed(() => Boolean(position.value.maxHeight))
 
 // ---------------------------------------------------------------------- 键盘漫游
 /** 一级表里的高亮下标（含 divider 位，只是 divider 不可选） */
@@ -133,29 +136,9 @@ const openSubmenu = ref(null)
 /** 二级里的高亮行 */
 const subActiveIndex = ref(0)
 const itemRefs = ref([])
-/** 二级贴着屏幕右边缘时翻到左侧去（判据见下面那个 watch） */
-const subFlipped = ref(false)
 /**
- * 二级要整体上抬多少像素（0 = 就贴着所属那一行的顶端）。
- *
- * 二级是 absolute 挂在一级行右侧的，`usePopoverLayer` 的视口收敛管不到它 —— 那一层只
- * 夹一级这一块。于是「一级被夹到视口下沿、而这一行又靠菜单底部」时，二级整块掉到屏幕
- * 外：折叠态那颗齿轮就在图标栏贴底那一组，实测 1400×900 下一级落在 519–892，
- * 「设置分类」的二级从 852 伸到 1089，**底部溢出 189px**。所以这里再收一次垂直方向。
- */
-const subShift = ref(0)
-/**
- * 二级整体左右挪多少像素（0 = 就贴在所属那一行的旁边）。
- *
- * 与上面那条垂直收敛是同一个道理的横向版本，但只在**翻转也救不回来**时才动：
- * 窄屏（手机）上一级菜单本身就占掉大半宽度，二级翻到左侧同样出屏（实测 414×896
- * 折叠态：不翻右缘 493 > 414，翻了左缘 -184 < 0 —— 两侧都塞不下）。这时候只能把它
- * 夹回视口里，代价是压住一级那一行 —— 出屏比遮挡严重得多。
- */
-const subShiftX = ref(0)
-/**
- * 盯着二级自己的尺寸（见 `watchSubmenuSize`）：字体 / 文案 / 相一变，宽度就变，收敛量得跟着重算。
- * 每次展开在 v-for / v-if 里重新挂一份。
+ * 盯着二级自己的尺寸（见 `watchSubmenuSize`）：字体 / 文案 / 相一变，宽度就变，定位得跟着重算。
+ * 每次展开重新挂一份。
  */
 let subObserver = null
 
@@ -200,7 +183,7 @@ const cloudPendingConfirm = ref(null)
  * 用户名框本身：表单一展开就把焦点送进去。
  *
  * 用函数 ref 而不是字符串 ref：整个二级都在一级的 `v-for` 里面，同名字符串 ref 会被 Vue
- * 收成数组（与下面取 `.settings-menu__sub` 那条同一个坑），`.focus()` 遂报「不是函数」。
+ * 收成数组（二级盒子 `subRoot` 同一个坑，见模板里那条注释），`.focus()` 遂报「不是函数」。
  */
 const cloudField = ref(null)
 
@@ -458,7 +441,7 @@ let closeTimer = 0
  * 【触屏为什么不能走这条】触屏没有「悬停」，`pointerenter` 是在 **touchstart 那一刻**来的，
  * 于是二级立刻插进 DOM；而同一根手指抬起后浏览器补的那发 `click`，是按**那一刻**落点
  * 重新做命中测试的 —— 它会落到刚长出来的二级上。窄屏首当其冲：二级按「两侧都塞不下就夹回
- * 视口」被压在所属那一行上（见 subShiftX），第一格「深色」正好在指头下面，于是「点主题」
+ * 视口」被压在所属那一行上（见 placeSubmenu），第一格「深色」正好在指头下面，于是「点主题」
  * 变成「直接切深色」（2026-11-01 用户报障）。
  * 触屏的展开改由 click 走 `trigger` → `openSubmenuAt`：DOM 在那发 click **之后**才变，
  * 自己长出来的二级就不可能把自己这一下接走。`activeIndex` 仍在这里记 —— 按下即高亮。
@@ -487,6 +470,19 @@ function onRootPointerLeave(event) {
   closeTimer = window.setTimeout(closeSubmenu, 220)
 }
 
+/**
+ * 指针从一级行挪进二级：取消待收。
+ *
+ * 二级 Teleport 到了 body，两个盒子之间不再有包含关系 —— 指针跨过去时一级会先收到一发
+ * `pointerleave`（排上 220ms 的收起定时器），只能靠二级这一发 `pointerenter` 把它撤掉。
+ * 触屏不算：那条 220ms 的定时器本来就不会为触屏排（见上面 onRootPointerLeave）。
+ */
+function keepOpen(event) {
+  if (event?.pointerType && event.pointerType !== 'mouse') return
+  window.clearTimeout(closeTimer)
+  closeTimer = 0
+}
+
 // 打开即接过焦点：不然 Esc / 方向键都落在别处。高亮钉在第一行而不是容器上，
 // 上下键才有起点（滚动容器自身不可聚焦也不会吞掉方向键）。
 watch(ready, (shown) => {
@@ -494,125 +490,108 @@ watch(ready, (shown) => {
 })
 
 /**
- * 收敛时用的视口尺寸。
+ * 二级的定位：Teleport 到 body、`position: fixed`，按所属那一行的实测盒子摆。
  *
- * 横向刻意用 `documentElement.clientWidth` 而不是 `window.innerWidth`：后者**含滚动条**，
- * 而浮层打开的那一瞬页面常会闪一下滚动条，收敛那一刻量到的是没滚动条的宽度（实测 414 的
- * 窗口在收敛那一帧报 426），等收敛完、滚动条落定，二级右缘就正好悬在屏幕外那十几像素里 ——
- * 这正是窄屏上「收敛明明跑了还是出屏 8px」的真因。clientWidth 是内容宽度，不受它影响。
+ * 以前它 `position: absolute` 挂在行上，于是躲不开两件事：一级在矮视口里被压了
+ * `max-height`、变成滚动容器时，二级会被裁进容器里；而一级的视口收敛又管不到它，
+ * 得再自己算一次上抬 / 左右挪，两套坐标的来源还不一样。现在它自己拿一条 fixed 坐标：
  *
- * 纵向取 `appViewportBox()` 的两条边（与应用层同一份几何），不再只看 `window.innerHeight`：
- * 键盘顶起来时应用层会整体下移到 `--vv-top`，可见区是 `[--vv-top, --vv-top + --vvh]` ——
- * 只认底边的话，二级上抬量算出来是「离布局底边还有多少」，上沿被顶得很高时就会把二级
- * 抬到应用上方那块空白里去。认上沿之后，两个边界都跟应用层走。
+ * - 横向：先贴行右侧，放不下就翻到左侧，两侧都塞不下再夹回视口（遮挡一级总好过出屏）；
+ * - 纵向：顶端与所属行对齐后往上让一截容器内边距，底部放不下就整体上抬，
+ *   比可视范围还高时压 `max-height` 自己滚。
+ *
+ * 「可视范围」取 `appViewportBox()`（与应用层 `.app.is-keyboard` 同一份几何）：
+ * 键盘顶起来时上沿是 `--vv-top`，只认底边会把二级抬到应用上方那块空白里去。
+ *
+ * 返回量到的几何给收敛循环比对；没得量（行没挂出来）时返回 null。
  */
-function viewportBox() {
+async function placeSubmenu() {
+  await nextTick()
+  const el = subRoot.value
+  const row = rowElement()
+  if (!el || !row) return null
   const box = appViewportBox()
-  return {
-    w: document.documentElement?.clientWidth || window.innerWidth,
-    top: box.top,
-    bottom: box.bottom,
+  const rect = row.getBoundingClientRect()
+  const width = el.offsetWidth || el.getBoundingClientRect().width
+  // 量自然高度前先把身上的 max-height 让开，否则「视口长回去、上限该撤掉」永远发现不了
+  const applied = el.style.maxHeight
+  el.style.maxHeight = 'none'
+  const natural = el.offsetHeight || el.getBoundingClientRect().height
+  el.style.maxHeight = applied
+  const span = box.bottom - box.top - GAP * 2
+  const capped = span > 0 && natural > span
+  const height = capped ? span : natural
+
+  let left = rect.right
+  if (left + width > box.right - GAP) left = rect.left - width
+  left = Math.max(box.left + GAP, Math.min(left, box.right - width - GAP))
+
+  // 上沿与那一行对齐后再让出一截容器内边距：让一级 / 二级的第一个条目在自己那一侧看齐
+  // （旧 CSS 靠 translateY(-6px * scale)，换算成绝对坐标就是这个 inset）
+  const wantTop = rect.top - 6 * menuScaleOf(el)
+  const top = Math.max(box.top + GAP, Math.min(wantTop, box.bottom - height - GAP))
+
+  subPos.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+    maxHeight: capped ? `${span}px` : undefined,
   }
+  return { left, top, width, height }
 }
 
 /**
- * 按实测位置把二级收进视口：右边放不下就翻到左侧，翻转也救不回来就左右夹，
- * 下边放不下就整块上抬。
+ * 二级的缩放系数从它自己的 `--menu-scale` 读。
  *
- * 一级菜单自己的收敛（见 usePopoverLayer）只管一级那一块，管不到挂出来的二级 ——
- * 二级是 absolute 挂在所属那一行上的，不是浮层本身的盒子。
- *
- * 每一步都要重新量：翻转是靠 class 切 `right: 100%` 实现的，改完得等那一帧画完才有新位置。
+ * Teleport 出去之后它不再继承 `.settings-menu` 上那个变量（样式表里已经给它补了同一档），
+ * 这里也读同一份，别在脚本里再写一个 0.92 —— 改大小仍然只动样式表那一处。
  */
-async function clampSubmenu() {
-  // 分帧收敛：每一轮都**按「没挪过」的位置重算绝对值**（所以重跑是幂等的，不会越收越偏），
-  // 量到连续两帧不动就收工，最多 12 帧。
-  //
-  // 为什么要重跑而不是一次量准：菜单是**弹开**的 —— 打开后的头一百来毫秒里它自己还在
-  // 0.95 → 1 的缩放动画里，`getBoundingClientRect` 量到的都是被缩过的那一份。逐帧实测
-  // （414×896、英文、未绑定）：二级宽 227.23 → 239.19，比值正好 0.95，收敛按这一份算出的
-  // 右缘收完仍出屏 10.5px；动画走完再算才落回 410（= 视口 - GAP）。ResizeObserver 帮不上
-  // 这个忙 —— 祖先的 transform 不改元素的布局盒，它不会为此再响一次。
+function menuScaleOf(el) {
+  const scale = Number.parseFloat(getComputedStyle(el).getPropertyValue('--menu-scale'))
+  return Number.isFinite(scale) && scale > 0 ? scale : 1
+}
+
+/** 当前展开的那一行：从行按钮往上找 `.settings-menu__row`（比按选择器数第几个可靠） */
+function rowElement() {
+  const index = openSubmenu.value
+  if (index === null) return null
+  return itemRefs.value[index]?.closest?.('.settings-menu__row') ?? null
+}
+
+/**
+ * 分帧收敛：一级菜单弹开后的头一百来毫秒还在 0.95 → 1 的缩放入场动画里，行位置每帧都在变，
+ * 量一次就定死会偏。量到连续两帧不动就收工，最多 12 帧。
+ */
+async function settleSubmenu() {
   let prev = null
   for (let pass = 0; pass < 12; pass += 1) {
-    await clampSubmenuPass()
-    const now = measureSubmenu()
-    if (now && prev && sameBox(prev, now)) return
+    const now = await placeSubmenu()
+    if (!now) return
+    if (prev && sameSpot(prev, now)) return
     prev = now
-    await nextTick()
     await new Promise((resolve) => requestAnimationFrame(resolve))
   }
 }
 
-/** 二级当前的**实际**盒子（含已写上的收敛量） */
-function measureSubmenu() {
-  const r = root.value?.querySelector('.settings-menu__sub')?.getBoundingClientRect?.()
-  if (!r) return null
-  return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }
-}
-
-/** 两帧量到的盒子是不是同一个（半个像素内算同一个，浮点误差不算动） */
-function sameBox(a, b) {
-  return ['left', 'right', 'top', 'bottom'].every((k) => Math.abs(a[k] - b[k]) <= 0.5)
+/** 两帧量到的位置 / 尺寸是不是同一个（半个像素内算同一个） */
+function sameSpot(a, b) {
+  return ['left', 'top', 'width', 'height'].every((key) => Math.abs(a[key] - b[key]) <= 0.5)
 }
 
 /**
- * 收敛一轮：量位置 → 定翻转 → 定横向 / 纵向偏移。
+ * 一级滚动了：二级是 fixed 的，不会跟着行走，得按行的新位置重算一次。
+ * 用 rAF 收一下 —— 惯性滚动时会连着来几十发。
  */
-async function clampSubmenuPass() {
-  // 按选择器取而不是用 ref：二级那批 div 都在 v-for / v-if 里，hover 从一行挪到另一行时
-  // 卸载与挂载的先后不保证，ref 有可能停在上一个元素（或 null）上。同一时刻只渲染一个。
-  const measure = () => root.value?.querySelector('.settings-menu__sub')?.getBoundingClientRect?.()
-
-  /**
-   * 「没挪过」的位置。
-   *
-   * 量到的 rect 是**含着当前收敛量**的（横向是 transform，纵向是 top），而下面的判断必须
-   * 以原位置为基准算绝对值 —— 拿含偏移的 rect 去算「还超出去多少」，等于把上一次的结果
-   * 当基准再挪一点：每重跑一次收敛量就被吃掉一截（resize 再跑一遍，实测右缘从 421.9
-   * 退回 436.7，越收越出屏）。
-   */
-  const raw = () => {
-    const r = measure()
-    if (!r) return null
-    return {
-      left: r.left - subShiftX.value,
-      right: r.right - subShiftX.value,
-      top: r.top + subShift.value,
-      bottom: r.bottom + subShift.value,
-    }
-  }
-
-  const { w: vw, top: vTop, bottom: vBottom } = viewportBox()
-
-  if (raw()?.right > vw - GAP) {
-    subFlipped.value = true
-    await nextTick()
-  }
-
-  // 翻过去之后左边反而出屏（窄屏两侧都塞不下）→ 翻回来，交给下面的左右夹兜底
-  if (subFlipped.value && raw()?.left < GAP) {
-    subFlipped.value = false
-    await nextTick()
-  }
-
-  const rect = raw()
-  if (!rect) return
-
-  const overshootRight = rect.right - (vw - GAP)
-  const undershootLeft = GAP - rect.left
-  subShiftX.value = overshootRight > 0 ? -overshootRight : undershootLeft > 0 ? undershootLeft : 0
-
-  // 上抬到「底部离可见区下沿 GAP」为止；二级比可见区还高时（小屏 / 键盘顶起来）只抬到
-  // 上沿也留 GAP，宁可两头都溢出一点，也别把顶部推到屏幕外 —— 那样连第一行都看不见了
-  const overflow = rect.bottom - (vBottom - GAP)
-  subShift.value = overflow > 0 ? Math.min(overflow, Math.max(0, rect.top - (vTop + GAP))) : 0
+let scrollRaf = 0
+function onMenuScroll() {
+  if (openSubmenu.value === null || scrollRaf) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    placeSubmenu()
+  })
 }
 
 watch(openSubmenu, async (index) => {
-  subFlipped.value = false
-  subShift.value = 0
-  subShiftX.value = 0
+  subPos.value = null
   subObserver?.disconnect()
   subObserver = null
   if (index === null) return
@@ -627,70 +606,59 @@ watch(openSubmenu, async (index) => {
     }
     nextTick(focusCloudField)
   }
-  await clampSubmenu()
+  await settleSubmenu()
   watchSubmenuSize()
 })
 
 /**
  * 二级的宽度不是写死的，是**内容算出来的**（用户名框的固有宽度、按钮文字、账号名长短），
  * 而字体会在打开之后的一百来毫秒里陆续换上去 —— 逐帧实测：414×896 下它从 227.23 慢慢长到
- * 239.19（约 120ms / 7 帧）。于是首次收敛量到的位置是「还没长开」的那一份，收完右缘仍出屏
- * 10.6px；换语言、切到验证码 / 确认相、账号名变长变短也都属于同一类变化。
+ * 239.19（约 120ms / 7 帧）。于是首次定位量到的是「还没长开」的那一份，右缘就出屏一截；
+ * 换语言、切到验证码 / 确认相、账号名变长变短也都属于同一类变化。
  *
- * 所以盯着它自己的尺寸：一长一缩就重算一次收敛量（收敛量走 transform / top，不改它的
- * border-box，因此不会自己触发自己）。元素在 v-for / v-if 里会换身份，所以每次展开重新挂。
+ * 所以盯着它自己的尺寸：一长一缩就重算一次定位（定位改的是 left / top，不改它的
+ * border-box，因此不会自己触发自己）。每次展开重新挂。
  */
 function watchSubmenuSize() {
   if (typeof ResizeObserver === 'undefined') return
-  const el = root.value?.querySelector('.settings-menu__sub')
+  const el = subRoot.value
   if (!el) return
-  subObserver = new ResizeObserver(() => clampSubmenu())
+  subObserver = new ResizeObserver(() => settleSubmenu())
   subObserver.observe(el)
 }
 
 /**
- * 视口变了就重收一次：手机上点进用户名框会顶起软键盘，视口矮一截 ——
- * 一级菜单由 usePopoverLayer 重新匣进视口，挂出来的二级得自己跟上。
+ * 视口变了就重新定位一次：手机上点进用户名框会顶起软键盘，视口矮一截 ——
+ * 一级菜单由 usePopoverLayer 重新匣进视口，二级得按行的新位置 / 新可视范围跟上。
  *
  * 两个触发源都要挂：
  * - `window.resize`：桌面拖窗 / 旋转；
  * - `onViewportChange`：useMobileKeyboard 实测出来的 `--vvh` / `--vv-top` 变化 ——
  *   **收键盘那一下有的引擎一个 resize 都不派发**（安卓 Firefox），而那时视口恰恰变高了，
- *   二级要是不重收，就会留在「按键盘弹着时那点高度算出来的」上抬量上，整块飘在所属那一行
+ *   二级要是不重算，就会留在「按键盘弹着时那点高度算出来的」位置上，整块飘在所属那一行
  *   上方几百像素处（2026-11-07 用户报「关掉键盘后显示错位」，截图里那个表单就是飘着的）。
  */
 function onViewportResize() {
-  if (openSubmenu.value !== null) clampSubmenu()
+  if (openSubmenu.value !== null) settleSubmenu()
 }
 window.addEventListener('resize', onViewportResize)
 const offViewport = onViewportChange(onViewportResize)
 
 /**
- * 一级菜单自己也动了（换边重锚、视口收敛改位置）时，二级要再收一次。
+ * 一级菜单自己也动了（换边重锚、视口收敛改位置）时，二级要重新定位。
  *
- * 二级是 absolute 挂在所属那一行上的，**跟着一级一起平移** —— 所以它相对行的位置不变、
- * 相对视口的位置变了：上抬量（`subShift`）是按「底部离视口下沿多少」算的，一级挪一格，
- * 那个数就不再成立。触发源的先后不保证（重锚在父组件、收敛在 usePopoverLayer），
+ * 二级是 fixed 的，按所属那一行的实测盒子摆 —— 一级挪一格，行也跟着挪，上一轮算出来的
+ * 绝对坐标就不再成立。触发源的先后不保证（重锚在父组件、收敛在 usePopoverLayer），
  * 所以不指望通知的顺序，改成盯 position 本身。
  */
 watch(position, () => {
-  if (openSubmenu.value !== null) clampSubmenu()
-})
-
-/**
- * 收敛量落到内联样式上；两项都是 0 时不写，交给样式表自己的位置。
- * 纵向改 `top`（相对所属那一行上抬），横向走 transform —— 翻到左侧时是 `right: 100%`
- * 定位的，那边改 margin-left 挪不动它。
- */
-const subStyle = computed(() => {
-  const style = {}
-  if (subShift.value) style.top = `${-subShift.value}px`
-  if (subShiftX.value) style['--sub-shift-x'] = `${subShiftX.value}px`
-  return Object.keys(style).length ? style : null
+  if (openSubmenu.value !== null) settleSubmenu()
 })
 
 onBeforeUnmount(() => {
   window.clearTimeout(closeTimer)
+  window.cancelAnimationFrame(scrollRaf)
+  scrollRaf = 0
   window.removeEventListener('resize', onViewportResize)
   offViewport()
   subObserver?.disconnect()
@@ -718,17 +686,18 @@ function currentOption(row) {
       ref="root"
       class="settings-menu"
       :class="{ 'settings-menu--ready': ready, 'settings-menu--scroll': menuScrollable }"
-      :style="menuStyle"
+      :style="position"
       role="menu"
       :aria-label="t('app.settings')"
       @keydown="onRootKeydown"
       @pointerleave="onRootPointerLeave"
+      @scroll.passive="onMenuScroll"
     >
       <template v-for="(row, index) in rows" :key="row.id ?? index">
         <div v-if="row.kind === 'divider'" class="settings-menu__divider" role="separator"></div>
 
-        <!-- 一级行只是个定位上下文：可点的是里面那颗 <button>，二级由此能 absolute
-             贴到它的右侧，不必再 Teleport 一层、也不用同步两个浮层的关闭 -->
+        <!-- 一级行：可点的是里面那颗 <button>；二级在下面 Teleport 到 body 单独定位，
+             这里只留一个 pointerenter 用来换展开项 -->
         <div v-else class="settings-menu__row" @pointerenter="onRowPointerEnter($event, index)">
           <button
             :ref="(el) => (itemRefs[index] = el)"
@@ -805,292 +774,306 @@ function currentOption(row) {
             </span>
           </button>
 
-          <div
-            v-if="row.kind === 'radio' && openSubmenu === index"
-            class="settings-menu__sub"
-            :class="{ 'settings-menu__sub--left': subFlipped }"
-            :style="subStyle"
-            role="menu"
-            :aria-label="t(row.labelKey)"
-          >
-            <!-- 主题：10 档横排成两行（深色一行、浅色一行）。竖排列表在这里会长到
-                 比屏幕还高，也不利于一次扫完；键盘仍按扁平顺序上下走（见 themeOptionIndex） -->
-            <div v-if="row.id === 'theme'" class="settings-menu__theme-rows">
-              <div v-for="group in themeGroups" :key="group.scheme" class="settings-menu__theme-row">
+          <!-- 二级单独 Teleport 到 body、fixed 定位（见 placeSubmenu）：这样一级在矮视口里
+               压高度、出现滚动条时也不会把它裁掉，两级各自夹进可视范围。
+               注意 ref 用函数写法：这段还在 `v-for` 里，字符串 ref 会被 Vue 收成数组。 -->
+          <Teleport v-if="row.kind === 'radio' && openSubmenu === index" to="body">
+            <div
+              :ref="(el) => (subRoot = el)"
+              class="settings-menu__sub"
+              :class="{ 'settings-menu__sub--ready': subPos }"
+              :style="subPos"
+              role="menu"
+              :aria-label="t(row.labelKey)"
+              @keydown="onRootKeydown"
+              @pointerenter="keepOpen"
+              @pointerleave="onRootPointerLeave"
+            >
+              <!-- 主题：10 档横排成两行（深色一行、浅色一行）。竖排列表在这里会长到
+                   比屏幕还高，也不利于一次扫完；键盘仍按扁平顺序上下走（见 themeOptionIndex） -->
+              <div v-if="row.id === 'theme'" class="settings-menu__theme-rows">
+                <div v-for="group in themeGroups" :key="group.scheme" class="settings-menu__theme-row">
+                  <button
+                    v-for="option in group.items"
+                    :key="option.id"
+                    type="button"
+                    class="settings-menu__theme-chip"
+                    :class="{
+                      'is-active': subActiveIndex === themeOptionIndex(option),
+                      'is-on': row.current && option.id === row.current(),
+                    }"
+                    role="menuitemradio"
+                    :aria-checked="row.current ? option.id === row.current() : undefined"
+                    tabindex="-1"
+                    @click.stop="pickOption(row, option)"
+                    @pointerenter="subActiveIndex = themeOptionIndex(option)"
+                  >
+                    {{ optionLabel(option) }}
+                  </button>
+                </div>
+              </div>
+
+              <template v-else>
                 <button
-                  v-for="option in group.items"
+                  v-for="(option, optionIndex) in row.options()"
                   :key="option.id"
                   type="button"
-                  class="settings-menu__theme-chip"
+                  class="settings-menu__item settings-menu__item--sub"
                   :class="{
-                    'is-active': subActiveIndex === themeOptionIndex(option),
-                    'is-on': row.current && option.id === row.current(),
+                    'is-active': subActiveIndex === optionIndex,
+                    'settings-menu__item--with-icon': option.icon,
                   }"
-                  role="menuitemradio"
+                  :role="row.current ? 'menuitemradio' : 'menuitem'"
                   :aria-checked="row.current ? option.id === row.current() : undefined"
                   tabindex="-1"
                   @click.stop="pickOption(row, option)"
-                  @pointerenter="subActiveIndex = themeOptionIndex(option)"
+                  @pointerenter="subActiveIndex = optionIndex"
                 >
-                  {{ optionLabel(option) }}
+                  <!-- 打勾位常驻（哪怕这一档没选中也占位），选中的标记出现时文字不横向弹跳。
+                       设置分类那几档带图标：图标就占这一格 —— 它本来对分类永远空着，
+                       两者不会同时出现，文字左缘也不动 -->
+                  <span v-if="option.icon" class="settings-menu__icon" aria-hidden="true">
+                    <AppIcon :name="option.icon" :size="12" />
+                  </span>
+                  <span v-else class="settings-menu__check" aria-hidden="true">
+                    <AppIcon v-if="row.current && option.id === row.current()" name="check" :size="12" />
+                  </span>
+                  <span class="settings-menu__label">{{ optionLabel(option) }}</span>
                 </button>
-              </div>
+              </template>
             </div>
-
-            <template v-else>
-              <button
-                v-for="(option, optionIndex) in row.options()"
-                :key="option.id"
-                type="button"
-                class="settings-menu__item settings-menu__item--sub"
-                :class="{
-                  'is-active': subActiveIndex === optionIndex,
-                  'settings-menu__item--with-icon': option.icon,
-                }"
-                :role="row.current ? 'menuitemradio' : 'menuitem'"
-                :aria-checked="row.current ? option.id === row.current() : undefined"
-                tabindex="-1"
-                @click.stop="pickOption(row, option)"
-                @pointerenter="subActiveIndex = optionIndex"
-              >
-                <!-- 打勾位常驻（哪怕这一档没选中也占位），选中的标记出现时文字不横向弹跳。
-                     设置分类那几档带图标：图标就占这一格 —— 它本来对分类永远空着，
-                     两者不会同时出现，文字左缘也不动 -->
-                <span v-if="option.icon" class="settings-menu__icon" aria-hidden="true">
-                  <AppIcon :name="option.icon" :size="12" />
-                </span>
-                <span v-else class="settings-menu__check" aria-hidden="true">
-                  <AppIcon v-if="row.current && option.id === row.current()" name="check" :size="12" />
-                </span>
-                <span class="settings-menu__label">{{ optionLabel(option) }}</span>
-              </button>
-            </template>
-          </div>
+          </Teleport>
 
           <!-- 云端同步的二级：一个小表单，三相互斥（填用户名 / 看验证码 / 问一句确认）。
-               整块竖排、比档位列表宽一号；点里面任何一处都不该牵动一级那一行的行为。 -->
-          <div
-            v-else-if="row.kind === 'cloud' && openSubmenu === index"
-            class="settings-menu__sub settings-menu__sub--form"
-            :class="{ 'settings-menu__sub--left': subFlipped }"
-            :style="subStyle"
-            role="group"
-            :aria-label="t(row.labelKey)"
-            @click.stop
-          >
-            <template v-if="cloudPhase === 'input'">
-              <!-- 已绑定：先报一句「这台设备在跟谁」（用户名 + 已绑定标记），再是这位自己的事
-                   （上传 / 下载 / 解绑）；分隔线以下是 handle + 导入 —— 导入是「取一份配置」，
-                   与绑不绑无关，绑着的时候照样能取别人的。
-                   未绑定时上面这一块整个不出现，就只剩下面那一行、外加一颗「登录」。 -->
-              <template v-if="cloudBound">
-                <div class="settings-menu__account">
-                  <AppIcon name="cloud" :size="12" />
-                  <span class="settings-menu__account-name">{{ cloudAccount.handle }}</span>
-                  <span class="settings-menu__account-tag">{{ t('settings.cloud.boundTag') }}</span>
-                </div>
-                <div class="settings-menu__actions">
+               整块竖排、比档位列表宽一号；点里面任何一处都不该牵动一级那一行的行为。
+               与档位列表一样 Teleport 到 body、单独定位（见 placeSubmenu）。 -->
+          <Teleport v-else-if="row.kind === 'cloud' && openSubmenu === index" to="body">
+            <div
+              :ref="(el) => (subRoot = el)"
+              class="settings-menu__sub settings-menu__sub--form"
+              :class="{ 'settings-menu__sub--ready': subPos }"
+              :style="subPos"
+              role="group"
+              :aria-label="t(row.labelKey)"
+              @keydown="onRootKeydown"
+              @pointerenter="keepOpen"
+              @pointerleave="onRootPointerLeave"
+              @click.stop
+            >
+              <template v-if="cloudPhase === 'input'">
+                <!-- 已绑定：先报一句「这台设备在跟谁」（用户名 + 已绑定标记），再是这位自己的事
+                     （上传 / 下载 / 解绑）；分隔线以下是 handle + 导入 —— 导入是「取一份配置」，
+                     与绑不绑无关，绑着的时候照样能取别人的。
+                     未绑定时上面这一块整个不出现，就只剩下面那一行、外加一颗「登录」。 -->
+                <template v-if="cloudBound">
+                  <div class="settings-menu__account">
+                    <AppIcon name="cloud" :size="12" />
+                    <span class="settings-menu__account-name">{{ cloudAccount.handle }}</span>
+                    <span class="settings-menu__account-tag">{{ t('settings.cloud.boundTag') }}</span>
+                  </div>
+                  <div class="settings-menu__actions">
+                    <button
+                      type="button"
+                      class="settings-menu__action settings-menu__action--primary"
+                      :disabled="cloudBusy"
+                      @click="runCloud('upload', uploadCloud)"
+                    >
+                      <LoadingSpinner v-if="cloudPending === 'upload'" :size="11" />
+                      <span>{{ t('settings.cloud.upload') }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="settings-menu__action"
+                      :disabled="cloudBusy"
+                      @click="runCloud('download', downloadCloud)"
+                    >
+                      <LoadingSpinner v-if="cloudPending === 'download'" :size="11" />
+                      <span>{{ t('settings.cloud.download') }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="settings-menu__action settings-menu__action--danger"
+                      :disabled="cloudBusy"
+                      @click="requestCloudUnbind"
+                    >
+                      {{ t('settings.cloud.unbind') }}
+                    </button>
+                  </div>
+                  <div class="settings-menu__divider" role="separator"></div>
+                </template>
+
+                <!-- handle 框与导入 / 登录挤在同一行：它是同一件事的两半（填谁 → 取谁的），
+                     摆成两行会被读成两个步骤。窄的时候先挤框（框 flex:1 + min-width:0），
+                     按钮不缩、标签不折行。 -->
+                <div class="settings-menu__row">
+                  <input
+                    :ref="(el) => (cloudField = el)"
+                    v-model.trim="cloudHandle"
+                    class="settings-menu__input"
+                    type="text"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    :aria-label="t('settings.cloud.handle.label')"
+                    :placeholder="t('settings.menu.cloudHandlePlaceholder')"
+                    @keydown.enter.prevent="
+                      cloudBound
+                        ? runCloud('import', runCloudImport)
+                        : runCloud('login', loginCloud)
+                    "
+                  />
                   <button
+                    type="button"
+                    class="settings-menu__action"
+                    :class="{ 'settings-menu__action--primary': cloudBound }"
+                    :disabled="cloudBusy"
+                    @click="runCloud('import', runCloudImport)"
+                  >
+                    <LoadingSpinner v-if="cloudPending === 'import'" :size="11" />
+                    <span>{{ t('settings.cloud.import') }}</span>
+                  </button>
+                  <button
+                    v-if="!cloudBound"
                     type="button"
                     class="settings-menu__action settings-menu__action--primary"
                     :disabled="cloudBusy"
-                    @click="runCloud('upload', uploadCloud)"
+                    @click="runCloud('login', loginCloud)"
                   >
-                    <LoadingSpinner v-if="cloudPending === 'upload'" :size="11" />
-                    <span>{{ t('settings.cloud.upload') }}</span>
+                    <LoadingSpinner v-if="cloudPending === 'login'" :size="11" />
+                    <span>{{ t('settings.cloud.login') }}</span>
                   </button>
+                </div>
+              </template>
+
+              <template v-else-if="cloudPhase === 'code'">
+                <div class="settings-menu__code">
+                  <span class="settings-menu__code-label">{{ t('settings.cloud.codeLabel') }}</span>
+                  <span class="settings-menu__code-row">
+                    <!-- user-select: all：点一下就整段选中，省得手动拖 -->
+                    <code class="settings-menu__code-value">{{ cloudCode }}</code>
+                    <button
+                      type="button"
+                      class="settings-menu__copy"
+                      :class="{ 'is-copied': codeCopied }"
+                      :title="t('settings.cloud.copyCodeTitle')"
+                      @click="copyCloudCode"
+                    >
+                      <AppIcon :name="codeCopied ? 'check' : 'copy'" :size="12" />
+                      <span>{{
+                        t(codeCopied ? 'settings.cloud.copied' : 'settings.cloud.copyCode')
+                      }}</span>
+                    </button>
+                  </span>
+                  <!-- 倒计时：见面板侧同一行，判据与文案都由 cloudSession 的 codeCountdown 给 -->
+                  <span
+                    class="settings-menu__code-timer"
+                    :class="{ 'is-expired': cloudCodeCountdown.expired }"
+                  >
+                    {{ t(cloudCodeCountdown.key, cloudCodeCountdown.params) }}
+                  </span>
+                  <span class="settings-menu__code-hint">{{ t('settings.cloud.codeHint') }}</span>
+                </div>
+                <p class="settings-menu__note">{{ cloudCodeIntro }}</p>
+                <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的与改动前
+                     一样。扩展能回报「保存完了」时（fill-saved）它会把验证也一起做完，文案随之换成
+                     链路版 —— 下面那两步是给人手动填的路子，两种情况都照旧摆着。 -->
+                <div v-if="canFillCode" class="settings-menu__fill">
+                  <button
+                    type="button"
+                    class="settings-menu__action settings-menu__action--primary settings-menu__fill-btn"
+                    :disabled="cloudBusy || cloudFilling"
+                    :title="cloudFillTitle"
+                    @click="fillCloudCode"
+                  >
+                    <LoadingSpinner v-if="cloudFilling" :size="11" />
+                    <AppIcon v-else name="codeforces" :size="12" />
+                    <span>{{ cloudFillLabel }}</span>
+                  </button>
+                  <span
+                    class="settings-menu__note"
+                    :class="cloudCfHint.tone && `settings-menu__note--${cloudCfHint.tone}`"
+                  >
+                    {{ t(cloudCfHint.key, cloudCfHint.params) }}
+                  </span>
+                </div>
+                <ol class="settings-menu__steps">
+                  <li>
+                    {{ cloudStep1.before
+                    }}<a
+                      class="settings-menu__link"
+                      :href="CF_SOCIAL_URL"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >{{ t('settings.cloud.codeStep1Link') }}</a
+                    >{{ cloudStep1.after }}
+                  </li>
+                  <li>{{ cloudCodeStep2 }}</li>
+                </ol>
+                <div class="settings-menu__actions">
                   <button
                     type="button"
                     class="settings-menu__action"
                     :disabled="cloudBusy"
-                    @click="runCloud('download', downloadCloud)"
+                    @click="cancelCloudCode"
                   >
-                    <LoadingSpinner v-if="cloudPending === 'download'" :size="11" />
-                    <span>{{ t('settings.cloud.download') }}</span>
+                    {{ t('settings.cloud.cancel') }}
+                  </button>
+                  <!-- 过期后「验证」必然被打回，这里直接换成「重新取码」（与面板那颗同一判据） -->
+                  <button
+                    v-if="cloudCodeCountdown.expired"
+                    type="button"
+                    class="settings-menu__action settings-menu__action--primary"
+                    :disabled="cloudBusy"
+                    @click="runCloud('refresh', refreshCloudCode)"
+                  >
+                    <LoadingSpinner v-if="cloudPending === 'refresh'" :size="11" />
+                    <span>{{ t('settings.cloud.refreshCode') }}</span>
                   </button>
                   <button
+                    v-else
                     type="button"
-                    class="settings-menu__action settings-menu__action--danger"
+                    class="settings-menu__action settings-menu__action--primary"
                     :disabled="cloudBusy"
-                    @click="requestCloudUnbind"
+                    @click="runCloud('verify', confirmCloudCode)"
                   >
-                    {{ t('settings.cloud.unbind') }}
+                    <LoadingSpinner v-if="cloudPending === 'verify'" :size="11" />
+                    <span>{{ cloudVerifyLabel }}</span>
                   </button>
                 </div>
-                <div class="settings-menu__divider" role="separator"></div>
               </template>
 
-              <!-- handle 框与导入 / 登录挤在同一行：它是同一件事的两半（填谁 → 取谁的），
-                   摆成两行会被读成两个步骤。窄的时候先挤框（框 flex:1 + min-width:0），
-                   按钮不缩、标签不折行。 -->
-              <div class="settings-menu__row">
-                <input
-                  :ref="(el) => (cloudField = el)"
-                  v-model.trim="cloudHandle"
-                  class="settings-menu__input"
-                  type="text"
-                  spellcheck="false"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  :aria-label="t('settings.cloud.handle.label')"
-                  :placeholder="t('settings.menu.cloudHandlePlaceholder')"
-                  @keydown.enter.prevent="
-                    cloudBound
-                      ? runCloud('import', runCloudImport)
-                      : runCloud('login', loginCloud)
-                  "
-                />
-                <button
-                  type="button"
-                  class="settings-menu__action"
-                  :class="{ 'settings-menu__action--primary': cloudBound }"
-                  :disabled="cloudBusy"
-                  @click="runCloud('import', runCloudImport)"
-                >
-                  <LoadingSpinner v-if="cloudPending === 'import'" :size="11" />
-                  <span>{{ t('settings.cloud.import') }}</span>
-                </button>
-                <button
-                  v-if="!cloudBound"
-                  type="button"
-                  class="settings-menu__action settings-menu__action--primary"
-                  :disabled="cloudBusy"
-                  @click="runCloud('login', loginCloud)"
-                >
-                  <LoadingSpinner v-if="cloudPending === 'login'" :size="11" />
-                  <span>{{ t('settings.cloud.login') }}</span>
-                </button>
-              </div>
-            </template>
-
-            <template v-else-if="cloudPhase === 'code'">
-              <div class="settings-menu__code">
-                <span class="settings-menu__code-label">{{ t('settings.cloud.codeLabel') }}</span>
-                <span class="settings-menu__code-row">
-                  <!-- user-select: all：点一下就整段选中，省得手动拖 -->
-                  <code class="settings-menu__code-value">{{ cloudCode }}</code>
+              <template v-else>
+                <p class="settings-menu__note">{{ cloudConfirmDesc }}</p>
+                <div class="settings-menu__actions">
                   <button
                     type="button"
-                    class="settings-menu__copy"
-                    :class="{ 'is-copied': codeCopied }"
-                    :title="t('settings.cloud.copyCodeTitle')"
-                    @click="copyCloudCode"
+                    class="settings-menu__action"
+                    :disabled="cloudBusy"
+                    @click="cloudPendingConfirm = null"
                   >
-                    <AppIcon :name="codeCopied ? 'check' : 'copy'" :size="12" />
-                    <span>{{
-                      t(codeCopied ? 'settings.cloud.copied' : 'settings.cloud.copyCode')
-                    }}</span>
+                    {{ t('settings.cloud.cancel') }}
                   </button>
-                </span>
-                <!-- 倒计时：见面板侧同一行，判据与文案都由 cloudSession 的 codeCountdown 给 -->
-                <span
-                  class="settings-menu__code-timer"
-                  :class="{ 'is-expired': cloudCodeCountdown.expired }"
-                >
-                  {{ t(cloudCodeCountdown.key, cloudCodeCountdown.params) }}
-                </span>
-                <span class="settings-menu__code-hint">{{ t('settings.cloud.codeHint') }}</span>
-              </div>
-              <p class="settings-menu__note">{{ cloudCodeIntro }}</p>
-              <!-- 代填只在装了扩展（且扩展自报 fill-code 能力）时出现；没装的用户看到的与改动前
-                   一样。扩展能回报「保存完了」时（fill-saved）它会把验证也一起做完，文案随之换成
-                   链路版 —— 下面那两步是给人手动填的路子，两种情况都照旧摆着。 -->
-              <div v-if="canFillCode" class="settings-menu__fill">
-                <button
-                  type="button"
-                  class="settings-menu__action settings-menu__action--primary settings-menu__fill-btn"
-                  :disabled="cloudBusy || cloudFilling"
-                  :title="cloudFillTitle"
-                  @click="fillCloudCode"
-                >
-                  <LoadingSpinner v-if="cloudFilling" :size="11" />
-                  <AppIcon v-else name="codeforces" :size="12" />
-                  <span>{{ cloudFillLabel }}</span>
-                </button>
-                <span
-                  class="settings-menu__note"
-                  :class="cloudCfHint.tone && `settings-menu__note--${cloudCfHint.tone}`"
-                >
-                  {{ t(cloudCfHint.key, cloudCfHint.params) }}
-                </span>
-              </div>
-              <ol class="settings-menu__steps">
-                <li>
-                  {{ cloudStep1.before
-                  }}<a
-                    class="settings-menu__link"
-                    :href="CF_SOCIAL_URL"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    >{{ t('settings.cloud.codeStep1Link') }}</a
-                  >{{ cloudStep1.after }}
-                </li>
-                <li>{{ cloudCodeStep2 }}</li>
-              </ol>
-              <div class="settings-menu__actions">
-                <button
-                  type="button"
-                  class="settings-menu__action"
-                  :disabled="cloudBusy"
-                  @click="cancelCloudCode"
-                >
-                  {{ t('settings.cloud.cancel') }}
-                </button>
-                <!-- 过期后「验证」必然被打回，这里直接换成「重新取码」（与面板那颗同一判据） -->
-                <button
-                  v-if="cloudCodeCountdown.expired"
-                  type="button"
-                  class="settings-menu__action settings-menu__action--primary"
-                  :disabled="cloudBusy"
-                  @click="runCloud('refresh', refreshCloudCode)"
-                >
-                  <LoadingSpinner v-if="cloudPending === 'refresh'" :size="11" />
-                  <span>{{ t('settings.cloud.refreshCode') }}</span>
-                </button>
-                <button
-                  v-else
-                  type="button"
-                  class="settings-menu__action settings-menu__action--primary"
-                  :disabled="cloudBusy"
-                  @click="runCloud('verify', confirmCloudCode)"
-                >
-                  <LoadingSpinner v-if="cloudPending === 'verify'" :size="11" />
-                  <span>{{ cloudVerifyLabel }}</span>
-                </button>
-              </div>
-            </template>
+                  <button
+                    type="button"
+                    class="settings-menu__action settings-menu__action--primary"
+                    :disabled="cloudBusy"
+                    @click="runCloud('confirm', confirmPending)"
+                  >
+                    <LoadingSpinner v-if="cloudPending === 'confirm'" :size="11" />
+                    <span>{{ cloudConfirmLabel }}</span>
+                  </button>
+                </div>
+              </template>
 
-            <template v-else>
-              <p class="settings-menu__note">{{ cloudConfirmDesc }}</p>
-              <div class="settings-menu__actions">
-                <button
-                  type="button"
-                  class="settings-menu__action"
-                  :disabled="cloudBusy"
-                  @click="cloudPendingConfirm = null"
-                >
-                  {{ t('settings.cloud.cancel') }}
-                </button>
-                <button
-                  type="button"
-                  class="settings-menu__action settings-menu__action--primary"
-                  :disabled="cloudBusy"
-                  @click="runCloud('confirm', confirmPending)"
-                >
-                  <LoadingSpinner v-if="cloudPending === 'confirm'" :size="11" />
-                  <span>{{ cloudConfirmLabel }}</span>
-                </button>
-              </div>
-            </template>
-
-            <p
-              v-if="cloudError || cloudNotice"
-              class="settings-menu__feedback"
-              :class="{ 'is-error': cloudError }"
-            >
-              {{ cloudError || cloudNotice }}
-            </p>
-          </div>
+              <p
+                v-if="cloudError || cloudNotice"
+                class="settings-menu__feedback"
+                :class="{ 'is-error': cloudError }"
+              >
+                {{ cloudError || cloudNotice }}
+              </p>
+            </div>
+          </Teleport>
         </div>
       </template>
     </div>
@@ -1130,9 +1113,8 @@ function currentOption(row) {
  * 匣比菜单矮时（矮窗口 / 键盘顶起来只剩一小条）由 usePopoverLayer 压一个 max-height，
  * 这里负责让整份表能滚到 —— 否则最底下的「同步设置」永远点不到。
  *
- * 只在**没有展开二级**时挂上：二级是 absolute 挂在所属那一行上的，一级一旦成了滚动容器，
- * 它就会被裁在里面（`overflow-y: auto` 会把横向也算成 auto）。展开二级时优先保证二级完整
- * 可见，一级的截断交给 usePopoverLayer 只夹上沿的老口径。
+ * 任何时候都能挂：二级已经 Teleport 到 body、单独 fixed 定位（见 placeSubmenu），
+ * 不再受一级这个滚动容器的裁剪影响（2026-11-14，HANDOFF §55）。
  */
 .settings-menu--scroll {
   overflow-y: auto;
@@ -1300,30 +1282,32 @@ function currentOption(row) {
 }
 
 /* ------------------------------------------------------------------ 二级子菜单
-   贴在所属那一行的右侧，顶端与行对齐后再往上让出一个容器内边距，让一级 / 二级的
-   首在自己那一侧看齐（手写 -6px 而不是百分比：要的是一小截固定退让，与行高无关）。
-   z-index 必给：窄屏放不下右侧时会用 --sub-shift-x 把二级横向推回来、压在菜单本身上，
-   而它下面的行都是 position: relative（z-index auto），按源序会画在二级之上 ——
-   字号步进器 / 箭头就会浮到主题面板上面。 */
+   Teleport 到 body、`position: fixed`，坐标由脚本按所属那一行实测给出（见 placeSubmenu）；
+   这里只负责长相。
+
+   ⚠️ 它已经不在 `.settings-menu` 里了，那个盒子上定义的 `--menu-scale` 继承不过来，
+   所以这里必须补同一档。改大小仍然是两处一起动（`.settings-menu` 与这里），别只改一处。
+   颜色不用管：`--menu-*` 令牌挂在 `:root` 上，Teleport 到 body 照样拿得到。
+   z-index 要压过一级（125），否则二级会被一级盖在下面。 */
 .settings-menu__sub {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 100%;
+  --menu-scale: 0.92;
+  position: fixed;
+  z-index: 126;
   min-width: calc(150px * var(--menu-scale));
   padding: calc(6px * var(--menu-scale)) 0;
   background: var(--menu-bg);
   border: 1px solid var(--menu-border);
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
-  /* 横向偏移由脚本按需写进 --sub-shift-x（窄屏两侧都放不下时的最后兜底），默认是 0 */
-  transform: translate(var(--sub-shift-x, 0px), calc(-6px * var(--menu-scale)));
+  /* 量好之前藏着（与一级的 --ready 同一套路）：fixed 元素还没有 left / top 时落在
+     文档流的静态位置，露出半帧就会在屏幕角落闪一下 */
+  visibility: hidden;
+  /* 比可视范围还高时（矮窗口 / 键盘顶起来）脚本会压一个 max-height，这里负责滚 */
+  overflow-y: auto;
 }
 
-/* 右边放不下就翻到左边（判据见脚本里的那个 watch） */
-.settings-menu__sub--left {
-  left: auto;
-  right: 100%;
+.settings-menu__sub--ready {
+  visibility: visible;
 }
 
 .settings-menu__item--sub {

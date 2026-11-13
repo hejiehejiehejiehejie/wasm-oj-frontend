@@ -50,8 +50,11 @@ import { appViewportBox, onViewportChange, swallowNextTap } from './useMobileKey
  * @param {() => void} options.onDismiss 请求关闭时的回调（调用方通常翻一个 v-if 用的标记）
  * @param {number} [options.gap] 与**可视范围**四边的最小间隙
  * @param {string|(() => string)} [options.align] `x` 是浮层的左缘（'left'，默认）还是右缘（'right'）
+ * @param {() => (Element|null|Array<Element|null>)} [options.alsoInside]
+ *   伴生盒子：与 `root` 一起算「还在浮层里」的那些元素。设置菜单把二级 Teleport 到 body 之后
+ *   用得上 —— 它不再是 `root` 的子孙，点它 / 焦点落进去都不该被当成「点到外面」而收掉菜单。
  */
-export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
+export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left', alsoInside }) {
   const root = ref(null)
   // 初值直接用期望位置：收敛要等下一帧量到尺寸才生效，first paint 先落在期望处
   const position = ref({ left: `${toValue(x)}px`, top: `${toValue(y)}px` })
@@ -72,8 +75,21 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     onDismiss?.()
   }
 
+  /**
+   * 这个节点算不算「在浮层里」：主盒的子孙，或调用方交上来的伴生盒子（见 `alsoInside`）。
+   *
+   * 「点外面才关」「焦点还在不在」两处判据共用它 —— 分散写必然有一处漏掉伴生盒，
+   * 而漏掉的后果都很具体：前者是二级里点一下就整份菜单没了，后者是键盘一弹正在填的表单被销毁。
+   */
+  function contains(target) {
+    if (!(target instanceof Node)) return false
+    const extra = alsoInside?.()
+    const list = Array.isArray(extra) ? extra : [extra]
+    return [root.value, ...list].some((el) => el instanceof Element && el.contains(target))
+  }
+
   function onPointerDown(event) {
-    if (!root.value || root.value.contains(event.target)) return
+    if (!root.value || contains(event.target)) return
     /**
      * 触屏：这一下点在浮层外面，多半就是落在编辑区上 —— 而浮层一关，那一发触摸**照样继续
      * 往下派发**，Monaco 在 `touchend` 里把它认成轻点、`focusTextArea()` 把软键盘弹起来。
@@ -105,7 +121,7 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   function onFocusTrack(event) {
     const el = root.value
     if (!el || !(event.target instanceof Node)) return
-    focusOwned = el.contains(event.target)
+    focusOwned = contains(event.target)
   }
 
   /**
@@ -128,7 +144,7 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     const el = root.value
     if (!el) return false
     const active = document.activeElement
-    if (active && el.contains(active)) return true
+    if (active && contains(active)) return true
     return (!active || active === document.body) && focusOwned
   }
 

@@ -6261,8 +6261,57 @@ compact
 
 - 匣的纵向口径从此只有一份（`appViewportBox()`），**别再往浮层里抄 `visualViewport.offsetTop`**：
   它与应用层在「收键盘后 offsetTop 留残值」这一类引擎上本来就会分家。
-- 「菜单比可视范围还高」现在改成压高度 + 滚动，不再只夹上沿。但**展开二级时那条上限会被摘掉**
-  （见 54.3 最后两行）：这时一级仍会露出下沿，换的是二级完整可见。要两者兼得，得把二级
-  Teleport 出去单独定位 —— 那是另一件事。
-- 摘上限那一刻滚动位置会丢（`overflow-y: auto` 撤成 `visible`，`scrollTop` 清零），观感上
-  一级会跳一下。可接受；真要修得让二级脱离一级的滚动容器。
+- 「菜单比可视范围还高」现在改成压高度 + 滚动，不再只夹上沿。**展开二级时这条上限也不再让开**
+  —— 2026-11-14 起二级 Teleport 到 body 单独定位，一级的 `overflow` 管不到它（见 §55）。
+- 视口长回去、上限被撤掉的那一刻滚动位置会丢（`overflow-y: auto` 撤成 `visible`，`scrollTop`
+  清零），观感上一级会跳一下。可接受（此时整份表都看得见，滚不滚已经无所谓）。
+
+## 55. 设置菜单的二级改为 Teleport 单独定位（2026-11-14，接 §54 的遗留取舍）
+
+### 55.1 起因
+
+§54 为了不让「一级在矮视口里压高度、变成滚动容器」裁掉 absolute 挂在行上的二级，在展开二级时
+**把一级的 `max-height` 摘掉** —— 代价是一级下沿重新露出屏幕；而且摘上限那一刻 `scrollTop`
+清零，一级会跳一下。当时记的结论是「要两者兼得，得把二级 Teleport 出去单独定位」。这一节就是那件事。
+
+### 55.2 改法
+
+| 处 | 改前 | 改后 |
+| --- | --- | --- |
+| `SettingsMenu` 二级（两处：档位列表 / 同步表单） | `position: absolute`，`left: 100%` 挂在所属行上；翻转靠 `--left` 类，收敛靠 `subShift` / `subShiftX` 两个量 | `<Teleport to="body">` + `position: fixed`，坐标由 `placeSubmenu()` 按所属行的实测盒子算：横向先贴右侧、放不下翻到左侧、两侧都塞不下夹回视口；纵向与行对齐（`-6px × --menu-scale`）、放不下上抬、比可视范围还高则压 `max-height` 自己滚 |
+| 可视范围的来源 | 本地 `viewportBox()`（纵向认 `appViewportBox`，横向 `clientWidth`） | 直接用 `appViewportBox()`，两级同一份几何（§54 那条归一化对它同样生效） |
+| 一级的 `max-height` | 展开二级时摘掉 | **任何时候都保留**，`menuScrollable` 只看 `position.maxHeight`（`menuStyle` 这个特例删了） |
+| 跟随 | 二级跟着行一起平移，不需要额外处理 | 二级是 fixed 的：加 `@scroll.passive="onMenuScroll"`（一级滚动 → rAF 收一拍后重算），`watch(position)`（一级换边 / 视口收敛后重算） |
+| 定位收敛循环 | 12 轮，靠 `getBoundingClientRect` 比对（入场动画把 rect 缩小过） | 仍是分帧收敛（行位置在前 100ms 动画里会变），但二级自己已不受父级 transform 影响，`placeSubmenu()` 天然幂等 |
+| `.settings-menu__sub` 样式 | 无 `visibility`；`--menu-scale` 继承自 `.settings-menu` | 补 `visibility: hidden` + `--ready` 才显形（fixed 还没 left/top 时会在文档流静态位置闪一下）；补 `--menu-scale: 0.92`（Teleport 后继承不到，**改大小仍是两处一起动**）；`z-index: 126` 压过一级的 125；`overflow-y: auto` 吃上限 |
+| `usePopoverLayer` | 「在浮层里」只认 `root.contains` | 新增 `alsoInside` 选项（伴生盒子）：点二级、焦点落进二级都不算「点到外面」。设置菜单传二级的 ref；没有二级的调用方不传，行为不变 |
+
+没有 `alsoInside` 的话会有两处回归：点二级里任何一处 → `pointerdown` 判成外部、整份菜单关掉；
+点进同步表单的用户名框 → 键盘顶起视口 → `ownsFocus()` 判成焦点在外面、表单被销毁。
+
+### 55.3 实测（dev server + 无头 Chrome，1000 宽）
+
+| 场景 | 结果 |
+| --- | --- |
+| 440 高，展开「主题」二级 | 菜单 `87 – 432.4`、二级 `88 – 183.8`，`parentElement = BODY`、`position: fixed`、右缘 `531.4` 在屏内 |
+| 指针从行挪进二级并停留 600ms | 二级仍在（`pointerenter` 撤掉了 220ms 的收起定时器） |
+| 点二级里的一项 | 菜单没关（`alsoInside` 生效） |
+| 300 高，展开二级 | **一级仍被压**：`8 – 292`、`max-height: 284px`、`overflow: auto`；二级 `9 – 104.8` 在屏内 |
+| 同上，一级滚 10px | 二级跟着上移（`top` 8.98 → 4，撞上沿后夹住），没有被收掉 |
+| 200 高 / 90 高的极端窗口 | 90 高时二级自身被压 `max-height: 82px`，`scrollHeight/clientHeight = 94/80`，下沿 `86` 恰在 `90 - 4` 内 |
+| 假 `visualViewport`（触屏流）：正常 / 键盘弹着 `[232,440]` / 收键盘但 offsetTop 留 232 | 二级依次 `60 – 155.8` / `241 – 336.8` / `60 – 155.8`，三次都落在归一化后的可视范围内 |
+| 同步表单：点进用户名框后把窗口压矮（模拟键盘顶起） | 菜单与二级都还在，二级被重新摆到可见条内 |
+
+`npm run verify` A–H 全绿，`npm run lint` 无新增告警。
+
+### 55.4 边界
+
+- **二级的 `--menu-scale` 必须与 `.settings-menu` 那处保持一致**：Teleport 到 body 之后继承链断了，
+  这是全站唯一一处需要写两遍的尺寸系数。脚本里需要那截 `-6px × scale` 的内边距时，从元素自己的
+  `--menu-scale` 读（`menuScaleOf`），不要再写一个 0.92。
+- 二级的定位锚点是**行按钮的 `parentElement`**（`closest('.settings-menu__row')`），不是 `itemRefs`
+  的下标数选择器：条件行（`when`）会让屏幕上的第几行与 `rows` 下标对不上。
+- 点二级外面仍然只关整份菜单（沿用一级那套「点外即关」），没有「点二级外面只收二级」这一层 ——
+  与 Windows / macOS 原生菜单一致。
+- 二级与一级之间**没有** 4px 的视觉间隙（`left = 行右缘`），与旧的 `left: 100%` 逐像素相同；
+  挪开的话鼠标横穿时会落到两个盒子中间，那 220ms 的宽限就得靠「行 / 二级都够不着」来兜。
