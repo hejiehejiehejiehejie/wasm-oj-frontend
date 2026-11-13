@@ -128,6 +128,8 @@ async function action(id) {
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
   visibility: hidden;
+  /* 匣比卡片矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
+  overflow-y: auto;
   transform-origin: top left;
 }
 

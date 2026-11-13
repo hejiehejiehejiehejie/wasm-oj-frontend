@@ -30,7 +30,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
-import { onViewportChange } from '../composables/useMobileKeyboard.js'
+import { appViewportBox, onViewportChange } from '../composables/useMobileKeyboard.js'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
@@ -111,6 +111,19 @@ const { root, position, ready } = usePopoverLayer({
   align: () => desired.value.align,
   onDismiss: () => emit('close'),
 })
+
+/**
+ * 一级菜单的内联样式 / 能否滚。
+ *
+ * 二级是 absolute 挂在所属那一行上的 —— 一级一旦成了滚动容器，二级就会被裁在它里面
+ * （`overflow-y: auto` 会把横向也算成 auto）。所以「压高度 + 出滚动条」只在**没有展开
+ * 二级**时生效：要滚的时候整份表都够得着，展开二级时优先保证二级完整可见。
+ */
+const menuStyle = computed(() => {
+  const { maxHeight, ...rest } = position.value
+  return maxHeight && openSubmenu.value !== null ? rest : position.value
+})
+const menuScrollable = computed(() => openSubmenu.value === null && Boolean(position.value.maxHeight))
 
 // ---------------------------------------------------------------------- 键盘漫游
 /** 一级表里的高亮下标（含 divider 位，只是 divider 不可选） */
@@ -488,13 +501,17 @@ watch(ready, (shown) => {
  * 窗口在收敛那一帧报 426），等收敛完、滚动条落定，二级右缘就正好悬在屏幕外那十几像素里 ——
  * 这正是窄屏上「收敛明明跑了还是出屏 8px」的真因。clientWidth 是内容宽度，不受它影响。
  *
- * 纵向仍用 `window.innerHeight`：软键盘顶起来时缩的就是它，而这一条收敛要的正是
- * 「现在能看见多高」。
+ * 纵向取 `appViewportBox()` 的两条边（与应用层同一份几何），不再只看 `window.innerHeight`：
+ * 键盘顶起来时应用层会整体下移到 `--vv-top`，可见区是 `[--vv-top, --vv-top + --vvh]` ——
+ * 只认底边的话，二级上抬量算出来是「离布局底边还有多少」，上沿被顶得很高时就会把二级
+ * 抬到应用上方那块空白里去。认上沿之后，两个边界都跟应用层走。
  */
 function viewportBox() {
+  const box = appViewportBox()
   return {
     w: document.documentElement?.clientWidth || window.innerWidth,
-    h: window.innerHeight,
+    top: box.top,
+    bottom: box.bottom,
   }
 }
 
@@ -566,7 +583,7 @@ async function clampSubmenuPass() {
     }
   }
 
-  const { w: vw, h: vh } = viewportBox()
+  const { w: vw, top: vTop, bottom: vBottom } = viewportBox()
 
   if (raw()?.right > vw - GAP) {
     subFlipped.value = true
@@ -586,10 +603,10 @@ async function clampSubmenuPass() {
   const undershootLeft = GAP - rect.left
   subShiftX.value = overshootRight > 0 ? -overshootRight : undershootLeft > 0 ? undershootLeft : 0
 
-  // 上抬到「底部离视口下沿 GAP」为止；二级比视口还高时（小屏）只抬到顶部也留 GAP，
-  // 宁可两头都溢出一点，也别把顶部推到屏幕外 —— 那样连第一行都看不见了
-  const overflow = rect.bottom - (vh - GAP)
-  subShift.value = overflow > 0 ? Math.min(overflow, Math.max(0, rect.top - GAP)) : 0
+  // 上抬到「底部离可见区下沿 GAP」为止；二级比可见区还高时（小屏 / 键盘顶起来）只抬到
+  // 上沿也留 GAP，宁可两头都溢出一点，也别把顶部推到屏幕外 —— 那样连第一行都看不见了
+  const overflow = rect.bottom - (vBottom - GAP)
+  subShift.value = overflow > 0 ? Math.min(overflow, Math.max(0, rect.top - (vTop + GAP))) : 0
 }
 
 watch(openSubmenu, async (index) => {
@@ -700,8 +717,8 @@ function currentOption(row) {
     <div
       ref="root"
       class="settings-menu"
-      :class="{ 'settings-menu--ready': ready }"
-      :style="position"
+      :class="{ 'settings-menu--ready': ready, 'settings-menu--scroll': menuScrollable }"
+      :style="menuStyle"
       role="menu"
       :aria-label="t('app.settings')"
       @keydown="onRootKeydown"
@@ -1107,6 +1124,18 @@ function currentOption(row) {
 .settings-menu--ready {
   visibility: visible;
   animation: settings-menu-in 0.1s ease;
+}
+
+/**
+ * 匣比菜单矮时（矮窗口 / 键盘顶起来只剩一小条）由 usePopoverLayer 压一个 max-height，
+ * 这里负责让整份表能滚到 —— 否则最底下的「同步设置」永远点不到。
+ *
+ * 只在**没有展开二级**时挂上：二级是 absolute 挂在所属那一行上的，一级一旦成了滚动容器，
+ * 它就会被裁在里面（`overflow-y: auto` 会把横向也算成 auto）。展开二级时优先保证二级完整
+ * 可见，一级的截断交给 usePopoverLayer 只夹上沿的老口径。
+ */
+.settings-menu--scroll {
+  overflow-y: auto;
 }
 
 @keyframes settings-menu-in {

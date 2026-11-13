@@ -143,6 +143,39 @@ export function onViewportChange(fn) {
   return () => viewportSubs.delete(fn)
 }
 
+/**
+ * 「浮层能待在哪儿」的那个匣 —— 与应用层 `.app.is-keyboard` **同一份**几何
+ * （`<html>` 上的 `--vvh` / `--vv-top`），不是直接读 `visualViewport`。
+ *
+ * 【为什么不直接读 `visualViewport.offsetTop`】应用层是按 syncViewport **归一化之后**的
+ * 那两个数摆的（见那里的 `idle`），而原始读数可能是上一相的残值：收键盘时有的引擎只把
+ * height 还回去、offsetTop 一直挂着键盘弹着那一刻的偏移。应用层当场纠正了，浮层若还按
+ * 原始读数算匣，就会夹进一个整体下移了的假视口 —— 2026-11-13 用户报的「窗口矮、在同步设置
+ * 的输入框里唤出键盘、收起后设置菜单跑到屏幕外」正是这个（实测：收键盘后 `--vv-top` 0 /
+ * 实测 offsetTop 232，440 高的窗口里菜单被夹到 240 起、底边 585）。
+ *
+ * 横向仍用实测的可视视口：归一化只在 `scale === 1` 时生效，那时它与布局视口同宽同左缘；
+ * 真放大时照旧按可视视口夹，才不会把浮层夹到缩放不可见的那一段去。
+ *
+ * 没写过这两个数（非触屏：useMobileKeyboard 没跑）或没有 `visualViewport` 的老浏览器，
+ * 退回实测可视视口 / 布局视口 —— 与引入这条之前的读法一致。
+ *
+ * 返回的是**布局视口坐标系**里的矩形（`fixed` 定位用的就是这个坐标系）。
+ */
+export function appViewportBox() {
+  const vv = window.visualViewport
+  const style = document.documentElement.style
+  const left = vv?.offsetLeft ?? 0
+  const width = vv?.width ?? window.innerWidth
+  const height = Number.parseFloat(style.getPropertyValue('--vvh'))
+  const top = Number.parseFloat(style.getPropertyValue('--vv-top'))
+  if (Number.isFinite(height) && Number.isFinite(top)) {
+    return { left, top, right: left + width, bottom: top + height }
+  }
+  if (!vv) return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
+  return { left, top: vv.offsetTop, right: left + width, bottom: vv.offsetTop + vv.height }
+}
+
 export function useMobileKeyboard() {
   const active = ref(isTouchPointer())
   // 可视高度矮于 SHORT_VIEWPORT（含键盘弹起的压缩）时为 true，App.vue 拿它挂 .app.is-short

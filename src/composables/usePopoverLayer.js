@@ -1,7 +1,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, toValue, watch } from 'vue'
 
 import { pushBackLayer } from '../services/backStack.js'
-import { onViewportChange, swallowNextTap } from './useMobileKeyboard.js'
+import { appViewportBox, onViewportChange, swallowNextTap } from './useMobileKeyboard.js'
 
 /**
  * usePopoverLayer —— Teleport 到 body 的浮层躲不开的两件事：定位收敛 + 什么时候关。
@@ -16,8 +16,13 @@ import { onViewportChange, swallowNextTap } from './useMobileKeyboard.js'
  * 把左上角夹到 `[gap, 视口 - 尺寸 - gap]` 里。
  * 掉头（右边放不下就改挂左边）由调用方决定 —— 只有它知道锚点在哪一侧，
  * 而这里只认左上角。
- * ⚠️ **那个「视口」是可视视口，不是布局视口**（2026-10-14 修，见 `viewportBox()`）：
- * 软键盘弹起时两者会分家，拿 `window.innerHeight` 当匣，菜单就会伸到键盘底下那一段去。
+ * ⚠️ **那个「视口」是应用层实测出来的可视范围，不是布局视口**（2026-10-14 修）：软键盘弹起时
+ * 两者会分家，拿 `window.innerHeight` 当匣，菜单就会伸到键盘底下那一段去。匣的定义收在
+ * `useMobileKeyboard.js` 的 `appViewportBox()` 里（与应用层 `.app.is-keyboard` 同一份几何）。
+ * **别在这里自己读 `visualViewport`**：收键盘时有的引擎只把 height 还回去、offsetTop 留着
+ * 上一相的残值，应用层已经按归一化后的 `--vv-top` 归位了，浮层若还按原始读数算匣，就会夹进
+ * 一个整体下移了的假视口、跑到屏幕外（2026-11-13 用户报：窗口矮时在同步设置的输入框里唤出
+ * 键盘，收起后设置菜单出屏）。
  *
  * 【关闭】五路：点浮层外（捕获阶段）/ Esc（捕获阶段）/ 窗口失焦 / 视口尺寸变化 /
  * 系统返回（2026-10-30 加，装成 app 时的返回键，见 `services/backStack.js`）。
@@ -37,37 +42,15 @@ import { onViewportChange, swallowNextTap } from './useMobileKeyboard.js'
  * 另外 resize 也会关：浮层是 fixed 定位、贴着某个元素，视口一变那个元素就挪走了，
  * 留在原地的浮层会指向错的位置 —— 重定位不如直接收掉（原生菜单也是这么干的）。
  *
+ * 「浮层能待在哪儿」的那个匣 —— 与应用层同一份几何，定义在 `appViewportBox()` 里（见文件头）。
+ *
  * @param {Object} options
  * @param {number|import('vue').Ref<number>|(() => number)} options.x 期望的左缘（可传 ref / getter）
  * @param {number|import('vue').Ref<number>|(() => number)} options.y 期望的上缘（同上）
  * @param {() => void} options.onDismiss 请求关闭时的回调（调用方通常翻一个 v-if 用的标记）
- * @param {number} [options.gap] 与**可视视口**四边的最小间隙
+ * @param {number} [options.gap] 与**可视范围**四边的最小间隙
  * @param {string|(() => string)} [options.align] `x` 是浮层的左缘（'left'，默认）还是右缘（'right'）
  */
-/**
- * 「浮层能待在哪儿」的那个匣 —— **可视视口**（`visualViewport`），不是布局视口。
- *
- * 软键盘弹起时两者会分家：只缩可视视口、不动布局视口的那一族（iOS 全程如此，安卓也常是
- * 这个行为）里 `window.innerHeight` 一动不动，而本站的应用层已经按 `--vvh` / `--vv-top`
- * 把自己收进了可视视口（见 `useMobileKeyboard.js` 与 `.app.is-keyboard`）。拿布局视口当匣，
- * 菜单就会停在键盘底下那一段 —— 用户 2026-10-14 报的「键盘弹着时长按，换出来的菜单被
- * 键盘挡住」正是这个（实测：可视高 596 时在 y=543 长按，245px 高的菜单有 200px 在键盘下）。
- *
- * 返回的是**布局视口坐标系**里的矩形 —— `fixed` 定位用的就是这个坐标系，而可视视口在
- * 该坐标系里的可见区间正是 `[offsetLeft, offsetLeft + width] × [offsetTop, offsetTop + height]`。
- * 没有 `visualViewport` 时退回布局视口（老浏览器，行为与以往一致）。
- */
-function viewportBox() {
-  const vv = window.visualViewport
-  if (!vv) return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
-  return {
-    left: vv.offsetLeft,
-    top: vv.offsetTop,
-    right: vv.offsetLeft + vv.width,
-    bottom: vv.offsetTop + vv.height,
-  }
-}
-
 export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   const root = ref(null)
   // 初值直接用期望位置：收敛要等下一帧量到尺寸才生效，first paint 先落在期望处
@@ -150,7 +133,7 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   }
 
   /**
-   * 量到真实尺寸后把左上角夹进**可视视口**（匣的定义见 `viewportBox()`）。
+   * 量到真实尺寸后把左上角夹进**可视范围**（匣的定义见 `appViewportBox()`）。
    *
    * 挂载时走一次（夹完才显形，否则会看见「先在期望位置闪一下再被拉回来」），
    * 软键盘顶起视口时再走一次 —— 浮层是 fixed 的，视口变了它就得跟着挪。
@@ -168,14 +151,34 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
      * 这一路的偏差也让它更明显）。offset* 不吃 transform，第一次量到的就是最终尺寸，
      * 匣一次即是终态 —— 后面那两次再匣退化成幂等兜底（留给字体换相 / 内容变高）。
      */
-    const box = viewportBox()
+    const box = appViewportBox()
     const width = el.offsetWidth || el.getBoundingClientRect().width
-    const height = el.offsetHeight || el.getBoundingClientRect().height
+    /**
+     * 高：**放不下就压一个 max-height、让它自己滚**。
+     *
+     * 匣比浮层还矮的时候（矮窗口；键盘顶起来、可视区只剩两百来像素），旧口径是只把上沿
+     * 夹到匣顶、底下一截永远够不着 —— 设置菜单最底下的「同步设置」正好在这一截里，点都点
+     * 不到。现在改成把内容压进匣里，由样式表里的 `overflow-y: auto` 出滚动条。
+     *
+     * 量「自然高度」前得先把身上的 max-height 让开：`offsetHeight` 量到的是被压过的那一份，
+     * 不然「视口重新变高、上限该撤掉」这件事永远发现不了，菜单会一直矮一截。
+     */
+    const span = box.bottom - box.top - gap * 2
+    const applied = el.style.maxHeight
+    el.style.maxHeight = 'none'
+    const natural = el.offsetHeight || el.getBoundingClientRect().height
+    el.style.maxHeight = applied
+    const capped = span > 0 && natural > span
+    const height = capped ? span : natural
     // 右缘对齐时先左移一个自身宽度，把「右缘」换算成「左缘」，之后才夹进视口
     const rawX = toValue(align) === 'right' ? toValue(x) - width : toValue(x)
     const left = Math.max(box.left + gap, Math.min(rawX, box.right - width - gap))
     const top = Math.max(box.top + gap, Math.min(toValue(y), box.bottom - height - gap))
-    position.value = { left: `${left}px`, top: `${top}px` }
+    position.value = {
+      left: `${left}px`,
+      top: `${top}px`,
+      maxHeight: capped ? `${span}px` : undefined,
+    }
   }
 
   /**

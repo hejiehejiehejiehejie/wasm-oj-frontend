@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, onBeforeUnmount, ref } from 'vue'
 import { isHoverable } from '../services/hoverCapability.js'
+import { appViewportBox } from '../composables/useMobileKeyboard.js'
 
 /**
  * 轻量提示框：包住触发元素，悬停 / 键盘聚焦后在它正上方弹一枚无边框的深色气泡。
@@ -12,7 +13,7 @@ import { isHoverable } from '../services/hoverCapability.js'
  * 为什么 Teleport 到 body：评测样例面板 .cases 是 overflow-y: auto，气泡留在卡片里
  * 会被滚动容器裁掉；挂到 body 才能真浮起来。
  *
- * 定位匣是**可视视口**（与 usePopoverLayer 同一口径，理由见那里）：软键盘弹起时
+ * 定位匣取 `appViewportBox()`（与 usePopoverLayer / 应用层同一口径，理由见那里）：软键盘弹起时
  * window.innerHeight 不变，拿它当匣会让气泡停到键盘底下。默认在上方，
  * 上方放不下就翻到下方，左右夹进视口。
  *
@@ -62,17 +63,6 @@ function clearTimer() {
   timer = null
 }
 
-function viewportBox() {
-  const vv = window.visualViewport
-  if (!vv) return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
-  return {
-    left: vv.offsetLeft,
-    top: vv.offsetTop,
-    right: vv.offsetLeft + vv.width,
-    bottom: vv.offsetTop + vv.height,
-  }
-}
-
 async function place() {
   await nextTick()
   const el = bubble.value
@@ -80,7 +70,7 @@ async function place() {
   if (!el || !anchor) return
   const a = anchor.getBoundingClientRect()
   const b = el.getBoundingClientRect()
-  const box = viewportBox()
+  const box = appViewportBox()
   const left = Math.max(
     box.left + props.gap,
     Math.min(a.left + a.width / 2 - b.width / 2, box.right - b.width - props.gap),

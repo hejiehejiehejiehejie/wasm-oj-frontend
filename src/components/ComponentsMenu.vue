@@ -167,6 +167,8 @@ watch(ready, (shown) => {
   border-radius: 10px;
   box-shadow: var(--menu-shadow);
   visibility: hidden;
+  /* 匣比菜单矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
+  overflow-y: auto;
   transform-origin: top right;
 }
 

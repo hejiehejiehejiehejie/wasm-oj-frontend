@@ -117,6 +117,8 @@ function select(item) {
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
   visibility: hidden;
+  /* 匣比菜单矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
+  overflow-y: auto;
   /* 弹开时从鼠标点那个角长出来（模板同） */
   transform-origin: top left;
 }
