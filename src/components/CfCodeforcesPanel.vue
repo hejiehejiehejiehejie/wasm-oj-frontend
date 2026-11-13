@@ -102,23 +102,34 @@
       </span>
     </header>
 
-    <div class="cf-codeforces__stage">
-      <CfPickerPanel v-show="mode === 'picker'" />
-      <div v-show="mode === 'schedule'" class="cf-view">
-        <!-- --fill：赛程在空列表时要把「获取中」放到内容区的黄金分割点（见 cf-console.css） -->
-        <div class="cf-page cf-page--fill">
-          <CfContestSchedule
-            :active="props.active && mode === 'schedule'"
-            @select="openContest"
+    <!-- 取景框 + 单层轨道（2026-11-13）：三页并排，左右滑动切页（见 useSwipeTrack）。
+         这里不再用 v-show 开关 —— 旁边的页必须**常驻渲染**，否则「从不可见变可见」那一帧
+         没有过渡可跑，短促的快甩松手时会闪一下（设置页 2026-11-08 踩过）。不显示的那两页
+         由 aria-hidden + inert 挡在读屏与键盘焦点之外，横向由取景框裁掉。 -->
+    <div ref="stageEl" class="cf-codeforces__stage">
+      <div ref="trackEl" class="cf-codeforces__track">
+        <div class="cf-pane" v-bind="paneAttrs('picker')">
+          <CfPickerPanel />
+        </div>
+        <div class="cf-pane" v-bind="paneAttrs('schedule')">
+          <div class="cf-view">
+            <!-- --fill：赛程在空列表时要把「获取中」放到内容区的黄金分割点（见 cf-console.css） -->
+            <div class="cf-page cf-page--fill">
+              <CfContestSchedule
+                :active="props.active && mode === 'schedule'"
+                @select="openContest"
+              />
+            </div>
+          </div>
+        </div>
+        <div class="cf-pane" v-bind="paneAttrs('contest')">
+          <CfContestPanel
+            ref="contestPanel"
+            :active="props.active && mode === 'contest'"
+            @nav="onContestNav"
           />
         </div>
       </div>
-      <CfContestPanel
-        ref="contestPanel"
-        v-show="mode === 'contest'"
-        :active="props.active && mode === 'contest'"
-        @nav="onContestNav"
-      />
     </div>
   </div>
 </template>
@@ -133,6 +144,7 @@ import CfPickerPanel from './CfPickerPanel.vue'
 import { applyCanonicalHandles, cfHandle, myHandles } from '../cf/myHandle.js'
 import { cfRankOf } from '../cf/rank.js'
 import { cfRunningCount } from '../composables/useCfSchedule.js'
+import { useSwipeTrack } from '../composables/useSwipeTrack.js'
 import { t } from '../i18n/index.js'
 import { addBackFallback } from '../services/backStack.js'
 import { cfCheckHandles } from '../services/cfClient.js'
@@ -153,6 +165,41 @@ const MODES = ['picker', 'schedule', 'contest']
 const mode = ref('picker')
 
 const contestPanel = ref(null)
+
+/* ---------------- 触屏横滑切页 ---------------- */
+/**
+ * 取景框与轨道（2026-11-13）。三页是并排的三列，翻页 = 整排平移；手势本体在
+ * `composables/useSwipeTrack.js`（阈值、阻尼、甩、接管、吞 click 都在那儿）。
+ *
+ * 只认触摸：桌面鼠标拖拽不翻页 —— 与设置页一致。起手落在输入框 / 横滚容器里就不接管
+ * （榜单要横滚、文本框里横拉是选字）。
+ */
+const stageEl = ref(null)
+const trackEl = ref(null)
+
+const swipe = useSwipeTrack({
+  viewport: stageEl,
+  track: trackEl,
+  index: () => MODES.indexOf(mode.value),
+  count: () => MODES.length,
+  // 抬手判出翻页：照常走 selectMode —— 历史记录那一步要一起记上，后退键才会亮
+  onSwipe: (next) => selectMode(MODES[next]),
+  // 整个 CF 页签被外层 v-show 收起时取景框宽度是 0，手势不该启动
+  enabled: () => props.active,
+  ignore: ['.cf-tabs'],
+})
+
+/** 上一屏的下标：非手势切页时靠它判「相邻」还是「跨页」 */
+let shownIndex = MODES.indexOf(mode.value)
+
+/**
+ * 非当前页的挂载属性：读屏与焦点都要挡在门外 —— 它们是**真渲染**的节点，只是被推到
+ * 取景框外裁掉了。当前页上这两个属性都得没有，所以给 `{}` 而不是 `false`
+ * （`inert="false"` 照样是 inert）。
+ */
+function paneAttrs(item) {
+  return mode.value === item ? {} : { 'aria-hidden': 'true', inert: '' }
+}
 
 /* ---------------- 后退 / 前进 ---------------- */
 /**
@@ -197,6 +244,22 @@ function selectMode(item) {
   mode.value = item
   record()
 }
+
+/**
+ * 切屏之后把整排对过去（2026-11-13）。三种入口都走这里：点页头页签、赛程里点一行
+ * （`openContest` 直接改 mode）、前进后退（`applyEntry`）。
+ *
+ * 手势那一路由 `onTouchEnd` 自己写位移，这里看到 `isBusy()` 就让路 —— 不然同一趟会收到
+ * 两条不同的时长。跨页（抽题 ↔ 比赛）给瞬切：中间那页一闪而过反而像卡了一下，
+ * 这条与设置页「跨页点选时长给 0」同一个口径。
+ */
+watch(mode, (value) => {
+  const next = MODES.indexOf(value)
+  const step = Math.abs(next - shownIndex)
+  shownIndex = next
+  if (swipe.isBusy()) return
+  swipe.followIndex(step <= 1)
+})
 
 /** 赛程里点一行（或 T-10 提醒的「开始比赛」，见下面 startRequest 的 watch）：把这场交给
  *  比赛面板（它自己填链接、切到题目页、取数），再翻到比赛。options 原样透传（autoStart）。
@@ -672,11 +735,36 @@ watch(handleOpen, (open) => {
   }
 }
 
-/* 子面板的 .cf-view 是 absolute inset: 0，容器必须是定位上下文，
-   同时要让出抬头那一行 —— min-height: 0 让内容自己滚动而不是把整列撑高 */
+/* ---------------- 取景框 / 轨道 / 页（2026-11-13） ---------------- */
+/* 取景框：横向把左右两页裁掉，纵向不裁 —— 每一页的 `.cf-view` 自己就是滚动容器
+   （子面板仍是 `absolute; inset: 0`，所以它必须是一个定位上下文）。
+   用 `clip` 不用 `hidden`：`hidden` 会让这一层变成滚动容器，把页内的浮层一起吃掉。
+   两轴都裁也不会误伤：页内真正的浮层（账号面板、右键菜单）都 Teleport 到 body。 */
 .cf-codeforces__stage {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: clip;
+}
+
+/* 单层轨道：三页并排，只有这一层在动（见 useSwipeTrack）。
+   ⚠️ 静止时也必须是 `translate3d(0, 0, 0)`，绝不能退回 `transform: none`：
+   浏览器为过渡临时提升的合成层会随之被丢掉，落定的最后一下内容会空白一瞬
+   （设置页 2026-11-08 那条，本机复现不了，按机制修）。 */
+.cf-codeforces__track {
+  display: flex;
+  height: 100%;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+
+/* 一页：占满取景框宽、高度撑满取景框 —— 里层 `.cf-view` 的 `inset: 0` 就以它为准，
+   三个子面板一行 CSS 都不用改（容器查询也照旧按每页自己的宽度算）。 */
+.cf-pane {
+  position: relative;
+  flex: 0 0 100%;
+  min-width: 0;
+  height: 100%;
 }
 </style>
