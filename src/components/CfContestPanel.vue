@@ -103,7 +103,7 @@
       <!-- 页签与列表：只在载入之后出现。v-show 保住榜单 / 提交的取数进度与分页 ——
            铅笔里改个 ID 再回来，不必重取。 -->
       <div v-show="!searching" class="cf-contest__body">
-        <!-- 子页签 + 本页动作。题目页放抓样例 / 全部导入 -->
+        <!-- 子页签 + 本页动作。题目页只剩「全部导入」（抓样例那颗已封存，见下面那段说明） -->
         <nav class="cf-tabs">
           <div class="cf-tabs__list">
             <button
@@ -119,18 +119,13 @@
             </button>
           </div>
           <div class="cf-tabs__actions">
-            <!-- VP 还没开始：题面不出现，抓样例 / 全部导入也就没有可操作的题，整组动作收起 -->
+            <!-- VP 还没开始：题面不出现，全部导入也就没有可操作的题，整组动作收起 -->
             <template v-if="tab === 'problems' && !vpLocked">
-              <button
-                v-if="scrapeAvailable"
-                type="button"
-                class="cf-btn"
-                :disabled="scraping"
-                @click="scrapeSamples"
-              >
-                <LoadingSpinner v-if="scraping" :size="11" />
-                <span>{{ scraping ? t('cf.contest.action.scraping') : t('cf.contest.action.scrape') }}</span>
-              </button>
+              <!-- 「抓样例」那颗 2026-11-13 撤掉了（用户口径：整场抓样例先封存，要用时再加回来）。
+                   撤它是为了让极窄宽度下这一格只放得下「全部导入」一颗 —— 两颗并排会溢出这条工具栏。
+                   整场抓取的实现仍留在 useCfContest 里（见那边「封存」那一段），接回只需在这里补回一颗
+                   `v-if="scrapeAvailable"` 的按钮 + 题目标签上方那行 `scrapeNote` 小字，
+                   并从 useCfContest 一并取回 scrapeAvailable / scraping / scrapeSamples / scrapeNote。 -->
               <button
                 type="button"
                 class="cf-btn"
@@ -177,11 +172,9 @@
           <!-- 空态说明（还没开赛 / 这场没有题目列表）：只在这一块说，不占状态行 -->
           <p v-if="problemsNote" class="cf-note">{{ t(problemsNote.key) }}</p>
 
-          <!-- 本场题目。比赛名已经升到页面顶部，这里不再重复一个链接，只留抓样例的进度 -->
+          <!-- 本场题目。比赛名已经升到页面顶部，这里不再重复一个链接；上面那条抓样例的进度
+               小字随按钮一起撤了（2026-11-13 封存），恢复时连 `.cf-contest__scrape` 那条样式一起接 -->
           <section v-if="problems.length" class="cf-section">
-            <div v-if="scrapeNote" class="cf-head cf-contest__scrape">
-              <span class="cf-head__meta">{{ scrapeNote }}</span>
-            </div>
             <ul class="cf-list">
               <li v-for="problem in problems" :key="`${problem.contestId}-${problem.index}`">
                 <!-- 比赛页只要「题号 + 题名 + 导入」：知识点标签与难度是抽题时用来挑题的，
@@ -327,10 +320,6 @@ const {
   openImported,
   importingAll,
   allImported,
-  scrapeAvailable,
-  scraping,
-  scrapeNote,
-  scrapeSamples,
 } = useCfContest()
 
 /** 赛程在本页之外（合成页签的抬头那一层），进来的第一页就是题目 */
@@ -921,12 +910,6 @@ defineExpose({ openContest, navState, restoreNav })
 :where(html.is-hoverable) .cf-btn--accent:hover:not(:disabled) {
   background: var(--accent-face);
   color: var(--accent-text);
-}
-
-/* 题目那块抬头只剩抓样例的进度：一份内容靠右（比赛名已经在页头），
-   复合选择器让过共享文件里 .cf-head 的 space-between */
-.cf-head.cf-contest__scrape {
-  justify-content: flex-end;
 }
 </style>
 

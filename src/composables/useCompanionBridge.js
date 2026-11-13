@@ -417,9 +417,12 @@ export function checkCfIdentity(handle) {
 /**
  * 扩展能不能**整场**抓样例（一次读一页，不再逐题开标签页）。与 canFillCode 同一套能力协商。
  *
- * 单独列一条而不是揉进 `fill-code`：两者管的完全是两件事。老扩展不带这条能力，
- * 比赛里那颗「抓样例」按钮就不出现，界面退回 P1 的样子（先落题、样例留给
- * 「打开题目页自动补」那条既有链路）。
+ * 单独列一条而不是揉进 `fill-code`：两者管的完全是两件事。老扩展不带这条能力时，
+ * 界面上的入口就不出现（P1 的样子：先落题、样例留给「打开题目页自动补」那条既有链路）。
+ *
+ * ⚠️ 站点这边的入口自 2026-11-13 起**封存**（比赛页那颗「抓样例」按钮撤了，见
+ * useCfContest 的同名那一段）。这条能力位与 `requestContestScrape` 仍然留着 —— 它们是
+ * 与浏览器扩展的协议，扩展侧照旧宣告 / 照旧能跑，恢复入口时不必动扩展。
  */
 export const canScrapeContest = computed(() =>
   (extensionInfo.value?.capabilities ?? []).includes('contest-batch'),

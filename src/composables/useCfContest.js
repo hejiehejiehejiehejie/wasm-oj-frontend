@@ -1,5 +1,5 @@
 /**
- * useCfContest —— 比赛：贴链接 → 倒计时 → 题目列表 → 导入工作区 → 抓样例。
+ * useCfContest —— 比赛：贴链接 → 倒计时 → 题目列表 → 导入工作区（「抓整场样例」封存中）。
  *
  * 【它不负责界面】与 useCfPicker 同一分工：页签开关归 editorViews，这里只管数据与过程。
  * 界面是独立组件 CfContestPanel（2026-10-19 从抽题面板里拆出来单飞；2026-10-27 起它
@@ -18,8 +18,9 @@
  *
  * 【样例从哪来】CF 的接口不给样例，题目页又没有 CORS 头，所以导入的题一律是
  * 「先落盘、样例后补」。补法有两种：① 被动 —— 用户之后打开这道题的页面时，浏览器扩展
- * 会问一句要不要抓（见 useCompanionBridge.js 的自动抓取样例）；② 主动 —— 面板上那颗
- * 「抓样例」把整场交给扩展读一遍（P2，要扩展支持 `contest-batch` 能力）。
+ * 会问一句要不要抓（见 useCompanionBridge.js 的自动抓取样例）；② 主动 —— 扩展支持
+ * `contest-batch` 时可以把整场交给它读一遍。**② 自 2026-11-13 起封存**（入口撤了，
+ * 实现留在本文件末尾，见那一段的说明），所以现在实际只有①这一条路在跑。
  * 两条路最后都落到同一条 cp-task 投递上，由 importProblem 按 url 并进已有的题里。
  *
  * 【VP 改写这一场的「开赛时刻」（2026-11-03）】开过虚拟参赛的场次不按官方时刻算：状态、
@@ -412,7 +413,7 @@ export function useCfContest() {
    * 难度按 CF 的 rating 交给 importProblem，与抽题面板一致（它会写进元数据）；比赛导入的
    * 落盘目录是 `/<年月>/<OJ>/<比赛名>/`，由 `contestName` 传入。
    * **单题导入仍然抢焦点**（importProblem 末尾 openFile）：用户点的是这一道，跳过去是预期行为。
-   * 批量那条路（抓样例前的「先落题」与 2026-10-30 的「自动开始」）走 `quiet: true`，见 scrapeSamples
+   * 批量那条路（封存中的「抓样例前先落题」与 2026-10-30 的「自动开始」）走 `quiet: true`，见 scrapeSamples
    * 与 importAllAndOpenFirst —— 前者别把用户的页签连翻七八次，后者要把焦点留给「第一题」。
    *
    * ⚠️ `toRaw(problem.task)` 不能省：`problems` 是 ref，`problem.task` 与其嵌套字段都是 reactive
@@ -550,6 +551,17 @@ export function useCfContest() {
   })
 
   // ------------------------------------------------------------ 抓样例（浏览器扩展）
+  //
+  // 【整段封存中，2026-11-13】用户口径：先去掉「抓整场样例」这个功能，需要时再加回来。
+  // 界面上的入口（比赛页题目标签那颗「抓样例」按钮、它旁边那行进度小字）已经撤掉，
+  // 但**实现原样留在这里** —— 它是一条能自足的链路（先安静落题、再请扩展读整场、
+  // 最后按工作区回查「真有几道题拿到了样例」），接回去只要在 CfContestPanel 那颗
+  // 「全部导入」前面补回一颗按钮（`v-if="scrapeAvailable"` / `@click="scrapeSamples"`），
+  // 连同一行 `<div v-if="scrapeNote">` 的小字。下面五个东西现在都没有外部调用方。
+  //
+  // 为什么不留成一个能被「全部导入」顺手调用的隐式行为：用户 2026-11-13 先要求合并、随即
+  // 改口封存 —— 结论是「一场七八道题的样例抓取要扩展载入整个题目页、十几秒起步」，它不该
+  // 藏在一个叫「全部导入」的按钮后面。
 
   /**
    * 扩展报回来的失败码 → 界面文案。认不出的一律落 `scrapeFailed` 并把码当 detail 显示 ——
@@ -561,7 +573,7 @@ export function useCfContest() {
     timeout: 'cf.contest.errors.scrapeTimeout',
   }
 
-  /** 扩展有没有 `contest-batch` 能力。没有就不显示那颗按钮（老扩展下界面等于 P1） */
+  /** 扩展有没有 `contest-batch` 能力。封存期间没有调用方；接回按钮时它就是这个 `v-if` */
   const scrapeAvailable = canScrapeContest
 
   const scraping = ref(false)
@@ -614,6 +626,8 @@ export function useCfContest() {
 
   /**
    * 把整场样例抓下来。
+   *
+   * ⚠️ 封存中（2026-11-13）：界面已无调用方，见本节开头的说明。恢复时先补回那颗按钮。
    *
    * 【顺序是「先落题、再抓样例」】样例得有地方挂：没导入过的题先按元数据安静落盘
    * （`quiet`，不抢焦点），再请扩展读整场。扩展抓完仍然逐题 cp-task 回来，
@@ -716,7 +730,7 @@ export function useCfContest() {
     importedUrls,
     importingAll,
     allImported,
-    // 抓样例
+    // 抓样例（封存中：下面五项目前没有外部调用方，见本节开头）
     scrapeAvailable,
     scraping,
     scrapedCount,
