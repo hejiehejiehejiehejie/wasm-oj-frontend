@@ -40,9 +40,9 @@
  * 跳开手指），另一颗则背离镜片（否则会被镜片盖住）。所以朝向是**每颗手柄各自的**，见 `knobDirection()`。
  *
  * 【拖动时那颗「放大镜」胶囊（`probe`）】
- * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把**手指底下那一片代码**
+ * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把**选区端点周围那一片代码**
  * 原样搬到手指上方。iOS 的放大镜是同一个动机，只是那边会放大（它要看清插入点在哪两字之间）；
- * 这边要的是「手指底下压着什么」外加一点上下文，**原尺寸**反而更好读，所以 `LENS_ZOOM` 是 1；
+ * 这边要的是「到底选中了哪一处」外加一点上下文，**原尺寸**反而更好读，所以 `LENS_ZOOM` 是 1；
  * 镜片本身也只有 `LENS_ROWS` 行高 × `LENS_COLS` 字符宽（默认 14px 等宽下约 42×67），
  * 尺寸按编辑器当下的字体度量**现算** —— 用户改了字号 / 行高，它跟着变，见 `lensSize()`。
  * 它只在**拖手柄期间**存在，松手即撤，平时不是一层常驻浮层。
@@ -70,9 +70,9 @@
  *
  * ⚠️ 搬进来的是**内容坐标**：`.view-line` 与 overlay 子层的内联 `top` 就是该行相对内容原点的 y
  * （实测第 1 行是 14px 而不是 0，所以别拿「行号 × 行高」去推），横向的内联 `left` 同理。
- * 于是「把手指所在那一行推到镜片正中心」只需要给这些内容套一个 `translate + scale`
+ * 于是「把选区端点推到镜片正中心」只需要给这些内容套一个 `translate + scale`
  * （`transform-origin: 0 0`，见 `paintProbe()`）：
- *   tx = 镜片宽/2 − 倍数 × (手指 x − `.view-lines` 左缘)
+ *   tx = 镜片宽/2 − 倍数 × (端点 x − `.view-lines` 左缘)
  *   ty = 镜片高/2 − 倍数 × (那一行中心的 y − `.view-lines` 顶缘)
  * 两处都用 `getBoundingClientRect()` **量出来的真实位置**，不复刻滚动偏移 —— 编辑器的横竖滚动
  * 全写在 `.lines-content` 的内联 transform 上（`translate3d(-scrollLeft, -scrollTop, 0)`），
@@ -207,7 +207,8 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
    * 拖动期间的放大镜胶囊；null = 不显示（没在拖）。
    * `{ left, top, below, lensW, lensH, gap, anchorX, lineTop, lineHeight }`：
    * `left / top` 是**视口坐标**（胶囊 Teleport 到 body、fixed 定位，不必换算 stage 偏移），
-   * `below` = 上方放不下、已翻到手指下方；后面几个是给 `paintProbe()` 算反向位移用的现场。
+   * `left` 取选区端点的 x、`top` 取手指的 y；`below` = 上方放不下、已翻到手指下方；
+   * 后面几个是给 `paintProbe()` 算反向位移用的现场。
    */
   const probe = ref(null)
 
@@ -412,10 +413,11 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
    * 把拖动现场换算成胶囊的几何，然后（等胶囊真的渲染出来）把主编辑器那三层 DOM 搬进去。
    * `applyDrag()` 与 `stepEdgeScroll()` 都会走到，后者是手指贴边不动、靠自动滚动在改光标那一档。
    *
-   * 位置跟的是**手指的真实坐标**（`drag.x / drag.y`），不是 `applyDrag()` 里夹进编辑器后的
-   * 那一份：手指移到行号槽或编辑器外面时，夹取坐标会钉在边上，胶囊跟着钉住看着像卡死了。
-   * 要显示哪一行反过来取夹取后的 model position（`drag.at`）—— 手指在那个位置本来就落不到
-   * 内容上，显示钉住的那一行才是对的。
+   * **横向跟的是实际选中位置**（`drag.at` 经 `getScrolledVisiblePosition` 出来的 x），不是
+   * 手指的 `drag.x`：选区端点会吸附到字符边界，跟着手指就会偏出半格；手指落在行号槽 /
+   * 编辑器外时 `applyDrag()` 里的夹取更是把落点钉在边上，镜片却还跟着手指飘，显示的
+   * 根本不是选中的那一处。纵向的**摆位**仍跟手指（`drag.y`）—— 镜片要挂在指头上方
+   * （放不下才翻到下方），否则会压住手指；镜片里显示哪一行由 `drag.at` 的行决定。
    *
    * ⚠️ 那个位置**不能**按「拖的是哪一端」去 `getSelection()` 上取：手拖过对面那一端之后
    * Monaco 会把 start / end 交换（`Range.fromPositions` 内部有序），此刻按 which 取到的是
@@ -434,21 +436,28 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const { lensW, lensH } = lensSize(instance, tip)
     const gap = LENS_GAP * scale
     const safe = PROBE_SAFE * scale
+    /**
+     * 选区端点在视口里的横坐标。`getScrolledVisiblePosition().left` 相对 `.monaco-editor` 左缘
+     * （已含行号槽宽度与横向滚动），补上它在视口里的左缘即可 —— 与 `place()` 换算手柄时同一口径。
+     */
+    const editorRect = host.value?.querySelector('.monaco-editor')?.getBoundingClientRect()
+    const anchorX = editorRect ? editorRect.left + tip.left : drag.x
     // 上方放得下就挂在手指上头，否则整条翻到手指下方（iOS 放大镜就是这个口径）
     const fitsAbove = drag.y - gap - lensH >= safe
     const below = !fitsAbove && drag.y + gap + lensH <= window.innerHeight - safe
     const half = lensW / 2
     const min = half + safe
     const max = window.innerWidth - half - safe
+    const left = Math.round(clamp(anchorX, min, Math.max(min, max)))
     const geom = {
-      left: Math.round(clamp(drag.x, min, Math.max(min, max))),
+      left,
       top: Math.round(drag.y),
       below,
       lensW,
       lensH,
       gap,
-      /** 手指的横坐标：内容要把它顶到镜片正中（纵向则是那一行的中心，理由见 paintProbe） */
-      anchorX: drag.x,
+      /** 镜片中心的视口横坐标：内容要把它顶到镜片正中（纵向则是那一行的中心，理由见 paintProbe） */
+      anchorX: left,
       /** 那一行相对编辑器 DOM 顶边的 y 与行高（Monaco 自己给的，含滚动偏移） */
       lineTop: tip.top,
       lineHeight: tip.height,
@@ -463,9 +472,9 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
 
   /**
    * 把主编辑器 `.view-lines` / `.view-overlays` / `.cursors-layer` 三层与 `.selection-handles`
-   * 里那两颗手柄的 `innerHTML` 搬进胶囊，并给内容套上反向位移，让手指那一点落在镜片正中。
+   * 里那两颗手柄的 `innerHTML` 搬进胶囊，并给内容套上反向位移，让选区端点落在镜片正中。
    *
-   * 横向跟手指、纵向按**行中心**对齐：手指在一行之内的上下位置本来就没有意义，
+   * 横向跟选区端点的 x、纵向按**行中心**对齐：手指在一行之内的上下位置本来就没有意义，
    * 按行居中才不会随手指的细微抖动一上一下地窜。
    *
    * 位移算式（`transform-origin: 0 0`）：内容坐标 p → `translate + zoom × p`，
