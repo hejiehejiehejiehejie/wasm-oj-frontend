@@ -133,28 +133,56 @@ export const WRAP_MODES = [
 ]
 
 /**
- * 行号栏左边那两截留白的四个取值（宽屏 / 窄屏各一对），单位是「字符」与「px」。
+ * 正文左侧那一栏（行号栏）的构成，宽屏 / 窄屏各一套。
  *
- * Monaco 把正文左侧那一栏画成三段：`[行号列][行内装饰区][正文]`，宽度由这两个选项决定
+ * Monaco 把这一栏画成三段：`[行号列][行内装饰区][正文]`，宽度由两个选项决定
  * （见 node_modules 里 `editorLayout` 的 computeLayout：`contentLeft = 行号列 + 装饰区`）。
- * 宽屏这对就是 Monaco / VS Code 的默认值（5 字符 / 10px），一个字符约 8.4px（14px 等宽字体），
+ * 宽屏这套就是 Monaco / VS Code 的默认值（5 字符 / 10px），一个字符约 8.4px（14px 等宽字体），
  * 于是两位数行号的文件在大屏上要占 `5×8.4 + 10 + 16(折叠控件) = 68px` —— 1400px 宽的面板里
- * 这点常量不显眼，390px 的手机上要吃掉 18% 的宽度，正文被挤成三十来个字符。
+ * 这点常量不显眼，390px 的手机上要吃掉 20% 的宽度，正文被挤成三十来个字符。
  *
- * 窄屏因此换一对小的（2026-11-13 用户报「窄屏下输入区和左边的空隙偏大」）：
- * - 行号列 3 字符 = 25px：两位数行号右侧仍留 8px 内缩（不是贴边），三位数文件正好铺满、
- *   四位数起列宽自己跟着位数长（`max(位数, minChars)`）。**不取 2** —— 两位数文件会贴边。
- * - 装饰区 4px：那 16px 的折叠控件照旧留着（折叠加号就在这一格里，见下），只是不再额外留 10px。
- *   留 4 而不是 0：实测那个加号的图标盒子是 `left = 行号列 + 2`、`width = 16 + decorations`，
- *   右缘恒比 contentLeft 多探出 2px —— 只有 decorations 给到 4，图标与正文首字之间才还剩 1px。
- * 合计 45px（省 23px）；题解（.md）收掉行号后只剩 20px 的正文内缩（原 26px）。
+ * 窄屏因此只留「行号列 + 一条 2px 的缝」这一小段（2026-11-13 用户报「窄屏下输入区和左边的空隙偏大」，
+ * 随后又指出「行号右边那一列黑边在横向滚动时会盖住代码」），并按「有没有行号」分成两档：
+ * - `narrow`（有行号）：**行号列宽 = 当前文件行数的位数 + 2 个字符**（下面 editorOptions 里按
+ *   `lineCount` 现算，不写死）。多出来的这两格就是数字两侧的边距，一格给左、一格给右：
+ *   `styles/base.css` 用 `padding-right: 1ch` 把右边那一格占掉（`1ch` = 一个数字的宽，
+ *   14px 等宽字体下 8.43px），左边的 1 格由 `text-align: right` 自然剩下 ——
+ *   于是不管文件是 9 行还是 999 行，两侧都各约一格（8.4px），随字号 / 界面缩放一起变，
+ *   而不是「两位数时左边空一大条、三位数时直接顶到栏边」。
+ *   位数只增不减地跟着 `max(位数, minChars)` 走，所以 minChars 必须**比实际位数多 2** 才有这般余量；
+ *   行数跨过 10 / 100 / 1000 行时要重下发一次选项（`EditorPane.vue` 的 syncGutterDigits）。
+ *   （2026-11-13 第六轮：原来只多留 1 格、右 padding 写死 3px，实测左 5.1–5.7 / 右 3，
+ *   用户要求「增大行号左右的间距」，于是改成两侧各一格。）
+ * - **装饰区固定 2px**：这一格只加在行号列的**右侧**，是数字与正文之间那条缝（用户 2026-11-13
+ *   第三轮指定：「仍然需要装饰区，只是将它的宽度收窄为 2px」）。
+ *   这一档的 `showFoldingControls` 是 `'never'` —— 折叠控件那 16px 是「行号右边一条空白」的
+ *   大头，不留它这一栏才只剩数字（`folding: true` 没动，键盘仍能折，见下面正文里的说明）。
+ * - `narrowPlain`（不显示行号，即题解）：行号列本来就是 0（`computeLayout` 里
+ *   `if (showLineNumbers)` 才算宽度），所以这一档的宽度**全由装饰区给**。给的是 **8px**：
+ *   题解没有行号要对齐，这一格纯粹是正文的左呼吸，而 `contentLeft` 同时是三件事 ——
+ *   行号栏宽、`.editor-scrollable` 的 `left`（正文视口的左边界）、鼠标命中的基准
+ *   （`mouseTarget.js` 里 `scrollLeft + relativePos.x - contentLeft`）。所以这 8px 也**必然**
+ *   是横向滚动时正文被 `overflow: hidden` 切掉的位置：往里推 N 像素，就在离左边 N 像素处切。
+ *   想「初始有内缩、滑动时满宽」在 Monaco 里做不到，原因是渲染起点必须恒等于 `contentLeft`，
+ *   任何「CSS 把视觉起点右移、视口仍从 0 开始」的补偿都会让命中算出的列与实际渲染差一个 N
+ *   （点字落偏），`.view-lines` 加 `padding-left` 同理（这个版本的 `padding` 也只有 top/bottom）。
+ *   2026-11-13 第五轮用户的原话是「初始有一点边距、滑动时整个区域都能显示」，
+ *   两半在数学上互斥，于是取「裁切小于半个汉字」的 8px：初始正文距屏幕 15px（编辑器自身还有 7px），
+ *   滚动时那 8px 的死区肉眼基本看不出。**要把这 8px 也去掉就改这里为 0**
+ *   （实测 0 时正文贴编辑区左缘、滚动完全满宽）。
+ *   那一栏即使收窄，`styles/base.css` 里 `.editor-pane.is-md` 的透明规则也留着 ——
+ *   宽屏题解仍走 `wide` 档（26px），那里的底色照样要抹掉。
+ *   装饰区本来就不乘 scale，这里同样不乘。
  *
  * 窄屏判据不在这里判：由调用方把 `isNarrowLayout()` 的结果当 `narrow` 传进来（口径只有
  * `shellSettings.js` 那一份）。
  */
 const LINE_NUMBER_GUTTER = {
-  wide: { minChars: 5, decorations: 10 },
-  narrow: { minChars: 3, decorations: 4 },
+  wide: { minChars: 5, decorations: 10, foldingControls: 'mouseover' },
+  // 窄屏：minChars 不在这里写死，由 editorOptions() 按「行数位数 + 2」现算（见函数体里的 gutter）
+  narrow: { decorations: 2, foldingControls: 'never' },
+  // 题解没有行号列，这一档只留 8px：给正文一点左呼吸，同时把横向滚动的死区压到半个字符以内
+  narrowPlain: { minChars: 4, decorations: 8, foldingControls: 'never' },
 }
 
 /**
@@ -435,16 +463,27 @@ function resolveLineNumbers(mode, markdown) {
  * 注意 tabSize 不乘：那是列数（几个字符宽），不是像素。
  * @param {typeof EDITOR_SETTINGS_DEFAULTS} settings
  * @param {number} scale 全局缩放比例（见 composables/useUiScale.js）
- * @param {{ markdown?: boolean, narrow?: boolean }} [context] markdown = 当前活跃文件是不是题解（.md）。
- *   「仅 Markdown 隐藏」那一档行号与整套括号提示都看它；切 .md / 切回来时要重下发一次选项。
- *   narrow = 此刻是不是窄屏（`shellSettings.js` 的 `isNarrowLayout()`）：只用来收紧行号栏的留白
+ * @param {{ markdown?: boolean, narrow?: boolean, lineCount?: number }} [context]
+ *   markdown = 当前活跃文件是不是题解（.md）。「仅 Markdown 隐藏」那一档行号与整套括号提示都看它；
+ *   切 .md / 切回来时要重下发一次选项。
+ *   narrow = 此刻是不是窄屏（`shellSettings.js` 的 `isNarrowLayout()`）：只用来收紧正文左侧那一栏
  *   （见 LINE_NUMBER_GUTTER）。旋屏 / 拖窗口跨过 600px 时也要重下发一次。
+ *   lineCount = 当前文件的行数：窄屏的行号列宽按它的位数算（见 LINE_NUMBER_GUTTER 的 `narrow`），
+ *   所以行数跨过 10 / 100 / 1000 行时同样要重下发一次。
  */
-export function editorOptions(settings, scale = 1, { markdown = false, narrow = false } = {}) {
+export function editorOptions(settings, scale = 1, { markdown = false, narrow = false, lineCount = 1 } = {}) {
   const font = pick(FONT_FAMILIES, settings.fontFamily, FONT_FAMILIES[0])
   const padding = pick(PADDINGS, settings.padding, PADDINGS[1])
   const scrollbar = pick(SCROLLBAR_SIZES, settings.scrollbarSize, SCROLLBAR_SIZES[1])
-  const gutter = narrow ? LINE_NUMBER_GUTTER.narrow : LINE_NUMBER_GUTTER.wide
+  // 三态存档 → Monaco 的 'on' / 'off'（「仅 Markdown 隐藏」按当前文件折算）
+  const lineNumbers = resolveLineNumbers(settings.lineNumbers, markdown)
+  // 题解没有行号列，那一栏宽度归零（见 LINE_NUMBER_GUTTER）；底色由 CSS 抹成透明
+  const gutter = narrow
+    ? lineNumbers === 'off'
+      ? LINE_NUMBER_GUTTER.narrowPlain
+      : // 多留两格字符 = 数字左右各一格边距（CSS 的 padding-right: 1ch 吃掉右边那格，左边由右对齐剩下）
+        { ...LINE_NUMBER_GUTTER.narrow, minChars: String(Math.max(1, lineCount)).length + 2 }
+    : LINE_NUMBER_GUTTER.wide
   // fontSize / lineHeight 必须是整数像素，Monaco 不接受小数
   const fontSize = Math.round(settings.fontSize * scale)
   const scaled = (value) => Math.round(value * scale)
@@ -456,18 +495,21 @@ export function editorOptions(settings, scale = 1, { markdown = false, narrow = 
     lineHeight: Math.round(fontSize * settings.lineHeightRatio),
     fontLigatures: settings.fontLigatures,
     minimap: { enabled: settings.minimap },
-    // 三态存档 → Monaco 的 'on' / 'off'（「仅 Markdown 隐藏」按当前文件折算）
-    lineNumbers: resolveLineNumbers(settings.lineNumbers, markdown),
-    // 行号栏那两截留白（宽屏 = Monaco 默认值，窄屏收紧；来历见 LINE_NUMBER_GUTTER）。
+    // 三态存档 → Monaco 的 'on' / 'off'（「仅 Markdown 隐藏」按当前文件折算）；
+    // 窄屏那一栏的宽度也看它（不显示行号 ⇒ 只剩装饰区那一段），所以上面先算出来再复用
+    lineNumbers,
+    // 行号栏那两截（宽屏 = Monaco 默认值，窄屏 = 「位数 + 1」个字符 + 2px 缝；来历见 LINE_NUMBER_GUTTER）。
     // 两项都显式写出来：留空就是吃 Monaco 的默认值，而下面 folding 那 16px 是**加在**
     // lineDecorationsWidth 上的 —— 版本一改默认值，这一栏的宽度就跟着漂。
     lineNumbersMinChars: gutter.minChars,
     lineDecorationsWidth: gutter.decorations,
-    // 折叠控件：`folding` 决定这一栏要不要留那 16px（computeLayout 里 `folding && showFoldingControls !== 'never'`
-    // 时 `lineDecorationsWidth += 16`），`showFoldingControls: 'mouseover'` 是「指针进到行号栏才浮出加号」。
-    // 窄屏也**不**把它设成 'never'：省下那 16px 会连折叠加号一起没了，而正文与行号之间也就没有空隙了。
+    // 折叠控件：它自己也要占一格（computeLayout 里 `folding && showFoldingControls !== 'never'`
+    // 时 `lineDecorationsWidth += 16`），`'mouseover'` 是「指针进到行号栏才浮出加号」。
+    // 窄屏给的是 `'never'`：那一格是「行号右边那条空白」的全部来源，去掉它这一栏才只剩数字；
+    // 折叠本身没关（`folding: true`），键盘 Ctrl+Shift+[ / ] 仍能折 —— 只是手机上本来也点不到
+    // 悬停才出现的加号。
     folding: true,
-    showFoldingControls: 'mouseover',
+    showFoldingControls: gutter.foldingControls,
     // **Monaco 自带的右键菜单整套关掉**（2026-10-14 加）。站内那份是自绘的
     // （`composables/useEditorMenu.js`：桌面右键 / 触屏长按 450ms），Monaco 那份是英文的，
     // 只要有一处漏拦，屏幕上就会冒出一份与双语界面不一致的菜单来。

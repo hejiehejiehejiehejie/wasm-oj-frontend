@@ -304,7 +304,31 @@ function currentEditorOptions(settings = props.settings, scale = props.uiScale) 
   return editorOptions(settings, scale, {
     markdown: mdFileActive.value,
     narrow: narrowLayout.value,
+    // 窄屏的行号列宽按「当前文件行数的位数 + 1」算（见 editorOptions.js 的 LINE_NUMBER_GUTTER），
+    // 所以这里必须把行数一起交出去；create() 时还没挂 model，取不到就按 1 行算，随后
+    // setModel 那条路径会把选项重发一遍
+    lineCount: editor.value?.getModel()?.getLineCount() ?? 1,
   })
+}
+
+/**
+ * 记住「当前文件行数有几位」。`syncGutterDigits` 是每敲一次键都要走一遍的路径（见 onMounted 里
+ * 那条 onDidChangeModelContent），先比位数、没变就直接返回，别在这里白跑一次 updateOptions。
+ */
+let gutterDigits = 0
+function rememberGutterDigits(instance) {
+  gutterDigits = String(instance?.getModel()?.getLineCount() ?? 1).length
+}
+
+/**
+ * 行数跨过 10 / 100 / 1000 行时，窄屏的行号列要多两格（窄屏那档的 minChars = 位数 + 2），
+ * 不重下发的话数字会顶到栏边。宽屏的 minChars 是定值，多跑一次也无害。
+ */
+function syncGutterDigits(instance) {
+  const digits = String(instance.getModel()?.getLineCount() ?? 1).length
+  if (digits === gutterDigits) return
+  rememberGutterDigits(instance)
+  instance.updateOptions(currentEditorOptions())
 }
 
 // ------------------------------------------------------------ 题解：正文与滚动
@@ -570,6 +594,9 @@ onMounted(() => {
     if (model) {
       instance.setModel(model)
       applyModelOptions(model)
+      rememberGutterDigits(instance)
+      // create() 时还没有 model（窄屏那档的行号列宽按行数算），补一次
+      instance.updateOptions(currentEditorOptions())
       trackMarkdown(model)
     }
   }
@@ -580,7 +607,12 @@ onMounted(() => {
 
   // C++ 语法诊断：内容一停手就跑一次 `-fsyntax-only`（防抖与「只让最新一枪落地」
   // 都在 services/monaco/syntaxDiagnostics.js 里）。工具链没加载时它自己会静默跳过。
-  syntaxSub = instance.onDidChangeModelContent(() => scheduleSyntaxCheck(instance.getModel()))
+  // 同一条回调里顺手盯「行数位数」：窄屏的行号列宽 = 位数 + 1 个字符，跨过 10 / 100 / 1000 行
+  // 要重下发一次（syncGutterDigits 先比位数，没跨就直接返回，不会每键一次 updateOptions）。
+  syntaxSub = instance.onDidChangeModelContent(() => {
+    scheduleSyntaxCheck(instance.getModel())
+    syncGutterDigits(instance)
+  })
   scheduleSyntaxCheck(instance.getModel(), { immediate: true })
 
   instance.onDidChangeCursorPosition((event) => {
@@ -658,6 +690,7 @@ watch(
     // 行号「仅 Markdown 隐藏」这一档取决于当前文件：切进 .md / 切回代码文件都要把选项重下发一次，
     // 否则行号会跟着上一个文件的状态留在屏幕上
     instance.updateOptions(currentEditorOptions())
+    rememberGutterDigits(instance)
     trackMarkdown(model)
     // 切进一个 C++ 文件：内容没变就直接重放上次的标记，没查过就立刻查一次
     scheduleSyntaxCheck(model, { immediate: true })

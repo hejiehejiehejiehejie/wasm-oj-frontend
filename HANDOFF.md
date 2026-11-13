@@ -5489,34 +5489,173 @@ lineDecorationsWidth = 选项值 + (folding && showFoldingControls !== 'never' ?
 
 两位数行号挤在 42px 列**右端**，于是左边空出 33.6px、右边再空 26px —— 量出来的数字和用户截图的观感完全对得上（`numText.left = 33.6`）。这套值就是 VS Code 的默认值，1400px 的面板里不显眼，390px 的手机上等于把正文挤到只剩三十来个字符。
 
-### 45.2 改法：只换「留白」，不动任何偏好
+### 45.2 改法：窄屏 =「位数 + 2」格的行号列 + 2px 装饰区
 
-`editorOptions()` 多收一个 `narrow` 上下文参数，`LINE_NUMBER_GUTTER` 一对值：
+`editorOptions()` 多收 `narrow` / `lineCount` 两个上下文参数，`LINE_NUMBER_GUTTER` 三档：
 
-| | `lineNumbersMinChars` | `lineDecorationsWidth` | 代码文件正文起点 | 题解正文起点 |
+| 档 | `lineNumbersMinChars` | `lineDecorationsWidth` | `showFoldingControls` | 正文起点（390px 视口） |
 | --- | --- | --- | --- | --- |
-| 宽屏（= Monaco 默认值） | 5 | 10 | 68px（不变） | 26px（不变） |
-| 窄屏 | 3 | 4 | **45px**（−23px，−34%） | **20px**（−6px，−23%） |
+| `wide`（= Monaco 默认值） | 5 | 10 | `'mouseover'` | 68px（不变） |
+| `narrow`（窄屏 + 有行号） | **位数 + 2**（8 行→3、30 行→4、120 行→5） | **2** | `'never'` | **27 / 36 / 44** |
+| `narrowPlain`（窄屏 + 无行号，题解） | —（没有行号列） | **8** | `'never'` | **8** |
 
-- **行号列取 3 字符**：两位数文件右边仍留 8.4px 内缩（不贴边），三位数正好铺满，四位数起列宽自己跟着位数长。**刻意不取 2** —— 两位数文件会贴到画布最左缘。
-- **装饰区取 4px**：折叠控件那 16px 保留（加号就画在这一格里），不再额外留 10px。留 4 而不是 0，是因为悬停浮出的那个加号盒子**恒比 `contentLeft` 多探出 2px**（实测：`left = 行号列 + 2`、`width = 16 + decorations`），留 4 才让它与正文首字之间还剩 1px，不至于压到字上。
-- **`folding` / `showFoldingControls` 显式写成 `true` / `'mouseover'`**（与 Monaco 默认同值）：那 16px 是 `lineDecorationsWidth` 的**加数**，默认值一漂整栏宽度就跟着漂。窄屏也**不**设成 `'never'` —— 省下 16px 会连折叠加号一起没有，正文和行号之间也就彻底没缝了。
-- 两项都**不乘 `scale`**（与改前一致）：`lineDecorationsWidth` 本来就是 px，缩放变化时数字本身不吃 rem 也不算脱节。
+选哪一档看的是**折算后的行号状态**（`resolveLineNumbers(settings.lineNumbers, markdown)`），不是「是不是 .md」——用户把行号设成常开时，题解里照样有行号，那一栏就得按 `narrow` 走。
 
-### 45.3 判据与重下发
+- **`minChars` = 位数 + 2，按行数现算，不写死**（2026-11-13 第六轮，用户要「增大行号左右的间距」）。多出来的那两格字符（每格 8.4px）就是数字两侧的边距，一格给左、一格给右：CSS 用 `padding-right: calc(1ch - 1px)` 占掉右边一格（§45.3），左边那格由右对齐自然剩下 —— 两侧各约 9.5px。写死任何一个值都会踩到一个坑：
+  - 写 3：三位数（100–999 行）恰好铺满 25px，左侧 0 留白 —— 就是用户当初说的「局促」。
+  - 写 4：两位数文件（<100 行，最常见）左边空出 13px，右对齐下全堆在数字左侧，看起来像「数字漂在中间」。
+  位数是 `max(实际位数, minChars)` 算的，所以「多余格数」是唯一能让各种行数都留出等量边距的写法。
+  第五轮曾用「+1 格 + 3px 内边距」（两侧各 5px），第六轮按用户要求放大到「+2 格」。代价：窄屏正文起点
+  右移 8.4px（27→36 / 36→44），换来两侧各约 9.5px 的呼吸。
+  另外**行数跨过 10 / 100 / 1000 行时要重下发一次选项**（`EditorPane.vue` 的 `syncGutterDigits`，
+  挂在 `onDidChangeModelContent` 上先比位数、没跨就直接返回）。
+- **装饰区固定 2px**：`lineDecorationsWidth` 只加在行号列的**右侧**，它就是数字与正文之间那条缝。
+- **折叠控件窄屏设 `'never'`**：那 16px 是 `lineDecorationsWidth` 的**加数**（`computeLayout` 里 `folding && showFoldingControls !== 'never'`），它正是「行号右边一条空白」的大头。`folding: true` 没动 —— 折叠本身还在，键盘 `Ctrl+Shift+[` / `]` 照样折，只是不给悬停才浮出的加号留位置（手机上那个加号本来也点不到）。
+- **题解的 8px 只能挂在装饰区**：行号关掉后 `computeLayout` 里那句 `if (showLineNumbers)` 不成立、`lineNumbersWidth` 恒为 0，于是整栏宽度 `contentLeft = 0 + lineDecorationsWidth`。这一档的值走过三版：26（默认宽屏值）→ 20（用户 2026-11-13 第三轮指定）→ **8**（第五轮，见 §45.6）。没有行号要对齐，所以它是纯 px、不随字号变。
+- ⚠️ **`narrowPlain` 只在窄屏成立**：宽屏的题解仍是 `wide` 档（`contentLeft = 0 + 10 + 16(折叠) = 26`，用户要求「宽屏样式不受影响」）。所以 8px 是**窄屏题解**的宽度，不是「所有题解」。
+- 三项都**不乘 `scale`**（与改前一致）：`lineDecorationsWidth` 本来就是 px。
+
+### 45.3 数字两侧的边距：靠 `padding-right: calc(1ch - 1px)`，不再 `text-align: center`
+
+上一版是「4 字符列 + `text-align: center`」，让整格居中把余量对称劈开。这一版列宽跟着位数走，
+余量交给**行号元素自己的右内边距**：
+
+```css
+html.is-narrow .monaco-editor .margin-view-overlays .line-numbers { padding-right: calc(1ch - 1px); }
+```
+
+（在 `styles/base.css`，紧挨着 §1 那几条 Monaco 覆盖。）`text-align` 回到 Monaco 默认的 `right`，
+于是「列宽 − 数字宽 = 两格字符」这笔余量被劈成：右边一格（内边距）+ 左边一格（右对齐剩下的）。
+
+**为什么是 `1ch - 1px` 而不是写死像素**：
+
+- `ch` 在这个元素上就是编辑器字体的数字宽（14px 等宽字体 = 8.43px），字号 / 界面缩放一变，
+  两侧边距跟着等比变 —— 上一版写死 `3px`，换个字号就不再对称了。
+- 减掉 1px 是补装饰区：行号列右边还有 2px 装饰区（`narrow.decorations`），它也算右侧留白，
+  所以右边少留半条，两侧「数字到边缘」才真正等宽（实测左 9.7 / 右到正文 9.4）。
+  ⚠️ 装饰区改了值，这里的 1px 要跟着改成它的一半。
+
+三条纪律：
+
+- **不能套 `:where(html.is-narrow)`**：那条与 Monaco 自己那条同为 (0,3,0) 特异性，谁赢只看样式表先后，而 Monaco 的 CSS 随 ESM 注入、顺序不稳。让 `html.is-narrow` 真参与特异性（(0,4,1)）才稳，用不着 `!important`。
+- **这 1ch 必须小于「多出来的两格」**：`padding-right` 在文字宽于内容盒时会**失效**——浏览器对右对齐的溢出文本走兜底对齐（贴内容盒左边），padding 直接被吃掉，数字反而看起来贴到栏左缘。所以 `minChars` 的 +2 是这条 padding 成立的前提，别为了「再窄一点」把它去掉（退到 +1 时必须同时把 padding 收到 0）。
+- 单位是 `ch`、随字号变：行号列宽由 Monaco 按字号算，`ch` 也按同一字体算，两者同步缩放。
+
+实测（无头 Chrome、`cp.uiScale = 1`、14px 字体、用 `Range` 取行号文本盒，比截图像素扫描准）：
+
+| 场景 | 行号列 | 数字宽 | 左留白 | 右留白（到栏边 / 到正文） | 正文起点 |
+| --- | --- | --- | --- | --- | --- |
+| 30 行（两位 `10`） | 34 | 16.86 | **9.72** | 7.42 / 9.42 | 36 |
+| 120 行（三位 `100`） | 42 | 25.3 | **9.28** | 7.42 / 9.42 | 44 |
+| 390 下 18px 字号（两位） | 43 | 21.69 | **11.48** | 9.83 / 11.83 | 45 |
+| 宽屏 1400（两位 `42`，`right`） | 42 | 16.86 | 25.14 | 0 / 0 | 68（未改） |
+
+改动前同一位置的数字是：两位 5.14 / 3（到正文 5）、三位 5.7 / 3（到正文 5）—— 两侧各约 5px。
+第六轮放大到各约 9.5px，且「到栏边」与「到正文」的差从 1.7px 收到 0.3px 以内。
+宽屏那行是**未改动的原样**：`padding-right: 0`、`text-align: right`、正文起点 68px。
+
+### 45.4 那一栏不画底色（题解「列留着，但透明」）
+
+这一栏（`.margin`，宽度 = `contentLeft`）只负责给正文一点左内缩，不该看得出「一条竖栏」。它默认铺
+`--vscode-editorGutter-background`；`renderLineHighlight: 'all'` 时那格当前行还要再叠一层底色
+（用户贴的 DOM 里 `current-line current-line-margin-both`、`width: 26px` 就是它）—— 横向滚动时
+正文滚到边缘，看着就像被一条色带切断/盖住。
+
+```css
+html.is-narrow .monaco-editor .margin,                                    /* 窄屏：代码文件也一样 */
+.editor-pane.is-md .monaco-editor .margin {                               /* 题解：不分宽窄 */
+  background-color: transparent;
+}
+html.is-narrow .monaco-editor .margin-view-overlays .current-line,
+.editor-pane.is-md .monaco-editor .margin-view-overlays .current-line {
+  background-color: transparent;
+  border: none;
+}
+```
+
+**两套判据、不是一套**（2026-11-13 第三轮修正）：
+
+- 窄屏那一档给**代码文件**用 —— 那一栏只剩行号，同样不该有底色。
+- 题解那一档**按 `.editor-pane.is-md` 判，与视口无关**。上一版只写 `html.is-narrow`，用户回
+  「该元素仍为非透明状态，会遮挡其右侧正文文字」：`is-md` 来自 `EditorPane` 根节点
+  （`mdActive`，见其模板注释），宽一点、或 `html` 上没这个类时，底色就回来了。题解里没有行号，
+  这一栏本来就只剩内缩，透明与宽窄无关。
+
+三条纪律：
+
+- **靠特异性赢，不写 `!important`**：`.margin` 那条 Monaco 是 (0,2,0)，当前行那条最高 (0,4,0)
+  （动态主题注入的 `.monaco-editor.focused` 一档）；这里 `.editor-pane.is-md` 那组是 (0,4,0)/(0,5,0)，
+  `html.is-narrow` 那组是 (0,3,1)/(0,4,1)。
+- **选择器要盖住三种当前行类名**：`_renderOne` 按「画在行号栏 / 也画在正文」拼 class
+  （`node_modules/.../currentLineHighlight.js`），实际可能是 `current-line-margin`、
+  `current-line-margin-both`，或只有 `current-line`（焦点 / 有选区时会变）。只写一个会在某些
+  状态下漏 —— 所以统一落在 `.current-line` 上（三种都带它）。
+- **只改颜色、不改宽度**：宽度仍由 `LINE_NUMBER_GUTTER` 决定（窄屏题解那档 8px）。这个 Monaco
+  版本的 `padding` 只认 top / bottom，往 `.lines-content` 补 `padding-left` 会和横向滚动的数学打架。
+
+实测（无头 Chrome、`cp.uiScale = 1`、`renderLineHighlight: 'all'`）：
+
+| 场景 | 栏宽 | `.margin` 背景 | 当前行格背景 | 正文起点 |
+| --- | --- | --- | --- | --- |
+| 390 题解 .md | **8** | `rgba(0,0,0,0)` | `rgba(0,0,0,0)` | 8 |
+| 390 题解 .md，横向滚 150px | 8 | `rgba(0,0,0,0)` | `rgba(0,0,0,0)` | 滚到 −142（在 8px 处被干净裁切） |
+| 1400 题解 .md | 26 | `rgba(0,0,0,0)` | `rgba(0,0,0,0)` | 26 |
+| 390 代码文件（120 行） | 36（行号列 34 + 装饰 2） | `rgba(0,0,0,0)` | `rgba(0,0,0,0)` | 36 |
+| 1400 代码文件（未改） | 68 | `rgb(24,24,24)` | `rgb(24,24,24)`※ | 68 |
+| 反证：把题解那条中和掉 | 8 | `rgb(24,24,24)` | — | 8 |
+| 390 题解 · 浅色主题 | 8 | `rgba(0,0,0,0)` | `rgba(0,0,0,0)` | 8 |
+
+※ 宽屏那行的当前行格其实也是透明的 —— 顺带被 `.current-line` 那条窄屏规则之外的…不，是**没有**命中：
+宽屏代码文件仍由 Monaco 的 `current-line-margin` 上色（#252528）。探针里那一格 `bg` 报 `rgba(0,0,0,0)`
+是因为当时**编辑器没聚焦**、`current-line-margin` 这个 class 根本没加（只剩 `current-line-margin-both`），
+所以别把它读成「宽屏也透明了」。
+
+像素旁证（DSF3 裁左缘、逐列取色）：390 题解在深色下 x=3..99 全是 `#181818`（与正文区一字不差），
+浅色下全是 `#ffffff`；没有第二种颜色，也就没有「一条竖栏」。
+
+### 45.5 判据与重下发
 
 - 窄屏判据**只有一份**：`shellSettings.js` 的 `isNarrowLayout()`（触摸设备 + 设备竖屏，或视口宽 ≤ 600px，见 §5 坑 45 / 53）。`EditorPane.vue` 里包一层 `computed(() => isNarrowLayout())` 追它的变化，新增的 `watch(narrowLayout)` 重下发一次选项 —— 旋屏、拖窗口跨 600px、平板插拔键盘都会当场换档。
-- 五个调用点（`create()` + 四条 `updateOptions()`）**收成一个 `currentEditorOptions()`**：`markdown` / `narrow` 每加一格要改五处，迟早就漏一处（症状是「切了文件 / 转了屏，某一格没跟着变」）。
-- 实测（无头 Chrome、`cp.uiScale = 1`、正文 22 行）：
+- 五个调用点（`create()` + 四条 `updateOptions()`）**收成一个 `currentEditorOptions()`**：`markdown` / `narrow` / `lineCount` 每加一格要改五处，迟早就漏一处（症状是「切了文件 / 转了屏 / 跨了位数，某一格没跟着变」）。`lineCount` 取自 `editor.value.getModel().getLineCount()`，`create()` 时还没有 model、按 1 行算，随后 `setModel` 那条路径补发一次。
+- **位数变化走 `syncGutterDigits`**：挂在 `onDidChangeModelContent` 上（与语法诊断共用一条回调），先比 `String(lineCount).length`，没跨位数就直接返回 —— 所以不会变成「每敲一键一次 updateOptions」。
+- 实测（无头 Chrome、`cp.uiScale = 1`、120 行的 .cpp + 一篇 .md）：
 
-| 视口 | `is-narrow` | 正文起点 | 可见列数 |
-| --- | --- | --- | --- |
-| 390（触摸竖屏） | true | 45 | 39 |
-| 520 | true | 45 | 55 |
-| 700 | false | 68 | 68 |
-| 1200 | false | 68 | 127 |
-| 1400（桌面） | false | 68 | 127 |
+| 视口 | `is-narrow` | 代码文件（30 行）：栏宽 / 正文起点 | 代码文件（120 行） | 题解：栏宽 / 正文起点 |
+| --- | --- | --- | --- | --- |
+| 390 | true | 36 / 36 | 44 / 44 | **8 / 8** |
+| 520 | true | 36 / 36 | 44 / 44 | **8 / 8** |
+| 1400 / 1200 | false | 68 / 68 | 68 / 68 | 26 / 26 |
 
-  390 ↔ 700 来回拖两次，起点 45 ↔ 68 双向都跟着变；题解那一档 20 ↔ 26 同理。`npm run verify` A–H 全绿。
+  1400 → 390 → 1400 来回拖两趟，68 ↔ 36 / 44、26 ↔ 8 双向都跟着变。行数跨位数也当场换档：
+  99 行 → 100 行那一下，`contentLeft` 从 36 跳到 44（`minChars` 4→5），实测 `syncGutterDigits`
+  在编辑后一帧内完成重下发。`npm run verify` A–H 全绿。
 
 ⚠️ **别再往「窄屏」这个判据上叠 `@media` 副本**（§5 坑 45 那条纪律同样适用这里）：Monaco 的选项只能由 JS 下发，CSS 媒体查询管不到它。
+
+### 45.6 为什么「初始内缩 + 滚动满宽」做不到（2026-11-13 第五轮）
+
+用户第五轮报：「在 md 文件中，那一列还是没有透明显示出来，仍然会截断文字的显示……我希望正文在左侧初始的时候有一点边距，在向右边滑动的时候，却可以让整个区域都作为显示区域」。
+
+先纠一个前提：**那一栏早就是透的了**。实测 390px 题解下 `.margin` 与 `.margin-view-overlays` 的 `background-color` 都是 `rgba(0, 0, 0, 0)`（§45.4 的两条规则生效）。用户看到的「截断」不是底色遮挡，而是**正文视口的左边界**：`computeLayout()` 算出的 `contentLeft` 被三处共用，
+
+| 用处 | 落在哪 |
+| --- | --- |
+| 行号栏宽度 | `.margin` 的 `setWidth(contentLeft)` |
+| 正文视口左边界（横向滚动时正文被 `overflow: hidden` 裁在这里） | `.editor-scrollable` 的内联 `left: <contentLeft>px` |
+| 鼠标命中基准 | `mouseTarget.js`：`scrollLeft + relativePos.x - contentLeft` |
+
+于是「初始留 N 像素内缩」和「滚动时正文能走进这 N 像素」是同一件事的两面：前者要 `contentLeft = N`，后者要视口从 0 起。两者都由同一个数决定，**在 Monaco 里分不开**。
+
+试过、也否掉的三种「两全」写法：
+
+- `.view-lines { padding-left: N }` / `margin-left: N` + 视口左移到 0：几何完全对得上（实测正文起点、滚动位置都正确），但命中公式里 `contentLeft` 没跟着变，**点字落偏 N 像素**。想修正只能同时改命中基准，而那是 Monaco 内部（`mouseTarget.js`），没有对外接口。
+- CSS 把 `.editor-scrollable` 的 `left` 覆盖成 0（`!important` 压内联样式）+ 上面那条补偿：视口宽了 N，但 Monaco 的 `contentWidth` 没变，滚动条滑块位置与最大滚动距离都差 N；滚动后正文进入 0..N 那一带时 `isInMarginArea`（按坐标判、与 DOM 无关）会把点击当成点行号栏 —— 那 N 像素里的字**点不中**。
+- 滚动时用 JS 把 `lineDecorationsWidth` 从 N 改回 0：`updateOptions` 要重排，`smoothScrolling` 下 `scrollLeft` 连续变化会反复触发；且回到最左时正文右跳 N 像素。
+
+**结论：只能二选一。** 这一轮取 N = 8：
+
+- 初始正文距屏幕 15px（面板 7 + 8），有呼吸；
+- 滚动死区 8px，不到一个汉字宽（14px），而横向滚动本来就在边界处切字符 —— 实测滚 150px 后正文从 −142 起画，观感与「贴边」无异。
+- 想彻底满宽就把它改成 0：实测 `contentLeft = 0`、`marginWidth = 0`、视口从 0 开始、命中正常（点 x=2 与 x=14 分别落到相邻两列），代价是正文贴编辑区左缘（距屏幕只剩面板那 7px）。
+
+⚠️ **纪律：别再往这一档加宽度去找「左内缩」**。「加宽一点更好看」在这里等价于「横向滚动时多裁掉这么多」，加多少就裁多少。真要给题解更多留白，只能接受同一段死区，或者给编辑器加 `wordWrap`（换行后没有横向滚动，内缩才是纯收益）。
