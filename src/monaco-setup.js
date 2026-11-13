@@ -83,21 +83,34 @@ monaco.editor.defineTheme('light', {
     'editor.lineHighlightBorder': '#e0e0e0',
     // 选中文字：vs 自带的 #ADD6FF 压在白底上只有约 1.5:1，选中了也几乎看不出来
     // （用户报「浅色下选中的颜色太淡」）。换成同色相（--accent 那支蓝）再压深一档的
-    // #9CC6F2（约 1.8:1），正文仍是深色，选中后语法色不受影响。
+    // #A8CDF4（约 1.65:1）—— 早一版取 #9CC6F2（1.8:1）实机偏重，往白底方向退一档，
+    // 仍明显高于 vs 原值。正文仍是深色，选中后语法色不受影响。
     // 失焦态默认是更淡的灰蓝 #E5EBF1，点一下侧栏选区就像消失了；给到常亮那支的
     // 70% 不透明度，既与常亮区分开，又不会看不见。
-    'editor.selectionBackground': '#9CC6F2',
-    'editor.inactiveSelectionBackground': '#9CC6F2B3',
+    'editor.selectionBackground': '#A8CDF4',
+    'editor.inactiveSelectionBackground': '#A8CDF4B3',
     // 选中同词的其他出现位置：vs 默认按旧的 #ADD6FF 30% 算，压在白底上只有 1.1:1，
-    // 基本等于没有。取选中色 #9CC6F2 的 60%（#C4DDF7，约 1.4:1），比选区浅一档但仍能看见。
-    'editor.selectionHighlightBackground': '#C4DDF7',
-    // 缩进参考线：vs 默认 #D3D3D3 只有 1.5:1，浅色下几乎断线；压到 #BDBDBD（约 1.9:1）。
-    // 活跃那根从 #939393 再压到 #7A7A7A（约 4.3:1），光标所在层级一眼能定位。
-    'editorIndentGuide.background1': '#BDBDBD',
-    'editorIndentGuide.activeBackground1': '#7A7A7A',
+    // 基本等于没有。取选中色 #A8CDF4 的 30% 混白（#DCEBFA，约 1.2:1）—— 比选区浅两档，
+    // 只做「还有一个同名」的提示，不跟真正的选区抢注意力。
+    'editor.selectionHighlightBackground': '#DCEBFA',
+    // 指针停在某个词上时的三档高亮：vs 浅色默认是 #57575740 叠白（约 1.5:1），
+    // 加上语法色后整块偏灰、读数时像被压了一块阴影。统一显式降到约 1.2:1 的极淡面：
+    // wordHighlight = 读引用，wordHighlightText = 同名文本出现处（默认会继承前一项，
+    // 但那是注册主题时的静态计算，不随覆盖联动，这里必须再写一遍），
+    // wordHighlightStrong = 写引用（赋值/声明），比读引用略明显一点，取同词高亮那支。
+    'editor.wordHighlightBackground': '#E8E8E8',
+    'editor.wordHighlightTextBackground': '#E8E8E8',
+    'editor.wordHighlightStrongBackground': '#DCEBFA',
+    // 缩进参考线：vs 默认 #D3D3D3 只有 1.5:1，浅色下几乎断线；压到 #C7C7C7（约 1.7:1）
+    // —— 早一版 #BDBDBD（1.9:1）在满屏缩进时偏重，退回到「看得出断在哪、又不抢代码」。
+    // 活跃那根从 #939393 抬到 #8E8E8E（约 3.3:1，原 #7A7A7A 4.3:1 太重），
+    // 仍明显重于普通参考线，光标所在层级一眼能定位。
+    'editorIndentGuide.background1': '#C7C7C7',
+    'editorIndentGuide.activeBackground1': '#8E8E8E',
     // 非当前查找命中：vs 默认 #EA5C0055 叠白后只有 1.5:1，散落的橙色块很难扫到；
-    // 换成实色 #EFC09E（约 1.7:1）。当前命中仍是 vs 的 #A8AC94，两者仍能区分。
-    'editor.findMatchHighlightBackground': '#EFC09E',
+    // 换成实色 #F2CDB1（约 1.5:1，原 #EFC09E 1.7:1 略重）。当前命中仍是 vs 的
+    // #A8AC94，两者仍能区分。
+    'editor.findMatchHighlightBackground': '#F2CDB1',
   },
 })
 
@@ -145,8 +158,8 @@ monaco.editor.defineTheme('oled', {
 // 暖白纸张 / 护眼豆绿：都是浅色（base vs），只换内芯与行高亮，行号沿用浅色默认。
 // 底色必须与 base.css 的 --bg-editor-pane 一字不差（#f6f0e1 / #eaf2e6）——
 // 这两套的内芯是**带色**的纸 / 豆绿，不是接近白的那一档，否则卡片四角露白、风格也散。
-// 行高亮从 --bg-hover（#e9e2d2 / #dbe4d6）再压深一档，与 light 主题保持相近的 1.3:1
-// （原先只有 1.13:1，光标行在纸色 / 豆绿底上几乎看不出来）。
+// 行高亮从 --bg-hover（#e9e2d2 / #dbe4d6）再压深一点，与 light 主题保持相近的 1.2:1
+// （vs 原值只有 1.13:1，光标行在纸色 / 豆绿底上几乎看不出来；压太深又变成一条色带）。
 monaco.editor.defineTheme('paper', {
   base: 'vs',
   inherit: true,
@@ -155,19 +168,23 @@ monaco.editor.defineTheme('paper', {
     'editor.background': '#f6f0e1',
     'editorGutter.background': '#f6f0e1',
     'minimap.background': '#f6f0e1',
-    'editor.lineHighlightBackground': '#e0d3b5',
-    'editor.lineHighlightBorder': '#e0d3b5',
+    'editor.lineHighlightBackground': '#e6dac0',
+    'editor.lineHighlightBorder': '#e6dac0',
     'editor.foreground': '#2f2a22',
     // 选中文字：同 light 主题的理由（vs 默认 #ADD6FF 太淡），只是底色是暖纸，蓝的会发脏。
-    // 取本主题 --bg-selection（#e5d6b0）再压深一档的 #D0B87F，与纸感同色相。
-    'editor.selectionBackground': '#D0B87F',
-    'editor.inactiveSelectionBackground': '#D0B87FB3',
-    // 同 light 的三项：同词高亮、缩进参考线（含活跃）、非当前查找命中，均按纸色背景重新取值，
-    // 对比度分别约 1.37 / 1.96（活跃 4.27）/ 1.78，避免 vs 的蓝色默认值在暖底上发脏、发淡。
-    'editor.selectionHighlightBackground': '#DFCEA6',
-    'editorIndentGuide.background1': '#BCAC8F',
-    'editorIndentGuide.activeBackground1': '#7D7055',
-    'editor.findMatchHighlightBackground': '#DDAE78',
+    // 取本主题 --bg-selection（#e5d6b0）附近的 #D5BF8B（约 1.6:1），与纸感同色相。
+    'editor.selectionBackground': '#D5BF8B',
+    'editor.inactiveSelectionBackground': '#D5BF8BB3',
+    // 同 light 的那几项：同词高亮、指针所在词的三档高亮、缩进参考线（含活跃）、
+    // 非当前查找命中，均按纸色背景重新取值。高亮面约 1.2:1、参考线约 1.7:1（活跃约 3.3:1）、
+    // 查找命中约 1.6:1，避免 vs 的蓝色默认值在暖底上发脏，也不铺一块实色压住正文。
+    'editor.selectionHighlightBackground': '#E9DCBF',
+    'editor.wordHighlightBackground': '#E0DACD',
+    'editor.wordHighlightTextBackground': '#E0DACD',
+    'editor.wordHighlightStrongBackground': '#E9DCBF',
+    'editorIndentGuide.background1': '#C5B69B',
+    'editorIndentGuide.activeBackground1': '#8F836A',
+    'editor.findMatchHighlightBackground': '#E2BB8D',
   },
 })
 
@@ -179,19 +196,23 @@ monaco.editor.defineTheme('leaf', {
     'editor.background': '#eaf2e6',
     'editorGutter.background': '#eaf2e6',
     'minimap.background': '#eaf2e6',
-    'editor.lineHighlightBackground': '#c6d8c1',
-    'editor.lineHighlightBorder': '#c6d8c1',
+    'editor.lineHighlightBackground': '#cfdfca',
+    'editor.lineHighlightBorder': '#cfdfca',
     'editor.foreground': '#26302a',
     // 选中文字：同 light 主题的理由（vs 默认 #ADD6FF 太淡），取本主题 --bg-selection
-    // （#cbe3c8）压深一档的 #9BC496，保持豆绿的色相。
-    'editor.selectionBackground': '#9BC496',
-    'editor.inactiveSelectionBackground': '#9BC496B3',
-    // 同 light 的三项：同词高亮、缩进参考线（含活跃）、非当前查找命中，均按豆绿背景重新取值，
-    // 对比度分别约 1.37 / 1.88（活跃 4.12）/ 1.84。
-    'editor.selectionHighlightBackground': '#BBD6B6',
-    'editorIndentGuide.background1': '#A0B79B',
-    'editorIndentGuide.activeBackground1': '#677866',
-    'editor.findMatchHighlightBackground': '#C7B17F',
+    // （#cbe3c8）附近的 #A4CAA0（约 1.6:1），保持豆绿的色相。
+    'editor.selectionBackground': '#A4CAA0',
+    'editor.inactiveSelectionBackground': '#A4CAA0B3',
+    // 同 light 的那几项：同词高亮、指针所在词的三档高亮、缩进参考线（含活跃）、
+    // 非当前查找命中，均按豆绿背景重新取值。高亮面约 1.2:1、参考线约 1.7:1（活跃约 3.2:1）、
+    // 查找命中约 1.6:1。
+    'editor.selectionHighlightBackground': '#CEE2CA',
+    'editor.wordHighlightBackground': '#D5DCD1',
+    'editor.wordHighlightTextBackground': '#D5DCD1',
+    'editor.wordHighlightStrongBackground': '#CEE2CA',
+    'editorIndentGuide.background1': '#ABC0A6',
+    'editorIndentGuide.activeBackground1': '#7B8A79',
+    'editor.findMatchHighlightBackground': '#CEBE94',
   },
 })
 
@@ -252,8 +273,8 @@ monaco.editor.defineTheme('contrast', {
   },
 })
 
-// 雾蓝：浅色（base vs），内芯 #edf1f7、行高亮从 --bg-hover #dbe3ee 再压深一档
-// （#c7d5e5，约 1.3:1，与 light 主题同档），正文取主题正文色
+// 雾蓝：浅色（base vs），内芯 #edf1f7、行高亮从 --bg-hover #dbe3ee 再压深一点
+// （#d1dcea，约 1.2:1，与 light 主题同档），正文取主题正文色
 monaco.editor.defineTheme('mist', {
   base: 'vs',
   inherit: true,
@@ -262,19 +283,23 @@ monaco.editor.defineTheme('mist', {
     'editor.background': '#edf1f7',
     'editorGutter.background': '#edf1f7',
     'minimap.background': '#edf1f7',
-    'editor.lineHighlightBackground': '#c7d5e5',
-    'editor.lineHighlightBorder': '#c7d5e5',
+    'editor.lineHighlightBackground': '#d1dcea',
+    'editor.lineHighlightBorder': '#d1dcea',
     'editor.foreground': '#2e3440',
     // 选中文字：同 light 主题的理由（vs 默认 #ADD6FF 太淡），取本主题 --bg-selection
-    // （#c3d5e8）压深一档的 #9AB8D5，与雾蓝底色同色相。
-    'editor.selectionBackground': '#9AB8D5',
-    'editor.inactiveSelectionBackground': '#9AB8D5B3',
-    // 同 light 的三项：同词高亮、缩进参考线（含活跃）、非当前查找命中，均按雾蓝背景重新取值，
-    // 对比度分别约 1.41 / 1.88（活跃 3.90）/ 1.77。
-    'editor.selectionHighlightBackground': '#BBCFE3',
-    'editorIndentGuide.background1': '#A5B3C5',
-    'editorIndentGuide.activeBackground1': '#6C798C',
-    'editor.findMatchHighlightBackground': '#CDB392',
+    // （#c3d5e8）附近的 #A4BFD9（约 1.7:1），与雾蓝底色同色相。
+    'editor.selectionBackground': '#A4BFD9',
+    'editor.inactiveSelectionBackground': '#A4BFD9B3',
+    // 同 light 的那几项：同词高亮、指针所在词的三档高亮、缩进参考线（含活跃）、
+    // 非当前查找命中，均按雾蓝背景重新取值。高亮面约 1.2:1、参考线约 1.7:1（活跃约 3.0:1）、
+    // 查找命中约 1.6:1。
+    'editor.selectionHighlightBackground': '#D0DDEB',
+    'editor.wordHighlightBackground': '#D8DBE1',
+    'editor.wordHighlightTextBackground': '#D8DBE1',
+    'editor.wordHighlightStrongBackground': '#D0DDEB',
+    'editorIndentGuide.background1': '#B0BCCD',
+    'editorIndentGuide.activeBackground1': '#7F8B9C',
+    'editor.findMatchHighlightBackground': '#D3BFA6',
   },
 })
 
