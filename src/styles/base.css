@@ -785,7 +785,7 @@
   --menu-bg: #fffdf7;
   --menu-border: #d8cdb8;
   --menu-text: #5f5748;
-  --menu-muted: #8b8271;
+  --menu-muted: #7c715d; /* 11px 快捷键：4.7:1，与浅色基础方案的 4.5 口径对齐（原 #8b8271 仅 3.7） */
   --menu-hover-bg: #9a5b00;
   --menu-hover-muted: #f3d9b0;
   --menu-separator: #d8cdb8;
@@ -870,7 +870,7 @@
   --menu-bg: #fbfdf9;
   --menu-border: #c8d3c2;
   --menu-text: #55605a;
-  --menu-muted: #7f8b82;
+  --menu-muted: #6c786f; /* 11px 快捷键：4.5:1，与浅色基础方案同口径（原 #7f8b82 仅 3.5） */
   --menu-hover-bg: #2f7048;
   --menu-hover-muted: #cfe6d6;
   --menu-separator: #c8d3c2;
@@ -1200,7 +1200,7 @@
   --menu-bg: #f7fafc;
   --menu-border: #c3cddb;
   --menu-text: #4c566a;
-  --menu-muted: #7b8698;
+  --menu-muted: #677284; /* 11px 快捷键：4.6:1，与浅色基础方案同口径（原 #7b8698 仅 3.5） */
   --menu-hover-bg: #43698f;
   --menu-hover-muted: #c9dbf0;
   --menu-separator: #c3cddb;
