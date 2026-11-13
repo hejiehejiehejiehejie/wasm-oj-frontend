@@ -52,6 +52,9 @@
  *      的阈值大多在 500ms 上下，与我们弹自定义菜单的 500ms 正好撞车 —— 等 armed 再拦已经
  *      晚了一步，系统菜单会先于我们的卡片弹出来，而且还要等下一次点击才关掉。页签本来
  *      没有原生右键菜单，拦掉不损失功能。触屏的长按菜单由 openLongPressMenu 自己弹。
+ *      **这一发必须连冒泡一起截住**（2026-11-13，见 onContextMenuBlock）：只 preventDefault
+ *      的话，它照样会走到页签 / 芯片上的 `@contextmenu`，把右键菜单或分组卡片**再弹一次**
+ *      —— 而那一处锚的是芯片矩形，于是长按出来的卡片会先落在手指处、随即跳到芯片下方。
  *      这三条与 useTreeDrag 的对应处完全同源，改一处记得看另一处。
  *
  * 【③ 为什么挂在按下、而不是 armed】非被动 `touchmove` 也一并提前挂（拦截本身仍只在
@@ -513,9 +516,21 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     }
   }
 
-  /** 按住期间不让系统长按菜单插进来（页签没有自己的右键菜单，拦掉不损失功能） */
+  /**
+   * 按住期间不让系统长按菜单插进来（页签没有自己的右键菜单，拦掉不损失功能）。
+   *
+   * `preventDefault()` 只压掉**浏览器的原生弹窗**，事件本身照样冒泡到页签 / 芯片上的
+   * `@contextmenu` —— 那两处是按「右键」写的：芯片那颗会**再开一次分组卡片**，锚点取
+   * 芯片矩形。于是真机上长按的分组卡片先按手指位置弹出来、又被这一发拽回芯片下方，
+   * 看着就是「先出现在手指处、再跳到预设位置」（2026-11-13 用户报）。
+   * 所以在 window 的**捕获阶段**把这一发整个截住（`stopPropagation`）：按压期间这次
+   * contextmenu 归我们，页签菜单 / 分组卡片一律只由 openLongPressMenu 弹一次。
+   * 这条只在 `press` 存在时生效，编辑区、文件树那些右键完全不受影响。
+   */
   function onContextMenuBlock(event) {
-    if (press) event.preventDefault()
+    if (!press) return
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   function onPointerMove(event) {

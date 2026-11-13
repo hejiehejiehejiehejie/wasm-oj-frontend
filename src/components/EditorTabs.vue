@@ -362,15 +362,40 @@ function onStripDragStart({ id, gid }) {
   focusTab(id)
 }
 
-/** 触屏长按满 500ms 仍不动：在手指位置弹各自的菜单（页签 = 右键菜单，芯片 = 分组卡片） */
+/**
+ * 触屏长按满 500ms 仍不动：弹各自的菜单。两条路的锚点**故意不同**（2026-11-13）：
+ *   · 页签 → 手指位置（原生菜单就是这么弹的）；
+ *   · 分组卡片 → **芯片矩形**（与右键完全同一个预设锚点），不用手指位置。
+ * 后者是用户的口径：「长按弹出的位置直接就是预设位置」。原因不只是审美 ——
+ * 真机在长按判定的同一时刻还会派发一发 `contextmenu`（系统长按菜单），那一发走到
+ * 芯片上的 `@contextmenu` 就按**芯片矩形**再开一次卡片；锚点若取手指，卡片会先出现在
+ * 手指下、随即被第二次打开拽回芯片下方，看着就是「先闪一下再跳到预设位置」。
+ * 两处锚点对齐之后，这一发（哪怕真漏进来）落在同一个坐标上，不再产生位移 ——
+ * 触屏和右键弹出的卡片因此只有一处区别：手指按住时芯片自己有放大反馈（`--armed` 那条），
+ * 量到的左缘会比静止态偏左几像素，看着仍是「从芯片左下方长出来」。
+ */
 function onStripLongPress({ id, gid, x, y }) {
   if (gid) {
     const group = tabGroups.groupOfId(gid)
-    if (group) openGroupCardAt(group, x, y + 12)
+    if (!group) return
+    const chip = chipOfGroup(gid)
+    // 芯片查不到（组刚被折叠 / 重排到别处）时退回手指位置：位置差一点也好过弹不出来
+    if (chip) openGroupCardFromChip(group, chip)
+    else openGroupCardAt(group, x, y + 12)
     return
   }
   const item = stripItemOf(id)
   if (item) openTabMenuAt(item, x, y + 12)
+}
+
+/**
+ * 条带上某组的芯片元素。芯片不看 `data-strip-id`（拖拽的落点数学里组由成员段代表，
+ * 见模板上那段注释），认的是 `data-group-id`。
+ * @param {string} gid
+ * @returns {HTMLElement|null}
+ */
+function chipOfGroup(gid) {
+  return rootEl.value?.querySelector(`.editor-tabs__chip[data-group-id="${CSS.escape(gid)}"]`) ?? null
 }
 
 /** 条带里某一项（文件页签 / 合成视图页签）的渲染描述 —— 长按要按 id 反查回来 */
@@ -1092,12 +1117,22 @@ onBeforeUnmount(() => {
 /** 分组卡片（右键芯片弹出）；锚点是芯片自己的矩形下缘 */
 const groupCard = ref(null)
 
-function openGroupCard(group, event) {
-  const rect = event.currentTarget.getBoundingClientRect()
+/**
+ * 分组卡片的锚点（两个入口共用一处定义）：芯片左缘、芯片下缘下移 6px。
+ * 右键与触屏长按都走这里 —— 触屏为什么不取手指位置见 onStripLongPress。
+ * @param {object} group tabGroups.groups 里的那一项
+ * @param {HTMLElement} chip 该组的芯片元素
+ */
+function openGroupCardFromChip(group, chip) {
+  const rect = chip.getBoundingClientRect()
   openGroupCardAt(group, rect.left, rect.bottom + 6)
 }
 
-/** 在指定位置弹分组卡片（右键与触屏长按共用） */
+function openGroupCard(group, event) {
+  openGroupCardFromChip(group, event.currentTarget)
+}
+
+/** 在指定位置弹分组卡片（锚点换算见 openGroupCardFromChip；找不到芯片时的那条兜底也落这里） */
 function openGroupCardAt(group, x, y) {
   groupCard.value = { group, x, y }
 }

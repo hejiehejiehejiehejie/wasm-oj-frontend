@@ -159,12 +159,22 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
     await nextTick()
     const el = root.value
     if (!el) return
-    const rect = el.getBoundingClientRect()
+    /**
+     * 尺寸取**布局盒**（offsetWidth / offsetHeight），不取 `getBoundingClientRect()`。
+     * 挂载那一帧元素还在入场动画里（`scale(0.95 → 1)`），rect 量到的是被缩小过的那一份，
+     * 按它匣出来的位置在动画结束后就偏了一截，得靠 animationend / 200ms 那两次再匣把它
+     * 挪正 —— 用户看到的就是「浮层先出现在一处、再跳到另一处」（2026-11-13 用户报：
+     * 触屏长按分组芯片，卡片先在手指处、再跳到芯片下方；除了那条二次打开的成因外，
+     * 这一路的偏差也让它更明显）。offset* 不吃 transform，第一次量到的就是最终尺寸，
+     * 匣一次即是终态 —— 后面那两次再匣退化成幂等兜底（留给字体换相 / 内容变高）。
+     */
     const box = viewportBox()
+    const width = el.offsetWidth || el.getBoundingClientRect().width
+    const height = el.offsetHeight || el.getBoundingClientRect().height
     // 右缘对齐时先左移一个自身宽度，把「右缘」换算成「左缘」，之后才夹进视口
-    const rawX = toValue(align) === 'right' ? toValue(x) - rect.width : toValue(x)
-    const left = Math.max(box.left + gap, Math.min(rawX, box.right - rect.width - gap))
-    const top = Math.max(box.top + gap, Math.min(toValue(y), box.bottom - rect.height - gap))
+    const rawX = toValue(align) === 'right' ? toValue(x) - width : toValue(x)
+    const left = Math.max(box.left + gap, Math.min(rawX, box.right - width - gap))
+    const top = Math.max(box.top + gap, Math.min(toValue(y), box.bottom - height - gap))
     position.value = { left: `${left}px`, top: `${top}px` }
   }
 
@@ -201,12 +211,14 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left' }) {
   )
 
   /**
-   * 弹开动画结束之后再匣一次。
+   * 弹开动画结束之后再匣一次（**兜底，正常情况下是幂等的**）。
    *
-   * 首次匣在 `nextTick` 之后量，那一帧元素还压在「0.95 → 1」的入场动画中途，
-   * `getBoundingClientRect()` 量到的是被缩小过的那一份 —— 实测 412×861 下设置菜单真高
-   * 373.5，收敛时只量到 345，于是按它算出来的位置偏低：菜单底缘落到视口外 20px、
-   * 最后一行被切掉。动画走完盒子回到真尺寸，照着重量一次。
+   * 历史上这一手是必需的：首次匣在 `nextTick` 之后量，那一帧元素还压在「0.95 → 1」的
+   * 入场动画中途，`getBoundingClientRect()` 量到的是被缩小过的那一份（实测 412×861 下
+   * 设置菜单真高 373.5 只量到 345），按它算出来的位置偏低，最后一行被切掉。
+   * 2026-11-13 起 `clampIntoViewport` 改量 `offsetHeight`（不吃 transform），首次匣
+   * 就是终态，这一手因此只剩「内容在动画期间真的变高了」这类情形要接（字体换相、
+   * 异步填进来的内容）。留着不亏：位置没变时写回同一个值，不会产生位移。
    *
    * 只在 `event.target` 是自己时动手：`animationend` 会从子元素冒泡上来（转圈、对勾那些）。
    * 另外补一枚 200ms 的定时器兜底 —— 元素没跑动画（或动画被系统关掉）时它不会响。
