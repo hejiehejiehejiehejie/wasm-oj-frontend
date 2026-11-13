@@ -375,7 +375,7 @@ export function useCfContest() {
    *
    * 短名复用赛程窄容器那一份 `compactContestName`（2026-11-03 用户口径：比赛全名太长，
    * 芯片上显示不全）：它把「Educational Codeforces Round 196 (Rated for Div. 2)」重排成
-   * 「Edu 196 (Div. 2)」—— 芯片放得下，而编号与 Div. 恰好是区分一场比赛的信息。
+   * 「Edu 196(Div. 2)」—— 芯片放得下，而编号与 Div. 恰好是区分一场比赛的信息。
    * **只作用于组名**：落盘目录（`importOne` 的 `contestName`）仍用全名，别把短名灌进路径。
    *
    * 【为什么要等一次 nextTick】新页签是 openTabIds 的 watch（flush: 'pre'）排进 stripOrder 的，

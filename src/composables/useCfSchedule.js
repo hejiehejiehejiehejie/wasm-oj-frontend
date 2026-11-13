@@ -159,7 +159,12 @@ function sameList(left, right) {
  * 赛程窄容器里用的短名（2026-11-02）：一场比赛的名字里最重复的是系列词，真正区分场次的是
  * 编号与 Div.。「Educational Codeforces Round 196 (Rated for Div. 2)」与
  * 「DeepInfra Round 1 (Codeforces Round 1126, Div. 1 + Div. 2)」重排成
- * 「Edu 196 (Div. 2)」/「CF 1126 (Div. 1+2)」后，窄屏一列名字基本能放下全称。
+ * 「Edu 196(Div. 2)」/「CF 1126(Div. 1+2)」后，窄屏一列名字基本能放下全称。
+ *
+ * 【标点自己承担分隔，空格只留给词】2026-11-13 用户口径，两轮定稿：
+ * 「Edu 196(Div. 2)」—— 前缀与编号之间**留一个空格**（`CF 1100` 读起来才是「CF 的 1100 场」，
+ * 粘成 `CF1100` 像编号的一部分）；编号与 `(Div. …)` 之间**不留**（左括号本身就是分隔符，
+ * 这一格纯属浪费）。所以省宽度的是括号前那一格，不是前缀后那一格。
  *
  * 【先认结构，认不全才逐词替换】同时认出「Codeforces Round N」与 Div. 时直接重排：
  * 编号唯一标识一场，Div. 是参加者最关心的那一位，其余（赞助商、Rated for、Based on …）
@@ -188,19 +193,30 @@ const COMPACT_NAME_RULES = [
   [/\bDiv\. 1\s*\+\s*Div\. 2\b/g, 'Div. 1+2'],
 ]
 
+/** 前缀与编号之间补回一个空格：`CF1126` → `CF 1126`、`Edu196` → `Edu 196` */
+const GLUED_PREFIX_PATTERN = /\b(CF|Edu)(?=\d)/g
+
+/** 编号与 `(Div. …)` 之间不留空格：`1131 (Div. 2)` → `1131(Div. 2)`。前面必须是数字 ——
+ *  `CF (Div. 1)`（线上确有两条这样没编号的比赛名）不能被粘成 `CF(Div. 1)` */
+const SPACE_BEFORE_DIVISION_PATTERN = /(\d)\s+\((Div\.)/g
+
 export function compactContestName(name) {
   const text = String(name ?? '')
   const round = text.match(ROUND_PATTERN)
   const division = divisionLabel(text)
   if (round && division) {
-    return `${EDUCATIONAL_PATTERN.test(text) ? 'Edu' : 'CF'} ${round[1]} (${division})`
+    return `${EDUCATIONAL_PATTERN.test(text) ? 'Edu' : 'CF'} ${round[1]}(${division})`
   }
   let compact = text
   for (const [pattern, replacement] of COMPACT_NAME_RULES) {
     compact = compact.replace(pattern, replacement)
   }
   // API 里有「Div. 1,  Based on」这种双空格；顺带归一，少占一个字符
-  return compact.replace(/\s+/g, ' ').trim()
+  return compact
+    .replace(GLUED_PREFIX_PATTERN, '$1 ')
+    .replace(/\s+/g, ' ')
+    .replace(SPACE_BEFORE_DIVISION_PATTERN, '$1($2')
+    .trim()
 }
 
 /**

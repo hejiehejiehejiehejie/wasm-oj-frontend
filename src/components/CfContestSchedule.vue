@@ -670,7 +670,7 @@ async function confirmEntry() {
 
 /* 带「报名 / VP」那一列的窄容器（2026-11-02）：40rem 以下这一行从定宽版式换成窄档 ——
    列间距 8、倒计时 fit-content、动作格 56。开始时刻仍留在这一档：名字换短名
-   （Edu 196 / CF 1131）后只要 60~150px（全列表 p50 = 88.6px），到 32rem（容器 512px）
+   （Edu 196(Div. 2) / CF 1131(Div. 2)）后只要 60~150px（全列表 p50 = 88.6px），到 32rem（容器 512px）
    还有约 165px 给名字，最长的「Kotlin Heroes: Practice 15」约 151px，正好放得下。
    宽度在 40rem 以上时不受影响，仍是上面的定宽版式。 */
 @container cf (max-width: 40rem) {
@@ -686,7 +686,7 @@ async function confirmEntry() {
      15px、状态文字 21px（原来是 23 / 29）。忙碌态约 80px，比这一格宽出的部分居中分摊到
      两侧，8px 列间距之外只多出几 px，且只出现在提交那一两秒。 */
 
-  /* 窄容器里名字换成短名（Edu 196 / CF 1131）：40rem 以下名字列只剩二三百 px，
+  /* 窄容器里名字换成短名（Edu 196(Div. 2) / CF 1131(Div. 2)）：40rem 以下名字列只剩二三百 px，
      长的场次会只露半个系列名；短名能把编号、Div. 和「Based on …」这些区分信息露出来。
      宽屏不受影响，仍是原名（2026-11-02） */
   .cf-schedule__name-full {
@@ -786,6 +786,33 @@ async function confirmEntry() {
   .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished .cf-schedule__start {
     display: inline;
     padding-right: 16px;
+  }
+}
+
+/* 极窄档：上面那道「轨道 108 + 右内边距 16」的宽松版到此为止（2026-11-13 用户报障）。
+   那 16px 内边距是**从比赛名身上抠出来的**：容器 286（视口 300）时名字列只剩 92px，
+   「CF 1130 (Div. 2)」在被截断——而时刻那一格只用到 76px（`10-26 22:35`，11.5px 等宽），
+   轨道里另有 16px 完全是死白。这一档把轨道收回到 92、内边距归零：
+   时刻整体右移 16px（右缘从「离图标 24px」收到 8px，仍隔着一道列距与外链图标的字形留白），
+   省下的 16px 全部归名字；那句日期可用的宽度仍是 92px，跨年的长日期不会更容易截断。
+   两档分别挂在各自最后一级断点上（带动作列到 32rem 就没有更窄的模板了）。 */
+@container cf (max-width: 32rem) {
+  .cf-schedule__row--entry.cf-schedule__row--finished {
+    grid-template-columns: minmax(0, 1fr) 92px 56px 20px;
+  }
+
+  .cf-schedule__row--entry.cf-schedule__row--finished .cf-schedule__start {
+    padding-right: 0;
+  }
+}
+
+@container cf (max-width: 28rem) {
+  .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished {
+    grid-template-columns: minmax(0, 1fr) 92px 20px;
+  }
+
+  .cf-schedule__row:not(.cf-schedule__row--entry).cf-schedule__row--finished .cf-schedule__start {
+    padding-right: 0;
   }
 }
 

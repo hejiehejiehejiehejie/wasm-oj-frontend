@@ -47,15 +47,21 @@
           </form>
 
           <!-- 比赛名 = 这一场在 CF 上的入口；铅笔把它换回输入框（再换一场 / 改 ID 重载） -->
-          <div v-else key="title" class="cf-titlebar">
+          <div v-else key="title" ref="titlebarEl" class="cf-titlebar">
             <a
+              ref="nameEl"
               :href="url"
               target="_blank"
               rel="noreferrer"
               class="cf-contest__name"
               :title="title"
             >
-              {{ title }}
+              {{ nameShown }}
+              <!-- 度量片段（2026-11-13）：藏起来的全名，只用来问「这一句要占多宽」——
+                   与名字条里还剩多少比一比，决定要不要换短名（见 syncNameFit）。
+                   放进 <a> 里是为了跟着它继承字号 / 字重；绝对定位 + visibility: hidden，
+                   不进版式、不进读屏、也选不中 -->
+              <span ref="nameFullEl" class="cf-contest__name-probe" aria-hidden="true">{{ title }}</span>
             </a>
             <!-- VP 徽标带开始时刻（本机时区）：这一场的「开赛」是用户自己定的那一个，
                  与赛程里那一行右边的时间同一个来源 -->
@@ -178,10 +184,10 @@
             </div>
             <ul class="cf-list">
               <li v-for="problem in problems" :key="`${problem.contestId}-${problem.index}`">
-                <!-- 比赛页只要「题号 + 题名 + 通过人数 + 导入」：知识点标签与难度是抽题时
-                     用来挑题的，打比赛时用不上（2026-10-28 用户要求去掉）。
-                     通过人数来自载入时顺手算好的榜单快照（cfWorker.loadContestProblems），
-                     不额外发请求 —— 所以这一列是「截至载入时」，不是实时 -->
+                <!-- 比赛页只要「题号 + 题名 + 导入」：知识点标签与难度是抽题时用来挑题的，
+                     打比赛时用不上（2026-10-28 用户要求去掉）；「通过人数」那一列也撤了
+                     （2026-11-13 用户口径：那格平时显示的就是一个破折号，白占宽度，
+                     窄容器里还是从题名身上扣的），榜单看榜单页去，这里不重复一份快照 -->
                 <!-- 导过之后整行空白处可点 = 打开这道题在工作区里的那份文件（2026-11-10 用户口径，
                      与抽题结果行同一套）。题名那颗 <a> 与导入按钮各自 .stop，落在行上的只有空白处 -->
                 <div
@@ -207,12 +213,6 @@
                     >
                       {{ problem.name }}
                     </a>
-                  </span>
-                  <span
-                    class="cf-result__solved cf-mono"
-                    :title="t('cf.contest.problems.solvedTitle')"
-                  >
-                    {{ problem.solved ?? '—' }}
                   </span>
                   <button
                     type="button"
@@ -288,6 +288,7 @@ import CfSubmissionList from './CfSubmissionList.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
 import { useCfContest } from '../composables/useCfContest.js'
+import { compactContestName } from '../composables/useCfSchedule.js'
 
 const emit = defineEmits(['nav'])
 
@@ -334,6 +335,88 @@ const {
 
 /** 赛程在本页之外（合成页签的抬头那一层），进来的第一页就是题目 */
 const tab = ref('problems')
+
+// ------------------------------------------------------------ 比赛名的长短两版
+
+/**
+ * 名字条放不下全名时换短名（2026-11-13 用户口径：区域不够时用压缩过的名字）。
+ *
+ * 短名就是赛程窄容器那一份 `compactContestName`（`Edu 196(Div. 2)` / `CF 1131(Div. 2)`），
+ * 页签组名也在用它 —— 同一场比赛在三个地方缩写出来是同一句话。
+ *
+ * 【为什么不能照抄赛程的容器查询】赛程那一行是定宽网格，档位一换整行都跟着换，判据是
+ * 「容器多宽」。名字条里还有状态胶囊、VP 徽标、铅笔、赛事类型徽标，它们都按**内容**定宽：
+ * 同一条宽 600px 的条里，「Codeforces Round 1131 (Div. 2)」放得下，
+ * 「Educational Codeforces Round 196 (Rated for Div. 2)」放不下 —— 档位判不出这一句放不放得下。
+ *
+ * 【怎么判】全名的自然宽度由那颗藏起来的度量片段（`.cf-contest__name-probe`）给出；
+ * 名字能用的宽度 = 条宽 − 右侧那几颗的宽度 − gap。两个数都在同一个坐标系里量，
+ * 比一比就知道要不要换。名字自己换成短名之后**不改变**这两个数（右侧那几颗不动），
+ * 所以不会来回抖。
+ */
+const titlebarEl = ref(null)
+const nameEl = ref(null)
+const nameFullEl = ref(null)
+/** 此刻是不是在用短名 */
+const shortName = ref(false)
+
+const compactTitle = computed(() => compactContestName(title.value))
+const nameShown = computed(() => (shortName.value ? compactTitle.value : title.value))
+
+let nameFitObserver = null
+
+/**
+ * 重算一次：全名要占多宽 vs 名字还剩多宽。
+ *
+ * 【读不到就跳过】面板被 v-show 藏着、或在两态之间换 DOM 的那一帧，`clientWidth` 是 0；
+ * 这时候下的判断是「全都放不下」，会把名字误换成短名 —— 等 ResizeObserver 补这一次。
+ */
+function syncNameFit() {
+  const bar = titlebarEl.value
+  const name = nameEl.value
+  const full = nameFullEl.value
+  if (!bar || !name || !full) return
+  const width = bar.clientWidth
+  if (!width) return
+  let rest = 0
+  for (const child of bar.children) {
+    if (child !== name) rest += child.getBoundingClientRect().width
+  }
+  // 条里每两颗之间 4px（.cf-titlebar 的 gap）；VP 徽标与类型徽标各有 2px margin-left，
+  // 一起从名字的余地里扣掉 —— 宁可早一格换短名，也不要把全名挤成省略号
+  const gaps = 4 * Math.max(0, bar.children.length - 1) + 4
+  shortName.value = full.getBoundingClientRect().width > width - rest - gaps
+}
+
+/**
+ * 名字条一出现 / 换一场 / 状态胶囊来去，就挂上新的观察者。
+ *
+ * 【为什么盯着条里的每一颗，而不只盯整条】条宽不变、但状态胶囊变宽（「59 分钟」跳到
+ * 「1 小时 0 分钟」）时，名字是被挤窄的那一方，整条却一动不动 —— 只盯整条会漏掉这一次。
+ * 名字自己也在被观察之列：它被挤窄 / 放松时同样会触发一次重算。
+ * 【为什么状态胶囊的「在不在」也算依赖】v-if 后挂上是布局级的变化，条宽不变，
+ * 不重挂观察者就会漏掉它。
+ */
+watch(
+  () => [titlebarEl.value, title.value, !!statusText.value],
+  () => {
+    nameFitObserver?.disconnect()
+    nameFitObserver = null
+    const bar = titlebarEl.value
+    if (!bar) return
+    syncNameFit()
+    if (typeof ResizeObserver === 'undefined') return
+    nameFitObserver = new ResizeObserver(() => syncNameFit())
+    nameFitObserver.observe(bar)
+    for (const child of bar.children) nameFitObserver.observe(child)
+  },
+  { flush: 'post' },
+)
+
+onBeforeUnmount(() => {
+  nameFitObserver?.disconnect()
+  nameFitObserver = null
+})
 
 /** 赛事类型徽标：只有 gym / group 会挂（从链接解析出来；普通比赛与空态都不显示） */
 const kindLabel = computed(() =>
@@ -707,6 +790,7 @@ defineExpose({ openContest, navState, restoreNav })
 }
 
 .cf-contest__name {
+  position: relative;
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -715,6 +799,18 @@ defineExpose({ openContest, navState, restoreNav })
   text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 度量片段：藏起来的全名，只给 syncNameFit 量自然宽度（见那边关于「为什么不用容器查询」）。
+   绝对定位让它不参与这条的版式，visibility: hidden 让它不可见、不可选中、也不进读屏；
+   它在 <a> 里，字号字重跟着名字走 —— 量出来的正是名字写全时要占的地方 */
+.cf-contest__name-probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* VP 徽标：名字后面一小串「VP · 11-03 01:55」。等宽 + 主色，紧贴名字 ——

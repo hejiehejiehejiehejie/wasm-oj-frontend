@@ -184,9 +184,6 @@ export default {
           linkLabel: '比赛链接或 ID',
           linkPlaceholder: '比赛链接或 ID（如 2276）',
         },
-        problems: {
-          solvedTitle: '通过人数（截至载入时的榜单快照）',
-        },
         action: {
           load: '载入',
           edit: '换一场',
@@ -551,9 +548,6 @@ export default {
         fields: {
           linkLabel: 'Contest link or ID',
           linkPlaceholder: 'Contest link or ID (e.g. 2276)',
-        },
-        problems: {
-          solvedTitle: 'Accepted count (standings snapshot at load time)',
         },
         action: {
           load: 'Load',
