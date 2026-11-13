@@ -186,7 +186,7 @@ src/
     mdRenderer.js               # 题解渲染管线：marked（含 $…$ / $$…$$ 扩展）→ DOMPurify → KaTeX 填公式
     mdRuntime.js                # 题解渲染运行时的本地侧：/md/assets.json 清单 + cp-md-runtime 缓存桶 + 探针 / 下载 / 卸载 / 注入
     mdImage.js                  # .md 选区（或整篇）「生成图片」的渲染导出（2026-10-21 加）：走题解预览的同一套排版（复读 `.md-preview__body` 的 `data-v-*` scoped 属性 + 挂同名类，不维护第二份排版表）→ 内联计算样式（STYLE_PROPERTIES 白名单）→ `<svg><foreignObject>` + 字体 / 图片转 data URL → canvas。版心固定 720 + 四周 32 留白，纯净文档（无卡片 / 圆点 / 行号），配色跟当前主题（底取 `--bg-editor-pane`），倍率复用 `codeImageQuality`（经 codeImage.js 新导出的 `imageQualityScale()`）。**Chrome 与 macOS Safari 27（WKWebView）实测均正确；Safari 侧另有六道防线，详见第 7 节条目**
-    editorOptions.js            # 编辑器偏好的单一出处：默认值 33 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24。最后一项 `statusBar`（默认开，2026-09-30 加）**不是 Monaco 选项**、不进 `editorOptions()`，它只管编辑区底部那条状态栏的显隐
+    editorOptions.js            # 编辑器偏好的单一出处：默认值 33 项 + 可选项表 + 逐键校验 + 偏好 → Monaco 选项（编辑器级 editorOptions(settings, scale, { markdown, narrow }) / model 级 editorModelOptions()）。**`scale` 是全局缩放的补偿点**：Monaco 不吃 rem，fontSize / lineHeight / padding / scrollbarSize 都在这里乘 scale；tabSize 不乘（列数不是像素），见第 5 节坑 24。`markdown` / `narrow` 两个上下文参数只影响「怎么摆」，不影响偏好：前者决定行号三态的 `md-off` 与括号高亮折算成什么，后者把行号栏那两截留白换成窄屏那一对（`LINE_NUMBER_GUTTER`，见 §45）。最后一项 `statusBar`（默认开，2026-09-30 加）**不是 Monaco 选项**、不进 `editorOptions()`，它只管编辑区底部那条状态栏的显隐
     settingsMenu.js             # 设置下拉菜单的**结构表 + 每一项写哪份偏好**（2026-10-11 加）：一级 11 行（2026-10-20 加「倒计时」那行动作后由 10 变 11），按 `kind` 分 `switch` / `radio`（二级）/ `stepper` / `cloud`（二级是个表单，只有菜单里「同步设置」这一行用，标签走 `settings.menu.cloudSync` 而非 `settings.section.cloud`）/ `action` / `divider`；读值一律是函数（要读「此刻」的值），标签一律存 i18n key。写只走原有单一出口：`editorSettings.js` / `shellSettings.js` / `fileTemplates.js` / `i18n/index.js`，所以菜单改完设置面板立刻跟着变。标了 `closes: true` 的行（「设置分类」）选完连菜单一起收，其余多档项选完留在原地好连着试。**两档也照样用 radio**（主题、侧边栏位置）：判据见 `SettingsMenu.vue` 那条（两档各有名字的走二级，开 / 关语义的才用开关）。行级的 `when` 以前只挂在下面那几颗「一次性安装动作」上（能装、且还没装），2026-10-13 起**也用来藏偏好行**：「窄屏折叠方向」只在窄屏出现（宽屏上它是空转的），见第 5 节坑 49。
     countdown.js                # 悬浮倒计时的**状态与计时单例**（2026-10-20 加）：`cp.countdown`（键名在 storageNames.js）自己读写 localStorage，卡片关掉 / 刷新后接着走；存「结束时间戳 + 暂停剩余量」而不累加 tick（后台被降频也不走慢）；ticker 只在 `running` 时开；`now` 是独立的 ref（与状态分开，免得每 200ms 落一次盘）；退出时只 flush **还压着的那一次**写入。导出的动作：`openCountdown` / `closeCountdown` / `startCountdown` / `cancelCountdown` / `toggleCountdownPause` / `toggleCountdownLock` / `clampCountdownBox` / `clampCountdownForm`。几何口径见第 16 节。**刻意不进云同步白名单** —— 窗口摆哪、屏幕多大是这台设备的事实
     confetti.js                 # 「全部样例通过」的庆祝纸屑（2026-10-23 加）：`canvas-confetti` 唯一消费者，`mountConfetti(canvas)` / `unmountConfetti()` / `celebrateAllPassed()` 三个出口，canvas 由 `TestPanel.vue` 摆在样例面板里、盖满整块面板。**只认「全过」**（整轮 ▶ 的判据在 App.vue 的 `celebrateIfAllPassed`；逐张 ▶ 只在「这一跑刚好凑齐全过」时放、单样例每次 AC 都放，见 `runOne`），任一失败不放；可在 设置 › 评测 关掉；**刻意不给 `useWorker`**（控制权会被交给 OffscreenCanvas、尺寸只跟 window resize 走）；尺寸每次自己量、`1 CSS px = 1 位图 px`；颜色现读 `--confetti-1..4`。为什么挂在这些点上，见第 17 节
@@ -5465,3 +5465,58 @@ dev / 本机 macOS / 无头 Chrome / `runCpp` 裸路径（不是卡片），每�
 - 而且 capacity 也没停在 128 MiB：第 5 步的 `writeFile` 会把 `node.capacity` 精确设成产物长度，2 倍余量只在编译那一段短暂存在。
 
 结论：`truncate(node, 0)` 里加「cap > 16 MiB 就释放」的阈值**针对的是不存在的场景**，不用做。如果以后真要压常驻，该看的是「上一次产物的大小」而不是 capacity —— 而那个值是用户自己代码决定的，本来也无法回收。
+
+## 45. 窄屏下把行号栏的留白收掉（2026-11-13，用户报障）
+
+用户报「窄屏模式下，Monaco 在代码文件和 md 文件里，输入区域与左边的空隙都显得有些大」。这不是哪条 CSS 的锅 —— 编辑区前面一个字都没有 CSS，那截空白全是 Monaco 自己算出来的行号栏。
+
+### 45.1 那 68px 是怎么来的
+
+`node_modules/monaco-editor/esm/vs/editor/common/config/editorOptions.js` 的 `computeLayout()`：
+
+```
+contentLeft = 行号列宽 + lineDecorationsWidth
+行号列宽    = Math.max(实际位数, lineNumbersMinChars) × 单个数字宽
+lineDecorationsWidth = 选项值 + (folding && showFoldingControls !== 'never' ? 16 : 0)
+```
+
+默认值 `lineNumbersMinChars: 5` + `lineDecorationsWidth: 10` + 折叠那 16，14px 等宽字体下一个数字约 8.4px：
+
+| 场景 | 行号列 | 装饰区 | 正文起点 | 390px 视口占比 |
+| --- | --- | --- | --- | --- |
+| 代码文件（两位数行号） | 5×8.4 = **42** | 10+16 = **26** | **68** | 18% |
+| 题解（行号被 `md-off` 收掉） | 0 | 10+16 = **26** | **26** | 7% |
+
+两位数行号挤在 42px 列**右端**，于是左边空出 33.6px、右边再空 26px —— 量出来的数字和用户截图的观感完全对得上（`numText.left = 33.6`）。这套值就是 VS Code 的默认值，1400px 的面板里不显眼，390px 的手机上等于把正文挤到只剩三十来个字符。
+
+### 45.2 改法：只换「留白」，不动任何偏好
+
+`editorOptions()` 多收一个 `narrow` 上下文参数，`LINE_NUMBER_GUTTER` 一对值：
+
+| | `lineNumbersMinChars` | `lineDecorationsWidth` | 代码文件正文起点 | 题解正文起点 |
+| --- | --- | --- | --- | --- |
+| 宽屏（= Monaco 默认值） | 5 | 10 | 68px（不变） | 26px（不变） |
+| 窄屏 | 3 | 4 | **45px**（−23px，−34%） | **20px**（−6px，−23%） |
+
+- **行号列取 3 字符**：两位数文件右边仍留 8.4px 内缩（不贴边），三位数正好铺满，四位数起列宽自己跟着位数长。**刻意不取 2** —— 两位数文件会贴到画布最左缘。
+- **装饰区取 4px**：折叠控件那 16px 保留（加号就画在这一格里），不再额外留 10px。留 4 而不是 0，是因为悬停浮出的那个加号盒子**恒比 `contentLeft` 多探出 2px**（实测：`left = 行号列 + 2`、`width = 16 + decorations`），留 4 才让它与正文首字之间还剩 1px，不至于压到字上。
+- **`folding` / `showFoldingControls` 显式写成 `true` / `'mouseover'`**（与 Monaco 默认同值）：那 16px 是 `lineDecorationsWidth` 的**加数**，默认值一漂整栏宽度就跟着漂。窄屏也**不**设成 `'never'` —— 省下 16px 会连折叠加号一起没有，正文和行号之间也就彻底没缝了。
+- 两项都**不乘 `scale`**（与改前一致）：`lineDecorationsWidth` 本来就是 px，缩放变化时数字本身不吃 rem 也不算脱节。
+
+### 45.3 判据与重下发
+
+- 窄屏判据**只有一份**：`shellSettings.js` 的 `isNarrowLayout()`（触摸设备 + 设备竖屏，或视口宽 ≤ 600px，见 §5 坑 45 / 53）。`EditorPane.vue` 里包一层 `computed(() => isNarrowLayout())` 追它的变化，新增的 `watch(narrowLayout)` 重下发一次选项 —— 旋屏、拖窗口跨 600px、平板插拔键盘都会当场换档。
+- 五个调用点（`create()` + 四条 `updateOptions()`）**收成一个 `currentEditorOptions()`**：`markdown` / `narrow` 每加一格要改五处，迟早就漏一处（症状是「切了文件 / 转了屏，某一格没跟着变」）。
+- 实测（无头 Chrome、`cp.uiScale = 1`、正文 22 行）：
+
+| 视口 | `is-narrow` | 正文起点 | 可见列数 |
+| --- | --- | --- | --- |
+| 390（触摸竖屏） | true | 45 | 39 |
+| 520 | true | 45 | 55 |
+| 700 | false | 68 | 68 |
+| 1200 | false | 68 | 127 |
+| 1400（桌面） | false | 68 | 127 |
+
+  390 ↔ 700 来回拖两次，起点 45 ↔ 68 双向都跟着变；题解那一档 20 ↔ 26 同理。`npm run verify` A–H 全绿。
+
+⚠️ **别再往「窄屏」这个判据上叠 `@media` 副本**（§5 坑 45 那条纪律同样适用这里）：Monaco 的选项只能由 JS 下发，CSS 媒体查询管不到它。

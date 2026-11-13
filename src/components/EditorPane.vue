@@ -18,6 +18,7 @@ import { t } from '../i18n/index.js'
 import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
+import { isNarrowLayout } from '../services/shellSettings.js'
 import { activeDropZone, registerDropZone } from '../composables/useTreeDrag.js'
 import { useEditorMenu } from '../composables/useEditorMenu.js'
 import { useSelectionHandles } from '../composables/useSelectionHandles.js'
@@ -288,6 +289,24 @@ function applyModelOptions(model) {
   model?.updateOptions(editorModelOptions(props.settings))
 }
 
+/**
+ * 此刻的窄屏判定（`shellSettings.js` 的 `isNarrowLayout()` 背后是一个 ref，旋屏 / 拖窗口当场变）。
+ * 走 computed 而不是现查：下面有两条 watch 要按它重下发选项，必须能被追到。
+ */
+const narrowLayout = computed(() => isNarrowLayout())
+
+/**
+ * 当前该下发给 Monaco 的整套编辑器选项。**构造与四条 updateOptions 全部从这里取。**
+ * 写成一个函数是为了不让「参数」散在五个调用点上：`markdown` / `narrow` 每加一格，
+ * 逐个改五处迟早漏掉一处，症状是「切了文件 / 转了屏，某一格没跟着变」。
+ */
+function currentEditorOptions(settings = props.settings, scale = props.uiScale) {
+  return editorOptions(settings, scale, {
+    markdown: mdFileActive.value,
+    narrow: narrowLayout.value,
+  })
+}
+
 // ------------------------------------------------------------ 题解：正文与滚动
 
 /** 当前订阅着内容变化的 model（切文件时先退订旧的） */
@@ -533,7 +552,7 @@ function onWindowKeydown(event) {
 onMounted(() => {
   const instance = monaco.editor.create(host.value, {
     // 用户可调的选项全部来自 services/editorOptions.js（构造与 updateOptions 共用同一份映射）
-    ...editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }),
+    ...currentEditorOptions(),
     theme: props.settings.theme,
     // 布局必须跟着容器走（面板拖宽 / 换边 / 折叠侧边栏）：交给 Monaco 自己的 ResizeObserver
     automaticLayout: true,
@@ -638,7 +657,7 @@ watch(
     applyModelOptions(model)
     // 行号「仅 Markdown 隐藏」这一档取决于当前文件：切进 .md / 切回代码文件都要把选项重下发一次，
     // 否则行号会跟着上一个文件的状态留在屏幕上
-    instance.updateOptions(editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }))
+    instance.updateOptions(currentEditorOptions())
     trackMarkdown(model)
     // 切进一个 C++ 文件：内容没变就直接重放上次的标记，没查过就立刻查一次
     scheduleSyntaxCheck(model, { immediate: true })
@@ -660,7 +679,7 @@ watch(mdFileActive, () => {
   const instance = editor.value
   if (!instance) return
   const model = instance.getModel()
-  instance.updateOptions(editorOptions(props.settings, props.uiScale, { markdown: mdFileActive.value }))
+  instance.updateOptions(currentEditorOptions())
   trackMarkdown(model)
 })
 
@@ -695,7 +714,7 @@ watch(
   (next, prev) => {
     const instance = editor.value
     if (!instance) return
-    instance.updateOptions(editorOptions(next, props.uiScale, { markdown: mdFileActive.value }))
+    instance.updateOptions(currentEditorOptions(next, props.uiScale))
     applyModelOptions(instance.getModel())
     if (prev?.theme !== next.theme) monaco.editor.setTheme(next.theme)
   },
@@ -709,10 +728,17 @@ watch(
   (scale) => {
     const instance = editor.value
     if (!instance) return
-    instance.updateOptions(editorOptions(props.settings, scale, { markdown: mdFileActive.value }))
+    instance.updateOptions(currentEditorOptions(props.settings, scale))
     nextTick(() => instance.layout())
   },
 )
+
+// 窄屏 / 宽屏切换（旋屏、拖窗口跨过 600px、平板插拔键盘都算）：行号栏那两截留白跟着换一档
+// （见 editorOptions.js 的 LINE_NUMBER_GUTTER）。updateOptions 会自己重排，不用补 layout ——
+// 容器的宽高这一下没变。
+watch(narrowLayout, () => {
+  editor.value?.updateOptions(currentEditorOptions())
+})
 
 // focus 给「从外部把焦点送回编辑区」用（扩展导入题目后 activeId 可能没变，
 // 上面那个 watch 不会响，只能由调用方补一次）。触屏上同样不抢焦点，理由见上。
