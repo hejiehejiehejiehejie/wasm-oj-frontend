@@ -1282,7 +1282,8 @@ defineExpose({
 
 /* ------------------------------------------- 拖动时的放大镜胶囊 */
 
-/* 外层只管定位：left 是选区端点的视口横坐标、top 是手指的纵坐标（由 useSelectionHandles.js 算好），
+/* 外层只管定位：left / top 是手指的视口坐标（由 useSelectionHandles.js 算好，气泡跟手走；
+   镜片里显示哪一片另由选区端点决定），
    translate 把「镜片 + 光束」整条的底边抬到手指上方 —— 光束撑开的那段就是 LENS_GAP。
    **不加 transition**：位置每帧都在变，加了会拖出残影。
    ⚠️ pointer-events: none 必须一路继承到镜片：它是编辑器 DOM 之外的元素，压在落点上会让

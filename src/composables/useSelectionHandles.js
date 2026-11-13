@@ -207,8 +207,8 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
    * 拖动期间的放大镜胶囊；null = 不显示（没在拖）。
    * `{ left, top, below, lensW, lensH, gap, anchorX, lineTop, lineHeight }`：
    * `left / top` 是**视口坐标**（胶囊 Teleport 到 body、fixed 定位，不必换算 stage 偏移），
-   * `left` 取选区端点的 x、`top` 取手指的 y；`below` = 上方放不下、已翻到手指下方；
-   * 后面几个是给 `paintProbe()` 算反向位移用的现场。
+   * 两者都取手指坐标（气泡跟手走）；`below` = 上方放不下、已翻到手指下方；
+   * 后面几个是给 `paintProbe()` 算反向位移用的现场（`anchorX` 才是选区端点的 x）。
    */
   const probe = ref(null)
 
@@ -413,11 +413,11 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
    * 把拖动现场换算成胶囊的几何，然后（等胶囊真的渲染出来）把主编辑器那三层 DOM 搬进去。
    * `applyDrag()` 与 `stepEdgeScroll()` 都会走到，后者是手指贴边不动、靠自动滚动在改光标那一档。
    *
-   * **横向跟的是实际选中位置**（`drag.at` 经 `getScrolledVisiblePosition` 出来的 x），不是
-   * 手指的 `drag.x`：选区端点会吸附到字符边界，跟着手指就会偏出半格；手指落在行号槽 /
-   * 编辑器外时 `applyDrag()` 里的夹取更是把落点钉在边上，镜片却还跟着手指飘，显示的
-   * 根本不是选中的那一处。纵向的**摆位**仍跟手指（`drag.y`）—— 镜片要挂在指头上方
-   * （放不下才翻到下方），否则会压住手指；镜片里显示哪一行由 `drag.at` 的行决定。
+   * **气泡跟手走、内容认选中位置**：胶囊的 `left / top`（连同光束）取手指的 `drag.x / drag.y`，
+   * 手指拖到哪儿气泡就跟到哪儿；镜片里显示哪一片则由 `drag.at`（每次 `applyDrag()` 现算的落点）
+   * 经 `getScrolledVisiblePosition` 换出来的端点坐标决定 —— 横向锚在端点的 x、纵向锚在那一行的中心。
+   * 端点会吸附到字符边界，若镜片内容也跟手指，手指在字符中间时看到的就是偏出半格的那一片；
+   * 而气泡本身跟着手才符合「按住哪儿、镜子就在哪儿」的手感，也不会有「气泡被钉住像卡死」的错觉。
    *
    * ⚠️ 那个位置**不能**按「拖的是哪一端」去 `getSelection()` 上取：手拖过对面那一端之后
    * Monaco 会把 start / end 交换（`Range.fromPositions` 内部有序），此刻按 which 取到的是
@@ -448,16 +448,18 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const half = lensW / 2
     const min = half + safe
     const max = window.innerWidth - half - safe
-    const left = Math.round(clamp(anchorX, min, Math.max(min, max)))
     const geom = {
-      left,
+      left: Math.round(clamp(drag.x, min, Math.max(min, max))),
       top: Math.round(drag.y),
       below,
       lensW,
       lensH,
       gap,
-      /** 镜片中心的视口横坐标：内容要把它顶到镜片正中（纵向则是那一行的中心，理由见 paintProbe） */
-      anchorX: left,
+      /**
+       * 镜片里内容的横向锚点（视口坐标），**与气泡的 `left` 是两回事**：气泡跟手指，
+       * 内容锚在选区端点。`paintProbe()` 会把这一点顶到镜片正中。
+       */
+      anchorX,
       /** 那一行相对编辑器 DOM 顶边的 y 与行高（Monaco 自己给的，含滚动偏移） */
       lineTop: tip.top,
       lineHeight: tip.height,
