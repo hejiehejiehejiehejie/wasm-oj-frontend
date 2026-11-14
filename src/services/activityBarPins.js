@@ -29,13 +29,18 @@ const STORAGE_KEY = 'cp.activityBarPins'
 const LEGACY_IDS = { picker: 'codeforces', contest: 'codeforces' }
 
 /**
- * 组件目录 —— **唯一出处**。分组结构照组件菜单的分组（Codeforces / 工具），
+ * 组件目录 —— **唯一出处**。分组结构照组件菜单的分组，
  * `labelKey` 一律是 i18n 键（组件里不许出现中文字面量）。
+ *
+ * 2026-11-14：原来按「Codeforces / 工具」分两组，两组各一格，在菜单里就是上下两段、
+ * 各带一行小标题。用户要求两格并排、只留一个抬头「组件」，于是并成一组
+ * （`labelKey` 直接复用 `components.menu.title`）。条目级的 `available()` 过滤照旧 ——
+ * 没装的那一格仍然不出现，只是不再有「整组消失」这一层。
  */
 export const COMPONENT_GROUPS = [
   {
-    id: 'codeforces',
-    labelKey: 'components.menu.codeforces',
+    id: 'components',
+    labelKey: 'components.menu.title',
     items: [
       {
         id: 'codeforces',
@@ -45,12 +50,6 @@ export const COMPONENT_GROUPS = [
         available: () => cfReady.value,
         active: () => codeforcesTab.active,
       },
-    ],
-  },
-  {
-    id: 'tools',
-    labelKey: 'components.menu.tools',
-    items: [
       {
         id: 'countdown',
         // 圆表盘时钟（2026-10-25 用户要求：从沙漏换回来）。2026-10-22 当初从 timer 换到沙漏，
