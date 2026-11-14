@@ -14,8 +14,10 @@
  *   （第一轮被否），两段各自接点击又会在胶囊内留 2px 死区、点边缘没反应（第二轮被否）。
  * - 文案写**将要去的那一个**（`title` / `aria-label` 都是「切换到评测样例」这种祈使句）：
  *   整枚是一个动作按钮，得让人预判点下去会去哪。
- * - 段位是「图标 + 短标签」；侧栏不够宽时（Sidebar 的 compact）收起文字、退回纯图标，
- *   与重构前的胶囊同形。
+ * - 段位是「图标 + 短标签」；收不收标签有两个口径（见 `iconOnly`）：
+ *   宽屏听 Sidebar 的 `compact`（侧栏 < 350px，那一档页头里还有上下文动作抢位置），
+ *   窄屏听实测的 80% —— 底栏那一排独占整个抽屉宽，整排塞进 80% 就带标签
+ *   （2026-11-14 用户要求：窄屏下尽量留大按钮，别一窄就退成小图标）。
  * - 单实例之后滑动是**真的**：指示块是 pill 里一个绝对定位元素，active 变化只改它的
  *   transform，transition 自己补间。不再需要旧版那套「两份胶囊互换 + keyframes 假装
  *   滑动 + data-switched 防首屏误播 + nth-child 猜方向」的 Hack。
@@ -120,8 +122,25 @@ function closeCompMenu() {
 // （模板里才自动解包）。
 const compIcon = computed(() => (compMenuAnchor.value ? 'grid-open' : components.value.icon))
 
-onMounted(() => window.addEventListener('pointerdown', onGlobalPointerDown, true))
-onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalPointerDown, true))
+onMounted(() => {
+  window.addEventListener('pointerdown', onGlobalPointerDown, true)
+  measureRow()
+  // 侧栏宽度变了（抽屉改宽、旋屏、折叠 / 展开）要重判一次；再盯一眼整排自身，
+  // 覆盖「侧栏宽度没变、但按钮随全局缩放变宽了」那一档（见 measureRow 的注释）
+  rowObserver = new ResizeObserver(measureRow)
+  const host = navEl.value?.parentElement
+  if (host) rowObserver.observe(host)
+  if (navEl.value) rowObserver.observe(navEl.value)
+  // 宽窄屏是 <html> 上的类，切形态时宽度不一定变（如插上鼠标），另听一次 resize 兜住
+  window.addEventListener('resize', measureRow)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', onGlobalPointerDown, true)
+  window.removeEventListener('resize', measureRow)
+  rowObserver?.disconnect()
+  rowObserver = null
+})
 
 /**
  * 换边后齿轮 / 组件钮整颗挪到另一侧，菜单却还钉在打开时量下的那个 rect 上。
@@ -168,6 +187,74 @@ onBeforeUnmount(
   }),
 )
 
+// ------------------------------------------------------------ 窄屏底栏要不要文字标签
+/**
+ * 宽屏用 Sidebar 下发的 `compact`（侧栏 < 350px 收标签，那一档算的是页头里还有上下文动作
+ * 抢位置）。**窄屏不再用它**：底栏那一排沉到侧栏底部、独占整个抽屉宽（`min(86%, 420px)`），
+ * 能放下的东西与页头无关，拿页头的阈值决定它就偏保守 —— 实测 430 宽、全局缩放 110% 时
+ * 抽屉有 370px，带标签那排只要 261px，本来完全放得下，却因为页头那条 385 的阈值退成了
+ * 纯图标（2026-11-14 用户报「窄屏下文件和评测收缩得太小」）。
+ *
+ * 用户口径（2026-11-14）：**整排按钮的宽度不超过侧栏宽的 80%，就带「文件 / 评测」标签**；
+ * 超过则退回纯图标。80% 是「一排控件别贴边撑满」的余量，剩下两成留给手指与视觉呼吸。
+ * （先按 70% 做过一轮：临界点落在视口 396px，390 这种常见宽度差 1% 落空；按用户口径放宽到 80%，
+ * 临界点前移到 ~346px —— 也就是 360 起的手机都能带标签，见同日实测。）
+ *
+ * 判据用**实测**而不是拿几个常量相加：那一排的宽度受译名、字号、全局缩放共同影响，
+ * 写死的算式迟早对不上。量法是在 `is-compact` 下临时摘掉这个类量一次再放回去 ——
+ * 同步完成，浏览器不会画出中间那一帧，所以量到的永远是「带标签」的那一份。
+ * ⚠️ 因此标签必须**常驻 DOM**（样式里用 `display: none` 收起来，不能写成 v-if）：
+ * v-if 一收，摘类也长不出标签，量到的是纯图标那一份，判据就永远成立不了。
+ * ⚠️ 别把 80% 换成「页面里还剩多少空隙」那种算式：抽屉是浮层，它旁边压着编辑器，
+ * 那部分宽度与底栏无关。
+ */
+const BOTTOM_LABEL_RATIO = 0.8
+const navEl = ref(null)
+/** 当前是不是窄屏形态（读 `<html>` 上那个类，判据仍只有 shellSettings 一份） */
+const narrowRow = ref(false)
+/** 窄屏下，带标签那一排塞进 80% 了吗 */
+const rowRoomy = ref(false)
+let rowObserver = null
+
+/** 「带标签」时整排按钮的宽度（px，已是缩放后的真实值） */
+function labeledRowWidth() {
+  const nav = navEl.value
+  if (!nav) return 0
+  if (!nav.classList.contains('is-compact')) return nav.offsetWidth
+  nav.classList.remove('is-compact')
+  const width = nav.offsetWidth
+  nav.classList.add('is-compact')
+  return width
+}
+
+/**
+ * 重判一次「底栏带不带标签」。由三处触发：挂载、`ResizeObserver`（侧栏宽 / 整排自身宽）、
+ * `resize`（宽窄屏形态切换）。
+ *
+ * 宽屏下 `rowRoomy` 恒为 false —— 那一档仍旧只听 `compact`（见 `iconOnly`）。
+ * 侧栏收成 1px（窄屏折叠态）时量到的宽度是 0，判据自己落到「不放」，
+ * 重新展开会由 ResizeObserver 再量一次，不需要额外状态。
+ */
+function measureRow() {
+  const nav = navEl.value
+  const shell = nav?.closest('.sidebar')
+  if (!nav || !shell) return
+  narrowRow.value = document.documentElement.classList.contains('is-narrow')
+  if (!narrowRow.value) {
+    rowRoomy.value = false
+    return
+  }
+  const sidebarWidth = shell.getBoundingClientRect().width
+  const labeled = labeledRowWidth()
+  rowRoomy.value = sidebarWidth > 0 && labeled > 0 && labeled <= sidebarWidth * BOTTOM_LABEL_RATIO
+}
+
+/**
+ * 到底收不收标签。窄屏看实测的那条 80%，宽屏照旧看页头的 `compact` ——
+ * 两个口径不能合并：页头那一排旁边还有上下文动作，底栏这一排旁边什么都没有。
+ */
+const iconOnly = computed(() => (narrowRow.value ? !rowRoomy.value : compact.value))
+
 // ------------------------------------------------------------ 页头图标尺寸
 // 两颗独立钮（组件 / 设置）**同一个 size** 就好。
 //
@@ -184,8 +271,9 @@ const HEAD_ICON_SIZE = 19
 
 <template>
   <nav
+    ref="navEl"
     class="sidebar-switcher"
-    :class="{ 'is-compact': compact }"
+    :class="{ 'is-compact': iconOnly }"
     :data-side="collapse.side"
     :aria-label="t('app.sidebar.switcherLabel')"
   >
@@ -228,7 +316,9 @@ const HEAD_ICON_SIZE = 19
              （`folder-open`），收起时是合着的 `folder`（2026-11-12 用户要求）。
              折叠态那条图标栏不这样切，理由见 Sidebar 的 PANEL_TABS 注释 -->
         <AppIcon :name="panel.active ? panel.iconActive : panel.icon" size="16" />
-        <span v-if="!compact" class="sidebar-switcher__label">{{ panel.shortLabel }}</span>
+        <!-- 标签常驻 DOM、由 `is-compact` 用样式收起来（不是 v-if）：窄屏那条 80% 判据
+             要量「带标签时整排多宽」，见 measureRow 上面那段说明 -->
+        <span class="sidebar-switcher__label">{{ panel.shortLabel }}</span>
       </span>
     </button>
 
@@ -377,6 +467,13 @@ const HEAD_ICON_SIZE = 19
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
+}
+
+/* 纯图标档：标签收起（**用样式收，不用 v-if** —— 窄屏那条 80% 判据靠它量宽度，
+   见 measureRow 的注释；v-if 一收就量不出带标签的那一份了）。
+   段位宽度本来就由 `--seg-w` 钉住，标签退出流不影响排布。 */
+.sidebar-switcher.is-compact .sidebar-switcher__label {
+  display: none;
 }
 
 /* 胶囊外的独立图标钮（抽题 / 设置，窄屏另有「收起侧栏」复用同一套）：
