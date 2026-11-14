@@ -948,10 +948,6 @@ defineExpose({
         <span
           v-if="selectionHandles.start"
           class="selection-handle selection-handle--start"
-          :class="{
-            'is-knob-down': selectionHandles.start.down,
-            'is-knob-up': !selectionHandles.start.down,
-          }"
           :style="{ left: `${selectionHandles.start.left}px`, top: `${selectionHandles.start.top}px` }"
           @pointerdown="onSelectionHandleDown('start', $event)"
           @contextmenu.prevent
@@ -959,10 +955,6 @@ defineExpose({
         <span
           v-if="selectionHandles.end"
           class="selection-handle selection-handle--end"
-          :class="{
-            'is-knob-down': selectionHandles.end.down,
-            'is-knob-up': !selectionHandles.end.down,
-          }"
           :style="{ left: `${selectionHandles.end.left}px`, top: `${selectionHandles.end.top}px` }"
           @pointerdown="onSelectionHandleDown('end', $event)"
           @contextmenu.prevent
@@ -1099,10 +1091,10 @@ defineExpose({
     </Teleport>
 
     <!-- 拖手柄时的放大镜：手指本身把落点附近的代码挡住了，就把**选区端点周围那一片**原尺寸
-         搬到选中那一行的上方（iOS 的放大镜是同一个动机，只是那边会放大；这边要的是「看得见选中的是哪一处」，
+         搬到指针所在那一行的上方（iOS 的放大镜是同一个动机，只是那边会放大；这边要的是「看得见选中的是哪一处」，
          1:1 反而更好读，所以 LENS_ZOOM 是 1，见 useSelectionHandles.js）。
-         纵向贴的是**行**不是指尖：手指一行之内上下挪，镜片不动，换行才整块跳过去；
-         贴行上方会压到手指时改贴到行下方（`is-below`）。
+         横向纵向都跟着**指针**（＝端点）走，不跟指尖；且**永远在上方** —— 编辑区上方是页签栏，
+         那一条允许被镜片盖住，所以没有「翻到行下方」那个分支。
          位置与镜片尺寸由 useSelectionHandles.js 算好送过来，
          内容（三层 DOM 的克隆）也由那边搬，这里只管画壳子。
          Teleport 到 body + fixed：**不能挂在 .selection-handles 里** —— 那层有 overflow: hidden
@@ -1117,7 +1109,7 @@ defineExpose({
         v-if="handleProbe"
         ref="magnifierEl"
         class="magnifier monaco-editor"
-        :class="[lensTheme, { 'is-below': handleProbe.below }]"
+        :class="lensTheme"
         :style="{
           left: `${handleProbe.left}px`,
           top: `${handleProbe.top}px`,
@@ -1209,8 +1201,9 @@ defineExpose({
 
 /* 盒子 44×44 是触摸目标的最小尺寸；**尺寸必须与 useSelectionHandles.js 的 HANDLE_BOX 一致**
    （那边读 --ui-scale 再乘上去做夹取，两边对不上手柄就会偏离选区端点）。
-   圆点与杆都是伪元素画的，盒子本身透明 —— 起点那盒往文字上方伸、终点那盒往下方伸，
-   两块都不会盖住被选中的那一行。 */
+   圆点与杆都是伪元素画的，盒子本身透明 —— 两颗手柄都从各自端点那条边往下伸。
+   起点那颗的圆点因此会压在第一行的字上，但拖动期间镜片就在上方、原样显示那一片，
+   不影响判读；换来的是两颗方向一致（2026-11-14 用户要求）。 */
 .selection-handle {
   position: absolute;
   width: 44px;
@@ -1232,11 +1225,15 @@ defineExpose({
   pointer-events: none;
 }
 
-/* 圆点：两个手柄共用，位置由下面的 --start / --end 各自摆 */
+/* 圆点：两个手柄共用。**一律朝下** —— 圆点落在端点那一条边之下 14px 处（盒内 `top: 6px`），
+   杆从盒顶伸出去接那一行文字。早先是「起点朝上、终点朝下」的对称摆法，2026-11-14 用户要求
+   统一朝下：镜片永远挂在行上方，朝上的圆点正好被它盖住，而两颗方向一致也不会让人觉得手柄在乱翻。
+   ⚠️ 镜片里那颗是 `innerHTML` 克隆的，`data-v-*` 跟着过来，同一组选择器对克隆副本照样命中。 */
 .selection-handle::before {
   content: '';
   position: absolute;
   left: 50%;
+  top: 6px;
   width: 16px;
   height: 16px;
   margin-left: -8px;
@@ -1250,42 +1247,20 @@ defineExpose({
   content: '';
   position: absolute;
   left: 50%;
+  top: 0;
   width: 2px;
   height: 10px;
   margin-left: -1px;
   background: var(--accent);
 }
 
-/* 圆点与杆摆在哪一端，**只由每颗手柄自己的朝向类**决定（`place()` 每次都给出 `down`，见
-   useSelectionHandles.js）。**不能**再挂在 `.selection-handles` 上：两颗各自记自己的朝向，
-   起点恒朝上、终点恒朝下，拖动中也不翻（拉着一头时另一头若跟着掉头，看着像手柄坏了）。
-   is-knob-down：圆点贴盒子**顶边**（＝盒子挂在端点下方）；is-knob-up：贴**底边**（＝挂在上方）。
-   ⚠️ 镜片里那颗是 `innerHTML` 克隆的，`data-v-*` 跟着过来，同一组选择器对克隆副本照样命中。 */
-.selection-handle.is-knob-down::before {
-  top: 6px;
-  bottom: auto;
-}
-
-.selection-handle.is-knob-down::after {
-  top: 0;
-  bottom: auto;
-}
-
-.selection-handle.is-knob-up::before {
-  bottom: 6px;
-  top: auto;
-}
-
-.selection-handle.is-knob-up::after {
-  bottom: 0;
-  top: auto;
-}
-
 /* ------------------------------------------- 拖动时的放大镜胶囊 */
 
-/* 外层只管定位：left / top 是手指的视口坐标（由 useSelectionHandles.js 算好，气泡跟手走；
-   镜片里显示哪一片另由选区端点决定），
-   translate 把「镜片 + 光束」整条的底边抬到手指上方 —— 光束撑开的那段就是 LENS_GAP。
+/* 外层只管定位：left / top 是**选区端点**的视口坐标（由 useSelectionHandles.js 算好 ——
+   横向那一列、纵向那一行的顶边；跟着指针走，不跟指尖），
+   translate 把「镜片 + 光束」整条的底边抬到那一行上方 —— 光束撑开的那段就是 LENS_GAP。
+   **永远在上方，没有翻到行下方的分支**：编辑区上方是页签栏，那一条允许被镜片盖住；
+   翻面会让镜片在拖动中忽然跳到另一行，比压住页签更难理解。
    **不加 transition**：位置每帧都在变，加了会拖出残影。
    ⚠️ pointer-events: none 必须一路继承到镜片：它是编辑器 DOM 之外的元素，压在落点上会让
    Monaco 的 getTargetAtClientPoint 返回 position: null，拖动当场卡死（同上面那两颗手柄）。
@@ -1304,14 +1279,6 @@ defineExpose({
      —— 那会给这层「定位壳」糊上一整块「镜片 + 光束」那么大的不透明底，把光束两侧的真实代码盖掉
      （实测：不加这句，手指那一行会被这块底压暗）。底色只属于镜片。 */
   background: none;
-}
-
-/* 贴在选中那一行的上方；上方放不下（或会压到手指）就翻到这一行的下方：整条上下镜像
-   （光束旋 180°，梯形与渐变跟着一起翻）。
-   两种朝向都是「整条的远端贴着行边，光束（= LENS_GAP 那么长）从那里连到镜片」 */
-.magnifier.is-below {
-  flex-direction: column-reverse;
-  transform: translate(-50%, 0);
 }
 
 /* 镜片。尺寸由 JS 送来的三个变量撑开（常量只留 useSelectionHandles.js 那一份，
@@ -1379,19 +1346,15 @@ defineExpose({
   --vscode-editor-inactiveSelectionBackground: var(--vscode-editor-selectionBackground);
 }
 
-/* 光束：把镜片和选中那一行连起来，长度就是 LENS_GAP（改这里也要同步那边）。
-   **上宽下窄**的梯形 —— 镜片那头宽、指头那头窄（多边形下边收成 38%–62%）；
-   渐变同向：`0deg` = 零度指向上，第一档落在**下边**，也就是指头那头最实、往镜片那头化开。
-   两条都朝镜片「张」、朝指头「收」，看着像是从指尖射向镜片的一道光。 */
+/* 光束：把镜片和指针所在那一行连起来，长度就是 LENS_GAP（改这里也要同步那边；贴到视口上沿时
+   会被 JS 收短，所以高度读的是变量）。**上宽下窄**的梯形 —— 镜片那头宽、行那头窄
+   （多边形下边收成 38%–62%）；渐变同向：`0deg` = 零度指向上，第一档落在**下边**，
+   也就是行那头最实、往镜片那头化开。两条都朝镜片「张」、朝行「收」，看着像一道从文字射向镜片的光。 */
 .magnifier__beam {
   width: 18px;
   height: var(--probe-gap);
   background: linear-gradient(0deg, var(--probe-beam), transparent);
   clip-path: polygon(0 0, 100% 0, 62% 100%, 38% 100%);
-}
-
-.magnifier.is-below .magnifier__beam {
-  transform: rotate(180deg);
 }
 
 @keyframes magnifier-in {
