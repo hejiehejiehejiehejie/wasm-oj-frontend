@@ -88,8 +88,37 @@ const GAP = 4
 
 /** 二级那个盒子：Teleport 到 body、单独定位（见下面 placeSubmenu 那一段） */
 const subRoot = ref(null)
+/**
+ * 此刻这个 `subRoot` 是被哪一行的 `v-if` 挂上来的。
+ *
+ * 二级各挂在自己那一行的 `v-if` 里，同一时刻只有一份；换展开项时 Vue 按 v-for 的**行序**
+ * 逐行 patch：展开项往后换（下标变大）是「先卸旧的、再挂新的」，往回换却反过来 ——
+ * 先挂新的、再卸旧的，而卸下发的那发 ref 回调会带一个 `null` 进来，把刚挂好的新盒子抹掉。
+ * 于是 `placeSubmenu` 量不到东西、`subPos` 停在 null，二级一直 `visibility: hidden`：
+ * 观感就是「先开主题、再开别的、回头再点主题打不开」（2026-11-14 用户报，触屏点按路径
+ * 最容易踩 —— 触屏没有悬停，换二级只能点，每一步都走这个卸载）。所以这里记一份归属，
+ * 卸下的那一发只清自己那一行，别人的不动。
+ */
+const subRootIndex = ref(null)
 /** 二级的定位结果；null = 还没量好（此时靠样式表的 visibility: hidden 藏着） */
 const subPos = ref(null)
+
+/**
+ * 二级盒子的 ref 回调（两处 Teleport 共用）。
+ *
+ * 挂上：记为当前盒子并记下归属；卸下：只有它正是当前这一份时才清空 ——
+ * 上面那段说的「后到的 null 抹掉新盒子」就挡在这里。
+ */
+function bindSubRoot(el, index) {
+  if (el) {
+    subRoot.value = el
+    subRootIndex.value = index
+    return
+  }
+  if (subRootIndex.value !== index) return
+  subRoot.value = null
+  subRootIndex.value = null
+}
 
 /**
  * 期望的那个点。
@@ -779,7 +808,7 @@ function currentOption(row) {
                注意 ref 用函数写法：这段还在 `v-for` 里，字符串 ref 会被 Vue 收成数组。 -->
           <Teleport v-if="row.kind === 'radio' && openSubmenu === index" to="body">
             <div
-              :ref="(el) => (subRoot = el)"
+              :ref="(el) => bindSubRoot(el, index)"
               class="settings-menu__sub"
               :class="{ 'settings-menu__sub--ready': subPos }"
               :style="subPos"
@@ -849,7 +878,7 @@ function currentOption(row) {
                与档位列表一样 Teleport 到 body、单独定位（见 placeSubmenu）。 -->
           <Teleport v-else-if="row.kind === 'cloud' && openSubmenu === index" to="body">
             <div
-              :ref="(el) => (subRoot = el)"
+              :ref="(el) => bindSubRoot(el, index)"
               class="settings-menu__sub settings-menu__sub--form"
               :class="{ 'settings-menu__sub--ready': subPos }"
               :style="subPos"
