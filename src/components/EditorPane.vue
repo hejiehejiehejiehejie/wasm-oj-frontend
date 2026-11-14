@@ -948,7 +948,6 @@ defineExpose({
         <span
           v-if="selectionHandles.start"
           class="selection-handle selection-handle--start"
-          :class="selectionHandles.start.down ? 'is-knob-down' : 'is-knob-up'"
           :style="{ left: `${selectionHandles.start.left}px`, top: `${selectionHandles.start.top}px` }"
           @pointerdown="onSelectionHandleDown('start', $event)"
           @contextmenu.prevent
@@ -956,7 +955,6 @@ defineExpose({
         <span
           v-if="selectionHandles.end"
           class="selection-handle selection-handle--end"
-          :class="selectionHandles.end.down ? 'is-knob-down' : 'is-knob-up'"
           :style="{ left: `${selectionHandles.end.left}px`, top: `${selectionHandles.end.top}px` }"
           @pointerdown="onSelectionHandleDown('end', $event)"
           @contextmenu.prevent
@@ -1203,9 +1201,9 @@ defineExpose({
 
 /* 盒子 44×44 是触摸目标的最小尺寸；**尺寸必须与 useSelectionHandles.js 的 HANDLE_BOX 一致**
    （那边读 --ui-scale 再乘上去做夹取，两边对不上手柄就会偏离选区端点）。
-   圆点与杆都是伪元素画的，盒子本身透明 —— 两颗手柄都从各自端点那条边往下伸。
-   起点那颗的圆点因此会压在第一行的字上，但拖动期间镜片就在上方、原样显示那一片，
-   不影响判读；换来的是两颗方向一致（2026-11-14 用户要求）。 */
+   圆点与杆都是伪元素画的，盒子本身透明。
+   **两颗手柄的几何完全一致**：盒顶都贴「自己那一行的下沿」（起点贴选区第一行、终点贴最后一行），
+   往下伸 44px，圆点贴盒顶、杆朝上接文字。所以这里不再有「朝上 / 朝下」两套规则。 */
 .selection-handle {
   position: absolute;
   width: 44px;
@@ -1227,10 +1225,8 @@ defineExpose({
   pointer-events: none;
 }
 
-/* 圆点：两个手柄共用，摆在哪一端由各自的朝向类决定（见下面那两套）。
-   **圆点永远在选区外面**：起点那颗在上沿之上、终点那颗在下沿之下，杆朝着文字。
-   ⚠️ 别把两端都写成朝下（2026-11-14 踩过）：起点端点是选区上沿，朝下＝圆点进到行内，
-   正好盖住第一行行首的字（`void` 的 `v` / `o`）。理由见 useSelectionHandles.js 文件头那条 ⚠️。
+/* 圆点：两个手柄共用一套 —— 贴盒子**顶边**（圆心在行底下方 14px = KNOB_GAP + KNOB_SIZE/2），
+   杆从盒顶往上接文字。盒顶一律是「那一行的下沿」，所以两颗的摆法完全相同。
    ⚠️ 镜片里那颗是 `innerHTML` 克隆的，`data-v-*` 跟着过来，同一组选择器对克隆副本照样命中。 */
 .selection-handle::before {
   content: '';
@@ -1239,12 +1235,13 @@ defineExpose({
   width: 16px;
   height: 16px;
   margin-left: -8px;
+  top: 6px;
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 
-/* 杆：把圆点接到选区端点那一条文字边上，不然圆点看着像凭空飘着 */
+/* 杆：把圆点接到那一行的下沿上，不然圆点看着像凭空飘着 */
 .selection-handle::after {
   content: '';
   position: absolute;
@@ -1252,29 +1249,8 @@ defineExpose({
   width: 2px;
   height: 10px;
   margin-left: -1px;
-  background: var(--accent);
-}
-
-/* is-knob-down（终点手柄）：盒子挂在选区下沿**下方**，圆点贴盒子顶边、杆朝上接文字。 */
-.selection-handle.is-knob-down::before {
-  top: 6px;
-  bottom: auto;
-}
-
-.selection-handle.is-knob-down::after {
   top: 0;
-  bottom: auto;
-}
-
-/* is-knob-up（起点手柄）：盒子挂在选区上沿**上方**，圆点贴盒子底边、杆朝下接文字。 */
-.selection-handle.is-knob-up::before {
-  bottom: 6px;
-  top: auto;
-}
-
-.selection-handle.is-knob-up::after {
-  bottom: 0;
-  top: auto;
+  background: var(--accent);
 }
 
 /* ------------------------------------------- 拖动时的放大镜胶囊 */

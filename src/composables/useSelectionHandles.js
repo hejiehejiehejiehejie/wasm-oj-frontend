@@ -14,14 +14,21 @@
  * `getTargetAtClientPoint()` 把手势坐标换回 model 位置，再 `setSelection(Range.fromPositions(fixed, next))`。
  * 选区、高亮、状态栏的「已选中 N 字符」全部仍由 Monaco 自己维护，这里不碰任何渲染。
  *
- * ⚠️ **命中的那个点不是指尖，而是离开指尖一个指腹的那一点**（`drag.lift`）。
- * 手柄是围着端点画的（圆点紧贴端点、杆朝外延伸 44px），手指按下去的位置因此比端点低十几到几十 px。
- * 早先直接拿 `event.clientY` 去命中，端点就被拽到指尖底下 —— 选中的那一处整个被手指盖住，
- * 用户只能靠放大镜猜，手柄自己反倒成了「装饰」（2026-11-14 触屏用户报：太反直觉）。
- * 现在按下时量一次「手指到端点」的实际落差存进 `drag.lift`，拖动中恒定保留：
- * 端点就一直是「指尖 − lift」，也就是手柄圆点原本在的地方 —— 手指在下面拖着，端点与圆点露在它外侧。
- * 因为 lift 就是按下那一刻的既成事实，**移动时不会跳**；幅度不足一个指腹时由 `DRAG_LIFT_MIN`
- * 沿原方向撑开（方向为何不能统一改成「向上」见 `liftFor()`）。
+ * ⚠️ **换行的判据是「手柄顶边走完一整行」，不是「指尖落在哪一行」**（`drag.handleTop`）。
+ * 手柄挂在行底往下伸，盒子**顶边**本来就贴在「选中这一行的下沿」上；拖动时整个盒子跟着手指走
+ * （`左上角 = 指尖 − grip`，`grip` 是按下那一刻量到的落点，横纵各一份、全程不变，所以按下去不会跳），
+ * 换行只看这条顶边：**上、下都要走满 0.8 行**（`ROW_SWITCH_RATIO`）。做法是「拿哪个 y 去命中」
+ * （`applyDrag()` 里的 `probeY`）：往下用「顶边 − 0.8 行」、往上用「顶边 − 0.2 行」，
+ * 两个方向各欠 0.8 行，迟滞带宽 1.6 行，既有缓冲、又不会两头手感不一。
+ * 早先的做法是拿「指尖往上抬一个指腹的命中点」去 `getTargetAtClientPoint()`，行由那个点决定 ——
+ * 那个点比手柄顶边还高十几到几十 px，于是手指还没到位、行就先变了，手柄与指尖之间像隔着一根
+ * 橡皮筋（2026-11-14 触屏用户报：手柄不跟手，换行阈值不对）。
+ * 更早还有一版「顶边一压进下一行就换」：往下只要 1px、往上一整行，手感一头轻一头重
+ * （2026-11-14 用户报：往下也要留缓冲 → 先改成走满一行 → 再改成上下各 0.7 行 → 定在 0.8 行）。
+ *
+ * ⚠️ 同样地，**端点也不再是指尖**：端点落在手柄顶边所在的那一行，手指在下面拖着，
+ * 选中与圆点都露在它外侧 —— 早先直接拿 `event.clientY` 命中，端点被拽到指尖底下，
+ * 选中的那一处整个被手指盖住，用户只能靠放大镜猜（2026-11-14 触屏用户报：太反直觉）。
  *
  * ⚠️ **手柄拖动永远不该把选区拖成空**（`applyDrag()` 里那个 `equals(drag.fixed)` 的提前返回）。
  * 空选区没有手柄可抓、高亮也整块消失，手指却还在拖一个看不见的东西 —— 观感就是「拖着拖着选区没了」。
@@ -48,18 +55,31 @@
  * 「触摸屏笔记本 + 鼠标」这种粗指针为 fine 的设备兜底），之后每次 `pointerdown` 按
  * `pointerType` 更新 —— 鼠标一按就收起来，不需要猜设备型号。
  *
- * 【两颗手柄的朝向：朝外，不是朝下】
- * 一条规则、两端共用：盒子整块挂在端点那一条边的**外侧**，圆点画在盒子靠端点的那一端 ——
- * 起点（端点＝选区上沿）朝上、盒子在上方，终点（端点＝选区下沿）朝下、盒子在下方。
- * 视觉上就是 iOS / Android 那两颗：圆点都在选区外面，杆都朝着文字，谁都不挡字。
+ * 【两颗手柄的几何：完全同一套，盒顶都贴「自己那一行的下沿」】
+ * 起点手柄管选区**第一行**的起点、终点手柄管**最后一行**的终点，两颗都取那一行的
+ * `top + height`（行底）当锚点，盒子从锚点往下伸、圆点贴盒顶、杆朝上接文字（原来那两套
+ * 「朝上 / 朝下」的类已并进基类，只剩一份样式）。于是 `place()` 里没有任何分支：
+ * 同样的算式、同样的夹取，只有喂进去的行不同。
+ * 圆点中心恒在这一行下方 14px（= `KNOB_GAP + KNOB_SIZE / 2`），长什么样靠 CSS 一套决定。
  *
- * ⚠️ 2026-11-14 曾把两端统一改成「都朝下」（理由是「镜片挂在行上方、朝上的圆点会被它盖住」），
- * 结果左手柄的盒子落进选区里、圆点正好盖住第一行行首文字（`void` 的 `v` `o`），用户当场报回。
- * 记牢这条几何事实：**起点端点在选区上沿，任何「朝下」的摆法都会把圆点送进行内**；
- * 而两端都朝上，则右手柄会压住最后一行。「朝向」在两端天然相反，能统一的只有「朝外」。
- * 拖动时左手圆点确实会与镜片那一条（含 22px 光束）挨得很近甚至被压住上半，
- * 但那是拖动中的短暂状态，比不上「静态一直挡着行首文字」——取舍按后者。
+ * ⚠️ 曾经的做法与教训（别再改回去）：端点是选区**上沿**时若也「朝下」，盒子就落进行内、
+ * 圆点正好盖住行首文字（实测圆点 `104..120` 对行 `98..119`，`void` 的 `v` `o` 被挡）；
+ * 改成「朝外」（起点朝上、终点朝下）则是两套朝向、两套夹取，代码分叉且不对称。
+ * 现在统一挂行底：左手柄的圆点落在第一行与第二行之间的行缝里，**不挡行首文字**，
+ * 两端也终于只有一份几何逻辑。代价是它和右手柄可能落到同一侧，见下面那条 ⚠️。
+ *
+ * ⚠️ 由此带来的唯一一个坑：两端在**同一行**时（单行选区、或两端恰好同一行）两个 44px 盒子
+ * 几乎完全重叠，DOM 里后渲染的终点手柄会抢走落点 —— 点左边那颗圆点、拖的却是右边。
+ * 所以按下时不看事件落在哪个元素上，改按**圆点圆心距离**认领（`nearestHandle()`）。
+ *
  * 盒子位置仍夹在编辑器可视区内：端点滚出视口时手柄贴在边上，不会飘到页签栏或状态栏上。
+ *
+ * ⚠️ 静止时贴行底，**拖动时那颗被抓的横纵两个方向都跟手**（`update()` 里用 `drag.handleLeft /
+ * handleTop` 覆写整个盒子的左上角）。跟手是「手柄到哪儿、选中的行就到哪儿」的前提：判据全部
+ * 建立在手柄顶边之上，手柄若还钉在行底，换行就只能按手指位移猜，手感与看到的位置对不上。
+ * 横向同理 —— 若只让纵向跟手、横向还挂在端点那一列上，端点会吸附到字符边界，圆点就与指尖
+ * 差开最多一个字符宽，往右拖时看着像被一根横着的橡皮筋拽着（2026-11-14 触屏用户报：
+ * 「跟手是横向和纵向都跟着手的移动，而不是只在纵向」）。
  *
  * 【拖动时那颗「放大镜」胶囊（`probe`）】
  * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把**选区端点周围那一片代码**
@@ -136,11 +156,11 @@ const EDGE_STEP = 8
 /** 拖动时把坐标再往内容区里推一点，免得落在行号槽上拿不到 position */
 const CONTENT_PAD = 2
 /**
- * 拖动时端点至少要比指尖离开这么多（逻辑 px）—— 一个指腹半径，够让圆点与端点都露在指尖外。
- * 按下时手指到端点的实际落差若比它大就用实际值（不跳），比它小就沿**原方向**撑开
- * （为什么不能反号见 `liftFor()`）。
+ * 换行阈值（**行高的比例**）：往上、往下都是 0.8 行。盒顶静止时贴在「本行的下沿」，
+ * 走满这个比例就换行 —— 一整行太迟钝，一压进下一行就换又只有 1px，
+ * 0.8 是 2026-11-14 触屏用户点的数（0.7 试过，偏灵敏）。
  */
-const DRAG_LIFT_MIN = 32
+const ROW_SWITCH_RATIO = 0.8
 /**
  * 放大镜镜片的参数（逻辑 px）。这几个数是**唯一出处** —— 镜片尺寸由 `syncProbe()` 连同位置
  * 一起写进 `--probe-lens-w / -h / -gap`，CSS 只消费变量，不再重复写一遍。
@@ -229,7 +249,7 @@ function lensSize(instance, tip) {
  *   `magnifier` = 放大镜那层的外壳（EditorPane 里 v-if 出来的，`paintProbe()` 往它里面搬 DOM）
  */
 export function useSelectionHandles({ editor, host, stage, active, magnifier }) {
-  /** 两颗手柄：相对 stage 的**盒子左上角** + 圆点朝向（`down`）；null = 当下不该显示 */
+  /** 两颗手柄：相对 stage 的**盒子左上角**；null = 当下不该显示 */
   const handles = ref(null)
 
   /**
@@ -315,45 +335,69 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const viewH = hostEl.clientHeight
     const scale = uiScale()
     const box = HANDLE_BOX * scale
+    /** 圆点半径 —— 夹取时按「圆点不出可视区」算，盒子超出的那部分交给 overflow 裁 */
+    const halfKnob = (KNOB_SIZE / 2) * scale
     /** 圆点整个露出来所需的最小边距（＝圆点到盒子那一条端边的距离） */
     const inset = (KNOB_GAP + KNOB_SIZE) * scale
 
     /**
-     * `pos` → 盒子的左上角（相对 stage）+ 圆点朝哪。
+     * `pos` → 盒子的左上角（相对 stage）。
      *
-     * **一条规则，两端共用**：盒子整块挂在端点那一条边的**外侧** —— 起点（端点是选区上沿）
-     * 挂在上方、盒底贴端点；终点（端点是选区下沿）挂在下方、盒顶贴端点。圆点画在盒子**靠端点
-     * 的那一端**（`is-knob-up` 贴盒底、`is-knob-down` 贴盒顶），圆心离端点恒为 14px
-     * （= `KNOB_GAP + KNOB_SIZE / 2`）。于是两颗都是「圆点在选区外面、杆朝着文字」。
+     * **一条规则，两端共用**：锚点一律取那一行的**下沿**（`top + height`），盒子从锚点往下伸，
+     * 圆点贴盒顶、杆朝上接文字。两颗手柄唯一的差别是喂进来的是哪一行 —— 起点喂选区第一行、
+     * 终点喂最后一行，`place()` 里没有任何分支。
      *
-     * ⚠️ **不能对两端都写 `top = anchorY`**（2026-11-14 踩过）：那样左手柄的盒子会挂进选区里，
-     * 圆点正好压在选区第一行的行首文字上（实测圆点绘制 104..120，行区间 98..119），
-     * 把 `void` 的 `v` / `o` 盖住。右手柄因为「下沿的下方」本来就是选区之外，才没出问题。
-     * 也**不能两端都朝下**：起点端点在上沿，圆点朝下＝在行内，同样压字；反过来两端都朝上
-     * 则右手柄会压住最后一行。所谓「朝向」在两端天然相反，统一的只是「朝外」。
+     * 为什么是行底而不是端点自己那条边（2026-11-14 定）：端点在选区上沿时「朝下」会把圆点
+     * 送进行内、盖住行首文字（实测圆点 104..120 对行 98..119，`void` 的 `v` `o` 被挡）；
+     * 改成「朝外」（起点朝上、终点朝下）则要两套朝向 + 两套夹取，代码分叉。统一挂行底两头都占：
+     * 左手柄的圆点落在第一行与第二行之间的行缝里，不挡字，两端也只有一份几何。
      *
-     * 夹取**只保证圆点不出可视区** —— 盒子为了凑满 44px 触摸目标，允许伸到编辑器外面，
-     * 那部分由 `.selection-handles` 的 `overflow: hidden` 裁掉。这样两头都占着：
-     * 圆点始终完整可见可抓，而编辑器之外（页签栏 / 状态栏那一条）不会留下一块看不见的点击区。
+     * ⚠️ 夹取**只保证圆点不出可视区** —— 盒子为了凑满 44px 触摸目标必然超出文字那一条，
+     * 那部分由 `.selection-handles` 的 `overflow: hidden` 裁掉。这样圆点始终完整可见可抓，
+     * 而编辑器之外（页签栏 / 状态栏）不会留下一块看不见的点击区。
+     * **左右边界的修正是减号**（`halfKnob`）：写成 `viewW + halfKnob` 会让圆点中心跑到右缘外
+     * 8px、被裁掉一半（2026-11-14 修）。
      */
-    function place(pos, which) {
+    function place(pos) {
       if (!pos) return null
       // 整行都滚出去了就没有意义；只露半行时仍留手柄（贴在边上）
       if (pos.top + pos.height <= 0 || pos.top >= viewH) return null
       const anchorX = pos.left + dx
-      const anchorY = which === 'start' ? pos.top + dy : pos.top + pos.height + dy
-      const left = clamp(anchorX - box / 2, (KNOB_SIZE / 2) * scale - box / 2, viewW + (KNOB_SIZE / 2) * scale - box / 2)
-      // 朝外：终点朝下（盒顶贴端点）、起点朝上（盒底贴端点）
-      const down = which === 'end'
-      const top = down
-        ? clamp(anchorY, 0, viewH - inset)
-        : clamp(anchorY - box, inset - box, viewH - box)
-      return { left: Math.round(left), top: Math.round(top), down }
+      const anchorY = pos.top + pos.height + dy
+      const left = clamp(anchorX - box / 2, halfKnob - box / 2, viewW - halfKnob - box / 2)
+      // 盒顶贴行底、透明热区最多伸出视口底边 (box - inset)
+      const top = clamp(anchorY, 0, viewH - inset)
+      return { left: Math.round(left), top: Math.round(top) }
     }
 
     const next = {
-      start: place(instance.getScrolledVisiblePosition(selection.getStartPosition()), 'start'),
-      end: place(instance.getScrolledVisiblePosition(selection.getEndPosition()), 'end'),
+      start: place(instance.getScrolledVisiblePosition(selection.getStartPosition())),
+      end: place(instance.getScrolledVisiblePosition(selection.getEndPosition())),
+    }
+    /**
+     * 拖动中，**手指抓着的那一颗横纵都跟手**：左上角取 `drag.handleLeft / handleTop`，
+     * 不再用 `place()` 给的行底 + 端点列。静止时贴那一格是「手柄属于这一行/这一列」的提示；
+     * 拖动时这条信息已经由选区高亮在报，手柄再钉在格子上就会与手指脱开一段、越拖越错位
+     * （2026-11-14 用户报：跟手是横向和纵向都跟着手走）。
+     *
+     * 抓的是哪一颗由 **`drag.fixed` 现在落在哪一端**决定，不能看 `drag.which`：手拖过对面
+     * 那一端之后 Monaco 会把 start / end 对调，`which` 记的仍是按下时那个名字，而手指按着的
+     * 始终是同一颗 —— 跟手的应该是「不是钉住端」的那一颗。
+     */
+    if (drag && drag.handleTop !== null) {
+      const pinnedIsStart = selection.getStartPosition().equals(drag.fixed)
+      const key = pinnedIsStart ? 'end' : 'start'
+      const target = next[key]
+      if (target) {
+        // 与 `place()` 同一套夹取：圆点不出可视区，盒子超出的部分交给 overflow 裁
+        const left = clamp(
+          drag.handleLeft - stageRect.left,
+          halfKnob - box / 2,
+          viewW - halfKnob - box / 2,
+        )
+        const top = clamp(drag.handleTop - stageRect.top, 0, viewH - inset)
+        next[key] = { left: Math.round(left), top: Math.round(top) }
+      }
     }
     handles.value = next.start || next.end ? next : null
     syncHandlesLayer()
@@ -370,59 +414,76 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
   // --------------------------------------------------------------- 拖动
 
   /**
-   * `which` 那一端的边在**视口**里的 y —— 起点取那一行的上沿、终点取下沿，与 `place()` 同一口径。
-   * 只在按下那一下量一次（给 `drag.lift` 定基准）；端点在视口外时返回 null，交给下限兜底。
+   * 那一颗手柄**盒子左上角**在视口里的坐标 —— 按下时用它算出「指尖在盒子里的落点」
+   * （`gripX / gripY`），之后整段拖动都按「盒子左上角 ＝ 指尖 − 落点」跟手（见 `applyDrag()`）。
+   * `handles` 还没量出来（首帧 / 端点在视口外）时返回 null，交给 0 兜底。
    */
-  function edgeScreenY(which, position) {
-    const editorEl = host.value?.querySelector('.monaco-editor')
-    const tip = position ? editor.value?.getScrolledVisiblePosition(position) : null
-    if (!editorEl || !tip) return null
-    return editorEl.getBoundingClientRect().top + (which === 'start' ? tip.top : tip.top + tip.height)
+  function boxOriginOf(which) {
+    const stageEl = stage.value
+    const box = handles.value?.[which]
+    if (!stageEl || !box) return null
+    const rect = stageEl.getBoundingClientRect()
+    return { left: rect.left + box.left, top: rect.top + box.top }
   }
 
   /**
-   * 命中点相对指尖的纵向落差：正数 = 端点落在指尖**上方**，负数 = 落在下方。
+   * 指针离哪颗手柄的**圆点圆心**更近 —— 只用来决定「这一按算抓住了哪一颗」。
    *
-   * 落差的符号天生跟着手柄走：终点手柄朝下（圆点在选区下沿之下），按上去端点就在指尖上方
-   * （`raw` 为正）；起点手柄朝上（圆点在选区上沿之上），端点就在指尖下方（`raw` 为负）。
-   * 只把**幅度**抬到 `DRAG_LIFT_MIN`：够大就原样保留（不跳），太小就沿同方向撑开。
-   * ⚠️ 符号必须按按下那一刻的既成事实走，不强制「向上」：反号会让那一端在第一帧跨过指尖
-   * 跳两行（起点手柄尤其明显 —— 它本来就该在指尖下方）。
-   * 量不到端点（滚出视口）才按「向上」兜底。
+   * 两颗都挂行底之后，只要两端在同一行（单行选区、或两端恰好同一行），两个 44px 盒子就几乎
+   * 完全重叠；DOM 里靠后渲染的终点手柄会抢走落点：点左边那颗圆点，拖动改的却是右边
+   * （实测单行 2 字符选区：起点圆点在 cx 110，`elementFromPoint` 给的是 `--end`）。
+   * 所以不信「事件落在哪个元素上」，按下时按圆心距离重选一次。
+   * 两颗离得开（正常的多行选区）时这条与元素归属一致，不会改变行为。
    */
-  function liftFor(fingerY, edgeY) {
-    const min = DRAG_LIFT_MIN * uiScale()
-    if (edgeY === null) return min
-    const raw = fingerY - edgeY
-    if (Math.abs(raw) >= min) return raw
-    return raw < 0 ? -min : min
+  function nearestHandle(which, event) {
+    const current = handles.value
+    const stageEl = stage.value
+    if (!current?.start || !current?.end || !stageEl) return which
+    const stageRect = stageEl.getBoundingClientRect()
+    const scale = uiScale()
+    /** 盒子左上角（stage 坐标）→ 圆点圆心的视口坐标 */
+    const center = (handle) => ({
+      x: stageRect.left + handle.left + (HANDLE_BOX * scale) / 2,
+      y: stageRect.top + handle.top + (KNOB_GAP + KNOB_SIZE / 2) * scale,
+    })
+    const start = center(current.start)
+    const end = center(current.end)
+    const toStart = Math.hypot(event.clientX - start.x, event.clientY - start.y)
+    const toEnd = Math.hypot(event.clientX - end.x, event.clientY - end.y)
+    return toEnd < toStart ? 'end' : 'start'
   }
 
-  function onHandleDown(which, event) {
+  function onHandleDown(pressed, event) {
     const instance = editor.value
     const selection = instance?.getSelection()
     if (!instance || !selection || selection.isEmpty()) return
     event.preventDefault()
     event.stopPropagation()
+    // 两颗盒子叠在一起时（见 `nearestHandle()`），按圆心距离认领这一按
+    const which = nearestHandle(pressed, event)
     // 对面那一端全程钉住；自己这一端跟着手指走
     const fixed = which === 'start' ? selection.getEndPosition() : selection.getStartPosition()
     const moving =
       which === 'start' ? selection.getStartPosition() : selection.getEndPosition()
     /**
-     * 手指这一刻比端点低多少 —— 手柄本来就画在端点外侧（圆点贴端点、杆伸出去 44px），
-     * 手指按在杆上，落差就是现成的。拖动中一直保留它，端点才会停在圆点处、而不是被拽到指尖底下
-     * （见文件头那条 ⚠️）。量不到端点就退回下限。
+     * 盒子左上角此刻在视口里的位置，以及指尖离它多远（横纵各一份）。
+     * 之后的整个拖动都按「左上角 = 指尖 − grip」跟手；`grip` 是按下那一刻的既成事实，
+     * 所以按下去盒子留在原处、不会跳（见文件头那条 ⚠️）。
      */
-    const edgeY = edgeScreenY(which, moving)
+    const origin = boxOriginOf(which)
     drag = {
       pointerId: event.pointerId,
-      /** 手指抓着的是哪一颗（只作记录，朝向不再依赖它 —— 见 `place()`） */
+      /** 手指抓起的是哪一颗 —— 只作记录：拖过对面那一端后角色会交换（见 `update()`） */
       which,
       fixed: new monaco.Position(fixed.lineNumber, fixed.column),
       /** 手指下那一端此刻落在哪儿；胶囊报的就是它（见 `syncProbe`） */
       at: new monaco.Position(moving.lineNumber, moving.column),
-      /** 命中点＝指尖 − lift，方向与幅度都由按下那一刻定（见 `liftFor()`） */
-      lift: liftFor(event.clientY, edgeY),
+      /** 指尖比盒子左上角低 / 右多少；拖动中恒定，左上角就一直是「指尖 − grip」 */
+      gripX: origin ? Math.max(event.clientX - origin.left, 0) : 0,
+      gripY: origin ? Math.max(event.clientY - origin.top, 0) : 0,
+      /** 左上角在视口里的坐标；每帧由 `applyDrag()` 重算 */
+      handleLeft: origin ? origin.left : event.clientX,
+      handleTop: origin ? origin.top : event.clientY,
       x: event.clientX,
       y: event.clientY,
     }
@@ -440,6 +501,10 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     drag.x = event.clientX
     drag.y = event.clientY
     applyDrag()
+    // 手柄跟手是「每帧都在变」的，而 `schedule()` 只挂在选区变动上 —— 行没换时
+    // Monaco 不发事件，手柄就会卡在原地（见 `update()` 里那段覆写）。挂在 window 上
+    // 的 pointermove 每次都会走到这里，靠 rAF 合并成每帧一次。
+    schedule()
     pumpEdgeScroll()
   }
 
@@ -451,9 +516,37 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const layout = instance.getLayoutInfo()
     // 夹进可视区，且横向避开门线与行号槽（`getTargetAtClientPoint` 只认编辑器的矩形，
     // 越界返回 null，落在行号上则 position 为 null，两种都得先夹住）。
-    // 纵向取「指尖 − lift」：端点留在手指上方可见处，与手柄的绘制位置对得上（见文件头那条 ⚠️）。
     const x = clamp(drag.x, rect.left + layout.contentLeft + CONTENT_PAD, rect.right - 1)
-    const y = clamp(drag.y - drag.lift, rect.top + 1, rect.bottom - 1)
+    /**
+     * 左上角跟手：手指怎么动，盒子就怎么动（`gripX / gripY` 固定，见 `onHandleDown()`）。
+     * 顶边那条线既是手柄画在哪儿，也是换行的判据 —— 两者用同一个值才不会各说各话；
+     * 左缘纯属显示（端点那一列由下面 `x` 的命中决定），但横向不跟手，圆点就和指尖错开一格。
+     */
+    drag.handleLeft = drag.x - drag.gripX
+    drag.handleTop = drag.y - drag.gripY
+    /**
+     * **换行阈值：上下都是 0.8 行 —— 靠「拿什么 y 去命中」实现迟滞。**
+     *
+     * 盒顶静止时贴在「本行的下沿」B 上，那条线同时也是下一行的上沿，所以命中点得挪一挪：
+     * - 往下：拿 `顶边 − 0.8 行` 命中。顶边走到 B + 0.8 行才够到 B（换成下一行）。
+     * - 往上：拿 `顶边 − 0.2 行` 命中。顶边走到 B − 0.8 行才越过本行上沿（换成上一行）。
+     * 两个方向各欠 0.8 行、都从 B 起算，迟滞带宽 1.6 行，边界上不会来回抖。
+     *
+     * 挑哪一支看**顶边相对 B 的位置**：在 B 之上＝正在往上拖，用后者；到了 B 及以下用前者。
+     * 换过行之后 B 跟着挪一行，回拖约 0.6 行即退回（换行点落在新 B 内侧 0.2 行处），
+     * 不会出现「过去容易、回来难」那种死区。
+     *
+     * ⚠️ 别用「候选行在上/下方 + 比较候选行下沿」那种写法：向下只有落在**行界那 1px 窗口**
+     * 才会认，手指快滑跳过窗口就永久卡住（2026-11-14 试过，作废）。
+     */
+    const currentSpan = instance.getScrolledVisiblePosition(drag.at)
+    const restY = currentSpan ? rect.top + currentSpan.top + currentSpan.height : null
+    const lineH = currentSpan ? currentSpan.height : 0
+    const draggingDown = restY !== null && drag.handleTop >= restY
+    const probeY = draggingDown
+      ? drag.handleTop - lineH * ROW_SWITCH_RATIO
+      : drag.handleTop - lineH * (1 - ROW_SWITCH_RATIO)
+    const y = clamp(probeY, rect.top + 1, rect.bottom - 1)
     const position = instance.getTargetAtClientPoint(x, y)?.position
     if (!position) return
     /**
@@ -470,6 +563,11 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
      */
     if (position.equals(drag.fixed)) {
       // 选区没变，但自动滚动那一档里滚动变了，镜片还得重新贴行
+      syncProbe()
+      return
+    }
+    if (position.equals(drag.at)) {
+      // 下行缓冲里只挪了手柄、端点没动：不必重设选区，镜片照旧贴当前端点
       syncProbe()
       return
     }
@@ -526,7 +624,7 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const geom = {
       /**
        * **跟着指针走**：横向锚在端点那一列、纵向锚在端点那一行。
-       * 手柄按下时命中点就是端点（`drag.lift`），所以镜片正对着「真正在选哪一处」，
+       * 端点就是手柄顶边所在的那一行（见文件头那条 ⚠️），所以镜片正对着「真正在选哪一处」，
        * 而不是手指画到哪儿镜片就跟到哪儿 —— 手指在一行之内的上下位置本来也没有意义。
        * 横向仍夹进视口：端点可能在屏幕外（横向滚动 / 长行），夹住才不至于把人甩出画面。
        */
