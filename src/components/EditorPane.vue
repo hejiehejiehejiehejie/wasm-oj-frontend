@@ -948,6 +948,7 @@ defineExpose({
         <span
           v-if="selectionHandles.start"
           class="selection-handle selection-handle--start"
+          :class="selectionHandles.start.down ? 'is-knob-down' : 'is-knob-up'"
           :style="{ left: `${selectionHandles.start.left}px`, top: `${selectionHandles.start.top}px` }"
           @pointerdown="onSelectionHandleDown('start', $event)"
           @contextmenu.prevent
@@ -955,6 +956,7 @@ defineExpose({
         <span
           v-if="selectionHandles.end"
           class="selection-handle selection-handle--end"
+          :class="selectionHandles.end.down ? 'is-knob-down' : 'is-knob-up'"
           :style="{ left: `${selectionHandles.end.left}px`, top: `${selectionHandles.end.top}px` }"
           @pointerdown="onSelectionHandleDown('end', $event)"
           @contextmenu.prevent
@@ -1225,15 +1227,15 @@ defineExpose({
   pointer-events: none;
 }
 
-/* 圆点：两个手柄共用。**一律朝下** —— 圆点落在端点那一条边之下 14px 处（盒内 `top: 6px`），
-   杆从盒顶伸出去接那一行文字。早先是「起点朝上、终点朝下」的对称摆法，2026-11-14 用户要求
-   统一朝下：镜片永远挂在行上方，朝上的圆点正好被它盖住，而两颗方向一致也不会让人觉得手柄在乱翻。
+/* 圆点：两个手柄共用，摆在哪一端由各自的朝向类决定（见下面那两套）。
+   **圆点永远在选区外面**：起点那颗在上沿之上、终点那颗在下沿之下，杆朝着文字。
+   ⚠️ 别把两端都写成朝下（2026-11-14 踩过）：起点端点是选区上沿，朝下＝圆点进到行内，
+   正好盖住第一行行首的字（`void` 的 `v` / `o`）。理由见 useSelectionHandles.js 文件头那条 ⚠️。
    ⚠️ 镜片里那颗是 `innerHTML` 克隆的，`data-v-*` 跟着过来，同一组选择器对克隆副本照样命中。 */
 .selection-handle::before {
   content: '';
   position: absolute;
   left: 50%;
-  top: 6px;
   width: 16px;
   height: 16px;
   margin-left: -8px;
@@ -1247,11 +1249,32 @@ defineExpose({
   content: '';
   position: absolute;
   left: 50%;
-  top: 0;
   width: 2px;
   height: 10px;
   margin-left: -1px;
   background: var(--accent);
+}
+
+/* is-knob-down（终点手柄）：盒子挂在选区下沿**下方**，圆点贴盒子顶边、杆朝上接文字。 */
+.selection-handle.is-knob-down::before {
+  top: 6px;
+  bottom: auto;
+}
+
+.selection-handle.is-knob-down::after {
+  top: 0;
+  bottom: auto;
+}
+
+/* is-knob-up（起点手柄）：盒子挂在选区上沿**上方**，圆点贴盒子底边、杆朝下接文字。 */
+.selection-handle.is-knob-up::before {
+  bottom: 6px;
+  top: auto;
+}
+
+.selection-handle.is-knob-up::after {
+  bottom: 0;
+  top: auto;
 }
 
 /* ------------------------------------------- 拖动时的放大镜胶囊 */
