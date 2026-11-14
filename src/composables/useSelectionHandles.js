@@ -14,6 +14,15 @@
  * `getTargetAtClientPoint()` 把手势坐标换回 model 位置，再 `setSelection(Range.fromPositions(fixed, next))`。
  * 选区、高亮、状态栏的「已选中 N 字符」全部仍由 Monaco 自己维护，这里不碰任何渲染。
  *
+ * ⚠️ **命中的那个点不是指尖，而是离开指尖一个指腹的那一点**（`drag.lift`）。
+ * 手柄是围着端点画的（圆点紧贴端点、杆朝外延伸 44px），手指按下去的位置因此比端点低十几到几十 px。
+ * 早先直接拿 `event.clientY` 去命中，端点就被拽到指尖底下 —— 选中的那一处整个被手指盖住，
+ * 用户只能靠放大镜猜，手柄自己反倒成了「装饰」（2026-11-14 触屏用户报：太反直觉）。
+ * 现在按下时量一次「手指到端点」的实际落差存进 `drag.lift`，拖动中恒定保留：
+ * 端点就一直是「指尖 − lift」，也就是手柄圆点原本在的地方 —— 手指在下面拖着，端点与圆点露在它外侧。
+ * 因为 lift 就是按下那一刻的既成事实，**移动时不会跳**；幅度不足一个指腹时由 `DRAG_LIFT_MIN`
+ * 沿原方向撑开（方向为何不能统一改成「向上」见 `liftFor()`）。
+ *
  * ⚠️ **拖动期间必须让手柄对命中测试隐身**（`dragging` → CSS 的 `.is-dragging`）。
  * `getTargetAtClientPoint` 在没传 `eventTarget` 时会**自己做一次 DOM 命中测试**
  * （`mouseTarget.js` 的 `HitTestRequest._useHitTestTarget`），而我们的手柄是编辑器 DOM
@@ -36,16 +45,22 @@
  * 起点手柄的圆点在选区**上沿之上**、杆向下接到文字；终点手柄的圆点在**下沿之下**、杆向上。
  * 这是 iOS / Android 原生文本控件的样子。盒子位置夹在编辑器可视区内：端点滚出视口时
  * 手柄贴在边上，不会飘到页签栏或状态栏上（见 `place()`）。
- * 拖动期间**两颗可以朝不同方向** —— 手指抓着的那颗要一直待在抓它时的那一侧（否则按下去就
- * 跳开手指），另一颗则背离镜片（否则会被镜片盖住）。所以朝向是**每颗手柄各自的**，见 `knobDirection()`。
+ * 朝向**只看是哪一端，拖动中也不翻**：拉着一头时另一头若跟着掉头，看着就像手柄坏了
+ * （2026-11-14 用户报）。原先那套「背离镜片」的翻转已撤掉，理由见 `place()`。
  *
  * 【拖动时那颗「放大镜」胶囊（`probe`）】
  * 手指按住手柄时，指头本身把落点附近的代码全挡住了 —— 胶囊把**选区端点周围那一片代码**
- * 原样搬到手指上方。iOS 的放大镜是同一个动机，只是那边会放大（它要看清插入点在哪两字之间）；
+ * 原样搬到**选中那一行的上方**。iOS 的放大镜是同一个动机，只是那边会放大（它要看清插入点在哪两字之间）；
  * 这边要的是「到底选中了哪一处」外加一点上下文，**原尺寸**反而更好读，所以 `LENS_ZOOM` 是 1；
  * 镜片本身也只有 `LENS_ROWS` 行高 × `LENS_COLS` 字符宽（默认 14px 等宽下约 42×67），
  * 尺寸按编辑器当下的字体度量**现算** —— 用户改了字号 / 行高，它跟着变，见 `lensSize()`。
  * 它只在**拖手柄期间**存在，松手即撤，平时不是一层常驻浮层。
+ *
+ * ⚠️ **纵向锚在「行」上，不是锚在指尖上**：胶囊贴着那一行的上边（光束从行顶连上去），
+ * 手指在一行之内上下挪时它纹丝不动，换行才整块跳到新行上方 —— 跟手做像素级跟随的话，
+ * 镜片会随手指的细微抖动一上一下地窜，反而看不清罩住的是哪一行（2026-11-14 用户要求）。
+ * 横向仍跟手指走。反过来，若贴行上方会让镜片落到指尖以下（手柄在手指上头、
+ * 端点被推到指尖下方时就是这样），就改贴到这一行的**下方**（见 `syncProbe()`）。
  *
  * 【为什么是「搬 DOM」而不是截图 / 第二个编辑器】
  * 主编辑器的 `.view-lines` / `.view-overlays` / `.cursors-layer` 三层，外加 `.selection-handles`
@@ -87,7 +102,7 @@
  * 夹取要用 `--ui-scale` 与视口尺寸，这些东西待在 CSS 里拿不到。镜片尺寸也由这里发出去
  * （`--probe-lens-w / -h / -gap`），**只此一份常量** —— 与 `.magnifier*` 的 CSS 不重复定义。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { monaco } from '../monaco-setup.js'
 import { isTouchPointer } from './useMobileKeyboard.js'
 
@@ -107,6 +122,12 @@ const EDGE_STEP = 8
 /** 拖动时把坐标再往内容区里推一点，免得落在行号槽上拿不到 position */
 const CONTENT_PAD = 2
 /**
+ * 拖动时端点至少要比指尖离开这么多（逻辑 px）—— 一个指腹半径，够让圆点与端点都露在指尖外。
+ * 按下时手指到端点的实际落差若比它大就用实际值（不跳），比它小就沿**原方向**撑开
+ * （为什么不能反号见 `liftFor()`）。
+ */
+const DRAG_LIFT_MIN = 32
+/**
  * 放大镜镜片的参数（逻辑 px）。这几个数是**唯一出处** —— 镜片尺寸由 `syncProbe()` 连同位置
  * 一起写进 `--probe-lens-w / -h / -gap`，CSS 只消费变量，不再重复写一遍。
  * 逻辑 px 同样要乘 `uiScale()`（CSS 那边写 px 会被 postcss-pxtorem 转 rem、跟着 --ui-scale 缩，
@@ -121,8 +142,13 @@ const LENS_COLS = 8
 /** 镜片里内容的放大倍数。**1 = 里面的代码与编辑器里一模一样大**（镜片就是个「搬过来的窗口」，
  *  不是放大镜）。要放大就把它调上去，但镜片尺寸得同步放大同一个倍数才是同一片内容。 */
 const LENS_ZOOM = 1
-/** 镜片最近那条边离手指的距离 —— 也就是那条光束的长度 */
+/** 镜片最近那条边离**选中那一行**的距离 —— 也就是那条光束的长度 */
 const LENS_GAP = 22
+/**
+ * 镜片底边离指尖至少留这么多（逻辑 px，约一个指腹）。贴行上方时若达不到，
+ * 就说明镜片会压到手背上 —— 改贴到这一行的下方（见 `syncProbe()`）。
+ */
+const LENS_FINGER_CLEAR = 24
 /** 镜片离视口左右边 / 上下边至少留出的余量 */
 const PROBE_SAFE = 10
 
@@ -212,19 +238,6 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
    */
   const probe = ref(null)
 
-  /**
-   * 拖动期间两颗手柄的**圆点朝哪** —— `true` = 朝下、`false` = 朝上、`null` = 没在拖。见 `knobDirection()`。
-   *
-   * 规则是「**背离镜片**」：镜片挂在手指上方时圆点朝下、翻到下方时朝上。理由是圆点别被镜片压住 ——
-   * 镜片压在手柄之上（z-index 118 vs 4），手指抓的那颗若正好朝镜片那一侧，圆点就整颗看不见了。
-   * 拖着拖着镜片翻面（手指贴近视口顶 / 底）时朝向也该跟着翻，所以这里挂在 `probe.below` 上派生态。
-   *
-   * ⚠️ 这条**只管没被手指压着的那一颗**。手指正抓着的那颗听它抓下去时的那一侧，理由见 `knobDirection()`。
-   */
-  const knobDown = computed(() =>
-    dragging.value && probe.value ? !probe.value.below : null,
-  )
-
   /** 最近一次落在编辑区的指针是不是触摸 */
   const touchActive = ref(
     typeof navigator !== 'undefined' &&
@@ -297,25 +310,16 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const inset = (KNOB_GAP + KNOB_SIZE) * scale
 
     /**
-     * 圆点朝哪（`true` = 朝下 = 贴盒子顶边、挂在端点**下方**）：
-     * - 没在拖 → 默认：起点朝上、终点朝下（同 iOS 那两颗）；
-     * - **正被手指抓着的那一颗** → 一直保持在它「抓下去时」的那一侧，也就是上面那份默认。
-     *   不能跟着 `knobDown` 一起翻：按下的那一瞬间圆点会被甩到端点另一侧，离手指差出 28px
-     *   （= 两个 14px），之后整段拖动都差着这一段，看着就是「手柄不跟手」；
-     * - 另一颗没有手指压着 → 交给 `knobDown`（背离镜片），否则会被 z-index 118 的镜片整颗盖住。
-     */
-    function knobDirection(which) {
-      if (knobDown.value === null || which === drag?.which) return which === 'end'
-      return knobDown.value
-    }
-
-    /**
      * `pos` → 盒子的左上角（相对 stage）+ 圆点朝向。
      *
      * `anchorY` 是**端点那一条边**（起点取选区上沿、终点取下沿），盒子就挂在它的一侧：
      * 「圆点朝下」= 盒顶贴端点、圆点落在盒内靠上的 `top: 6px` 处；「圆点朝上」= 盒底贴端点、
      * 圆点落在 `bottom: 6px` 处。也就是 `top` 那两种算法。圆点中心离端点**始终** 14px
-     * （= `KNOB_GAP + KNOB_SIZE / 2`），只是换了一侧 —— 与伪元素的朝向由同一个 `knobDirection()` 驱动。
+     * （= `KNOB_GAP + KNOB_SIZE / 2`），只是换了一侧。
+     *
+     * 朝向**只由是哪一端决定**：起点朝上、终点朝下（同 iOS 那两颗），拖动中也不翻。
+     * 早先让它跟着「背离镜片」翻，结果是拖右边那颗时左边那颗原地掉头，看着像手柄坏了
+     * （2026-11-14 用户报）；而两颗相距一个选区，镜片极少真能压到对面那颗，不值得为它换方向。
      *
      * 夹取**只保证圆点不出可视区** —— 盒子为了凑满 44px 触摸目标，允许伸到编辑器外面，
      * 那部分由 `.selection-handles` 的 `overflow: hidden` 裁掉。这样两头都占着：
@@ -328,7 +332,7 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
       const anchorX = pos.left + dx
       const anchorY = which === 'start' ? pos.top + dy : pos.top + pos.height + dy
       const left = clamp(anchorX - box / 2, (KNOB_SIZE / 2) * scale - box / 2, viewW + (KNOB_SIZE / 2) * scale - box / 2)
-      const down = knobDirection(which)
+      const down = which === 'end'
       const top = down
         ? clamp(anchorY, 0, viewH - inset)
         : clamp(anchorY - box, inset - box, viewH - box)
@@ -353,6 +357,33 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
 
   // --------------------------------------------------------------- 拖动
 
+  /**
+   * `which` 那一端的边在**视口**里的 y —— 起点取那一行的上沿、终点取下沿，与 `place()` 同一口径。
+   * 只在按下那一下量一次（给 `drag.lift` 定基准）；端点在视口外时返回 null，交给下限兜底。
+   */
+  function edgeScreenY(which, position) {
+    const editorEl = host.value?.querySelector('.monaco-editor')
+    const tip = position ? editor.value?.getScrolledVisiblePosition(position) : null
+    if (!editorEl || !tip) return null
+    return editorEl.getBoundingClientRect().top + (which === 'start' ? tip.top : tip.top + tip.height)
+  }
+
+  /**
+   * 命中点相对指尖的纵向落差：正数 = 端点落在指尖**上方**，负数 = 落在下方。
+   *
+   * 方向取按下那一刻的既成事实 —— 终点手柄的盒子朝下伸、端点在指尖上方，起点手柄相反。
+   * 只把**幅度**抬到 `DRAG_LIFT_MIN`：够大就原样保留（不跳），太小就沿同方向撑开。
+   * ⚠️ 不能一律改成「向上」：起点手柄按下时端点在指尖下方，反号会让它在第一帧跨过指尖跳两行，
+   * 比原来更难理解。量不到端点（滚出视口）才按「向上」兜底。
+   */
+  function liftFor(fingerY, edgeY) {
+    const min = DRAG_LIFT_MIN * uiScale()
+    if (edgeY === null) return min
+    const raw = fingerY - edgeY
+    if (Math.abs(raw) >= min) return raw
+    return raw < 0 ? -min : min
+  }
+
   function onHandleDown(which, event) {
     const instance = editor.value
     const selection = instance?.getSelection()
@@ -363,19 +394,25 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const fixed = which === 'start' ? selection.getEndPosition() : selection.getStartPosition()
     const moving =
       which === 'start' ? selection.getStartPosition() : selection.getEndPosition()
+    /**
+     * 手指这一刻比端点低多少 —— 手柄本来就画在端点外侧（圆点贴端点、杆伸出去 44px），
+     * 手指按在杆上，落差就是现成的。拖动中一直保留它，端点才会停在圆点处、而不是被拽到指尖底下
+     * （见文件头那条 ⚠️）。量不到端点就退回下限。
+     */
+    const edgeY = edgeScreenY(which, moving)
     drag = {
       pointerId: event.pointerId,
-      /** 手指抓着的是哪一颗 —— `knobDirection()` 靠它认出「移动端」保持朝向 */
+      /** 手指抓着的是哪一颗（只作记录，朝向不再依赖它 —— 见 `place()`） */
       which,
       fixed: new monaco.Position(fixed.lineNumber, fixed.column),
       /** 手指下那一端此刻落在哪儿；胶囊报的就是它（见 `syncProbe`） */
       at: new monaco.Position(moving.lineNumber, moving.column),
+      /** 命中点＝指尖 − lift，方向与幅度都由按下那一刻定（见 `liftFor()`） */
+      lift: liftFor(event.clientY, edgeY),
       x: event.clientX,
       y: event.clientY,
     }
     // 先把两颗手柄对命中测试隐身，再收后续事件 —— 顺序反了第一帧就会撞上「落点在盒子里」。
-    // 放在 syncProbe() 之前：那样一进来「另一颗」的朝向就是对的（`knobDown` 要 `dragging` 为真才算数）。
-    // ⚠️ 手指抓着的那颗不受影响 —— `knobDirection()` 让它保持在按下前的默认朝向，不会跳开手指。
     dragging.value = true
     syncProbe()
     window.addEventListener('pointermove', onDragMove, { passive: false })
@@ -399,9 +436,10 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     const rect = hostEl.getBoundingClientRect()
     const layout = instance.getLayoutInfo()
     // 夹进可视区，且横向避开门线与行号槽（`getTargetAtClientPoint` 只认编辑器的矩形，
-    // 越界返回 null，落在行号上则 position 为 null，两种都得先夹住）
+    // 越界返回 null，落在行号上则 position 为 null，两种都得先夹住）。
+    // 纵向取「指尖 − lift」：端点留在手指上方可见处，与手柄的绘制位置对得上（见文件头那条 ⚠️）。
     const x = clamp(drag.x, rect.left + layout.contentLeft + CONTENT_PAD, rect.right - 1)
-    const y = clamp(drag.y, rect.top + 1, rect.bottom - 1)
+    const y = clamp(drag.y - drag.lift, rect.top + 1, rect.bottom - 1)
     const position = instance.getTargetAtClientPoint(x, y)?.position
     if (!position) return
     drag.at = position
@@ -413,11 +451,12 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
    * 把拖动现场换算成胶囊的几何，然后（等胶囊真的渲染出来）把主编辑器那三层 DOM 搬进去。
    * `applyDrag()` 与 `stepEdgeScroll()` 都会走到，后者是手指贴边不动、靠自动滚动在改光标那一档。
    *
-   * **气泡跟手走、内容认选中位置**：胶囊的 `left / top`（连同光束）取手指的 `drag.x / drag.y`，
-   * 手指拖到哪儿气泡就跟到哪儿；镜片里显示哪一片则由 `drag.at`（每次 `applyDrag()` 现算的落点）
-   * 经 `getScrolledVisiblePosition` 换出来的端点坐标决定 —— 横向锚在端点的 x、纵向锚在那一行的中心。
-   * 端点会吸附到字符边界，若镜片内容也跟手指，手指在字符中间时看到的就是偏出半格的那一片；
-   * 而气泡本身跟着手才符合「按住哪儿、镜子就在哪儿」的手感，也不会有「气泡被钉住像卡死」的错觉。
+   * **纵向贴行、横向跟手、内容认选中位置**：胶囊的 `top` 由那一行的上下边决定（见下面的
+   * `rowTop / rowBottom`），`left` 仍取手指的 `drag.x`；镜片里显示哪一片则由 `drag.at`
+   * （每次 `applyDrag()` 现算的落点）经 `getScrolledVisiblePosition` 换出来的坐标决定 ——
+   * 横向锚在端点的 x、纵向锚在那一行的中心。端点会吸附到字符边界，若镜片内容也跟手指，
+   * 手指在字符中间时看到的就是偏出半格的那一片；而镜片横向跟手才符合「按住哪儿、镜子就在哪儿」
+   * 的手感，也不会有「被钉住像卡死」的错觉。
    *
    * ⚠️ 那个位置**不能**按「拖的是哪一端」去 `getSelection()` 上取：手拖过对面那一端之后
    * Monaco 会把 start / end 交换（`Range.fromPositions` 内部有序），此刻按 which 取到的是
@@ -442,15 +481,27 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
      */
     const editorRect = host.value?.querySelector('.monaco-editor')?.getBoundingClientRect()
     const anchorX = editorRect ? editorRect.left + tip.left : drag.x
-    // 上方放得下就挂在手指上头，否则整条翻到手指下方（iOS 放大镜就是这个口径）
-    const fitsAbove = drag.y - gap - lensH >= safe
-    const below = !fitsAbove && drag.y + gap + lensH <= window.innerHeight - safe
+    /**
+     * 选中那一行在视口里的上下边 —— 镜片**贴的是行**，不是指尖（见文件头那条 ⚠️）。
+     * 上方模式的锚点取行顶（CSS 让整条底边贴锚点），下方模式取行底（顶边贴锚点），
+     * 两种都把 `gap` 留给光束。
+     */
+    const rowTop = editorRect ? editorRect.top + tip.top : drag.y
+    const rowBottom = rowTop + tip.height
+    // 贴在行上方时镜片底边 = rowTop − gap；离指尖不够一个指腹，就是压在手上了
+    // （拖上方那颗手柄时正是这样：端点被推到指尖下方，行也跟着下去，镜片会夹在手指和行之间）
+    const coversFinger = rowTop - gap > drag.y - LENS_FINGER_CLEAR * scale
+    const fitsAbove = rowTop - gap - lensH >= safe
+    // 上方放不下、或者会压到手指 → 改贴到这一行的下方（那边也放不下就还是留在上方）
+    const below =
+      (!fitsAbove || coversFinger) && rowBottom + gap + lensH <= window.innerHeight - safe
     const half = lensW / 2
     const min = half + safe
     const max = window.innerWidth - half - safe
     const geom = {
+      /** 横向仍跟手指：行的左右两端可能都在屏幕外，跟手才不至于把人甩出画面 */
       left: Math.round(clamp(drag.x, min, Math.max(min, max))),
-      top: Math.round(drag.y),
+      top: Math.round(below ? rowBottom : rowTop),
       below,
       lensW,
       lensH,
@@ -467,9 +518,6 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     probe.value = geom
     // 胶囊是 v-if 出来的 —— 第一帧它还不在 DOM 里，等 Vue 挂完再往里搬内容
     nextTick(() => paintProbe(geom))
-    // 胶囊换边（`below` 变了）会连带 `knobDown` 变化，手柄盒子的 `top` 得跟着重算一次 ——
-    // `update()` 只挂在选区 / 滚动 / 布局三种变化上，管不到这条。
-    schedule()
   }
 
   /**
@@ -631,5 +679,5 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     disposables = []
   })
 
-  return { handles, dragging, knobDown, probe, onHandleDown }
+  return { handles, dragging, probe, onHandleDown }
 }

@@ -1099,8 +1099,10 @@ defineExpose({
     </Teleport>
 
     <!-- 拖手柄时的放大镜：手指本身把落点附近的代码挡住了，就把**选区端点周围那一片**原尺寸
-         搬到手指上方（iOS 的放大镜是同一个动机，只是那边会放大；这边要的是「看得见选中的是哪一处」，
+         搬到选中那一行的上方（iOS 的放大镜是同一个动机，只是那边会放大；这边要的是「看得见选中的是哪一处」，
          1:1 反而更好读，所以 LENS_ZOOM 是 1，见 useSelectionHandles.js）。
+         纵向贴的是**行**不是指尖：手指一行之内上下挪，镜片不动，换行才整块跳过去；
+         贴行上方会压到手指时改贴到行下方（`is-below`）。
          位置与镜片尺寸由 useSelectionHandles.js 算好送过来，
          内容（三层 DOM 的克隆）也由那边搬，这里只管画壳子。
          Teleport 到 body + fixed：**不能挂在 .selection-handles 里** —— 那层有 overflow: hidden
@@ -1255,9 +1257,8 @@ defineExpose({
 }
 
 /* 圆点与杆摆在哪一端，**只由每颗手柄自己的朝向类**决定（`place()` 每次都给出 `down`，见
-   useSelectionHandles.js 的 `knobDirection()`）。**不能**再挂在 `.selection-handles` 上：
-   拖动期间两颗可能朝不同方向 —— 手指抓着的那颗保持在「抓它时」的那一侧（按下去不跳开手指），
-   另一颗背离镜片（免得被 z-index 118 的镜片整颗盖住）。
+   useSelectionHandles.js）。**不能**再挂在 `.selection-handles` 上：两颗各自记自己的朝向，
+   起点恒朝上、终点恒朝下，拖动中也不翻（拉着一头时另一头若跟着掉头，看着像手柄坏了）。
    is-knob-down：圆点贴盒子**顶边**（＝盒子挂在端点下方）；is-knob-up：贴**底边**（＝挂在上方）。
    ⚠️ 镜片里那颗是 `innerHTML` 克隆的，`data-v-*` 跟着过来，同一组选择器对克隆副本照样命中。 */
 .selection-handle.is-knob-down::before {
@@ -1305,8 +1306,9 @@ defineExpose({
   background: none;
 }
 
-/* 上方放不下就翻到手指下方：整条上下镜像（光束旋 180°，梯形与渐变跟着一起翻）。
-   两种朝向都是「整条的远端贴着手指定点，光束（= LENS_GAP 那么长）从那里连到镜片」 */
+/* 贴在选中那一行的上方；上方放不下（或会压到手指）就翻到这一行的下方：整条上下镜像
+   （光束旋 180°，梯形与渐变跟着一起翻）。
+   两种朝向都是「整条的远端贴着行边，光束（= LENS_GAP 那么长）从那里连到镜片」 */
 .magnifier.is-below {
   flex-direction: column-reverse;
   transform: translate(-50%, 0);
@@ -1377,7 +1379,7 @@ defineExpose({
   --vscode-editor-inactiveSelectionBackground: var(--vscode-editor-selectionBackground);
 }
 
-/* 光束：把镜片和手指连起来，长度就是 LENS_GAP（改这里也要同步那边）。
+/* 光束：把镜片和选中那一行连起来，长度就是 LENS_GAP（改这里也要同步那边）。
    **上宽下窄**的梯形 —— 镜片那头宽、指头那头窄（多边形下边收成 38%–62%）；
    渐变同向：`0deg` = 零度指向上，第一档落在**下边**，也就是指头那头最实、往镜片那头化开。
    两条都朝镜片「张」、朝指头「收」，看着像是从指尖射向镜片的一道光。 */
