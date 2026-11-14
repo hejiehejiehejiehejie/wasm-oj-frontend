@@ -160,7 +160,10 @@ export default {
         smoothScrolling: { label: '平滑滚动', hint: '滚动带过渡动画' },
         cursorStyle: { label: '光标样式', hint: '文本插入点的形状' },
         cursorBlinking: { label: '光标闪烁方式', hint: '插入点的闪烁动画' },
-        cursorSmoothCaretAnimation: { label: '光标平滑移动', hint: '打字时光标移动带过渡动画' },
+        cursorSmoothCaretAnimation: {
+          label: '光标平滑移动',
+          hint: '打字时光标移动带过渡动画（默认关闭）',
+        },
         renderLineHighlight: { label: '当前行突出', hint: '高亮光标所在行' },
         renderWhitespace: { label: '空白字符', hint: '显示空格与制表符' },
         lineNumbers: {
@@ -785,7 +788,7 @@ export default {
         cursorBlinking: { label: 'Cursor blinking', hint: 'Blink animation of the insertion point' },
         cursorSmoothCaretAnimation: {
           label: 'Smooth caret animation',
-          hint: 'Animate cursor movement while typing',
+          hint: 'Animate cursor movement while typing (default: off)',
         },
         renderLineHighlight: { label: 'Current line highlight', hint: 'Highlight the cursor line' },
         renderWhitespace: { label: 'Whitespace characters', hint: 'Show spaces and tabs' },

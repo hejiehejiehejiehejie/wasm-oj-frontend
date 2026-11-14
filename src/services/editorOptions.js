@@ -10,6 +10,7 @@
  * 唯一的例外是 insertSpaces（默认关，按 Tab 出制表符）：Monaco 自己的默认是「用空格代替 Tab」，
  * 这里按用户口径刻意改掉，不是疏漏。
  * 另一处刻意的例外是 autoSave（默认开），理由写在它自己那行注释里。
+ * 第三处是 cursorSmoothCaretAnimation（2026-11-14 用户要求默认关），理由同它自己那行。
  */
 
 /** 主题决定整套界面配色（见 styles/base.css 的变量）。
@@ -261,7 +262,11 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   // 光标
   cursorStyle: 'line',
   cursorBlinking: 'smooth',
-  cursorSmoothCaretAnimation: true,
+  // 「光标平滑移动」（Monaco 的 cursorSmoothCaretAnimation）：2026-11-14 用户要求默认关。
+  // 这条打破上面的默认值纪律（改造前是开的），是刻意的 —— 打字 / 点鼠标时光标自己滑过去，
+  // 与「闪烁方式 = 平滑」叠在一起显得拖沓。老存档里那份 true 由 editorSettings.js 的 v8
+  // 迁移改写，只改这里对老用户等于没改（默认值会被深度 watch 自动写进存档）。
+  cursorSmoothCaretAnimation: false,
   // 显示
   minimap: false,
   // 行号三态（显示 / 隐藏 / 仅 Markdown 隐藏）。**刻意的默认值例外**：按上面那条纪律它
