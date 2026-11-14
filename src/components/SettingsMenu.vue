@@ -525,7 +525,12 @@ watch(ready, (shown) => {
  * `max-height`、变成滚动容器时，二级会被裁进容器里；而一级的视口收敛又管不到它，
  * 得再自己算一次上抬 / 左右挪，两套坐标的来源还不一样。现在它自己拿一条 fixed 坐标：
  *
- * - 横向：先贴行右侧，放不下就翻到左侧，两侧都塞不下再夹回视口（遮挡一级总好过出屏）；
+ * - 横向：**往哪边长只看一级站在屏幕哪一半** —— 一级在左半屏就往右长、在右半屏就往左长。
+ *   刻意不问「哪边塞得下」：窄屏上一级 202 + 二级 278 本来就超过一屏，右侧永远不够，
+ *   按「塞得下」判就会把二级翻到左边、整段压在所属那一行上，两级叠成一坨
+ *   （2026-11-14 触屏用户报）。按半屏判则始终是「一级在左、二级在右」这种错开的读法；
+ *   真放不下时夹回视口，允许压住一级的一角 —— **不必强求不重叠**（同日用户口径），
+ *   为躲重叠去收窄二级反而把它的胶囊挤成一列、长出一大截，得不偿失。
  * - 纵向：顶端与所属行对齐后往上让一截容器内边距，底部放不下就整体上抬，
  *   比可视范围还高时压 `max-height` 自己滚。
  *
@@ -542,6 +547,16 @@ async function placeSubmenu() {
   const box = appViewportBox()
   const rect = row.getBoundingClientRect()
   const width = el.offsetWidth || el.getBoundingClientRect().width
+  const scale = menuScaleOf(el)
+
+  // 二级贴着一级的哪条边：基准取**一级盒子的边框盒**，不是那一行 ——
+  // 行比盒子窄 1px 边框，拿行算出来的二级会压在一级的边线上。
+  const menuRect = root.value?.getBoundingClientRect() ?? rect
+  const middle = (box.left + box.right) / 2
+  const toRight = menuRect.left + menuRect.width / 2 < middle
+  let left = toRight ? menuRect.right : menuRect.left - width
+  left = Math.max(box.left + GAP, Math.min(left, box.right - width - GAP))
+
   // 量自然高度前先把身上的 max-height 让开，否则「视口长回去、上限该撤掉」永远发现不了
   const applied = el.style.maxHeight
   el.style.maxHeight = 'none'
@@ -551,13 +566,9 @@ async function placeSubmenu() {
   const capped = span > 0 && natural > span
   const height = capped ? span : natural
 
-  let left = rect.right
-  if (left + width > box.right - GAP) left = rect.left - width
-  left = Math.max(box.left + GAP, Math.min(left, box.right - width - GAP))
-
   // 上沿与那一行对齐后再让出一截容器内边距：让一级 / 二级的第一个条目在自己那一侧看齐
   // （旧 CSS 靠 translateY(-6px * scale)，换算成绝对坐标就是这个 inset）
-  const wantTop = rect.top - 6 * menuScaleOf(el)
+  const wantTop = rect.top - 6 * scale
   const top = Math.max(box.top + GAP, Math.min(wantTop, box.bottom - height - GAP))
 
   subPos.value = {
