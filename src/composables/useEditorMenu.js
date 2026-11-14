@@ -3,9 +3,17 @@
  *
  * 两端共用同一份菜单（2026-10-10 加），取代 Monaco 内置那份英文菜单：
  * - **桌面**：鼠标右键弹它。内置菜单的文案是英文的，与站点的双语界面不一致；
- * - **触屏**：长按 `LONG_PRESS_MS` 弹它，并且**先选中手指下的词** —— 这是 iOS / Android
- *   原生文本控件与 VS Code 移动版的通行分工：轻点 = 光标、双击 = 选词、长按 = 选词 + 菜单。
+ * - **触屏**：长按 `LONG_PRESS_MS` 先选中手指下的词 —— 这是 iOS / Android
+ *   原生文本控件与 VS Code 移动版的通行分工：轻点 = 光标、双击 = 选词、长按 = 选词。
  *   若长按处本来就在选区里，则保持原选区不动（同 iOS：长按已选中的内容 = 直接弹菜单）。
+ *
+ * 【长按的两拍：选词那一拍不弹菜单（2026-11-14 用户口径）】
+ * 只有**没选中任何内容**的那次长按才带菜单；如果这一发长按自己就把词选上了，**菜单不弹**。
+ * 理由是菜单贴在长按点、也就是选区右侧那颗手柄旁边，正好压住刚选出来的选区与手柄，
+ * 手一抬就得先关掉它才能接着拖（用户报的原话：「有点挡住右边的指针」）。
+ * 于是长按的语义变成两拍：**第一拍选词（安静）、在选区里再长按一拍才出菜单** ——
+ * 「已经选着内容」正是第二拍的判据，与 iOS「长按已选中的内容 = 弹菜单」同一个直觉。
+ * 长按在空白处（那里连词都没有）不产生选区，仍按原来弹菜单，否则长按就成了一个没有出口的手势。
  *
  * 多击手势（2026-10-11 加）：**三击 = 选中整行、四击 = 全选**，对齐 Monaco 自己在鼠标下的
  * 口径；触屏上 Monaco 数不到 3，只能由这里接着数（见 `onMonacoGestureTap`）。
@@ -520,30 +528,37 @@ export function useEditorMenu({ editor, host }) {
     const { x, y } = press
     clearPress()
     handledTouch = true
-    // 长按接管的这一轮不再补聚焦：用户要的是菜单，不是键盘（400ms 的防抖若照常到点，
-    // 键盘会在菜单已经弹出来之后把视口收矮，菜单看着就像跳了一下）。
+    // 长按接管的这一轮不再补聚焦：用户要的是选区 / 菜单，不是键盘（400ms 的防抖若照常到点，
+    // 键盘会在选区或菜单已经出来之后把视口收矮，看着就像跳了一下）。
     cancelSettleFocus()
-    selectWordUnder(x, y)
+    // 这一发长按自己选中了词 → 只留选区，不弹菜单（见文件头【长按的两拍】）。
+    // 已经选着内容 / 落在空白处时才弹 —— 前者的选区原样留着，后者靠菜单给出后续操作。
+    if (selectWordUnder(x, y)) return
     openAt(x, y)
   }
 
-  /** 长按处已在选区里就保持不动，否则选中词（词都没有就只把光标挪过去） */
+  /**
+   * 长按处已在选区里就保持不动，否则选中词（词都没有就只把光标挪过去）。
+   * @returns {boolean} 这一发是否**新产生了选区** —— 是则调用方不再弹菜单（见文件头【长按的两拍】）。
+   *   只是挪了光标（空白处，没有词）时返回 false：没有选区可保护，菜单照旧弹。
+   */
   function selectWordUnder(clientX, clientY) {
     const instance = editor.value
     const model = instance?.getModel()
-    if (!instance || !model) return
+    if (!instance || !model) return false
     const position = instance.getTargetAtClientPoint(clientX, clientY)?.position
-    if (!position) return
+    if (!position) return false
     const selection = instance.getSelection()
-    if (selection && !selection.isEmpty() && selection.containsPosition(position)) return
+    if (selection && !selection.isEmpty() && selection.containsPosition(position)) return false
     const word = model.getWordAtPosition(position)
-    if (word) {
-      instance.setSelection(
-        new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
-      )
-    } else {
+    if (!word) {
       instance.setPosition(position)
+      return false
     }
+    instance.setSelection(
+      new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+    )
+    return true
   }
 
   // -------------------------------------------- 触屏：轻点的多击手势 + 键盘防抖
