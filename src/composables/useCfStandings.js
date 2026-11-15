@@ -47,6 +47,7 @@ function errorText(failure) {
   const code = failure?.code
   if (code === 'CONTEST_NEEDS_LOGIN') return t('cf.contest.errors.needsLogin')
   if (code === 'RATE_LIMITED') return t('cf.contest.errors.rateLimited')
+  if (code === 'WORKER_TIMEOUT') return t('cf.contest.errors.timeout')
   if (code === 'WORKER_ERROR' || code === 'DISPOSED') return t('cf.contest.errors.worker')
   return t('cf.contest.errors.fetch', { detail: failure?.message || '' })
 }

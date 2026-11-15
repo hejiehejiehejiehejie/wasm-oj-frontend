@@ -2126,7 +2126,10 @@ async function downloadCf() {
     cfElapsedMs.value = result.durationMs ?? 0
     return
   }
-  cfFailureReason.value = result.message || t('runtime.failed')
+  cfFailureReason.value =
+    result.code === 'WORKER_TIMEOUT'
+      ? t('cf.contest.errors.timeout')
+      : result.message || t('runtime.failed')
 }
 
 // 卸载入口：与运行时的 requestUninstall 同形 —— 下载中不给点（会和在途的写入打架），

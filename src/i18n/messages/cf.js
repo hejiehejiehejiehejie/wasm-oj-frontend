@@ -150,6 +150,8 @@ export default {
           handleRequired: '排除已通过需要账号：先在右上角设置',
           noMatch: '没有符合条件的题目，请放宽条件',
           worker: '抽题组件未启动，请在设置中重新下载',
+          /** Worker 45s 一个字节都没回（卡死）→ 已被强制重启，数据没丢，重试即可 */
+          timeout: 'Codeforces 模块长时间没有响应，已强制重启，请重试',
           fetch: '拉取 Codeforces 数据失败：{detail}',
           importFailed: '导入工作区失败：{detail}',
         },
@@ -386,6 +388,7 @@ export default {
           needsLogin: 'gym / group 题目需登录 Codeforces',
           rateLimited: 'Codeforces 请求太频繁，请稍后再试',
           worker: '抽题组件未启动，请在设置中重新下载',
+          timeout: 'Codeforces 模块长时间没有响应，已强制重启，请重试',
           fetch: '拉取 Codeforces 数据失败：{detail}',
           importFailed: '导入工作区失败：{detail}',
           scrapeUnsupported: '抓样例需要新版浏览器扩展',
@@ -521,6 +524,8 @@ export default {
           handleRequired: 'Skipping solved problems needs a handle — set it in the top-right',
           noMatch: 'Nothing matched — loosen the filters',
           worker: 'The picker worker isn’t running; download the module again',
+          /** Worker went silent for 45s (wedged) → force-restarted; nothing was lost, just retry */
+          timeout: 'The Codeforces worker stopped responding and was restarted — try again',
           fetch: 'Could not fetch Codeforces data: {detail}',
           importFailed: 'Import into the workspace failed: {detail}',
         },
@@ -740,6 +745,7 @@ export default {
           needsLogin: 'Gym / group problems need a Codeforces login',
           rateLimited: 'Codeforces is rate limiting requests — try again shortly',
           worker: 'The picker worker isn’t running; download the module again',
+          timeout: 'The Codeforces worker stopped responding and was restarted — try again',
           fetch: 'Could not fetch Codeforces data: {detail}',
           importFailed: 'Import into the workspace failed: {detail}',
           scrapeUnsupported: 'Fetching samples needs a newer extension',

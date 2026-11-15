@@ -124,6 +124,7 @@ const SPAN_UNITS = ['weeks', 'days', 'hours', 'minutes', 'seconds']
 function errorText(failure) {
   const code = failure?.code
   if (code === 'RATE_LIMITED') return t('cf.contest.errors.rateLimited')
+  if (code === 'WORKER_TIMEOUT') return t('cf.contest.errors.timeout')
   if (code === 'WORKER_ERROR' || code === 'DISPOSED') return t('cf.contest.errors.worker')
   return t('cf.contest.errors.fetch', { detail: failure?.message || '' })
 }

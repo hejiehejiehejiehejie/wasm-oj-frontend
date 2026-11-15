@@ -12,7 +12,8 @@
  * 算的：抽题、赛程、榜单、提交记录、提交详情全都在同一个配额里。所以这里只有一条
  * 串行闸门 `apiFetch()`（任意两次请求至少隔 API_MIN_GAP），**任何新接口都必须走它**，
  * 别在别处直接 fetch。同一条 URL 上的并发请求再由 `once()` 合并成一个 Promise ——
- * 榜单页开着轮询时，另一个入口顺手取同一场榜单不该多付一次配额。
+ * 榜单页开着轮询时，另一个入口顺手取同一场榜单不该多付一次配额。**`once()` 里只允许
+ * 出现「真的要去取数」的路径**（缓存判定一律写在外面），所以 `force` 不进合并键（见其注释）。
  *
  * 【榜单不落 IndexedDB】一场 6k–15k 行、单次 2–6MB，只在该场**已结束**时在内存里
  * 留 60 秒（它不会再变），进行中的只留 3 秒。落库会让 IndexedDB 随「看过几场比赛」
@@ -125,11 +126,18 @@ function apiFetch(url, { timeout = API_TIMEOUT, ...init } = {}) {
     const wait = lastApiAt + API_MIN_GAP - Date.now()
     if (wait > 0) await sleep(wait)
     lastApiAt = Date.now()
-    return fetch(url, {
-      ...init,
-      headers: { 'Accept-Language': 'en', ...init.headers },
-      signal: AbortSignal.timeout(timeout),
-    })
+    // 心跳：让主线程的看门狗能区分「慢」和「死」。没有它的话，一次 30s 的 fetch 与一次
+    // 卡在死循环里的请求在主线程看来完全一样，只能靠一个足够大的常数去赌（见 cfClient）。
+    beat()
+    try {
+      return await fetch(url, {
+        ...init,
+        headers: { 'Accept-Language': 'en', ...init.headers },
+        signal: AbortSignal.timeout(timeout),
+      })
+    } finally {
+      beat()
+    }
   })
   // 队列本身不能因为某一次失败就断掉
   apiChain = run.then(noop, noop)
@@ -139,6 +147,18 @@ function apiFetch(url, { timeout = API_TIMEOUT, ...init } = {}) {
 /** 同键合并正在进行中的请求：`key` 相同就复用同一个 Promise，结束后立即释放 */
 const inflight = new Map()
 
+/**
+ * 同键合并：**只圈「真的要去 CF 取数」那一段**。
+ *
+ * 【纪律：缓存判定必须在 once 外面】这样进来的每一条都注定要触网，被合并的那一份就
+ * 一定是「网络数据」，不会拿一次缓存命中去敷衍一个 `force` 调用。于是 `force` 不需要
+ * 出现在 key 里，也不需要额外的新鲜度仲裁 —— 原来 `contestList:main:force` 与
+ * `contestList:main` 是两个键，「赛程打开时的静默刷新」撞上任意一次普通读取，就会对
+ * 同一个 URL 并发打两次 CF，白白多占一次 2 秒一次的配额。
+ *
+ * 代价是 `force` 调用方可能搭上一趟「刚刚发出」的取数（最多几十秒前的结果）。这仍然
+ * 满足 force 的语义（**一定不是缓存**），而且比多打一次配额更划算。
+ */
 function once(key, task) {
   const existing = inflight.get(key)
   if (existing) return existing
@@ -180,17 +200,25 @@ const post = (message) => self.postMessage(message)
 const notify = (stage) => post({ type: 'progress', stage })
 
 /**
+ * 心跳（活着的证明）。`type: 'beat'` 是**协议里新增的唯一一种「不是响应」的消息**：
+ * 旧版主线程收到它会走 `pending.get(undefined)` → 直接丢弃，安全；新版主线程拿它
+ * 刷新「这颗 worker 还活着」的时刻，从而把「请求慢」与「请求永远回不来」分开
+ * （见 cfClient 的看门狗）。不带 id —— 它不是任何一条请求的答复。
+ */
+const beat = () => post({ type: 'beat' })
+
+/**
  * 取题库。24h 内命中缓存就直接返回，否则重新拉并落库。
  * 丢掉没有 contestId / index / name 的条目 —— 那是 ACM-ICPC 的 problemsetName 题，
  * 拼不出 /contest/<id>/problem/<index> 链接，抽出来也没法打开。
  * @returns {Promise<Array<Record<string, any>>>}
  */
 async function loadProblemset({ force = false } = {}) {
-  return once('problemset', async () => {
-    if (!force) {
-      const cached = await readRecord(PROBLEMSET_KEY, PROBLEMSET_TTL)
-      if (Array.isArray(cached?.data) && cached.data.length) return cached.data
-    }
+  if (!force) {
+    const cached = await readRecord(PROBLEMSET_KEY, PROBLEMSET_TTL)
+    if (Array.isArray(cached?.data) && cached.data.length) return cached.data
+  }
+  return once('fetch:problemset', async () => {
     notify('problemset')
     const result = await fetchResult(`${CF_API}/problemset.problems`)
     const problems = (result.problems || []).filter(
@@ -206,12 +234,12 @@ async function loadProblemset({ force = false } = {}) {
  * @returns {Promise<string[]>}
  */
 async function loadSolvedKeys(handle, { force = false } = {}) {
-  return once(`solved:${handle.toLowerCase()}`, async () => {
-    const key = solvedKey(handle)
-    if (!force) {
-      const cached = await readRecord(key, SOLVED_TTL)
-      if (Array.isArray(cached?.data)) return cached.data
-    }
+  const key = solvedKey(handle)
+  if (!force) {
+    const cached = await readRecord(key, SOLVED_TTL)
+    if (Array.isArray(cached?.data)) return cached.data
+  }
+  return once(`fetch:solved:${handle.toLowerCase()}`, async () => {
     notify('solved')
     const result = await fetchResult(
       `${CF_API}/user.status?handle=${encodeURIComponent(handle)}&from=1&count=100000`,
@@ -245,10 +273,11 @@ async function verifyHandle(rawHandle) {
   const handle = String(rawHandle || '').trim()
   if (!handle) return { ok: true, reason: 'empty' }
 
-  return once(`verify:${handle.toLowerCase()}`, async () => {
-    const cached = await readRecord(handleKey(handle), HANDLE_TTL)
-    if (cached?.data) return cached.data
+  // 缓存判定在 once 外面（同一条纪律：once 里只允许出现「真的要去取数」的路径）
+  const cached = await readRecord(handleKey(handle), HANDLE_TTL)
+  if (cached?.data) return cached.data
 
+  return once(`fetch:verify:${handle.toLowerCase()}`, async () => {
     try {
       notify('handle')
       // 这里不能走 fetchResult：CF 对「账号不存在」是 **HTTP 400** + status:FAILED，
@@ -298,12 +327,15 @@ async function verifyHandle(rawHandle) {
  */
 async function loadContestList(gym, { force = false } = {}) {
   const key = gym ? CONTEST_LIST_GYM_KEY : CONTEST_LIST_KEY
-  return once(`contestList:${gym ? 'gym' : 'main'}${force ? ':force' : ''}`, async () => {
-    const cached = force ? null : await readRecord(key, CONTEST_LIST_TTL)
+  if (!force) {
+    const cached = await readRecord(key, CONTEST_LIST_TTL)
     if (Array.isArray(cached?.data) && cached.data.length) {
       return { list: cached.data, fetchedAt: cached.ts }
     }
+  }
 
+  // key 里不带 force：见 once() 的注释 —— 同一条 URL 的两种「新鲜度要求」不是两份数据
+  return once(`fetch:contestList:${gym ? 'gym' : 'main'}`, async () => {
     notify('contestList')
     const result = await fetchResult(`${CF_API}/contest.list${gym ? '?gym=true' : ''}`)
     const list = (result || [])
@@ -387,6 +419,7 @@ async function findContest(contestId, preferGym) {
  * 进行中的留 3 秒（轮询间隔 10 秒，靠它挡掉「题目列表 + 排行榜首屏几乎同时发」那一对）。
  * 两个窗口都**只活在 Worker 内存里**，不落 IndexedDB —— 一场 15k 行的榜单落库，
  * 看过几场就能把库撑到几十 MB，而它只在这一回有用。
+ * 窗口一过就**立刻放掉**（见 sweepStandings）：否则一条过期条目会一路留到第 5 场进来。
  *
  * 【两个坑，都在注释里写死了】
  *   1) 非 gym 只允许**裸参数**（带 from/count 直接 FAILED），见上面的体积说明。
@@ -402,7 +435,29 @@ const RECENT_STANDINGS_MAX = 4
 /** contestId → { at, payload }。只留最近几场，换一场就把最旧的挤掉 */
 const recentStandings = new Map()
 
+/** 这一份还能不能被复用：结束的比赛不会再变，开着的那份每轮轮询都在变 */
+function standingsReuseMs(payload) {
+  return payload?.contest?.phase === 'FINISHED' ? STANDINGS_FINAL_REUSE : STANDINGS_LIVE_REUSE
+}
+
+/**
+ * 丢掉已经过了复用窗口的条目。
+ *
+ * 【为什么必须有】这张表里每个值都是 2–6MB 的原始榜单（一场 15k 行）。原来只按「超过 4 场
+ * 就挤掉最旧的」淘汰，而窗口只有 3s / 60s —— 一条记录在过期之后、在被第 5 场挤掉之前，
+ * **再也不可能被复用**，却一直占着那几 MB。比赛打一整场只看一场榜单，那就是一份 6MB
+ * 永久常驻；来回换几场就是几十 MB 堆在 Worker 里。判据不该是「留几份」，而是「还能不能用」。
+ *
+ * 剩下 4 这个上限只兜「60 秒内连翻好几场」的极端，正常情况下表里就是 1–2 条。
+ */
+function sweepStandings(now = Date.now()) {
+  for (const [id, entry] of recentStandings) {
+    if (now - entry.at >= standingsReuseMs(entry.payload)) recentStandings.delete(id)
+  }
+}
+
 function rememberStandings(contestId, payload) {
+  sweepStandings()
   recentStandings.delete(contestId)
   recentStandings.set(contestId, { at: Date.now(), payload })
   while (recentStandings.size > RECENT_STANDINGS_MAX) {
@@ -412,10 +467,11 @@ function rememberStandings(contestId, payload) {
 
 async function requestStandings(contestId, { force = false } = {}) {
   const id = String(contestId)
+  // 每轮轮询顺路清一次过期的：不然一份 6MB 要等「第 5 场」才会被放掉
+  sweepStandings()
   const cached = recentStandings.get(id)
   if (!force && cached) {
-    const reuse =
-      cached.payload?.contest?.phase === 'FINISHED' ? STANDINGS_FINAL_REUSE : STANDINGS_LIVE_REUSE
+    const reuse = standingsReuseMs(cached.payload)
     if (Date.now() - cached.at < reuse) return cached.payload
   }
 

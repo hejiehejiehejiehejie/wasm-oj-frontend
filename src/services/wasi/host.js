@@ -22,7 +22,7 @@
  *   `worker.terminate()` 仍能打断。Node 主线程不允许 Atomics.wait，那里退化为立即到期。
  */
 
-import { appendMirror } from './stdoutMirror.js'
+import { appendMirror, OUTPUT_LIMIT_BYTES } from './stdoutMirror.js'
 
 const encoder = new TextEncoder()
 
@@ -457,6 +457,16 @@ function createState(options) {
     onStdout,
     onStderr,
     outMirror,
+    // 已经收集的原始字节数，与 outputLimit 配对（见 emit）
+    stdoutBytes: 0,
+    stderrBytes: 0,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    outputLimit: Number.isFinite(options.outputLimit) ? options.outputLimit : OUTPUT_LIMIT_BYTES,
+    // 要不要把整份输出也留在 state.stdout 里 —— `runWasiModule` 的返回值要用。
+    // worker 侧改成只走增量回传（见 wasi.worker.js），关掉它可以省下「数组 + join 整串」
+    // 这一份：一条几 MiB 的输出在 worker 里就只存在于 64 KiB 的攒批缓冲里。
+    captureOutput: options.captureOutput !== false,
   }
 
   state.fds.set(0, { kind: 'stdin' })
@@ -581,12 +591,32 @@ function emit(state, kind, bytes) {
   if (bytes.length === 0) return
   // 镜像要在**解码之前**写：这里拿到的就是程序 write() 的原始字节，与字符串切分无关。
   // 主线程被 kill() 掐断时只靠它取回「已经打印出来的部分」（布局见 stdoutMirror.js）。
+  // 截断之后照写不误：镜像管「TLE 时还能看到多少前缀」，容量（8 MiB）自己封顶，
+  // 与这里的额度是两件事 —— 而且它是 terminate 之后唯一还活着的通道。
   if (kind === 'stdout' && state.outMirror) appendMirror(state.outMirror, bytes)
-  const decode = kind === 'stdout' ? state.stdoutDecoder : state.stderrDecoder
-  const text = decode.decode(bytes, { stream: true })
+  const isOut = kind === 'stdout'
+  // 额度按**原始字节**算，用完就彻底停下：不解码、不收集、也不回调。
+  // 只留前缀、不做环形 —— 与镜像同一个理由：用户要看的是程序开头打出了什么。
+  const used = isOut ? state.stdoutBytes : state.stderrBytes
+  if (used >= state.outputLimit) {
+    if (isOut) state.stdoutTruncated = true
+    else state.stderrTruncated = true
+    return
+  }
+  // 只截这一次 write() 跨过上限的那一截：整块丢掉会让「一次 write 打出 10 MB」变成 0 字节
+  const room = state.outputLimit - used
+  const slice = bytes.length <= room ? bytes : bytes.subarray(0, room)
+  const decode = isOut ? state.stdoutDecoder : state.stderrDecoder
+  const text = decode.decode(slice, { stream: true })
+  if (isOut) state.stdoutBytes = used + slice.length
+  else state.stderrBytes = used + slice.length
+  if (slice.length < bytes.length) {
+    if (isOut) state.stdoutTruncated = true
+    else state.stderrTruncated = true
+  }
   if (!text) return
-  ;(kind === 'stdout' ? state.stdout : state.stderr).push(text)
-  const listener = kind === 'stdout' ? state.onStdout : state.onStderr
+  if (state.captureOutput) (isOut ? state.stdout : state.stderr).push(text)
+  const listener = isOut ? state.onStdout : state.onStderr
   if (typeof listener === 'function') listener(text)
 }
 
@@ -1062,9 +1092,11 @@ function formatTrap(error) {
  *   fs?: MemoryFs, stdin?: string | Uint8Array, readOnly?: string[],
  *   onStdout?: (chunk: string) => void, onStderr?: (chunk: string) => void,
  *   outMirror?: { control: Int32Array, bytes: Uint8Array },
+ *   outputLimit?: number, captureOutput?: boolean,
  * }} options
  * @returns {{
  *   ok: boolean, exitCode: number, stdout: string, stderr: string,
+ *   stdoutTruncated: boolean, stderrTruncated: boolean,
  *   runMs: number, memoryBytes: number, sbrkFailures: number | null,
  *   trap: string, fs: MemoryFs, state: object,
  * }}
@@ -1114,6 +1146,8 @@ export function runWasiModule(module, options = {}) {
       exitCode: 134,
       stdout: '',
       stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
       runMs: 0,
       memoryBytes: 0,
       sbrkFailures: null,
@@ -1130,6 +1164,8 @@ export function runWasiModule(module, options = {}) {
       exitCode: 134,
       stdout: '',
       stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
       runMs: 0,
       memoryBytes: 0,
       sbrkFailures: null,
@@ -1167,14 +1203,16 @@ export function runWasiModule(module, options = {}) {
     /* 探针自己炸了就当没有；不影响本次运行结论 */
   }
 
-  const stdout = state.stdout.join('') + state.stdoutDecoder.decode()
-  const stderr = state.stderr.join('') + state.stderrDecoder.decode()
+  const stdout = state.captureOutput ? state.stdout.join('') + state.stdoutDecoder.decode() : ''
+  const stderr = state.captureOutput ? state.stderr.join('') + state.stderrDecoder.decode() : ''
 
   return {
     ok: exitCode === 0 && !trap,
     exitCode,
     stdout,
     stderr,
+    stdoutTruncated: state.stdoutTruncated,
+    stderrTruncated: state.stderrTruncated,
     // 保留到 0.1ms，**不取整**：这一代只计 `_start()`，`cout` 一行这种程序真的跑不到
     // 1ms，取整会把它们全显示成 `0 ms`，看起来像没运行。TLE 判定吃的是同一个值
     // （wasmRuntime 拿它与用例时限比），保留小数只会更准，不会更松。

@@ -82,7 +82,7 @@ let downloading = null
  * 下载组件：把题库预取到本机。幂等 —— 已就绪时立刻返回，在途时复用同一个 Promise。
  *
  * @param {(stage: string) => void} [onStage] 进度回调，stage 是 Worker 给的机器码
- * @returns {Promise<{ type: 'ready', count?: number, durationMs?: number } | { type: 'failure', message: string }>}
+ * @returns {Promise<{ type: 'ready', count?: number, durationMs?: number } | { type: 'failure', code: string, message: string }>}
  */
 export function downloadCfPicker(onStage) {
   if (cfReady.value) return Promise.resolve({ type: 'ready', durationMs: 0 })
@@ -101,7 +101,12 @@ export function downloadCfPicker(onStage) {
         durationMs: Math.round(performance.now() - startedAt),
       }
     })
-    .catch((error) => ({ type: 'failure', message: error?.message || String(error) }))
+    .catch((error) => ({
+      type: 'failure',
+      // code 交给界面翻译（'WORKER_TIMEOUT' 有专门的一句，见 EditorSettingsPanel 的 downloadCf）
+      code: error?.code || 'ERROR',
+      message: error?.message || String(error),
+    }))
     .finally(() => {
       unsubscribe?.()
       downloading = null

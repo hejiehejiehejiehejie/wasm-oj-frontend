@@ -31,7 +31,26 @@
  * worker（~400ms）外加一枪 ABORTED、旧红线留在编辑器里。所以前台让它跑完，自己不杀它。
  */
 
-import { createMirror, readMirror, resetMirror } from './stdoutMirror.js'
+import {
+  createMirror,
+  OUTPUT_LIMIT_BYTES,
+  readMirror,
+  resetMirror,
+} from './stdoutMirror.js'
+import { t } from '../../i18n/index.js'
+
+const OUTPUT_LIMIT_MIB = OUTPUT_LIMIT_BYTES / 1024 / 1024
+
+/**
+ * 输出被截断时补在末尾的提示。
+ *
+ * 走 i18n 而不是写死在这里：它会被拼进 ACTUAL，是**给用户看的文案**，
+ * 与这个文件里其余那些「不上界面」的抛错不是一回事。
+ */
+function truncationNote() {
+  // key 是**扁平**的（这份消息表里没有 `engines:` 那一层，见 messages/engines.js 的 `stage`）
+  return t('output.truncated', { n: OUTPUT_LIMIT_MIB })
+}
 
 const DEFAULT_INIT = {
   clangURL: '',
@@ -137,11 +156,26 @@ export class WasiWorkerHost {
     this.eventListeners = new Set()
     /** idle 已经排进微任务，别重复排 */
     this.idleScheduled = false
+    /** 当前这条任务的 stdout / stderr 增量累积（派发时清空，见 resetOutput） */
     this.stdout = ''
     this.stderr = ''
+    /** 已累积的字符数，与 OUTPUT_LIMIT_BYTES 配对 */
+    this.stdoutChars = 0
+    this.stderrChars = 0
+    this.stdoutTruncated = false
+    this.stderrTruncated = false
     // stdout 的跨线程镜像：TLE 掐断之后靠它取回「已经打印出来的部分」。
     // 第一次 run 时才分配（8 MiB 的 SAB，别在构造时空占）。
     this.mirror = null
+    /**
+     * 镜像里那份字节**属于哪一条任务**（job.id，0 = 没人认领）。
+     *
+     * 镜像没有「消息送达」这个环节，也就没有自带归属信息 —— 谁最后带着 `stdoutSAB`
+     * 派发出去，里面的字节就是谁的。不记这一笔会出两种串台（都是本节要防的那件事）：
+     * - 掐掉一次编译（它不走镜像）却报出上一次运行的 stdout 当 partial；
+     * - 队列里第二条 run 在入队时清零，把正在跑的第一条镜像抹掉。
+     */
+    this.mirrorOwner = 0
     // 看门狗拿到这个对象后只调 kill()，不碰内部
     this.kill = this.kill.bind(this)
   }
@@ -229,18 +263,114 @@ export class WasiWorkerHost {
   }
 
   /**
-   * 被掐断时能拿到的 stdout —— **镜像优先**。
+   * 被掐断时能拿到的 stdout —— **镜像优先，且只认当前这条任务**。
    *
    * 为什么不信 `this.stdout`：worker 里的输出是按 64 KiB 攒批 post 的，`terminate()`
    * 那一刻缓冲区里还剩一截没发出去（2026-10-25 实测：打印 3 行后死循环，3 行全丢；
    * 打印 128 KiB 才留下两个整块）。镜像逐字节写在共享内存里，没有「消息送达」这个窗口。
+   *
+   * 为什么要核对 `mirrorOwner`：镜像里是**上一颗字节流**的残影，只有它的主人还在跑时才算数。
+   * 不核对的两个后果（都是「别人的输出混进这一条」）：
+   * - 一条不带镜像的活（编译 / 链接 / 语法）被掐断时，会把上一次运行的 stdout 当成自己的 partial；
+   * - 队列里排着第二条 run 时（入队不再清零，见 run），镜像仍是第一条的 —— 而 active 是第一条，
+   *   核对得上，正常读；反过来若真的是第一条已死、第二条还没派发，这里就一件都对不上，读空。
    */
   partialStdout() {
-    if (this.mirror) {
+    const active = this.active
+    if (this.mirror && active && this.mirrorOwner === active.id) {
       const { text } = readMirror(this.mirror)
       if (text) return text
     }
     return this.stdout
+  }
+
+  /**
+   * 清空这一条任务的增量输出与额度。
+   *
+   * **必须发生在派发那一刻**（`dispatch`），不能在 `send()` 里：`run()` 会先把消息入队，
+   * 如果那时候就清，排队期间上一条任务还在往这里流 chunk，清掉的和流进来的就错位了。
+   * 结算与掐断之后也要清，否则上一条的尾巴会被下一条的 result 当成自己的。
+   */
+  resetOutput() {
+    this.stdout = ''
+    this.stderr = ''
+    this.stdoutChars = 0
+    this.stderrChars = 0
+    this.stdoutTruncated = false
+    this.stderrTruncated = false
+  }
+
+  /**
+   * 累积一段增量输出，**有上限**（见 stdoutMirror.OUTPUT_LIMIT_BYTES）。
+   *
+   * 为什么主线程还要自己守一道：worker 已经截了，但发版后会出现「新客户端 + 缓存里的
+   * 旧 worker」这种混用（SW 的 retain-manifest 只管 chunk，不管这份 worker 的语义版本），
+   * 旧 worker 不带上限。这一道让最坏情况停在限额（见 OUTPUT_LIMIT_BYTES），而不是等内存耗尽。
+   *
+   * 计数用字符数（worker 侧用字节数）：UTF-8 下字符数恒 ≤ 字节数，所以同一份输出在主线程
+   * 这边总是后到上限，不会被提前截断成和 worker 不一致的内容。
+   */
+  appendOutput(kind, text) {
+    if (typeof text !== 'string' || !text) return
+    const isOut = kind === 'stdout'
+    const used = isOut ? this.stdoutChars : this.stderrChars
+    if (used >= OUTPUT_LIMIT_BYTES) {
+      if (isOut) this.stdoutTruncated = true
+      else this.stderrTruncated = true
+      return
+    }
+    const room = OUTPUT_LIMIT_BYTES - used
+    const piece = text.length <= room ? text : text.slice(0, room)
+    if (isOut) {
+      this.stdout += piece
+      this.stdoutChars = used + piece.length
+      if (piece.length < text.length) this.stdoutTruncated = true
+    } else {
+      this.stderr += piece
+      this.stderrChars = used + piece.length
+      if (piece.length < text.length) this.stderrTruncated = true
+    }
+  }
+
+  onMessage(message) {
+    const active = this.active
+    // stdout / stderr 只认**当前这条任务**的。terminate 之后才送到的那几条属于上一条，
+    // 之前能不出事全靠「result 里那份完整 stdout 覆盖掉累积值」—— 现在累积值就是唯一
+    // 来源（worker 不再带整串），不按 id 认人就会把上次运行的输出算进这一次的 ACTUAL。
+    if (message.type === 'stdout' || message.type === 'stderr') {
+      if (!active || message.id !== active.id) return
+      this.appendOutput(message.type, message.text)
+      return
+    }
+    // Progress events carry no request id and must not settle the active job.
+    if (message.type === 'asset-progress') {
+      this.onAssetProgress?.(message)
+      return
+    }
+    if (!active || active.id !== message.id) return
+    this.active = null
+    if (message.type === 'error') {
+      const error = new Error(message.error || 'C++ WASI 宿主错误')
+      error.stage = message.stage
+      error.partialStdout = this.partialStdout()
+      error.partialStderr = this.stderr
+      active.settle(error)
+    } else {
+      const result = message.result ?? {}
+      // 输出以增量累积为准；老版本 worker 还会在 result 里带整份，那时以它为准
+      // （带整份说明它没走 captureOutput: false，也就不会给出截断标记）。
+      //
+      // 截断标记两边都要看：worker 是在**写入**那一刻判定的，它一停就不再回调，于是主线程
+      // 收到的字节正好停在限额上、一次都不会「超」（2026-11-16 实测：超限输出被截到
+      // 限额对应的字符数，但提示行没出现 —— 只看本地计数就是这个症状）。
+      const out = result.stdout ?? (this.stdoutTruncated || result.stdoutTruncated ? this.stdout + truncationNote() : this.stdout)
+      const err = result.stderr ?? (this.stderrTruncated || result.stderrTruncated ? this.stderr + truncationNote() : this.stderr)
+      result.stdout = out
+      result.stderr = err
+      this.resetOutput()
+      active.settle(null, result)
+    }
+    this.pump()
   }
 
   ensureWorker() {
@@ -284,41 +414,6 @@ export class WasiWorkerHost {
       this.dead = true
     })
     return worker
-  }
-
-  onMessage(message) {
-    if (message.type === 'stdout') {
-      this.stdout += message.text
-      return
-    }
-    if (message.type === 'stderr') {
-      this.stderr += message.text
-      return
-    }
-    // Progress events carry no request id and must not settle the active job.
-    if (message.type === 'asset-progress') {
-      this.onAssetProgress?.(message)
-      return
-    }
-    const active = this.active
-    if (!active || active.id !== message.id) return
-    this.active = null
-    if (message.type === 'error') {
-      const error = new Error(message.error || 'C++ WASI 宿主错误')
-      error.stage = message.stage
-      error.partialStdout = this.partialStdout()
-      error.partialStderr = this.stderr
-      active.settle(error)
-    } else {
-      const result = message.result ?? {}
-      // 结果里带完整 stdout；增量那些只给 kill 后的 partial 用，成功路径以完整值为准
-      result.stdout = result.stdout || this.stdout
-      result.stderr = result.stderr || this.stderr
-      this.stdout = ''
-      this.stderr = ''
-      active.settle(null, result)
-    }
-    this.pump()
   }
 
   /**
@@ -424,6 +519,15 @@ export class WasiWorkerHost {
 
   dispatch(job) {
     this.active = job
+    // 每条任务的输出从零开始，**清在派发这一刻**：`send()` 时上一条可能还在流 chunk，
+    // 那时候清就会「清掉的和流进来的错位」。结算与掐断也会清（见 resetOutput）。
+    this.resetOutput()
+    // 带镜像的那条（run）在这里清零并认领：镜像只被一条任务占用，派发是唯一安全的时点
+    // —— 上一条已经结束（pump 保证一次只有一条 active），下一条还没收到消息。
+    if (this.mirror && job.payload.stdoutSAB) {
+      resetMirror(this.mirror)
+      this.mirrorOwner = job.id
+    }
     if (job.timeoutMs > 0) {
       job.timer = setTimeout(() => {
         job.timer = 0
@@ -503,10 +607,10 @@ export class WasiWorkerHost {
 
   async run({ binary, stdin = '', args = [] }, options) {
     const mirror = this.ensureMirror()
-    // 每次开跑前清零：同一份镜像被这颗常驻 worker 反复使用
-    if (mirror) resetMirror(mirror)
-    this.stdout = ''
-    this.stderr = ''
+    // **不在这里清零**。入队时清零会踩两条：一是「队列里排着第二条 run」时把正在跑的第一条
+    // 镜像抹掉（它后面被 TLE 掐断就只能拿到半截），二是清零发生在派发之前、和 worker 的写入
+    // 之间隔着一个调度窗口。清零 + 认领改在 dispatch 那一刻做（同步、紧接着 postMessage），
+    // 「排着队就被掐」那条则由 mirrorOwner 核对出来读空。
     return this.start({ type: 'run', binary, stdin, args, stdoutSAB: mirror?.sab }, options)
   }
 
@@ -559,9 +663,11 @@ export class WasiWorkerHost {
       stdout: keepOutput ? this.partialStdout() : '',
       stderr: keepOutput ? this.stderr : '',
     })
-    // 掐断之后这两份增量输出就属于上一条任务了，留着会被下一条的 result 当成自己的
-    this.stdout = ''
-    this.stderr = ''
+    // 掐断之后这两份增量输出就属于上一条任务了，留着会被下一条的 result 当成自己的。
+    // 镜像同理：字节还留在 SAB 里（下一条 run 派发时才清），把归属一起放掉，
+    // 中间发生的任何 partialStdout() 都读不到上一条的残影。
+    this.resetOutput()
+    this.mirrorOwner = 0
 
     const active = this.active
     this.active = null

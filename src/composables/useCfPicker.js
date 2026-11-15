@@ -425,6 +425,8 @@ export function useCfPicker() {
     } catch (failure) {
       if (failure?.code === 'NO_MATCH') {
         error.value = { key: 'cf.picker.errors.noMatch' }
+      } else if (failure?.code === 'WORKER_TIMEOUT') {
+        error.value = { key: 'cf.picker.errors.timeout' }
       } else if (failure?.code === 'DISPOSED' || failure?.code === 'WORKER_ERROR') {
         error.value = { key: 'cf.picker.errors.worker' }
       } else {

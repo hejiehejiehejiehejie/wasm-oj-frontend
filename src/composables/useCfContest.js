@@ -68,6 +68,7 @@ function toErrorValue(failure) {
   const code = failure?.code
   if (code === 'CONTEST_NEEDS_LOGIN') return { key: 'cf.contest.errors.needsLogin' }
   if (code === 'BAD_CONTEST_ID') return { key: 'cf.contest.errors.badLink' }
+  if (code === 'WORKER_TIMEOUT') return { key: 'cf.contest.errors.timeout' }
   if (code === 'DISPOSED' || code === 'WORKER_ERROR') return { key: 'cf.contest.errors.worker' }
   return { key: 'cf.contest.errors.fetch', params: { detail: failure?.message || '' } }
 }

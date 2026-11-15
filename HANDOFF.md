@@ -145,7 +145,7 @@ src/
   composables/useCfStandings.js # 比赛面板「排行榜」页的数据层（2026-10-27 加）：取一次 `contest.standings` → `cf/standings.js` 归一化 → 客户端分页（`STANDINGS_PAGE_SIZE = 100`；API 没有分页参数，一份 2–6MB 一次拿全，DOM 画不了 15,000 行）+ 我的行高亮 / 「跳到我」（只改页码不额外请求）。**轮询自己算**：只有「这一子页可见 + 页面在前台 + 比赛进行中」才排，10 秒一次、`setTimeout` 链（慢请求不会堆积）；已结束 / 未开赛一次都不排；后台回来先补一次。`seq` + `inFlight` 让换场 / 手动刷新 / 轮询撞车时只认最新一发。**只画官方榜**（API 不含 VP），自己的非正式名次要靠那颗按钮去问扩展（见 `CfStandingsTable`），这里不掺进去。**2026-10-27 起导出 `problemStats`**：表尾那行「通过 / 尝试」由 `cf/standings.js` 的 `problemStatistics` 拿手里这份榜单现算，整场口径、零额外请求（细则见第 7 节）
   composables/useCfSubmissions.js # 比赛面板「提交」页的数据层（2026-10-27 加）：最新提交流（`FETCH_COUNT = 200`，**永远只取最新一段**，更早的历史 P1 再做）+「只看我」+ 比赛中的轮询。**「只看我」走服务端过滤**：`contest.status?handle=` 让 CF 先筛 —— 旧比赛整场 60 万条，最近 200 条里很可能一条都不是你的；切筛选会清空重取（两种口径的记录不能混在同一份缓存里），在途那一发按代次作废。轮询与榜单同一条纪律：只有「这一子页可见 + 前台 + 进行中」才跑，5 秒一次；与榜单的 10 秒合起来 3 次 / 10 秒，在 CF 的 1 次 / 2 秒限流内
   cf/contest.js                 # 上面那条的纯逻辑：链接解析（URL 分段，覆盖 /contest /gym /group /problemset + 裸 ID，**不用正则大表**）/ URL 拼回（gym 与 group 的题目链接形态不同，别用 `cfProblemToTask` 拼）/ `contestRemainingMs` / `contestStatus`（**不信 `phase`** —— 页面开着不动时它恒为取数那一刻的值，倒计时归零必须能自己翻面）/ `sortByIndex`（A、B1、B10 自然序）/ `formatDuration`（`HH:MM:SS`，比赛状态行用）/ `durationParts`（拆成周 / 天 / 小时 / 分钟 / 秒，赛程行用）。无框架、无网络，能直接在 Node 里跑
-  cf/cfWorker.js                # ★ CF 所有网络请求的唯一出口（module worker）。一条**全局串行闸门** `apiFetch()`：任意两次 CF API 请求至少隔 `API_MIN_GAP = 2100ms` —— CF 明写 1 次 / 2 秒且**按来源 IP** 算，抽题、赛程、榜单、提交记录、提交详情共用同一份额度，**新接口一律走它，别在别处 fetch**；同 URL 的并发再由 `once()` 合并成一个 Promise。消息协议见文件头（`status / prefetch / pick / checkHandles / clear / contest / contestProblems / contests / standings / submissions / submissionDetail`）。缓存纪律：题库 24h、已 AC 12h、handle 1h、contest.list 1h、每场题目清单 24h（只存 problems，几 KB）；**榜单不落 IndexedDB**（单场 2–6MB），只在内存里留一份：已结束 60s、进行中 3s，最多 4 场。P0 的三条：`contests` 走 `contest.list`（非 gym 与 gym 两个列表分开缓存）；`standings` 只打裸参、开赛前回 `{pending:true}` 而不是报错；`submissions` 的 count 收敛到 1..1000（老场次 61.5 万条，**永远不全量拉**），`handle` 交给服务端筛。**2026-10-27 起所有请求统一带 `Accept-Language: en`** —— CF 的题名只有英 / 俄两套（没有中文），`contest.standings` 不带这个头**默认回俄文**（2276 实测 `Идеальные бутерброды` ↔ `Perfect Sandwiches`，与官网 `title="A - Perfect Sandwiches"` 一致）；它是 CORS 安全列表内的简单头、不触发预检。每场题目清单的缓存键因此抬到 `contestProblems:2:<id>`，否则已缓存的俄文题名还会再躺 24 小时
+  cf/cfWorker.js                # ★ CF 所有网络请求的唯一出口（module worker）。一条**全局串行闸门** `apiFetch()`：任意两次 CF API 请求至少隔 `API_MIN_GAP = 2100ms` —— CF 明写 1 次 / 2 秒且**按来源 IP** 算，抽题、赛程、榜单、提交记录、提交详情共用同一份额度，**新接口一律走它，别在别处 fetch**；同 URL 的并发再由 `once()` 合并成一个 Promise。消息协议见文件头（`status / prefetch / pick / checkHandles / clear / contest / contestProblems / contests / standings / submissions / submissionDetail`）。缓存纪律：题库 24h、已 AC 12h、handle 1h、contest.list 1h、每场题目清单 24h（只存 problems，几 KB）；**榜单不落 IndexedDB**（单场 2–6MB），只在内存里留一份：已结束 60s、进行中 3s，**窗口一过立刻释放**（`sweepStandings`，最多 4 场只是兜底上限）。`once()` **只圈「真的要去 CF 取数」那一段**，缓存判定一律在它外面 —— 所以 `force` 不进合并键（见 §24.8）。P0 的三条：`contests` 走 `contest.list`（非 gym 与 gym 两个列表分开缓存）；`standings` 只打裸参、开赛前回 `{pending:true}` 而不是报错；`submissions` 的 count 收敛到 1..1000（老场次 61.5 万条，**永远不全量拉**），`handle` 交给服务端筛。**2026-10-27 起所有请求统一带 `Accept-Language: en`** —— CF 的题名只有英 / 俄两套（没有中文），`contest.standings` 不带这个头**默认回俄文**（2276 实测 `Идеальные бутерброды` ↔ `Perfect Sandwiches`，与官网 `title="A - Perfect Sandwiches"` 一致）；它是 CORS 安全列表内的简单头、不触发预检。每场题目清单的缓存键因此抬到 `contestProblems:2:<id>`，否则已缓存的俄文题名还会再躺 24 小时
   cf/cfCache.js                 # Worker 侧 IndexedDB 缓存（题库 / 已 AC / handle / 比赛列表 / 每场题目清单）。TTL 由 cfWorker 的常量决定，这里只管读写；主线程不碰
   cf/standings.js               # 排行榜纯逻辑（2026-10-27 加，无框架 / 无网络 / 能在 Node 里直接跑）：把 API 的 `{contest, problems, rows}` 归一化成界面形状；**三套计分口径别混**（CF 制直接显示 `row.points`，含 hack 加减分，别自己重算；ICPC 的 points = 过题数、penalty = 罚时；IOI 只有总分）；冻结节保留 `cell.type = PRELIMINARY` 给界面挂提示。**API 榜单只有正式参赛者**（2026-10-26 拿 2184 的 15,725 行验过，全是 `CONTESTANT`）—— VP / 非正式不在里面，界面明说「官方榜」，精确的那一个名次由排行榜抬头那颗「非正式名次」去问扩展（2026-10-27 起）。**题格口径（2026-10-27 定）**：主行 = `+`（ICPC）/ 得分（CF / IOI），副行 = **通过时刻**（`bestSubmissionTimeSeconds` → `HH:MM`，与 CF 榜单页一致），CF 制的失败次数只进 `title`；**「通过的格子算不算 partial」只对 IOI 生效** —— CF 给的是衰减后的得分（500 分题实际到手 320），拿它跟 `problem.maxPoints` 比会让每个通过的格子都落进 `partial`（黄色），这个 bug 2026-10-27 实测抓出并修掉。`problemStatistics(rows, problems)` 供表尾：通过 = `points > 0`、尝试 = `points > 0 || rejected > 0`，整场（不是当前页）—— 与 CF 页面表尾 `tr.standingsStatisticsRow` 逐题一致（2276 ICPC：7342/7618 … 4/4；2272 CF 制同口径对上）。**没通过的格子（2026-10-27 深夜定死）**：`rejected > 0` 时主行画红字 `-N`、`tone: 'fail'`，**不许放进 9px 的副行** —— 曾这么干过一次，副行的 `--text-faint` 把 fail 色盖掉，用户当场报「排行榜又不显示罚时了」（CF 的 ICPC 榜单也是一格红字 `-2`）。CF 制「通过」的格子才把被拒次数留在 `title`（CF 同款）
   cf/submissions.js             # 提交记录纯逻辑（2026-10-27 加）：CF `verdict` 枚举 → 站内短码（TESTING / SUBMITTED 不是终态，界面画「进行中」）、按 id 合并（轮询只取最新一段，合并而不是替换，旧的因被挤出前 200 的不能丢）、倒序截断、`filterMine` / `summarizeMine`。⚠️ **`relativeTimeSeconds` 会把赛后 / 练习提交填成 INT32_MAX（2147483647）** —— 那是「没有比赛内时刻」的哨兵不是秒数，照常格式化会得到 `596523:14` 把时间列撑爆；`RELATIVE_TIME_MAX`（100 天）以外一律归一成 null，界面退回本地时刻
@@ -2918,6 +2918,7 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 
 → **4MiB 输出只比空输出多花约 30ms**，比 stdin 侧快两个数量级（同尺寸下 stdin 要 2,559ms）。
 - 但**宿主侧收口**另花 **≈270–360ms / 5MB**：`bigout` 30 万行 = 5,245,485 字节，命中编译缓存那一次 JS 431.6ms 而运行段 73ms（差 **358.6ms**）；另一次 JS 322.5 / 运行段 54（差 **268.5ms**）。也就是**大输出的真正成本在把字符串交回页面**（宿主拼接 + 跨线程传），不在沙箱里。
+  - ⚠ **这组数是 2026-11-16 之前的通道**：当时同一条输出传两遍（64 KiB 增量 + `result.stdout` 整串），宿主还要再 `join` 一次。那天改成**只走增量一条路**（worker 侧 `captureOutput: false`）并加了单条消息 8 MiB 上限（见 `services/wasi/stdoutMirror.js` 的 `OUTPUT_LIMIT_BYTES`），270–360ms 这段结构上已经变了 —— **拿它做对比前必须按 §18.8 重测**，别直接引用。
 - 缓存命中后同一段代码连测 10 次（各带 64KiB 输入）：JS **min 49 / 中位 54 / max 55ms**（第一次 807ms 是冷编），其中程序自己读输入就占 39.6–45.1ms → 剩下的 **≈5–10ms** 是运行段内的启动/退出，宿主↔worker 通信只占 **0–1ms**。
 
 ### 18.5 Python
@@ -2957,7 +2958,7 @@ GET  /api/config/<未存过的 handle>                          → 404 + conten
 ### 18.7 由基准排出的改进优先级（排序；①② 的宿主方案已定 B，2026-10-25，见 `docs/新内核规划.md` 阶段 4）
 
 1. **stdin 搬运 1.6MB/s** 是整条链路最贵的一段：1MB 输入就要 643ms，比标准件的全部算力（30ms）贵 20 倍。改法是把块尺寸从 8188 提上去、或直接把输入一次性写进 wasm 内存。
-2. **stdout 宿主收口 ≈270–360ms / 5MB** 与 ① 同一条通道，动一边要一起看。
+2. **stdout 宿主收口 ≈270–360ms / 5MB** 与 ① 同一条通道，动一边要一起看。（2026-11-16 已改成单份传输 + 8 MiB 上限，这个数**待重测**，见 §18.4 那条 ⚠。）
 3. **冷编译 505–715ms**：PCH 已能砍 35%，但要 +7.35MiB 常驻；再往下只剩「换更快的工具链」或「多 worker 并行编译」，都不小。
 4. **首访网络 30.84MiB**：C++ 那两件 br 后 16.05MiB 是绝对大头，`clang-fs.tar.gz` 只有 1.71MiB —— **精简 sysroot 的收益远小于动两个编译器**，别一上来就朝头文件下手。另：这一条按「改进计算/IO 路径」排在这里，**但如果 metric 换成「首访用户点第一下的等待」，它必须排第一** —— 线上实测那一次是 7–18 秒（§18.6），比 ①②③ 任何一条都贵一个数量级。
 5. **UaMem 看不见 wasm 线性内存**：后续任何「省内存」的验收必须继续用 `sbrk(0)` 自报，否则测不出收益也测不出回归。
@@ -3675,6 +3676,25 @@ npx vite build --outDir /tmp/x   # 只验编译，别用 npm run build（沙箱�
 `npm run verify:judge` 20/20 PASS、`npx vite build` 通过（改完复跑）。
 **下次动 run 分支的 stdout 路径时**：消息那条路仍然是 64 KiB 攒批（编译诊断照用），但**运行期的取数只认镜像**，别再指望 `this.stdout` 在 kill 之后有内容。
 
+#### 补：输出「归属」（2026-11-16）
+
+上面那套跑起来之后还剩一个洞：**这份输出属于哪一条任务**原来没有记录下来，于是「上一条的尾巴」和「这一条的开头」会混在一起。两条通道各自修：
+
+- **消息通道**：`stdout` / `stderr` 消息带 `message.id`，主线程只认 `active.id`，其余直接丢。以前能不出事，靠的是「`result.stdout` 那份整串覆盖掉累积值」；2026-11-16 起累积值是唯一来源（worker 不再带整串），不认人就会把上一次运行的输出算进这一次的 ACTUAL —— 这条从「保险」变成了「必须」。
+- **镜像通道**：SAB 没有「送达」环节，也就没有自带归属。`client` 记 `mirrorOwner`（**派发**时认领、`terminate` 时放掉），`partialStdout()` 只读「主人 == 当前 active」的那一份。同时把清零从 `run()` 入队挪到 `dispatch`：入队清零会在「第二条 run 已经排队」时把**正在跑的第一条**抹掉，而清零点与 worker 的写入之间还隔着一个调度窗口。
+
+实测（无头 Chrome，dev 5198；探针 `/tmp`，跑完即删）：
+
+| 场景 | 结果 |
+| --- | --- |
+| 打印 20000 行（760000 B）后死循环 → `kill('timeout')` | 错误码 `killed`，`partialStdout` **760000 字符**，开头 `line-00000-…`；同一时刻主线程 `host.stdout` 已是 **0**（能证明取数只认镜像） |
+| 紧接着跑 `printf("tail-ok\n")` | `stdout` 恰好 **8 字符**（迟到的 stdout 没混进来） |
+| 假 worker 单测：派发 run + 写镜像 → `kill` | `partialStdout` == 镜像内容（`RUN-ONE-OUTPUT`），`mirrorOwner` 认领成立 |
+| 同上，run 正常收尾后再派一条 compile 并立刻 `kill` | `partialStdout` 是**空**（SAB 里仍留着 `STALE-FROM-RUN-ONE`，但不再被当成这条的 partial —— 这是这次改动真正改掉的旧行为） |
+
+`npm run verify:judge` 20/20 PASS（含 #4 TLE 1101ms）。
+
+
 ---
 
 ## 22. 新内核阶段 6：浏览器能力探测与闸门（2026-10-25）
@@ -4082,6 +4102,54 @@ try {
 - **SW 换代时通知受控页面刷新**：`activate` 里 `clients.matchAll()` → `postMessage` → 页面弹一条「已更新，刷新」。这能把「旧页面按需加载 404」从根上收敛掉，但它会新增一条用户可见的提示，按惯例要先问。
 - **prune 保留上一代清单**：需要构建期拿到上一次部署的 manifest（CI 里 curl 旧地址），链路更脆，暂时不做。
 - `wasi.worker` / `editor.worker` / 动态 chunk 的同类兜底没做 —— 它们没有 `cfClient` 这种单一入口，得各自想清楚（`wasi.worker` 崩了是「点运行没反应」，比 CF 更值得单独处理）。
+
+### 24.7 空闲看门狗：`onerror` 接不住的那一半（2026-11-16）
+
+`onerror` 只覆盖「脚本取不到 / worker 里抛错」。**「还活着但永远不回话」这条路一个兜底都没有**：模块顶层死循环、几 MB 文本上的正则回溯、或者被浏览器因内存压力悄悄杀掉（terminate 那条路**不发** error 事件）。而 `pending` 只增不减、条目要等回包才删 —— `await cfPick()` 于是永远挂着，界面停在「抽取中…」，连重试按钮都点不了。
+
+两边配合的改法：
+
+- **心跳**：`cf/cfWorker.js` 的 `apiFetch` 在 fetch 前后各发一条 `{ type: 'beat' }`。它是**新增的消息 type**，旧主线程收到会走 `pending.get(undefined)` → 直接丢弃，安全（符合 §24.3 那条「只增不改」）。
+- **看门狗**：`services/cfClient.js` 只在**有在途请求**时挂一颗 1s 的 interval，`SILENCE_MS = 45000` 内一个字节都没收到（beat / progress / 响应都算「动静」）就判定卡死 → `terminate()` 整颗、`worker = null`、`failAll(WORKER_TIMEOUT)`；下一条请求自然起一颗新的（数据都在 IndexedDB 里，不丢）。
+- **判据是「有没有动静」而不是「已经跑了多久」**：多账号逐个校验、排在队尾等闸门，再久也不会被误杀 —— 前面的请求在发心跳。
+- **45s 的来源**：单次 fetch 上限 30s + 闸门 2.1s，活着的 worker 静默不会超过 ~33s，余下的留给「解析几 MB JSON + 落 IndexedDB」。
+- 文案：`cf.contest.errors.timeout` / `cf.picker.errors.timeout`（中英各一套），四个 `errorText` + 抽题面板各加一条分支；`downloadCfPicker` 的失败结果多带一个 `code`，设置页据此翻译。
+
+实测（自起 dev server + 真 worker，探针在 `/tmp`，跑完即删）：
+
+| 场景 | 结果 |
+| --- | --- |
+| 正常 `status`（只读 IndexedDB） | 66ms resolve，beat **0** 条（不触网，符合预期） |
+| `prefetch force`（拉 2MB 题库，11526 道） | 1162ms resolve，beat **2** 条（fetch 前后各一） |
+| 吞掉 `postMessage`（模拟活着不回话） | **45.8s** reject `WORKER_TIMEOUT`，那颗 worker `terminate` 1 次 |
+| 随后恢复 | 起**新** worker，35ms 回 `count: 11526`（缓存没丢） |
+| Node 里用假 worker 复验 | 45.0s 判死；只发心跳、55s 才答复 → 正常 resolve（心跳续命）；进程自行退出（无残留 interval） |
+
+⚠️ 前提是「新页面永远配到 ≥ 自己的 worker」（hash 锁死，`rescueWorker` 只会配上更新的那份）。真出现「新主线程 + 旧 worker」，那版 worker 不发 beat，长时间没动静的请求会被误判一次 —— 代价是重试一次，不丢数据。
+
+### 24.8 `once()` 只圈网络 + 榜单条目过期即释放（2026-11-16，同轮审查的两条「低」）
+
+**一、`force` 不再进合并键。** 原来 `loadContestList` 的键是 `contestList:main${force ? ':force' : ''}`，于是「赛程打开时的静默刷新（force）」撞上任何一次普通读取，就会对**同一个 URL 并发打两次 CF**。两条修法里选了更彻底的那条：**缓存判定一律挪到 `once()` 外面，`once()` 里只保留「真的要去取数」那一段**。
+
+- 这样进到 `once` 的每一条都注定触网，被合并到的那一份必然是**网络数据**，不会拿一次缓存命中去敷衍 `force`；`force` 也就不需要进键，不需要额外的新鲜度仲裁。
+- 代价：`force` 可能搭上一趟「刚刚发出」的取数（最多几十秒前的结果）。仍满足 force 的语义（一定不是缓存），且比多打一次配额划算。
+- 改到的四处：`loadProblemset` / `loadSolvedKeys` / `verifyHandle` / `loadContestList`（`requestStandings` 本来就把复用窗口判在 `once` 外面，只去掉了键里的 force 思路）。
+
+**二、榜单缓存按「还能不能用」淘汰，不再按「留几份」。** `recentStandings` 里每个值都是 2–6MB 的原始榜单，原来只在「超过 4 场」时挤掉最旧的 —— 而窗口只有 3s / 60s，一条记录过期之后、在被第 5 场挤掉之前**再也不可能被复用**，却一直占着那几 MB（比赛打一整场只看一场榜单 = 一份 6MB 永久常驻）。现在 `sweepStandings()` 在每次 `requestStandings`（每轮轮询）与每次写新条目时清理过期条目，4 这个上限只兜「60 秒内连翻好几场」。
+
+实测：Node 里直接 import 真实的 `cf/cfWorker.js`（`self` / `fetch` 换桩，IndexedDB 天然降级成「无缓存」），探针在 `/tmp`，跑完即删。
+
+| 场景 | 结果 |
+| --- | --- |
+| `contests` 并发（`force` + 普通） | `contest.list` **只请求 1 次**，两条都拿到 2169 场 |
+| `standings` 并发（`force` + 普通） | `contest.standings` **只请求 1 次**，两条都拿到 40 行 |
+| 结束的比赛 30s 内 / 过了 60s | 复用（0 次新增）/ 重新取（1 次） |
+| 进行中的比赛 2s 内 / 4s 后 | 复用（0 次新增）/ 重新取（1 次）—— 3s 窗口分支正确 |
+| `force` 无视窗口 | 新增 1 次 |
+| 15000 行榜单的回收 | 窗口内 WeakRef 存活（缓存持有）→ 跨过 60s 并被另一次取数触发 sweep 后 **WeakRef 已回收** |
+| 浏览器冒烟（真 dev server + 真 worker + 真 CF） | `contests` 2169 场 / 3441ms；榜单 5342 行 2332ms、同场再取 **17ms**（复用）、`force` 652ms；`pageerror` 0 |
+
+
 
 ## 25. 题解统计簇压缩：双层数字块 + 容器查询降级（2026-11-01）
 

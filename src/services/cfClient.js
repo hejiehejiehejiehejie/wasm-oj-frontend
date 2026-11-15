@@ -16,6 +16,10 @@
  *
  * 【Worker 崩了怎么办】onerror 里把所有在途请求一起失败掉。否则调用方的
  * `await cfPick(...)` 会永远挂着，界面就卡在「抽取中…」再也不会变。
+ *
+ * 【Worker 活着但不吭声怎么办】onerror 管不到这种：它能接住的只有「抛错 / 脚本取不到」，
+ * 接不住「还活着但永远不回话」（死循环、被浏览器悄悄杀掉）。那种情况靠空闲看门狗兜
+ * —— 45s 收不到任何消息就整颗换掉并把在途请求判失败，见下面的 SILENCE_MS。
  */
 /** @type {Worker | null} */
 let worker = null
@@ -33,6 +37,30 @@ const progressListeners = new Set()
  * —— 否则每次请求都会多一趟清单请求，还会在离线时反复空转。
  */
 let rescueTried = false
+
+/**
+ * 多久**一个字节都没收到**就判定这颗 Worker 已经卡死。
+ *
+ * 【为什么需要】`pending` 里的表只增不减，条目要等 Worker 回包才删。Worker 崩了有 onerror
+ * 兜着，但「活着却不回话」这条路没有任何兜底：模块顶层死循环、几 MB 文本上的正则回溯、
+ * 或者被浏览器因内存压力悄悄杀掉（那条路**不发** error 事件）—— 调用方的 `await cfPick(...)`
+ * 会永远挂着，界面停在「抽取中…」，连重试按钮都点不了。
+ *
+ * 【45s 这个数怎么来的】Worker 的**每一次网络步骤前后都发心跳**（cfWorker 的 apiFetch），
+ * 单次 fetch 的上限是 30s、串行闸门间隔 2.1s。所以一颗活着的 Worker 在任何一条长任务里
+ * 都不会静默超过 ~33s，余下的 12s 留给「解析几 MB JSON + 落 IndexedDB」。判据因此是
+ * 「有没有动静」而不是「已经跑了多久」—— 排在队尾再久也不会被误杀，因为前面的请求在发心跳。
+ *
+ * 【为什么必须整颗换掉】一条卡死的消息会一直占着 Worker 的事件循环：留着它，后面每条请求
+ * 都排在它后面陪葬。terminate 之后把 `worker` 清空，下一次请求自然起一颗新的 —— 缓存都在
+ * IndexedDB 里，不丢数据。
+ */
+const SILENCE_MS = 45000
+
+/** 最近一次收到这颗 Worker 的任何消息（心跳 / 进度 / 响应都算）的时刻 */
+let lastSignalAt = 0
+/** @type {ReturnType<typeof setInterval> | null} 只在有在途请求时存在 */
+let watchdog = null
 
 /** 把 Worker 回的失败信封翻成一个带 code 的 Error，调用方据此分辨 NO_MATCH / 网络错误 */
 function toError(message) {
@@ -108,6 +136,8 @@ async function rescueWorker() {
 
   attach(next)
   worker = next
+  // 换了一颗，静默计时重新起算（旧那颗可能已经沉默很久，别让新的一上来就被判死）
+  lastSignalAt = Date.now()
 
   // 在途的请求一条都不能丢：id 保持不变，新 worker 回信时对得上
   for (const entry of pending.values()) next.postMessage(entry.payload)
@@ -129,6 +159,14 @@ function attach(target) {
   target.onmessage = (event) => {
     const message = event.data
     if (!message || typeof message !== 'object') return
+
+    // 只要它还会说话，就说明没死（看门狗只认「有没有动静」，见 SILENCE_MS）。
+    // 兜底换代那一小段时间里，两颗 worker 都可能回话 —— 只认当前这颗，
+    // 否则一颗还在正常跑的旧 worker 能替一颗已经卡死的新 worker 「续命」。
+    if (!worker || target === worker) lastSignalAt = Date.now()
+
+    // 心跳：活着的证明，既不是响应也不是进度
+    if (message.type === 'beat') return
 
     // 主动推送的进度：不是响应，不进 pending 表
     if (message.type === 'progress') {
@@ -176,6 +214,55 @@ function ensureWorker() {
   return worker
 }
 
+/** 「Worker 长时间没动静」：code 让界面能给出比「网络错误」更准确的说法（见各处 errorText） */
+function timeoutFailure() {
+  const error = new Error(`Codeforces worker stopped responding (${SILENCE_MS / 1000}s of silence)`)
+  error.code = 'WORKER_TIMEOUT'
+  return error
+}
+
+/**
+ * 整颗换掉：掐死当前 Worker，把在途请求一起判失败。
+ * 之后 `ensureWorker()` 会按需起一颗新的 —— 数据都在 IndexedDB 里，重启不丢。
+ */
+function resetWorker(error) {
+  const dead = worker
+  worker = null
+  stopWatchdog()
+  try {
+    dead?.terminate()
+  } catch {
+    /* 已经死透了，terminate 抛不抛都无所谓 */
+  }
+  failAll(error)
+}
+
+/** 每秒看一眼：还有请求在途、而这颗 Worker 已经 SILENCE_MS 没出过声 → 判定卡死 */
+function sweepSilence() {
+  if (pending.size === 0) {
+    stopWatchdog()
+    return
+  }
+  if (Date.now() - lastSignalAt < SILENCE_MS) return
+  resetWorker(timeoutFailure())
+}
+
+/**
+ * 只在「有在途请求」时挂表，闲下来一个定时器都不留。已经挂着就别重置起点 ——
+ * 否则一条新请求会替一条旧的把判决时刻往后拖。
+ */
+function armWatchdog() {
+  if (watchdog) return
+  lastSignalAt = Date.now()
+  watchdog = setInterval(sweepSilence, 1000)
+}
+
+function stopWatchdog() {
+  if (!watchdog) return
+  clearInterval(watchdog)
+  watchdog = null
+}
+
 /**
  * 发一条请求并等响应。
  * @param {Record<string, unknown>} payload 至少含 type
@@ -189,7 +276,15 @@ function request(payload) {
   return new Promise((resolve, reject) => {
     // payload 存下来是为了兜底换代时重投同一个信封（见 rescueWorker）
     pending.set(id, { resolve, reject, payload: envelope })
-    target.postMessage(envelope)
+    armWatchdog()
+    try {
+      target.postMessage(envelope)
+    } catch (error) {
+      // 这颗 worker 已经不可用（被 terminate / 上下文丢了）：整颗收掉，让下一次请求起新的。
+      // 不能只 reject 这一条 —— 其余在途的也在等这颗不会回话的 worker，留着它们只会
+      // 拖到看门狗判死时把「下一颗好 worker」也一起掐掉。
+      resetWorker(workerFailure(error?.message))
+    }
   })
 }
 

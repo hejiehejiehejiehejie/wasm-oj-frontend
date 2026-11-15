@@ -5,10 +5,14 @@
  *   1. 第一次 init 时把 sysroot 解成 MemoryFs、把 clang 编成 `WebAssembly.Module`，
  *      之后**常驻**（不再每次 run 重新实例化 + 整份 clone）；wasm-ld 是第二档资产，
  *      只在真正要 link 时才拉（见 ensureLinker）；
- *   2. 按消息跑 compile / link / run / syntax，输出只回传结果与产物字节；
- *   3. stdout / stderr 按 64 KiB 回传；**另有一份逐字节镜像**写进主线程开的
- *      SharedArrayBuffer（见 stdoutMirror.js），terminate 之后主线程靠它取回
- *      已经打印出来的部分 —— 消息那条路只够「通常够用」，TLE 必丢尾巴。
+ *   2. 按消息跑 compile / link / run / syntax，只回传结果与产物字节；
+ *   3. stdout / stderr 按 64 KiB 回传（带消息 id，见 `streamer`）；**另有一份逐字节镜像**
+ *      写进主线程开的 SharedArrayBuffer（见 stdoutMirror.js），terminate 之后主线程靠它
+ *      取回已经打印出来的部分 —— 消息那条路只够「通常够用」，TLE 必丢尾巴。
+ *
+ *   ⚠️ 输出**只走增量这一条路**，`result` 里不再带整份 stdout/stderr（`captureOutput: false`）。
+ *   同一条输出传两遍会让峰值内存翻倍，结构化克隆那一整串时还要把它再读一次 ——
+ *   「一个 while(1) 打印把标签页卡死」就是从这里来的。两个上限都由宿主侧兜（见 emit）。
  *
  * 同步执行是刻意的：`runWasiModule` 是同步的，阻塞的只是这个 worker；
  * 主线程的看门狗用 `worker.terminate()` 就能打断死循环，代价是下次要重新 init。
@@ -47,6 +51,33 @@ let installedPchRef = null
 
 function post(message, transfer) {
   self.postMessage(message, transfer ?? [])
+}
+
+/**
+ * 攒批回传一路输出（stdout 或 stderr）。
+ *
+ * **带消息 id**：主线程靠它把「terminate 之后才送到的那几条」认出来扔掉 —— 否则上一次
+ * 运行的尾巴会混进下一次的 ACTUAL（这条曾经只能靠 `result.stdout` 覆盖掉才不出事）。
+ *
+ * **result 里不再带第二份整串**（见各分支的 `captureOutput: false`）：同一条输出传两遍，
+ * 峰值内存翻倍；而结构化克隆那一整串时要把几 MB 再读一次，正是「输出爆炸就卡死」的直接来源。
+ */
+function streamer(id, kind) {
+  let buffer = ''
+  return {
+    onChunk(chunk) {
+      buffer += chunk
+      if (buffer.length >= 64 * 1024) {
+        post({ type: kind, id, text: buffer })
+        buffer = ''
+      }
+    },
+    flush() {
+      if (!buffer) return
+      post({ type: kind, id, text: buffer })
+      buffer = ''
+    },
+  }
 }
 
 /**
@@ -266,28 +297,18 @@ async function main(message) {
     // 每次编译都会退回「无 PCH」（慢 3 倍），而且是静默的 —— clang 只是找不到
     // /stdc++.h.pch，参数里的 -include-pch 变成普通头处理，不报错。
     if (message.pch) installPch(message.pch)
-    let out = ''
-    let err = ''
+    const outStream = streamer(message.id, 'stdout')
+    const errStream = streamer(message.id, 'stderr')
     const result = runWasiModule(tool, {
       args: message.tool === 'ld' ? ['wasm-ld', ...message.args] : ['clang', ...message.args],
       fs: baseFs,
-      onStdout: (chunk) => {
-        out += chunk
-        if (out.length >= 64 * 1024) {
-          post({ type: 'stdout', text: out })
-          out = ''
-        }
-      },
-      onStderr: (chunk) => {
-        err += chunk
-        if (err.length >= 64 * 1024) {
-          post({ type: 'stderr', text: err })
-          err = ''
-        }
-      },
+      // 输出只走增量回传，worker 里不留整串（见 streamer 的注释）
+      captureOutput: false,
+      onStdout: outStream.onChunk,
+      onStderr: errStream.onChunk,
     })
-    if (out) post({ type: 'stdout', text: out })
-    if (err) post({ type: 'stderr', text: err })
+    outStream.flush()
+    errStream.flush()
     let object = null
     let binary = null
     if (type === 'compile') {
@@ -299,8 +320,8 @@ async function main(message) {
     if (message.tool === 'ld') releaseLinker()
     return {
       exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
+      stdoutTruncated: result.stdoutTruncated,
+      stderrTruncated: result.stderrTruncated,
       trap: result.trap,
       runMs: result.runMs,
       memoryBytes: result.memoryBytes,
@@ -315,25 +336,26 @@ async function main(message) {
     if (message.extraFiles) {
       for (const [path, bytes] of Object.entries(message.extraFiles)) writeFile(path, bytes)
     }
-    let out = ''
-    let err = ''
     // 链接器是第二档资产：第一次走到这里才下载 + 编译（见 ensureLinker）。
     // 下载耗时算在这条 link 消息的 60s 编译看门狗里；它通常已经在缓存里了。
     const lld = await ensureLinker()
+    const outStream = streamer(message.id, 'stdout')
+    const errStream = streamer(message.id, 'stderr')
     try {
       const result = runWasiModule(lld, {
         args: ['wasm-ld', ...message.args],
         fs: baseFs,
-        onStdout: (chunk) => { out += chunk },
-        onStderr: (chunk) => { err += chunk },
+        captureOutput: false,
+        onStdout: outStream.onChunk,
+        onStderr: errStream.onChunk,
       })
-      if (out) post({ type: 'stdout', text: out })
-      if (err) post({ type: 'stderr', text: err })
+      outStream.flush()
+      errStream.flush()
       const binary = readFile(message.outputPath)
       return {
         exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
+        stdoutTruncated: result.stdoutTruncated,
+        stderrTruncated: result.stderrTruncated,
         trap: result.trap,
         runMs: result.runMs,
         binary: binary ? new Uint8Array(binary) : null,
@@ -359,33 +381,30 @@ async function main(message) {
       }
       module = moduleCache.module
     } catch (error) {
-      return { exitCode: 134, stdout: '', stderr: '', trap: `compile: ${String(error)}`, runMs: 0, memoryBytes: 0, sbrkFailures: null, cold: false }
+      return { exitCode: 134, stdoutTruncated: false, stderrTruncated: false, trap: `compile: ${String(error)}`, runMs: 0, memoryBytes: 0, sbrkFailures: null, cold: false }
     }
     const stdin = message.stdin instanceof Uint8Array ? message.stdin : encoder.encode(message.stdin ?? '')
     // 主线程开的镜像：它在 terminate 之后仍可读，是本条路径上「TLE 不丢输出」的唯一保证。
     const outMirror = message.stdoutSAB ? wrapMirror(message.stdoutSAB) : null
-    let out = ''
-    let err = ''
+    const outStream = streamer(message.id, 'stdout')
+    const errStream = streamer(message.id, 'stderr')
     const result = runWasiModule(module, {
       args: ['program', ...(message.args ?? [])],
       fs: new MemoryFs({}, []),
       stdin,
       outMirror,
-      onStdout: (chunk) => {
-        out += chunk
-        if (out.length >= 64 * 1024) { post({ type: 'stdout', text: out }); out = '' }
-      },
-      onStderr: (chunk) => {
-        err += chunk
-        if (err.length >= 64 * 1024) { post({ type: 'stderr', text: err }); err = '' }
-      },
+      // 判题只用得到增量回传出来的那份；worker 里不再留整串，
+      // 一次几 MiB 的输出因此只剩 64 KiB 的攒批缓冲 + 8 MiB 镜像。
+      captureOutput: false,
+      onStdout: outStream.onChunk,
+      onStderr: errStream.onChunk,
     })
-    if (out) post({ type: 'stdout', text: out })
-    if (err) post({ type: 'stderr', text: err })
+    outStream.flush()
+    errStream.flush()
     return {
       exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
+      stdoutTruncated: result.stdoutTruncated,
+      stderrTruncated: result.stderrTruncated,
       trap: result.trap,
       runMs: result.runMs,
       memoryBytes: result.memoryBytes,

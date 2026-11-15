@@ -131,6 +131,16 @@ export default {
       pythonRuntime: '正在获取 Python 运行时（约 24MB，仅下一次）…',
     },
 
+    /**
+     * 输出被截断时补在末尾的提示。
+     *
+     * 上限见 `services/wasi/stdoutMirror.js` 的 `OUTPUT_LIMIT_BYTES`（单条消息 8 MiB，{n} 由调用处给）。
+     * 只在前缀被砍掉时才出现，所以文案要能独立读懂「这不是程序打的」—— 方括号是刻意的。
+     */
+    output: {
+      truncated: '\n[输出超过 {n} MiB，已截断]',
+    },
+
     error: {
       /** 沙箱与工具链 */
       wasmUnsupported:
@@ -325,6 +335,10 @@ export default {
       compile: 'Compiling…',
       run: 'Running…',
       pythonRuntime: 'Fetching the Python runtime (~24MB, once)…',
+    },
+
+    output: {
+      truncated: '\n[Output exceeded {n} MiB and was truncated]',
     },
 
     error: {
