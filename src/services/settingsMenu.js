@@ -179,11 +179,14 @@ export const SETTINGS_MENU_ROWS = [
     toggle: () => setTemplatesEnabled(!templatesEnabled.value),
   },
   {
-    id: 'autoSave',
+    // 2026-11-16 用户要求：把「自动保存」换成「底部状态栏」。两者同属「当场就想改」的开关，
+    // 换的是这一格摆谁；`autoSave` 本身没删，入口仍在设置面板「编辑器」组（键与设置面板
+    // 那一行完全同一份，`settings.editor.statusBar.label` 两处共用，不必新写文案）。
+    id: 'statusBar',
     kind: 'switch',
-    labelKey: 'settings.editor.autoSave.label',
-    checked: () => editorSettings.value.autoSave,
-    toggle: () => setEditorSetting('autoSave', !editorSettings.value.autoSave),
+    labelKey: 'settings.editor.statusBar.label',
+    checked: () => editorSettings.value.statusBar,
+    toggle: () => setEditorSetting('statusBar', !editorSettings.value.statusBar),
   },
   { kind: 'divider' },
 
