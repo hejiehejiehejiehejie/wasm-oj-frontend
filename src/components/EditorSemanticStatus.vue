@@ -3,8 +3,9 @@
  * Transient status for the semantic hover runtime (FR10 / FR11).
  *
  * It lives in the editor status bar: download progress, PCH warm-up, wake-up
- * after hibernation, long-running queries, and a retry action after a load
- * failure. The module is imported lazily and only while the setting is on, so
+ * after hibernation, long-running queries, and the bounded auto-retry after a
+ * load failure (外加预算耗尽后那颗手动「重试」，见 semanticHover 的 scheduleAutoRetry).
+ * The module is imported lazily and only while the setting is on, so
  * users who never enable semantic hover pay neither the chunk nor the runtime.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -14,6 +15,8 @@ import { editorSettings } from '../services/editorSettings.js'
 
 const phase = ref('idle')
 const percent = ref(0)
+const attempt = ref(0)
+const attemptMax = ref(0)
 let unsubscribe = null
 let retry = null
 let binding = null
@@ -26,6 +29,8 @@ async function bind() {
       unsubscribe = module.onSemanticStateChange((state) => {
         phase.value = state.phase
         percent.value = state.percent
+        attempt.value = state.attempt
+        attemptMax.value = state.attemptMax
       })
     })
     .catch(() => {
@@ -65,6 +70,8 @@ const text = computed(() => {
       return t('semanticHover.statusWaking')
     case 'querying':
       return t('semanticHover.statusQuerying')
+    case 'retrying':
+      return t('semanticHover.statusRetrying', { attempt: attempt.value, max: attemptMax.value })
     case 'error':
       return t('semanticHover.downloadFailed')
     default:

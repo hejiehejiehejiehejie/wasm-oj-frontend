@@ -451,7 +451,15 @@ function loadSemanticHover() {
 watch(
   () => editorSettings.value.semanticHover,
   (enabled, previous) => {
-    if (!enabled || previous === undefined) return
+    if (!enabled) {
+      // 关掉开关时撤掉可能还在排队的自动重试（见 semanticHover.js 的 scheduleAutoRetry）：
+      // 本模块的规矩是「不偷偷下载」，关了这一发就不能还在队列里。
+      // 只在模块已经加载过时才去碰它 —— 否则为了取消反而把那个 chunk 拉了下来。
+      if (previous === undefined || semanticPromise === null) return
+      void semanticPromise.then((module) => module?.cancelSemanticAutoRetry())
+      return
+    }
+    if (previous === undefined) return
     void loadSemanticHover().then((module) => module?.prepareSemanticHover())
   },
   { immediate: true },

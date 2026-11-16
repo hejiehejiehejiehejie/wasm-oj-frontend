@@ -51,7 +51,8 @@ const WAKE_TIMEOUT_MS = 2500
 /** Do not flash the loading row for cache hits or sub-150ms queries. */
 const LOADING_DELAY_MS = 150
 
-export const semanticState = { phase: 'idle', percent: 0 }
+/** `attempt` / `attemptMax` 只在 phase 为 `retrying` 时有意义（第几次自动重试 / 上限） */
+export const semanticState = { phase: 'idle', percent: 0, attempt: 0, attemptMax: 0 }
 const stateListeners = new Set()
 
 /**
@@ -112,6 +113,70 @@ export function getSemanticHoverMetrics() {
 
 // -------------------------------------------------------------------- prepare
 
+/**
+ * 加载失败后的自动重试（2026-11-16 加）。
+ *
+ * 原先只 `setPhase('error')` 停在那里等人点状态栏那颗「重试」—— 而失败原因大多是短暂的
+ * （网络断一下、配额瞬时耗尽、宿主刚被回收），人手点一遍是多余的一步。这里补上有限的自动重试，
+ * 但**必须有预算**：不设上限的话，一台长期离线的机器会每隔几秒去拉 30MB 的工具链。
+ *
+ * 预算与退避：
+ * - 自动重试**最多 2 次**（连首次尝试共 3 次），2s / 6s 两档退避 —— 首次的 2s 等网络栈恢复，
+ *   第二次的 6s 给慢网一点时间，再往后就认为不是瞬断，交回人手；
+ * - 预算耗尽后停在 `error`，状态栏那颗「重试」照旧在，且**手动点一次会把预算清零**
+ *   （见 retrySemanticHover）—— 用户明确动作之后重新给一次完整的自动重试机会；
+ * - `navigator.onLine === false` 时直接不排：断网时去拉 30MB 必然再失败，不如当场停在 error，
+ *   让那颗「重试」摆着；网络回来后用户点一下即可（那一下会把预算清零）；
+ * - 关掉「语义分析」开关时由 hover.js 调 cancelSemanticAutoRetry 撤掉待跑的定时器 ——
+ *   本模块的规矩是「不偷偷下载」，用户关了就不能还有一发在队列里等着。
+ *
+ * 为什么放在服务层而不是那颗按钮上：状态栏在无活跃文件 / 设置视图 / 题解视图下整条 v-if 卸载，
+ * 把重试挂在组件生命周期上，切一次视图就断了。
+ */
+const AUTO_RETRY_MAX = 2
+/** 第 1 次、第 2 次自动重试前的等待（ms） */
+const AUTO_RETRY_DELAYS = [2000, 6000]
+let autoRetries = 0
+let autoRetryTimer = null
+
+function clearAutoRetryTimer() {
+  if (autoRetryTimer === null) return
+  clearTimeout(autoRetryTimer)
+  autoRetryTimer = null
+}
+
+/** 成功后清零：下一轮失败重新拿满预算 */
+function resetAutoRetry() {
+  clearAutoRetryTimer()
+  autoRetries = 0
+  semanticState.attempt = 0
+  semanticState.attemptMax = 0
+}
+
+/**
+ * 排下一次自动重试。返回 `true` 表示「还会再试」，调用方据此决定是停在 error 还是等。
+ */
+function scheduleAutoRetry() {
+  if (autoRetries >= AUTO_RETRY_MAX) return false
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false
+  const delay = AUTO_RETRY_DELAYS[Math.min(autoRetries, AUTO_RETRY_DELAYS.length - 1)]
+  autoRetries += 1
+  semanticState.attempt = autoRetries
+  semanticState.attemptMax = AUTO_RETRY_MAX
+  // 先报相位再等：这段退避时间里状态栏得写「正在自动重试」，不能停在失败文案上又自己好了
+  setPhase('retrying', 0)
+  autoRetryTimer = setTimeout(() => {
+    autoRetryTimer = null
+    void prepareSemanticHover()
+  }, delay)
+  return true
+}
+
+/** 关开关 / 卸载时撤掉待跑的自动重试（幂等） */
+export function cancelSemanticAutoRetry() {
+  resetAutoRetry()
+}
+
 /** In-flight prepare only. Never cached after success: a hibernated host must be rebuilt. */
 let preparing = null
 
@@ -124,6 +189,7 @@ export function prepareSemanticHover() {
   if (isToolchainReady()) {
     warmupPch()
     noteHostActivity()
+    resetAutoRetry()
     if (semanticState.phase !== 'ready') setPhase('ready', 100)
     return Promise.resolve(true)
   }
@@ -155,12 +221,16 @@ async function startPrepare() {
   try {
     await preloadToolchain()
   } catch {
+    // 预算内 → 报 retrying 并排下一次；耗尽（或已断网）才真正停在 error 等人工重试
+    if (scheduleAutoRetry()) return false
+    resetAutoRetry()
     setPhase('error', 0)
     return false
   } finally {
     unsubscribe?.()
   }
 
+  resetAutoRetry()
   setPhase('warming', 100)
   const warming = warmupPch()
   noteHostActivity()
@@ -174,8 +244,12 @@ async function startPrepare() {
   return true
 }
 
-/** Retry after a failed load (offline, quota, transient network). */
+/**
+ * Retry after a failed load (offline, quota, transient network).
+ * 手动重试：预算清零 —— 用户明确点了一下，就再给一轮完整的自动重试机会。
+ */
 export function retrySemanticHover() {
+  resetAutoRetry()
   setPhase('idle', 0)
   return prepareSemanticHover()
 }
@@ -206,8 +280,10 @@ export async function findSemanticHover(model, position) {
   // keep running in the background but must not stall the cursor.
   // After a hard failure only an explicit retry (or toggling the setting)
   // starts a new download; otherwise every hover would retry a dead network.
+  // `retrying` 同 error 一样走这条短路：退避期间由服务层自己的定时器负责重试，
+  // 悬停不能插队 —— 否则鼠标在屏幕上扫两下就把自动重试的预算耗光了。
   if (!isToolchainReady()) {
-    if (semanticState.phase === 'error') {
+    if (semanticState.phase === 'error' || semanticState.phase === 'retrying') {
       metrics.timeoutOrError += 1
       return null
     }
