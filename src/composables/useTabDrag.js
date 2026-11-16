@@ -777,6 +777,14 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       pushDir: 0,
       // 被拖块首元当前的视觉左缘（内容坐标）；起手 = 它的自然左缘（第一帧的 dir 因此为 0）
       visual: dragged.left,
+      // 未钳制的跟手位置 + 两侧钳制界（updateDrag 每帧写）。块贴在条带某端时「指针还在继续
+      // 往外推」的行程只能从这三个数算出来 —— 见 tryExitGroup 的「撞墙出组」那段。
+      rawVisual: dragged.left,
+      minLeft: 0,
+      maxLeft: 0,
+      // 刚从哪一组「撞右墙」退出来的（gid，见 tryExitGroup）。还贴着右墙时不许被 tryJoinGroup
+      // 立刻吸回去 —— 否则退组与入组两条判据在同一帧都成立，一来一回地鬼畜。
+      wallExitGid: null,
       // 上一帧指针 clientX（方向门控用，见 updateDrag）。null = 还没收到过移动
       lastPointerX: null,
     }
@@ -855,7 +863,16 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 左出（prev 是自家芯片 = 被拖页签是组内第一名成员）：右缘收回到芯片中线以左，
     // 页签几乎完全拖出芯片才算真出组。判据用**右缘**不用中心 —— 邻位停放时中心本来
     // 就在芯片中线右边（页签比芯片宽得多），中心判据会在起拖瞬间误退组。
-    if (prev === chip && drag.visual + drag.unit.width < drag.pos.get(chip) + chip.width / 2) {
+    //
+    // 「撞左墙」那一条（2026-11-16）：组贴着条带**左端**时上面那条几何判据永远够不到 ——
+    // 页签左缘被 `minLeft` 夹在 0，而它的右缘恒 = 页签宽（~100px），远在芯片中线（~16px）
+    // 右边。于是「把组里第一张拖出去」在这个位置成了一个死手势。补一条：块已经贴死左墙、
+    // 指针还继续往左推够 GROUP_EXIT_PX ⇒ 就是要出去（见右出那边同款注释）。
+    if (
+      prev === chip &&
+      (drag.visual + drag.unit.width < drag.pos.get(chip) + chip.width / 2 ||
+        (drag.pinnedLeft && drag.minLeft - drag.rawVisual >= GROUP_EXIT_PX))
+    ) {
       drag.order.splice(slot, 1)
       drag.order.splice(drag.order.indexOf(chip), 0, drag.unit)
       drag.gid = null
@@ -869,6 +886,21 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     const last = members[members.length - 1]
     const boundary = last ? drag.pos.get(last) + last.width : drag.pos.get(chip) + chip.width
     if (drag.visual > boundary + GROUP_EXIT_PX) {
+      drag.gid = null
+      return true
+    }
+    // 「撞右墙」那一条（2026-11-16 用户报「条带上只有一个标签组时，无法把标签页从中拉出去」）：
+    // 上面那条几何判据要求**左缘**越过组右缘 20px，可被拖块本身就被 `contentRight - blockSpan`
+    // 夹在最后一格 —— 左缘最远只能到 `contentRight - 页签宽`，永远差着一个页签宽。组后面还有
+    // 别的页签时 `boundary` 在它们左边，判据够得到；组正好是条带里最后一坨内容时（只剩一个组
+    // 就是这种）就彻底不可达：探针实测组尾 430、块左缘被夹在 333（= 430 - 97），拖到指针贴住
+    // 条带右缘也只到 333，`data-group-id` 一直是同一个。
+    // 补一条同款的「撞墙」判据：块已经贴死右墙、指针还继续往右推够 GROUP_EXIT_PX ⇒ 出去。
+    // 用**未钳制位置越过上界的行程**而不是绝对坐标 —— 绝对坐标在有空白时也得靠运气，没空白时
+    // （内容正好填满条带）根本不可能。推出来的这一下同时记进 `wallExitGid`，把紧跟着的
+    // 「右入」判据按住一帧（块此刻就停在组末成员旁边，光看几何两边都成立）。
+    if (drag.pinnedRight && drag.rawVisual - drag.maxLeft >= GROUP_EXIT_PX) {
+      drag.wallExitGid = drag.gid
       drag.gid = null
       return true
     }
@@ -913,6 +945,11 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       boundary = drag.pos.get(prev) + prev.width
     }
     if (gid && drag.visual < boundary - drag.unit.width * GROUP_JOIN_FRAC) {
+      // 刚从这一组的右墙「撞出去」、且还贴在右墙上：不许立刻吸回去。此刻块就停在组末成员
+      // 右边、左缘离 boundary 只有 0 距离，几何上两条判据同时成立 —— 不按住就是每帧
+      // 出组→入组地翻，包络线闪、条带跟着抖。等指针离开右墙（往左拉一点，`pinnedRight`
+      // 变假）就恢复成原来的几何判据，拉回组里照旧能吸进去。
+      if (drag.wallExitGid === gid && drag.pinnedRight) return false
       drag.gid = gid
       return true
     }
@@ -980,6 +1017,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 那正是「已经推不动了」的情形，没有区别。
     drag.pinnedLeft = rawVisual < minLeft - 0.5
     drag.pinnedRight = rawVisual > maxLeft + 0.5
+    // 未钳制位置与两界都记下来：贴端时「指针还在往外推多少」是撞墙出组的唯一判据（tryExitGroup）
+    drag.rawVisual = rawVisual
+    drag.minLeft = minLeft
+    drag.maxLeft = maxLeft
     const tx = drag.visual - drag.unit.left
     for (const u of drag.block) {
       u.tx = tx
