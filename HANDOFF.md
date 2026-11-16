@@ -491,10 +491,32 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
   - 两色**都不能省略**：省略背景则退回透明，省略边框则退回注册表默认 `#282828`，又变回灰框。
   - **只铺正文，不铺行号栏**（2026-10-11 同日）：行号栏那块底色由 Monaco 的 `renderLineHighlight` 决定 —— `'all'` = 正文 + 行号栏，`'line'` = 只正文（源码依据：`currentLineHighlight.js` 的 `_shouldRenderInMargin()`）。`editorOptions.js` 的默认值已由 `'all'` 改成 `'line'`，并抬 `EDITOR_SETTINGS_VERSION` 到 **6** 做一次性改写（见第 6 节）——不改写的话存档里的 `'all'` 会盖住新默认，老用户刷新看不到变化。行号文字本身的「当前行提亮」与这个选项**无关**（`active-line-number` 只看光标行），所以改完行号仍比别行亮。设置面板四档全留，想要连行号栏一起铺底色的仍可选「全部」。
   - ⚠️ **这条改写当天抬了两次版本号（5 → 6），第一次没生效**：当时把「版本号抬到 5」和「加改写分支」分成了两次编辑落地，中间那段窗口里 dev server 的 HMR 重载过一次页面 —— 那次读盘时版本号已是 5、改写分支还不存在，于是把 `{ renderLineHighlight: 'all', version: 5 }` 原样写回存档；此后 `< 6` 之前的老判定永远不成立，这条改写对该存档彻底失效（症状：用户怎么刷新，行号栏都还在染色）。**动 `EDITOR_SETTINGS_VERSION` 时必须和它对应的迁移分支在同一次编辑里落地，别分两步。**
+- **浅色语法配色对齐 VS Code 的 Light Modern**（2026-11-16，用户：「如果配置开源的话，模仿 vscode 的 2026 浅色主题来做 monaco 中的颜色配置」）。`light` 主题的 `rules` 从空数组变成一套显式规则；深色那支仍是 vs-dark 原色（不覆盖任何 token，2026 年那轮回退的结论仍有效）。
+  - 色值**不是估的**：取 VS Code 内置主题继承链的实际结果 —— `light_modern.json`（workbench 色 + `editor.foreground #3B3B3B`）→ 引 `light_plus.json`（函数 `#795E26` / 类型 `#267F99` / 变量 `#001080` / 常量 `#0070C1` / 控制流紫 `#AF00DB`）→ 再引 `light_vs.json`（注释 `#008000` / 字符串 `#A31515` / 数字 `#098658` / 关键字 `#0000FF` / regexp `#811F3F`）。复核路径：`extensions/theme-defaults/themes/` 下那三个文件。
+  - 落到 Monaco 的映射（**Monaco 的 token 名和 TextMate scope 是两套东西**，C++ / Python 走 monarch，只吐 keyword / identifier / number / string / comment / delimiter / type 这几档）：
+
+    | Monaco token | 色 | 依据 |
+    | --- | --- | --- |
+    | `''`（默认文字） | `#3B3B3B` | `editor.foreground`，vs 原为纯黑 |
+    | `comment` | `#008000` | `comment` |
+    | `keyword` / `keyword.flow` | `#0000FF` / `#AF00DB` | 关键字 / 控制流（后者只对真吐 flow 的语言生效） |
+    | `string` / `number` / `regexp` | `#A31515` / `#098658` / `#811F3F` | 同 light_vs |
+    | `type` | `#267F99` | `support.type` / `entity.name.type` |
+    | `identifier` / `variable` | `#001080` | `variable`（见下条取舍） |
+    | `constant` | `#0070C1` | `variable.other.constant` |
+    | `tag` / `metatag` / `attribute.name` / `attribute.value` | `#800000` / `#800000` / `#E50000` / `#0451A5` | md / html 内联标签 |
+    | `operator` / `delimiter` | `#000000` / `#3B3B3B` | 标点跟随正文 |
+
+  - ⚠️ **`identifier` 是唯一有取舍的一条**：VS Code 里变量是 `#001080`、函数是 `#795E26`，Monaco 的 monarch 分不出「函数名」，所以全按变量上色（`solve` / `main` 也变深蓝）。若哪天觉得「满屏深蓝」，删掉 `identifier` 那条即可退回 base vs 的黑，其余规则不受影响。
+  - 行号同时改了：vs 默认那支蓝 `#237893` 是「一眼不像 VS Code」的主要来源，换成 Light Modern 的 `#6E7681`（普通行）+ `#171184`（当前行）。当前行仍靠色相跳出来，整栏不再是蓝色数字。
+  - **不跟 Light Modern 的项**：行高亮（`#f0f0f0`，见上条）、选区（`#A8CDF4`）、同词高亮、缩进参考线（`#C7C7C7`）、查找命中（`#F2CDB1`）—— 这几项都是按可读性逐档量过的，照搬 VS Code 的 `#F5F5F5` / `#ADD6FF` / `#D3D3D3` 会把前几轮的调优全冲掉。括号配对三色（`#0431FA` / `#319331` / `#7B3814`）也没覆盖 —— VS Code 浅色用的就是这三支。
+  - 其它浅色主题（`paper` / `leaf` / `mist`）不继承 `light`，各自 `base: 'vs'` + `rules: []`，观感不变；深色主题零改动。
+  - 出处与许可：这套色值来自 MIT 许可的 `microsoft/vscode`（`extensions/theme-defaults/themes/`）。这里只**照抄了色值**、没有复制主题文件本身，配色数值通常不构成受版权保护的表达，开源发布时不必附带其许可证副本；稳妥起见在 README / 关于页写一句「浅色语法配色参考 VS Code Light Modern」即可。
+  - 实测（1400×900，浅色，DSF 2）：`using`/`namespace`/`void`/`int`/`return` = `rgb(0,0,255)`，`std`/`solve`/`cin`/`cout`/`main` = `rgb(0,16,128)`，`'\\n'` = `rgb(163,21,21)`，`;`/`<<` = `rgb(59,59,59)`；行号 `rgb(110,118,129)`、当前行 `rgb(23,17,132)`；Python 同样（`import`/`def`/`if` 蓝、`sys`/`solve`/`print` 深蓝、`"__main__"` 暗红）。`npm run verify` A–H 全 PASS。
 - **侧边栏无论折叠还是展开，底色都与整页底色同色**（2026-10-23 用户要求：「无论折叠还是展开的底色都改为与网站整个页面的底色相同」）。四处一律 `--bg-editor`，改一处必须四处一起改：
   - `.pane--tests`（`App.vue`，覆盖 `.pane` 给的 `--bg-panel`）/ `.sidebar`（`Sidebar.vue`）/ `.panel`（`TestPanel.vue` 的评测面板 —— 它盖在 `.sidebar` 上，两边不同值的话切一次页签就能看出「底板被换了一档」）/ `.activity-bar`（`ActivityBar.vue`，折叠态那条 44px 图标栏；2026-10-26 从 48 收来）。
   - 编辑器那半张卡仍是 `--bg-panel` + 1px `--border-soft`：卡片语言只落在编辑器一侧，侧边栏读起来是「地面让出来的一块」，与编辑器之间只靠那 4px 留白分开。
-  - 探针实测（1400×900，两套主题 × 展开资源管理器 / 展开评测 / 折叠三种）：`.pane--tests`、`.sidebar`、`.panel`、`.activity-bar` 与 `html`、`body`、`.workspace` **全部同色** —— 深色 `rgb(28,28,28)`、浅色 `rgb(243,243,243)`（浅色 2026-11-16 抬到 `rgb(249,249,249)`，见下条）；`.pane--editor` 仍是 `rgb(29,29,30)` / `rgb(244,244,244)`（浅色同日抬到 `rgb(251,251,251)`）。
+  - 探针实测（1400×900，两套主题 × 展开资源管理器 / 展开评测 / 折叠三种）：`.pane--tests`、`.sidebar`、`.panel`、`.activity-bar` 与 `html`、`body`、`.workspace` **全部同色** —— 深色 `rgb(28,28,28)`、浅色 `rgb(243,243,243)`（浅色 2026-11-16 两轮抬到 `rgb(251,251,251)`，见下两条）；`.pane--editor` 仍是 `rgb(29,29,30)` / `rgb(244,244,244)`（浅色同日抬到 `rgb(253,253,253)`）。
   - 页头那几条仍是 `--bg-panel-head`（编辑区页签栏 / 资源管理器页头这类「条」）—— 它们不是底色，别顺手一起改。**评测面板页脚已不在此列**，见下一条。
 - **浅色主题整组提亮 6 阶（2026-11-16，用户：「侧边栏以及标签栏的底色有些太暗了，提亮一点」）**。这一步不可能只动侧栏和页签栏 —— 侧栏读 `--bg-editor`（见上条）、页签栏读 `--bg-panel-head`，两条都是「地面」级变量，抬地面就必然要把面板 / 卡片一起抬，否则卡面会比地面还暗、从「浮起来的卡」翻成凹槽。改动清单与新旧值：
 

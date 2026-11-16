@@ -68,14 +68,67 @@ monaco.editor.defineTheme('dark', {
 })
 
 // 浅色版与之对应：内芯 = 浅色主题的 --bg-editor-pane
+//
+// 【语法配色：对齐 VS Code 的默认浅色主题 Light Modern】—— 2026-11-16 加（用户：
+// 「如果配置开源的话，模仿 vscode 的 2026 浅色主题来做 monaco 中的颜色配置」）。
+// 色值不是估的，取 VS Code 内置主题的**继承链实际结果**：`light_modern.json`（只覆盖
+// workbench 色 + 前景 #3B3B3B）→ 引 `light_plus.json`（函数 / 类型 / 变量 / 常量 /
+// 控制流）→ 再引 `light_vs.json`（注释 / 字符串 / 数字 / 关键字 / preprocessor）。
+// 复核方式：在 VS Code 源码 `extensions/theme-defaults/themes/` 下看那三个文件。
+//
+// ⚠️ Monaco 的 token 名和 TextMate scope 是两套东西：C++ / Python 走 monarch，吐出来的
+// 只有 keyword / identifier / number / string / comment / delimiter / type 这几档
+// （实测 `monaco.editor.tokenize('…','cpp')` 的 type 集合见下），没有「函数 vs 变量」的
+// 语义区分。所以下面每条都是**在 Monaco 能给到的粒度上**取 Light Modern 最接近的一档：
+//   - `identifier` 按 `variable`（#001080）上色 —— VS Code 里变量是这支深蓝，函数是
+//     #795E26；Monaco 分不出函数名，只能二选一。选了变量色：函数名跟着深蓝，
+//     若哪天觉得「满屏深蓝」，把这条删掉就退回 base vs 的黑（其余规则不受影响）。
+//   - `keyword.flow` 用 Light Modern 的紫 #AF00DB（light_plus 的 keyword.control）。
+//     注意 C++ 的 return / if 在 VS Code 里仍是蓝（cpp grammar 不把它归进
+//     keyword.control），但 monarch 只给到 `keyword`，所以这里实际只对 CSS / SCSS 那种
+//     真吐 `keyword.flow` 的语言生效。
+//   - `metatag` / `tag` / `attribute.*` 是给 Markdown / HTML 预览里的内联标签用的，
+//     取 light_vs 的对应值（VS Code 里就是这套：标签 #800000、属性名 #E50000）。
+//   - 括号配对的三色（#0431FA / #319331 / #7B3814）**不覆盖**：VS Code 浅色用的就是
+//     这三支，等于已经对齐。
+// 下面 colors 里那些「本项目自己调过」的项（行高亮 / 选区 / 同词高亮 / 缩进线 / 查找命中）
+// **不跟 Light Modern** —— 它们的值是按可读性逐档量过的，理由写在各条注释里；照搬
+// VS Code 的 #F5F5F5 / #ADD6FF 会把之前几轮调优全冲掉。行号是例外：vs 默认那支蓝
+// #237893 是「一眼不像 VS Code」的主要来源，这轮改成 Light Modern 的灰（见下）。
 monaco.editor.defineTheme('light', {
   base: 'vs',
   inherit: true,
-  rules: [],
+  rules: [
+    { token: '', foreground: '3B3B3B' },
+    { token: 'comment', foreground: '008000' },
+    { token: 'keyword', foreground: '0000FF' },
+    { token: 'keyword.flow', foreground: 'AF00DB' },
+    { token: 'string', foreground: 'A31515' },
+    { token: 'number', foreground: '098658' },
+    { token: 'regexp', foreground: '811F3F' },
+    { token: 'type', foreground: '267F99' },
+    { token: 'identifier', foreground: '001080' },
+    { token: 'variable', foreground: '001080' },
+    { token: 'constant', foreground: '0070C1' },
+    { token: 'operator', foreground: '000000' },
+    { token: 'delimiter', foreground: '3B3B3B' },
+    { token: 'tag', foreground: '800000' },
+    { token: 'metatag', foreground: '800000' },
+    { token: 'attribute.name', foreground: 'E50000' },
+    { token: 'attribute.value', foreground: '0451A5' },
+  ],
   colors: {
     'editor.background': '#ffffff',
+    // 正文前景：Light Modern 的 editor.foreground #3B3B3B（vs 原为纯黑）—— 柔一档，
+    // 与上面 rules 的 `token: ''` 必须一致，否则未命中规则的那部分文字会和正文分家。
+    'editor.foreground': '#3B3B3B',
     'editorGutter.background': '#ffffff',
     'minimap.background': '#ffffff',
+    // 行号：vs 默认是蓝的（#237893），浅色下与语法里的关键字蓝撞在一起，也是「一眼不像
+    // VS Code」的地方。改成 Light Modern 的两档：普通行 #6E7681（灰）、当前行 #171184
+    // （深靛）—— 当前行仍然靠色相跳出来，但整栏不再是蓝色数字。
+    'editorLineNumber.foreground': '#6E7681',
+    'editorLineNumber.activeForeground': '#171184',
     // 光标所在行：与深色主题同口径，整行铺底色而非方框。边框取同色，免得又画出一圈边。
     // **2026-11-16 由 #e0e0e0 提到 #f0f0f0**（用户：「指针所在行的高亮颜色太深了」）。
     // 那一版取的是 --bg-control-hover，比白底压深 31 阶，在 #ffffff 的编辑区上读成一整条
