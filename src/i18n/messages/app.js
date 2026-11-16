@@ -12,8 +12,16 @@ export default {
       retry: '重试',
       download: '下载',
 
-      /** 编辑区没有任何打开文件时的空状态 */
-      emptyEditor: '在资源管理器中打开或新建文件',
+      /**
+       * 编辑区没有任何打开文件时的空状态（2026-11-17 四改：Zed 式快捷键板）。
+       *
+       * 三条行的**动作名**。键位不在这里 —— 它读运行时绑定（见 EditorPane 的 keymapRows），
+       * 所以文案里别带「⌘」「Ctrl」之类的字样：那些键用户能改，写了就成了假话。
+       */
+      emptyKeymapNewFile: '新建文件',
+      emptyKeymapTogglePanel: '显示 / 隐藏侧边栏',
+      emptyKeymapSwitchPanel: '切换侧栏面板',
+      emptyKeymapOpenSettings: '打开设置',
       /** 空窗格占位上的按钮（分屏后收掉这一格） */
       closePane: '关闭窗格',
       /** 已经四格时的说明 */
@@ -70,9 +78,10 @@ export default {
         closeTab: '关闭标签',
         closeSettings: '关闭设置',
         /** 页签右键菜单里的「打开题目」：与资源管理器同一条功能（explorer.menu.openUrl 同义），
-         *  只在文件页签有 meta.url 时出现；右列是 ⌘ / Ctrl + 单击这个手势本身 */
+         *  只在文件页签有 meta.url 时出现；右列是 ⌘ / Ctrl + 单击这个手势本身 ——
+         *  「单击」那一半由 ContextMenu 的 `shortcutIcon` 画成一枚指针，故这里只到「+」为止 */
         openUrl: '打开题目',
-        openUrlClick: '{mod} + 单击',
+        openUrlPointer: '{mod} +',
         /** 页签分组（2026-10-19 加，模仿 Chrome 的标签页组） */
         addToNewGroup: '添加到新标签页组',
         removeFromGroup: '从标签页组中移除',
@@ -180,7 +189,11 @@ export default {
       retry: 'Retry',
       download: 'Download',
 
-      emptyEditor: 'Open or create a file in the Explorer',
+      // 空态快捷键板的三行动作名（键位读运行时绑定，别把 ⌘ / Ctrl 写进文案）
+      emptyKeymapNewFile: 'New file',
+      emptyKeymapTogglePanel: 'Show / hide the sidebar',
+      emptyKeymapSwitchPanel: 'Switch sidebar panel',
+      emptyKeymapOpenSettings: 'Open settings',
       closePane: 'Close pane',
       splitLimit: 'At most four panes can be open at once',
       splitLimitNarrow: 'At most two panes can be open on narrow screens',
@@ -230,7 +243,7 @@ export default {
          *  (explorer.menu.openUrl); only shown when the file tab has meta.url. The right
          *  column is the ⌘ / Ctrl + click gesture itself */
         openUrl: 'Open problem',
-        openUrlClick: '{mod} + Click',
+        openUrlPointer: '{mod} +',
         /** Tab groups (2026-10-19, Chrome-style tab groups) */
         addToNewGroup: 'Add to new tab group',
         removeFromGroup: 'Remove from tab group',

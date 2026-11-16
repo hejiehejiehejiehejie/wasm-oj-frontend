@@ -17,7 +17,7 @@
  * 焦点在树的空白处时那个「文件夹」就是根，于是选中的是顶层那些节点。
  * 区间与全选都以本组件手上的状态为准（DOM 顺序 / 父子关系只有这里拿得到），所以那两个入口
  * （`selectRangeTo` / `selectAllNodes`）留在本组件并 provide 下去 / 由全局快捷键调用。
- * 删除与导出（右键那两项、以及全局的 Delete）作用于**整个选区** —— 选区只有一项时退化成
+ * 删除与导出（右键那两项、以及全局的 ⌘⌫ / Delete）作用于**整个选区** —— 选区只有一项时退化成
  * 那一行。
  *
  * 【导入 / 导出】（2026-10-12 加）与外部文件系统之间搬文件，通路全在 `services/fileTransfer.js`
@@ -37,9 +37,12 @@
  * InlineCreateRow 渲染：根目录这份在本组件，建在某个目录里的那份在 FileTreeItem 的 role="group" 里。
  * 另经 defineExpose 对外给出四个入口：三个给全局快捷键（`startRename` / `requestDelete` /
  * `selectAllNodes`，都收**可空**的节点 id：焦点在树的空白处时 App.vue 给 null，前两个拿主选中
- * 那一行顶上、全选把「空白处」当成根，见 `keyboardRowId` / `folderContentIds`，供 F2 / Delete /
+ * 那一行顶上、全选把「空白处」当成根，见 `keyboardRowId` / `folderContentIds`，供 F2 / ⌘⌫ /
  * ⌘·Ctrl+A 调用），一个给页面级拖入（`importDroppedItems`）—— 见文件末尾。
- * 那三条的作用域闸门是「焦点在资源管理器这块面板里」（行上或树的空白处都算，见 App.vue 的
+ * 2026-11-17 又加了第五个 `startCreate`：空编辑区那块板上的「新建文件」行与全局 ⌥⌘N 都走它，
+ * 在这里起一行内联新建。落点见 `shortcutCreateTarget()`：右键菜单开着就落菜单指的那个目录
+ * （菜单里那条「新建文件」的右列就写着这个键位），否则与页头那颗同一个（跟随主选中）。
+ * 那三条快捷键的作用域闸门是「焦点在资源管理器这块面板里」（行上或树的空白处都算，见 App.vue 的
  * treeScopeFrom），所以空白处也必须是个焦点落点：容器上有 `tabindex="-1"`，由 onTreePointerDown 接住。
  */
 import { computed, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue'
@@ -266,6 +269,25 @@ function focusCreateInput() {
 }
 
 /**
+ * 全局「新建文件」键位（⌥⌘N / Ctrl+Alt+N）落在哪个目录。
+ *
+ * 右键菜单**开着**时以它指的那一行为准 —— 菜单里那条「新建文件」的右列就写着这个键位，
+ * 两者必须是同一件事。否则「右键某个目录 → 看到 ⌥⌘N → 按下去」会落到另一处：右键只写
+ * `focusedId`、不动选区（见 openContextMenu），而页头那颗按钮跟的是**主选中**，
+ * 于是菜单说 A 目录、键位却建到 B 目录去。
+ * 菜单落在文件行上时取它的父目录（文件行那份菜单里没有「新建文件」，但键位是全局的，
+ * 照样得有个合理落点）；菜单没开就与页头那颗同源（`headerCreateTarget()`），
+ * 什么都没选中时回落根目录。
+ *
+ * @returns {object|null} 目标目录节点，null = 根目录
+ */
+function shortcutCreateTarget() {
+  const node = menu.value?.node
+  if (!node) return headerCreateTarget()
+  return node.type === 'directory' ? node : (getNodeById(node.parentId) ?? null)
+}
+
+/**
  * 在途的创建轮次（= 已经交给 VFS、还没回来的那些 state 对象）。
  * 用来区分「用户离开输入框」和「我们自己把焦点弄丢了」，见 onCreateBlur。
  * @type {Set<object>}
@@ -388,14 +410,17 @@ function toggleSolved(node) {
 function buildMenuItems(node) {
   const items = []
   if (node?.type === 'file') {
-    // 右列不是 keydown 组合键，是 ⌘ / Ctrl + 单击这个**手势**本身 —— 走不了 formatCombo
+    // 右列不是 keydown 组合键，是 ⌘ / Ctrl + 单击这一行这个**手势**本身 —— 走不了 formatCombo
     // （它只吃 'Mod+KeyX' 那种串），但它是真的能按的，所以照旧填右列、不留空。
+    // 其中「单击」不是单词，是 `shortcutIcon: 'pointer'` 画出来的一枚指针（2026-11-17 用户口径
+    // 「单击换成鼠标的指针的 logo」）—— 所以文案只到「⌘ +」为止，别把它再写回字面。
     if (problemUrl(node)) {
       const problemLink = problemUrl(node)
       items.push({
         id: 'open-url',
         label: t('explorer.menu.openUrl'),
-        shortcut: t('explorer.menu.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
+        shortcut: t('explorer.menu.openUrlPointer', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
+        shortcutIcon: 'pointer',
       })
       // 「已通过」标记就挂在「打开题目」下面 —— 两者都只对有题目链接的文件成立。
       // 锁住的（CF 上真有 OK 提交 / 本站刚交过 AC）时**不给这一项**：手动取消不了它，
@@ -410,7 +435,13 @@ function buildMenuItems(node) {
     }
     items.push({ id: 'meta', label: t('explorer.menu.meta') })
   } else if (node?.type === 'directory') {
-    items.push({ id: 'new-file', label: t('explorer.menu.newFile') })
+    // 「新建文件」的右列挂全局那条键位（=`new-file` 动作，读绑定而不写死）。它与重命名 /
+    // 删除那两条同一个口径：菜单里报的就是真按得动的那个键，用户在设置里改绑这里跟着变。
+    items.push({
+      id: 'new-file',
+      label: t('explorer.menu.newFile'),
+      shortcut: shortcutOf('new-file'),
+    })
     items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
     items.push({ id: 'import-file', label: t('explorer.menu.importFile') })
     if (canPickFolder()) items.push({ id: 'import-folder', label: t('explorer.menu.importFolder') })
@@ -1021,7 +1052,8 @@ function onTreeContextMenu(event) {
   if (event.target.closest('.tree-item, .create-row')) return
   event.preventDefault()
   const items = [
-    { id: 'new-file', label: t('explorer.menu.newFile') },
+    // 与目录行上那份逐条相同（同一批 id、同一批 i18n key），右列键位也同一处取
+    { id: 'new-file', label: t('explorer.menu.newFile'), shortcut: shortcutOf('new-file') },
     { id: 'new-folder', label: t('explorer.menu.newFolder') },
     { id: 'import-file', label: t('explorer.menu.importFile') },
   ]
@@ -1252,6 +1284,16 @@ defineExpose({
   /** @param {string|null} id ⌘ / Ctrl + A：全选这个节点所在父文件夹里的内容 */
   selectAllNodes: (id) => selectAllNodes(id ?? null),
   /**
+   * 就地起一行内联新建。两个入口走这里：空编辑区那块板的「新建文件」行 / 全局 ⌥⌘N，
+   * 以及（菜单开着时）右键菜单里那条「新建文件」的右列键位。
+   *
+   * 落点：右键菜单开着就落到**菜单指的那个目录**（见 shortcutCreateTarget），
+   * 否则与页头那颗「新建文件」同源 —— 跟随主选中那一行（目录就是它自己、文件取其父目录），
+   * 什么都没选中就落在根目录。菜单里报的键位与按下它建到哪儿，必须是同一处。
+   * @param {'file'|'directory'} [type]
+   */
+  startCreate: (type = 'file') => startCreate(type, shortcutCreateTarget()),
+  /**
    * 从系统里拖进来的文件落进某个目录（App.vue 的 usePageDrop 调它）。
    * 与选文件那条同源（`importItems`），返回导入统计 —— 调用方据此决定要不要顺手打开它。
    * `options.announce` 由 App.vue 换成全局通知（见 `announceImportInline` 的说明）。
@@ -1278,7 +1320,7 @@ defineExpose({
           :title="t('explorer.menu.newFile')"
           @click="startCreate('file', headerCreateTarget())"
         >
-          <AppIcon name="file-plus" :size="16" />
+          <AppIcon name="file-plus" :size="17" class="explorer__btn__icon explorer__btn__icon--file" />
         </button>
         <button
           type="button"
@@ -1286,7 +1328,7 @@ defineExpose({
           :title="t('explorer.menu.newFolder')"
           @click="startCreate('directory', headerCreateTarget())"
         >
-          <AppIcon name="folder-plus" :size="16" />
+          <AppIcon name="folder-plus" :size="17" class="explorer__btn__icon explorer__btn__icon--folder" />
         </button>
       </span>
     </Teleport>
@@ -1826,6 +1868,34 @@ defineExpose({
   color: var(--text-dim);
   opacity: 0.4;
   cursor: default;
+}
+
+/* ---------------------------------------------------------------- 两颗新建钮的「墨迹底」对齐
+   2026-11-17 用户要求「新建文件夹与新建文件的底边平齐」。两颗按钮的盒子本来就一样
+   （26×26、同一行、align-items: center），差的是图标墨迹的底边：
+
+   | 图标 | 24 网格里的墨迹 | 17px 下的墨迹底 |
+   |---|---|---|
+   | `file-plus`   | y 2→22（上下各留 2 格） | 30.79px |
+   | `folder-plus` | y 3→20（Lucide 的文件夹族天生高半个格） | 29.73px |
+
+   相差 2 格 = 1.42px，并排看就是一高一低。做法是**各让一格**：文件上移、文件夹下移，
+   两条墨迹底一起落在 30.08px（16px 那一版是 29.67，随图标尺寸等比上移）。
+
+   - **为什么对半分而不是只挪文件夹**：`file-plus` 的墨迹在网格里本来就上下对称、是「正」
+     的那枚；但只把文件夹往下压 1.42px，它的重心会比同排的组件 / 齿轮低 1.4px（那两枚的
+     墨迹底在 31.7、中线在 23）。各挪 0.71 之后两颗都只偏离中线半个多像素，整排重心不动。
+   - **为什么写百分比**：一格 = 1/24 画布 = 4.1667%，这个差量是**字形**的属性、跟着图标
+     尺寸走；写成 px 会被 postcss-pxtorem 转成 rem、跟着根字号放大，而 `AppIcon` 的 `size`
+     是写死的 px 属性（不吃全局缩放），两边比例会越缩越对不上。
+   - ⚠️ 只作用于页头这两颗：`file-plus` / `folder-plus` 全站只在这里用（AppIcon 里那几条
+     「上游原样的 d、不做任何位移」的纪律也没破 —— 位移写在消费处，不动字形）。 */
+.explorer__btn__icon--file {
+  transform: translateY(-4.1667%);
+}
+
+.explorer__btn__icon--folder {
+  transform: translateY(4.1667%);
 }
 
 .explorer__tree {

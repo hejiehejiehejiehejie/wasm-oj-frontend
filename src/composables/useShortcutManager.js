@@ -42,7 +42,7 @@ export const IS_MAC =
  * Shift+Alt+F 在 C++ / Python 下没有注册 formatter，绑了也是空按。
  *
  * `bareCodes`（可选）= 这个动作额外允许的**裸键**（不带任何修饰键）。默认只有功能键与 Esc
- * 能裸按（见 SAFE_BARE_CODES），例外只有两处：「删除节点」的 Delete，与 macOS 上
+ * 能裸按（见 SAFE_BARE_CODES），例外只有两处：「删除节点」的 Delete 别名，与 macOS 上
  * 「重命名」的 Enter —— 它们敢裸按是因为有一道作用域闸门兜着：只有焦点在文件树上时才触发
  * （App.vue 的 treeScopeFrom）。**给别的动作加裸键之前先想清楚有没有同款闸门**，否则打字时
  * 会被全局吃掉。
@@ -51,8 +51,9 @@ export const IS_MAC =
  *
  * `fixed`（可选）= 键位**写死**：不参与录制 / 清除，读盘时一律以默认表为准。
  * 目前只有资源管理器那三条（重命名 / 删除 / 全选）。判据（2026-10-25 用户口径「这几个设置
- * 没有意义，应该固定死」）：它们不是本应用自造的命令，而是文件树的通用约定，而且前两条是
- * 裸键（F2·Enter / Delete），本来就只靠作用域闸门区分；改绑只会让 ⌘A / Delete / F2 这些肌肉
+ * 没有意义，应该固定死」）：它们不是本应用自造的命令，而是文件树的通用约定，而且删改两条
+ * 都还留着裸键入口（F2·Enter / Delete 别名），本来就只靠作用域闸门区分；改绑只会让
+ * ⌘A / Delete / F2 这些肌肉
  * 记忆失效，也让 hint 里那句平台说明与界面上显示的键位互相打架。**别拿它去「锁」可配置的
  * 动作** —— 加这一条等于让用户永远失去改绑能力，要有跟上面同级的理由。
  *
@@ -95,6 +96,22 @@ export const SHORTCUT_ACTIONS = [
     default: 'Mod+Alt+Backslash',
   },
   { id: 'new-case', labelKey: 'settings.shortcut.newCase.label', default: 'Mod+Alt+Enter' },
+  /**
+   * 新建文件（2026-11-17 加）：空编辑区那块快捷键板的第一行需要一个**真**键位 ——
+   * 板子上写一排按下去没反应的键，比不写更糟。执行落在 App.vue 的 createFileInExplorer
+   * （亮侧栏 → 切资源管理器 → 就地起一行内联新建），与页头那颗「新建文件」按钮同源。
+   *
+   * 【为什么不绑 ⌘ / Ctrl + N】那个组合由浏览器 UI 层直接吃掉（新窗口 / 隐身窗口），
+   * preventDefault 无效 —— 见下面 BROWSER_RESERVED 里的 'Mod+KeyN'，绑上去就是个死键，
+   * 按下去会当场弹出浏览器窗口。所以这里用 ⌥⌘N（Windows / Linux 是 Ctrl+Alt+N）：
+   * 既不与站内任何默认键位相撞，也躲开了浏览器保留位。用户要改成别的照样能在设置里录。
+   */
+  {
+    id: 'new-file',
+    labelKey: 'settings.shortcut.newFile.label',
+    hintKey: 'settings.shortcut.newFile.hint',
+    default: 'Mod+Alt+KeyN',
+  },
   { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
   /**
    * 生成图片：把编辑器里的选区（没有选区就整篇）导成 PNG（实现在 composables/useEditorMenu.js，
@@ -133,12 +150,22 @@ export const SHORTCUT_ACTIONS = [
     hideInSettings: true,
   },
   {
+    /**
+     * 删除（2026-11-17 起改成「主键 ⌘⌫ + 别名 Delete」）：主绑定 `Mod+Backspace` —— 与 macOS
+     * Finder、VS Code 资源管理器同一个手感，也是右键菜单右列显示的那一颗。
+     *
+     * Delete 退成**别名键**（见 aliasesOf）：老肌肉记忆、以及 Windows 上那颗独立 Delete 照样
+     * 能删，但界面上只挂一个键位 —— 菜单右列写「Delete / ⌘⌫」既占地方又像两个不同命令。
+     * 这与 macOS 上重命名的 Enter（主）/ F2（别名）是同一套写法。
+     *
+     * ⌘⌫ 带修饰键，不受 SAFE_BARE_CODES 那道限制；Delete 是裸键，仍要在 `bareCodes` 里点名
+     * 才录得回来。范围越窄越好：只点这一个键，别写成「所有非字母键」。
+     */
     id: 'delete-node',
     labelKey: 'settings.shortcut.deleteNode.label',
     hintKey: 'settings.shortcut.deleteNode.hint',
-    default: 'Delete',
-    // Delete 不是功能键，SAFE_BARE_CODES 不放行；这里是它唯一的开口。范围越窄越好：
-    // 只点名这一个键，别写成「所有非字母键」。
+    default: 'Mod+Backspace',
+    aliases: ['Delete'],
     bareCodes: ['Delete'],
     fixed: true,
     hideInSettings: true,
@@ -217,11 +244,12 @@ const SAFE_BARE_CODES = /^(F([1-9]|1[0-2])|Escape)$/
  * 某个动作能不能裸按这个键（不带任何修饰键）。
  *
  * 默认只有功能键 / Esc —— 它们在任何输入场合都不会和打字撞上。个别动作还能在自己的
- * `bareCodes` 里额外点名（目前只有「删除节点」的 Delete）。**这个口子要开得尽可能窄**：
- * 多放行一个字母键，就等于在全局吃掉用户的一次正常打字。
+ * `bareCodes` 里额外点名（目前只有「删除节点」的 Delete 别名，主键是 ⌘⌫）。
+ * **这个口子要开得尽可能窄**：多放行一个字母键，就等于在全局吃掉用户的一次正常打字。
  *
- * 录制框也用它：Delete / Backspace 在录制态是「清除绑定」，可「删除节点」的正式键位
- * 就是 Delete —— 不对着 bareCodes 判一下，它一旦被清掉就再也录不回来了。
+ * 录制框也用它：Delete / Backspace 在录制态是「清除绑定」，而 Delete 是「删除节点」的
+ * 别名键 —— 不对着 bareCodes 判一下，录制框会把这一发读成「清空」，那颗别名就再也录不回来
+ * （只能整组复位）。
  *
  * @param {string} actionId
  * @param {string} combo
@@ -244,7 +272,13 @@ const KEY_LABELS = {
   Escape: 'Esc',
   Space: 'Space',
   Tab: 'Tab',
-  Backspace: 'Backspace',
+  /**
+   * 退格用符号不用单词（2026-11-17 用户口径「用 logo 来表示 backspace，不要用单词」）：
+   * `⌫` 是键盘上印的那个字形，写在「⌘ + ⌫」这种组合里比 `Backspace` 短一半，也不跟
+   * 旁边的中文标签抢宽度（右键菜单右列是贴右缘的，单词会把菜单撑宽）。
+   * Delete（前向删除）没跟着改成 `⌦`：它在界面上根本不出现 —— 只是「删除节点」的别名键。
+   */
+  Backspace: '⌫',
   Delete: 'Delete',
   Home: 'Home',
   End: 'End',
@@ -496,10 +530,11 @@ export function actionForCombo(combo) {
 /**
  * 别名键（动作上的 `aliases`）是「额外认得、但不进绑定表、也不在界面上当当前键位显示」的键。
  *
- * 只给「平台默认键必须留个后门」的动作用（目前只有重命名：mac 默认 Enter、F2 作别名）。
+ * 只给「平台默认键必须留个后门」的动作用。目前两处：重命名（mac 默认 Enter、F2 作别名）、
+ * 删除（默认 ⌘⌫、Delete 作别名 —— 2026-11-17 起）。
  * 它不参与 `bindings` 的读写 —— 设置页显示、右键菜单右列都只认主绑定，免得同一个动作
  * 在界面上挂着两个键位。但匹配（actionForCombo）与冲突检测（shortcutConflict）都得认，
- * 否则把 F2 绑给别的动作时，mac 上会变成两颗一起响。
+ * 否则把 F2 / Delete 绑给别的动作时，会变成两颗一起响。
  */
 function aliasesOf(action) {
   return action.aliases ?? []

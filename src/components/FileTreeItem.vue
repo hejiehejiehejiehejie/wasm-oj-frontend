@@ -14,7 +14,7 @@
  *   **macOS 例外（2026-10-20）**：单按回车是「重命名」（与 Finder / VS Code 一致），
  *   「打开 / 切换展开」移到 **⌘ + ↓**；Windows / Linux 不变。
  * - 右键菜单与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
- *   而重命名、Delete 删除、⌘/Ctrl+A 全选是全局快捷键，见 onKeyDown 末尾那条注释）。
+ *   而重命名、⌘⌫ 删除（Delete 是别名）、⌘/Ctrl+A 全选是全局快捷键，见 onKeyDown 末尾那条注释）。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
 import { computed, inject, nextTick, ref, watch } from 'vue'
@@ -248,7 +248,7 @@ async function submitRenameOnEnter(event) {
  * 「用户点到别处去了」，把焦点拽回来刚好违反他的意图。所以这两个入口各调一次，而不是塞进
  * `cancelRename()` 里（它同时被失焦那条路用着）。
  *
- * 少了这一步会怎样：重命名框一消失，焦点就落到 `<body>` 上，紧接着按 F2 / Delete 是没反应的
+ * 少了这一步会怎样：重命名框一消失，焦点就落到 `<body>` 上，紧接着按 F2 / ⌘⌫ 是没反应的
  * —— 得再点一次那一行才认，快捷键的观感就成了「只能用一次」。
  */
 function refocusRow() {
@@ -399,7 +399,7 @@ function onKeyDown(event) {
         selectNode(workspace.selectedId ?? props.node.id)
       }
       break
-    // 重命名（mac Enter / 其它平台 F2）、Delete（删除）、⌘/Ctrl + A（全选）**刻意不在这里**：
+    // 重命名（mac Enter / 其它平台 F2）、⌘⌫ 删除（Delete 别名）、⌘/Ctrl + A（全选）**刻意不在这里**：
     // 2026-10-10 起前两条、2026-10-12 起全选也是，都登记在 useShortcutManager 里的全局动作，由 App.vue
     // 那个窗口捕获监听统一处理（先过作用域闸门「焦点在资源管理器里、且不在输入框上」，
     // 再进 FileExplorer 的 startRename / requestDelete / selectAllNodes）。留在这里就等于

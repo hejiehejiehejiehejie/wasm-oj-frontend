@@ -5,7 +5,7 @@
  * 点一下进入录制态，随后按下的第一个完整组合键就会被记下；只有通过冲突检测才写入，
  * 不通过就停在录制态并给出红字原因（这就是「阻止绑定」）。
  * Esc 放弃、Delete 清除绑定、单按修饰键会被忽略（还在等真正的键）。
- * 例外见 onKeydown：若某个动作的正式键位就是 Delete（bareAllowedFor），那它收下这个键。
+ * 例外见 onKeydown：若某个动作点名允许裸按这颗键（bareAllowedFor），那它收下这一发。
  *
  * 录制期间必须让全局监听让路：全局那条挂在 window 的捕获阶段（为了抢在 Monaco 前面），
  * 而这个监听在按钮上（目标阶段），捕获永远先跑。不喊停的话，录入 Ctrl+B 的瞬间功能就会
@@ -76,9 +76,10 @@ function onKeydown(event) {
   // 只按了修饰键：还没到真正的键，继续等
   if (!next) return
 
-  // Delete / Backspace 在录制态是「清除绑定」。但「删除文件 / 文件夹」这条的正式键位就是
-  // Delete —— 一律当清除的话，它被清掉之后就再也录不回来（只能整组复位）。所以先问一句
-  // 「这个动作允许裸按它吗」：允许就往下走、当成键位收下；想清除这一行改用左侧的 × 或 Backspace。
+  // Delete / Backspace 在录制态是「清除绑定」。但万一某个动作的键位里就点名了这颗键
+  // （`bareCodes`，目前只有「删除节点」的 Delete 别名），一律当清除的话它被清掉之后就再也
+  // 录不回来（只能整组复位）。所以先问一句「这个动作允许裸按它吗」：允许就往下走、当成键位
+  // 收下；想清除这一行改用左侧的 × 或 Backspace。
   if ((next === 'Delete' || next === 'Backspace') && !bareAllowedFor(props.actionId, next)) {
     clearBinding(props.actionId)
     stop()

@@ -172,7 +172,7 @@ src/
     CfStandingsTable.vue        # 「排行榜」页（2026-10-27 加）：官方榜（抬头明说「API 只有正式参赛者」）、名次 / 选手 / 过题或得分 / 奖牌 / rating / 每道题的格子，每页 100 行 + 翻页 + 「跳到我」。题格与计分的口径全在 `cf/standings.js`，本文件不重算分数。**2026-10-27 起抬头多一颗「非正式名次」**（需 `contest-unofficial`）：点了才问扩展，结果写成一行「含非正式：第 N 名」（多个 handle 取最好的一行），换一场就清掉；官方榜本身仍只画 API 给的那份。**同日晚补三样**：题格副行改为通过时刻、通过的格子 `is-ok` 绿色；表底一行**粘性表尾**（每题「通过 / 尝试」两行数字，整场口径，翻页不消失、`title` 里写全句）；非正式参赛的名字前一枚 `*`（`--warn` 色）—— 星号只在 `row.unofficial` 为真时出现，**真实 API 数据里恒为 0 枚**（原因见第 7 节），它是给「将来能拿到非正式行」预留的，别拿它当「榜单已含 VP」的证据。**同日深夜再补两样**：① 没通过的题格主行红字 `-N`（见 `cf/standings.js` 的题格口径）；② **「我在榜单里的位置」置顶条** —— `myRow` 存在时表上方粘一条（`position: sticky; top: 0`，在 `.cf-view` 的滚动容器里生效）`我：第 N 名 · 选手 · 计分摘要（ICPC「过 N 题 · 罚时 P」/ CF「N 分 ±hack」）· 跳到我`，往下滚或翻到任意页都看得见；条尾那颗「跳到我」就是原来的翻页动作。抬头那颗重复的「跳到我」与口径行里的「我：第 N 名」都已删掉（避免三处同名次）；置顶条里的名次是**官方榜**名次，含非正式的总名次仍只由抬头「非正式名次」那颗按钮单独查
     CfSubmissionList.vue        # 「提交」页（2026-10-27 加）：最新提交流（时间 / 选手 / 题目 / 判定 / 耗时 / 内存 / 语言）+ 判定配色 + CF 外链 +「只看我」开关与「过 N 题 · AC n · 未过 m」小结 + 比赛中的自动刷新。时间列取 `relativeTime`（比赛内时刻），哨兵值归一成 null 后退回本地时刻 —— 两者都带完整本地时间进 `title`
     ComponentsMenu.vue          # 组件菜单（2026-10-19 加为 `CfMenu`，2026-10-20 改名并按类分组）：侧栏那颗「组件」按钮点出来的**应用抽屉**浮层 —— 深色圆角面板 + 网格一屏两格（**2026-11-14 用户要求两格并排、抬头只留一个「组件」**：原来「Codeforces / 工具」两组各一格上下摞着、各带一行小标题，现在两组并成 `COMPONENT_GROUPS` 里的一节 —— `labelKey` 直接复用 `components.menu.title`，`components.menu.codeforces` / `components.menu.tools` 两个类名一并删掉；条目级的 `available()` 过滤不变，只是不再有「整组消失」这一层）。两格的显隐各看自己的安装态：**Codeforces**（`cfReady` 为假就不出现，模块没下载不该留点了没反应的格子）、**倒计时**（`countdown.installed`，设置里卸载后这一格消失）。两格都不在时面板仍弹出、写一句「装哪儿」。点哪项就把那个界面亮出来、再收菜单。与 SettingsMenu / ContextMenu 共用三样：`--menu-*` 令牌、`--menu-scale` 缩放系数（坑 33）、`usePopoverLayer` 的定位与关闭；两个宿主是 SidebarSwitcher（`placement="below-end"`）与 ActivityBar（`placement="beside"`）。键盘只做 Esc 关 + 打开即聚焦第一项，Tab 自然走 —— 一屏只有两格，方向键漫游不做了。抬头走 `src/i18n/messages/components.js`（不能挂在可卸载的 cf 域里），条目名仍在各自域（`cf.view.title` / `countdown.title`）
-    TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头动作区只剩 verdict（「全部 AC / n/m AC」）与耗时，经 `<Teleport defer>` 投进 Sidebar 共享页头的 `#sidebar-context`（同 FileExplorer 那颗，见坑 37）+ 用例列表 + 页脚运行按钮。原 `.panel__head` 已随页头上提删除（2026-10-11）。**一键提交那颗按钮 2026-10-23 加**：页脚与 ▶ 同一行、同高（实测 `uiScale = 1` 下两颗都是 41×32）的纯图标钮（`arrow-up`，`--accent` 底），只在活跃文件带题目链接时出现（`showSubmit`，判据在 App）；置灰原因写成页脚那行 `.run-blocked`（与「不能运行」共用一行，运行那条优先）**不能只塞 title** —— 置灰的按钮在浏览器里收不到鼠标事件。提交中挂 `.is-submitting`（脉冲），期间自己与 ▶ 一起禁用；动作全在 App 的 `submitActiveFile`，本文件只 emit。**不可运行态**（`runBlocked` 非空，由 App 的 `runBlockedReason` 算好传进来：题解这类非代码文件的 `activeLanguage` 是 null，以及「一个文件都没打开」）由同一份文案解释：页脚那行 `.run-blocked`（常驻，`v-if="runBlocked || submitBlocked"`）与两个 ▶ 的 title。**空态里不放这行** —— 「No test cases yet.」一行就是空态的全部（2026-10-06 定，别再加回去；空态里的 `notice` 是抓样那三条提示，说的是「样例为什么还没到手」，与能不能运行无关）。**「添加测试样例」也要跟着灰**（2026-10-06）：用例是写进活跃文件的 `config.tests` 的，跑不了的文件根本加不出用例，`App.addCase()` 里还有一道兜底挡住 `new-case` 快捷键。页脚两颗按钮的禁用态是同一档 opacity 0.45。**窄屏（两条并集那条判据）下「添加测试样例」四个字隐藏、只留那个加号**（2026-10-13 加，见第 5 节坑 51）：规则写在 `Sidebar.vue` 的窄屏块里（借那条现成的断点，不给 TestPanel 再造第四份副本），本文件只给那个 `span` 挂了 `add__label` 这个钩子类并补了 `:title`（AppIcon 是 aria-hidden，文字藏了之后可访问名只剩它）。**面板末尾还挂着一块纸屑 canvas**（`.panel__confetti`，2026-10-23 加）：`position: absolute` 铺满整块面板、`pointer-events: none`、`aria-hidden`，实现与触发点都不在本文件（见 `services/confetti.js` 与第 17 节），这里只管「挂上 / 摘掉」这一对，`.panel` 也只为它补了 `position: relative`
+    TestPanel.vue               # 评测样例面板（Sidebar 的 #tests 插槽）：页头动作区只剩 verdict（「全部 AC / n/m AC」）与耗时，经 `<Teleport defer>` 投进 Sidebar 共享页头的 `#sidebar-context`（**一个文件都没打开时整块不画**，2026-11-17：那时这里只会是一颗「无测试用例」，与空态标题「没有打开的文件」各说一半，判据是脚本里的 `showVerdict`）（同 FileExplorer 那颗，见坑 37）+ 用例列表 + 页脚运行按钮。原 `.panel__head` 已随页头上提删除（2026-10-11）。**一键提交那颗按钮 2026-10-23 加**：页脚与 ▶ 同一行、同高（实测 `uiScale = 1` 下两颗都是 41×32）的纯图标钮（`arrow-up`，`--accent` 底），只在活跃文件带题目链接时出现（`showSubmit`，判据在 App）；置灰原因写成页脚那行 `.run-blocked`（与「不能运行」共用一行，运行那条优先）**不能只塞 title** —— 置灰的按钮在浏览器里收不到鼠标事件。提交中挂 `.is-submitting`（脉冲），期间自己与 ▶ 一起禁用；动作全在 App 的 `submitActiveFile`，本文件只 emit。**不可运行态**（`runBlocked` 非空，由 App 的 `runBlockedReason` 算好传进来：题解这类非代码文件的 `activeLanguage` 是 null，以及「一个文件都没打开」）由同一份文案解释：页脚那行 `.run-blocked`（常驻，`v-if="runBlocked || submitBlocked"`）与两个 ▶ 的 title。**空态里不放这行** —— 「No test cases yet.」一行就是空态的全部（2026-10-06 定，别再加回去；空态里的 `notice` 是抓样那三条提示，说的是「样例为什么还没到手」，与能不能运行无关）。**2026-11-17 唯一例外**：一个文件都没打开时，空态那行标题改成「没有打开的文件」（`panel.runBlockedNoFile`，组件里的 `emptyTitle`，由 App 的 `!hasOpenFile` 判），页脚那行同时收掉（`footBlocked`）—— 同一句话不再说两遍；「打开了但不是代码」那条仍留在页脚，空态照旧 `No test cases yet.`。**「添加测试样例」也要跟着灰**（2026-10-06）：用例是写进活跃文件的 `config.tests` 的，跑不了的文件根本加不出用例，`App.addCase()` 里还有一道兜底挡住 `new-case` 快捷键。页脚两颗按钮的禁用态是同一档 opacity 0.45。**窄屏（两条并集那条判据）下「添加测试样例」四个字隐藏、只留那个加号**（2026-10-13 加，见第 5 节坑 51）：规则写在 `Sidebar.vue` 的窄屏块里（借那条现成的断点，不给 TestPanel 再造第四份副本），本文件只给那个 `span` 挂了 `add__label` 这个钩子类并补了 `:title`（AppIcon 是 aria-hidden，文字藏了之后可访问名只剩它）。**面板末尾还挂着一块纸屑 canvas**（`.panel__confetti`，2026-10-23 加）：`position: absolute` 铺满整块面板、`pointer-events: none`、`aria-hidden`，实现与触发点都不在本文件（见 `services/confetti.js` 与第 17 节），这里只管「挂上 / 摘掉」这一对，`.panel` 也只为它补了 `position: relative`
     TestCaseCard.vue            # 单个用例卡片：徽标（AC/WA/CE/TLE/RE/ERR 判定码）/ 耗时 / 输入框 / 输出块。输入与期望输出**超过 6000 字符时显示切成「开头一段 + 省略行」**（框仍可编辑，但只能改省略行之前那段；全选复制与运行走的都是完整内容）；**没到 6000 但已超出框高（约 15 行）时没有任何标记**（字符一个没少、拖滚动条就能看全，底边仍是实线、框下也没有小字）；底边虚线与小字**只给真被截断的那种**；**框内那行标记就是一个光秃秃的 `……`，省略了多少一律由框下面那行「还有 N 个字符未显示 + 复制全部」说明**（那行只在真截断时出现；这个 `……` 时有时无的两条原因见第 5 节坑 26）
     AppIcon.vue                 # 内联 SVG 图标集（name 取图标名）。三张表：PATHS（24×24 描边线性图标，主力）/ SOLID_PATHS（整块实心品牌标，`fill: currentColor`）/ VIEWBOX（不在 24 网格上的图标的专用方框）。语言图标的两个坑见第 5 节坑 16（`.md` / `.markdown` → `markdown`，2026-09-30 加，配色 `--icon-markdown`）；设置目录用的 `keyboard`（快捷键）与 `plugin`（浏览器插件，拼图形状，刻意区别于「应用」组的 `install` 图标）也在 PATHS 里；新建按钮专用的 `file-plus` / `folder-plus`（2026-09-28 加）同表；**导入那两颗 `file-down` / `folder-down` 已于 2026-11-11 删除**（2026-10-12 加过：页头后来只剩 `file-plus` / `folder-plus`，这两枚没有任何消费方；当初的教训仍成立 —— 同一份文件 / 文件夹轮廓 + **轮廓内部居中**的一枚向下箭头；⚠️ 第一版把箭头放在**右下角**、与 `file-plus` 的加号同处一角，14px 页头下两者只差角上那一撇，「新建」和「导入」根本分不出，当天即改 —— **这一排的判据是「轮廓保持一致、符号位置与形状错开」**）；**题解工具栏那 13 个线性图标与全屏用的 `expand` / `collapse`（2026-09-30 加）** 同样在 PATHS 里，键名与 `services/mdFormat.js` 的 `MD_TOOL_GROUPS` 一一对应。**`chevron-left`（2026-10-13 加）与既有的 `chevron-right` 是同一字形的镜像**，成对用在窄屏侧栏底部那颗「收起侧栏」上 —— 按侧栏停靠侧选一枚，横向箭头只有这两枚，别拿竖着的 `chevron`（那是下拉用的）凑。**⚠️ `:size` 必须是 viewBox 网格（24）的整数倍，否则边缘锯齿**（2026-11-01 实测）：渲染尺寸 ÷ 24 再乘 dpr 必须是整数，路径坐标才落在物理像素的整数位置上；只要不是，圆弧的抗锯齿就被量化成台阶。dpr 2 / 3 的边缘硬边占比（同一条测量口径）：`size 22` 28% / 18% → `size 24` **15% / 9%**，肉眼可见地干净（`ComponentsMenu` 那两枚 2026-11-01 由 22 改 24，是全站目前唯一的 24）。**只有 12 与 24 两个尺寸在 Retina 上锐**（12 的 dpr 2 倍数是 1.0）；站内其余 77 处（13×33 / 15×12 / 14×9 / 17×4 / 26×3 / 11×3 / 16×3 / 18×2）都是锯的，小图标不显眼、17 与 26 那几处最扎眼 —— 要改就往 24 靠，别往 22 / 26 这种「接近但不整」的数上走。非整数 dpr（系统缩放 125% / 150%）下任何尺寸都一样糊，那是浏览器光栅化的固有限制，改代码救不了。
     CountdownCard.vue           # 悬浮倒计时卡（2026-10-20 从 `WorkBuddy/…/ellipse-demo` 的 `FloatingCountdownCard.vue` 移植）：`Teleport` 到 body、fixed 定位、显隐只看 `services/countdown.js` 的 `countdown.open`；头部（状态点 / 关闭 / 暂停 / 中止 / 锁定）+ 设置区（时:分:秒 + 4 个预设 + 开始）+ 环形读数区 + 右下角缩放手柄。入口：齿轮菜单的「倒计时」那一行（`settingsMenu.js`）与组件菜单 › 工具 › 倒计时（`ComponentsMenu.vue`），关闭后不留角标。**圆环改纯 SVG 自绘**（`stroke-dasharray` / `dashoffset`，`viewBox` 100×100），不再引 `vue-ellipse-progress`；环径由 `ResizeObserver` 量 `.cd-body` 的短边、数字用绝对定位的 DOM 盖在环心（SVG 文本不吃 rem 与字体回退链）。颜色全走 `base.css` 变量；几何即设计 px，见第 16 节
@@ -790,7 +790,7 @@ deviceScaleFactor 2、根字号 17.6px、走真实 `groupTabs` 建组、逐像�
     - **只有 `ContextMenu.vue` 一份**。文件树的节点菜单与编辑区的编辑菜单（2026-10-10 由 `useEditorMenu.js` 接过 Monaco 内置那份，见坑 31；同日补到 Monaco 默认菜单的可达全集）都走它、都 Teleport 到 body —— 所以改样子只改这一个文件 + `base.css` 的两组 `--menu-*` 令牌，全站一起变。**别在别处再手搓一个列表**。
     - **`--menu-hover-bg` 是蓝的**（深 `#04395e` / 浅 `#0060c0`），与站内通用的灰悬停 `--bg-hover` **不同源、也不该统一**：它就是模板原值，也正是 VS Code 的 `list.activeSelectionBackground`，而浅色那支是同一个颜色 id 的 light 项 —— 那整组令牌是 **Dark+ / Light+ 的官方配对**（主文字 = `foreground`、描边 = `dropdown.border`），所以**别凭手感调、更别以「跟文件树悬停保持一致」为由换成灰的**。
     - **`--menu-muted` 是两套主题里唯一刻意取不同"档位"的一个**：模板的 `#858585` 压在白底上只有 3.4:1、11px 的快捷键太虚，浅色压到 `#767676`（4.5:1）。其余每个令牌都是官方对应值，原样照抄。
-    - **右列键位：只有「真有」的才标**。编辑区那六项由 `useEditorMenu.js` 的 `SHORTCUT` 喂数据，取的是 `formatCombo('Mod+F2' | 'Mod+KeyX' | 'Mod+KeyC' | 'Mod+KeyV' | 'Mod+KeyA' | 'F1')` —— **显示的就是 Monaco 的内置默认键位，按了真的会跑**。〔2026-10-10 更正：这条原先写「文件树那四项站内没有任何键位绑定，所以留空」—— 用户随后点名「重命名和删除这两个完全可以绑定上快捷键」，那两条于是**真绑了**（`F2` / `Delete`），右列由 `FileExplorer.shortcutOf()` 读绑定表给出，见第 13.4 节。〕剩下那些（题目信息 / 新建文件 / 新建文件夹）是真没有键位，**留空、别编**；「打开题目」那格是 2026-10-11 加的，填的是 `⌘ / Ctrl + 单击` 这个**手势**本身（`t('explorer.menu.openUrlClick', { mod })`，macOS 给 ⌘、其余给 Ctrl，**不经过 `formatCombo`** —— 它只吃 `'Mod+KeyX'` 那种 keydown 串，而这是一个鼠标事件的修饰键，也正因此它不进绑定表、不占任何键位）。写法一律走 `formatCombo`（站内唯一那一份）：macOS 出 `⌘ + X`、Win / Linux 出 `Ctrl + X`，与设置页的快捷键列表永远同一套符号。`formatCombo` 只吃平台常量、不吃 i18n 的 ref，所以**可以在模块顶层算**（不受「顶层 `t()` 会把语言冻住」那条约束）。要让某一项显示键位，往那个菜单的 items 里加 `shortcut` 就行（**keydown 键位一律从绑定表取，别写死字符串**；唯一的例外就是上面那条「打开题目」的手势提示），别改 CSS 去硬凑。
+    - **右列键位：只有「真有」的才标**。编辑区那六项由 `useEditorMenu.js` 的 `SHORTCUT` 喂数据，取的是 `formatCombo('Mod+F2' | 'Mod+KeyX' | 'Mod+KeyC' | 'Mod+KeyV' | 'Mod+KeyA' | 'F1')` —— **显示的就是 Monaco 的内置默认键位，按了真的会跑**。〔2026-10-10 更正：这条原先写「文件树那四项站内没有任何键位绑定，所以留空」—— 用户随后点名「重命名和删除这两个完全可以绑定上快捷键」，那两条于是**真绑了**（`F2` / `Delete`），右列由 `FileExplorer.shortcutOf()` 读绑定表给出，见第 13.4 节。〕剩下那些（题目信息 / 新建文件 / 新建文件夹）是真没有键位，**留空、别编**；「打开题目」那格是 2026-10-11 加的，填的是 `⌘ / Ctrl + 单击` 这个**手势**本身（macOS 给 ⌘、其余给 Ctrl，**不经过 `formatCombo`** —— 它只吃 `'Mod+KeyX'` 那种 keydown 串，而这是一个鼠标事件的修饰键，也正因此它不进绑定表、不占任何键位）。〔2026-11-17：末位那个「单击」不再写字，改成一枚指针图标 —— 文案只到 `{mod} +`（`t('explorer.menu.openUrlPointer')` / `t('app.tabs.openUrlPointer')`），图标由 item 的 `shortcutIcon` 交给 `AppIcon` 画，见 §68。〕写法一律走 `formatCombo`（站内唯一那一份）：macOS 出 `⌘ + X`、Win / Linux 出 `Ctrl + X`，与设置页的快捷键列表永远同一套符号。`formatCombo` 只吃平台常量、不吃 i18n 的 ref，所以**可以在模块顶层算**（不受「顶层 `t()` 会把语言冻住」那条约束）。要让某一项显示键位，往那个菜单的 items 里加 `shortcut` 就行（**keydown 键位一律从绑定表取，别写死字符串**；唯一的例外就是上面那条「打开题目」的手势提示），别改 CSS 去硬凑。
     - **编辑区菜单的条目 = Monaco 默认菜单在本应用的「可达全集」**（2026-10-10 补）。判据不是「像不像 VS Code」，而是 Monaco 自己会不会显示：`MenuId.EditorContext` 里凡带 `hasXxxProvider` 前置条件的条目（Go to Definition / Declaration / Type Definition / Implementations / References / Peek ▸ / Rename Symbol / Format Document / Format Selection / Refactor / Go to Symbol…）在本应用**一个都不成立**（全仓只注册了 `languages.registerCompletionItemProvider`，见 `services/monaco/completion.js`），Monaco 也**不会**把它们渲染出来。去掉这些后只剩「更改所有匹配项」（`Mod+F2`）与「命令面板」（`F1`）两条没补，即本次补的这两条；分组照 Monaco 的 group 走（`1_modification` / `9_cutcopypaste` / `z_commands`），组间一条分隔线。「全选」并不属于全功能编辑器的默认菜单（它来自 `SimpleEditorContext`），是刻意保留、并进剪贴板那一簇的一项。**别为了凑数往菜单里塞点不动的条目** —— 那与「只登记本应用真做得到的动作」是同一条纪律（见 `useShortcutManager.js` 里格式化没进绑定表的注释）。
     - **点菜单项触发 action 前必须 `editor.focus()`**（2026-10-10 实测踩到）。菜单是 Teleport 到 body 的 `<button>`，点它会把 DOM 焦点从 Monaco 的 `div.native-edit-context` 上抢走；`editor.action.quickCommand` 拿不到聚焦编辑器会**直接抛** `Quick input service needs a focused editor to work.`（画面表现是「命令面板点了没反应」）。`useEditorMenu.js` 的 `onMenuSelect` 先 `closeMenu()`、再 `instance.focus()`、最后才 `trigger`。剪贴板那几条不挑焦点，但一并归还没有副作用。
     - **行高刻意不写死 ⇒ 「条目高」是跟着界面语言走的，别当常数断言**：`.context-menu__item` 只给 `font-size: 13px / font-weight: 400 / line-height: normal`。实测（macOS / macOS 上 dSF=2）：**英文界面** 13px 拉丁天然行盒 **16px** → 条目 **28px**（与模板逐像素相同）；**中文界面** 天然行盒 **18px** → 条目 **30px**（CJK 行盒天生高一档，模板若写中文也是这个数）。所以中英条目高差 2px 是**预期**、不是 bug。同理别在 `base.css` 里给菜单补一个写死的行高 —— 上一版写的 `18px` 正好是中文那一档，等于把英文界面也撑高了 2px。真要让两种语言都锁 28px，得把 `line-height` 写成 `16px`，**那会明确违背「照模板」的前提，改之前先问**。
@@ -7076,3 +7076,460 @@ if (prev === chip && (…原判据… || (drag.pinnedLeft && drag.minLeft - drag
 | 折叠再展开 | —— | 不变（0 宽 → 32/137/234/333） |
 
 `npm run verify` A–H 全 PASS，`npm run lint` 无 error。
+
+## 63. 空编辑区重做：微光点阵 + 内联胶囊（2026-11-17，用户口径「方案三」）
+
+### 63.1 症状：一块占位，两处失衡
+
+用户口径：空状态「显得单调，核心原因是**视觉比例失衡**与**缺乏层次感**」—— 中间那枚 `< >`
+尺寸过大、线条过粗，下方那行 13px 提示离它太远（容器 `gap: 10px` + 图标 `width: 50%` 撑起
+半屏高度），视觉上完全脱节；纯色平面背景没有任何纹理或光影过渡；纯文字提示也无法点击。
+
+改前实测（933×966 的窗格，`cp.uiScale = 1`）：图标盒子 ≈ 466×466（面宽的一半），
+提示距图标 10px —— 图标一个人占了整块的三分之一高度。
+
+### 63.2 改法：四层，从下往上
+
+全在 `EditorPane.vue` 的空态那一段（模板 + 样式），没有新增任何依赖、没有新颜色变量：
+
+| 层 | 选择器 | 做法 |
+| --- | --- | --- |
+| ① 点阵纹理 | `.editor-pane__empty-texture` | 15px 一格、直径 1px 的点（`radial-gradient` 平铺）。颜色由 `--text` 溶进透明现算，可见度统一由 `opacity: 0.42` 压 —— 改深浅只动这一个数。`mask-image` 是 `ellipse 38% 34%` 的径向遮罩，所以只在中心若隐若现，不铺满（铺满就成了网格纸） |
+| ② 中心微光 | `.editor-pane__empty` 的 `background` | `ellipse 44% 38%` 的 `--text` 10% 径向光。**刻意用中性色不用 `--accent`**：十套主题的 accent 从蓝到褐金都有（paper 是褐金），压在底色上会读成一块脏印子；中性色在深底是「加一层白」、浅底是「加一层灰」，十套都干净。浅色主题**整层撤掉**（`:root[data-scheme='light']` 那条），纸白底上加灰只会读成脏印子 |
+| ③ 磨砂卡片 | `.editor-pane__empty-mark` | 76×76、圆角 10px（§1.A 的档位）。底 `linear-gradient(160deg, --bg-card 88% + --text 12%, --bg-editor-pane)`：上沿比下沿亮一档，像被光从左上方扫到。1px 渐变描边用**两圈 inset** 叠出来（`border-color` 只能单色，做不出渐变）+ 一枚 `0 14px 28px -18px` 的落影把卡片抬起来 |
+| ④ 图标 | `<AppIcon name="code" :size="30" :stroke-width="1.75">` | 缩到 30px，线宽 1.75 —— Lucide 的 2 放到 30px 会跟着放大成 2.5px，在 76px 的卡片里偏粗 |
+
+提示改成**富文本两行**（间距 22 / 10px，不再用容器 `gap` 一刀切）：
+
+- 主句：`在左侧资源管理器中选择文件，或` + 一颗**真按钮** `新建文件`（`--accent-text` + 下划线
+  + 悬停 14% 底色的 4px 圆角，`:focus-visible` 给主题色焦点环）。文案在 `app.emptyHintLead` /
+  `emptyHintCreate` / `emptyHintTogglePanel` 三条（中英并排）。
+- 第二行：`<kbd>` 键帽 + 「打开资源管理器」。键位**读运行时绑定**
+  （`formatCombo(bindings.value['toggle-panel'])`），设置里改过键这里跟着变；清空了整行不渲染
+  （留一枚空键帽比不提示更莫名其妙）。键帽：`--bg-control` 底 + `--border` 1px、下沿 2px 实边
+  充厚度，圆角 4px，不加投影（这个尺寸下投影只会糊成一团灰）。
+
+### 63.3 「新建文件」的链路：EditorPane → App → FileExplorer
+
+- `EditorPane` **不认识**资源管理器（`creating` 那套状态在 `FileExplorer` 里），所以只
+  `emit('new-file')`；`EditorPaneGrid` 不声明 emits，监听器经 `$attrs` 原样落到每一片窗格上。
+- `App.createFileFromEmptyEditor()`：亮侧栏（`togglePanel()`）→ 切到 `explorer` →
+  `fileExplorer.startCreate('file')`（2026-11-17 新加到 `defineExpose`，落点与页头那颗
+  「新建文件」**同一个** `headerCreateTarget()`：跟随主选中那一行，没选中就落根目录）。
+- ⚠️ **必须 `await togglePanel()`**：折叠态整层是 `visibility: hidden`（见 §App 样式表
+  `.pane--tests.is-collapsed .pane__inner`），而 View Transition 把「翻状态」排在**下一帧**。
+  不等它就 `focus()` 输入框，浏览器**静默失败** —— 输入框建出来了、值也对，焦点还留在那颗
+  链接上（探针当场抓到：`vis: hidden`、`activeElement` 仍是 `.editor-pane__empty-link`）。
+  为此 `togglePanel()` 现在**把 `transition.finished` 返回出去**（其余调用方照旧忽略返回值）。
+
+### 63.4 两条不许改回去的地方
+
+- **容器仍是 `pointer-events: none`**：空编辑区同时是整页拖入的落点、也是右键闸门的判据
+  （§useEditorMenu「没有 model 就不弹菜单」）。只有那颗链接、以及「关闭窗格」按钮各自
+  `pointer-events: auto`。探针断言：空态正中 `elementFromPoint` 命中的是 `.editor-pane__host`
+  （穿透到底下的 Monaco 容器），不是空态那一层。
+- **别把 `gap` 加回容器**：图标→主句 22px、主句→键帽行 10px、键帽行→「关闭窗格」16px，
+  三段间距是分开给的 —— 这正是「层次」本身，一刀切的 gap 就是改前那种「图标配一句掉在远处的话」。
+
+### 63.5 实测（1400×980 @DSF 2 / 深色 + paper / `cp.uiScale = 1`，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 卡片 | 76×76，图标 30 |
+| 卡片底 → 主句顶 / 主句底 → 键帽行顶 | 22 / 10 |
+| 键帽 | `⌘ + B`（`formatCombo` 的输出，与状态栏同口径） |
+| 点阵 | 15px 格、`opacity 0.42`、遮罩 `ellipse 38% 34%` |
+| 点击「新建文件」 | 资源管理器从 1px 展开到 553.6px，`create-row__input` 值 `new.cpp`、**拿到焦点** |
+| 两套主题 | 深色：中性微光 + 点阵；paper：微光整层撤掉，只剩点阵，卡片转白底淡影 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 64. 空编辑区改成「Zed 式快捷键板」（2026-11-17，用户口径「改为这个试一试」）
+
+### 64.1 这一版取代了什么
+
+§63 之后这块空态又试过两版（用户连续给了两份组件：一份磨砂底座 + 点阵 + 内联胶囊，一份
+MinimalMarkEmpty 的「细线图标 + 一句说明」），都只落在代码里、没进 HANDOFF。**现在这三版全被
+本节的 Zed 式快捷键板取代** —— 那一句话能说清「去哪儿」，说不清「按什么键」，而站在空编辑区前
+的人要的恰恰是后者。三行「动作 ····· 键位」，中间用 1px 引导线连起来，键位读运行时绑定。
+
+### 64.2 结构（`EditorPane.vue` 空态那一段）
+
+```
+</>                                     ← .editor-pane__watermark（14px 等宽 / 字距 2px / --text 22%）
+新建文件 ····················· ⌘ + ⌥ + N   ┐
+显示 / 隐藏侧边栏 ············ ⌘ + B        ├ .editor-pane__keymap-row（整行是 <button>）
+切换侧栏面板 ················ ⌘ + ⇧ + E     ┘
+```
+
+- 板宽 **240px**（过 pxtorem = 15rem）、`max-width: 100%`、左右 16px 内距；分屏成四格时跟着窗格缩，
+  不会把行挤散（行是对齐关系，宽度不能跟着窗格涨）。
+- 整块 `translateY(-12px)`：几何正中在视觉上偏低，人眼重心略高于中线。
+- 引导线 `.editor-pane__keymap-dots` 用 `flex: 1` 吃掉剩余宽度、`align-self: center` 停在行的
+  垂直中线上。**别改回「基线 + `top` 负偏移」那套微调**：12px / 11px 混排时它随字体走，换字体就偏。
+- 颜色全由 `--text` 溶进透明现算（不写死十六进制，十套主题通吃）：动作名 32%、键位 26%、
+  引导线 15%、水印 22%；悬停动作名 → 58%、键位 → 74%。
+
+### 64.3 行是可点的，且与快捷键**同源**
+
+`emit('shortcut', actionId)` → `App.runShortcutAction(id)` → `SHORTCUT_HANDLERS[id]()` ——
+点一行与按一下那个键走的是**同一个函数**，所以结构上不可能出现「点着会建、按着没反应」。
+
+⚠️ 旧的两条 emit（`new-file` / `focus-explorer`）与对应的两个 App 处理函数（`createFileFromEmptyEditor`
+/ `revealExplorerFromEmptyEditor`）已删，`app.emptyHint*` 四条文案也一起删掉（换成 `app.emptyKeymap*`
+三条）。`createFileFromEmptyEditor` 现在叫 `createFileInExplorer`：它已经不只是空态那一颗按钮的
+出口，而是全局「新建文件」的动作实现。
+
+### 64.4 新增一条真快捷键：`new-file` = `Mod+Alt+KeyN`
+
+**为什么不得不加**：板上第一行是「新建文件」，写一个按下去没反应的键比不写更糟。
+
+**为什么不是 ⌘ / Ctrl + N**：那个组合由浏览器 UI 层直接吃掉（新窗口），`preventDefault` 无效 ——
+`useShortcutManager` 的 `BROWSER_RESERVED` 里 `'Mod+KeyN'` 本来就在名单上。绑上去会当场弹出浏览器
+窗口。所以取 ⌥⌘N / Ctrl+Alt+N：不与站内任何默认键位冲突（`MD_SHORTCUTS` 里 ⌥⌘ 那两条是 T / R）。
+它在设置面板的快捷键列表里有自己一行（`settings.shortcut.newFile` 中英并排），可改可清。
+
+执行落在 `App.createFileInExplorer`：亮侧栏（`togglePanel` 并 **await 它**，理由见 §63.3）→
+切到 explorer → `fileExplorer.startCreate('file')`；落点跟随资源管理器主选中那一行。
+
+⚠️ **空态板上别写死键位字符串**。键位一律 `formatCombo(bindings[action])`，设置里改过这里跟着变；
+绑被清空（`null`）时 `formatCombo` 回空串，模板据此不渲染键帽 —— 行本身照旧可点。
+
+### 64.5 两条不许改回去的地方
+
+- **容器仍是 `pointer-events: none`**：空编辑区同时是整页拖入的落点、也是右键闸门的判据
+  （§useEditorMenu「没有 model 就不弹菜单」）。只有每一行与「关闭窗格」按钮各自
+  `pointer-events: auto`。探针断言：空态正中 `elementFromPoint` 命中 `.editor-pane__host`。
+- **拖拽反馈只剩「水印亮一档」**（22% → 40%）：板上不加「拖到这里」的字样 —— 整页都是落点
+  （见 `usePageDrop` 文件头），在编辑区里写反而把能拖的范围说小了。
+
+### 64.6 实测（1400×980 @DSF 2&3 / 深色 + paper / `cp.uiScale = 1`，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 板 / 行 | 板 240（内容 208）、行高 19、行距 10 |
+| 水印 | 14px 等宽、字距 2px、`--text` 22%（拖入态 40%） |
+| 三行键位 | `⌘ + ⌥ + N` / `⌘ + B` / `⌘ + ⇧ + E`（全部来自 `formatCombo`，与设置面板同一套符号） |
+| 点第一行 | 侧栏 1px → 554px（动画走完才起新建）、`create-row__input` = `new.cpp`、**拿到焦点** |
+| 按 ⌥⌘N（焦点在 Monaco） | 同上：输入框建出来并拿到焦点 —— 全局那条路与点击同源 |
+| 悬停第二行 | 动作名 32% → 58%、键位 26% → 74% |
+| 拖入态 | 水印 22% → 40%，侧栏按既有逻辑临时撑开 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 65. 空编辑区改成「窗口线框 + 独立键帽」（2026-11-17，用户口径「改用这个」）
+
+### 65.1 与前几版的关系
+
+§63 / §64 之后用户又给了一份 `EmptyEditorState.vue`，一版一版地逼近**更小、更静**：这一版把
+「< / > 水印 + 引导线」换成**一枚 72px 的窗口线框**（外框 + 顶栏分割线 + 三个点 + 里面一个 `< / >`），
+行里那条引导线**整个删掉**，键位从「一串带加号的字」改成**一个键一颗键帽**。§63 / §64 两版已被它取代。
+
+### 65.2 结构（`EditorPane.vue` 空态那一段）
+
+```
+        ┌──────────────┐            ← .editor-pane__emblem（72×72，四段线条四档明度）
+        │  ● ● ●       │
+        │     </>      │
+        └──────────────┘
+新建文件                  ⌘ ⌥ N     ← .editor-pane__keymap-row（整行是 <button>）
+显示 / 隐藏侧边栏         ⌘ B
+切换侧栏面板              ⌘ ⇧ E
+```
+
+- 整块宽 **310px**（过 pxtorem = 19.375rem），`max-width: 100%`；外层 `padding-bottom: 4vh`
+  把重心抬到几何中线之上（用 vh 不用固定 px：窗口矮时它跟着收，不会把这块顶出画面）。
+- 线框四段明度（全部 `color-mix` 于 `--text`）：外框 18% → 圆点 24% → 斜杠 26% → 尖括号 34%。
+  读起来是「一张窗户的画」而不是一枚实心图标 —— 空态要的是暗示，不是勋章。
+- 行：`padding: 7px 12px` / 圆角 6px / 行距 2px（每行自己有 7px 内距，行距靠它撑；再给 gap 就散）。
+  悬停铺 `--text` 6% 的底（与资源管理器行同一套语言）+ 动作名 34% → 62%、键帽 30% → 54%。
+- 键帽：22×22（`min-width` 22，单字符 `⌘`/`N` 也是方块）、圆角 **4px**、下沿 1.5px 实边充当厚度、
+  `--text` 12% 描边 + 5% 底。**不加投影** —— 这个尺寸下投影只会糊成一团灰。
+
+### 65.3 三处必须与用户那份组件不同的地方（本项目的硬约束，不是审美分歧）
+
+1. **颜色全部走变量 + `color-mix`**。用户给的 SVG 里是 `#28282B` / `#46464C` 这类字面量，直接用会在
+   浅色主题（paper）里变成一块墨，而且 `lint:css` 的 `color-hardcoded` 会当场拦。所以模板里 SVG 的
+   每一笔都挂了类（`-frame` / `-dot` / `-slash` / `-code`），颜色只在样式表里出现一次；模板里只留
+   几何（坐标、线宽、线帽）。
+2. **圆角取 4px 而不是 5px**：§1.A 只有 10 / 6 / 4 三档，5px 会被 lint 记成第四个值。
+3. **键帽里的字不许写死**。用户那份写的是 `'⌘' / '⌥' / 'N'` 三个字面量，这里不能这么写：macOS 与
+   非 mac 符号不同、用户还能在设置里改键。「新建文件」尤其 —— 它绑的是 **⌥⌘N 而不是 ⌘N**
+   （⌘N 被浏览器 UI 层吃掉、`preventDefault` 拦不住，见 `useShortcutManager` 的 `BROWSER_RESERVED`）。
+   所以键帽一律由 `formatCombo(bindings[action])` 拆出来（`row.keys`，见 §65.4）。
+
+### 65.4 `keymapRows` 从「一个 combo 串」改成「keys 数组」
+
+```js
+const combo = formatCombo(bindings.value[row.action])
+return { action, label: t(row.labelKey), keys: combo ? combo.split(' + ') : [] }
+```
+
+⚠️ 拆的必须是 `formatCombo` 的**输出**（它固定以 ` + ` 连接），不是原始 combo 串 ——
+原始串是 `Mod+Alt+KeyN` 这种词，直接拆出来会得到「Mod」「KeyN」，没法当键帽用。
+
+绑被清空时 `formatCombo` 回空串、`keys` 为空数组，模板据此不渲染键帽组（`v-if="row.keys.length"`），
+**行本身照旧可点**。点击仍走 `emit('shortcut', id)` → `App.runShortcutAction(id)` →
+`SHORTCUT_HANDLERS[id]()`，与按那个键同源，没有第二条路。
+
+### 65.5 指针那条不变式换了判据（改这块时要重验）
+
+容器 `pointer-events: none` 照旧（整页拖入的落点 + 右键闸门的判据都靠它）。但**这一版的行把正中
+占住了**：空态正中 `elementFromPoint` 现在命中的是 `.editor-pane__keymap-row`，不再是
+`.editor-pane__host` —— 这是设计使然（行就是动作），**不再是缺陷**。要证明「容器不吃指针」，
+判据改成这三个点：
+
+| 取点 | 期望命中 |
+| --- | --- |
+| 线框正中（emblem） | `div.editor-pane__host` |
+| 两行之间那 2px | `div.editor-pane__host` |
+| 面板左上角内 40px | `div.editor-pane__host` |
+| 行正中 | `button.editor-pane__keymap-row`（唯一该命中自己的地方） |
+
+实测容器 / 面板 / 线框三层的 `pointer-events` 计算值都是 `none`，只有行是 `auto`。
+
+### 65.6 实测（1400×980 @DSF 2 / 深色 + paper / `cp.uiScale = 1`，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 块 / 线框 / 行 | 310×208 / 72×72 / 36 高、行距 2 |
+| 三行键帽 | `⌘ ⌥ N` / `⌘ B` / `⌘ ⇧ E`（拆自 `formatCombo`，与设置面板同一套符号） |
+| 键帽 | 22×22、圆角 4、`500 11.5px` 等宽 |
+| 点第一行 | 侧栏 1px → 554px（动画走完才起新建）、`create-row__input` = `new.cpp`、**拿到焦点** |
+| 悬停第二行 | 动作名 0.34 → 0.62、键帽 0.30 → 0.54、行底 6% 铺上 |
+| 拖入态 | 线框 `scale(1.04)`、四段明度各提一档（18→28 / 24→38 / 26→40 / 34→52） |
+| 焦点环 | 2px `--focus`、offset 2 |
+| 浅色（paper） | 同一套百分比在纸白底上读作「加一层灰」，键帽与线框都不糊 |
+| 英文（en） | 「Show / hide the sidebar」不换行、不溢出（三行 `scrollWidth <= clientWidth`） |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 66. 「新建文件」的键位进资源管理器右键菜单（2026-11-17，用户口径「加到右键菜单里」）
+
+### 66.1 改了两处菜单 + 一处落点
+
+`FileExplorer.vue`：
+
+| 位置 | 改动 |
+| --- | --- |
+| `buildMenuItems` 的目录行分支 | `new-file` 那条加 `shortcut: shortcutOf('new-file')`（`shortcutOf` 是重命名 / 删除早就在用的同一个出口，读绑定表 `bindings`） |
+| `onTreeContextMenu`（树空白处） | 同上，那份菜单与行上那份逐条同源 |
+| `defineExpose.startCreate` | 落点从 `headerCreateTarget()` 改成 `shortcutCreateTarget()` |
+
+菜单右列因此显示 `⌘ + ⌥ + N`（Windows / Linux 是 `Ctrl + Alt + N`），与「重命名 Enter」「删除 ⌘ + ⌫」同一套符号、同一条右对齐。用户在设置里改绑 / 清空绑定，这里跟着变 / 整格消失（`ContextMenu` 对空串是 `v-if`，不占位）。
+
+⚠️ **别写死 `⌘N`**：那个组合被浏览器 UI 层吃掉（`BROWSER_RESERVED` 里有 `Mod+KeyN`），真正绑的是 ⌥⌘N。见 §64.4。
+
+### 66.2 为什么顺手改了落点：菜单说 A、键位却建到 B
+
+右键只写 `focusedId`、**不动选区**（`openContextMenu`），而页头那颗「新建文件」跟的是**主选中**（`headerCreateTarget`）。于是「右键某个目录 → 看到右列写着 ⌥⌘N → 按下去」会落到另一处，菜单在骗人。
+
+`shortcutCreateTarget()`：菜单开着 → 菜单指的那个目录（落在文件行上就取它的父目录 —— 文件行那份菜单里没有「新建文件」，但键位是全局的，也得有个合理落点）；菜单没开 → 照旧 `headerCreateTarget()`。`startCreate` 第一句就是 `menu.value = null`，所以按完键菜单自己收掉，不会「建了文件、菜单还盖着」。
+
+### 66.3 探针判据的坑：`closest('[data-tree-id]')` 判不出落点
+
+`data-tree-id` 挂在**行** `.tree-item__row` 上，而内联新建行渲染在它旁边的 `role="group"`（两者是兄弟，见 `FileTreeItem` 模板）。所以建在目录里的那一行 `closest('[data-tree-id]')` 恒为 `null`，看着像「回落到根了」。**要判落点读 `--depth`**：根是 `0`、子目录里是 `1`。
+
+### 66.4 实测（1400×980 @DSF 2/3 / 深色 + paper / `cp.uiScale = 1`，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 目录行菜单 / 空白处菜单 | 「新建文件」右列 `⌘ + ⌥ + N`；其余条目无键位（不占位） |
+| 菜单几何 | 宽 192；首行 label 右缘 390、键位左缘 408（间距 17） |
+| 右键目录 A、主选中在别处，按 ⌥⌘N | 菜单收起、输入行 `--depth=1`（= A 目录内）、值 `new.cpp`、**拿到焦点** |
+| 回车之后 | `zzz` 自动展开，`new.cpp` 出现在它下面并开出页签 |
+| 菜单没开时按 ⌥⌘N | `--depth=0`（= 主选中所在目录 / 根），与改前一致 |
+| 浅色 paper | 同一枚键位照常显示 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 67. 删除节点改成「⌘⌫ 为主键、Delete 为别名」（2026-11-17，用户口径「两个都能用，菜单里显示 ⌘⌫」）
+
+### 67.1 只动了 `SHORTCUT_ACTIONS` 的一条登记
+
+`composables/useShortcutManager.js` 的 `delete-node`：
+
+```js
+default: 'Mod+Backspace',   // 原来是 'Delete'
+aliases: ['Delete'],        // 新增：认得、但不进绑定表、界面不显示
+bareCodes: ['Delete'],      // 保留：Delete 仍是裸键，录制框要能把它收回来
+fixed: true, hideInSettings: true,   // 不动
+```
+
+其余一个字的逻辑都没改 —— `actionForCombo` 本来就是「先查主绑定、再查别名」，`shortcutOf`（右键菜单右列）本来就读 `bindings[actionId]` 再 `formatCombo`。所以：**按键两条都通、菜单只挂一颗**，这是既有机制的自然结果，不是新加的分支。
+
+Windows / Linux 上 `Mod` 是 Ctrl，主键即 `Ctrl+Backspace`；`Delete` 别名照旧兜住那颗独立键。
+
+### 67.2 为什么用 `aliases` 而不是把两条都写进主绑定
+
+- 绑定表只存一个字符串（`cp.shortcuts` 的形状），一条动作两颗主键得改成数组，牵扯读写盘、设置页、冲突检测三处；
+- 右列/设置页只认主绑定，正好对上用户这句「菜单里只显示一个」；
+- 这套写法本来就是为「平台默认键要留后门」准备的（重命名：mac 主 Enter、F2 作别名），语义同一件事。
+
+配套文案：`settings.shortcut.deleteNode.hint` 两种语言都补了「Delete 键同样可用 / Delete also works」。这三条是 `hideInSettings`，面板里看不到，但 hint 仍被固定键位徽标的悬浮提示消费。
+
+### 67.3 作用域闸门**故意**没跟着放宽
+
+`App.vue` 的 `treeScopeFrom` 只给 ⌘A 开了「指针优先」，删除仍然只认 DOM 焦点。理由写进了那段注释：主键虽然带修饰键、误触面小，但它和 Delete 别名是**同一个动作** —— 判据分岔会变成「同样一颗删除键，指针挪一寸就换了行为」。两条路都只认「焦点在资源管理器里、且不在输入框上」。
+
+### 67.4 实测（1400×980 / 深色 / `cp.uiScale = 1`，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 绑定真值 | `bindings['delete-node'] === 'Mod+Backspace'`；`formatCombo` → `⌘ + ⌫` |
+| 两条都命中 | `actionForCombo('Mod+Backspace')` / `actionForCombo('Delete')` 都 → `delete-node` |
+| 别名不算冲突 | `shortcutConflict('delete-node', 'Delete') === null`（裸键由 `bareCodes` 放行） |
+| 老盘里的 `Delete` | `cp.shortcuts` 存过 `{'delete-node':'Delete'}`，读回来仍是 `Mod+Backspace`（`fixed` 一律以默认表为准） |
+| 菜单右列 | 删除那一项 = `⌘ + ⌫`（`⌫` 是符号不是单词，见 67.5），菜单宽 192、不溢出（`scrollWidth === innerWidth`） |
+| 树上按 `Delete` | 弹删除确认框；Esc 收起 |
+| 树上按 `⌘⌫` | 同上（同一个确认框、同一个落点） |
+| 编辑器里按 `⌘⌫` | 不弹框、`defaultPrevented === false`、Monaco 真收到（`alpha beta gamma` → 光标在 12 列，删到行首 → `gamma`） |
+| 编辑器里按 `Delete` | 不弹框（老行为不变） |
+
+### 67.5 `⌫` 而不是 `Backspace`（用户口径「用 logo 来表示 backspace，不要用单词」）
+
+改的是 `KEY_LABELS.Backspace` 一处：`'Backspace'` → `'⌫'`。所以**所有**走 `formatCombo` 的地方都跟着变（菜单右列、设置页录制框、状态栏提示），不需要各自特判。
+
+- 挑 `⌫`（U+232B，键盘上印的就是它）而不是 `⌦`：后者是**前向删除**（fn+delete），本动作删的是前面那个字符。
+- 保留 `' + '` 分隔（`⌘ + ⌫` 而不是苹果的连写 `⌘⌫`）：站内所有组合键都是这个写法（`⌥ + ⌘ + N`），换一种只会让菜单里两行不同排版。
+- `Delete` 没跟着改成 `⌦`：它在界面上**根本不出现**（只是别名键），写成符号反而会让 hint 里那句「Delete 键同样可用」跟界面对不上。
+- 实测（DSF 3 放大 + `canvas.measureText`）：`⌘ + ⌫` 整串宽 30.6px，`⌫` 单字宽 10.4px（system-ui 有真字形，不是豆腐块），行内与 `Enter` 同基线、不重叠。
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 68. 「打开题目」右列的「单击」换成指针图标（2026-11-17，用户口径「单击换为鼠标的指针的 logo」）
+
+### 68.1 三处改动，一个字段串起来
+
+| 文件 | 改动 |
+| --- | --- |
+| `i18n/messages/{explorer,app}.js` | `openUrlClick: '{mod} + 单击'` → `openUrlPointer: '{mod} +'`（中英各一处，共四行）。**键名一起改了** —— 留着 `Click` 却不再有「单击」两个字，下一个人会以为文案丢了 |
+| `ContextMenu.vue` | `MenuItem` 新增 `shortcutIcon`（`AppIcon` 的名字）：右列文本之后接一枚图标。模板把右列拆成 `.context-menu__shortcut`（`inline-flex` + `gap: 3px × --menu-scale`）包着 `.context-menu__shortcut-text` 与 `.context-menu__shortcut-icon` |
+| `AppIcon.vue` | 新增 `pointer`（放进 `SOLID_PATHS`，见 §68.2） |
+| `FileExplorer.vue` / `EditorTabs.vue` | 两处 `open-url` 项改成 `shortcut: t(...openUrlPointer)` + `shortcutIcon: 'pointer'`。文件树与页签两份菜单同一个口径 |
+
+右列因此读作 **`⌘ + [指针]`**（Windows / Linux 是 `Ctrl + [指针]`）。原来那句「单击」在中文里占两个字、英文 `Click` 更宽，是那个菜单里唯一把右缘往外顶的条目。
+
+### 68.2 为什么是「实心 + 自绘」，Lucide 那两枚都不合适
+
+- **`mouse-pointer-2`（无尾箭头）**：12px 下读起来像纸飞机 / 「发送」，第一版就是它，实测放大看仍不像光标；
+- **`mouse-pointer`（带尾）**：尾巴是一根**独立短线**，12px 下与箭身之间会断开成两个点；
+- **自绘的七点多边形**（`M5.5 2.6 5.5 19.4 9.8 15.3 12.5 21.2 15.1 20 12.4 14.3 18.4 13.6Z`）：尖角在左上、左竖边、右斜边收成尖、缺口往下折出尾巴 —— 就是 macOS / Windows 那颗光标本身的轮廓，整体一笔，不会断。
+- **实心而不是描边**：12px 是 24 网格的一半，描边落成 1px 细线，镶在 11px 的 `--menu-muted` 旁边几乎看不见；填实之后墨量与隔壁「⌘」相当，同一档明度下认得出来。
+
+它是 `SOLID_PATHS` 里**唯一一枚非品牌字形**（其余四枚是 cpp / python / markdown / codeforces），也是换 Lucide 之后唯一一次自绘 —— 理由写在那条注释里，别顺手把它「标准化」成描边图标。
+
+### 68.3 纯文本条目一个像素都没动
+
+`shortcut` 从裸文本变成 `inline-flex` 容器后，文本在 flex 里自成一项、宽度仍是本身。实测（1400 宽 / `cp.uiScale = 1` / DSF 3）：
+
+| 项 | 值 |
+| --- | --- |
+| 右列右缘（`重命名` / `删除` / `打开题目`） | 三行都是 **239.85**，与改动前逐像素相同（菜单宽 192.27 也没变） |
+| 图标盒 | 12×12（`--menu-scale` 弹开动画期间量到 11.4，是 `scale(.95)` 的首帧，不是尺寸错） |
+| 垂直对齐 | 图标与文本的**上下沿**完全重合（72.8 → 84.2），`align-items: center` 生效 |
+| 填充 | 计算属性 `fill = currentColor` / `stroke = none`（走 `SOLID_PATHS` 那条分支） |
+| 深色 + paper | 两套主题下都读得出是光标；浅色那支与 `--menu-muted` 同档，不糊 |
+| 页签右键菜单 | 同一枚图标、同一右缘（`EditorTabs` 走同一条 `shortcutIcon` 通路） |
+| 超宽 | `documentElement.scrollWidth === innerWidth`，菜单没被顶出视口 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 69. 空态键帽换用设置页的字体方案（2026-11-17，用户口径三轮收敛）
+
+### 69.1 最终落点：**外框不动，只换字体**
+
+`EditorPane.vue` 的 `.editor-pane__keycap`：22×22（`min-width: 22`）、下沿 1.5px 实边、4px 圆角、
+`color-mix` 三档墨色（字 30% / 底 5% / 边 12%）**全部原样**；每键一颗键帽、`row.keys` 拆分逻辑原样。
+变的只有两行：
+
+```css
+font-family: var(--mono-font);  →  var(--ui-font);
+font-size:   11.5px;            →  12px;
+```
+
+理由（这也是设置页 `.hotkey` / `.shortcut-key` 一直写着的那条）：等宽字体里
+⌘ / ⌥ / ⇧ / ⌃ / ⌫ **一枚字形都没有**，浏览器按字符逐个回退 —— 符号比字母小一圈、
+`⇧` 是细长空心箭头，整块板「大小不一、Shift 有问题」（用户原话）。macOS 的系统字体
+（`--ui-font`）把这几个修饰键当**一族**字形设计，同字号下大小粗细天然对齐。
+字重保住 500：12px 的 ui-font 在 30% 墨色下偏细，不抬半档就压不过 13px 的动作名。
+
+### 69.2 中途被否的两版（都来自我误读了「方案」二字）
+
+1. **AppIcon 自绘五枚修饰键字形**（lucide `command` / `option` / `delete` + 自绘 `shift` / `control`，
+   键帽里 `⌘` → `<AppIcon>`）：lucide 没有 `shift` / `control`（1.73.0 实查），得自绘才能凑齐。
+   用户随后点名「**在设置的快捷键页面有一套图标方案，把这份方案用到空态页面中**」——
+   设置页根本不用图标，用的是 `--ui-font` 渲染原生符号。这一版**整体撤掉**，
+   `AppIcon.vue` 无残留（§68 的 `pointer` 是另一件事，别一起删）。
+2. **一枚徽标装下 `⌘ + ⇧ + E`**（复刻 `.shortcut-key` 的单徽标外形）：用户「**不要改变外框的样式，
+   原本的按键形式不能丢**」—— 每键一颗键帽是 §65 定下来的形式，撤回。
+
+**教训**：设置页那套「方案」的有效成分是**字体**（ui-font → 系统字体的修饰键族），不是它的
+徽标外形。跨页面搬方案时先拆出哪一半是「因」、哪一半是「果」，只搬因。
+
+### 69.3 实测（1400×980 / `cp.uiScale = 1` / DSF 3，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 键帽 | 高 22、`⌘` 宽 25.36（ui-font 的 ⌘ 比 min-width 22 宽出 3.36，方帽变胖了一点，属预期） |
+| 符号一致性 | ⌘ / ⌥ / ⇧ / N / B / E 同族字形，深色与 paper 两套主题下大小粗细对齐；`⇧` 读得出是 Shift |
+| 悬停 | 行底 6% + 动作名 62% + 键帽 54% 照旧；英文长标签（`Show / hide the sidebar`）不溢出 |
+| 右缘 | 三行键帽组右缘对齐（space-between），`overflow === false` |
+
+`npm run lint` 无 error（CSS 仅剩 7 条登记在案的圆角存量）。§65.2 里「字号 11.5px、
+等宽字体在 11px 时偏细」那段已被本节取代 —— 外框数值仍以 §65 为准，字体以本节为准。
+
+## 70. 空态键位板加上「打开设置」（2026-11-17，用户口径「在空态页中加上设置页面的快捷键」）
+
+### 70.1 两处登记，零新逻辑
+
+| 文件 | 改动 |
+| --- | --- |
+| `EditorPane.vue` | `EMPTY_KEYMAP` 末位补 `{ action: 'open-settings', labelKey: 'app.emptyKeymapOpenSettings' }` |
+| `i18n/messages/app.js` | `app.emptyKeymapOpenSettings`：中「打开设置」/ 英「Open settings」 |
+
+点击通路**本来就在**：行 `@click` → `emit('shortcut', 'open-settings')` → `App.vue` 的
+`runShortcutAction` → `SHORTCUT_HANDLERS['open-settings']`（设置页签开着就关、关着就开）。键位显示
+走 `formatCombo(bindings['open-settings'])`：默认 `Mod+Comma` → `⌘ + ,`（`KEY_LABELS` 里 `Comma: ','`
+早有登记），Windows / Linux 是 `Ctrl + ,`；用户改绑 / 清空后跟着变 / 整组消失，与其它三行同一条路。
+
+### 70.2 实测（1400×980 / `cp.uiScale = 1` / DSF 3，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 行数 | 4（新建文件 / 显示·隐藏侧边栏 / 切换侧栏面板 / 打开设置） |
+| 键帽 | `⌘` `,` 两颗，与其它行同款 22px 方帽；`, ` 帽不比 `N` 瘦（min-width 22 兜着） |
+| 右缘 | 四行键帽组右缘全部 **1121.8**（space-between 对齐），无溢出 |
+| 点击第 4 行 | 弹出「设置」页签（中英各验一次；再点一次行会关掉 —— 与快捷键同一条 `SHORTCUT_HANDLERS`） |
+| 深色 + paper | 两套主题下 `,` 与隔壁 `⌘` 同档明度，可读 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 71. 空态键帽等宽化：单字符钉 22px 方帽（2026-11-17，用户口径「这几个框都不等宽」）
+
+### 71.1 病根与修法
+
+§69 换 `--ui-font` 后符号对齐了，但**框宽**仍参差：键帽只有 `min-width: 22px` 兜下限，
+`⌘` 这类字形本身比 22 宽（实测 25.36）、`,` 又贴着下限，同一块板上帽子两档宽度。
+
+修法不是回等宽字体（§69 已证等宽字体没有修饰键字形），也不是全部钉死 ——
+`Ctrl` / `Space` / `Esc` 这类**词帽**比方块宽是键盘上本来的样子，硬裁会切字。
+按模板里现成的信息分档：`key.length === 1` 挂 `editor-pane__keycap--square`：
+
+```css
+.editor-pane__keycap--square { width: 22px; padding: 0; }
+```
+
+`box-sizing: border-box` 在基类，22px 含两侧 1px 边；多字符词帽不走这条，仍靠
+基类 `min-width + padding` 自适应。改绑到任意单字符键（方向键是 `↑` 等单字符，
+走方帽；`PgUp` / `Enter` 是词，走词帽）无需再登记。
+
+### 71.2 实测（1400×980 / `cp.uiScale = 1` / DSF 3，探针跑完即删）
+
+| 项 | 值 |
+| --- | --- |
+| 四行全部单字符帽 | `⌘ ⌥ ⇧ N B E , ` 逐颗量 **22×22**，`square` 类全挂 |
+| 改绑场景（种 `cp.shortcuts: {'switch-panel': 'Ctrl+Space'}`） | 第三行变 `⌃` + `Space`：`⌃` 22 方帽、`Space` 51.16 词帽不裁字 |
+| 深色 + paper | 方帽右缘连成一列，词帽紧随其后，无溢出 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。

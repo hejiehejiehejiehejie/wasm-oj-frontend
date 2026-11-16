@@ -23,8 +23,9 @@ export default {
       menu: {
         meta: '题目信息',
         openUrl: '打开题目',
-        /** 「打开题目」右列的提示：⌘ / Ctrl + 单击。{mod} 由调用方按平台给 ⌘ 或 Ctrl */
-        openUrlClick: '{mod} + 单击',
+        /** 「打开题目」右列的前半截：⌘ / Ctrl +，后面的「单击」是一枚指针图标（见 ContextMenu 的
+         *  `shortcutIcon`），所以这里只留符号、不留单词。{mod} 由调用方按平台给 ⌘ 或 Ctrl */
+        openUrlPointer: '{mod} +',
         newFile: '新建文件',
         newFolder: '新建文件夹',
         importFile: '导入文件',
@@ -148,7 +149,7 @@ export default {
       menu: {
         meta: 'Problem info',
         openUrl: 'Open problem',
-        openUrlClick: '{mod} + Click',
+        openUrlPointer: '{mod} +',
         newFile: 'New file',
         newFolder: 'New folder',
         importFile: 'Import files',

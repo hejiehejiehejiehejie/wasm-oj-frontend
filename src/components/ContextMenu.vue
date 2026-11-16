@@ -20,6 +20,7 @@
  * 与设置下拉菜单共用同一套；本组件只剩渲染。
  */
 import { computed } from 'vue'
+import AppIcon from './AppIcon.vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 
 /**
@@ -27,6 +28,9 @@ import { usePopoverLayer } from '../composables/usePopoverLayer.js'
  * @property {string} id
  * @property {string} [label]
  * @property {string} [shortcut] 右列的快捷键文本（如 `Ctrl+C`）；不给就不占位
+ * @property {string} [shortcutIcon] 右列文本**之后**再挂一枚图标（AppIcon 的名字）。给它的场合
+ *   只有一种：那颗「键位」其实是个手势 —— 例如「打开题目」的 `⌘ + 单击`，其中的「单击」
+ *   用指针图标代替单词（见 `FileExplorer` / `EditorTabs`）。纯组合键别用它，`shortcut` 就够。
  * @property {boolean} [checked] 勾选态（只在可勾选的菜单里给，见下面 `hasChecks`）
  * @property {boolean} [disabled]
  * @property {boolean} [divider]
@@ -91,8 +95,17 @@ function select(item) {
           <span class="context-menu__label">{{ item.label }}</span>
           <!-- 右列快捷键（模板里「文字在左、键位在右」的排布）。给不给由调用方决定：
                现在文件树的「重命名 / 删除」与编辑区那四项都带数据，其余项不带、这一格就不出现。
-               数据一律来自快捷键绑定表（`formatCombo(bindings[行动 id])`），不要写死字符串。 -->
-          <span v-if="item.shortcut" class="context-menu__shortcut">{{ item.shortcut }}</span>
+               数据一律来自快捷键绑定表（`formatCombo(bindings[行动 id])`），不要写死字符串。
+               `shortcutIcon` 是给「键位其实是个手势」那一条留的：图标接在文本之后、同一条基线上。 -->
+          <span v-if="item.shortcut || item.shortcutIcon" class="context-menu__shortcut">
+            <span v-if="item.shortcut" class="context-menu__shortcut-text">{{ item.shortcut }}</span>
+            <AppIcon
+              v-if="item.shortcutIcon"
+              :name="item.shortcutIcon"
+              :size="12"
+              class="context-menu__shortcut-icon"
+            />
+          </span>
         </button>
       </template>
     </div>
@@ -219,10 +232,20 @@ function select(item) {
 /* 右列快捷键：11px + 暗一档（`--menu-muted`），退到背景里。
    与左边文字之间至少隔 20px —— 模板写的是 `margin-left: 20px`，这里由条目的 `gap: 20px`
    承担：条目是 `justify-content: space-between`，够宽时键位贴右缘、不够宽时 gap 兜住最小间距。
-   悬停时提亮一档的规则在上面（`--menu-hover-muted`，模板的 `#b0d0ff`）。 */
+   悬停时提亮一档的规则在上面（`--menu-hover-muted`，模板的 `#b0d0ff`）。
+   `inline-flex` 只为 `shortcutIcon` 那一档（键位是手势、末位挂一枚指针）—— 图标要跟文本
+   同基线居中、中间留一点点缝。纯文本时不改变任何排布：文本在 flex 里自成一项，宽度仍是本身。 */
 .context-menu__shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(3px * var(--menu-scale));
   color: var(--menu-muted);
   font-size: calc(11px * var(--menu-scale));
+}
+
+/* 图标不参与挤压：键位太长时宁可整个右列被 `space-between` 推开，也不让指针变形 */
+.context-menu__shortcut-icon {
+  flex: none;
 }
 
 .context-menu__divider {

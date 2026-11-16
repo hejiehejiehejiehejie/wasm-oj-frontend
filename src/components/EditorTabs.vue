@@ -683,7 +683,9 @@ function buildTabMenuItems(item) {
     items.push({
       id: 'open-url',
       label: t('app.tabs.openUrl'),
-      shortcut: t('app.tabs.openUrlClick', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
+      shortcut: t('app.tabs.openUrlPointer', { mod: IS_MAC ? '⌘' : 'Ctrl' }),
+      // 「单击」画成一枚指针，与资源管理器那份菜单同一个口径（见 ContextMenu 的 shortcutIcon）
+      shortcutIcon: 'pointer',
     })
   }
   // 「已通过」标记：与文件树右键菜单同一份文案与判据（cf.solved.*）。

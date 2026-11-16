@@ -21,6 +21,7 @@ public/md/
 # 本地调试与回归产物
 cp-*.png
 screenshots/
+.screenshots/
 *.log
 npm-debug.log*
 yarn-error.log*

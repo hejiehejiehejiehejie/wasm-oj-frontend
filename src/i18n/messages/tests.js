@@ -26,6 +26,11 @@ export default {
         /**
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
          * 页脚那行说明与它们的 title。「没打开文件」与「打开的不是代码」分开写。
+         *
+         * 2026-11-17 起 `runBlockedNoFile` 还兼职**空态那行标题**（没打开文件时
+         * 顶掉写死的 `No test cases yet.`，见 TestPanel 的 `emptyTitle`），
+         * 页脚那行则不再重复它 —— 所以这条的两种语言都必须能独立成句，
+         * 别写成「同上」「见上」这类依赖上下文的短语。
          */
         runBlocked: '非代码文件无法运行',
         runBlockedNoFile: '没有打开的文件',
@@ -38,6 +43,12 @@ export default {
          * input / Expected / Actual 同一个理由。曾经有过 `title` 这一条（`暂无测试用例`
          * / `No test cases yet`）与一句说明 `text`，两点都在 2026-10-06 删掉了 ——
          * 别再好心把它们翻回来。
+         *
+         * **唯一的例外（2026-11-17）**：一个文件都没打开时，那行标题改用
+         * `panel.runBlockedNoFile`（「没有打开的文件」/ `No file is open`）——
+         * 空列表上写「没有用例」在这个场景里是废话，而「没打开文件」才是用户要知道的。
+         * 它不是这张表新增的 `title` 条目，仍然按语言走；这句原先在页脚重复出现，
+         * 现在只在空态里说一次。其余情形（有文件、只是没用例）照旧写死英文。
          * 下面这几条抓样提示是**另一回事、保留**：只在当前文件是一道题、样例还没到手时出现，
          * 它们仍然跟着界面语言走。
          *
@@ -299,7 +310,8 @@ export default {
       },
 
       empty: {
-        /** 见 zh-CN 那侧的说明：空态那行标题写死在 TestPanel.vue 里，这张表不管它。
+        /** 见 zh-CN 那侧的说明：空态那行标题写死在 TestPanel.vue 里，这张表不管它 ——
+         *  唯一例外是「没打开文件」时改用 `panel.runBlockedNoFile`（2026-11-17）。
          *  下面这几条与 autoScrapeState 的三个值一一对应，中间一段是可点的题目链接（见 zh-CN） */
         awaitingFetchBefore: 'Open the ',
         awaitingFetchLink: 'problem link',

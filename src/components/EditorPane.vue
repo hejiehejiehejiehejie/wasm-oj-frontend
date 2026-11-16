@@ -18,6 +18,7 @@ import { t } from '../i18n/index.js'
 import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
+import { pageDropTarget } from '../composables/usePageDrop.js'
 import { isNarrowLayout } from '../services/shellSettings.js'
 import { useEditorMenu } from '../composables/useEditorMenu.js'
 import { useSelectionHandles } from '../composables/useSelectionHandles.js'
@@ -155,6 +156,10 @@ const emit = defineEmits([
   'select-engine',
   'update-base',
   'test-connection',
+  // 空态那块快捷键板：本组件不认识资源管理器、也拿不到全局动作表，所以只往上喊一个
+  // **动作 id**（就是 useShortcutManager 里那一套），由 App 交给 SHORTCUT_HANDLERS 执行 ——
+  // 点一行与按一下那个键因此永远走同一条出口，不会出现「点着会建、按着没反应」这种分岔。
+  'shortcut',
 ])
 
 const host = ref(null)
@@ -319,6 +324,57 @@ const insertUrl = ref(null)
 
 // 只用于状态栏那枚「运行」提示：键位可改，提示得跟着变
 const { bindings } = useShortcutManager()
+
+/**
+ * 空态那块快捷键板的三行：动作 id + 动作名（中文文案在 i18n 的 app.emptyKeymap*）。
+ *
+ * 只放**真有的**动作：每一行的 `action` 都是 useShortcutManager 里登记过的一条，
+ * 点下去走 App 的 SHORTCUT_HANDLERS —— 与按那个键完全同源。
+ *
+ * ⚠️ 别在这里写死键位字符串（「⌘ N」之类）。本项目没有 ⌘N：那个组合被浏览器 UI 层
+ * 吃掉（见 useShortcutManager 的 BROWSER_RESERVED），「新建文件」绑的是 ⌥⌘N。
+ * 键位一律由下面的 computed 从运行时绑定里取，设置里改过这里跟着变。
+ */
+const EMPTY_KEYMAP = [
+  { action: 'new-file', labelKey: 'app.emptyKeymapNewFile' },
+  { action: 'toggle-panel', labelKey: 'app.emptyKeymapTogglePanel' },
+  { action: 'switch-panel', labelKey: 'app.emptyKeymapSwitchPanel' },
+  { action: 'open-settings', labelKey: 'app.emptyKeymapOpenSettings' },
+]
+
+/**
+ * 板上的行：动作名 + 拆好的键帽数组。
+ *
+ * 键位走 `formatCombo(bindings[action])` —— 全站唯一那一份格式化（macOS 出 `⌘ + B`、
+ * 其它平台出 `Ctrl + B`），所以这块板与设置面板、右键菜单右列永远同一套符号。
+ *
+ * 拆的是 formatCombo 的**输出**（它固定以 ` + ` 连接），不是原始 combo 串：
+ * 原始串是 `Mod+Alt+KeyN` 这种词，直接拆出来会得到「Mod」「KeyN」，没法当键帽用。
+ * 绑定被用户清空时 formatCombo 回空串，keys 为空数组，模板据此不渲染键帽（行本身照旧可点）。
+ */
+const keymapRows = computed(() =>
+  EMPTY_KEYMAP.map((row) => {
+    const combo = formatCombo(bindings.value[row.action])
+    return {
+      action: row.action,
+      label: t(row.labelKey),
+      keys: combo ? combo.split(' + ') : [],
+    }
+  }),
+)
+
+/**
+ * 外部文件正被拖在页面上时，顶上那枚线框亮一档、微微放大 —— 这是空态唯一的拖拽反馈。
+ *
+ * 读 `usePageDrop` 的模块级 `pageDropTarget`，不在这里自己挂 dragenter / dragover：
+ * 那边已经收口了「只认带 Files 的拖拽」「站内拖拽走 Pointer Events 不误判」这些判据，
+ * 重挂一套必然两种口径。何况空态容器自己 `pointer-events: none`（那张底下的 Monaco 要能收
+ * 右键与拖入），本地监听根本收不到事件。
+ *
+ * 板上刻意**不加**「拖到这里」的字样：整页都是落点（见 usePageDrop 文件头），
+ * 只在编辑区里提示反而把能拖的范围说小了。
+ */
+const dropActive = computed(() => pageDropTarget.value !== null)
 
 // 视图状态（滚动 / 光标 / 折叠）不再挂在本组件上：多窗格下它按 **fileId** 全局共享
 // （见 services/editorViewStates.js）。「一个文件最多在一个窗格」让 fileId 与视图状态一一
@@ -1125,20 +1181,109 @@ defineExpose({
         @test-connection="emit('test-connection')"
       />
 
-      <div v-if="!activeNode && !viewActive" class="editor-pane__empty">
-        <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
-        <p>{{ t('app.emptyEditor') }}</p>
-        <!-- 分屏后空出来的窗格要能收掉（根叶子不给关，所以只在叶子数 > 1 时出现）。
-             2026-11-17 起「页签关光的窗格」由 editorPanes.reapEmptyPanes() 当场回收，
-             走不到这一页了；这颗按钮只剩**分屏刚造出来、还没装过页签**的格子用得到。 -->
-        <button
-          v-if="stripEmpty && canClosePane"
-          type="button"
-          class="editor-pane__empty-close"
-          @click="closeThisPane"
-        >
-          {{ t('app.closePane') }}
-        </button>
+      <!-- 空编辑区（2026-11-17 五改：双层线框 + 独立键帽）。一枚 72px 的窗口线框（顶栏三点 +
+           里面一个 < / >）压住整片留白，下面是三行「动作 —— 独立键帽」，没有引导线、没有句子。
+           键位读运行时绑定并拆成一颗颗键帽、整行可点（点它 = 按那个键，与全局快捷键同一条出口），
+           逐条理由见样式表那一节 -->
+      <div
+        v-if="!activeNode && !viewActive"
+        class="editor-pane__empty"
+        :class="{ 'is-drop-active': dropActive }"
+      >
+        <div class="editor-pane__empty-panel">
+          <!-- 线框图形：外框 / 顶栏分割线 / 三个圆点 / 里面一对尖括号与一道斜杠。
+               每一笔自带一个类，颜色全在样式表里由 --text 溶出来 —— 这里只留几何
+               （线宽、线帽、坐标），不然十套主题、还有浅色底会一起坏掉 -->
+          <div class="editor-pane__emblem" aria-hidden="true">
+            <svg class="editor-pane__emblem-svg" viewBox="0 0 64 64" fill="none">
+              <rect
+                class="editor-pane__emblem-frame"
+                x="6"
+                y="10"
+                width="52"
+                height="44"
+                rx="6"
+                stroke-width="1.5"
+              />
+              <line
+                class="editor-pane__emblem-frame"
+                x1="6"
+                y1="20"
+                x2="58"
+                y2="20"
+                stroke-width="1.5"
+              />
+              <circle class="editor-pane__emblem-dot" cx="13" cy="15" r="1.2" />
+              <circle class="editor-pane__emblem-dot" cx="18" cy="15" r="1.2" />
+              <circle class="editor-pane__emblem-dot" cx="23" cy="15" r="1.2" />
+              <path
+                class="editor-pane__emblem-code"
+                d="M25 32L19 37L25 42"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                class="editor-pane__emblem-code"
+                d="M39 32L45 37L39 42"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                class="editor-pane__emblem-slash"
+                d="M34 30L30 44"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+
+          <div class="editor-pane__keymap-list">
+            <!-- 整行是 button：行本身就是动作，键位只是它的说明。容器 pointer-events: none，
+                 每一行自己放行（见样式表） -->
+            <button
+              v-for="row in keymapRows"
+              :key="row.action"
+              type="button"
+              class="editor-pane__keymap-row"
+              @click="emit('shortcut', row.action)"
+            >
+              <span class="editor-pane__keymap-label">{{ row.label }}</span>
+              <!-- 一个键一颗键帽，中间没有 "+"：比一串带加号的字更像键盘上的键。
+                   绑被清空（值为 null）时 formatCombo 回空串、keys 为空数组，
+                   那时不渲染键帽，行照旧可点 —— 空态不该因为用户清了绑定就少一行 -->
+              <!-- 一个键一颗键帽，中间没有 "+"：比一串带加号的字更像键盘上的键（外框
+                   形式照旧，2026-11-17 用户口径「原本的按键形式不能丢」）。键帽**里面**
+                   的符号渲染跟设置页快捷键列表同一个方案（--ui-font，见样式表）——
+                   等宽字体里 ⌘ ⇧ ⌥ 一枚字形都没有，逐字回退后每颗键帽大小参差。
+                   绑被清空（值为 null）时 formatCombo 回空串、keys 为空数组，
+                   那时不渲染键帽，行照旧可点 —— 空态不该因为用户清了绑定就少一行 -->
+              <span v-if="row.keys.length" class="editor-pane__keycaps">
+                <kbd
+                  v-for="(key, index) in row.keys"
+                  :key="index"
+                  class="editor-pane__keycap"
+                  :class="{ 'editor-pane__keycap--square': key.length === 1 }"
+                >
+                  {{ key }}
+                </kbd>
+              </span>
+            </button>
+          </div>
+
+          <!-- 分屏后空出来的窗格要能收掉（根叶子不给关，所以只在叶子数 > 1 时出现）。
+               2026-11-17 起「页签关光的窗格」由 editorPanes.reapEmptyPanes() 当场回收，
+               走不到这一页了；这颗按钮只剩**分屏刚造出来、还没装过页签**的格子用得到。 -->
+          <button
+            v-if="stripEmpty && canClosePane"
+            type="button"
+            class="editor-pane__empty-close"
+            @click="closeThisPane"
+          >
+            {{ t('app.closePane') }}
+          </button>
+        </div>
       </div>
 
       <!-- 生成图片的等待胶囊：画布这几百毫秒到几秒里，编辑区得有一处「还在动」的迹象。
@@ -1798,26 +1943,240 @@ defineExpose({
   line-height: 1.4;
 }
 
+/* ------------------------------------------------------------ 空编辑区
+
+   2026-11-17 五改：**双层线框 + 独立键帽**。四改那版是「< / > 水印 + 三行带引导线」，
+   引导线一多就像一张表，空地被看了一眼就该被忘掉，不该被当成一张表来读。
+   这一版按用户给的 EmptyEditorState 重排：
+
+     ┌──────────────┐      ← 72px 窗口线框：外框 + 顶栏分割线 + 三个点 + 里面一个 < / >
+     │  ● ● ●       │
+     │     </>      │
+     └──────────────┘
+     新建文件                ⌘  ⌥  N    ← 三个独立键帽，中间没有 "+" 也没有引导线
+     显示 / 隐藏侧边栏       ⌘  B
+     切换侧栏面板            ⌘  ⇧  E
+
+   1. 线框图形：四段线条**各自一档明度**（外框最暗 → 圆点 → 斜杠 → 尖括号最亮）。
+      所以它读起来是「一张窗户的画」，不是一枚实心图标 —— 空态要的是「这里将来会有东西」
+      的暗示，不是一枚要人盯着的徽章；
+   2. 键帽各自独立：一个键一颗，之间只留 5px。比 `⌘ + ⌥ + N` 一串带加号更像「键盘上的键」，
+      也不必在文案里管加号两边该不该有空格；
+   3. 整行是一个 `<button>`，悬停铺一层极淡的底（与资源管理器行同一套语言）。
+      点它 = 按那个键：两者都走 App 的 SHORTCUT_HANDLERS，结构上不可能分叉。
+
+   ⚠️ 键帽里的字**不许写死**。用户给的那份组件里是 `'⌘' / '⌥' / 'N'` 三个字面量，本项目不能
+   这么写：macOS 与非 mac 的符号不同、用户还能在设置里改键。「新建文件」尤其 —— 它绑的是
+   ⌥⌘N 而不是 ⌘N（⌘N 被浏览器 UI 层吃掉、preventDefault 拦不住，见 useShortcutManager 的
+   new-file 与 BROWSER_RESERVED）。所以键帽一律由 `formatCombo(bindings[action])` 拆出来
+   （模板里 `row.keys`），设置里改过这里跟着变。
+
+   与前几版一样的两条硬约束（不是审美分歧）：
+   - 颜色全走变量 + color-mix，不写死十六进制：这里有十套主题、还有浅色底（lint:css 会拦）。
+     线框也不例外 —— 模板里 SVG 的每一笔都有自己的类，颜色全在下面几条规则里；
+   - 容器 pointer-events: none —— 空编辑区同时是整页拖入的落点、也是右键闸门的判据
+     （见 useEditorMenu「没有 model 就不弹菜单」那条）。让容器吃指针会把这两件事一起弄坏，
+     所以只有每一行与「关闭窗格」按钮各自放行。 */
 .editor-pane__empty {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  overflow: hidden;
+  /* 4vh：几何正中在视觉上偏低，人眼习惯的重心略高于中线。用 vh 而不是固定 px ——
+     窗口很矮时它跟着一起收，不会把这块板顶出画面 */
+  padding-bottom: 4vh;
   color: var(--text-faint);
   pointer-events: none;
 }
 
-.editor-pane__empty p {
-  margin: 0;
-  font-size: 13px;
+/* 整块：宽度写死 310px（过 pxtorem 是 19.375rem，跟着界面缩放走）。行要对得齐，
+   宽度就不能跟着窗格涨；分屏后窄窗格里它只是被 max-width 压窄，不会散架 */
+.editor-pane__empty-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 310px;
+  max-width: 100%;
 }
 
-/* 空窗格上那枚「关闭窗格」：容器整体 pointer-events: none，只有这颗按钮单独放行 */
+/* 顶部线框：72px，与下面那组行留 24px 呼吸 */
+.editor-pane__emblem {
+  display: flex;
+  margin-bottom: 24px;
+  transform-origin: center;
+  transition: transform 0.2s ease;
+}
+
+.editor-pane__emblem-svg {
+  display: block;
+  width: 72px;
+  height: 72px;
+}
+
+/* 四段线条四档明度，全部由 --text 溶进透明现算（十套主题不必各写一份）。
+   浅色底上同一套百分比读作「加一层灰」，不会像写死 #28282b 那样变成一块墨。
+   线宽 / 线帽写在模板的属性里（那是几何，不是主题），这里只管颜色。 */
+.editor-pane__emblem-frame {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  transition: stroke 0.2s ease;
+}
+
+.editor-pane__emblem-dot {
+  fill: color-mix(in srgb, var(--text) 24%, transparent);
+  transition: fill 0.2s ease;
+}
+
+.editor-pane__emblem-slash {
+  stroke: color-mix(in srgb, var(--text) 26%, transparent);
+  transition: stroke 0.2s ease;
+}
+
+/* 尖括号最亮：整张画的重心在它身上，外框只是给它一个「窗口」的语境 */
+.editor-pane__emblem-code {
+  stroke: color-mix(in srgb, var(--text) 34%, transparent);
+  transition: stroke 0.2s ease;
+}
+
+/* 拖入态：线框微微放大、四段一起提亮。这是空态唯一的拖拽反馈 ——
+   板上刻意不加「拖到这里」的字样：整页都是落点（见 usePageDrop 文件头），
+   在编辑区里写反而把能拖的范围说小了 */
+.editor-pane__empty.is-drop-active .editor-pane__emblem {
+  transform: scale(1.04);
+}
+
+.editor-pane__empty.is-drop-active .editor-pane__emblem-frame {
+  stroke: color-mix(in srgb, var(--text) 28%, transparent);
+}
+
+.editor-pane__empty.is-drop-active .editor-pane__emblem-dot {
+  fill: color-mix(in srgb, var(--text) 38%, transparent);
+}
+
+.editor-pane__empty.is-drop-active .editor-pane__emblem-slash {
+  stroke: color-mix(in srgb, var(--text) 40%, transparent);
+}
+
+.editor-pane__empty.is-drop-active .editor-pane__emblem-code {
+  stroke: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+/* 行间只留 2px：每行自己有 7px 的内边距，行距靠它撑；再给 gap 就散了 */
+.editor-pane__keymap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
+/* 一行 = 一个动作。button 的默认外观全部清掉，只留排版；pointer-events: auto 是必须的 ——
+   容器整体 none（见文件头），不在这里放行就点不动。
+   padding 左右 12px 让悬停那块底比文字宽一点（像资源管理器的行），底色只在悬停时出现，
+   平时它就是一排字。
+   color 定在 34%：这一档在深色底上≈#525252、浅色底上≈#a8a8a8，两边都是「读得出来但不抢眼」；
+   悬停才提到 62%，与键帽一起亮。 */
+.editor-pane__keymap-row {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: color-mix(in srgb, var(--text) 34%, transparent);
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+:where(html.is-hoverable) .editor-pane__keymap-row:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+}
+
+/* 悬停时键帽跟着一起亮，但比动作名再亮一档：整行是一个动作，
+   视线要顺着右边「怎么按」落下去 */
+:where(html.is-hoverable) .editor-pane__keymap-row:hover .editor-pane__keycap {
+  border-color: color-mix(in srgb, var(--text) 22%, transparent);
+  color: color-mix(in srgb, var(--text) 54%, transparent);
+}
+
+/* 键盘可达：这块板上每一行都是动作，焦点环必须有
+   （button 的默认 outline 在深色底上几乎看不见，显式换成主题色；
+   offset 取 2px —— 行本身有 12px 内距，不会压到邻行） */
+.editor-pane__keymap-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.editor-pane__keymap-label {
+  flex-shrink: 0;
+}
+
+/* 键帽组：靠 5px 间距自然分隔，不再用 "+" 号串起来 */
+.editor-pane__keycaps {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 独立哑光键帽：22px 高、最小 22px 宽。立体感只靠两笔 —— 底色比面板亮一档、下沿 1.5px 实边充当厚度；这个尺寸下加投影
+   只会糊成一团灰。圆角取 4px：§1.A 只有 10 / 6 / 4 三档，5px 会是第四个值。
+   字体方案照设置页快捷键列表走（`--ui-font` 12px，2026-11-17）：等宽字体里
+   ⌘ / ⌥ / ⇧ / ⌃ / ⌫ 一枚字形都没有，浏览器按字符逐个回退，符号比字母小一圈、
+   `⇧` 更是细长空心箭头，整块板大小参差（用户口径「大小不一、Shift 有问题」）；
+   macOS 的系统字体把这几个修饰键当**一族**字形设计，同字号下大小粗细天然对齐。
+   字重 500：12px 的 ui-font 在 30% 墨色下偏细，抬半档才与 13px 的动作名同色阶。
+   内容来自 formatCombo，与设置面板 / 右键菜单右列永远同一套符号 */
+.editor-pane__keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  border-bottom-width: 1.5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: color-mix(in srgb, var(--text) 30%, transparent);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+/* 单字符键（⌘ ⌥ ⇧ ⌃ ⌫ N B E , …）钉成 22px 方帽：min-width 只兜下限，
+   `⌘` 这类字形本身比 22 宽、`,` 又贴着下限，同一块板上帽子就有了两档宽度
+   （2026-11-17 用户口径「这几个框都不等宽」）。钉死之后一颗键帽 = 一格键，
+   横竖都对齐。多字符的词帽（Ctrl / Space / Esc / Enter …）**不走这条** ——
+   它们比方块宽是键盘上本来的样子，硬裁会切字，仍靠基类的 min-width + padding 自适应。 */
+.editor-pane__keycap--square {
+  width: 22px;
+  padding: 0;
+}
+
+
+/* 空窗格上那枚「关闭窗格」：容器整体 pointer-events: none，只有这颗按钮单独放行。
+   它挂在整块最下面（块是 column + center，所以自己就居中），
+   上边距比行间那 2px 松得多 —— 它不是这块板里的一行动作，得离远一点 */
 .editor-pane__empty-close {
   pointer-events: auto;
+  align-self: center;
+  margin-top: 18px;
   padding: 4px 10px;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
@@ -1830,16 +2189,6 @@ defineExpose({
 :where(html.is-hoverable) .editor-pane__empty-close:hover {
   color: var(--text);
   border-color: var(--border);
-}
-
-/* 空编辑区正中的图标：宽度取面板的一半（正方形，随面板缩放），
-   高度上限再收一道 —— 面板很矮时不让它把下面那行提示顶出画面。
-   stroke-width 是 viewBox 单位、跟着一起放大，所以不需要另调线宽 */
-.editor-pane__empty-icon {
-  width: 50%;
-  height: auto;
-  max-height: 50%;
-  opacity: 0.5;
 }
 
 /* 「生成图片」的局部等待：一枚贴底居中、跟着通知同一套玻璃质感的淡胶囊。

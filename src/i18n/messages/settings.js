@@ -281,6 +281,10 @@ export default {
           hint: '把当前窗格一分为二；焦点窗格为空时再按一次收起它。最多四格，窄屏两个（只能上下分）',
         },
         newCase: { label: '新增一条测试用例' },
+        newFile: {
+          label: '新建文件',
+          hint: '亮出资源管理器并就地起一行内联新建；落点跟随当前选中的那一行',
+        },
         openSettings: { label: '打开 / 收起设置' },
         exportImage: {
           label: '生成图片',
@@ -292,7 +296,7 @@ export default {
         },
         deleteNode: {
           label: '删除（文件 / 文件夹）',
-          hint: '焦点需在资源管理器；有选区时删整个选区',
+          hint: '焦点需在资源管理器；有选区时删整个选区 · Delete 键同样可用',
         },
         selectAllNodes: {
           label: '全选（资源管理器）',
@@ -912,6 +916,10 @@ export default {
           hint: 'Splits the focused pane in two; pressing again while it is empty closes it. Up to four panes (two, stacked, on narrow screens)',
         },
         newCase: { label: 'Add a test case' },
+        newFile: {
+          label: 'New file',
+          hint: 'Reveals the explorer and starts an inline new file next to the current selection',
+        },
         openSettings: { label: 'Open / close settings' },
         exportImage: {
           label: 'Export image',
@@ -923,7 +931,7 @@ export default {
         },
         deleteNode: {
           label: 'Delete (file / folder)',
-          hint: 'Focus must be in the explorer; deletes the whole selection when there is one',
+          hint: 'Focus must be in the explorer; deletes the whole selection when there is one · Delete also works',
         },
         selectAllNodes: {
           label: 'Select all (explorer)',

@@ -40,6 +40,16 @@ const props = defineProps({
    */
   runBlocked: { type: String, default: '' },
   /**
+   * 一个文件都没打开（由 App 的 `!activeNode` 传进来，2026-11-17 加）。
+   *
+   * 它与 `runBlocked` 不是一回事：非代码文件（题解这类）也跑不了，但那是
+   * 「打开的东西不能跑」，不是「什么都没打开」。这里只认后者 —— 它决定空态标题
+   * 说不说「没有打开的文件」，以及页脚那行要不要把同一句话再说一遍。
+   * 没打开文件时用例必然是空的（`config.tests` 跟着活跃文件走，见 App 的 watch），
+   * 所以这条只在空态里有意义。
+   */
+  noFile: Boolean,
+  /**
    * 提交请求在途：按钮置灰，防止连点（扩展那边一次只跑一趟）
    */
   submitting: Boolean,
@@ -93,6 +103,44 @@ const submitTitle = computed(() => {
   const combo = formatCombo(bindings.value['submit-solution'])
   return combo ? t('tests.submit.buttonTip', { key: combo }) : t('tests.submit.button')
 })
+
+/**
+ * 空态那行标题（2026-11-17）：**一个文件都没打开**时说「没有打开的文件」，
+ * 其余情形仍是写死的 `No test cases yet.`（用户 2026-10-06 定：这句不翻，与三个
+ * 小标题 input / Expected / Actual 同一个理由）。
+ *
+ * 为什么把它搬进来：没打开文件时，那块空列表上顶着一句「No test cases yet.」、
+ * 页脚再补一句「没有打开的文件」，同一件事说了两遍，而且前一句在这个场景里根本不对
+ * —— 没有文件，哪来的用例。现在一句话只在一个地方说（用户 2026-11-17 要求）。
+ * 文案走 `tests.panel.runBlockedNoFile`（原本就是页脚那行用的那条，两种语言都有），
+ * 所以它不是第四种写死的字面量。
+ *
+ * ⚠️ 只认 `noFile`，别拿 `runBlocked` 当判据：非代码文件（题解这类）也跑不了，
+ * 但那不是「没打开文件」—— 那种情形空态照旧是 `No test cases yet.`，原因留在页脚。
+ */
+const emptyTitle = computed(() =>
+  props.noFile ? t('tests.panel.runBlockedNoFile') : 'No test cases yet.',
+)
+
+/**
+ * 页脚那行「为什么跑不了」：没打开文件时让它**空着** —— 那句话说在空态标题上了，
+ * 页脚再写一遍就是重复（`v-if` 见模板里那个 `p`）。
+ * 非代码文件那条（`runBlocked`）照旧留在页脚；两个 ▶ 的置灰与 title 仍用 `runBlocked`，
+ * 一个字都没少。
+ */
+const footBlocked = computed(() => (props.noFile ? '' : props.runBlocked))
+
+/**
+ * 页头右上那块（verdict + 耗时）画不画（2026-11-17 加，用户要求）。
+ *
+ * 一个文件都没打开时整块不画：那颗胶囊只会写「无测试用例」，而空态标题已经把真正
+ * 该说的「没有打开的文件」说了 —— 一边说没有用例、一边说没有文件，是在同一屏里
+ * 自相矛盾（连文件都没有，也就无所谓用例）。
+ *
+ * ⚠️ 判据带上 `cases.length` 是兜底：真出现「没认到活跃文件、却还留着用例」的情形
+ * （例如某天状态恢复得半截），真实结论比「什么都没有」有用，别把它一起藏了。
+ */
+const showVerdict = computed(() => !(props.noFile && !props.cases.length))
 
 // 页脚上沿那条「还有下文」线（2026-10-23 加；判据同日按用户口径翻过一面）：
 // 页脚底色已改成与面板同色（--bg-editor，即整页地面），不再靠色差与列表分开，
@@ -195,9 +243,11 @@ const elapsedText = computed(() => {
     <!-- 页头动作区：verdict + 耗时投进 Sidebar 共享页头的 #sidebar-context。
          不激活时 disabled、内容原地渲染（面板 v-show 藏着，不可见）；defer 的来历
          见 FileExplorer 里那颗同款 Teleport 的注释。
-         具体是 WA 还是 TLE 由各张卡片的徽标说明，这里不堆长句 -->
+         具体是 WA 还是 TLE 由各张卡片的徽标说明，这里不堆长句。
+         2026-11-17：没打开文件时整块不画 —— 那时这里只会是一颗「无测试用例」，
+         与空态标题「没有打开的文件」各说一半（判据见脚本的 `showVerdict`）。 -->
     <Teleport defer :disabled="!isActivePanel" to="#sidebar-context">
-      <div class="panel__heading">
+      <div v-if="showVerdict" class="panel__heading">
         <span class="verdict" :data-tone="verdict.tone">
           <LoadingSpinner v-if="counts.running" :size="9" />
           <span>{{ verdict.text }}</span>
@@ -217,12 +267,17 @@ const elapsedText = computed(() => {
         <!-- 空态只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个用例…」和一颗
              「添加第一个用例」大按钮，前者是废话、后者与列表末尾那颗「添加测试样例」重复
              （那颗当时在页脚，2026-10-23 挪进列表）。
-             这句话**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是这行
+             这句话默认**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是这行
              居中的淡灰字）：与三个小标题 input / Expected / Actual 同一个理由 —— 它是一句
              格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它**不在消息表里**。
+             **例外（2026-11-17，用户要求）**：一个文件都没打开时换成「没有打开的文件」
+             （`emptyTitle` 走 `tests.panel.runBlockedNoFile`，中英各一条）。那种情形下
+             「没有用例」是句废话 —— 连文件都没有，用例当然没有；真正该说的是「没打开文件」。
+             这句话原先写在页脚那行 `.run-blocked` 里，同一个意思说了两遍，现在只在这里说。
              抓样提示（notice）保留 —— 它是插件自动抓样例那一路唯一的反馈，且仍按语言翻。 -->
-        <p class="empty__title">No test cases yet.</p>
-        <!-- 空态就这一行：跑不了的原因不在这里解释（那行字在页脚），这一栏越干净越好。
+        <p class="empty__title">{{ emptyTitle }}</p>
+        <!-- 跑不了的原因一般不在空态里解释（非代码文件那行字在页脚），这一栏越干净越好；
+             只有「没打开文件」这一种情形例外 —— 那时标题本身就是原因（见上）。
              抓样那三条提示仍然照旧（它们说的是「样例为什么还没到手」，与能不能运行无关）。 -->
         <p v-if="notice" class="empty__notice" :data-tone="notice.tone">
           <!-- 抓取在途（tone = info）时把等待画在这一行里：空态期间没有别的东西可看，
@@ -288,8 +343,10 @@ const elapsedText = computed(() => {
     <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
       <!-- 跑不了的原因写成一行看得见的字（置灰的按钮在浏览器里收不到鼠标事件，
            title 也就悬不出来）。**提交那条不在这里**：交不了的时候那颗按钮压根不渲染
-           （见 showSubmit 与 App 里那段说明）。 -->
-      <p v-if="runBlocked" class="run-blocked">{{ runBlocked }}</p>
+           （见 showSubmit 与 App 里那段说明）。
+           2026-11-17：`footBlocked` 而不是 `runBlocked` —— 没打开文件时这句空着，
+           它已经上移到空态标题（同一句话不说两遍）；非代码文件那条照旧留在这里。 -->
+      <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
       <div class="panel__foot-row">
         <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠左，与主条同高。
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因

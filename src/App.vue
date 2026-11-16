@@ -310,7 +310,7 @@ watch(
 
 const workspace = ref(null)
 const editorPane = ref(null)
-// 资源管理器：F2 / Delete 两条快捷键要落进它里面去执行（见 SHORTCUT_TREE_HANDLERS）。
+// 资源管理器：F2 / ⌘⌫ 两条快捷键要落进它里面去执行（见 SHORTCUT_TREE_HANDLERS）。
 // 它在 Sidebar 的具名插槽里，而那是 v-show 切换的，所以实例一直都在、这个 ref 稳定可用。
 const fileExplorer = ref(null)
 const sidebarRef = ref(null)
@@ -692,7 +692,10 @@ function togglePanel({ instant = false } = {}) {
       if (panelVisible.value) pinSidebarWidth()
     }
     transition.finished.then(settled, settled)
-    return
+    // 把「动画走完」这条出口交出去：调用方若要在展开后**接着做一件依赖侧栏可见的事**
+    // （目前只有空编辑区那块板的「新建文件」行 / ⌥⌘N，见 createFileInExplorer），得等这之后 ——
+    // 折叠态那层 `visibility: hidden` 要等 VT 的回调跑完（下一帧）才摘掉。
+    return transition.finished
   }
 
   // 直切：一步到位（闸门过不去的都是这一路）。只翻状态，不挂任何动画 class；
@@ -995,6 +998,15 @@ const runBlockedReason = computed(() => {
   if (activeLanguage.value) return ''
   return activeNode.value ? t('tests.panel.runBlocked') : t('tests.panel.runBlockedNoFile')
 })
+
+/**
+ * 有没有打开文件（2026-11-17 加）。评测面板要拿它分辨空态的两种情形：
+ * 「什么都没打开」时那行标题说「没有打开的文件」，而「打开了但没有用例」时
+ * 仍是写死的 `No test cases yet.`（见 TestPanel 的 `emptyTitle`）。
+ * 没打开文件时用例必然为空（`config.tests` 跟着活跃文件走，见上面那条 watch），
+ * 所以这一位只影响空态。
+ */
+const hasOpenFile = computed(() => Boolean(activeNode.value))
 
 /**
  * 一键提交到 Codeforces（2026-10-23 加）。
@@ -1571,7 +1583,7 @@ function toggleSplitPane() {
 }
 
 // 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那 7 条；另有两条**作用域受限**的
-// （F2 重命名 / Delete 删除资源树节点）在它下面单独一张表里，理由见那里的注释。
+// （F2 重命名 / ⌘⌫ 删除资源树节点，Delete 是后者的别名键）在它下面单独一张表里，理由见那里的注释。
 // 监听挂在 window 的**捕获**阶段：Monaco 的键位服务挂在编辑器内部的 DOM 上，捕获是从外
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
 const SHORTCUT_HANDLERS = {
@@ -1597,6 +1609,9 @@ const SHORTCUT_HANDLERS = {
   // 分屏 / 收掉空窗格：同一个键按焦点窗格的状态切换（见上面的 toggleSplitPane）
   'split-editor': () => toggleSplitPane(),
   'new-case': () => addCase(),
+  // 新建文件（2026-11-17 加）：与空编辑区那块快捷键板的第一行、侧栏页头那颗按钮同源。
+  // 全局可按下 —— 空态、评测面板、题解全屏里都能起一个（落点仍按 FileExplorer 的主选中算）
+  'new-file': () => createFileInExplorer(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
   // 生成图片：落在 EditorPane 里（那边持有 Monaco 实例与选区）。没有选区时导出整个文件，
   // 没开文件（或文件为空）时静默返回 —— 与右键菜单那一项同源
@@ -1612,8 +1627,8 @@ const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
  * **资源管理器那块面板**里时才生效（行上、或树的空白处都算 —— 见下面的 treeScopeFrom）。
  *
  * 为什么不放进 SHORTCUT_HANDLERS：上面那些都是「在哪儿按都算」，而这三条得先过一道闸门 ——
- * 尤其 Delete 不带修饰键、⌘/Ctrl+A 在编辑器里是「全选文本」，不设闸门的话在编辑器里按一下
- * 删字符 / 全选文本，就会顺手弹出删除确认框、或把整棵树选起来。
+ * 尤其删除那颗 **Delete 别名**不带修饰键（主键是 ⌘⌫，2026-11-17 起）、⌘/Ctrl+A 在编辑器里是
+ * 「全选文本」，不设闸门的话在编辑器里按一下删字符 / 全选文本，就会顺手弹出删除确认框、或把整棵树选起来。
  * 闸门**必须拦在 preventDefault 之前**：不在资源管理器里时就整条放行，原生行为（删字符、退格、全选）照旧。
  *
  * 执行落在资源管理器里（`FileExplorer` 经 defineExpose 给出 startRename / requestDelete /
@@ -1622,7 +1637,7 @@ const MD_EDITOR_COMBOS = new Set(Object.values(MD_SHORTCUTS))
  * 全选把「空白处」读成「焦点在根上」（见 folderContentIds）。
  * 树里的焦点与主选中的同步由 FileTreeItem 的点击 / 键盘各自完成（见 FileExplorer.onTreeFocus 的注释）。
  *
- * ⌘ / Ctrl + A 另有一条**指针优先**的判据（F2 / Delete 不看指针）：桌面端点开文件时焦点会被
+ * ⌘ / Ctrl + A 另有一条**指针优先**的判据（F2 / ⌘⌫ 不看指针）：桌面端点开文件时焦点会被
  * EditorPane 抢进 Monaco，只看 DOM 焦点的话「点文件 → 马上 ⌘A」全选的是代码 —— 所以指针还在
  * 资源管理器里时按「焦点在文件上」算。细节见 treeScopeFrom / regionUnderPointer。
  */
@@ -1704,8 +1719,10 @@ function regionUnderPointer() {
  * - 指针在编辑区里 → 一律 `undefined`（放行）：这时 ⌘A 就是编辑器自己的「全选代码」。
  * - 指针在别处（或根本没有指针：纯键盘、触摸）→ 落回下面的 DOM 焦点判据。
  *
- * 为什么只给 ⌘A 开这个口子，重命名 / Delete 不看指针：Delete 不带修饰键，光标在代码里、
- * 指针恰巧搭在侧栏上时按一下 Delete 就成了「弹删除文件确认框」—— 那个方向的风险比收益大得多。
+ * 为什么只给 ⌘A 开这个口子，重命名 / 删除不看指针：删除那颗 **Delete 别名**不带修饰键，光标
+ * 在代码里、指针恰巧搭在侧栏上时按一下 Delete 就成了「弹删除文件确认框」—— 那个方向的风险比
+ * 收益大得多。主键 ⌘⌫ 虽然带修饰键、误触面小得多，但它和别名是**同一个动作**，判据分岔只会让
+ * 「同样一颗删除键，指针挪一寸就换了行为」，所以两条路都只认 DOM 焦点。
  * @param {KeyboardEvent} event
  * @param {string} actionId
  * @returns {{ rowId: string|null }|undefined}
@@ -1729,7 +1746,7 @@ function treeScopeFrom(event, actionId) {
   //   ① `document.activeElement` 真的在树里 —— 焦点在编辑器 / 页签栏 / 顶栏时一律不认；
   //      不能只信 `event.target`：合成事件、或窗口刚被激活那一瞬，两者会对不上。
   //   ② 落点不是在按钮 / 链接上 —— 那类元素自己的 Enter 是「按一下」，不该被抢走。
-  // Delete / ⌘A 不加这两道：它们的既有判据（焦点在树里、不在可编辑元素上）已经够用，
+  // Delete / ⌘⌫ / ⌘A 不加这两道：它们的既有判据（焦点在树里、不在可编辑元素上）已经够用，
   // 擅自收紧会改变用户已经用顺手的行为。
   if (actionId === 'rename-node') {
     const active = document.activeElement
@@ -1787,7 +1804,7 @@ function onKeydown(event) {
     return
   }
 
-  // 作用域受限的三条（重命名 / Delete / ⌘·Ctrl+A）：不在资源管理器里就整条放行，不拦原生行为
+  // 作用域受限的三条（重命名 / ⌘⌫ 删除 / ⌘·Ctrl+A）：不在资源管理器里就整条放行，不拦原生行为
   if (actionId && SHORTCUT_TREE_HANDLERS[actionId]) {
     const scope = treeScopeFrom(event, actionId)
     if (!scope) return
@@ -1814,6 +1831,48 @@ function onKeydown(event) {
 useCompanionImport({
   onImported: () => editorPane.value?.focus(),
 })
+
+// ------------------------------------------------------- 空编辑区那块快捷键板
+/**
+ * 「新建文件」——空编辑区快捷键板的第一行，也是 ⌥⌘N / Ctrl+Alt+N 那一条全局动作。
+ *
+ * 【为什么放在 App】EditorPane 不认识资源管理器：它只有 Monaco 和文件模型，`creating`
+ * 那套状态活在 FileExplorer 里，面板开合也归这里。所以它只 emit 一个动作 id，由这里动手。
+ *
+ * 【为什么先亮侧栏】新建的输入行渲染在树里，侧栏整块收着的时候它只有 1px 宽
+ * （`.pane--tests.is-collapsed`），焦点送进去也看不见。这条路径可能是用户从屏幕中央
+ * 发起的（点板上那一行），不先亮出来就等于「点了没反应」。`togglePanel()` 走的是完整
+ * 动画那条路 —— 与手动点开一致。
+ *
+ * 【为什么得 await】折叠态那层内容整块 `visibility: hidden`（见样式表），而展开动画把这层
+ * 揭掉发生在**下一帧**（View Transition 的回调里才翻状态）。不等它就把焦点往输入框里送，
+ * 浏览器会**静默失败**：`focus()` 不抛错、也不发光标（实测：输入框建出来了、值也对，
+ * 焦点却还留在原来那一行上）。所以这里等 `togglePanel()` 给出的「动画走完」，再起新建；
+ * 侧栏本来就是展开的走不到这条分支，点下去当场聚焦。
+ */
+async function createFileInExplorer() {
+  if (!panelVisible.value) {
+    try {
+      await togglePanel()
+    } catch {
+      // 动画被跳过（连点 / 中途又切了一次）：状态其实已经翻了，照常往下走
+    }
+  }
+  sidebarRef.value?.showPanel('explorer')
+  fileExplorer.value?.startCreate('file')
+}
+
+/**
+ * 空编辑区那块快捷键板上的一行被点了：按动作 id 交给全局那张表执行。
+ *
+ * 板上只放已经登记的动作（`SHORTCUT_HANDLERS` 的键），所以这里不做兜底分支 ——
+ * 认不出来的 id 静默吞掉即可（真出现了就是板上写错了 id，lint / 回归会先撞上）。
+ * 这一层存在的意义是**同源**：点一行与按一下那个键走的是同一个函数，
+ * 不会出现「点着会建、按着没反应」这种分岔。
+ */
+function runShortcutAction(actionId) {
+  SHORTCUT_HANDLERS[actionId]?.()
+}
 
 // ------------------------------------------------------- 从系统里拖文件进来
 /**
@@ -2083,6 +2142,7 @@ onBeforeUnmount(() => {
           @select-engine="selectEngine"
           @update-base="updateBase"
           @test-connection="testConnection"
+          @shortcut="runShortcutAction"
         />
         <!-- 全站通知（toast）：锚在编辑区右下角（容器 absolute，含块 = 本栏）。
              不用视口右下角：侧边栏可停靠右侧，浮层会盖在侧栏上。
@@ -2137,6 +2197,7 @@ onBeforeUnmount(() => {
                 :running="running"
                 :elapsed="elapsed"
                 :run-blocked="runBlockedReason"
+                :no-file="!hasOpenFile"
                 :notice="emptyNotice"
                 :show-submit="showSubmit"
                 :submitting="submitting"
