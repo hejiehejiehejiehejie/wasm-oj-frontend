@@ -169,6 +169,9 @@ const RAMP_UP_MS = 120
 const RAMP_START = 0.45
 /** 拖拽结束后用来吃掉紧随其后那次 click 的时间上限 */
 const CLICK_SUPPRESS_MS = 300
+/** 松手后「归位补间」的时长：从松手那一拍的视觉位置补间到自然车位（见 settle）。
+ *  归位期间被拖的组还要一直抬层（见 settlingGid），抬层的收尾时长挂的就是它。 */
+const SETTLE_MS = 150
 /** 拖出分组的脱离阈值（px）：组末成员的左缘越过「组剩余部分右缘」这么多才算真出组。
  *  太小会误触（在组边抖两下就退组），太大的话退组手感迟钝 —— 取需求给的 15~25px 中值。 */
 const GROUP_EXIT_PX = 20
@@ -215,6 +218,23 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
    * 组员会被 200ms 让位过渡拖着走，整组在拖拽中肉眼可见地脱节。
    */
   const draggingIds = shallowRef([])
+
+  /**
+   * 松手后仍在**归位补间**里的组（gid）；null = 没有组在归位。
+   *
+   * 为什么单独记一个状态：芯片的抬层（`z-index: 100`）原本只写在 `--dragging` 与
+   * `.is-dragging` 下面，而这两个类在**松手那一拍**就被 cancelPress 摘掉了 —— 可 settle 的
+   * 归位补间还要再跑 SETTLE_MS，这段时间里芯片正横穿其它页签，没有抬层就被盖住。
+   * 实测症状（2026-11-16 用户报）：拖一个**折叠的组**、松手时芯片停在右边某张页签上方，
+   * 归位路上它会从那张页签**底下**钻过去；落在左边则是从**上面**过 —— 因为页签是
+   * `isolation: isolate` 的独立层叠上下文，谁在上面全看源码顺序，与「视觉上还在拖」无关。
+   * 组是整段搬走的，归位路最长（可能横穿十几张），所以只有组要补这一刀；单张页签归位
+   * 只横穿自己那一两个槽位，用户没报，也就不动。
+   */
+  const settlingGid = shallowRef(null)
+
+  /** `settlingGid` 的收尾定时器（0 = 没有在跑的） */
+  let settlingTimer = 0
 
   /**
    * 被拖页签的**实时归属**（组 id 或 null），只在拖拽期间有值；null 同时表示
@@ -359,6 +379,9 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
    * @param {{id?: string|null, gid?: string|null}} target
    */
   function beginPress(event, { id = null, gid = null }) {
+    // 上一轮组的归位补间可能还没跑完就又按下了：抬层立刻收（否则新一轮里这枚芯片会一直压着
+    // 别人，且新拖拽的让位逻辑还要跟它抢层）
+    markSettlingGroup(null)
     const pointerType = event.pointerType || 'mouse'
     press = {
       id,
@@ -725,9 +748,13 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       unit: dragged,
       block,
       blockSet: new Set(block),
-      // 块的视觉宽（前导边缘判据用）与占位宽（条带钳制用），都从自然位置算、拖拽中不变
+      // 块的视觉宽（前导边缘判据用）与占位宽（内容右缘夹紧用），都从自然位置算、拖拽中不变
       blockEdge: last.left + last.width - first.left,
       blockSpan: last.left + last.width + last.mr - (first.left - first.ml),
+      // 抓取格的占位宽（可视区右界夹紧用）：页签拖动 = 那张页签，芯片拖动 = 那枚芯片。
+      // 与 blockSpan 只在「展开的组」上不同 —— 整块几百像素，抓芯片时块尾本来就挂在条带
+      // 右缘外面（是拖之前的样子），见 updateDrag 里 maxLeft 那段。
+      anchorSpan: first.width + first.ml + first.mr,
       units,
       hiddenByGroup,
       // 内容总宽的右缘（内容坐标）：所有可见单元按边距盒首尾相接加起来即是。跟手钳制的
@@ -931,9 +958,18 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 真实上限 1296 一路涨到 2718（3 秒，且不停），条带上只剩被拖的那一张吊在右缘、
     // 其余全被滚到视口左边看不见 —— 用户看到的就是「不知道拖到哪去了」。补上内容右缘
     // 这一道，滚到底就真的停住（scrollLeft 停在 maxScroll，边缘自动滚动自己退出）。
+    //
+    // ⚠️ 第一道的宽度用**抓取格**的 anchorSpan，不是整块的 blockSpan（2026-11-16 用户报
+    // 「拖动展开的标签页组的时候，会直接触发动画，让那个标签页组一直靠左」）。展开的组整块
+    // 能有几百像素，抓它的芯片时块的右半截本来就挂在条带右缘外面（滚出可视区是**拖之前**
+    // 的样子）。按整块夹的话，起手那一拍就把块往回拽大半个组宽（实测 900px 窗口 / 末尾三张
+    // 成组 / scrollLeft 120：芯片 tx 从 0 直接跳到 -168），随后往右推又被这道上界挡住 ——
+    // 整组钉在左边不动，只能靠边缘自动滚动把条带一路滚到底来「解钳」。改成只要求「被抓住的
+    // 那一格留在可视区内」，块尾照旧可以露出右缘，跟拖动前一模一样。页签 / 折叠芯片的块只有
+    // 一格，anchorSpan === blockSpan，逐字未变。
     const minLeft = strip.scrollLeft
     const maxLeft = Math.min(
-      strip.scrollLeft + clientWidth - drag.blockSpan,
+      strip.scrollLeft + clientWidth - drag.anchorSpan,
       drag.contentRight - drag.blockSpan,
     )
     const rawVisual = px - drag.grabDX
@@ -1130,6 +1166,25 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   }
 
   /**
+   * 记下「这个组还在归位补间里」（gid）或清掉（null）。SETTLE_MS 过完自动清，不必等补间
+   * 的 finished —— 归位是 fire-and-forget 的 WAAPI，元素被重渲染掉时它的 promise 不一定
+   * 会跑，而抬层多挂一帧只是无害，永久挂着才会让芯片一直压在别人上面。
+   * @param {string|null} gid
+   */
+  function markSettlingGroup(gid) {
+    if (settlingTimer) {
+      window.clearTimeout(settlingTimer)
+      settlingTimer = 0
+    }
+    settlingGid.value = gid
+    if (!gid) return
+    settlingTimer = window.setTimeout(() => {
+      settlingTimer = 0
+      settlingGid.value = null
+    }, SETTLE_MS + 40)
+  }
+
+  /**
    * 收尾：松手（commit=true）提交排序；取消 / Esc / pointercancel（commit=false）不提交。
    * 两种出口的视觉收尾相同 —— settle() 从各元素的**当前视觉位置**补间到（提交后的）
    * 自然车位。
@@ -1157,6 +1212,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       const originX = stripOriginX(strip)
       for (const el of els) visuals.set(el, el.getBoundingClientRect().left - originX)
     }
+    // 抬层要**排在 cancelPress 之前**：`--dragging` 与 `.is-dragging` 是在 cancelPress 里摘的，
+    // 两者落在同一批渲染里，芯片才不会先掉回页签底下再被抬起来（那一帧就是用户报的「钻到
+    // 底下」）。组以外的拖拽不动这条（理由见 settlingGid 的注释）。
+    markSettlingGroup(d?.kind === 'group' ? d.gid : null)
     cancelPress()
     if (payload) onDrop?.(payload, index)
     if (d) nextTick(() => settle(els, visuals))
@@ -1185,7 +1244,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
           { transform: `translate3d(${residual}px, 0, 0)` },
           { transform: 'translate3d(0, 0, 0)' },
         ],
-        { duration: 150, easing: 'ease-out' },
+        { duration: SETTLE_MS, easing: 'ease-out' },
       )
     }
   }
@@ -1209,25 +1268,29 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     let leftGap = pointerLeftGap
     let rightGap = pointerRightGap
 
-    // 宽块死区（2026-11-13）：钳制按**整块**算（blockSpan），触发却只按指针 —— 页签最宽
-    // ~160px、芯片带整组能到几百 px。块撞墙停住时指针离墙还有大半个块宽（抓左端时约
-    // 140px），于是有上百像素的「抓手凭空拖动、块一动不动、也不滚」的死区；抓右端又几乎
-    // 没有死区，所以症状是「有时候顺、有时候卡」，很难归因。
-    // 修法：块被该侧钳住、且还在往那一侧推时，把**块的未钳制边缘**也纳入判定，gap 加半个
+    // 宽块死区（2026-11-13）：钳制按**抓取格**算（anchorSpan），触发却只按指针 —— 页签最宽
+    // ~160px。块撞墙停住时指针离墙还有大半个格宽（抓左端时约 140px），于是有上百像素的
+    // 「抓手凭空拖动、块一动不动、也不滚」的死区；抓右端又几乎没有死区，所以症状是
+    // 「有时候顺、有时候卡」，很难归因。
+    // 修法：块被该侧钳住、且还在往那一侧推时，把**抓取格的未钳制边缘**也纳入判定，gap 加半个
     // 感应区（20px）留冲程 —— 撞墙那一刻取 20px（t=0.5 → 约 1/4 速度）柔和起步，继续往外
     // 顶 20px 才拉满；直接用未钳制边缘的话撞墙瞬间 gap=0，速度一步到顶。
+    // ⚠️ 宽度必须与钳制同源（anchorSpan，不是 blockSpan）：展开的组整块几百像素，若按整块
+    // 算，只要组尾还挂在右缘外面，指针离墙还有两三百像素就已经「gap 深负 → 满速」—— 起手
+    // 推一下就把整条滚到底（2026-11-16 用户报「拖动展开的标签页组会直接触发动画」的第二个
+    // 成因，探针实测 scrollLeft 120 → 289 一气滚到 max、芯片 tx 从 -168 滑回 -6）。
     // ⚠️ 三条边界，缺一条都会退化成别的问题：
-    //   · 块**没被钳住**时不能用块边缘：指针必在块内，块边缘恒比指针更靠边，min() 会退化成
-    //     「只看块边缘」，滚动提前一个块宽就开始；
+    //   · 块**没被钳住**时不能用边缘：指针必在块内，边缘恒比指针更靠边，min() 会退化成
+    //     「只看边缘」，滚动提前一个格宽就开始；
     //   · 钳住但**方向相反**时不能用：宽块贴左墙、用户往右拖，块照样是 pinnedLeft，光看 gap
     //     会一路向左滚；
-    //   · 钳住且方向相反时，那一侧的**指针** gap 也要屏蔽：从撞墙点往回收要收大半个块宽才
+    //   · 钳住且方向相反时，那一侧的**指针** gap 也要屏蔽：从撞墙点往回收要收大半个格宽才
     //     解钳，这期间指针可能还在 40px 区内，不屏蔽照样反向滚。
     // 反过来，解钳之后（块开始跟手）就自动回落到只认指针，与改动前逐字相同。
     const pushDir = drag?.pushDir ?? 0
     if (drag && drag.pinnedRight && pushDir > 0) {
-      const blockRightGap = pointerRightGap - (drag.blockSpan - drag.grabDX)
-      rightGap = Math.min(pointerRightGap, blockRightGap + EDGE_PX * 0.5)
+      const grabRightGap = pointerRightGap - (drag.anchorSpan - drag.grabDX)
+      rightGap = Math.min(pointerRightGap, grabRightGap + EDGE_PX * 0.5)
       leftGap = Number.POSITIVE_INFINITY
     } else if (drag && drag.pinnedLeft && pushDir < 0) {
       leftGap = Math.min(pointerLeftGap, pointerLeftGap - drag.grabDX + EDGE_PX * 0.5)
@@ -1396,6 +1459,8 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     touchDrag,
     /** 被拖块里带 strip id 的单元（模板给整块挂 --dragging 类用） */
     draggingIds,
+    /** 松手后仍在归位补间里的组 id（芯片上的「继续保持抬层」用；SETTLE_MS 后自动清） */
+    settlingGid,
     /** 被拖页签的实时归属（组 id | null）；只在拖拽期间有值 —— 包络线测量读它 */
     liveGroup,
     /** 被拖块视觉上贴着条带哪端（'first' | 'last' | null）；拖拽期间按视觉位置每帧重算

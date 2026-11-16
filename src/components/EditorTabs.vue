@@ -285,7 +285,7 @@ const instantSwap = ref(false)
 // 拖动排序：条带上的页签都从这里起手（useTabDrag 认 data-strip-id，两类页签都带它），
 // 条带是一条混排序列，所以文件页签与视图页签可以互相穿插换位。
 // 放在 rootEl 之后 —— useTabDrag 拿的是这个 ref 对象，声明顺序上不能提前。
-const { draggingId, draggingIds, dragEdge, touchDrag, pressingId, armedId, liveGroup, onTabPointerDown: dragPointerDown, onChipPointerDown, consumeClickSuppression } =
+const { draggingId, draggingIds, settlingGid, dragEdge, touchDrag, pressingId, armedId, liveGroup, onTabPointerDown: dragPointerDown, onChipPointerDown, consumeClickSuppression } =
   useTabDrag({
     rootEl,
     // 落盘走 tabStrip：由它改 stripOrder，再分部写回 openTabIds / viewOrder。
@@ -1355,6 +1355,7 @@ function onTabEnter(el) {
             'editor-tabs__chip--pressing': pressingId === `group:${item.group.id}`,
             'editor-tabs__chip--armed': armedId === `group:${item.group.id}`,
             'editor-tabs__chip--dragging': draggingId === `group:${item.group.id}`,
+            'editor-tabs__chip--settling': settlingGid === item.group.id,
           }"
           :style="{ '--group-c': `var(--group-${item.group.color})` }"
           :data-group-id="item.group.id"
@@ -1376,6 +1377,7 @@ function onTabEnter(el) {
             'editor-tabs__item--active': item.id === focusedTabId,
             'editor-tabs__item--preview': item.id === workspace.previewTabId,
             'editor-tabs__item--dragging': draggingIds.includes(item.id),
+            'editor-tabs__item--settling': settlingGid !== null && item.group?.id === settlingGid,
             'editor-tabs__item--pressing': item.id === pressingId,
             'editor-tabs__item--armed': item.id === armedId,
             'is-grouped': !!item.group,
@@ -2047,6 +2049,18 @@ function onTabEnter(el) {
     transform 0s linear,
     scale 140ms cubic-bezier(0.22, 0.61, 0.36, 1),
     box-shadow 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  z-index: 100;
+}
+
+/* 松手之后、归位补间还在跑的这 150ms 里，被拖的**组**继续保持抬层（2026-11-16 用户口径：
+   「如果被拖动的是标签页组，松手之后，移位动画的过程中，总是显示在上方的」）。
+   `--dragging` 与 `.is-dragging` 在松手那一拍就摘了，而补间里芯片正横穿其它页签；页签是
+   `isolation: isolate` 的独立层叠上下文，没有这一层就纯按源码顺序叠 —— 落在右边的页签会把
+   芯片盖住，落在左边的则反过来，正是用户看到的一左一右两种样子。
+   层级沿用拖拽期的 100（仍低于包络线的 101，线照旧从它上面过）；组员一起抬，整块才不会
+   在归位途中被沿途页签切开。状态本身由 useTabDrag 的 settlingGid 管（SETTLE_MS 后自动清）。 */
+.editor-tabs__chip--settling,
+.editor-tabs__item--settling {
   z-index: 100;
 }
 

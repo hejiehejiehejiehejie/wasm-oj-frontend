@@ -6899,3 +6899,115 @@ E：`已开赛 00:02:00` → 把补丁改成「30 分钟后开赛」→ F5 → `
   10 分钟回访自愈。要自动，得把 `syncRunningCount` 的阶段边界接上 force，另开一轮。
 - 单场补丁不清理：`contestMeta:<id>` 只在易变键族超 200 条时按 `ts` 淘汰（几 KB 一条，可接受）。
 - 本机时钟偏 60 秒以内仍会跟着偏（§56.5 的取舍不变）。
+
+## 60. 拖折叠组：松手后的归位途中要一直抬层（2026-11-16，用户报障）
+
+### 60.1 症状
+
+拖一枚**折叠状态**的分组芯片，松手后它要滑到新的车位。这段归位动画里，如果松手时芯片停在
+**右边**某张页签上方，滑回去的路上它会从那张页签**底下**钻过去；停在**左边**时又是从上面过。
+
+### 60.2 根因
+
+抬层（`z-index: 100`）只写在 `--dragging` 与 `.is-dragging` 下面，而这两个类在**松手那一拍**
+就被 `cancelPress()` 摘掉了；`settle()` 的归位补间还要再跑 150ms（`SETTLE_MS`），这段时间
+芯片正横穿其它页签。页签是 `isolation: isolate` 的独立层叠上下文，没有抬层就纯按**源码顺序**
+叠 —— 落在右边的页签在 DOM 里排在芯片后面，把它盖住；落在左边的排在前面，于是芯片在上面。
+一左一右两种表现同源。
+
+### 60.3 改法
+
+`composables/useTabDrag.js` 新增一个归位期状态：
+
+```js
+const settlingGid = shallowRef(null)   // 松手后仍在归位补间里的组；null = 没有
+```
+
+- `finishDrag` 里 **在 `cancelPress()` 之前**调 `markSettlingGroup(d?.kind === 'group' ? d.gid : null)`
+  —— 两个状态落在同一批渲染里，芯片不会先掉回页签底下再被抬起来（那一帧就是用户看到的那一幕）。
+  `SETTLE_MS + 40` 后自动清（不等 WAAPI 的 `finished`：归位是 fire-and-forget，节点被重渲染掉时
+  那个 promise 不一定会跑）。
+- `beginPress` 开头清一次：上一轮补间没跑完又按下时立刻收，否则新拖拽会和它抢层。
+- 组件侧（`components/EditorTabs.vue`）挂 `--settling` 类：芯片按 `settlingGid === group.id` 挂，
+  组员按 `item.group?.id === settlingGid` 一起挂（整块别在归位途中被沿途页签切开）。
+
+```css
+.editor-tabs__chip--settling,
+.editor-tabs__item--settling { z-index: 100; }
+```
+
+层级沿用拖拽期的 100：仍低于包络线图层的 101，线照旧从它上面过。
+
+**只给组**：单张页签归位只横穿自己那一两个槽位，用户没报，也就不动它的层叠。
+
+### 60.4 实测（900px / 六张页签 / 折叠组，浅色 DSF 2）
+
+每帧采样 `getComputedStyle(chip).zIndex` + 根类（只列状态变化的那几帧）：
+
+| 时刻 | `z-index` | 类 | 芯片左缘 |
+| --- | --- | --- | --- |
+| 拖拽中 | 100 | `--collapsed --dragging` | 475 |
+| 松手那一帧 | **100** | `--collapsed --settling`（`is-dragging` 已摘） | 787（补间起点） |
+| 补间结束 +40ms | `auto` | `--collapsed` | 769（最终车位） |
+
+`--dragging` → `--settling` 之间**没有一帧** `z-index: auto`（改前那一帧是 auto，正是「钻到
+底下」）。`npm run verify` A–H 全 PASS，`npm run lint` 无 error。
+
+## 61. 拖**展开的**组：起手那一拍被拽回左边、还自己把条带滚到底（2026-11-16，用户报障）
+
+### 61.1 症状
+
+用户口径：「当我拖动展开的标签页组的时候，会直接触发动画，让那个标签页组一直靠左」。
+
+两件事叠在一起：抓住组的芯片往右推，整块先**瞬移**到左边一大截（芯片 `translate3d` 从 0
+跳到 -168），紧接着条带自己开始滚、一路滚到底（`scrollLeft` 120 → 289），滚完块又滑回原位；
+之后往右再也推不动，整组钉在左边。
+
+### 61.2 根因：两处把「整块宽」当成了「抓取格宽」
+
+`composables/useTabDrag.js` 里 `drag.blockSpan`（**整块**的占位宽）被用在了两个只该看
+**被抓住那一格**的地方：
+
+1. **可视区右界**：`maxLeft = scrollLeft + clientWidth - blockSpan`。展开的组整块能有几百
+   像素，而抓它的芯片时，块尾本来就挂在条带右缘外面 —— 那是**拖之前**的正常样子。按整块
+   夹，等于起手就把块往里拽大半个组宽。实测（900px 窗口 / 末尾三张成组 / 条带
+   `clientWidth 528`、`max 290`、`scrollLeft 120`、芯片 `offsetLeft 504`、块宽约 320）：
+   `maxLeft = 120 + 528 - 320 = 328`，芯片 504 → `tx = -176`（实测 -168）。
+2. **宽块死区**（§2026-11-13 那条）：`blockRightGap = pointerRightGap - (blockSpan - grabDX)`
+   —— 抓芯片时 `blockSpan - grabDX ≈ 300`，而指针离条带右缘常有 250+，于是 gap 是**深负数**，
+   `scrollVelocityFor` 直接给满速。起手推 16px 就把整条滚到底。
+
+两者互为因果：第 1 条把块钳在左边，第 2 条又把「组尾挂在右缘外面」读成「用户在往右顶墙」，
+于是用边缘自动滚动去解钳 —— 解到 `scrollLeft` 触底为止。
+
+为什么**折叠**组没事：折叠组的块就是那枚芯片（`blockSpan ≈ anchorSpan`），两个式子都等价于
+改动前。这个 bug 只在「块比抓取格宽」时现形，也就是只有展开的组会踩到。
+
+### 61.3 改法：钳制与触发都改用 `anchorSpan`
+
+`beginLiveReorder` 新增一个字段，与 `blockSpan` 并列：
+
+```js
+// 抓取格的占位宽（可视区右界夹紧用）：页签拖动 = 那张页签，芯片拖动 = 那枚芯片
+anchorSpan: first.width + first.ml + first.mr,
+```
+
+- `updateDrag`：`maxLeft` 的第一道夹紧换成 `scrollLeft + clientWidth - anchorSpan` ——
+  **只要求「被抓住的那一格」留在可视区内，块尾照旧可以露出右缘**，与拖动前一致。
+  第二道 `contentRight - blockSpan` 原样保留（它管的是 transform 溢出把 `scrollWidth`
+  撑大的自增长，必须按整块算）。
+- `updateAutoScroll` 的宽块死区：`blockSpan - grabDX` 换成 `anchorSpan - grabDX`。
+  钳制与触发从此同源：芯片右缘贴上条带右缘那一刻 gap 才归零，速度从 1/4 平稳起步。
+
+页签拖动（块 = 那一张）与折叠芯片拖动（块 = 那枚芯片）的 `anchorSpan === blockSpan`，
+这两处逐字未变。
+
+### 61.4 实测（900px / 八张页签 / 浅色，条带 `clientWidth 528`、`max 290`）
+
+| 场景 | 改前 | 改后 |
+| --- | --- | --- |
+| 组在右端（`scrollLeft 120`），抓芯片往右推 16px | `tx` 0 → **-168**；`scrollLeft` 120 → **289**（自动滚到底） | `tx` 0 → **-6**（只剩内容右缘那 6px）；`scrollLeft` **恒 120**，一次 `scrollLeft` 写入都没有 |
+| 同一枚芯片往左拖 200px | —— | `tx` 逐帧跟手 -15.8 / -31.7 / … / -190，`scrollLeft` 恒 120 |
+| 普通页签（非组成员）往右拖 | 指针离右缘远时不滚，贴边才滚 | 不变：早期（指针 x=447）`scrollLeft` 恒 0；拖到 890 才 0 → 296，页签跟手 `tx 711` |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error。
