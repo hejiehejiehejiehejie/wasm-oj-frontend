@@ -323,6 +323,35 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   }
 
   /**
+   * 拖拽期间的「滚动溢出托底」（2026-11-16 用户报「最右边展开的组一拖就整条栏横跳」）。
+   *
+   * 被拖块是靠 translate3d 走的，而**位移后的盒子也算进条带的 scrollWidth**（末尾页签的
+   * 右外扩脚、包络线图层这些溢出边都跟着块一起左移）。条带正好停在最右端时，块一往左动
+   * scrollWidth 就缩水，浏览器立刻把 scrollLeft 夹到新的上限 —— 等于条带自己往左滚了
+   * 同样的距离：被拖块在视口里原地不动，其余页签整体右移，越拖越离谱。
+   *
+   * 托底元素是一枚绝对定位、1px 高、透明的空 div，宽度 = 起手时的 scrollWidth：它不参与
+   * 布局（absolute 脱离 flex），只把可滚动溢出钉在拖拽前的水平上限上，scrollLeft 就不会
+   * 再被夹回去。**只增不减**：内容宽本来就没变，拖拽只是视觉位移，这个下限必须撑住。
+   * @returns {HTMLElement}
+   */
+  function holdStripOverflow(strip) {
+    const keeper = document.createElement('div')
+    keeper.setAttribute('aria-hidden', 'true')
+    keeper.style.cssText = [
+      'position:absolute',
+      'left:0',
+      'top:0',
+      `width:${Math.ceil(strip.scrollWidth)}px`,
+      'height:1px',
+      'opacity:0',
+      'pointer-events:none',
+    ].join(';')
+    strip.appendChild(keeper)
+    return keeper
+  }
+
+  /**
    * 条带内容坐标系：条带是横向滚动容器，元素的 offsetLeft / 拖拽位移都活在「内容坐标」里，
    * 指针的 clientX 与元素的 getBoundingClientRect 都活在「视口坐标」里 —— 下面这个原点
    * 把两边接起来（含 scrollLeft，自动滚动改 scrollLeft 后同一套换算仍然成立）。
@@ -792,6 +821,8 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 拖拽态类覆盖整块：块内组员也要关掉 200ms 让位过渡并抬层，
     // 否则芯片逐帧跟手、组员被过渡拖着走，整组肉眼可见地拉开
     draggingIds.value = block.filter((u) => u.id).map((u) => u.id)
+    // 托底必须在第一帧写 transform 之前挂上：见 holdStripOverflow 的注释
+    drag.keeper = holdStripOverflow(strip)
     drag.grabDX = press.lastX - stripOriginX(strip) - dragged.left
     layoutTargets()
     updateDrag(press.lastX, press.lastY)
@@ -1005,9 +1036,16 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 那一格留在可视区内」，块尾照旧可以露出右缘，跟拖动前一模一样。页签 / 折叠芯片的块只有
     // 一格，anchorSpan === blockSpan，逐字未变。
     const minLeft = strip.scrollLeft
+    // 第二道的上界要**加回块首自己的左外边距**（2026-11-16 用户报「展开的组在最右边时
+    // 一拖就往左跳一下」）：blockSpan 的起点取的是块首的**边距盒**左缘（first.left - ml），
+    // 而 visual 记的是它的**边框盒**左缘（first.left）。直接用 contentRight - blockSpan，
+    // 上界就比自然位置小了整整一个 ml —— 组挂在条带末尾时自然位置本来就是最右端，起手那
+    // 一帧立刻被这条界往回拽 ml（实测 900px 窗口 / 末尾三张成组 / ml=7：芯片 tx 起手就是
+    // -7，随后往右推全程钉在 -7 不动）。加回 ml 后上界正好等于自然位置：不推不跳，往右
+    // 推才算撞墙（pinnedRight 交给边缘自动滚动）。
     const maxLeft = Math.min(
       strip.scrollLeft + clientWidth - drag.anchorSpan,
-      drag.contentRight - drag.blockSpan,
+      drag.contentRight - drag.blockSpan + drag.unit.ml,
     )
     const rawVisual = px - drag.grabDX
     drag.visual = Math.max(minLeft, Math.min(maxLeft, rawVisual))
@@ -1466,6 +1504,13 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 端缘标记一并收（strip-first / strip-last 回归 DOM 顺序的静态判定）
     dragEdge.value = null
     draggingIds.value = []
+    // 溢出托底要活过松手之后的归位补间：那 150ms 里内联 / WAAPI transform 还在，
+    // 现在摘掉的话 scrollWidth 立刻缩水，浏览器把 scrollLeft 夹回去 —— 松手那一下
+    // 整条栏会横向「啪」地跳一段。补间跑完再收，节点已脱离文档时 remove 也安全。
+    if (drag?.keeper) {
+      const keeper = drag.keeper
+      window.setTimeout(() => keeper.remove(), SETTLE_MS + 50)
+    }
     // 让位状态一并收（内联 transform 不在这里清 —— finishDrag 的 settle 还要拿它算残差）
     drag = null
   }
