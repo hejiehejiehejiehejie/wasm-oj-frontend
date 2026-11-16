@@ -276,6 +276,10 @@ export default {
         togglePanel: { label: '显示 / 隐藏侧边栏' },
         switchPanel: { label: '切换侧栏面板', hint: '资源管理器 ↔ 评测样例' },
         toggleLayout: { label: '侧边栏左右对调' },
+        splitEditor: {
+          label: '分屏 / 收起空窗格',
+          hint: '把当前窗格一分为二；焦点窗格为空时再按一次收起它。最多四格，窄屏两个（只能上下分）',
+        },
         newCase: { label: '新增一条测试用例' },
         openSettings: { label: '打开 / 收起设置' },
         exportImage: {
@@ -903,6 +907,10 @@ export default {
         togglePanel: { label: 'Show / hide the sidebar' },
         switchPanel: { label: 'Switch sidebar panel', hint: 'Explorer ↔ Test cases' },
         toggleLayout: { label: 'Swap sidebar side' },
+        splitEditor: {
+          label: 'Split editor / close empty pane',
+          hint: 'Splits the focused pane in two; pressing again while it is empty closes it. Up to four panes (two, stacked, on narrow screens)',
+        },
         newCase: { label: 'Add a test case' },
         openSettings: { label: 'Open / close settings' },
         exportImage: {

@@ -13,6 +13,20 @@
 import { computed, reactive, watch } from 'vue'
 import { t } from '../../i18n/index.js'
 import { flush, isAutoSaveEnabled } from '../autoSave.js'
+import {
+  editorPanes,
+  fileTabs,
+  focusedLeaf,
+  hydrate,
+  moveTabInPane,
+  neighborFileTab,
+  paneFocus,
+  paneOf,
+  placeTab,
+  pruneTabs,
+  removeTab,
+  replaceTab,
+} from '../editorPanes.js'
 import { modelManager } from '../monaco/modelManager.js'
 import { languageForPath } from '../monaco/language.js'
 import { defaultCode } from '../templates.js'
@@ -71,14 +85,19 @@ function writeJSON(key, value) {
 
 // ------------------------------------------------------------ 状态
 
-export const workspace = reactive({
+/**
+ * 原始状态对象。**三个与窗格相关的字段不再是真的数据字段**，而是定义在它上面的访问器
+ * （见下面的 defineProperties）：读写都转交给 services/editorPanes.js 的焦点叶子。
+ *
+ * 访问器必须定义在 `reactive()` **之前**的原始对象上：
+ *   · 代理会转发 get / set，属性读取照样进入依赖收集（getter 里读 editorPanes 也会被追踪）；
+ *   · 反过来在代理上 defineProperty 会落到目标对象，热更新时还容易重复定义。
+ * 这样三十多处 `workspace.activeId = x` 的调用点一行都不用改。
+ */
+const workspaceState = {
   ready: false,
   /** @type {import('./BaseVFSProvider.js').VFSNode[]} 嵌套树 */
   tree: [],
-  /** @type {string[]} 打开的文件 id（tab 顺序） */
-  openTabIds: [],
-  /** @type {string|null} 活跃文件 id */
-  activeId: null,
   /**
    * **主选中**的树节点 id（文件或目录）。与 activeId 分工不同：activeId 是「编辑器里打开的那个
    * 文件」，目录进不去；本字段才是「页头新建落在哪个目录」的唯一来源，多选时它同时充任
@@ -100,19 +119,68 @@ export const workspace = reactive({
    * @type {string[]}
    */
   selectedIds: [],
+  /** @type {string[]} 展开的目录 id */
+  expandedIds: [],
+}
+
+Object.defineProperties(workspaceState, {
   /**
-   * 预览页签 id（VS Code 式斜体临时页签，全局至多一个）。
+   * 打开的文件 id（按窗格内的页签顺序展平）。**只读**：成员与顺序都由 editorPanes 的
+   * leaf.tabs 决定，写它会在严格模式下抛错 —— 想改页签请走 openFile / closeTab / moveTab。
+   * @type {string[]}
+   */
+  openTabIds: {
+    enumerable: true,
+    configurable: true,
+    get: () => fileTabs(),
+  },
+  /**
+   * 活跃文件 id = **焦点窗格**的 active。这是全局「正在编辑的文件」的唯一读法。
    *
-   * 单击文件树 → 占这个槽；再单击别的文件就把上一个**顶替**掉（见 openFile 的 preview 选项）。
-   * 双击文件 / 双击页签 / 在预览页签里编辑 → 钉住（归 null，页签转正体）。
+   * setter 必须做跨窗格路由：回溯 / 全局搜索可能把一个躺在非焦点窗格里的文件写进来，
+   * 无脑往当前窗格塞会造出「焦点在 A、文件却在 B 的页签里」的幽灵态。所以先查归属：
+   *   · 已在某个窗格 → 先把焦点移过去，再切它的 active；
+   *   · 不在任何窗格 → 忽略（正常打开走 openFile，它会先 placeTab）。
+   * @type {string|null}
+   */
+  activeId: {
+    enumerable: true,
+    configurable: true,
+    get: () => focusedLeaf()?.active ?? null,
+    set: (value) => {
+      const leaf = focusedLeaf()
+      if (!leaf) return
+      if (value == null) {
+        leaf.active = null
+        return
+      }
+      const owner = paneOf(value)
+      if (!owner) return
+      editorPanes.focusedPaneId = owner.id
+      owner.active = value
+    },
+  },
+  /**
+   * 预览页签 id（VS Code 式斜体临时页签，**每个窗格至多一个**）。
+   *
+   * 单击文件树 → 占焦点窗格的预览槽；再单击别的文件就把上一个**顶替**掉（见 openFile 的
+   * preview 选项）。双击文件 / 双击页签 / 在预览页签里编辑 → 钉住（归 null，页签转正体）。
    * 刻意**不落 localStorage**：刷新后退化成普通页签，既是无害的降级，也省一处会话恢复分叉
    * （页签本身照旧由 cp.openTabs 恢复）。
    * @type {string|null}
    */
-  previewTabId: null,
-  /** @type {string[]} 展开的目录 id */
-  expandedIds: [],
+  previewTabId: {
+    enumerable: true,
+    configurable: true,
+    get: () => focusedLeaf()?.preview ?? null,
+    set: (value) => {
+      const leaf = focusedLeaf()
+      if (leaf) leaf.preview = value ?? null
+    },
+  },
 })
+
+export const workspace = reactive(workspaceState)
 
 // 先吃进上次的偏好（tab 的 model 恢复在 initStore 里做）
 workspace.expandedIds = Array.isArray(readJSON(EXPANDED_KEY, [])) ? readJSON(EXPANDED_KEY, []) : []
@@ -169,20 +237,12 @@ async function rebuildTree() {
       /* 单个文件同步失败（外部正好把它删了 / 读不动）不该拖垮整树重建 */
     }
   }
-  // 2) 清理指向已删除节点的 tab（release model）
-  const surviving = workspace.openTabIds.filter((id) => nodeIndex.has(id))
-  for (const id of workspace.openTabIds) {
-    if (!nodeIndex.has(id)) modelManager.release(id)
-  }
-  if (surviving.length !== workspace.openTabIds.length) workspace.openTabIds = surviving
-  if (workspace.activeId && !nodeIndex.has(workspace.activeId)) {
-    workspace.activeId = surviving[surviving.length - 1] ?? null
-  }
-  // 3) 预览槽指向的文件没了：清掉，别让下一个文件去顶一个不存在的页签
-  if (workspace.previewTabId && !nodeIndex.has(workspace.previewTabId)) {
-    workspace.previewTabId = null
-  }
-  // 4) 选中的节点没了（删掉 / 被移走）：从高亮集合里摘掉那些消失的；主选中若也没了就往下顺
+  // 2) 清理指向已删除节点的 tab（release model）。页签现在散在布局树的各个叶子里，
+  //    统一交给 editorPanes.pruneTabs：它顺手把失主的 active / preview 按叶子各自修好，
+  //    返回被摘掉的文件 id。合成视图不是 VFS 节点，不会被误删。
+  const removedTabs = pruneTabs((id) => nodeIndex.has(id))
+  for (const id of removedTabs) modelManager.release(id)
+  // 3) 选中的节点没了（删掉 / 被移走）：从高亮集合里摘掉那些消失的；主选中若也没了就往下顺
   //    一位（一个不剩才真正收回根状态）。删除多选时这一条就是「删完选区自己清干净」的实现。
   const aliveSelected = workspace.selectedIds.filter((id) => nodeIndex.has(id))
   if (aliveSelected.length !== workspace.selectedIds.length) workspace.selectedIds = aliveSelected
@@ -226,7 +286,8 @@ export async function initWorkspaceStore() {
       /* model 建不出来就丢弃该 tab */
     }
   }
-  workspace.openTabIds = restored
+  // 页签的成员资格归布局树：启动时先把根叶子灌好，再走 activeId 的正常赋值
+  hydrate(restored)
 
   const savedActive = readJSON(ACTIVE_KEY, null)
   workspace.activeId = restored.includes(savedActive)
@@ -236,7 +297,9 @@ export async function initWorkspaceStore() {
   // 首次使用（或上次所有 tab 都已失效）：默认打开规范文件 /main.cpp。
   // **本机文件夹工作区里绝不能这么做** —— openLanguage 在一个不存在的路径上建文件，
   // 等于在用户真实目录里凭空造一个 main.cpp（见 capabilities.realFolder）。
-  if (!workspace.activeId && !vfs.capabilities.realFolder) await openLanguage('cpp')
+  // 「一个文件都没有」要看全库，不能看焦点窗格的 active：允许空窗格之后，
+  // 焦点停在空窗格上时 activeId 为 null，但别的窗格可能还开着好几个文件。
+  if (workspace.openTabIds.length === 0 && !vfs.capabilities.realFolder) await openLanguage('cpp')
 
   workspace.ready = true
 
@@ -341,7 +404,8 @@ export const activeLanguage = computed(() => {
 /**
  * 「用户要看的是一份代码」的注入点：`openFile()` 在两条成功路径上都会调它，把编辑区里的合成
  * 视图（设置 / 抽题 / 比赛）让开。由 `services/editorViews.js` 在模块加载时注册成
- * `deactivateViews` —— 那边 import 本模块，本模块不能反向 import（成环），所以做成注入。
+ * `deactivateViewsIn`（只让开**目标窗格**的视图）—— 那边 import 本模块，本模块不能反向 import
+ * （成环），所以做成注入。
  *
  * 【为什么不能只靠 editorViews 里那条 `watch(activeId)`】那条只在 activeId **变化**时触发。
  * 而「文件树焦点停在一个文件上、屏幕上却是设置页」这种状态里，activeId 早就是那个文件了：
@@ -384,7 +448,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
     // 因为你顺手点了另一个已打开的文件就消失）
     // 这一支 activeId 很可能**没变**（屏幕上盖着设置页时它早就是这个文件了），所以视图
     // 让位得在这里显式做一次（判据见上面 codeViewIntent）。
-    codeViewIntent.show?.()
+    codeViewIntent.show?.(paneOf(id)?.id)
     workspace.activeId = id
     focusTabIntent.show?.(id)
     revealId(id)
@@ -393,10 +457,13 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   // nodeIndex 由事件异步重建，刚写完的文件可能还没进索引：用调用方给的节点兜底
   const node = nodeIndex.get(id) ?? (nodeHint?.id === id ? nodeHint : null)
   if (!node || node.type !== 'file') throw new Error(t('error.fileNotFound', { path: id }))
+  // 落点窗格在**读盘之前**定下来：getModel 是一次真实 await，期间焦点可能已经换到别的窗格
+  // （P1 之后）。页签与预览槽都该进「发起这次打开时」的那个窗格，不能跟着焦点漂。
+  const targetPane = focusedLeaf()
   // 视图让位放在校验之后：id 不存在时不能顺手把用户正看着的设置页收掉。
   // 这一支 activeId 一定会变（下面那次赋值），editorViews 的 watch 也会兜一次 ——
   // 两条路都走得到，重复调用是无害的（只改视图的 active 标志）。
-  codeViewIntent.show?.()
+  codeViewIntent.show?.(targetPane?.id)
 
   // ① 先把 model 备好，**这一段不许碰任何响应式状态**。
   //
@@ -421,73 +488,98 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
 
   // ② 顶替预览槽：**原位换人**，不走 closeTab。
   //
-  // closeTab 的语义是「关掉一张页签」，会连带把焦点交给邻居（closeFocus.pick）、往 MRU
-  // 记一笔 —— 对顶替来说这两件都是噪声：编辑器会先切到邻居再切回来（屏幕上闪一下别的
-  // 文件），条带也多播一次关闭动画。这里只做一件事：这一格换了个人，长度与位置都不动。
+  // closeTab 的语义是「关掉一张页签」，会连带把焦点交给邻居（`handoffLeafFocus` →
+  // tabGroups.settleLeafFocus）、往 MRU 记一笔 —— 对顶替来说这两件都是噪声：编辑器会先切到
+  // 邻居再切回来（屏幕上闪一下别的文件），条带也多播一次关闭动画。这里只做一件事：这一格
+  // 换了个人，长度与位置都不动。
   //
-  // 现读 previewTabId、不用 await 之前的快照：连点两个文件时两次续体依次落地，各自按
-  // **当时**的槽位接力，最后停下的是最后一次点的那个 —— 比拿 token 丢弃旧请求安全
+  // 现读**落点窗格**的预览槽（不是 await 之前的快照）：连点两个文件时两次续体依次落地，
+  // 各自按当时的槽位接力，最后停下的是最后一次点的那个 —— 比拿 token 丢弃旧请求安全
   //（丢弃时那次已经建好的 model 没 retain 也没进 tabs，会留下无引用的孤儿）。
+  // 槽位按窗格隔离之后，隔壁窗格的预览页签不会被这边的单击顶掉。
   const replacedId =
-    preview && workspace.previewTabId && workspace.previewTabId !== id
-      ? workspace.previewTabId
+    preview && targetPane && targetPane.preview && targetPane.preview !== id
+      ? targetPane.preview
       : null
-  const replacedAt = replacedId ? workspace.openTabIds.indexOf(replacedId) : -1
-  if (replacedId && replacedAt !== -1) {
+  const replacedAt = replacedId ? paneOf(replacedId) : null
+  if (replacedId && replacedAt === targetPane) {
     // 预览页签理论上是干净的（编辑即钉住，见下面那条 watch），这里只是兜底：
     // 与 closeTab 同一口径 —— 开关开着就先落盘，再释放 model。
     if (isAutoSaveEnabled() && modelManager.isDirty(replacedId)) void modelManager.save(replacedId)
-    workspace.openTabIds.splice(replacedAt, 1, id)
+    replaceTab(replacedId, id)
     modelManager.release(replacedId)
   } else {
-    workspace.openTabIds.push(id)
+    placeTab(id, { paneId: targetPane?.id, makeActive: false })
   }
   workspace.activeId = id
   focusTabIntent.show?.(id)
-  if (preview) workspace.previewTabId = id
+  // 预览槽写在**落点窗格**上：不带窗格的代理写的是「当前焦点」，而焦点可能刚被
+  // activeId 的跨窗格路由挪走。
+  if (preview && targetPane) targetPane.preview = id
   revealId(id)
 }
 
 /**
- * 关闭激活页签时的焦点回退策略（2026-10-20 十四改加的注入点）。默认 pick 为 null：
- * 沿用「原下标顶上来」的老行为。tabGroups.js 在模块加载时注入可见页签寻址
- * （findNextVisibleTab，先右后左）—— 可见性判据（分组折叠）活在那边，而本模块不能
- * 反向 import tabGroups（它已 import 这里，反向会成环），所以做成注入而不是直调。
- * pick 返回 null / undefined = 没找到可见页签，交回默认逻辑。
- * @type {{pick: ((closedId: string, index: number, openTabIds: string[]) => string|null|undefined)|null}}
+ * 「这个叶子里的一张页签走了之后，焦点归谁」——**唯一的注入点**。
+ *
+ * 本模块只负责**摘页签**（`removeTab`）与**释放 model**，它不知道折叠组藏了哪些页签，
+ * 也装不下合成视图 id（`activeId` 收的是 VFS 节点 id，视图走 editorViews 自己的 active 标志）。
+ * 所以真正的落点交给 `tabGroups.settleLeafFocus()` —— 那边的判据同时覆盖两轴：
+ * 可见性（折叠组）、以及「邻居是设置 / Codeforces 时把它点亮」。
+ *
+ * 一条链只可能有一条结论：
+ *   · 关闭激活页签 → `closeTab()` → 这里；
+ *   · 把页签拖到别的窗格 → `editorPanes.placeTab()` → `paneFocus.settle`（下面挂的同一个函数）；
+ *   · 关掉一张**视图**页签 → `tabFlow.closeTabItem()` 直接调 tabGroups 那一个（那条路上没有
+ *     `closeTab`，页签是 `editorViews.closeView()` 摘的，但落点必须一样）。
+ *
+ * 未注入时（模块加载极早期）退回 `neighborFileTab`：只认文件，行为与改造前一致。
+ * @type {{settle: ((leaf: any, removedId: string, index: number) => string|null|undefined)|null}}
  */
-export const closeFocus = { pick: null }
+export const closeFocus = { settle: null }
 
 /** @param {string} id */
 export function closeTab(id) {
-  const index = workspace.openTabIds.indexOf(id)
-  if (index === -1) return
+  const leaf = paneOf(id)
+  if (!leaf) return
+  // 下标与「关的是不是这个窗格的 active」都要在摘除**之前**取：摘完数组就右移了，
+  // 而多窗格下每片叶子各有一份 active，不能再用全局 activeId 判断。
+  const index = leaf.tabs.indexOf(id)
+  const wasActive = leaf.active === id
   // 关页签是自动保存的「离开时点」之一：下面 release() 会把 model dispose 掉，之后再读就没正文了。
   // 这里不必 await —— save() 的两个实参（path 与 getValue()）在 await 之前就求值成了字符串，
   // 所以紧跟着 release() 不会把内容弄丢。开关关着时不插手，回到「只认 Ctrl+S」的老行为。
   if (isAutoSaveEnabled() && modelManager.isDirty(id)) void modelManager.save(id)
-  workspace.openTabIds.splice(index, 1)
+  removeTab(id)
   modelManager.release(id)
-  if (workspace.previewTabId === id) workspace.previewTabId = null
-  if (workspace.activeId === id) {
-    // index 是 splice **后**的下标：原来右邻那张此刻恰好顶到 index 上。先问注入的
-    // 可见页签寻址（先右后左，tabGroups.findNextVisibleTab）。
-    const picked = closeFocus.pick?.(id, index, workspace.openTabIds)
-    if (closeFocus.pick) {
-      // 注入在场就信它的结论（2026-10-20 审计改）：picked 为 null = 条带上已经没有任何
-      // **可见**页签（其余全被折叠藏起来）—— 焦点必须置 null（「焦点必可见」铁律），
-      // 不能再退回「原下标顶上来」：那个下标顶上来的可能是折叠组里藏着的页签，
-      // 焦点落上去就是「编辑区开着文件、条带找不到它」的幽灵态（与十七改的折叠路径同一条
-      // 规矩）。旧注释里「点不到关闭所以走不到这里」不成立 —— 右键菜单 / 中键 / 快捷键
-      // 都能在看不见页签的情况下关它。
-      workspace.activeId = picked ?? null
-    } else {
-      // 注入还没装上（模块加载早期）才退回默认的「原下标顶上来」
-      workspace.activeId =
-        workspace.openTabIds[Math.min(index, workspace.openTabIds.length - 1)] ?? null
-    }
-  }
+  if (!wasActive) return
+  handoffLeafFocus(leaf, id, index)
 }
+
+/**
+ * 摘掉**激活**页签之后的焦点回退 —— 关页签与「把页签拖到别的窗格」共用这一个出口
+ * （后者经 editorPanes.paneFocus 注入进来，见那边的说明）。**只做转发**：判据在
+ * `tabGroups.settleLeafFocus()`（它才看得见折叠组与合成视图，见 `closeFocus` 的说明）。
+ *
+ * `index` 是 splice **之前**取的下标，摘除后它正好指向原来的右邻；`leaf.tabs` 是**本叶子的**
+ * 页签序列，折叠组与邻居判定都只在这个窗格内进行。
+ *
+ * @param {any} leaf 摘除**之后**的叶子
+ * @param {string} removedId 被摘走的那张
+ * @param {number} index 它在摘除前的位置
+ */
+function handoffLeafFocus(leaf, removedId, index) {
+  if (closeFocus.settle) {
+    closeFocus.settle(leaf, removedId, index)
+    return
+  }
+  // 注入还没装上（模块加载早期）才退回默认的「原下标顶上来」（跳过合成视图）
+  leaf.active = neighborFileTab(leaf.tabs, index)
+}
+
+// 把这份判定交给 editorPanes：跨窗格搬页签时源窗格按同一规则回退焦点
+//（那边不能反向 import 本模块，所以是注入）。
+paneFocus.settle = handoffLeafFocus
 
 /**
  * 钉住预览页签（转正体）：双击文件树的行、双击页签、或在里面编辑时调用。
@@ -495,7 +587,9 @@ export function closeTab(id) {
  * @param {string} id
  */
 export function pinTab(id) {
-  if (workspace.previewTabId === id) workspace.previewTabId = null
+  // 按归属叶子清槽：不依赖「此刻焦点正好在这个窗格」这个时序假设
+  const leaf = paneOf(id)
+  if (leaf && leaf.preview === id) leaf.preview = null
 }
 
 /** @param {string} id */
@@ -533,10 +627,10 @@ export function clearActiveTab() {
  * @param {number} insertIndex
  */
 export function moveTab(id, insertIndex) {
-  if (!workspace.openTabIds.includes(id)) return
-  const rest = workspace.openTabIds.filter((tabId) => tabId !== id)
-  const at = Math.max(0, Math.min(rest.length, insertIndex))
-  workspace.openTabIds = [...rest.slice(0, at), id, ...rest.slice(at)]
+  const leaf = paneOf(id)
+  if (!leaf) return
+  // 顺序真源是 leaf.tabs：只在本窗格内重排，不可能把一个页签挪进别的窗格
+  moveTabInPane(leaf.id, id, insertIndex)
 }
 
 /**

@@ -25,6 +25,7 @@ import { getNodeById } from '../services/vfs/workspaceStore.js'
 import { dirname, isWithin } from '../services/vfs/paths.js'
 import { contentElementAt } from './contentHit.js'
 import { createSpringOpen } from './springOpen.js'
+import { isNarrowLayout } from '../services/shellSettings.js'
 
 /** 触屏长按多久算「到点了」—— 这一刻菜单当场弹出，也从此可以拖。与系统长按菜单的阈值无关
  *  （按下即接管，见下）——450ms 只是手感。
@@ -62,14 +63,25 @@ export const activeDropZone = shallowRef(null)
 /**
  * 登记一块外部落点。返回注销函数，请在 onBeforeUnmount 里调。
  *
- * @param {{ el: HTMLElement|null, canDrop?: (node: object) => boolean, onDrop: (node: object) => void }} zone
+ * `onDragOver` 在指针落在这块区域里的**每一帧**都会收到（落点自己再细分命中区，
+ * 比如编辑区的「中心 / 四边」五区判定，见 services/paneDropTarget.js）；指针离开这块
+ * 区域、拖拽取消、组件卸载时收一次 `onDragLeave`，落点据此收掉高亮。
+ * `onDrop` 的第二个参数是松手时的视口坐标 —— 没有它，一个面板内部没法再分区。
+ *
+ * @param {{ el: HTMLElement|null, canDrop?: (node: object) => boolean,
+ *           onDragOver?: (node: object, point: {x: number, y: number}) => void,
+ *           onDragLeave?: () => void,
+ *           onDrop: (node: object, point: {x: number, y: number}) => void }} zone
  * @returns {() => void}
  */
 export function registerDropZone(zone) {
   zones.add(zone)
   return () => {
     zones.delete(zone)
-    if (activeDropZone.value === zone) activeDropZone.value = null
+    if (activeDropZone.value === zone) {
+      zone.onDragLeave?.()
+      activeDropZone.value = null
+    }
   }
 }
 
@@ -110,8 +122,12 @@ function hitDropZone(clientX, clientY, source, probe) {
  * @param {(node: object, target: { rowId: string, path: string }) => void} options.onDrop
  * @param {(event: { clientX: number, clientY: number }, node: object) => void} options.openContextMenu
  * @param {() => void} options.closeContextMenu 收掉菜单（长按弹出后又在原地移动 = 改判成拖拽）
+ * @param {() => void} [options.onDragOut] 窄屏下拖拽离开树（= 朝编辑区去了）时调一次，
+ *   每次拖拽最多一次。调用方据此把抽屉收起来 —— 窄屏的侧栏是**覆盖在编辑区之上**的抽屉，
+ *   不收的话指针永远落在侧栏 / 遮罩上，文件根本投不进编辑区（更别说靠边缘切分屏）。
+ *   只在**真的离开树**时触发：树内换目录的拖拽不受影响。
  */
-export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu }) {
+export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu, onDragOut }) {
   /** 正在被拖的节点；null = 没在拖 */
   const draggingNode = shallowRef(null)
   /** 幽灵元素的位置（跟手） */
@@ -134,6 +150,8 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
 
   /** 当前这一轮按压的全部临时状态；null = 没有按压在途 */
   let press = null
+  /** 本轮拖拽是否已经报过「离开树」（每轮只报一次，见 maybeLeaveTree） */
+  let reportedDragOut = false
   let scrollFrame = 0
   let scrollDelta = 0
   /** 悬停在折叠目录上自动展开的时钟（与系统拖入共用一份实现，见 springOpen.js） */
@@ -282,12 +300,13 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
     if (state.dragging) {
       const target = dropTarget.value
       const zone = activeDropZone.value
+      const pointer = ghostPos.value
       cancelPress()
       // 松手与 click 是两次事件，不挡一下会顺带把落点目录折叠/展开
       markClickSuppressed()
-      // 树里没落点就交给外部面板（编辑区）：打开或跳到那个文件
+      // 树里没落点就交给外部面板（编辑区）：打开 / 跳到那个文件（按松手坐标再细分区）
       if (target) onDrop?.(state.node, target)
-      else if (zone) zone.onDrop(state.node)
+      else if (zone) zone.onDrop(state.node, pointer)
       return
     }
 
@@ -361,8 +380,32 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
   /** 拖拽中的每次移动：挪幽灵、重算落点、必要时自动滚动 */
   function updatePointer(clientX, clientY) {
     ghostPos.value = { x: clientX, y: clientY }
+    maybeLeaveTree(clientX, clientY)
     updateDropTarget(clientX, clientY)
     updateAutoScroll(clientX, clientY)
+  }
+
+  /**
+   * 窄屏：拖拽离开了树 → 报一次「朝编辑区去了」，调用方会把侧栏抽屉收起来。
+   *
+   * 为什么非得收：窄屏的侧栏不是并排的一栏，而是**压在编辑区之上的覆盖层**（见 App 的
+   * 「窄屏展开态：侧栏是抽屉」）。抽屉开着时指针底下永远是侧栏 / 遮罩，`hitDropZone` 的
+   * 命中元素不在编辑区里，于是拖文件进编辑区、拖到边缘切分屏全都静默失效 —— 鼠标与触摸
+   * 一模一样，看起来就是「手势没反应」。收起抽屉后编辑区露出来，同一次拖拽继续有效
+   * （幽灵与指针监听都挂在 body / window 上，源行只是被藏起来，指针捕获不受影响）。
+   *
+   * 判据只取**横向离开**：窄屏抽屉贴在左缘或右缘（`panelPosition`），上下方向它本来就
+   * 占满工作区高度（`inset-block: 6px`）。留 4px 余量，免得手指在树右缘抖动就收抽屉。
+   */
+  function maybeLeaveTree(clientX, clientY) {
+    if (reportedDragOut || !isNarrowLayout() || !onDragOut) return
+    const box = treeEl?.value?.getBoundingClientRect()
+    if (!box || !box.width || !box.height) return
+    // 纵向也得在树里：跑到树的上方 / 下方（比如系统手势区）不算「朝编辑区去」
+    if (clientY < box.top || clientY > box.bottom) return
+    if (clientX <= box.right + 4 && clientX >= box.left - 4) return
+    reportedDragOut = true
+    onDragOut()
   }
 
   /**
@@ -402,11 +445,15 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
       }
     } else {
       const tree = treeEl?.value
-      if (!tree) return null
-      const rect = tree.getBoundingClientRect()
-      const inside =
-        clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
-      if (!inside) return null
+      // 命中的必须**确实是树的元素**，不能只比矩形。
+      //
+      // 窄屏的侧栏是覆盖式抽屉，收起后 `.pane__inner` 仍是定宽壳（只是被外层裁掉），
+      // `getBoundingClientRect()` 量出来还是 335px 宽 —— 于是编辑区左侧这一大片在几何上
+      // 仍「在树里」。只按矩形判，拖文件进编辑区会被算成「树空白处 = 根目录」，
+      // 外部落点（编辑区）根本没机会被问到：不亮高亮、松手也只是把文件挪回根目录，
+      // 边缘切分屏自然永远触发不了。加这一条之后，指针压在编辑区上时会返回 null，
+      // 交回 `hitDropZone` 去认窗格与五区。
+      if (!tree || !(hit instanceof Element) || !tree.contains(hit)) return null
       rowId = 'root'
       dirPath = '/'
     }
@@ -425,7 +472,14 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
     const hit = contentElementAt(clientX, clientY)
     const next = resolveTarget(clientX, clientY, press.node, hit)
     // 树里没命中才轮到外部面板（编辑区）—— 顺序反过来的话，在树里划过时会把编辑区也点亮
-    activeDropZone.value = next ? null : hitDropZone(clientX, clientY, press.node, hit)
+    const zone = next ? null : hitDropZone(clientX, clientY, press.node, hit)
+    const prevZone = activeDropZone.value
+    if (zone !== prevZone) {
+      prevZone?.onDragLeave?.()
+      activeDropZone.value = zone
+    }
+    // 落在这块区域里的每一帧都要报坐标：面板内部还要再分区（编辑区的中心 / 四边）
+    zone?.onDragOver?.(press.node, { x: clientX, y: clientY })
     const changed = next?.rowId !== dropTarget.value?.rowId
     dropTarget.value = next
     // 悬停在折叠的目录行上就自动展开 —— 触屏拖拽时手指腾不出来点它
@@ -493,6 +547,7 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
     stopAutoScroll()
     springOpen.cancel()
     press = null
+    reportedDragOut = false
     // 触屏那两个提示态统一在这里收：松手、Esc、pointercancel、组件卸载都汇到这条路上，
     // 漏掉任何一个出口，行上的「弹过了 / 正按着」的样子就会一直挂在那儿
     pressingId.value = null
@@ -500,6 +555,7 @@ export function useTreeDrag({ treeEl, onDrop, openContextMenu, closeContextMenu 
     draggingNode.value = null
     dropTarget.value = null
     // 松手 / Esc / pointercancel / 卸载都汇到这儿：外部落点的高亮也一并收掉
+    activeDropZone.value?.onDragLeave?.()
     activeDropZone.value = null
     suppressContextMenu.value = false
   }

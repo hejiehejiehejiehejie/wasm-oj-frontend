@@ -21,8 +21,9 @@
  */
 import { computed, reactive } from 'vue'
 import { languageForPath } from './monaco/language.js'
-import { viewActive } from './editorViews.js'
-import { activeNode } from './vfs/workspaceStore.js'
+import { viewActiveIn } from './editorViews.js'
+import { focusedLeaf, leafById } from './editorPanes.js'
+import { getNodeById } from './vfs/workspaceStore.js'
 
 const STORAGE_KEY = 'cp.mdView'
 const DEFAULT_MODE = 'edit'
@@ -113,10 +114,14 @@ export function exitFullscreen() {
 
 /** 活跃文件是不是题解（决定题解那一行工具栏在不在）。空路径不能喂给 languageForPath
  *  ——它内部会抛「非绝对路径」 */
-export const mdFileActive = computed(() => {
-  const path = activeNode.value?.path
+export function mdFileActiveIn(paneId) {
+  const leaf = paneId ? leafById(paneId) : focusedLeaf()
+  const path = leaf?.active ? getNodeById(leaf.active)?.path : null
   return path ? languageForPath(path) === 'markdown' : false
-})
+}
+
+/** 焦点窗格的口径（单窗格阶段与过去完全一致） */
+export const mdFileActive = computed(() => mdFileActiveIn(null))
 
 /**
  * 题解视图此刻算不算数。
@@ -126,10 +131,36 @@ export const mdFileActive = computed(() => {
  * - 活跃文件不是 .md（用户点了旁边的 .cpp）——选的视图照旧留着，切回题解就原样恢复，
  *   否则会出现「在全屏里点开一个 .cpp，侧栏和测试面板一起消失」这种事。
  */
-export const mdActive = computed(() => !viewActive.value && mdFileActive.value)
+export const mdActive = computed(() => mdActiveIn(null))
+
+/**
+ * 某个窗格里的题解视图算不算数。
+ * 与全局版同一套回落条件，只是「活跃文件」与「有没有被视图盖住」都换成本窗格的：
+ * 分屏后左窗格看题解、右窗格看设置页，两边各自判定，谁也不该把谁的工具栏/分栏搞没。
+ * @param {string|null} paneId null = 焦点窗格
+ */
+export function mdActiveIn(paneId) {
+  return !viewActiveIn(paneId ?? focusedLeaf()?.id) && mdFileActiveIn(paneId)
+}
+
+/** 真正生效的视图模式（本窗格口径） */
+export function mdViewModeIn(paneId) {
+  return mdActiveIn(paneId) ? mdView.mode : DEFAULT_MODE
+}
+
+/** 分栏：编辑器让出右半边（本窗格口径） */
+export function mdViewSplitIn(paneId) {
+  return mdViewModeIn(paneId) === 'split'
+}
+
+/** 预览面板要不要在场（分栏与仅预览都要，本窗格口径） */
+export function mdViewPreviewIn(paneId) {
+  const mode = mdViewModeIn(paneId)
+  return mode === 'split' || mode === 'preview'
+}
 
 /** 真正生效的视图模式 */
-export const mdViewMode = computed(() => (mdActive.value ? mdView.mode : DEFAULT_MODE))
+export const mdViewMode = computed(() => mdViewModeIn(null))
 
 /** 分栏：编辑器让出右半边 */
 export const mdViewSplit = computed(() => mdViewMode.value === 'split')

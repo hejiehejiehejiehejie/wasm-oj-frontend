@@ -22,7 +22,8 @@
  *    不必先跑一遍；缓存里没有就静默跳过（checkCppSyntax / checkPythonSyntax 返回
  *    `{ status: 'unavailable' }`）——
  *    绝不能在「打开一个 .cpp / .py」时偷下几十 MB。
- * 2. **只有最新一枪的结果能落地**。序号对不上的一律丢弃，还在跑的那一枪不掐（让它跑完，
+ * 2. **只有最新一枪的结果能落地**。序号对不上的一律丢弃（**每个 model 各有一个序号**，
+ *    分屏后两个窗格互不作废，见下面的 `schedulers`），还在跑的那一枪不掐（让它跑完，
  *    比重建一颗 23MB 的宿主便宜）—— 否则慢的那一枪回来会把新代码的标记覆盖成旧代码的。
  * 3. **判据与真编译共用一份来源**：C++ 的检查参数与真编译共用 FRONTEND_ARGS；
  *    Python 的检查只比真运行少一个「执行」——诊断说没问题、运行时却跑不过，
@@ -76,12 +77,31 @@ const LOW_POWER_MAX_MS = 3600
  */
 const QUIET_RESET_RATIO = 1.5
 
-/** 连续重建次数：每真正起一次检查 +1，停手够久清零 */
-let rebuildCount = 0
-/** 上一次安排检查（≈ 每一次击键）的时刻，用来判「是不是又一段连续编辑」 */
-let lastEditAt = 0
-/** 上一份被安排的 model，切文件时重建次数归零 */
-let lastModelKey = ''
+/**
+ * 每个 model 一份调度状态 —— 分屏之后**不能再拿模块级单变量当调度器**。
+ *
+ * 这五样（防抖计时器、连续重建次数、上次编辑时刻、检查序号、在跑的宿主）原先各是一个
+ * 模块级变量。两个窗格同时编辑时那套写法有两个硬故障：
+ *   · B 的每一次击键都会 `clearTimeout` 掉 A 的防抖 —— A 的检查再也不会起；
+ *   · 全局 `latestSeq` 被 B 推一格之后，A 那一枪回来时序号对不上，结果被当成过期丢掉，
+ *     **红线永远不出现**（检查跑完了、标记却写不上）。
+ * 按 model 分开之后两边互不打扰；「切文件就清零退避」这条原判据也不再需要 ——
+ * 每个文件各记各的，切回来时靠下面 `QUIET_RESET_RATIO` 那段停手判定自然回到最快档。
+ * `checked`（内容指纹缓存）与 `deferred`（让路补账）本来就是按 model 记的，这一份同口径。
+ *
+ * @type {Map<string, { timer: number, rebuildCount: number, lastEditAt: number, seq: number, runningHost: any }>}
+ */
+const schedulers = new Map()
+
+/** 取（必要时新建）某个 model 的调度状态 */
+function schedulerOf(key) {
+  let entry = schedulers.get(key)
+  if (!entry) {
+    entry = { timer: 0, rebuildCount: 0, lastEditAt: 0, seq: 0, runningHost: null }
+    schedulers.set(key, entry)
+  }
+  return entry
+}
 
 /**
  * 下一次该等多久 —— 现算，改设置立即对下一次生效。
@@ -92,15 +112,13 @@ function nextDelay(key) {
   const lowPower = editorSettings.value.lowPower
   const min = lowPower ? LOW_POWER_MIN_MS : DEBOUNCE_MIN_MS
   const max = lowPower ? LOW_POWER_MAX_MS : DEBOUNCE_MAX_MS
-  if (key !== lastModelKey) {
-    rebuildCount = 0
-    lastModelKey = key
-  } else if (now - lastEditAt > max * QUIET_RESET_RATIO) {
-    // 停手够久：这一轮编辑结束了，回到最快那一档
-    rebuildCount = 0
+  const entry = schedulerOf(key)
+  if (now - entry.lastEditAt > max * QUIET_RESET_RATIO) {
+    // 停手够久（或这个 model 第一次安排检查）：回到最快那一档
+    entry.rebuildCount = 0
   }
-  lastEditAt = now
-  return Math.min(min * (rebuildCount + 1), max)
+  entry.lastEditAt = now
+  return Math.min(min * (entry.rebuildCount + 1), max)
 }
 /** 一次最多落多少条标记（clang 那边 -ferror-limit 4，实际远小于这个数） */
 const MARKER_LIMIT = 50
@@ -117,23 +135,18 @@ const MESSAGE_LIMIT = 1500
  */
 const NOTE_LIMIT = 3
 
-/** 每次检查的序号：只有等于最新序号的结果才允许写标记 */
-let latestSeq = 0
-/** 防抖定时器 */
-let timer = 0
-/** 正在进行或已完成的实例（用来在下一枪开始时 kill 掉） */
-let runningHost = null
 /**
- * 被「宿主正被占着」挡下来的那一枪：`{ key, text, language }`，沙箱空闲时补跑（见文件末尾
- * 的 `subscribeStatus`）。只记最新一枪 —— 旧的一定会被新的覆盖。
+ * 被「宿主正被占着」挡下来的那一枪：`key → { text, language }`，沙箱空闲时补跑
+ * （见文件末尾的 `subscribeStatus`）。按 model 记 —— 两个窗格可以各有一枪在等着；
+ * 同一个 model 只留最新一枪（旧的一定会被新的覆盖）。
  *
  * 为什么要记：C++ 的检查与运行 / PCH 生成共用一颗常驻宿主，那两位占着时 `checkCppSyntax`
  * 直接返回 null 让路（不能排队：它自己的 15s 看门狗从发起那刻就上弦，见 services/wasi/client.js
  * 的 busy）。让路的代价是这次没有结论 —— 不补的话，「打开文件的同一瞬间点运行」这种顺序下，
  * 那份文件该有的红线要等到用户下次击键才出现，看起来就像诊断对第一个文件失效了。
- * @type {{ key: string, text: string, language: 'cpp' | 'python' } | null}
+ * @type {Map<string, { text: string, language: 'cpp' | 'python' }>}
  */
-let deferred = null
+const deferred = new Map()
 
 /**
  * 补账的重试次数与间隔。
@@ -345,30 +358,32 @@ function applyMarkers(model, markers) {
  * @param {string} text 触发这次检查时的正文（用来判断期间有没有又改过）
  */
 async function runCheck(model, language, text) {
-  const seq = ++latestSeq
+  const key = model.uri.toString()
+  const entry = schedulerOf(key)
+  const seq = ++entry.seq
   // 运行时没就绪：跳过，但**不清**已有标记（清掉等于告诉用户「代码突然对了」）。
   // 还要把这一语言的补账收掉 —— 运行时都不在（宿主被看门狗收掉、或压根没下载），
   // 再重试多少次都不会有结论。宿主被收掉的情况由 terminated 订阅放开闸门（见文件末尾），
   // 下一次击键会「只读缓存、不下载」地重建，重建成功再通过 runtimeReady 的通知重查。
   if (!runtimeReady(language)) {
-    clearDeferred(language)
+    deferred.delete(key)
     return
   }
-  if (seq !== latestSeq || model.isDisposed()) return
+  if (seq !== entry.seq || model.isDisposed()) return
 
   let result = null
   try {
     result = await runSyntaxCheck(language, text, {
       onHost: (host) => {
-        // 下一枪开始时 runningHost 已经换成新实例，这里只在「自己还是当前那一枪」时登记
-        if (seq === latestSeq) runningHost = host
+        // 下一枪开始时该 model 的 runningHost 已经换成新实例，这里只在「自己还是当前那一枪」时登记
+        if (seq === entry.seq) entry.runningHost = host
       },
     })
   } catch {
     // WASI 崩溃（OOM / 被杀）时保留上一次的结论，不制造假的红线
     return
   } finally {
-    if (seq === latestSeq) runningHost = null
+    if (seq === entry.seq) entry.runningHost = null
   }
   // 语法检查同样不走沙箱调度器（beginTask/endTask），跑完这一枪要自己续上闲置计时器；
   // 否则活跃编辑几分钟后会被休眠掐断，下一次击键又要付一遍宿主重建。
@@ -378,8 +393,8 @@ async function runCheck(model, language, text) {
   if (!result || status === SYNTAX_STATUS.BUSY) {
     // busy：宿主正被运行 / PCH 生成占着、checkCppSyntax 让了路 —— 记下来等沙箱空闲补一枪
     // （见文件末尾的 runDeferred）。只登记最新序号：别人已经排了新一枪的话，那一枪自己会给结论。
-    if (seq === latestSeq) {
-      deferred = { key: model.uri.toString(), text, language }
+    if (seq === entry.seq) {
+      deferred.set(key, { text, language })
       scheduleDeferredRetry()
     }
     return
@@ -389,58 +404,51 @@ async function runCheck(model, language, text) {
     // 但**不要就此遗忘**：宿主的 terminate 若是就地重建（抢占），`runtimeReady` 仍是 true，
     // 这一枪其实值得再补一次；宿主真没了则交给 terminated 订阅去放开闸门、
     // 等 onRuntimeReady 重建后再查（见文件末尾）。
-    if (seq === latestSeq && runtimeReady(language)) {
-      deferred = { key: model.uri.toString(), text, language }
+    if (seq === entry.seq && runtimeReady(language)) {
+      deferred.set(key, { text, language })
       scheduleDeferredRetry()
     } else {
-      clearDeferred(language)
+      deferred.delete(key)
     }
     return
   }
   if (status !== SYNTAX_STATUS.SUCCESS) {
     // unavailable：宿主没了（看门狗 / 卸载）。保留旧标记，但不再补账 ——
     // 等 terminated 订阅放开闸门、onRuntimeReady 重建后由那个入口重查。
-    clearDeferred(language)
+    deferred.delete(key)
     return
   }
-  if (seq !== latestSeq || model.isDisposed()) return
+  if (seq !== entry.seq || model.isDisposed()) return
   // 真拿到结论了：之前记下的「补一枪」请求作废（同一份内容已经有答案）
-  deferred = null
+  deferred.delete(key)
   // 期间内容又变了：这一枪的结论已经过期，等下一枪
   if (model.getValue() !== text) return
 
   const markers = parseDiagnostics(result.stderr, { text, language })
-  checked.set(model.uri.toString(), { text, markers })
+  checked.set(key, { text, markers })
   applyMarkers(model, markers)
-}
-
-/**
- * 收掉补账请求与重试定时器。只清当前语言的那一份 —— 另一种语言可能正等着。
- * @param {'cpp' | 'python'} language
- */
-function clearDeferred(language) {
-  if (!deferred || deferred.language !== language) return
-  deferred = null
-  clearTimeout(deferredTimer)
-  deferredTimer = 0
-  deferredRetries = 0
 }
 
 /**
  * 收拾上一枪占着的那颗宿主。
  *
- * **不再 kill 正在跑的那一枪**（2026-10-27 改）：结果是按 `latestSeq` 作废的，不需要
- * 用「掐断」来保证正确性；而 kill 掐的是整颗 worker（运行 / PCH 生成共用），重建要重新
+ * **不再 kill 正在跑的那一枪**（2026-10-27 改）：结果是按每个 model 的 `seq` 作废的，
+ * 不需要用「掐断」来保证正确性；而 kill 掐的是整颗 worker（运行 / PCH 生成共用），重建要重新
  * 实例化 76MB 的模块 + 解 1385 条 sysroot —— 老机器上单次检查 1–2s > 防抖 300ms，
  * 每次击键都杀一遍重建一遍，CPU 翻倍、红线还更迟。让它跑完（最多 15s，宿主自己的表兜底）。
  *
  * 真正需要「立刻腾出宿主」的是用户点运行 —— 那件事由宿主的抢占负责
  * （前台消息会把正在跑的后台活连 worker 一起换掉，见 services/wasi/client.js 的 send），
  * 这里只需要把**还没派发**的旧枪撤掉。
+ *
+ * 只收**这个 model** 的那一枪：分屏后另一个窗格可能正在查别的文件，不能连它一起撤。
+ * @param {string} key model 的 uri
  */
-function retireRunningCheck() {
-  const host = runningHost
-  runningHost = null
+function retireRunningCheck(key) {
+  const entry = schedulers.get(key)
+  if (!entry) return
+  const host = entry.runningHost
+  entry.runningHost = null
   if (!host) return
   try {
     host.cancelQueued?.('syntax')
@@ -462,6 +470,7 @@ export function scheduleSyntaxCheck(model, { immediate = false } = {}) {
   ensureRuntimeReadyInBackground(language)
   const text = model.getValue()
   const key = model.uri.toString()
+  const entry = schedulerOf(key)
 
   // 同一份内容已经查过：直接重放，不重跑（切回文件、撤销回去都走这条）
   const previous = checked.get(key)
@@ -477,17 +486,17 @@ export function scheduleSyntaxCheck(model, { immediate = false } = {}) {
     return
   }
 
-  // 切文件时不等防抖，但仍然走一遍计时函数：它负责「换文件就清零重建次数」
+  // 切文件时不等防抖，但仍然走一遍计时函数：它负责「停手够久就回到最快那一档」
   const delay = nextDelay(key)
-  clearTimeout(timer)
-  timer = setTimeout(() => {
-    timer = 0
+  clearTimeout(entry.timer)
+  entry.timer = setTimeout(() => {
+    entry.timer = 0
     // 一次真重建。切文件那一枪不算「连续编辑」，不计入退避
-    if (!immediate) rebuildCount += 1
-    // 上一枪还在跑就先收掉：它的结论一定比这一枪旧。收法见 retireRunningCheck
+    if (!immediate) entry.rebuildCount += 1
+    // 上一枪还在跑就先收掉（只收这个 model 的）：它的结论一定比这一枪旧。收法见 retireRunningCheck
     // （撤队列里的旧枪 + 只在「正在跑的确实是语法检查」时才杀宿主）。
-    latestSeq += 1
-    retireRunningCheck()
+    entry.seq += 1
+    retireRunningCheck(key)
     runCheck(model, language, text).catch(() => {})
   }, immediate ? 0 : delay)
 }
@@ -497,10 +506,14 @@ export function scheduleSyntaxCheck(model, { immediate = false } = {}) {
  * 若不在这里补一枪，红线要等到下一次击键才出现（用户会当成「诊断没生效」）。
  * 模块级注册一次就够——监听器随模块常驻，与面板生命周期无关；来的语言和当前
  * model 对不上时，runCheck 里的就绪判据自己会跳过。
+ *
+ * 分屏后要**逐窗格**补：每个编辑器各挂一个 model，只补第一个的话，
+ * 另一个窗格里那份坏文件要等到用户敲一下键盘才出现红线。
  */
 onRuntimeReady(() => {
-  const ed = monaco.editor.getEditors()[0]
-  if (ed) scheduleSyntaxCheck(ed.getModel(), { immediate: true })
+  for (const instance of monaco.editor.getEditors()) {
+    scheduleSyntaxCheck(instance.getModel(), { immediate: true })
+  }
 })
 
 /**
@@ -519,7 +532,7 @@ onHostEvent((event) => {
     deferredRetries = 0
     return
   }
-  if (event.type !== 'idle' || !deferred) return
+  if (event.type !== 'idle' || deferred.size === 0) return
   clearTimeout(deferredTimer)
   deferredTimer = 0
   deferredRetries = 0
@@ -537,18 +550,26 @@ onHostEvent((event) => {
  * 两个入口：宿主空闲（`onHostEvent` 的 idle，覆盖运行收尾 / PCH 生成结束）是主路径；
  * 沙箱状态机的 idle（`subscribeStatus`）与延迟重试兜住极小的时序窗口。
  * 补跑若又被让路，`runCheck` 会把记录重新写回来并再排一次重试，所以这里只负责「试一次」。
+ *
+ * 记录现在按 model 存（分屏后两个窗格可以各有一枪在等着），所以这里是**逐条**核对：
+ * 只补那些仍然挂在某个编辑器上、且正文没变的；其余静默作废。
  */
 function runDeferred() {
-  if (!deferred) return
-  const pending = deferred
-  deferred = null
-  const model = monaco.editor.getEditors()[0]?.getModel()
-  if (!model || model.isDisposed()) return
-  if (model.uri.toString() !== pending.key || model.getValue() !== pending.text) return
-  // 同一份内容已经排在防抖队列上了：没必要再跑一次
-  clearTimeout(timer)
-  timer = 0
-  runCheck(model, pending.language, pending.text).catch(() => {})
+  if (deferred.size === 0) return
+  const pending = [...deferred]
+  deferred.clear()
+  for (const [key, item] of pending) {
+    const model = monaco.editor.getModel(monaco.Uri.parse(key))
+    if (!model || model.isDisposed()) continue
+    if (model.getValue() !== item.text) continue
+    // 只有仍然显示在某个窗格里才值得补：切走的文件会从 checked 重放 / 下次切回来再查
+    if (!monaco.editor.getEditors().some((instance) => instance.getModel() === model)) continue
+    const entry = schedulerOf(key)
+    // 同一份内容已经排在防抖队列上了：没必要再跑一次
+    clearTimeout(entry.timer)
+    entry.timer = 0
+    runCheck(model, item.language, item.text).catch(() => {})
+  }
 }
 
 function scheduleDeferredRetry() {
@@ -565,29 +586,58 @@ function scheduleDeferredRetry() {
  * 那是新一轮「宿主空下来了」的起点。
  */
 subscribeStatus((status) => {
-  if (status?.stage !== 'idle' || !deferred) return
+  if (status?.stage !== 'idle' || deferred.size === 0) return
   clearTimeout(deferredTimer)
   deferredTimer = 0
   deferredRetries = 0
   runDeferred()
 })
 
-/** 面板卸载时收尾：定时器与在跑的实例都停掉，避免卸载后还有人往销毁的 model 上写标记 */
+/**
+ * 挂载 / 卸载的**引用计数**。
+ *
+ * 分屏之后一个进程里会有多个 EditorPane 同时存在，调度器却是全模块唯一的一份：
+ * 任何一片窗格卸载都把它整份复位，隔壁窗格排着的检查、退避计数、补账记录会被一起清掉
+ * （表现是「关掉一个窗格，另一个窗格的红线不见了」）。所以这里按引用计数收：
+ * 最后一个窗格卸载时才真正复位，其余情况只是「少了一个使用者」，什么都不动。
+ *
+ * 判据必须成对：EditorPane 的 onMounted 调 retain、onBeforeUnmount 调 release。
+ */
+let mountedPanes = 0
+
+/** 有新的编辑器面板挂上了（与 releaseSyntaxDiagnostics 成对） */
+export function retainSyntaxDiagnostics() {
+  mountedPanes += 1
+}
+
+/**
+ * 面板卸载时收尾。还有别的面板在用就什么都不做（见上面的引用计数）。
+ * 最后一个面板卸载时：定时器与在跑的实例都停掉，避免卸载后还有人往销毁的 model 上写标记。
+ */
 export function releaseSyntaxDiagnostics() {
-  clearTimeout(timer)
-  timer = 0
-  latestSeq += 1
+  mountedPanes = Math.max(0, mountedPanes - 1)
+  if (mountedPanes > 0) return
+  for (const entry of schedulers.values()) {
+    clearTimeout(entry.timer)
+    // 序号推一格：在飞的那一枪回来时对不上，结果不会落到已销毁的 model 上
+    entry.seq += 1
+    entry.timer = 0
+    const host = entry.runningHost
+    entry.runningHost = null
+    // 同 retireRunningCheck：只撤队列里还没派发的旧枪；正在跑的那一枪不掐
+    // （那颗 worker 运行 / PCH 生成共用，卸载面板不该打断别人）
+    try {
+      host?.cancelQueued?.('syntax')
+    } catch {
+      /* 没有这个接口的宿主就什么都不用做 */
+    }
+  }
+  // 退避与序号状态整份归零：下次挂载（重开面板）从最快那一档开始
+  schedulers.clear()
   // 补账记录与它的重试计时器一起清掉：面板都卸了，下次击键 / 切文件会自己重新安排
-  deferred = null
+  deferred.clear()
   clearTimeout(deferredTimer)
   deferredTimer = 0
   deferredRetries = 0
-  // 同上一处：收法见 retireRunningCheck —— 只撤队列里还没派发的旧枪；
-  // 正在跑的那一枪不掐（那颗 worker 运行 / PCH 生成共用，卸载面板不该打断别人）
-  retireRunningCheck()
   checked.clear()
-  // 退避状态也归零：下次挂载（换文件、重开面板）从最快那一档开始
-  rebuildCount = 0
-  lastEditAt = 0
-  lastModelKey = ''
 }

@@ -1386,10 +1386,11 @@ textarea {
   box-shadow: none;
 }
 
-/* -------------------------------------------------- 窄屏：行号左右各留一格半内边距
+/* -------------------------------------------------- 窄屏 / 窄窗格：行号左右各留一格半内边距
 
-   窄屏下正文左侧那一栏 = 「位数 + 3 个字符的行号列」+「2px 装饰区」（取值见
-   `services/editorOptions.js` 的 LINE_NUMBER_GUTTER）。行号列比数字本身宽三格字符，
+   压缩档（窄屏整屏，或宽屏里被拖得很窄的一片窗格 —— 判据见 `editorOptions.js` 的
+   `gutterIsCompact()`）下，正文左侧那一栏 = 「位数 + 3 个字符的行号列」+「2px 装饰区」
+   （取值见 `services/editorOptions.js` 的 LINE_NUMBER_GUTTER）。行号列比数字本身宽三格字符，
    那三格就是数字两侧的边距 —— 但 Monaco 默认 `text-align: right`（node_modules 里
    lineNumbers.css 写死的），整格余量会全堆到数字左边，看着仍是「贴着正文」。
 
@@ -1411,19 +1412,26 @@ textarea {
       改回「位数 + 1」，这里必须同时收到 0，否则数字会被挤出内容盒、右对齐失效。
    ⚠️ 选择器**不能**套 `:where(html.is-narrow)`：那条与 Monaco 自己那条同为 (0,3,0)，
       谁赢只看样式表先后，而 Monaco 的 CSS 是随 ESM 注入的、顺序不稳。这里让 `html.is-narrow`
-      真参与特异性（(0,4,1)）才稳，用不着 `!important`。 */
-html.is-narrow .monaco-editor .margin-view-overlays .line-numbers {
+      真参与特异性（(0,4,1)）才稳，用不着 `!important`。
+   ⚠️ 压缩档不只属于窄屏：宽屏下被拖窄的窗格也走这一档（`editorOptions.js` 的
+      `gutterIsCompact()` 与 `EditorPane.vue` 的 `gutterCompact`），那边由 `.editor-pane.is-tight`
+      标出来 —— 两个选择器必须**一起**改，少一个就会「栏宽收窄了、内边距还是宽档的」
+      （数字贴到正文上）。 */
+html.is-narrow .monaco-editor .margin-view-overlays .line-numbers,
+.editor-pane.is-tight .monaco-editor .margin-view-overlays .line-numbers {
   padding-right: calc(1.5ch - 1px);
 }
 
-/* -------------------------------------------------- 窄屏 / 题解：行号栏不画底色
+/* -------------------------------------------------- 窄屏 / 窄窗格 / 题解：行号栏不画底色
 
    这一栏（`.margin`，宽度 = `contentLeft`）只是给正文一点左内缩，不该看出「一条竖栏」：
    它默认铺 `--vscode-editorGutter-background`，有当前行高亮时那格 `current-line*` 还会再叠一层
    底色 —— 横向滚动时正文滚到边缘，看起来就像被一条色带切断/盖住。
 
-   两处都抹成透明，但**判据不同**：
+   三处都抹成透明，但**判据不同**：
    - 窄屏（`html.is-narrow`）：代码文件那一栏也只剩行号，同样不该有底色；
+   - 窄窗格（`.editor-pane.is-tight`）：宽屏分屏后的一片窗格，行号栏已收成压缩档，
+     同上（判据见 `editorOptions.js` 的 `gutterIsCompact()`）；
    - 题解（`.editor-pane.is-md`）：没有行号可画（那一栏只剩 8px 内缩），不分宽窄屏一律透明。
      ⚠️ 用户 2026-11-13 第二轮报「该元素仍为非透明状态，会遮挡其右侧正文文字」，就是这一档：
      只按 `is-narrow` 判，宽一点（或 html 上没有那个类）时底色又回来了。
@@ -1434,20 +1442,23 @@ html.is-narrow .monaco-editor .margin-view-overlays .line-numbers {
    ⚠️ 选择器要**同时覆盖三种当前行类名**：`_renderOne` 按「画在行号栏 / 也画在正文」拼出来的
    class 可能是 `current-line-margin`、`current-line-margin-both`，或只有 `current-line`
    （见 node_modules 的 currentLineHighlight.js），只写一个会在某些焦点/选中态下漏。
-   ⚠️ 只改颜色、不改宽度：宽度仍由 `LINE_NUMBER_GUTTER` 决定（窄屏题解那档 8px）。这一格
+   ⚠️ 只改颜色、不改宽度：宽度仍由 `LINE_NUMBER_GUTTER` 决定（压缩档题解那档 8px）。这一格
    必然也是横向滚动时正文被裁的位置 —— 视口左界和栏宽在 Monaco 里是同一个 `contentLeft`，
    所以别再往这里加宽度找「左内缩」，加多少，滚动时就裁多少。 */
 html.is-narrow .monaco-editor .margin,
+.editor-pane.is-tight .monaco-editor .margin,
 .editor-pane.is-md .monaco-editor .margin {
   background-color: transparent;
 }
 
 html.is-narrow .monaco-editor .margin .glyph-margin,
+.editor-pane.is-tight .monaco-editor .margin .glyph-margin,
 .editor-pane.is-md .monaco-editor .margin .glyph-margin {
   background-color: transparent;
 }
 
 html.is-narrow .monaco-editor .margin-view-overlays .current-line,
+.editor-pane.is-tight .monaco-editor .margin-view-overlays .current-line,
 .editor-pane.is-md .monaco-editor .margin-view-overlays .current-line {
   background-color: transparent;
   border: none;

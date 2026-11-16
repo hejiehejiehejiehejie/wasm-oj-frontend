@@ -61,15 +61,69 @@ import {
   solvedSourceOfUrl,
   toggleSolvedUrl,
 } from '../services/solvedIndex.js'
-import { viewOf, viewState } from '../services/editorViews.js'
-import { closeTabItem, focusTab, focusedTabId } from '../services/tabFlow.js'
+import { viewOf, viewState, activeViewIdIn } from '../services/editorViews.js'
+import { closeTabItem, focusTab } from '../services/tabFlow.js'
 import { isViewId, moveStripItem, moveStripRun, stripOrder } from '../services/tabStrip.js'
+import { leafById, paneOf, placeTab } from '../services/editorPanes.js'
+import {
+  clearPaneTabDrag,
+  createPaneForDrop,
+  setPaneTabDragSource,
+} from '../services/editorPaneDrop.js'
+import { paneResizing } from '../services/paneResize.js'
+import { clearPaneDropHint, resolvePaneDrop } from '../services/paneDropTarget.js'
 import {
   clearActiveTab,
   getNodeById,
   pinTab,
   workspace,
 } from '../services/vfs/workspaceStore.js'
+
+/**
+ * 这条页签栏属于布局树里的哪片叶子（见 services/editorPanes.js）。
+ * 留空 = 旧口径：读全局焦点叶子的投影，供单窗格 / 尚未接线的调用方兜底。
+ */
+const props = defineProps({
+  paneId: { type: String, default: '' },
+})
+
+// ------------------------------------------------------------ 窗格口径
+// 分屏后每条条带只画**本叶子**的页签：顺序取 leaf.tabs（真源），焦点与预览槽
+// 也按叶子取 —— 继续读全局 stripOrder / focusedTabId 会让两片窗格互相串台。
+
+/** 本叶子的页签序列（真源）；paneId 缺省时退回全局投影 */
+const paneTabs = computed(() => {
+  if (!props.paneId) return stripOrder.value
+  return leafById(props.paneId)?.tabs ?? []
+})
+
+/** 本叶子是否有焦点页签（合成视图优先，与 tabFlow.focusedTabId 同一口径） */
+const paneFocusedTabId = computed(() => {
+  if (!props.paneId) return activeViewIdIn(null) ?? workspace.activeId
+  return activeViewIdIn(props.paneId) ?? leafById(props.paneId)?.active ?? null
+})
+
+/** 本叶子的预览页签（分屏后每个窗格各有一个预览槽） */
+const panePreviewId = computed(() => {
+  if (!props.paneId) return workspace.previewTabId
+  return leafById(props.paneId)?.preview ?? null
+})
+
+/** 本叶子的活跃**文件**（折叠 / 展开组时的焦点结算只看本窗格） */
+const paneActiveId = computed(() => {
+  if (!props.paneId) return workspace.activeId
+  return leafById(props.paneId)?.active ?? null
+})
+
+/** 清空本叶子的活跃文件（折叠组兜底；不碰别的窗格） */
+function clearPaneActive() {
+  if (!props.paneId) {
+    clearActiveTab()
+    return
+  }
+  const leaf = leafById(props.paneId)
+  if (leaf) leaf.active = null
+}
 
 /**
  * 点页签（含 ⌘ / Ctrl + 单击打开题目）。
@@ -189,16 +243,17 @@ function viewMeta(id) {
  * 下标就会与 stripOrder 错位（详见 useTabDrag 的 collectUnits 与 tabGroups 的文件头）。
  */
 const stripItems = computed(() => {
+  const order = paneTabs.value
   const out = []
-  for (let i = 0; i < stripOrder.length; i += 1) {
-    const id = stripOrder[i]
+  for (let i = 0; i < order.length; i += 1) {
+    const id = order[i]
     if (isViewId(id)) {
       out.push({ kind: 'view', ...viewMeta(id) })
       continue
     }
     const group = tabGroups.groupOf(id)
     // 组首：自己是组员而左邻不是同组（芯片插在整段组的左缘）
-    const runStart = !!group && tabGroups.groupOf(stripOrder[i - 1])?.id !== group.id
+    const runStart = !!group && tabGroups.groupOf(order[i - 1])?.id !== group.id
     if (runStart) {
       out.push({
         kind: 'chip',
@@ -212,7 +267,7 @@ const stripItems = computed(() => {
       id,
       group,
       groupFirst: runStart,
-      groupLast: !!group && tabGroups.groupOf(stripOrder[i + 1])?.id !== group.id,
+      groupLast: !!group && tabGroups.groupOf(order[i + 1])?.id !== group.id,
       hidden: !!group?.collapsed,
     })
   }
@@ -305,6 +360,122 @@ const { draggingId, draggingIds, settlingGid, dragEdge, touchDrag, pressingId, a
     // 跟着被拖页签走完整个拖拽（它是 Teleport 到 body 的 fixed 元素，不会自己让路）。
     onMenuDismiss: dismissStripMenus,
   })
+
+/* ------------------------------------------------------------ 跨窗格拖页签
+   本条条带只知道自己的窗格。开拖的那一帧把源窗格写给渲染层（EditorPaneGrid 据此判断
+   「指针下面是哪片窗格的哪个区」并高亮），松手 / 取消 / 卸载时清空。真正的搬家在
+   onStripDrop：useTabDrag 的 payload 带着松手坐标，`resolvePaneDrop`（elementsFromPoint
+   —— 被拖页签浮在指针下面，普通 elementFromPoint 会沿父链认成源窗格，见
+   services/paneDropTarget.js）据此找到目标窗格与五区。 */
+watch(draggingId, (id) => {
+  if (id && !id.startsWith('group:') && paneOf(id)) {
+    setPaneTabDragSource(props.paneId || paneOf(id)?.id || null)
+  } else {
+    clearPaneTabDrag()
+  }
+})
+
+onBeforeUnmount(() => {
+  clearPaneTabDrag()
+  clearPaneDropHint()
+})
+
+/**
+ * 跨窗格落点的插入下标（返回**目标叶子** `tabs` 的下标；undefined = 追加到末尾）。
+ *
+ * 指针落在目标条带的竖直范围内才按「页签中心线」算位置；落在编辑器正文里就追加。
+ * 折叠组的成员在 DOM 里 `display: none`（不占位），先按**可见项**算序号，再映射回
+ * `leaf.tabs` 的下标 —— 否则往带折叠组的条带里插会少算几格。
+ */
+function insertIndexAt(paneId, pointer) {
+  if (!pointer) return undefined
+  const leaf = leafById(paneId)
+  if (!leaf) return undefined
+  const cell = [...document.querySelectorAll('.editor-grid__cell')].find(
+    (el) => el.dataset.paneId === paneId,
+  )
+  const strip = cell?.querySelector('.editor-tabs__strip')
+  if (!strip) return undefined
+  const box = strip.getBoundingClientRect()
+  if (pointer.y < box.top || pointer.y > box.bottom) return undefined
+  let visibleAt = 0
+  for (const el of strip.querySelectorAll('.editor-tabs__item[data-strip-id]')) {
+    if (!el.offsetWidth) continue
+    const r = el.getBoundingClientRect()
+    if (pointer.x > r.left + r.width / 2) visibleAt += 1
+  }
+  let seen = 0
+  for (let i = 0; i < leaf.tabs.length; i += 1) {
+    if (!tabGroups.isTabVisible(leaf.tabs[i])) continue
+    if (seen === visibleAt) return i
+    seen += 1
+  }
+  return leaf.tabs.length
+}
+
+/**
+ * 跨窗格搬家（在 onStripDrop 最前面分流）。返回 true 表示已经处理完，不再走本条条带的
+ * 排序 / 入组结算。
+ *
+ * 落点判定的分区（中心 + 四边 + 页签栏）在 services/paneDropTarget.js：
+ *   · 页签栏 → 搬进目标窗格并**插到指针所在的那条缝**（页签栏绝不会判成上边缘切分）；
+ *   · 中心区 → 搬进目标窗格（插到指针所在位置）；
+ *   · 四边 → 先把目标窗格在该边一分为二，再搬进**新窗格**（新窗格获焦）；
+ *   · 编辑区**最外沿**（并排 ≥3 片的底部、三排的左右…）→ 新窗格**横跨整块编辑区**，
+ *     不是切一片（见 createPaneForDrop 与 paneDropTarget 的 spanTargetOf）；
+ *   · 同一片窗格的中心区不算跨窗格（返回 null，交回条带自身排序）；唯一一张页签拖到
+ *     自己边缘时只切分、不搬页签（下面那段注释）。
+ *
+ * 两条限制：
+ *   · 组是**窗格内**的概念 —— 搬过去之前先退组（旧组空了随后摘掉），不做跨叶入组；
+ *   · 芯片（整组）不跨窗格：组一拆或一搬就会在两片条带之间劈成两半，v1 明确不支持。
+ */
+function moveAcrossPanes(payload) {
+  if (payload.kind !== 'tab' || !props.paneId) return false
+  const target = resolvePaneDrop(payload.pointer, { sourcePaneId: props.paneId })
+  if (!target) return false
+
+  // 单页签拖到**自己**的边缘：只切分，不搬页签。
+  //
+  // 搬过去的话原窗格当场变空、紧接着被 closeEmptyPane 回收，切出来的一格又并回去 ——
+  // 鼠标 / 触摸看到的都是「什么都没发生」，连高亮都没有（早先干脆在 resolvePaneDrop 里
+  // 拦掉，代价是「只有一个窗格 + 一张页签」时永远分不了屏，而窄屏刚打开时正是这个状态）。
+  // 现在改成与 ⌘⌥\ 同一个结果：页签留在原窗格，旁边多出一格空的（≤ 上限时才有这一下，
+  // 上限与最小尺寸由 paneDropTarget 判过）。跨越式落点同样只切 —— 新窗格本来就另起一条，
+  // 把页签搬过去的唯一后果是原窗格空掉再被回收，等于白切。
+  if (
+    target.paneId === props.paneId &&
+    target.zone !== 'center' &&
+    target.zone !== 'tabstrip' &&
+    (leafById(props.paneId)?.tabs.length ?? 0) === 1
+  ) {
+    if (!createPaneForDrop(target)) return false
+    clearPaneTabDrag()
+    clearPaneDropHint()
+    return true
+  }
+
+  if (tabGroups.groupOf(payload.id)) tabGroups.removeFromGroup(payload.id)
+  let paneId = target.paneId
+  if (target.zone !== 'center' && target.zone !== 'tabstrip') {
+    paneId = createPaneForDrop(target) || target.paneId
+  }
+  placeTab(payload.id, {
+    paneId,
+    // 页签栏落点 = 插到指针所在的那两格之间；中心区也按条带位置插（指针在正文里时
+    // insertIndexAt 返回 undefined，等于追加到末尾）；边缘落点刚切出来的新窗格是空的，
+    // 下标没有意义。
+    index:
+      target.zone === 'center' || target.zone === 'tabstrip'
+        ? insertIndexAt(paneId, payload.pointer)
+        : undefined,
+  })
+  tabGroups.removeEmptyGroups()
+  tabGroups.normalizeRuns()
+  clearPaneTabDrag()
+  clearPaneDropHint()
+  return true
+}
 
 /**
  * 页签 pointerdown（2026-10-20 十四改「按下即获焦」；十九改给触屏开口子）：
@@ -411,6 +582,13 @@ function stripItemOf(id) {
  *  拖拽 / 让位位置到新车位的补间由 useTabDrag 的 settle() 统一做，两套动画叠着会打架。 */
 function onStripDrop(payload, index) {
   instantSwap.value = true
+  // 松手落在**另一片窗格**上：搬家，不走本条的排序 / 入组结算（见 moveAcrossPanes）
+  if (moveAcrossPanes(payload)) {
+    nextTick(() => {
+      instantSwap.value = false
+    })
+    return
+  }
   if (payload.kind === 'group') {
     moveStripRun(tabGroups.membersOf(payload.gid), index)
     // 二十四改：整段搬移的落点若落在**另一个组**的成员之间，那个组会被劈成两段
@@ -702,23 +880,23 @@ function revealExpandedGroup(gid) {
  * @param {string} gid 刚被折叠的组
  */
 function transferFocusOutOfGroup(gid) {
-  if (tabGroups.groupOf(workspace.activeId)?.id !== gid) return
+  if (tabGroups.groupOf(paneActiveId.value)?.id !== gid) return
   const members = tabGroups.membersOf(gid)
   if (!members.length) return
-  const first = Math.min(...members.map((m) => stripOrder.indexOf(m)))
-  const next = tabGroups.findNextVisibleTab(first, workspace.activeId, true)
+  const first = Math.min(...members.map((m) => paneTabs.value.indexOf(m)))
+  const next = tabGroups.findNextVisibleTab(first, paneActiveId.value, true, paneTabs.value)
   if (next) {
     if (isViewId(next)) {
       const group = tabGroups.groupOfId(gid)
-      if (group) group.lastActiveTabId = workspace.activeId
-      clearActiveTab()
+      if (group) group.lastActiveTabId = paneActiveId.value
+      clearPaneActive()
     }
     focusTab(next)
     return
   }
   const group = tabGroups.groupOfId(gid)
-  if (group) group.lastActiveTabId = workspace.activeId
-  clearActiveTab()
+  if (group) group.lastActiveTabId = paneActiveId.value
+  clearPaneActive()
 }
 
 /**
@@ -729,7 +907,7 @@ function transferFocusOutOfGroup(gid) {
  * @param {string} gid 刚被展开的组
  */
 function restoreFocusIntoGroup(gid) {
-  if (workspace.activeId) return
+  if (paneActiveId.value) return
   const members = tabGroups.membersOf(gid)
   if (!members.length) return
   const saved = tabGroups.groupOfId(gid)?.lastActiveTabId
@@ -1248,7 +1426,7 @@ function dismissStripMenus() {
 let swapFromWidth = 0
 
 watch(
-  () => workspace.openTabIds.slice(),
+  () => paneTabs.value.filter((id) => !isViewId(id)),
   (next, prev) => {
     if (next.length !== prev.length) return
     let changedAt = -1
@@ -1324,13 +1502,19 @@ function onTabEnter(el) {
            而 TransitionGroup 每次 update 都会拿「缓存的旧位置」对比「当前 rect」——
            被我们挪开的页签会被它当成列表重排、倒放一段 .tab-move 把跟手位移整个抢走
            （实测 bbb 被拉回 8.9px、包络线跟着错位）。tab-instant 没有 -move 规则，
-           Vue 检测不到过渡就直接跳过 FLIP。提交落盘那一拍另有 instantSwap 顶着。 -->
+           Vue 检测不到过渡就直接跳过 FLIP。提交落盘那一拍另有 instantSwap 顶着。
+           **拖窗格分割条期间（paneResizing）同理**，而且是另一半成因：FLIP 用的是
+           viewport 坐标，分不清「页签在条带里换位」与「整条条带被祖先挪走」——
+           拖分割条时窗格整体平移，页签会被一路倒拖回旧位置（用户 2026-11-16 报
+           「标签页栏中标签移动比较慢」，实测一帧最多差 39px）。见 services/paneResize.js。 -->
     <TransitionGroup
       tag="div"
       class="editor-tabs__strip"
       role="tablist"
       :aria-label="t('app.tabs.listLabel')"
-      :name="instantSwap || animatingGroups.size || draggingId ? 'tab-instant' : 'tab'"
+      :name="
+        instantSwap || animatingGroups.size || draggingId || paneResizing ? 'tab-instant' : 'tab'
+      "
       @before-leave="onTabBeforeLeave"
       @enter="onTabEnter"
     >
@@ -1374,8 +1558,8 @@ function onTabEnter(el) {
           type="button"
           class="editor-tabs__item"
           :class="{
-            'editor-tabs__item--active': item.id === focusedTabId,
-            'editor-tabs__item--preview': item.id === workspace.previewTabId,
+            'editor-tabs__item--active': item.id === paneFocusedTabId,
+            'editor-tabs__item--preview': item.id === panePreviewId,
             'editor-tabs__item--dragging': draggingIds.includes(item.id),
             'editor-tabs__item--settling': settlingGid !== null && item.group?.id === settlingGid,
             'editor-tabs__item--pressing': item.id === pressingId,
@@ -1392,8 +1576,8 @@ function onTabEnter(el) {
           :data-strip-id="item.id"
           :data-tab-id="item.id"
           :data-group-id="item.group?.id"
-          :data-preview="item.id === workspace.previewTabId || undefined"
-          :aria-selected="item.id === focusedTabId"
+          :data-preview="item.id === panePreviewId || undefined"
+          :aria-selected="item.id === paneFocusedTabId"
           :title="getNodeById(item.id)?.path"
           @click="activate(item.id, $event)"
           @dblclick="onTabDblClick(item.id)"

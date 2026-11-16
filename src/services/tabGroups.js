@@ -5,7 +5,7 @@
  * 这里只记「哪个页签属于哪个组」与组自己的元数据（颜色 / 名字）。
  * 一条不变式：**同一组的成员在 stripOrder 里必须连续** —— 组在条带上是一段连续的
  * 「药丸」，不连续就没法画。两个动作共同维持它：
- *   · 往组里加页签：顺手把那张页签挪到组旁（moveStripItem，见 relocateIntoRun）；
+ *   · 往组里加页签：顺手把那张页签挪到组旁（moveTabInPane，见 relocateIntoRun）；
  *   · 拖动落点：EditorTabs 收尾时调 syncAfterDrop，把「拖出组 = 退组」「拖进某组 = 入组」
  *     两件事归拢回来（Chrome 同款行为）。
  *
@@ -45,8 +45,10 @@
  *   else groupTabs(ids, { name: title, color: 'blue' })
  */
 import { reactive, watch } from 'vue'
-import { isViewOpen } from './editorViews.js'
-import { isViewId, moveStripItem, stripOrder } from './tabStrip.js'
+import { activateView, activeViewIdIn, deactivateViewsIn, isViewOpen } from './editorViews.js'
+import { isViewId } from './editorViewIds.js'
+import { stripOrder } from './tabStrip.js'
+import { moveTabInPane, paneOf, placeTab } from './editorPanes.js'
 import { closeFocus, closeTab, createFile, focusTabIntent, workspace } from './vfs/workspaceStore.js'
 import { templateForPath } from './fileTemplates.js'
 
@@ -90,7 +92,7 @@ export function groupOfId(gid) {
 
 /** 组的成员（按 stripOrder 的当前次序；成员天然连续 —— 见文件头的不变式） */
 export function membersOf(gid) {
-  return stripOrder.filter((id) => tabGroups.memberOf[id] === gid)
+  return stripOrder.value.filter((id) => tabGroups.memberOf[id] === gid)
 }
 
 /** 取一个用得最少的颜色（都用过就按色板顺序回落） */
@@ -115,7 +117,7 @@ function validTabIds(tabIds, { excludeGroupId = null } = {}) {
   const out = []
   for (const id of tabIds ?? []) {
     if (typeof id !== 'string' || !id) continue
-    if (isViewId(id) || !stripOrder.includes(id)) continue
+    if (isViewId(id) || !stripOrder.value.includes(id)) continue
     if (out.includes(id)) continue
     if (excludeGroupId && tabGroups.memberOf[id] === excludeGroupId) continue
     out.push(id)
@@ -124,15 +126,42 @@ function validTabIds(tabIds, { excludeGroupId = null } = {}) {
 }
 
 /**
- * 把 id 挪到 prevId 的右边。
- * 不能直接传「prev 的下标 + 1」：moveStripItem 的 insertIndex 是**去掉被挪项之后**的下标，
- * 被挪项原本在 prev 左边时，它一走 prev 的下标就前移一位，照原值传会多挪一格。
+ * 把 id 挪到 prevId 的右边。**只在同一个叶子内**成立（组不跨窗格的不变式）。
+ * 顺序计算必须用叶子的 `tabs`（不是全局 stripOrder）：全局下标里含前面窗格的页签，
+ * 直接喂给叶子内重排会多挪几格 —— 分屏后除第一片叶子外全会错位。
  */
 function moveAfter(id, prevId) {
-  const at = stripOrder.indexOf(id)
-  const prevAt = stripOrder.indexOf(prevId)
+  const leaf = paneOf(id)
+  if (!leaf || paneOf(prevId) !== leaf) return
+  const at = leaf.tabs.indexOf(id)
+  const prevAt = leaf.tabs.indexOf(prevId)
   if (at === -1 || prevAt === -1 || at === prevAt) return
-  moveStripItem(id, at < prevAt ? prevAt : prevAt + 1)
+  moveTabInPane(leaf.id, id, at < prevAt ? prevAt : prevAt + 1)
+}
+
+/**
+ * 组的宿主叶子：组内第一名成员所在的窗格。空组 / 组不存在返回 null。
+ * @param {string} gid
+ */
+function groupLeaf(gid) {
+  const first = membersOf(gid)[0]
+  return first ? paneOf(first) : null
+}
+
+/**
+ * 「先搬页签，再入组」：把 `ids` 里不在 `leaf` 的页签先搬进目标叶子（追加到末尾，
+ * 位置随后由 moveAfter / relocateIntoRun 摆好）。组是**窗格内**的概念 —— 成员分散在
+ * 两片窗格里时条带上根本画不出一段连续的药丸，所以入口处必须先把人收拢。
+ *
+ * @param {string[]} ids
+ * @param {any|null} leaf
+ */
+function pullIntoLeaf(ids, leaf) {
+  if (!leaf) return
+  for (const id of ids) {
+    const owner = paneOf(id)
+    if (owner && owner !== leaf) placeTab(id, { paneId: leaf.id, makeActive: false })
+  }
 }
 
 /**
@@ -152,6 +181,8 @@ function moveAfter(id, prevId) {
 export function groupTabs(tabIds, options = {}) {
   const ids = validTabIds(tabIds)
   if (!ids.length) return null
+  // 分屏后这一批可能来自两片窗格：先把人收拢到第一张所在的叶子（组不跨窗格）
+  pullIntoLeaf(ids, paneOf(ids[0]))
   const gid = newId()
   tabGroups.groups.push({
     id: gid,
@@ -190,6 +221,8 @@ export function addTabsToGroup(tabIds, gid) {
   if (!g) return 0
   const ids = validTabIds(tabIds, { excludeGroupId: gid })
   if (!ids.length) return 0
+  // 组是窗格内的概念：外来页签先搬进组的宿主窗格，再谈「接在组尾」
+  pullIntoLeaf(ids, groupLeaf(gid) ?? paneOf(ids[0]))
   // 组尾要在**改 memberOf 之前**取：改完 membersOf 按 stripOrder 排，不一定是想要的次序
   let prev = membersOf(gid).at(-1) ?? null
   for (const id of ids) tabGroups.memberOf[id] = gid
@@ -276,7 +309,7 @@ focusTabIntent.show = expandGroupOfActiveTab
  * @returns {boolean}
  */
 export function isTabVisible(id) {
-  if (!id || stripOrder.indexOf(id) === -1) return false
+  if (!id || stripOrder.value.indexOf(id) === -1) return false
   if (isViewId(id)) return isViewOpen(id)
   return workspace.openTabIds.includes(id) && !isHiddenTab(id)
 }
@@ -289,11 +322,11 @@ export function isTabVisible(id) {
  * 「可见」= 在 stripOrder 里、还开着（文件看 openTabIds —— 关闭场景 stripOrder 可能要等
  * watch 才清掉旧 id；视图看它自己的 open 标志，同理）、不属于任何已折叠分组。
  * `includeViews` 说的是**这个调用方装不装得下视图 id**，不是「视图算不算页签」：
- *   · services/tabFlow.js 的关闭交接传 true —— 那一层认的是「条带上的一张页签」，
- *     视图与文件一视同仁，这正是「关掉文件后焦点跳到旁边的 Codeforces」能成立的地方；
- *   · tabGroups 自己的 closeFocus.pick（注入给 workspaceStore.closeTab）**不能**传 true：
- *     那条路上焦点要写进 `activeId`，而 activeId 装不下视图 id。它返回 null 时由
- *     closeTabItem 接手把焦点交给视图（两条路分工，不是互相兜底）。
+ *   · settleLeafFocus（关页签 / 关视图 / 拖页签三路共用的落点）传 true —— 那一层认的是
+ *     「条带上的一张页签」，视图与文件一视同仁，这正是「源窗格只剩设置页签时把它点亮」
+ *     能成立的地方；
+ *   · 它内部还有一处传 false：本窗格**已经被一张视图盖着**时只收拾文件那一轴
+ *     （`leaf.active` 是「关掉视图后回哪份代码」的备忘，装不下视图 id，也不该把视图按下去）。
  * 折叠组转移焦点也传 true（视图页签就排在组旁边时，它才是「离得最近的那一格」）。
  * anchor 的两个调用口径：
  *   · 折叠组：传**组内第一名成员**的下标 —— 向右从它起扫，组内其余成员因已折叠被
@@ -302,53 +335,110 @@ export function isTabVisible(id) {
  * @param {number} anchorIndex stripOrder 里的参照下标
  * @param {string} [excludeId] 额外排除的页签 id（关闭场景传被关的那张，双保险）
  * @param {boolean} [includeViews] 视图页签算不算候选（调用方装不装得下视图 id，见上）
+ * @param {string[]} [ids] 寻址范围。关闭交接传**本叶子的** tabs，焦点就不会跳到别的窗格；
+ *   不传则退回全局 stripOrder（折叠组转移等单窗格语义）。
  * @returns {string|null} 可见页签 id；一个都没有（全部折叠）时 null
  */
-export function findNextVisibleTab(anchorIndex, excludeId, includeViews = false) {
+export function findNextVisibleTab(anchorIndex, excludeId, includeViews = false, ids = stripOrder.value) {
   const visibleAt = (i) => {
-    const id = stripOrder[i]
+    const id = ids[i]
     if (!id || id === excludeId) return null
     if (!isTabVisible(id)) return null
     if (isViewId(id) && !includeViews) return null
     return id
   }
-  for (let i = Math.max(0, anchorIndex); i < stripOrder.length; i += 1) {
+  for (let i = Math.max(0, anchorIndex); i < ids.length; i += 1) {
     const hit = visibleAt(i)
     if (hit) return hit
   }
-  for (let i = Math.min(anchorIndex, stripOrder.length) - 1; i >= 0; i -= 1) {
+  for (let i = Math.min(anchorIndex, ids.length) - 1; i >= 0; i -= 1) {
     const hit = visibleAt(i)
     if (hit) return hit
   }
   return null
 }
 
-// 关闭激活页签的焦点回退注入（见 workspaceStore.closeFocus 的说明）：可见性判据
-// 活在本模块，workspaceStore 不能反向 import 这里（会成环），所以是注入不是直调。
-// 全折叠等「一张可见页签都没有」的极端情况返回 null —— closeTab 据此把焦点置 null
-//（2026-10-20 审计改，「焦点必可见」铁律；原先退回「原下标顶上来」，可能指到折叠组里
-// 藏着的页签，与十七改的折叠路径自相矛盾）。
-//
-// 这里**不传 includeViews**：这条路的结论要写进 activeId，装不下视图 id。邻居是视图页签时
-// 它照旧只认文件（找不到就给 null），而「焦点其实该交给那张视图」由 tabFlow.closeTabItem
-// 在更上一层结算 —— 它拿 includeViews=true 重算一次，两队结论不会打架：closeTabItem 只在
-// 「关的正是焦点」时接手，而它选出的邻居只可能比这里更近，不会更远。
-closeFocus.pick = (closedId, index) => findNextVisibleTab(index, closedId)
+/**
+ * 「这个叶子里刚走掉一张页签，剩下的该露出谁」—— **关页签、关视图页签、跨窗格拖页签
+ * 三条路共用的唯一落点**。
+ *
+ * 【为什么必须两轴一起结算】焦点存在两处：文件走 `leaf.active`（`activeId` 的口径），
+ * 合成视图走 editorViews 里各自的 `active` 标志。早先这里只写文件那一轴，于是
+ * 「源窗格只剩一张设置 / Codeforces 页签」时只能写 null：文件轴说「什么都别显示」，
+ * 视图轴没被点名就保持「没盖着」，结果是窗格露出「在资源管理器中打开或新建文件」的空态、
+ * 条带上却明明还站着一张设置页签（用户 2026-11-17 报的正是这个 —— 拖走最后一份代码时
+ * 源窗格不亮视图）。邻居是视图时**把它点亮**才是完整答案。
+ *
+ * 【三级判据】
+ *   ① 先右后左找**可见**页签（含视图，`includeViews = true`）：与 Chrome 同一条规矩，
+ *      跳过折叠组里藏着的、已经关掉的（`isTabVisible`）；
+ *   ② 找到的是视图 → 文件那一轴留空（视图盖着窗格，见 editorViews.show 的口径），视图轴点亮它。
+ *      这里必须写 null：留一个刚搬走 / 刚关掉的 id 就是「编辑区开着文件、条带找不到它」的幽灵态；
+ *   ③ 一张可见页签都不剩 → 两轴都归零（「焦点必可见」铁律，见 findNextVisibleTab 的说明）。
+ *
+ * 只写状态、不碰焦点记忆：`tabFlow.closeTabItem` 的「回到上一个有焦点的页签」是**上一级**
+ * 的事，它跑完记忆那一级再落到这里 —— 记忆优先、这里兜邻居，两级不会打架。
+ *
+ * @param {any} leaf 摘除**之后**的叶子
+ * @param {string} removedId 刚离开的那张（双保险排除）
+ * @param {number} index 它在摘除前的下标；摘除后正好指向原来的右邻
+ * @returns {string|null} 最终落到的页签 id
+ */
+export function settleLeafFocus(leaf, removedId, index) {
+  if (!leaf) return null
+
+  // 本窗格此刻正盖着一张视图（设置 / Codeforces）：屏幕上已经有东西，**不要换**。
+  // 关掉 / 拖走一张背景页签不该把用户正在看的设置页顶掉 —— 此时 `leaf.active` 只是
+  // 「关掉视图后回哪份代码」的备忘，收拾它时只认文件（includeViews = false，与改造前
+  // closeFocus.pick 的口径一致），且绝不能留一个已经走掉的 id（不变式 3）。
+  const covered = activeViewIdIn(leaf.id)
+  if (covered) {
+    leaf.active = findNextVisibleTab(index, removedId, false, leaf.tabs)
+    return covered
+  }
+
+  const next = findNextVisibleTab(index, removedId, true, leaf.tabs)
+  if (!next) {
+    // 折叠组把剩下的全藏起来了（或本来就没有）：两轴都归零 —— 焦点宁可空着，也不能指向
+    // 条带里找不到的那一格（与 EditorTabs 的折叠兜底同一条规矩）。视图轴不必再收：
+    // 上面那个 `covered` 分支已经把「本窗格盖着视图」的情况排除了。
+    leaf.active = null
+    return null
+  }
+  if (isViewId(next)) {
+    leaf.active = null
+    activateView(next)
+    return next
+  }
+  deactivateViewsIn(leaf.id)
+  leaf.active = next
+  return next
+}
+
+// 关闭激活页签的焦点回退注入（见 workspaceStore.closeFocus 的说明）。原先这里注入的只是
+// 「可见页签寻址」（findNextVisibleTab），落点由 workspaceStore 自己写 —— 那样只能写文件那一轴：
+// `activeId` 装不下视图 id，于是「源窗格只剩一张设置页签」时焦点被置成 null，窗格空着、
+// 条带上却明明还站着一张设置。现在改成注入**整个落点结算**（settleLeafFocus，含视图），
+// 关页签 / 跨窗格拖页签 / 关视图页签三条路都走它，结论不会再分叉。
+closeFocus.settle = settleLeafFocus
 
 /**
  * 把页签挪到组的旁边（保持连续性）。已在组旁（与任一成员相邻）就不动 ——
  * 右键加组时那张页签多半在别处，Chrome 的做法是把它挪过来。
  */
 function relocateIntoRun(tabId, gid) {
-  const members = membersOf(gid).filter((x) => x !== tabId)
+  const leaf = paneOf(tabId)
+  if (!leaf) return
+  const members = membersOf(gid).filter((x) => x !== tabId && paneOf(x) === leaf)
   if (!members.length) return
-  const at = stripOrder.indexOf(tabId)
-  if (members.some((m) => Math.abs(stripOrder.indexOf(m) - at) === 1)) return
-  // moveStripItem 的 insertIndex 契约是「去掉被挪项」的列表：找到最后一个成员在那份
-  // 列表里的位置，插到它右边（即整段组的末尾）。
-  const rest = stripOrder.filter((x) => x !== tabId)
+  const at = leaf.tabs.indexOf(tabId)
+  if (members.some((m) => Math.abs(leaf.tabs.indexOf(m) - at) === 1)) return
+  // moveTabInPane 的 insertIndex 契约是「去掉被挪项」的列表：找到最后一个成员在那份
+  // 列表里的位置，插到它右边（即整段组的末尾）。下标必须是**叶内**的 —— 跨窗格成员
+  // 已由调用方 pullIntoLeaf 收拢，这里再 filter 一道防御。
+  const rest = leaf.tabs.filter((x) => x !== tabId)
   const lastAt = Math.max(...members.map((m) => rest.indexOf(m)))
-  moveStripItem(tabId, lastAt + 1)
+  moveTabInPane(leaf.id, tabId, lastAt + 1)
 }
 
 /** 把页签加进已有的组（会挪到组旁）；已是本组成员则什么都不做 */
@@ -356,6 +446,8 @@ export function addToGroup(tabId, gid) {
   const g = groupOfId(gid)
   if (!g || isViewId(tabId)) return
   if (tabGroups.memberOf[tabId] === gid) return
+  // 「先搬页签，再入组」：目标组在别的窗格时先把这张页签搬过去，否则组会跨叶
+  pullIntoLeaf([tabId], groupLeaf(gid))
   tabGroups.memberOf[tabId] = gid
   // 往折叠着的组里加页签 → 顺手展开：否则新页签当场被藏起来，用户看到的只是「点了没反应」
   g.collapsed = false
@@ -427,15 +519,20 @@ export async function appendNewTabToGroup(gid) {
  * 芯片外侧的，顺手塞进组里就等于当场消失（Chrome 同款：拖到折叠组边上只是排在它旁边）。
  */
 export function syncAfterDrop(draggedId) {
-  const at = stripOrder.indexOf(draggedId)
+  const leaf = paneOf(draggedId)
+  if (!leaf) return
+  const at = leaf.tabs.indexOf(draggedId)
   if (at === -1) return
-  const prevG = joinableGroupAt(at - 1)
-  const nextG = joinableGroupAt(at + 1)
+  const prevG = joinableGroupAt(leaf.tabs[at - 1])
+  const nextG = joinableGroupAt(leaf.tabs[at + 1])
   const mine = groupOf(draggedId)
 
   if (mine) {
     const others = membersOf(mine.id).filter((x) => x !== draggedId)
-    if (others.length && !others.some((m) => Math.abs(stripOrder.indexOf(m) - at) === 1)) {
+    if (
+      others.length &&
+      !others.some((m) => Math.abs(leaf.tabs.indexOf(m) - at) === 1)
+    ) {
       removeFromGroup(draggedId)
     }
     return
@@ -447,9 +544,9 @@ export function syncAfterDrop(draggedId) {
   }
 }
 
-/** 条带第 i 格上那个「可以把页签吸进去」的组；折叠着的组返回 null（理由见 syncAfterDrop） */
-function joinableGroupAt(i) {
-  const g = groupOf(stripOrder[i])
+/** 条带上那一格所属的「可以把页签吸进去」的组；折叠着的组返回 null（理由见 syncAfterDrop） */
+function joinableGroupAt(id) {
+  const g = groupOf(id)
   return g && !g.collapsed ? g : null
 }
 
@@ -484,8 +581,8 @@ export function normalizeRuns() {
     for (let i = 1; i < members.length; i += 1) {
       const id = members[i]
       // 不在 stripOrder 里（刚开出来还没排进去）就跳过，别把它挪到别处
-      if (stripOrder.indexOf(id) === -1 || stripOrder.indexOf(prev) === -1) continue
-      if (stripOrder.indexOf(id) !== stripOrder.indexOf(prev) + 1) moveAfter(id, prev)
+      if (stripOrder.value.indexOf(id) === -1 || stripOrder.value.indexOf(prev) === -1) continue
+      if (stripOrder.value.indexOf(id) !== stripOrder.value.indexOf(prev) + 1) moveAfter(id, prev)
       prev = id
     }
   }

@@ -19,38 +19,47 @@ import { monaco } from '../monaco-setup.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { isNarrowLayout } from '../services/shellSettings.js'
-import { activeDropZone, registerDropZone } from '../composables/useTreeDrag.js'
 import { useEditorMenu } from '../composables/useEditorMenu.js'
 import { useSelectionHandles } from '../composables/useSelectionHandles.js'
 import { langMeta, langMetaByMonaco } from '../services/templates.js'
 import { languageForPath } from '../services/monaco/language.js'
-import { editorModelOptions, editorOptions, themeScheme } from '../services/editorOptions.js'
+import {
+  editorModelOptions,
+  editorOptions,
+  gutterIsCompact,
+  themeScheme,
+} from '../services/editorOptions.js'
 import { modelManager } from '../services/monaco/modelManager.js'
-import { releaseSyntaxDiagnostics, scheduleSyntaxCheck } from '../services/monaco/syntaxDiagnostics.js'
+import {
+  releaseSyntaxDiagnostics,
+  retainSyntaxDiagnostics,
+  scheduleSyntaxCheck,
+} from '../services/monaco/syntaxDiagnostics.js'
 import { installPasteIndentGuard } from '../services/monaco/pasteIndentGuard.js'
 import {
+  activeViewIdIn,
   anyViewOpen,
-  codeforcesTab,
-  settingsTab,
-  viewActive,
+  viewActiveIn,
 } from '../services/editorViews.js'
 import {
   MD_VIEW_MODES,
   MD_VIEW_SHORTCUT,
   cycleMdView,
   exitFullscreen,
-  mdActive,
-  mdFileActive,
+  mdActiveIn,
+  mdFileActiveIn,
   mdFullscreen,
-  mdViewMode,
-  mdViewPreview,
-  mdViewSplit,
+  mdViewModeIn,
+  mdViewPreviewIn,
+  mdViewSplitIn,
   setMdView,
   toggleMdFullscreen,
 } from '../services/mdView.js'
+import { closeEmptyPane, editorPanes, leafById, leaves } from '../services/editorPanes.js'
+import { getViewState, saveViewState } from '../services/editorViewStates.js'
 import {
   activeLanguage,
-  activeNode,
+  getNodeById,
   openFile,
   pinTab,
   saveActive,
@@ -81,7 +90,60 @@ const props = defineProps({
   // 全局界面缩放比例：Monaco 在 postcss 黑名单里，它的尺寸不吃 rem，
   // 必须由这里乘进 editorOptions（见 services/editorOptions.js）
   uiScale: { type: Number, required: true },
+  // 本组件是布局树里的哪一片叶子（见 services/editorPanes.js）。P0a 只渲染根叶；
+  // 留空则退回「焦点窗格」，让调用方在单窗格阶段可以暂不改 App。
+  paneId: { type: String, default: '' },
 })
+
+// ------------------------------------------------------------ 窗格口径的派生
+// 组件里凡是「当前文件 / 当前视图」的判据都必须读**本窗格**，不能再吃全局单例：
+// 分屏后非焦点窗格若继续读 workspace.activeId，会显示别的窗格的代码、
+// md 工具栏也会整条消失（计划开头列出的那个已知故障）。
+const paneActiveId = computed(() => {
+  if (!props.paneId) return workspace.activeId
+  // 窗格存在但 active 为 null（空窗格 / 全折叠兜底）时**不能**回落到全局 activeId：
+  // 那会把焦点窗格的代码画到空窗格里（P1 分屏后每片叶子各看各的）。
+  return leafById(props.paneId)?.active ?? null
+})
+const activeNode = computed(() =>
+  paneActiveId.value ? getNodeById(paneActiveId.value) : null,
+)
+const viewActive = computed(() => viewActiveIn(props.paneId))
+
+/**
+ * 本窗格里正盖着编辑器的是哪张合成视图（null = 编辑器露着代码）。
+ *
+ * ⚠️ 下面那两块面板**不能**拿 `settingsTab.active` / `codeforcesTab.active` 直接做 v-show：
+ * 那是 `editorViews.js` 里的**全局**开关（一张表只管「现在开的是谁」），而分屏后**每片窗格
+ * 都常驻挂着一份**设置面板与抽题面板。照全局开关显示，打开设置就会让所有窗格一起变成设置页
+ * （2026-11-17 用户报障：「多个窗格都出现了设置的页面」）。
+ * 「这张视图归谁」不另存一份，就是 `paneOf(viewId)`（页签所在的叶子）——
+ * `activeViewIdIn()` 正是按这个口径问「**这一片**里盖着的是谁」。窗格 id 缺省（单窗格）时
+ * 它退回全局口径，与 viewActive 的降级一致。
+ */
+const paneViewId = computed(() => activeViewIdIn(props.paneId))
+/** 设置面板此刻盖着的**是不是这一片**窗格 */
+const settingsActive = computed(() => paneViewId.value === 'settings')
+/** 抽题面板此刻盖着的**是不是这一片**窗格 */
+const codeforcesActive = computed(() => paneViewId.value === 'codeforces')
+
+const mdActive = computed(() => mdActiveIn(props.paneId))
+const mdFileActive = computed(() => mdFileActiveIn(props.paneId))
+const mdViewMode = computed(() => mdViewModeIn(props.paneId))
+const mdViewSplit = computed(() => mdViewSplitIn(props.paneId))
+const mdViewPreview = computed(() => mdViewPreviewIn(props.paneId))
+
+/**
+ * 本窗格是不是**焦点窗格**。
+ *
+ * 状态栏（含右边的语义诊断胶囊）是「单例资源」：它报的是光标行列、语言、选中字数 ——
+ * 只有正在操作的那片窗格才有意义。分屏后每片都挂一条，四片一起刷反而变成噪声，
+ * 语义诊断还是一次网络/计算量。其余单例资源的口径一致（导出图片 / 全局快捷键都只认
+ * 焦点窗格，见 EditorPaneGrid 的代理与 App.vue）。
+ */
+const paneFocused = computed(() =>
+  props.paneId ? editorPanes.focusedPaneId === props.paneId : true,
+)
 
 const emit = defineEmits([
   'update:settings',
@@ -173,14 +235,15 @@ const {
   magnifier: magnifierEl,
 })
 
-// ------------------------------------------------------------ 拖文件到编辑区
-
-/** 本组件登记给拖拽模块的落点；跟 activeDropZone 比同一个对象引用才知道该不该亮 */
-const dropZone = shallowRef(null)
-const isDropTarget = computed(() => dropZone.value !== null && activeDropZone.value === dropZone.value)
+// ------------------------------------------------------------ 从外部打开文件
 
 /**
  * 打开一个文件并把它固定成常开页签（已经开着就切过去，没开就新开一个）。
+ *
+ * 站内拖拽（文件树 → 编辑区）的落点已收口到渲染层
+ * （`EditorPaneGrid` 的五区判定，见 services/paneDropTarget.js）—— 那边要按落点决定
+ * 打开在哪片窗格 / 要不要切分，单个 EditorPane 看不到全图。这里只剩「从系统拖进来的
+ * 单个文件」这条外部入口（App.vue 的 importDroppedItems）。
  *
  * 合成视图的让位不用在这里管：`openFile()` 在两条成功路径上都会调 `codeViewIntent.show`，
  * 与 activeId 有没有变化无关（原先这里手写了一次 `deactivateViews()`，2026-10-25 收口到那边后删掉）。
@@ -196,14 +259,6 @@ async function openNodeById(id) {
   // 它原本可能是预览页签：拖进来 / 刚导入的意思就是「固定住」
   pinTab(id)
 }
-
-/** 落点回调（站内拖拽，见 useTreeDrag 的 registerDropZone）：收的是节点 */
-function openDroppedFile(node) {
-  return openNodeById(node.id)
-}
-
-/** 注销函数，onBeforeUnmount 里调 */
-let unregisterDropZone = null
 
 /**
  * 手机输入法「粘贴」时压住自动缩进的窗户（见 services/monaco/pasteIndentGuard.js）。
@@ -229,7 +284,19 @@ const mdBarVisible = mdActive
     还有合成视图页签开着吗」（anyViewOpen 而不是 viewActive：页签开着但没盖着编辑器时
     这条横栏必须留着，不然那两颗页签就凭空消失了 —— 2026-10-10）。
     编辑区正中那块占位提示的条件在模板里另写，只看 viewActive：视图没盖上来时空态照旧露出。 */
-const stripEmpty = computed(() => !workspace.openTabIds.length && !anyViewOpen.value)
+const stripEmpty = computed(() => {
+  // 分屏后按**本窗格**判：隔壁窗格开着文件不该让这条空条带留下来。
+  if (props.paneId) return (leafById(props.paneId)?.tabs.length ?? 0) === 0
+  return !workspace.openTabIds.length && !anyViewOpen.value
+})
+
+/** 空窗格能不能关掉：只有分屏之后（叶子数 > 1）才有意义，根叶子永远留着 */
+const canClosePane = computed(() => !!props.paneId && leaves().length > 1)
+
+/** 空窗格占位上的「关闭窗格」（与 ⌘/Ctrl+Alt+\\ 同一条出口） */
+function closeThisPane() {
+  if (props.paneId) closeEmptyPane(props.paneId)
+}
 
 /** 预览的正文来源：活跃 model 的当前内容 */
 const mdSource = ref('')
@@ -253,8 +320,9 @@ const insertUrl = ref(null)
 // 只用于状态栏那枚「运行」提示：键位可改，提示得跟着变
 const { bindings } = useShortcutManager()
 
-/** 本面板各文件的视图状态（滚动 / 光标 / 折叠） @type {Map<string, unknown>} */
-const viewStates = new Map()
+// 视图状态（滚动 / 光标 / 折叠）不再挂在本组件上：多窗格下它按 **fileId** 全局共享
+// （见 services/editorViewStates.js）。「一个文件最多在一个窗格」让 fileId 与视图状态一一
+// 对应，于是跨窗格拖页签时滚动位置与折叠状态可以无缝继承，不需要任何迁移代码。
 
 /**
  * 状态栏的语言标签。判题语言（cpp/python，.c 也归 cpp）走 activeLanguage；
@@ -268,17 +336,6 @@ const langLabel = computed(() => {
   const monacoId = languageForPath(path)
   return monacoId === 'plaintext' ? '' : (langMetaByMonaco(monacoId)?.label ?? '')
 })
-
-/**
- * Monaco 在 editor.create 且未指定 model 时会自动造一个 inmemory://model/1。
- * 挂上真正的 VFS model 后它就是孤儿（永远不会被 UI 使用），及时销毁。
- */
-function disposeInMemoryOrphans() {
-  const attached = editor.value?.getModel()
-  for (const model of monaco.editor.getModels()) {
-    if (model.uri.scheme === 'inmemory' && model !== attached) model.dispose()
-  }
-}
 
 /**
  * tabSize / insertSpaces 是 model 级选项（EditorOption 里没有它们），
@@ -296,15 +353,47 @@ function applyModelOptions(model) {
 const narrowLayout = computed(() => isNarrowLayout())
 
 /**
+ * 这一片窗格里 Monaco 容器的实测宽（px，0 = 还没量到）。
+ *
+ * 宽屏下窗格也可能很窄（三四列分屏、题解双栏、侧栏拉开），行号栏该跟着收窄 ——
+ * 判据在 `editorOptions.js` 的 `gutterIsCompact()`，这里只负责把宽度喂过去。
+ * 量的是 host（Monaco 容器）而不是 `.editor-pane`：题解双栏时编辑器只占半边，
+ * 行号栏挤不挤取决于这半边还剩多少，不是整片窗格有多宽。
+ *
+ * ⚠️ **刻意不是 ref**：拖分割条时它每帧都变，做成响应式会让整片窗格跟着每帧重渲染，
+ * 而真正需要响应式的只有「该用哪一档」这一枚布尔（见下面的 `gutterCompact`）。
+ */
+let paneWidth = 0
+let paneWidthObserver = null
+
+/**
+ * 行号栏是不是该用压缩档（窄屏 or 宽屏里的窄窗格）。**这一个布尔值同时喂三处**：
+ * 下发给 Monaco 的选项、`is-tight` 那个类（CSS 的行号内边距与透明底色）、以及重下发的那条 watch。
+ * 三处必须同一个判据，否则会出现「栏宽变了、内边距没变」那种错位。
+ */
+const gutterCompact = ref(false)
+
+/** 用当前的宽度 / 窄屏 / 字号重判一次。只在翻面时改 ref，别的场合一个字节都不写 */
+function syncGutterCompact() {
+  gutterCompact.value = gutterIsCompact({
+    narrow: narrowLayout.value,
+    paneWidth,
+    // 与 editorOptions() 里那份 fontSize 同口径（整数像素），阈值才与行号栏实际宽度对得上
+    fontSize: Math.round(props.settings.fontSize * props.uiScale),
+  })
+}
+
+/**
  * 当前该下发给 Monaco 的整套编辑器选项。**构造与四条 updateOptions 全部从这里取。**
- * 写成一个函数是为了不让「参数」散在五个调用点上：`markdown` / `narrow` 每加一格，
+ * 写成一个函数是为了不让「参数」散在五个调用点上：`markdown` / `narrow` / `paneWidth` 每加一格，
  * 逐个改五处迟早漏掉一处，症状是「切了文件 / 转了屏，某一格没跟着变」。
  */
 function currentEditorOptions(settings = props.settings, scale = props.uiScale) {
   return editorOptions(settings, scale, {
     markdown: mdFileActive.value,
     narrow: narrowLayout.value,
-    // 窄屏的行号列宽按「当前文件行数的位数 + 1」算（见 editorOptions.js 的 LINE_NUMBER_GUTTER），
+    paneWidth,
+    // 压缩档的行号列宽按「当前文件行数的位数 + 3」算（见 editorOptions.js 的 LINE_NUMBER_GUTTER），
     // 所以这里必须把行数一起交出去；create() 时还没挂 model，取不到就按 1 行算，随后
     // setModel 那条路径会把选项重发一遍
     lineCount: editor.value?.getModel()?.getLineCount() ?? 1,
@@ -321,8 +410,8 @@ function rememberGutterDigits(instance) {
 }
 
 /**
- * 行数跨过 10 / 100 / 1000 行时，窄屏的行号列要多三格（窄屏那档的 minChars = 位数 + 3），
- * 不重下发的话数字会顶到栏边。宽屏的 minChars 是定值，多跑一次也无害。
+ * 行数跨过 10 / 100 / 1000 行时，压缩档的行号列要多三格（那一档的 minChars = 位数 + 3），
+ * 不重下发的话数字会顶到栏边。宽档的 minChars 是定值，多跑一次也无害。
  */
 function syncGutterDigits(instance) {
   const digits = String(instance.getModel()?.getLineCount() ?? 1).length
@@ -574,9 +663,15 @@ function onWindowKeydown(event) {
 }
 
 onMounted(() => {
+  // 分屏后会有多片窗格共用同一份语法诊断调度器：先登记一个使用者（与 onBeforeUnmount 的 release 成对）
+  retainSyntaxDiagnostics()
   const instance = monaco.editor.create(host.value, {
     // 用户可调的选项全部来自 services/editorOptions.js（构造与 updateOptions 共用同一份映射）
     ...currentEditorOptions(),
+    // **显式传 null**：Monaco 只在 `model === undefined` 时才顺手造一个 inmemory://model/N。
+    // 不传就等于每片窗格留一个永远没人用的孤儿 model（分屏后还会被邻窗格的清理逻辑误杀），
+    // 传 null 就直接进「没有 model」的状态，下面挂真 model 即可，孤儿从根上不存在。
+    model: null,
     theme: props.settings.theme,
     // 布局必须跟着容器走（面板拖宽 / 换边 / 折叠侧边栏）：交给 Monaco 自己的 ResizeObserver
     automaticLayout: true,
@@ -585,29 +680,42 @@ onMounted(() => {
   })
   editor.value = instance
 
+  // 行号栏压缩档要看「这一片窗格到底有多宽」：窗格本身由网格按百分比摆，题解双栏时
+  // Monaco 容器还会再让出一半，只有实测才知道。回调很密（拖分割条时每帧一次），但这里
+  // 只写进 ref —— 真正下发选项的是下面那条 watch，只在「翻面」时动一次。
+  // 量到 0 的场合（容器被 v-show 藏起来）直接忽略，保留上一次的宽度，别让行号栏闪一下。
+  if (typeof ResizeObserver === 'function') {
+    paneWidthObserver = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect?.width ?? 0
+      if (!(width > 0)) return
+      paneWidth = width
+      syncGutterCompact()
+    })
+    paneWidthObserver.observe(host.value)
+  }
+
   // 手机输入法的粘贴是逐行 IME 提交，行间的回车会把缩进越叠越深（见该文件头）
   releasePasteGuard = installPasteIndentGuard(instance, host.value)
 
   // 启动时安静挂上当前 model（不抢焦点；会话恢复已建好 model）
-  if (workspace.activeId) {
-    const model = modelManager.getExistingModel(workspace.activeId)
+  if (paneActiveId.value) {
+    const model = modelManager.getExistingModel(paneActiveId.value)
     if (model) {
       instance.setModel(model)
       applyModelOptions(model)
       rememberGutterDigits(instance)
-      // create() 时还没有 model（窄屏那档的行号列宽按行数算），补一次
+      // create() 时还没有 model（压缩档的行号列宽按行数算），补一次
       instance.updateOptions(currentEditorOptions())
       trackMarkdown(model)
     }
   }
-  disposeInMemoryOrphans()
 
   instance.onDidScrollChange(onEditorScroll)
   window.addEventListener('keydown', onWindowKeydown, true)
 
   // C++ 语法诊断：内容一停手就跑一次 `-fsyntax-only`（防抖与「只让最新一枪落地」
   // 都在 services/monaco/syntaxDiagnostics.js 里）。工具链没加载时它自己会静默跳过。
-  // 同一条回调里顺手盯「行数位数」：窄屏的行号列宽 = 位数 + 1 个字符，跨过 10 / 100 / 1000 行
+  // 同一条回调里顺手盯「行数位数」：压缩档的行号列宽 = 位数 + 3 个字符，跨过 10 / 100 / 1000 行
   // 要重下发一次（syncGutterDigits 先比位数，没跨就直接返回，不会每键一次 updateOptions）。
   syntaxSub = instance.onDidChangeModelContent(() => {
     scheduleSyntaxCheck(instance.getModel())
@@ -623,22 +731,21 @@ onMounted(() => {
     selectedChars.value = instance.getModel()?.getValueInRange(event.selection)?.length ?? 0
   })
 
-  instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-    saveActive().catch(() => {})
+  // 保存：用 addAction（不是 addCommand）—— 多实例下 addCommand 是无 id 的裸键位，
+  // 后创建的实例会覆盖先创建的；addAction 有稳定 id 与标签，且回调拿得到具体实例。
+  instance.addAction({
+    id: 'cp.save',
+    label: t('app.save'),
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+    run: () => {
+      saveActive().catch(() => {})
+    },
   })
 
   // 题解那 14 条格式键位是唯一的例外：它们按语言划作用域，只能走 Monaco 自己的 addAction
   registerMarkdownActions(instance)
 
   monaco.editor.setTheme(props.settings.theme)
-
-  // 登记成拖拽落点：文件从资源管理器拖到编辑区 = 打开 / 跳转页签（目录不接，那是移动语义）
-  dropZone.value = {
-    el: stage.value,
-    canDrop: (node) => node.type === 'file',
-    onDrop: openDroppedFile,
-  }
-  unregisterDropZone = registerDropZone(dropZone.value)
 })
 
 /**
@@ -656,9 +763,16 @@ onBeforeUnmount(() => {
   stopBackFullscreen()
   releasePasteGuard?.()
   releasePasteGuard = null
-  unregisterDropZone?.()
-  unregisterDropZone = null
+  // 卸载前把本窗格当前文件的光标 / 滚动 / 折叠存回全局表（按 fileId，跨窗格共享）。
+  // 分屏 + 窄屏降级都会真的卸载窗格（窄屏只渲染焦点叶），不存的话切回来就跳回文件开头。
+  const leaving = editor.value
+  if (leaving && paneActiveId.value) {
+    const state = leaving.saveViewState()
+    if (state) saveViewState(paneActiveId.value, state)
+  }
   window.removeEventListener('keydown', onWindowKeydown, true)
+  paneWidthObserver?.disconnect()
+  paneWidthObserver = null
   window.cancelAnimationFrame(scrollFrame)
   contentSub?.dispose()
   contentSub = null
@@ -672,11 +786,11 @@ onBeforeUnmount(() => {
 // ------------------------------------------------------------ 切文件（只换 model）
 
 watch(
-  () => workspace.activeId,
+  () => paneActiveId.value,
   (nextId, previousId) => {
     const instance = editor.value
     if (!instance) return
-    if (previousId) viewStates.set(previousId, instance.saveViewState())
+    if (previousId) saveViewState(previousId, instance.saveViewState())
 
     if (!nextId) {
       instance.setModel(null)
@@ -694,8 +808,7 @@ watch(
     trackMarkdown(model)
     // 切进一个 C++ 文件：内容没变就直接重放上次的标记，没查过就立刻查一次
     scheduleSyntaxCheck(model, { immediate: true })
-    disposeInMemoryOrphans()
-    const saved = viewStates.get(nextId)
+    const saved = getViewState(nextId)
     if (saved) instance.restoreViewState(saved)
     // 触屏上不抢焦点：点页签 / 点文件树只是「要看这个文件」，不该把软键盘唤起来。
     // 焦点本来就留在编辑器里（键盘弹着在改代码）的那种不受影响——这里只是不再主动 focus()，
@@ -747,6 +860,9 @@ watch(
   (next, prev) => {
     const instance = editor.value
     if (!instance) return
+    // 字号变了会挪动压缩档的阈值（见 gutterIsCompact），先把「该用哪一档」重判一次，
+    // 否则类名与下面这份选项可能各说各话
+    syncGutterCompact()
     instance.updateOptions(currentEditorOptions(next, props.uiScale))
     applyModelOptions(instance.getModel())
     if (prev?.theme !== next.theme) monaco.editor.setTheme(next.theme)
@@ -761,15 +877,20 @@ watch(
   (scale) => {
     const instance = editor.value
     if (!instance) return
+    // 同上：阈值跟着缩放后的字号走
+    syncGutterCompact()
     instance.updateOptions(currentEditorOptions(props.settings, scale))
     nextTick(() => instance.layout())
   },
 )
 
-// 窄屏 / 宽屏切换（旋屏、拖窗口跨过 600px、平板插拔键盘都算）：行号栏那两截留白跟着换一档
-// （见 editorOptions.js 的 LINE_NUMBER_GUTTER）。updateOptions 会自己重排，不用补 layout ——
-// 容器的宽高这一下没变。
-watch(narrowLayout, () => {
+// 整屏窄 / 宽切换（旋屏、拖窗口跨过 600px）：压缩档的判据里有一半是它
+watch(narrowLayout, syncGutterCompact)
+
+// 行号栏换档：窄屏 / 宽屏切换（旋屏、拖窗口跨过 600px）、窗格被拖宽拖窄、题解切双栏，
+// 只要「该用哪一档」翻面就重下发一次（判据见 editorOptions.js 的 gutterIsCompact）。
+// updateOptions 会自己重排，不用补 layout —— 容器的宽高这一下没变。
+watch(gutterCompact, () => {
   editor.value?.updateOptions(currentEditorOptions())
 })
 
@@ -799,12 +920,12 @@ defineExpose({
        is-md 类掉不掉就全看这一个口径 -->
   <div
     class="editor-pane"
-    :class="{ 'is-md': mdActive, 'is-status-off': !settings.statusBar }"
+    :class="{ 'is-md': mdActive, 'is-tight': gutterCompact, 'is-status-off': !settings.statusBar }"
   >
     <!-- 全屏编辑时页签栏整条让位（Esc 或再点一次那颗按钮退出）；
          条带里一张页签都没有了才收掉那条空横条（判据见 stripEmpty —— 不是「有没有活跃文件」，
          全折叠时 activeId 是 null 但芯片还得留着让人点开） -->
-    <EditorTabs v-show="!mdFullscreen && !stripEmpty" />
+    <EditorTabs v-show="!mdFullscreen && !stripEmpty" :pane-id="paneId" />
 
     <!-- 题解工具栏：左边文本格式与插入，右边字数与视图模式 -->
     <div v-if="mdBarVisible" class="editor-pane__bar">
@@ -976,14 +1097,14 @@ defineExpose({
            active 必须传：子面板是常驻挂载的，只靠 v-show 它看不见「这一页没露出来」，
            赛程会连报名状态一起在整页启动时就取（扩展会为此开一个 CF 标签页）。 -->
       <CfCodeforcesPanel
-        v-show="codeforcesTab.active"
-        :active="codeforcesTab.active"
+        v-show="codeforcesActive"
+        :active="codeforcesActive"
       />
 
       <!-- 设置视图与 Monaco 同一层，靠 v-show 互斥：切来切去不重建编辑器，
            也不重挂设置组件（它的运行环境探针订阅只建立一次） -->
       <EditorSettingsPanel
-        v-show="settingsTab.active"
+        v-show="settingsActive"
         :settings="settings"
         :panel-position="panelPosition"
         :time-limit="timeLimit"
@@ -991,7 +1112,7 @@ defineExpose({
         :checker="checker"
         :judge="judge"
         :connection="connection"
-        :active="settingsTab.active"
+        :active="settingsActive"
         :ui-scale="uiScale"
         @update:settings="emit('update:settings', $event)"
         @update:time-limit="emit('update:time-limit', $event)"
@@ -1007,12 +1128,18 @@ defineExpose({
       <div v-if="!activeNode && !viewActive" class="editor-pane__empty">
         <AppIcon name="code" :size="26" class="editor-pane__empty-icon" />
         <p>{{ t('app.emptyEditor') }}</p>
+        <!-- 分屏后空出来的窗格要能收掉（根叶子不给关，所以只在叶子数 > 1 时出现）。
+             2026-11-17 起「页签关光的窗格」由 editorPanes.reapEmptyPanes() 当场回收，
+             走不到这一页了；这颗按钮只剩**分屏刚造出来、还没装过页签**的格子用得到。 -->
+        <button
+          v-if="stripEmpty && canClosePane"
+          type="button"
+          class="editor-pane__empty-close"
+          @click="closeThisPane"
+        >
+          {{ t('app.closePane') }}
+        </button>
       </div>
-
-      <!-- 从资源管理器把文件拖到编辑区时的落点提示：与「拖到根文件区域」同款颜色。
-           必须排在 stage 最后 —— 里面几层都是 inset: 0 的绝对定位、没有 z-index，
-           谁在后面谁在上面。pointer-events: none，否则会把命中和 Monaco 一起挡住 -->
-      <div v-if="isDropTarget" class="editor-pane__drop" aria-hidden="true"></div>
 
       <!-- 生成图片的等待胶囊：画布这几百毫秒到几秒里，编辑区得有一处「还在动」的迹象。
            只盖在编辑区底部中央，不吃指针事件（这期间菜单已关、用户也不必点别处） -->
@@ -1023,8 +1150,8 @@ defineExpose({
     </div>
 
     <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看着合成视图时它没有意义；
-         题解下要不要收掉见样式表末尾那组闸门 -->
-    <footer v-if="activeNode && !viewActive" class="editor-pane__status">
+         题解下要不要收掉见样式表末尾那组闸门。分屏后只给**焦点窗格**挂（见 paneFocused） -->
+    <footer v-if="paneFocused && activeNode && !viewActive" class="editor-pane__status">
       <span class="opt-file">{{ activeNode.name }}</span>
       <span class="dot opt-file"></span>
       <span class="opt-utf8">UTF-8</span>
@@ -1378,14 +1505,6 @@ defineExpose({
   border-left: 1px solid var(--border-soft);
 }
 
-/* 拖文件到编辑区的落点提示：与资源管理器「拖到根区域」用同一个变量，两套主题自动跟随 */
-.editor-pane__drop {
-  position: absolute;
-  inset: 0;
-  background: var(--bg-drop-root);
-  pointer-events: none;
-}
-
 /* ------------------------------------------------------------ 题解工具栏 */
 
 .editor-pane__bar {
@@ -1694,6 +1813,23 @@ defineExpose({
 .editor-pane__empty p {
   margin: 0;
   font-size: 13px;
+}
+
+/* 空窗格上那枚「关闭窗格」：容器整体 pointer-events: none，只有这颗按钮单独放行 */
+.editor-pane__empty-close {
+  pointer-events: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+:where(html.is-hoverable) .editor-pane__empty-close:hover {
+  color: var(--text);
+  border-color: var(--border);
 }
 
 /* 空编辑区正中的图标：宽度取面板的一半（正方形，随面板缩放），

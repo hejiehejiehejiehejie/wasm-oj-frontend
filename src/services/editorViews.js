@@ -34,45 +34,13 @@
  * 见 services/tabFlow.js；本文件只回答「有哪些视图、各自开着没、谁盖着编辑器」。
  */
 import { computed, reactive, ref, watch } from 'vue'
+import { EDITOR_VIEW_IDS, EDITOR_VIEWS, viewOf } from './editorViewIds.js'
+import { focusPane, focusedLeaf, paneOf, placeTab, removeTab } from './editorPanes.js'
 import { codeViewIntent, workspace } from './vfs/workspaceStore.js'
 
-/**
- * 合成视图的**登记表** —— 这是「有哪些视图」的唯一出处（顺序见 tabStrip.stripOrder）。
- *
- * 每条只写界面需要的几样：id、图标名（AppIcon 的 name）、描边粗细（可省，省了用 AppIcon 的默认 2）、
- * 文案 key。**不写死译名**：数据表里存 key、由消费处（EditorTabs 的 viewMeta）现 `t()`，切语言才跟着变
- * （见 HANDOFF 第 5 节坑 28）。
- *
- * 刻意**不含**任何流转信息（怎么开、怎么关、焦点归谁）：那些对所有视图完全一致，
- * 收在 services/tabFlow.js。要加一种视图时，除了这里加一行，只需再给它一格渲染
- * （EditorPane 的 stage）与一个入口。
- */
-export const EDITOR_VIEWS = [
-  {
-    id: 'settings',
-    icon: 'gear',
-    // 页签里这枚齿轮单独加粗一档（AppIcon 默认为 2）。页签图标只有 12px，同排的 cpp / python /
-    // markdown 是实心字标、墨色本来就重，Lucide 标准的 2 号线在中间显得偏淡 —— 只在本页签
-    // 提高描边，别动全站默认值。
-    strokeWidth: 2.4,
-    labelKey: 'app.settings',
-    closeLabelKey: 'app.tabs.closeSettings',
-  },
-  {
-    id: 'codeforces',
-    icon: 'codeforces',
-    labelKey: 'cf.view.title',
-    closeLabelKey: 'cf.tab.close',
-  },
-]
-
-/** 全部合成视图 id（由登记表派生，别另抄一份） */
-export const EDITOR_VIEW_IDS = EDITOR_VIEWS.map((view) => view.id)
-
-/** 按 id 取登记项；认不出来的 id 返回 null（调用方据此判「这不是视图」） */
-export function viewOf(id) {
-  return EDITOR_VIEWS.find((view) => view.id === id) ?? null
-}
+// 登记表与 id 空间搬去了 services/editorViewIds.js（editorPanes 也要判视图 id，
+// 直接 import 本文件会成环）。这里原样转出，既有调用方不用改 import 路径。
+export { EDITOR_VIEWS, EDITOR_VIEW_IDS, viewOf }
 
 /**
  * 存档键：`{ order: string[], active: string|null }`。
@@ -142,9 +110,18 @@ export function isViewOpen(id) {
 }
 
 /** 点视图入口 / 点它的页签：亮出这一个，其余一律让开（它们铺在同一层）。
- *  本来没开着的，这一次才排进 viewOrder 的最右 —— 已经开着的只是切活跃，顺序不动。 */
+ *  本来没开着的，这一次才排进 viewOrder 的最右 —— 已经开着的只是切活跃，顺序不动。
+ *  【分屏口径】视图页签跟着**焦点窗格**走（P0a 只有根叶，行为与过去一致）：页签进
+ *  `leaf.tabs`，但**不写 leaf.active** —— active 只装文件 id，视图盖住窗格时下面那份代码的
+ *  激活页签要留着，关掉视图才能原地回去。 */
 function show(id) {
+  if (!state[id]) return
   if (!state[id].open) viewOrder.push(id)
+  const owner = paneOf(id)
+  // 视图已摆在某个窗格里（从那条页签栏点进来）：焦点先回到宿主窗格，
+  // 否则「点了没反应」—— 点的是隔壁窗格的页签，焦点却还留在当前窗格。
+  if (owner) focusPane(owner.id)
+  else placeTab(id, { paneId: focusedLeaf()?.id, makeActive: false })
   for (const view of EDITOR_VIEW_IDS) {
     const entry = state[view]
     if (view === id) {
@@ -169,6 +146,9 @@ export function closeView(id) {
   state[id].active = false
   const at = viewOrder.indexOf(id)
   if (at !== -1) viewOrder.splice(at, 1)
+  // 页签的成员资格现在归布局树：只翻状态不摘页签的话，stripOrder 里会留下一个
+  // 「open=false 却还在 leaf.tabs 中」的幽灵格（派生顺序不会自己清）。
+  removeTab(id)
 }
 
 /**
@@ -188,6 +168,21 @@ export function setViewOrder(ids) {
 /** 切回代码视图：只让开，不关页签 */
 export function deactivateViews() {
   for (const view of EDITOR_VIEW_IDS) state[view].active = false
+}
+
+/**
+ * 只让开**某个窗格**里的视图。焦点切到 A 窗格的文件时，B 窗格正盖着的设置页不该跟着收起。
+ * paneId 缺省（或不存在）时退回全局口径，与 deactivateViews 一致。
+ * @param {string} [paneId]
+ */
+export function deactivateViewsIn(paneId) {
+  if (!paneId) {
+    deactivateViews()
+    return
+  }
+  for (const view of EDITOR_VIEW_IDS) {
+    if (state[view].active && paneOf(view)?.id === paneId) state[view].active = false
+  }
 }
 
 /**
@@ -215,6 +210,23 @@ export const anyViewOpen = computed(() => EDITOR_VIEW_IDS.some((id) => state[id]
  */
 export function activeViewId() {
   return EDITOR_VIEW_IDS.find((id) => state[id].active) ?? null
+}
+
+/**
+ * 某个窗格此刻有没有正被合成视图盖住。
+ * 视图「属于哪个窗格」不另存一份 —— 它就是 `paneOf(viewId)`：show() 把页签放进焦点窗格，
+ * 拖动跨窗格时归属跟着 leaf.tabs 一起走。分屏后非焦点窗格据此各自渲染，互不牵连。
+ * @param {string} paneId
+ */
+export function viewActiveIn(paneId) {
+  if (!paneId) return viewActive.value
+  return EDITOR_VIEW_IDS.some((id) => state[id].active && paneOf(id)?.id === paneId)
+}
+
+/** 某个窗格里正盖着的视图 id（没有就 null）。@param {string} paneId */
+export function activeViewIdIn(paneId) {
+  if (!paneId) return activeViewId()
+  return EDITOR_VIEW_IDS.find((id) => state[id].active && paneOf(id)?.id === paneId) ?? null
 }
 
 // ------------------------------------------------------------ 跨刷新记着
@@ -275,6 +287,12 @@ export function restoreEditorViews() {
     state[id].open = order.includes(id)
     // 同一时刻只亮一个：存档里的 active 就是上一次盖着编辑器的那个（没有则都不亮）
     state[id].active = id === saved.active
+  }
+
+  // 成员资格归布局树：按存档顺序把开着的视图追加到焦点叶（此时只有根叶）的最右端，
+  // 与「新开的视图页签一律排最后」是同一条规矩；绝对位置仍不恢复。
+  for (const id of order) {
+    if (!paneOf(id)) placeTab(id, { paneId: focusedLeaf()?.id, makeActive: false })
   }
 
   // 恢复完才开闸 —— 上面这几行改动自己也会触发 persist，写回去的正是刚读出来的那一份，无害
@@ -342,7 +360,8 @@ export function closeCodeforcesTab() {
 watch(
   () => workspace.activeId,
   (id) => {
-    if (id) deactivateViews()
+    // 只让开**这张文件所在窗格**的视图：焦点换到隔壁窗格时，本窗格的设置页不该跟着收起。
+    if (id) deactivateViewsIn(paneOf(id)?.id)
   },
 )
 
@@ -352,4 +371,4 @@ watch(
 // 那边不能反向 import 本模块（成环），于是在这里把 deactivateViews 注册进去。
 // 两条路都留着：这条管「点开文件」的所有入口（树行单击 / 拖入 / 以后新加的），
 // watch 管「不经 openFile 也要切回代码」的那些（会话恢复、关掉最后一个代码页签后的回退）。
-codeViewIntent.show = deactivateViews
+codeViewIntent.show = deactivateViewsIn

@@ -20,22 +20,35 @@
  *   ① **回到上一个有焦点的页签** —— 用户的实际心路是「看 A 时顺手开了 B，关掉 B 自然想回 A」，
  *      而 A 在条带上可能离得很远。这就是「记忆」那一级的全部作用（MRU 栈，见 focusHistory）；
  *   ② 上个页签**已经关掉了**（或被折叠藏起来）：退回**邻居** —— 先右后左落到最近的可见页签，
- *      与 Chrome 同一条规矩，判据在 tabGroups.findNextVisibleTab。记忆里更早的几格不用：
- *      它们离条带上此刻的位置太远，跳过去比邻居更难预期。
+ *      与 Chrome 同一条规矩。记忆里更早的几格不用：它们离条带上此刻的位置太远，跳过去比
+ *      邻居更难预期。
+ *   ②这一级**不在这里重写**：它与「关文件页签」「把页签拖到别的窗格」共用同一个落点结算
+ *   `tabGroups.settleLeafFocus()`（两轴一次落笔，邻居是设置 / Codeforces 时把视图点亮）。
+ *   本函数只在**摘除的那一刻**调它（视图那条路），再补一次「切过去」的收尾。
  * 两级都只认「看得见」的页签（tabGroups.isTabVisible）；一张都不剩才置空：焦点必须落在
  * 一张看得见的页签上，否则就是「编辑区开着文件、条带里找不到它」。
  */
 import { computed, watch } from 'vue'
-import { activateView, activeViewId, closeView, deactivateViews, isViewOpen } from './editorViews.js'
-import { findNextVisibleTab, isTabVisible } from './tabGroups.js'
+import {
+  activateView,
+  activeViewIdIn,
+  closeView,
+  deactivateViewsIn,
+  isViewOpen,
+} from './editorViews.js'
+import { focusedLeaf, paneOf } from './editorPanes.js'
+import { isTabVisible, settleLeafFocus } from './tabGroups.js'
 import { isViewId, stripOrder } from './tabStrip.js'
-import { clearActiveTab, closeTab, setActiveTab, workspace } from './vfs/workspaceStore.js'
+import { closeTab, setActiveTab, workspace } from './vfs/workspaceStore.js'
 
 /**
  * 条带上此刻有焦点的页签 id（文件或视图），一个都没有时 null。
  * 渲染层判「哪一颗该亮」就认这一个 —— 别再各写一套 `activeId && !viewActive`。
+ * 【分屏口径】只看**焦点窗格**：隔壁窗格盖着设置页，不该让本窗格的页签变暗。
  */
-export const focusedTabId = computed(() => activeViewId() ?? workspace.activeId)
+export const focusedTabId = computed(
+  () => activeViewIdIn(focusedLeaf()?.id) ?? workspace.activeId,
+)
 
 // ------------------------------------------------------------ 焦点记忆（关掉它之后回哪去）
 
@@ -123,7 +136,8 @@ export function focusTab(id) {
     return
   }
   if (!workspace.openTabIds.includes(id)) return
-  deactivateViews()
+  // 只让开**这张页签所在窗格**的视图：隔壁窗格的设置页与本次点击无关
+  deactivateViewsIn(paneOf(id)?.id)
   setActiveTab(id)
   // 同步记一笔：下面那条 watch 是 post 冲刷的（要批量去抖），同一拍里紧接着关页签时它还没跑，
   // 「上一个」就会缺这一格。这里记的是**落笔之后**的焦点，与 watch 记的是同一件事，
@@ -145,12 +159,27 @@ export function focusTab(id) {
  */
 export function closeTabItem(id) {
   if (!id) return
-  const at = stripOrder.indexOf(id)
+  // 先锁定**本窗格**的序列、下标与叶子：closeTab / closeView 会同步把页签从 leaf.tabs 摘掉，
+  // 关完再数就会数在右移后的位置上；而用全局 stripOrder 数，焦点可能被交到隔壁窗格。
+  const paneTabs = paneOf(id)?.tabs ?? stripOrder.value
+  const at = paneTabs.indexOf(id)
+  // 叶子留个引用：关完 `paneOf(id)` 就是 null 了，而邻居结算还得知道「剩哪几张」
+  const leaf = paneOf(id)
   const wasFocused = focusedTabId.value === id
 
   forgetFocus(id)
-  if (isViewId(id)) closeView(id)
-  else closeTab(id)
+  if (isViewId(id)) {
+    // 关的这张正盖着窗格吗？盖着才需要结算 —— 关一张**背景**视图页签（条带上的 × / 中键，
+    // 屏幕上露着的是代码）不该把显示切换走，与「关背景文件页签不搬焦点」同一条规矩。
+    const shown = activeViewIdIn(leaf?.id) === id
+    closeView(id)
+    // 视图页签的成员是 editorViews 自己摘的（不经 closeTab），文件页签那条链上的结算
+    // 不会跑到 —— 这里补一次，与「关文件页签」「拖到别的窗格」共用同一个落点函数。
+    if (shown) settleLeafFocus(leaf, id, at)
+  } else {
+    // 文件页签的移除本身就会结算一遍（closeTab → 同一个 settleLeafFocus），这里不必重来
+    closeTab(id)
+  }
 
   if (!wasFocused) return
 
@@ -161,14 +190,9 @@ export function closeTabItem(id) {
     return
   }
 
-  // ② 没有可用的记忆：退回条带上的邻居，先右后左
-  const next = at === -1 ? null : findNextVisibleTab(at, id, true)
-  if (next) {
-    focusTab(next)
-    return
-  }
-  // 一张可见页签都不剩（或本来就只有这一张）：焦点必须落空。文件那半边 closeTab 自己会置 null，
-  // 视图那半边要在这里补 —— 留着「视图已关、编辑器还盖着它」的状态就是最典型的幽灵态。
-  deactivateViews()
-  clearActiveTab()
+  // ② 没有可用的记忆：邻居那一级已经在摘除时结算过了（settleLeafFocus，两轴一次落笔）。
+  // 这里只补一次「切过去」的公共收尾：视图要被点亮 / 文件要发一次切页签意图。
+  // 焦点此刻若还空着（本窗格一张可见页签都不剩）就什么都不做 —— 空态是正确结果。
+  const fallback = focusedTabId.value
+  if (fallback && fallback !== id) focusTab(fallback)
 }

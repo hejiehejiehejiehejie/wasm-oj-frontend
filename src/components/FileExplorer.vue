@@ -110,6 +110,12 @@ import { watchBackLayer } from '../services/backStack.js'
  */
 const CHECKER_OPTIONS = CHECKERS
 
+/**
+ * 窄屏下把文件拖出树（朝编辑区去）时通知外层收起抽屉。
+ * 本组件不知道侧栏是展开还是折叠 —— 那是 App 的 panelVisible，见下面的 onDragOut。
+ */
+const emit = defineEmits(['drag-out'])
+
 const rootEl = ref(null)
 
 // 页头右侧的动作区（新建文件 / 文件夹两颗钮）经 Teleport 投进 Sidebar 的共享页头
@@ -1064,7 +1070,15 @@ const {
   armedId,
   onRowPointerDown,
   consumeClickSuppression,
-} = useTreeDrag({ treeEl: rootEl, onDrop: onDropNode, openContextMenu, closeContextMenu })
+} = useTreeDrag({
+  treeEl: rootEl,
+  onDrop: onDropNode,
+  openContextMenu,
+  closeContextMenu,
+  // 窄屏：拖出树 = 要去编辑区。侧栏这时是盖在编辑区上的抽屉，不收起来就永远投不进去
+  // （文件打不开、边缘切分屏也不亮）。收起由 App 做 —— panelVisible 只有那一份。
+  onDragOut: () => emit('drag-out'),
+})
 
 // 覆盖式滚动条：原生那条会占掉 11px 内容宽度、出现/消失时行跟着跳，换成浮在行之上的滑块
 // （2026-10-13；原生那条由下面 .explorer__tree 的 scrollbar-width / ::-webkit-scrollbar 藏掉）

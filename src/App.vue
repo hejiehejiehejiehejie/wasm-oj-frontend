@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import EditorPane from './components/EditorPane.vue'
+import EditorPaneGrid from './components/EditorPaneGrid.vue'
 import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import ActivityBar from './components/ActivityBar.vue'
@@ -53,6 +53,16 @@ import {
 import { clearRunNotify, notifyRunOutcome } from './services/runNotify.js'
 import { markSolvedBySubmission } from './services/solvedIndex.js'
 import { modelManager } from './services/monaco/modelManager.js'
+import {
+  PANES_STORAGE_KEY,
+  closeEmptyPane,
+  enablePanesPersistence,
+  fileTabs,
+  focusedLeaf,
+  leaves,
+  restorePanes,
+  splitPane,
+} from './services/editorPanes.js'
 import {
   MD_VIEW_SHORTCUT,
   cycleMdView,
@@ -693,6 +703,22 @@ function togglePanel({ instant = false } = {}) {
     // 拖拽态不用补：越界翻转期间 dragging 一直是真（见 handoffDrag）
     if (panelVisible.value) pinSidebarWidth()
   })
+}
+
+/**
+ * 窄屏：从文件树里把文件拖向编辑区时，先把侧栏抽屉收起来（2026-11-17）。
+ *
+ * 窄屏的侧栏是**覆盖在编辑区之上**的抽屉（见样式表那块注释），展开时指针底下永远是
+ * 侧栏 / 遮罩。于是「拖文件到编辑区」这一整条路都走不通：`hitDropZone` 的命中元素不在
+ * 编辑区里，`resolvePaneDrop` 也拿不到窗格 —— 鼠标和触摸一模一样，看着就是「手势没反应」。
+ * 收起抽屉后编辑区露出来，同一次拖拽继续有效（幽灵在 body 上、指针监听在 window 上，
+ * 源行只是被藏起来；`useTreeDrag` 每轮只在**真的离开树**时报一次，树内换目录不受影响）。
+ *
+ * 用 `instant`：拖拽中不要播 View Transition，那会把整个界面拍成快照，跟手的幽灵会顿一下。
+ */
+function collapsePanelForTreeDrag() {
+  if (!isNarrowLayout() || !panelVisible.value) return
+  togglePanel({ instant: true })
 }
 
 // 轻点的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点
@@ -1519,6 +1545,31 @@ watch(
 
 // ------------------------------------------------------------ 全局快捷键
 // 键位表在 useShortcutManager 里（含持久化与冲突检测），这里只把动作 id 接上真正的函数。
+
+/**
+ * 分屏 / 收掉空窗格（`split-editor`）。
+ *
+ * 同一个键两种语义，按焦点窗格当前的状态决定：
+ *   · 焦点窗格是空的且不是最后一格 → 收掉它（分屏后反悔最自然的一步）；
+ *   · 否则 → 把焦点窗格一分为二（新窗格在后，且获焦）。
+ * 方向随屏幕：宽屏左右分，窄屏只能上下分 —— 390px 宽上并排两片各剩不到 200px，读不了
+ * 代码；上下两段则完全可用（窄屏渲染层就是竖排投影，见 computeNarrowPaneRects）。
+ * 上限也随屏幕：宽屏 4 片、窄屏 2 片（`paneLimit()`），到顶时提示的是各自那句。 */
+function toggleSplitPane() {
+  const pane = focusedLeaf()
+  if (!pane) return
+  if (pane.tabs.length === 0 && leaves().length > 1) {
+    closeEmptyPane(pane.id)
+    return
+  }
+  const narrow = isNarrowLayout()
+  const axis = narrow ? 'y' : 'x'
+  if (!splitPane(pane.id, axis, 'after')) {
+    const key = narrow ? 'app.splitLimitNarrow' : 'app.splitLimit'
+    notify({ type: 'info', message: t(key), duration: 2600, tag: 'split-editor' })
+  }
+}
+
 // 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那 7 条；另有两条**作用域受限**的
 // （F2 重命名 / Delete 删除资源树节点）在它下面单独一张表里，理由见那里的注释。
 // 监听挂在 window 的**捕获**阶段：Monaco 的键位服务挂在编辑器内部的 DOM 上，捕获是从外
@@ -1543,6 +1594,8 @@ const SHORTCUT_HANDLERS = {
     switchSidebarPanel({ instant })
   },
   'toggle-layout': () => flipPanelPosition(),
+  // 分屏 / 收掉空窗格：同一个键按焦点窗格的状态切换（见上面的 toggleSplitPane）
+  'split-editor': () => toggleSplitPane(),
   'new-case': () => addCase(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
   // 生成图片：落在 EditorPane 里（那边持有 Monaco 实例与选区）。没有选区时导出整个文件，
@@ -1915,11 +1968,27 @@ onMounted(async () => {
   } catch {
     /* 存储不可用时静默；界面仍可使用 */
   }
+  // 分屏布局：会话恢复先把页签灌进根叶子（initWorkspaceStore → editorPanes.hydrate），
+  // 这一步再把上次的分割树摆回去。存档里认不出来的页签（文件删了 / 工作区换了）会被丢掉，
+  // 对应的 model 由这里释放 —— 会话恢复时它们刚被 retain 过。
+  try {
+    const raw = window.localStorage.getItem(PANES_STORAGE_KEY)
+    const saved = raw ? JSON.parse(raw) : null
+    if (saved) {
+      const restored = fileTabs()
+      const dropped = restorePanes(saved, (id) => restored.includes(id))
+      for (const id of dropped) modelManager.release(id)
+    }
+  } catch {
+    /* 存档坏了就当没存过：hydrate 建出来的单叶树照常可用 */
+  }
   // 上次开着的设置 / Codeforces 页签摆回来（含「哪一个正盖着编辑器」）。**必须在会话恢复之后**：
   // 那边会把 workspace.activeId 设回上次那个文件，editorViews 的「活跃文件一变就让开」会把
   // 早一步恢复的视图立刻按下去（见 services/editorViews.js 的 restoreEditorViews）。
   // 放在 try 之外：存储出错时视图页签照样该恢复。
   restoreEditorViews()
+  // 布局与视图页签都归位之后才开落盘闸门：否则启动那一刻的默认单叶树会把用户的分屏覆盖掉
+  enablePanesPersistence()
   // 云配置的两条入口都在 confirmCloudEntry 里，这一次调用同时照顾它们：
   // - 地址里带了 /<handle> → 先确认云端有没有这份配置，再决定要不要打开设置页；
   //   云端没有配置时会把地址抹回根路径、只弹一句提示，这里就不开设置页。
@@ -1995,7 +2064,7 @@ onBeforeUnmount(() => {
       <div class="drawer-scrim" aria-hidden="true" @click="togglePanel()"></div>
 
       <section class="pane pane--editor" :style="editorPaneStyle">
-        <EditorPane
+        <EditorPaneGrid
           ref="editorPane"
           :settings="editorSettings"
           :panel-position="panelPosition"
@@ -2060,7 +2129,7 @@ onBeforeUnmount(() => {
                把它当成 { instant }（truthy）而不播动画。 -->
           <Sidebar ref="sidebarRef" :panel-position="panelPosition" @collapse="togglePanel()">
             <template #explorer>
-              <FileExplorer ref="fileExplorer" />
+              <FileExplorer ref="fileExplorer" @drag-out="collapsePanelForTreeDrag" />
             </template>
             <template #tests>
               <TestPanel

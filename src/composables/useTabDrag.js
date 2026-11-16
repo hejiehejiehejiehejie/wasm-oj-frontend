@@ -483,8 +483,9 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     if (press || draggingId.value) return
     // 关闭按钮（×）上起手不拖 —— 那是要关页签
     if (event.target instanceof Element && event.target.closest('.editor-tabs__close')) return
-    // 看得见的只剩一张时照旧建档：拖是拖不动的（beginLiveReorder 发现单元不足会当没拖起来），
-    // 但长按 500ms 的菜单还得能弹 —— 只剩一张时「添加到分组 / 关闭」反而最常用。
+    // 看得见的只剩一张时照旧建档：单张在本条带内换无可换，但分屏后能拖去另一片窗格
+    //（见 beginLiveReorder 的注释），长按 500ms 的菜单也照弹 —— 只剩一张时
+    //「添加到分组 / 关闭」反而最常用。
     beginPress(event, { id })
   }
 
@@ -632,7 +633,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
 
     if (state.dragging) {
       // 松手与 click 是两次事件，不挡一下会顺带触发页签的 activate（切过去）
-      finishDrag(true)
+      finishDrag(true, { x: event.clientX, y: event.clientY })
       markClickSuppressed()
       return
     }
@@ -747,7 +748,11 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     const dragged = press.gid
       ? units.find((u) => u.kind === 'chip' && u.gid === press.gid)
       : units.find((u) => u.id === press.id)
-    if (!dragged || units.length < 2) return false
+    if (!dragged) return false
+    // 只有一个单元（条带只剩一张页签 / 折叠组只剩芯片）也允许起拖：**窗格内**确实换无可换，
+    // 但分屏后它还能被拖到另一片窗格（见 EditorTabs.moveAcrossPanes）。以前这里卡
+    // `units.length < 2`，症状是「最后一张页签拖不走 → 永远腾不空、空窗格收不掉」。
+    // 单单元的虚拟序列恒为它自己，让位与提交都是空操作，不会产生别的副作用。
     // 被拖块：页签拖动 = [它自己]；芯片拖动 = [芯片, ...紧随其后的全体可见组员]
     //（组员在 DOM 序里紧跟芯片 —— 「同组成员连续」的不变式；折叠组的组员不在 units 里，
     // 由芯片代表，commit 时经 hiddenByGroup 展开）。块内单元的相对间距 == 槽位模型的
@@ -1267,8 +1272,13 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
    * 收尾：松手（commit=true）提交排序；取消 / Esc / pointercancel（commit=false）不提交。
    * 两种出口的视觉收尾相同 —— settle() 从各元素的**当前视觉位置**补间到（提交后的）
    * 自然车位。
+   *
+   * `pointer` 是松手那一发的视口坐标：分屏后调用方要靠它判断「落点是不是另一片窗格」，
+   * 光有本条的落点下标不够（那个下标被钳在源条带内）。只在 commit 时带出去。
+   * @param {boolean} commit
+   * @param {{x:number,y:number}|null} [pointer]
    */
-  function finishDrag(commit) {
+  function finishDrag(commit, pointer = null) {
     const d = drag
     const index = commit && d ? commitIndex(d) : null
     // 落盘载荷：页签拖动带实时归属（调用方结算成员关系）；芯片拖动只报组 —— 成员关系
@@ -1277,7 +1287,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       commit && d
         ? d.kind === 'group'
           ? { kind: 'group', gid: d.gid }
-          : { kind: 'tab', id: d.id, liveGid: d.gid }
+          : { kind: 'tab', id: d.id, liveGid: d.gid, pointer }
         : null
     // 元素清单先抓下来（cancelPress 会把 drag 置空）
     const els = d ? d.units.map((u) => u.el) : []

@@ -83,6 +83,17 @@ export const SHORTCUT_ACTIONS = [
     default: 'Mod+Shift+KeyE',
   },
   { id: 'toggle-layout', labelKey: 'settings.shortcut.toggleLayout.label', default: 'Mod+Shift+KeyB' },
+  /**
+   * 分屏（2026-11-16 加）：焦点窗格一分为二；焦点窗格是空的时候同一个键把它收掉。
+   * 默认键位避开 ⌘\ —— 那一发在 Markdown 文件里是「切换编辑 / 预览 / 分栏」（见 mdView
+   * 的 MD_VIEW_SHORTCUT），全局动作抢过去会让题解的视图键失灵。
+   */
+  {
+    id: 'split-editor',
+    labelKey: 'settings.shortcut.splitEditor.label',
+    hintKey: 'settings.shortcut.splitEditor.hint',
+    default: 'Mod+Alt+Backslash',
+  },
   { id: 'new-case', labelKey: 'settings.shortcut.newCase.label', default: 'Mod+Alt+Enter' },
   { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
   /**

@@ -14,6 +14,12 @@ export default {
 
       /** 编辑区没有任何打开文件时的空状态 */
       emptyEditor: '在资源管理器中打开或新建文件',
+      /** 空窗格占位上的按钮（分屏后收掉这一格） */
+      closePane: '关闭窗格',
+      /** 已经四格时的说明 */
+      splitLimit: '最多同时打开四个窗格',
+      /** 窄屏只支持两格（上限随屏幕走，见 editorPanes 的 paneLimit） */
+      splitLimitNarrow: '窄屏最多同时打开两个窗格',
       /** 评测面板页脚那颗 ▶ 的 title */
       runAllTests: '运行全部测试用例',
 
@@ -175,6 +181,9 @@ export default {
       download: 'Download',
 
       emptyEditor: 'Open or create a file in the Explorer',
+      closePane: 'Close pane',
+      splitLimit: 'At most four panes can be open at once',
+      splitLimitNarrow: 'At most two panes can be open on narrow screens',
       runAllTests: 'Run all test cases',
 
       toolchain: {
