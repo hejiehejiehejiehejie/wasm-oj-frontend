@@ -417,6 +417,25 @@ const HEAD_ICON_SIZE = 19
   background: var(--bg-control-hover);
 }
 
+/* 浅色方案专用（2026-11-16 第三轮）：轨道底改成**按地面锚定**，不再用 --bg-control。
+   用户口径：「侧边栏颜色改浅之后，文件和评测按钮的底色显得有些深了」。来历：地面两轮从
+   #f3f3f3 抬到 #fbfbfb（+8 阶），而 --bg-control 一直是 #ececec 没动 —— 轨道与地面的差量
+   从 7 阶涨到 15 阶，一枚 26px 高的小控件就读成了一块灰砖。
+   **不能直接抬 --bg-control**：它还被设置页的按钮、CF 控制台、快捷键录制框那些**落在面板上**
+   的控件共用（与面板差 17 阶是它们该有的分量），一起抬会把那些控件抹平。所以只在这一处
+   换锚点：轨道 = 地面掺 3% 黑（251 → 243，−8 阶），悬停再压 3 阶（→ 236）。
+   color-mix 保色相，paper / leaf / mist 也各自跟着自己那套地面走。
+   ⚠️ `:root[data-scheme='light']:where(html.is-hoverable)` 中间不能有空格（见 FileTreeItem
+   同款告警）：第一个复合选择器必须仍是 html 自己，否则 `:where()` 成了 :root 的后代、
+   整条规则永不命中。 */
+:root[data-scheme='light'] .sidebar-switcher__pill {
+  background: color-mix(in srgb, var(--bg-editor) 97%, black);
+}
+
+:root[data-scheme='light']:where(html.is-hoverable) .sidebar-switcher__pill:hover {
+  background: color-mix(in srgb, var(--bg-editor) 94%, black);
+}
+
 /* 蓝色指示块：单实例后它是 pill 里的一个真实元素，active 变化只改 transform，
    由 transition 补间 —— 位移量就是一段宽（段间隔 0）。首屏没有「上一次位置」，
    transition 不会触发，天然没有旧版要防的「加载时白播一次」。

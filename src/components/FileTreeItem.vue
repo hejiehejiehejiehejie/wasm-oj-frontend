@@ -624,37 +624,40 @@ function focusRowAt(el, extend) {
   background: var(--bg-hover);
 }
 
-/* 浅色方案专用（2026-11-12 加）：宿主面（侧栏 = --bg-editor，2026-11-16 起是 #f9f9f9；加这条时
-   还是 --bg-panel #f4f4f4）与悬停 --bg-hover-soft、选中 --bg-hover 的差量本来太小 —— 用户报
-   「资源管理器里选中的文件、以及指针停在文件上的高亮，颜色都太浅了」，实机上确实几乎看不出
-   选中了哪一行。
-   深色那对相对面板是 +7 / +21，浅色这一支按同样的相对关系再抬一档，亮度差翻倍之后才读得出。
-   **2026-11-12 二次微调**（用户「#cacaca 偏重」）：掺黑从 6% / 13% 收回 4% / 9%
-   —— 悬停约 −17 阶（#e3e3e3）、选中约 −33 阶（#d3d3d3），不再是 −21 / −42 那么重的一档。
-   （2026-11-16 宿主底色整体提亮 6 阶后，这两条靠 color-mix 自动跟着走：悬停约 #e9e9e9、
-   选中约 #d3d3d3，相对宿主的阶差基本没变。）
+/* 浅色方案专用（2026-11-12 加）：宿主面（侧栏 = --bg-editor）与通用的悬停 / 选中档差量太小 ——
+   用户报「资源管理器里选中的文件、以及指针停在文件上的高亮，颜色都太浅了」，实机上确实几乎
+   看不出选中了哪一行。深色那对相对面板是 +7 / +21，浅色这一支按同样的相对关系拉开才读得出。
+   三轮经过，**锚点换过一次**，别看旧值去猜：
+   - 2026-11-12 初版按 --bg-hover / --bg-hover-soft 掺黑 6% / 13%；当天用户「#cacaca 偏重」
+     → 收回 4% / 9%（悬停 −17、选中 −33）。
+   - 2026-11-16 地面两轮提亮（#f3f3f3 → #fbfbfb）。那两支掺黑的底是**绝对灰度**、不随地面走，
+     于是选中的行固定在 −40 阶（#d3d3d3）—— 用户第三轮报「文件总选中文件的高亮有些深了」。
+   - **2026-11-16 第三轮：锚点从 --bg-hover 换成地面**。悬停 = 地面掺 3% 黑（251 → 243，−8）、
+     选中 = 掺 7% 黑（→ 233，−18）。这两个阶差与深色那对（面板 +7 / +21）同构，而且以后
+     地面再怎么动，行高亮自动跟着走，不会再像这次一样漂成一块灰砖。
    用 color-mix 掺黑而不是写死灰度：paper / leaf / mist 也走 light scheme，各有自己的暖 / 绿 /
    蓝底色，掺黑能保留色相，写死 #d8d8d8 会让它们变灰。
    ⚠️ **不动** base.css 的 --bg-hover / --bg-hover-soft：那两支还被按钮、面板标题等处共用，
-   这里只覆盖文件树的这两条状态。
+   这里只覆盖文件树的这几条状态色。
    ⚠️ `:root[data-scheme='light']:where(html.is-hoverable)` 中间**不能有空格**：这些选择器
    共用一条「第一个复合选择器是 html 自己」的约定，一旦空格隔开，`:where(html.is-hoverable)`
    就成了 `:root` 的后代 —— 而 <html> 永远不是自己的后代，整条规则永不命中（2026-11-12 踩过：
    悬停那一条死活不生效，选中那一条却好着，因为后者不带这个闸门）。 */
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row:hover {
-  background: color-mix(in srgb, var(--bg-hover-soft) 96%, black);
+  background: color-mix(in srgb, var(--bg-editor) 97%, black);
 }
 
 :root[data-scheme='light'] .tree-item__row--active,
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active:hover {
-  background: color-mix(in srgb, var(--bg-hover) 91%, black);
+  background: color-mix(in srgb, var(--bg-editor) 93%, black);
 }
 
 /* 触屏长按的两条同色（进度条终点 / 就绪底色）：它们原本取 --bg-hover，浅色下会比上面新的
-   悬停色还浅，长按走到一半会「回亮」一下。特异性 (0,4,0) 压得住 (0,2,0) 的那两条。 */
+   悬停色还浅，长按走到一半会「回亮」一下。终点与选中同色（同样是地面掺 7% 黑）。
+   特异性 (0,4,0) 压得住 (0,2,0) 的那两条。 */
 :root[data-scheme='light'] .tree-item__row.tree-item__row--pressing,
 :root[data-scheme='light'] .tree-item__row.tree-item__row--armed {
-  background: color-mix(in srgb, var(--bg-hover) 91%, black);
+  background: color-mix(in srgb, var(--bg-editor) 93%, black);
 }
 
 /* 正在被拖的那一行 */
