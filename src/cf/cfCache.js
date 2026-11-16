@@ -25,7 +25,7 @@ const STORE = 'cache'
  * 只是「当作没有」，旧行不会消失 —— 长期用下来库只增不减（见 readRecord 里的说明）。
  * 固定键（`problemset`、`contestList`、`contestList:gym`）不在这里，它们永远只有一条。
  */
-const VOLATILE_PREFIXES = ['contestProblems:', 'solved:', 'handle:']
+const VOLATILE_PREFIXES = ['contestProblems:', 'contestMeta:', 'solved:', 'handle:']
 
 /**
  * 易变键族的总条数上限。这些条目全是**纯缓存**（删掉最多重付一次 CF 请求），
@@ -116,13 +116,17 @@ async function pruneVolatileRecords(db) {
 /**
  * 覆盖写一条记录。返回是否**提交**成功 —— put 的请求成功只代表进队，
  * 配额超限要到事务提交时才失败（见 idb.js 的同名说明）。
+ *
+ * `ts` 只在「这份数据其实早就取回来了」时传（排行榜的内存复用最多 60 秒）：
+ * 用写入时刻当锚点会让 `relativeTimeSeconds` 与实际取数时刻对不上，
+ * 两条计时口径就会莫名其妙地分岔。
  * @returns {Promise<boolean>}
  */
-export async function writeRecord(key, data) {
+export async function writeRecord(key, data, ts = Date.now()) {
   const db = await database()
   if (!db) return false
   const committed = await commitTransaction(db, [STORE], 'readwrite', (tx) => {
-    tx.objectStore(STORE).put({ key, ts: Date.now(), data })
+    tx.objectStore(STORE).put({ key, ts, data })
   })
   // 只有易变键族会把条数撑大；固定键写入时不必白扫一趟库。清理失败不影响写的结果
   if (committed && isVolatileKey(key)) await pruneVolatileRecords(db)

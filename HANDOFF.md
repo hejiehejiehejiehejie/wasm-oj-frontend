@@ -6642,3 +6642,115 @@ compact
    / `clearPostpone` 两条路；`startStale.value = false` 在文件里**只出现在 `clearPostpone` 一处**。
 2. **别用 `contest.list` 当探活**。它们的体积差 5000 倍（413186B vs 79B），而且 standings 的 `phase`
    比 list 快；list 只配用来「查改期」，且必须退避。
+
+## 59. 失步自愈再收紧：迟到 pending、相位倒退、切面板节流、单场补丁（2026-11-16，用户复审 §56.7 后）
+
+§56.7 落地后又审出四处边界，逐条核对的结果是：**一处是我看错了（本来就没问题）**，
+三处是真缺口。本节记改了什么、为什么这么改、以及每条怎么验的。
+
+### 59.1 阶段 1 的「同毫秒双发」——不成立，没改
+
+复审的判断是「`+2s/+5s/+10s` 若是三只平行定时器，RTT 3.8s 时 `#2` 还在路上 `#3` 就撞车」。
+核代码：`runQuickProbe` 的下一拍是在**上一次 `await` 返回之后**才 `setTimeout`（间隔是
+`POSTPONE_QUICK_DELAYS[step+1] - POSTPONE_QUICK_DELAYS[step]`），本来就是串行链；三次都回 pending
+才 `startSlowPoll()`，而 list 腿的阶梯首级 0ms 是在**第三次返回之后**才挂的。实测时序也印证：
+
+```
+0.7s standings（首载，回 pending）  2.8s list（阶梯首级）  30.7s standings（阶段 2 探活）
+```
+
+list 落在 2.8s 而不是 0.7s，是被 Worker 的 **2100ms 全局闸门**推开的 —— 撞不上。
+唯一真实的副作用是这条闸门让「立刻付一次 list」迟到约 2 秒，可以接受（它本来就是异常路径）。
+
+### 59.2 迟到的 `has not started` 会把刚解封的失步重新锁上 —— 真缺口，补了第二道锁
+
+两条腿并发在途时可能出现「list 先回 CODING 解封 → 几秒前发出的 standings 才回 pending」。
+现在有两道锁：
+
+1. **代次锁（本来就有）**：解封时 `applyContestMeta` 会补一次 `loadProblems({silent:true})`，
+   它同步 `++problemsSeq`，任何在途的旧 standings 回来时 `seq` 对不上，直接丢弃。
+2. **代数锁（新加）**：`metaEpoch` —— 每收到一次 `phase !== BEFORE` 的**权威确认**就 +1；
+   `loadProblems` 发出时记下当时的值，pending 回来若对不上（或 `spec` 已换场）就丢掉，
+   且**不写**「还没开赛」那句空态说明。
+
+诚实交代：现实顺序里第 1 道锁通常先命中，所以探针**分不出**是哪一道挡下的 —— 第 2 道是兜底，
+成本 6 行。它挡的是第 1 道覆盖不到的路径（解封时题目已经非空、因而没有补拉）。
+
+### 59.3 相位倒退：`BEFORE` 覆盖 `CODING` —— 真缺口，抽成纯函数
+
+`contest.list` 走 CF 的边缘缓存，开赛瞬间常比 standings 落后 30–60 秒；谁后到谁覆盖的话，
+界面会被一份更旧的数据打回「还没开赛」，而 `contestStatus` 见到 `FINISHED` 更是**直接判结束**
+（见 `cf/contest.js` 第一行）。判据抽成 `mergeContestMeta(current, incoming)`：
+
+| 条件 | 处理 |
+| --- | --- |
+| 不同场次 / `startTimeSeconds` 变了（真改期） | 整份合并，允许回到 `BEFORE` |
+| 同一轮，且新相位**更靠后** | 整份合并（正常前进） |
+| 同一轮，且新相位**更靠前** | 丢掉 `phase` 与 `relativeTimeSeconds`，其余字段照并 —— 后者是更旧快照里的数，留着会把倒计时往回拨 |
+| 任一侧相位不认识（CF 加了新值） | 不参与单调判定，放行 |
+
+`applyContestMeta` 只走它，不再自己拼 `{...contest.value, ...raw}`。
+13 条单测覆盖前进 / 倒退 / 改期 / 系统测试中间态 / 未知相位 / 空值 / 名字照常更新。
+
+### 59.4 切面板把退避阶梯刷回第一级 —— 真缺口，改成「记死到期时刻」
+
+原来的 `setVisible(true) → wakePostpone()` 是「无条件立刻补探 + `startSlowPoll({fresh:true})`」，
+而后者会把 `ladderIndex` 重置。选手在题面与编辑器之间切五次，就多发五次请求、阶梯永远走不到 60s。
+
+现在两条腿各记一个 `nextProbeDueAt` / `nextListDueAt`：
+
+- 隐藏时只 `clearTimeout`，**dueAt 留着**；
+- 切回时按 `dueAt - now` 重挂：没到点接着等，过期了才立刻发一次；
+- `armListProbe(delay)` 传了 `delay` 就**不推进** `ladderIndex`（那是恢复，不是新的一拍）；
+- 进阶段 2 那一刻若面板正隐藏（用户在编辑器里等题目），也先算出 dueAt 再把 timer 掐掉 —— 挂起期间零请求。
+
+### 59.5 单场补丁：`standings` 的元数据落库，F5 不再重演失步 —— 真缺口
+
+§56.7 只把 `result.contest` 喂给内存里的响应式状态；`contest.list` 那份 1 小时缓存仍是旧的，
+于是「刚确认开赛 → F5 → 又从 `BEFORE` 与旧时刻重走一遍失步」。
+
+- 新键 `contestMeta:<id>`（几 KB，进易变键族的淘汰名单）：`loadContestProblems` / `standings`
+  拿到网络数据后落一份；`writeRecord` 新增 `ts` 参数，用 **`payload.fetchedAt`** 而不是写入时刻
+  —— 排行榜的内存复用最多 60 秒，拿写入时刻当锚点会让 `relativeTimeSeconds` 与锚点差出一分钟。
+- `findContest` 读它：`patch.ts > 列表的 fetchedAt` 才覆盖那一条，各自带各的时间戳，
+  互不牵连（**不要**去改写整份列表并推 `ts`，那等于顺手把别场次的陈旧度也抹掉）。
+- 主线程不必改：`contestProblems` 响应多带一个 `fetchedAt`，`applyContestMeta` 拿它当锚点。
+
+### 59.6 实测（四个探针 + 一组单测，全部跑完即删）
+
+| 组 | 断言 | 结果 |
+| --- | --- | --- |
+| 相位锁单测 | 前进 / 同轮倒退 / 改期放行 / 系统测试两态 / 未知相位 / 空值 / 名字更新 | **13/13** |
+| D 同态解封（复审给的造法） | 伪造「本地 2 秒前刚开赛 + 首探 pending」，第二探回 `CODING` 且 `startTimeSeconds` 不变 | **8/8** |
+| C 切面板节流 | 阶段 2 稳定后切 3 轮、外加等长空转对照、到点那一拍 | **7/7** |
+| E 单场补丁 | 落库内容与 `ts`、F5 后按新时刻算、不白拉 list | **5/5** |
+
+D 的时间轴（这次是**零边沿跳变**：`status` 前后都是 `running`，只有 `phase` 变了）：
+
+```
++0.1s  已开赛 00:00:02     ← 按本地时刻
++1.2s  正在同步开赛状态…    ← 首探回 has not started，进失步
++3.2s  已开赛 00:00:05     ← 2 秒快探带回 phase=CODING（start 未变）→ 解封，题目 6 行同时到位
+请求：standings=2 / list=0
+```
+
+C 的时序与对照：
+
+```
+0.7s standings  2.8s list（2100ms 闸门推后）  30.7s standings（到点那一拍）
+切换 4.3s：+0     对照空转 4.2s：+0     到 30s：+1
+```
+
+E：`已开赛 00:02:00` → 把补丁改成「30 分钟后开赛」→ F5 → `距开始 00:29:55`，`list=0`。
+
+`npx vite build --outDir /tmp/…` EXIT=0；`npm run lint` 无新增（仍是既有 7 处圆角 + 37 处 i18n 提示）。
+
+### 59.7 边界与没做的事
+
+- **§59.2 的两道锁无法互证**：探针只能证明「迟到的 pending 不会重新锁上」，分不出是哪一道挡的。
+  要分离得让「解封时题目已非空」，那条路现在没有可靠触发手段。
+- **归零的 `+1.5s` 缓冲仍不采纳**（理由同 §56.7.5）。
+- **赛程页仍未跟进**：延期时那边还按旧时刻摆进「进行中」、LIVE 角标会误报，靠它自己的「刷新」或
+  10 分钟回访自愈。要自动，得把 `syncRunningCount` 的阶段边界接上 force，另开一轮。
+- 单场补丁不清理：`contestMeta:<id>` 只在易变键族超 200 条时按 `ts` 淘汰（几 KB 一条，可接受）。
+- 本机时钟偏 60 秒以内仍会跟着偏（§56.5 的取舍不变）。

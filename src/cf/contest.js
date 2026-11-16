@@ -197,6 +197,55 @@ export const PHASE = {
 }
 
 /**
+ * 相位的先后次序 —— 只在 `mergeContestMeta` 里用来挡「倒退」。
+ *
+ * CF 的 `phase` 还有 PENDING_SYSTEM_TEST / SYSTEM_TEST 两个中间态（系统测试中），
+ * 排在 CODING 之后、FINISHED 之前。这里给全，是因为**少一个就会把那个态当成未知**
+ * （未知不参与单调判定，等于放行倒退）。
+ */
+const PHASE_ORDER = ['BEFORE', 'CODING', 'PENDING_SYSTEM_TEST', 'SYSTEM_TEST', 'FINISHED']
+
+const phaseRank = (phase) => PHASE_ORDER.indexOf(String(phase ?? ''))
+
+/**
+ * 合并一份比赛元数据，并挡住「相位倒退」。
+ *
+ * 【为什么需要】两条取数路径的**新鲜度不同**：`contest.standings` 是实时口径，而 `contest.list`
+ * 走 CF 的边缘缓存，开赛瞬间常比 standings 落后 30–60 秒。于是会出现这种顺序 ——
+ * standings 先带回 `phase: CODING` 把界面解封，两秒后在途的那份 list 才回来，里面还是
+ * `BEFORE`。无条件覆盖的话，界面会被打回「还没开赛」，而 `contestStatus` 见到 `FINISHED`
+ * 更是直接判结束（见 contestStatus 的第一行）。
+ *
+ * 【判据】只有「同一场 + 同一个开赛时刻」才谈得上倒退 —— 那说明两份数据描述的是同一轮比赛，
+ * 相位只可能向前走。`startTimeSeconds` 变了就是真延期 / 改期，那是另一轮，`BEFORE` 合法。
+ *
+ * 【倒退时丢什么】丢掉 `phase` 与 `relativeTimeSeconds`：后者的快照比 `startTimeSeconds`
+ * 更旧，留着只会在两条口径分岔时把倒计时往回拨。
+ *
+ * @param {Record<string, any>|null|undefined} current 本地现有的元数据
+ * @param {Record<string, any>|null|undefined} incoming 刚拿到的一份
+ * @returns {Record<string, any>|null}
+ */
+export function mergeContestMeta(current, incoming) {
+  if (!incoming) return current ?? null
+  if (!current) return { ...incoming }
+
+  const sameRun =
+    String(current.id ?? '') === String(incoming.id ?? '') &&
+    Number(current.startTimeSeconds) === Number(incoming.startTimeSeconds)
+  if (!sameRun) return { ...current, ...incoming }
+
+  const known = phaseRank(current.phase)
+  const next = phaseRank(incoming.phase)
+  if (known >= 0 && next >= 0 && next < known) {
+    const { phase, relativeTimeSeconds, ...rest } = incoming
+    return { ...current, ...rest }
+  }
+
+  return { ...current, ...incoming }
+}
+
+/**
  * 两条时间口径允许分岔的上限（毫秒）。超过它才认定「本机时钟不可信」，退回不吃本机时钟的那条。
  *
  * 【这个数从哪来】2026-11-16 连抓 5 次 `contest.list`、拿每场的 `startTimeSeconds +

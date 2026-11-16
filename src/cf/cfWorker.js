@@ -77,6 +77,46 @@ const CONTEST_PROBLEMS_TTL = 24 * 60 * 60 * 1000
  */
 const contestProblemsKey = (contestId) => `contestProblems:2:${contestId}`
 
+/**
+ * 「单场元数据补丁」的缓存键（每场一条，几 KB 以内）。
+ *
+ * 【它补的是什么】`contest.list` 整份缓存 1 小时，而 `contest.standings` 每次都会把这一场
+ * **最新**的 `contest` 顺路带回来（`phase` / `startTimeSeconds` / `durationSeconds`）。
+ * 只把它喂给内存里的响应式状态、不落库的话，用户一按 F5 就又从那份旧列表里读出 `BEFORE`
+ * 与旧时刻，失步流程整段重演 —— 明明几秒前才确认过已经开赛（见 HANDOFF §59.5）。
+ *
+ * 【为什么不做成「改写 contestList 里那一条」】那份记录是整份列表，`ts` 属于全体；
+ * 为了补一场而把 `ts` 推到 now，等于顺手把别的场次的陈旧度也抹掉了。单场补丁各带各的
+ * `ts`，读的时候谁新用谁（见 findContest），互不牵连。
+ */
+const contestMetaKey = (contestId) => `contestMeta:${contestId}`
+
+/**
+ * 把 standings 顺路带回的元数据落一份单场补丁。
+ *
+ * `ts` 传**这份数据的真实取数时刻**（`payload.fetchedAt`），不是写入时刻：排行榜的内存复用
+ * 最多 60 秒，拿写入时刻当锚点会让 `relativeTimeSeconds` 与锚点差出去一分钟，两条计时口径
+ * 就会分岔到 `CLOCK_DIVERGENCE_MS` 之外，倒计时反而被带偏。
+ *
+ * 【失败静默】这只是「让下一次冷启动少绕一圈」的优化，落不了库不影响当前这一屏。
+ */
+async function rememberContestMeta(contest, ts = Date.now()) {
+  if (!contest?.id || typeof contest.startTimeSeconds !== 'number') return
+  await writeRecord(
+    contestMetaKey(contest.id),
+    {
+      id: contest.id,
+      name: contest.name,
+      type: contest.type ?? '',
+      phase: contest.phase,
+      startTimeSeconds: contest.startTimeSeconds,
+      durationSeconds: contest.durationSeconds ?? null,
+      relativeTimeSeconds: contest.relativeTimeSeconds ?? null,
+    },
+    ts,
+  )
+}
+
 
 const solvedKey = (handle) => `solved:${handle.toLowerCase()}`
 /**
@@ -409,7 +449,15 @@ async function findContest(contestId, preferGym, force = false) {
       const { list, fetchedAt } = await loadContestList(gym, { force })
       searched = true
       const contest = list.find((item) => String(item.id) === String(contestId))
-      if (contest) return { contest, fetchedAt, missing: false }
+      if (contest) {
+        // 单场补丁：standings 那次顺路带回的元数据比这份整列表新时，用它覆盖这一场。
+        // 不然 F5 之后又从 1 小时的旧列表里读出旧相位 / 旧时刻（见 contestMetaKey）
+        const patch = await readRecord(contestMetaKey(contest.id), 0)
+        if (patch?.data && patch.ts > fetchedAt) {
+          return { contest: { ...contest, ...patch.data }, fetchedAt: patch.ts, missing: false }
+        }
+        return { contest, fetchedAt, missing: false }
+      }
     } catch {
       // 拉不到就换下一份：列表只是用来取名字和开赛时间，拿不到也不该把整件事炸掉
     }
@@ -604,9 +652,18 @@ async function loadContestProblems(contestId) {
     })
     await writeRecord(key, payload.problems)
   }
+  // 单场补丁落库：下一次冷启动（F5）时 findContest 会用它盖掉旧列表里的这一场，
+  // 否则又要从 1 小时的旧 `BEFORE` 重新走一遍失步自愈（见 contestMetaKey）
+  await rememberContestMeta(payload.contest, payload.fetchedAt)
   // contest 一律透传（哪怕 problems 为空）：它是这次网络请求的**顺带产物**，
   // 主线程靠它判断「CF 那边到底开没开赛、开赛时刻是多少」
-  return { problems: payload.problems, source: 'standings', contest: payload.contest ?? null }
+  return {
+    problems: payload.problems,
+    source: 'standings',
+    contest: payload.contest ?? null,
+    // 这份元数据的真实取数时刻；主线程拿它当倒计时的锚点（缺省才用收到响应那一刻）
+    fetchedAt: payload.fetchedAt,
+  }
 }
 
 /**
@@ -824,13 +881,17 @@ const handlers = {
   /** 某场比赛的题目列表（唯一来源是 standings，按场次缓存 —— 见 loadContestProblems） */
   async contestProblems(message) {
     const spec = contestSpecOf(message)
-    const { problems, source, pending, contest } = await loadContestProblems(spec.contestId)
+    const { problems, source, pending, contest, fetchedAt } = await loadContestProblems(
+      spec.contestId,
+    )
 
     return {
       source,
       pending: pending === true,
       // standings 顺路带回来的最新元数据（没打网络时为 null）—— 见 loadContestProblems 的说明
       contest: contest ?? null,
+      // 这份元数据的真实取数时刻（内存复用命中时可能比 now 早几十秒）；没打网络时为 0
+      fetchedAt: fetchedAt ?? 0,
       problems: problems.map((problem) => {
         const index = String(problem.index ?? '').toUpperCase()
         return {
@@ -872,6 +933,8 @@ const handlers = {
     const spec = contestSpecOf(message)
     try {
       const payload = await requestStandings(spec.contestId, { force: message?.force === true })
+      // 排行榜这条也顺手把元数据补上：它与题目列表共用同一个响应，谁先到谁补
+      await rememberContestMeta(payload.contest)
       return {
         contest: payload.contest,
         problems: payload.problems,

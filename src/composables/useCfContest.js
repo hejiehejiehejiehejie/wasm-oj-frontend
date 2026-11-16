@@ -40,6 +40,7 @@ import {
   contestUrl,
   formatDuration,
   formatStartTime,
+  mergeContestMeta,
   parseContestSpec,
   sortByIndex,
   virtualContestStatus,
@@ -249,6 +250,27 @@ export function useCfContest() {
   /** 比赛面板（v-show）此刻露没露出来。隐藏时暂停慢轮询，切回瞬间补探一次 */
   let panelVisible = true
 
+  /**
+   * 两条腿**各自下一次该发的时刻**（0 = 这一腿没有在等）。
+   *
+   * 【为什么要记死这个时刻】面板隐藏 / 切后台时只能把 timer 掐掉，但**不能把「本来该在
+   * 12:00:30 发」这件事忘了**：选手在编辑器与题面之间来回切面板，以前每切回来就无条件补探
+   * 一次，切五次付五次；`startSlowPoll` 还会把 `ladderIndex` 重置，退避阶梯永远走不到下一级。
+   * 现在恢复时按 `dueAt - now` 重挂：没到点就接着等，过期了才立刻发一次。
+   */
+  let nextProbeDueAt = 0
+  let nextListDueAt = 0
+
+  /**
+   * 「远端亲口确认开赛」的代数（2026-11-16 加，专治迟到的 pending）。
+   *
+   * 两条腿并发在途：`standings` 可能慢到 3–5 秒。若期间另一条腿先拿到「已开赛」的权威
+   * 结论、把失步解封，随后那个**慢的** standings 才带着 `has not started` 回来 ——
+   * 它描述的是几秒前的事，却会把刚解封的 `startStale` 重新置位，再起一轮轮询。
+   * 每确认一次 `phase !== BEFORE` 就 +1；请求发出时记下当时的值，回来时对不上就丢掉。
+   */
+  let metaEpoch = 0
+
   /** 停掉所有延时任务，但**不动** `startStale`（三小时停手时用：文案还要继续说真话） */
   function stopPostponePoll() {
     window.clearTimeout(quickTimer)
@@ -261,6 +283,8 @@ export function useCfContest() {
     syncingTimer = 0
     ladderIndex = 0
     postponeStartedAt = 0
+    nextProbeDueAt = 0
+    nextListDueAt = 0
     syncingStart.value = false
   }
 
@@ -279,28 +303,44 @@ export function useCfContest() {
     return true
   }
 
-  /** 阶段 2 的探活腿：standings。它成功时顺路带回 `result.contest` 与题目，一步到位 */
-  function armProbe() {
+  /**
+   * 阶段 2 的探活腿：standings。它成功时顺路带回 `result.contest` 与题目，一步到位。
+   *
+   * `delay` 默认是整拍 30 秒；恢复（暂停结束）时传剩余时间，好把原来的 dueAt 接上。
+   */
+  function armProbe(delay = POSTPONE_PROBE_MS) {
     if (probeTimer || !startStale.value) return
+    nextProbeDueAt = Date.now() + delay
     probeTimer = window.setTimeout(async () => {
       probeTimer = 0
+      nextProbeDueAt = 0
       if (!startStale.value || postponeExpired()) return
       await loadProblems({ silent: true })
       if (startStale.value) armProbe()
-    }, POSTPONE_PROBE_MS)
+    }, delay)
   }
 
-  /** 阶段 2 的查改期腿：contest.list（413KB），按阶梯退避，5 分钟封顶 */
-  function armListProbe() {
+  /**
+   * 阶段 2 的查改期腿：contest.list（413KB），按阶梯退避，5 分钟封顶。
+   *
+   * 只有走阶梯（不传 `delay`）时才推进 `ladderIndex` —— 恢复时传的是剩余时间，
+   * 那不是新的一拍，不能让它白白吃掉一级。
+   */
+  function armListProbe(delay) {
     if (listTimer || !startStale.value) return
-    const delay = POSTPONE_LIST_LADDER[Math.min(ladderIndex, POSTPONE_LIST_LADDER.length - 1)]
-    ladderIndex += 1
+    let wait = delay
+    if (wait === undefined) {
+      wait = POSTPONE_LIST_LADDER[Math.min(ladderIndex, POSTPONE_LIST_LADDER.length - 1)]
+      ladderIndex += 1
+    }
+    nextListDueAt = Date.now() + wait
     listTimer = window.setTimeout(async () => {
       listTimer = 0
+      nextListDueAt = 0
       if (!startStale.value || postponeExpired()) return
       await loadContest({ silent: true, force: true })
       if (startStale.value) armListProbe()
-    }, delay)
+    }, wait)
   }
 
   /**
@@ -308,12 +348,19 @@ export function useCfContest() {
    *
    * `fresh` = 手上这份时刻是刚拉的 —— 那就不必再立刻付 413KB（问也是同一个答案），
    * 从阶梯第二级起，由 30 秒一次的 79 字节探活先顶着。
+   *
+   * **只在进阶段 2 的那一刻调**（以及「已过点 > 10 秒」那一支）。恢复暂停不走这里 ——
+   * 那条路要让阶梯接着走，见 `resumePostponePoll`。
    */
   function startSlowPoll({ fresh = false } = {}) {
     if (!startStale.value) return
     ladderIndex = fresh ? 1 : 0
     armProbe()
     armListProbe()
+    // 进阶段 2 的这一刻用户可能正在编辑器里（面板 v-show 隐藏）或切走了标签页：
+    // 先把两条腿的到期时刻算出来，再把 timer 掐掉。回到前台由 resumePostponePoll 按
+    // 剩余时间接上 —— 挂起期间一个新请求都不发
+    if (document.hidden || !panelVisible) pausePostponePoll()
   }
 
   /** 阶段 1：2s / 5s / 10s 各轻探一次；三次都没开就转阶段 2 */
@@ -377,22 +424,25 @@ export function useCfContest() {
     window.clearTimeout(listTimer)
     probeTimer = 0
     listTimer = 0
+    // dueAt 故意留着：恢复时靠它判断「挂起期间有没有跨过原定那一拍」
     // 阶段 1 那三次快探**不暂停**：选手常见做法是开赛前切去编辑器敲模板、等题目自己冒出来，
     // 把 10 秒内的探活掐掉，他们就永远等不到那次「题目到了」
   }
 
   /**
-   * 回到前台 / 切回比赛面板：立刻补探一次，再把慢轮询接上。
+   * 回到前台 / 切回比赛面板：按**原定到期时刻**把两条腿接回去。
    *
-   * 【为什么先用 79 字节那条腿】离开的这段时间里比赛可能已经开了 —— standings 最便宜，
-   * 而且它成功时顺路带回 contest 与题目，一次到位。
+   * 到点了（挂起期间跨过了 dueAt）就立刻发一次；没到点就按剩余时间重挂 —— 不无条件补探。
+   * 这条规则是给「选手在题面与编辑器之间反复切面板」准备的：切五次不该付五次请求，
+   * 更不该让退避阶梯被 `startSlowPoll` 重置回第一级。
    */
-  async function wakePostpone() {
+  function resumePostponePoll() {
     if (!startStale.value || document.hidden || !panelVisible) return
     if (quickTimer) return
-    now.value = Date.now()
-    await loadProblems({ silent: true })
-    if (startStale.value) startSlowPoll({ fresh: true })
+    const nowMs = Date.now()
+    now.value = nowMs
+    if (nextProbeDueAt) armProbe(Math.max(0, nextProbeDueAt - nowMs))
+    if (nextListDueAt) armListProbe(Math.max(0, nextListDueAt - nowMs))
   }
 
   /** 比赛面板露没露出来（外面是 v-show）。隐藏时慢轮询停掉，别在用户写代码时偷偷拉 413KB */
@@ -400,7 +450,7 @@ export function useCfContest() {
     const next = value !== false
     if (next === panelVisible) return
     panelVisible = next
-    if (next) void wakePostpone()
+    if (next) resumePostponePoll()
     else pausePostponePoll()
   }
 
@@ -461,7 +511,7 @@ export function useCfContest() {
       return
     }
     now.value = Date.now()
-    void wakePostpone()
+    resumePostponePoll()
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
 
@@ -517,17 +567,28 @@ export function useCfContest() {
   function applyContestMeta(raw, { fetchedAt: at = Date.now() } = {}) {
     if (!raw) return
 
-    contest.value = { ...(contest.value || {}), ...raw }
+    // 【合并要挡倒退】standings 是实时口径，`contest.list` 走 CF 的边缘缓存（开赛瞬间常落后
+    // 30–60 秒）。谁后到谁覆盖的话，界面会被一份更旧的数据打回 BEFORE / FINISHED。
+    // 判据与取舍都写在 cf/contest.js 的 mergeContestMeta 里，这里只管调用。
+    contest.value = mergeContestMeta(contest.value, raw)
     fetchedAt.value = at
     now.value = Date.now()
 
-    const releasedByPhase = raw.phase !== undefined && raw.phase !== PHASE.BEFORE
-    if (!releasedByPhase && status.value !== 'upcoming') return
+    // 远端亲口说「不再是开赛前」= 一次权威确认（哪怕这份数据的 startTimeSeconds 没变，
+    // 见 metaEpoch 的说明）。用 raw 判，不用合并结果 —— 后者可能只是沿用了本地已知的相位
+    const confirmed = raw.phase !== undefined && raw.phase !== PHASE.BEFORE
+    if (confirmed) metaEpoch += 1
+
+    const mergedPhase = contest.value?.phase
+    const releasedByPhase = mergedPhase !== undefined && mergedPhase !== PHASE.BEFORE
+    if (!confirmed && !releasedByPhase && status.value !== 'upcoming') return
 
     const wasStale = startStale.value
     clearPostpone()
     // 远端确认开赛、而我们手上还没有题目：补一次（题目只会在开赛之后才出现）
-    if (wasStale && releasedByPhase && !problems.value.length) void loadProblems({ silent: true })
+    if (wasStale && !problems.value.length && releasedByPhase) {
+      void loadProblems({ silent: true })
+    }
   }
 
   /**
@@ -597,6 +658,8 @@ export function useCfContest() {
     }
 
     const seq = ++problemsSeq
+    // 发出时的「权威确认」代数：回来若对不上，说明这期间另一条腿已经拿到更新的结论
+    const epochAtSend = metaEpoch
     if (!silent) loadingProblems.value = true
     try {
       const response = await cfContestProblems(current)
@@ -604,10 +667,18 @@ export function useCfContest() {
 
       problems.value = sortByIndex(response.problems || [])
       // 【顺序有讲究】先把题目落进去，再喂元数据：applyContestMeta 在「刚解封」时会补拉一次
-      // 题目，这一步先落就能让「题目已在手上」这个判据成立，不必再打一次榜单单
-      applyContestMeta(response.contest)
+      // 题目，这一步先落就能让「题目已在手上」这个判据成立，不必再打一次榜单单。
+      // `fetchedAt` 用响应带回来的真实取数时刻（内存复用命中时它比现在早几十秒）
+      applyContestMeta(response.contest, { fetchedAt: response.fetchedAt || Date.now() })
       // 拿到东西就把空态说明撤掉；空列表则留一句 —— 但**不进 error**，它不该抢占状态行
       if (problems.value.length) {
+        problemsNote.value = null
+      } else if (
+        response.pending &&
+        (metaEpoch !== epochAtSend || spec.value?.contestId !== current.contestId)
+      ) {
+        // 【迟到的 pending】这条请求在途时，另一条腿已经拿到「CF 说开赛了」的确认。
+        // 它描述的是几秒前的事，不能拿它把刚解封的失步状态重新锁上，也别写「还没开赛」。
         problemsNote.value = null
       } else {
         // pending = 还没开赛，题目本来就还没出现。这与「开赛了但一道题都没有」是两种境况，
