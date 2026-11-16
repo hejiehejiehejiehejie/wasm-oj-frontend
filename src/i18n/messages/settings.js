@@ -186,7 +186,7 @@ export default {
           hint: '鼠标停在函数名上时显示签名与源码注释；触屏不会触发',
         },
         semanticHover: {
-          label: '语义分析（实验）',
+          label: '语义分析',
           hint: '用站内 clang 推导真实类型，可提示容器成员、结构体字段与重载。代价：每次悬停跑一遍编译器前端（约 0.2–1 秒），首次使用下载约 30MB 工具链并常驻约 23MiB 内存（闲置 5 分钟自动释放）；关闭时完全走零成本的静态表。编译器被运行时占用时自动退回基础提示',
         },
         codeImageQuality: {
@@ -815,7 +815,7 @@ export default {
           hint: 'Shows the signature and source comment when you hover a function name; touch screens do not trigger it',
         },
         semanticHover: {
-          label: 'Semantic analysis (experimental)',
+          label: 'Semantic analysis',
           hint: 'Uses the built-in clang to derive real types, so container members, struct fields and overloads work too. Cost: one compiler frontend run per hover (about 0.2–1s), plus a one-time ~30MB toolchain download on first use and ~23MiB resident memory (released after 5 idle minutes); with it off, hovering stays on the zero-cost static table. Falls back to basic hints while the compiler is busy',
         },
         codeImageQuality: {
