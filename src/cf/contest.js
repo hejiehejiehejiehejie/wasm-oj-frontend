@@ -197,12 +197,32 @@ export const PHASE = {
 }
 
 /**
+ * 两条时间口径允许分岔的上限（毫秒）。超过它才认定「本机时钟不可信」，退回不吃本机时钟的那条。
+ *
+ * 【这个数从哪来】2026-11-16 连抓 5 次 `contest.list`、拿每场的 `startTimeSeconds +
+ * relativeTimeSeconds`（= CF 算这份 relative 的时刻）去比同一个响应的 `Date` 头：差 41s / 21s / 0s
+ * —— **CF 的 relative 是按它内部的一次快照算的，不是按响应发出的那一刻算的**，天然滞后
+ * 几十秒。所以两条口径差几十秒是正常现象（此时 startTimeSeconds 才对），差到分钟级
+ * 才是本机时钟偏了。取 60s：既容得下实测的 41s 滞后，也顺手兜住 1 分钟级的系统时钟偏差。
+ */
+const CLOCK_DIVERGENCE_MS = 60 * 1000
+
+/**
  * 还剩多久开赛（毫秒，可能为负 = 已经开过了）。
  *
- * 【为什么用 relativeTimeSeconds 而不是 startTimeSeconds】前者是**取数那一刻**服务器算好的
- * 「距开赛多少秒」，天然含了服务器时钟；拿它减去「这份数据在本地放了多久」就得到此刻的剩余量，
- * 不必知道两边时钟差了多少 —— 这正是 cf-tool 那句 `Sleep(900ms)` 想补的偏差。
- * 只有 startTimeSeconds 时才退回按本地时钟算（gym 的列表里就没有 relativeTimeSeconds）。
+ * 【两条口径，优先 startTimeSeconds（2026-11-16 改）】用户报障：「倒计时还没走完，比赛已经开了」。
+ * 原先只信 `relativeTimeSeconds`（「取数那一刻」服务器算好的距开赛秒数，减去本地流逝时间），
+ * 理由是它天然含了服务器时钟、不必关心两边时钟差多少 —— 这条理由成立，但它买不来精度：
+ * 那个「取数那一刻」其实是 CF 内部快照的时刻，实测比响应本身旧 0–41 秒（见上面
+ * CLOCK_DIVERGENCE_MS）。anchor 一偏，倒计时就整体**走晚**几十秒，于是正好落在用户看见的
+ * 「官网页已经开赛、我们这还在数」。
+ *
+ * `startTimeSeconds` 是绝对 UTC 时刻，不吃快照陈旧，正常机器（NTP 同步，实测与 CF 的
+ * `Date` 头差 < 2 秒）按它算就是准的。所以现在：两条都在且互相印证 → 用 startTimeSeconds；
+ * 只差几十秒以内的「不印证」也算印证（那是快照滞后）；差出 `CLOCK_DIVERGENCE_MS` 才说明
+ * 本机时钟偏了，退回 relative 那条 —— 两条路各自的最坏情况都不比改之前差。
+ *
+ * 只有 startTimeSeconds 时（gym 的列表里就没有 relativeTimeSeconds）本来就走本地时钟。
  *
  * @param {{ startTimeSeconds?: number, relativeTimeSeconds?: number }} contest
  * @param {number} fetchedAt 这份数据取回来的本地时刻（Date.now()）
@@ -212,16 +232,21 @@ export const PHASE = {
 export function contestRemainingMs(contest, fetchedAt, now = Date.now()) {
   if (!contest) return null
 
-  if (typeof contest.relativeTimeSeconds === 'number' && Number.isFinite(contest.relativeTimeSeconds)) {
-    // relativeTimeSeconds 在开赛前是负数，取反就是剩余秒数
-    return -contest.relativeTimeSeconds * 1000 - (now - fetchedAt)
-  }
+  const hasRelative =
+    typeof contest.relativeTimeSeconds === 'number' && Number.isFinite(contest.relativeTimeSeconds)
+  const hasStart =
+    typeof contest.startTimeSeconds === 'number' && Number.isFinite(contest.startTimeSeconds)
 
-  if (typeof contest.startTimeSeconds === 'number' && Number.isFinite(contest.startTimeSeconds)) {
-    return contest.startTimeSeconds * 1000 - now
-  }
+  // relativeTimeSeconds 在开赛前是负数，取反就是剩余秒数；再减掉这份数据在本地放了多久
+  const byRelative = hasRelative
+    ? -contest.relativeTimeSeconds * 1000 - (now - fetchedAt)
+    : null
 
-  return null
+  if (!hasStart) return byRelative
+  const byStart = contest.startTimeSeconds * 1000 - now
+  if (byRelative === null) return byStart
+
+  return Math.abs(byStart - byRelative) > CLOCK_DIVERGENCE_MS ? byRelative : byStart
 }
 
 /**

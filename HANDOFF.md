@@ -6383,3 +6383,99 @@ compact
   与 Windows / macOS 原生菜单一致。
 - 二级与一级之间**没有** 4px 的视觉间隙（`left = 行右缘`），与旧的 `left: 100%` 逐像素相同；
   挪开的话鼠标横穿时会落到两个盒子中间，那 220ms 的宽限就得靠「行 / 二级都够不着」来兜。
+
+## 56. 比赛倒计时整体走晚：CF 的 `relativeTimeSeconds` 是快照（2026-11-16，用户报障）
+
+### 56.1 症状
+
+用户报：**比赛已经开赛了，站内比赛页的倒计时还没走完**。普通 Round / Div. 场（不是 gym、不是 VP），
+页面在开赛前就打开并一直盯着那个数字。
+
+### 56.2 根因（实测，不是推测）
+
+`contestRemainingMs` 原先只信 `relativeTimeSeconds`：`-rel*1000 - (now - fetchedAt)`。这条口径的
+好处（不吃两端时钟差）成立，但**它把「取数那一刻」当成了响应发出的那一刻，而 CF 不是这么算的**。
+
+对同一个 `contest.list` 响应，去掉 `Date` 响应头与每场的 `startTimeSeconds + relativeTimeSeconds`
+（后者就是 CF 算这份 relative 的时刻）：
+
+| 轮次 | CF `Date` | CF 算 relative 的时刻 | 滞后 |
+| --- | --- | --- | --- |
+| 1 | 09:46:21 | 09:45:40 | **41s** |
+| 2 | 09:47:08 | 09:46:47 | 21s |
+| 3 | 09:48:54 | 09:48:54 | 0s |
+
+—— CF 的 relative 是按它内部的一次快照算的（≈ 每几十秒刷一次），**与本地时钟无关、纯粹滞后**。
+站内把它锚在「本地收到响应」的那一刻，于是：`剩余量 = 真实剩余 + 快照滞后`，倒计时整体**走晚
+0–41 秒**，正好落在用户看见的「官网页已经开赛、我们这还在数」。赛程行的行内倒计时、抬头 LIVE
+角标的翻面时刻，都是同一个偏差（同一个函数）。
+
+### 56.3 修法
+
+`cf/contest.js` 里换优先级：**两条口径都在时按 `startTimeSeconds`（绝对 UTC 时刻）算**，它不吃
+快照陈旧；本机时钟与 CF 的 `Date` 头实测差 < 2s，正常机器按它就是准的。
+
+`relativeTimeSeconds` 不删 —— 它退成兜底：两条口径差出 `CLOCK_DIVERGENCE_MS = 60_000`（本机时钟
+偏了）时才用它，那条路不吃本机时钟。取 60s 是因为实测滞后最大 41s，得留出余量；落进兜底那一支的
+最坏情况也只是回到改动前的精度，不会更差。（gym 的条目里本来就没有 `relativeTimeSeconds`，Worker
+侧落成 `null`，那边一直是按 `startTimeSeconds` 算的，本次不受影响。）
+
+`useCfContest.js` / `useCfSchedule.js` 的文件头两句「用取数时刻 + relativeTimeSeconds 现算」一并改了
+措辞（**§143 与 §1090 里同样的说法以本节为准**）。计时机制一个字没动：仍然每秒只推进一个 `now`、
+不累减 —— 这次修的是 anchor，不是心跳。
+
+### 56.4 实测
+
+- 合成用例 7/7（探针 `/tmp/cf-countdown-check.mjs`，跑完即删）：快照滞后 42s 时按 start 算、
+  本机时钟慢 5 分钟时退回 relative、只有 rel / 只有 start / 两者都缺 / 已开赛为负
+- 真 CF 数据：5 场 BEFORE 逐个对比，旧口径分别多算 12.3 / 12.3 / 12.3 / 12.3 / 13.3 秒
+  （同一响应内的快照滞后），新口径与 `Date` 头对齐到 < 1s
+- `npx vite build` EXIT=0；`npm run lint` 无新增（仍是既有 7 处圆角提示 + 37 处 i18n 提示）
+
+### 56.5 边界
+
+- **别再改回「只信 relative」**：那是本节症状的原产地。除非哪天 CF 明确说 relative 是按响应时刻
+  算的，并且实测验证过。
+- 本机时钟偏 60 秒以内时仍会跟着偏（两条口径分不出来）—— 这是取舍，不是 bug。
+- CF 若改了某场的开赛时刻（延期），快照里的 `startTimeSeconds` 也是旧的，两条口径会一起错到
+  下一次取数为止；这条与改动前一样。
+
+### 56.6 延期（CF 改了开赛时刻）怎么办（2026-11-16，接 §56.1 的报障）
+
+§56.1~56.5 修的是「倒计时走晚几十秒」。同一类问题的**另一个形态**是延期：CF 把 `startTimeSeconds`
+往后挪，而我们手上那份是旧的 —— 表现更难看：倒计时数完了，状态行写「已开赛 00:03:12」，而
+题目列表请求被 CF 回了 "has not started"，列表区写着「还没开赛」，两句话当面打脸。
+
+三个坑叠在一起：① `contest.list` 在 Worker 里缓存 1 小时；② 倒计时归零那一刻的重取**不带 force**，
+拿回的还是旧时刻；③ 用户手动点「载入」也不带 force，于是**自助也救不回来**，最长要等缓存过期一小时。
+
+现在这条路是自愈的，四处改动：
+
+| 处 | 改动 |
+| --- | --- |
+| `cfWorker.js` `findContest` | 加 `force` 参数并透传 `loadContestList(gym, { force })`；`contest` handler 读 `message.force` |
+| `cfClient.cfContest` | `cfContest(spec, { force })` |
+| `useCfContest` 归零重取 | `loadContest({ silent: true, force: true })` —— 数到开赛正是最该跟 CF 对表的时刻 |
+| `useCfContest` 延期态 | 新增 `startStale`：**本地判 running 而题目列表回 `pending`** 时置位（这两件事不可能同时为真，只能是时刻过期）。状态行改说「CF 说还没开赛」（新 i18n `cf.contest.status.staleStart`，zh/en），并起一条**有界**轮询 `POSTPONE_RETRY_MS = 60s × POSTPONE_RETRY_MAX = 20`，每发都 force；拿到新时刻后 `status` 回到 `upcoming`，那条 watch 顺手清 `startStale` + 停轮询 + 重开计时器 |
+| `useCfContest` 手动载入 | `load()` 里 `force = startStale.value` —— 延期态下点「载入」才是「我要真时刻」；正常首载 / 换场不 force（不白付 400KB） |
+| `useCfContest.loadContest` | `silent` 真的静默：不再置 `loadingContest`（否则轮询每 60 秒闪一次「正在获取比赛信息…」，载入按钮也跟着灰一下） |
+
+**别在 `pending` 分支里当场再 force 一次**：归零那一刻 status 的 watch 刚发过一发，同一秒再发
+只会白付一次 400KB —— 那个分支只负责「纠正文案 + 起轮询」（实测见下，时序上确实不需要）。
+
+实测（探针 `/tmp/cf-postpone-probe.mjs`，跑完即删；dev server + 无头 Chrome，真 CF）：
+
+- 造法：往 `cp-cf` 的 `contestList` 种一条**自洽但已过期**的记录（真场次 2289，CF 上 11-22 才开赛；
+  `startTimeSeconds = now-60`、`relativeTimeSeconds = +60`）。于是本地判「已开赛」，而真的
+  `contest.standings` 会回 has not started —— 正是延期那一刻的样子
+- 状态行时序：`已开赛 00:01:00`(+0.1s) → `CF 说还没开赛`(+1.3s) → `距开始 143:07:04`(+62.4s) → 每秒递减
+- 4/4：载入时 0 次 `contest.list`（吃缓存，不白付）／文案正确／第 60 秒发出 1 次 force 的
+  `contest.list`／状态行自己回到倒计时（**无需人工干预**）
+- `npx vite build --outDir /tmp/…` EXIT=0，`npm run lint` 无新增
+
+边界：① 轮询封顶 20 分钟 —— 延期更久的话界面停在「CF 说还没开赛」，那时手动载入（带 force）能复验；
+② 场次被**取消**（CF 从列表里拿掉）时 `findContest` 回 null，会落到「没找到这场」，与延期不是同一支；
+③ **赛程页没跟进**：延期时那边仍按旧时刻把这一场摆进「进行中」、抬头 LIVE 角标也会误报，靠它自己的
+「刷新」（force）/ 10 分钟回访自愈 —— 要一并做成自动，得把 `syncRunningCount` 的阶段边界接上 force，
+另开一轮；
+④ 本机时钟偏 60 秒以内时仍会跟着偏，与 §56.5 同一条取舍。

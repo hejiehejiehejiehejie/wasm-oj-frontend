@@ -209,6 +209,10 @@ export default {
           upcoming: '距开始 {time}',
           running: '已开赛 {time}',
           finished: '已结束',
+          /** 刚过点那 10 秒：多半只是本机时钟快了一两秒，先别吓人（2026-11-16） */
+          syncing: '正在同步开赛状态…',
+          /** 时刻失步（CF 延期）：按旧时刻说「已开赛」就是假话，所以报原定时刻与推迟了多久 */
+          staleStart: 'CF 尚未开赛（原定 {start}，已推迟 {delay}）',
           /** 虚拟参赛（2026-11-03）：开赛时刻是用户自己定的那一个，不是比赛的官方时刻 */
           vpUpcoming: '虚拟参赛 {time} 后开始',
           vpRunning: '虚拟参赛已进行 {time}',
@@ -382,6 +386,8 @@ export default {
         errors: {
           badLink: '无法识别比赛，请贴完整链接或 ID',
           notFound: 'Codeforces 上没有这场比赛',
+          /** 强制问过一遍、列表里仍然没有：取消或挪去别处，与「延期」不是一回事 */
+          contestGone: '这场已从 Codeforces 的比赛列表里消失（可能已取消）',
           notStarted: '尚未开赛，开赛后才有题目',
           vpNotStarted: '虚拟参赛还没开始，开赛后题目才会出现',
           noProblems: '这场比赛没有题目列表（可能是 gym / group）',
@@ -576,6 +582,10 @@ export default {
           upcoming: 'Starts in {time}',
           running: 'Running for {time}',
           finished: 'Finished',
+          /** 刚过点那 10 秒：多半只是本机时钟快了一两秒，先别吓人（2026-11-16） */
+          syncing: 'Syncing start status…',
+          /** Start time out of sync (Codeforces postponed it) */
+          staleStart: 'CF has not started yet (was due {start}, delayed {delay})',
           /** Virtual participation (2026-11-03) */
           vpUpcoming: 'Virtual participation starts in {time}',
           vpRunning: 'Virtual participation running for {time}',
@@ -739,6 +749,8 @@ export default {
         errors: {
           badLink: 'Unknown contest — paste a full link or ID',
           notFound: 'No such contest on Codeforces',
+          /** Looked it up with force and it's still missing: cancelled or moved elsewhere */
+          contestGone: 'This contest is gone from the Codeforces list (possibly cancelled)',
           notStarted: 'Not started yet — problems appear when it begins',
           vpNotStarted: 'Virtual participation has not started yet; problems appear when it starts',
           noProblems: 'No problem list (maybe a gym or group round)',

@@ -5,8 +5,9 @@
  * 「下一场是什么时候 / 有没有正在进行的」。所以这一页不依赖用户输入，打开即取。
  *
  * 【倒计时同样不累减】与 useCfContest 一条纪律：每秒只推进 `now`，剩余量由
- * `contestRemainingMs(contest, fetchedAt, now)` 现算。contest.list 里的 relativeTimeSeconds
- * 是服务器在**取数那一刻**算好的，减去本地放了多久就是此刻的剩余量，不受后台标签页节流影响。
+ * `contestRemainingMs(contest, fetchedAt, now)` 现算。两条时间口径都在时它按**绝对的开赛时刻**
+ * `startTimeSeconds` 算（CF 那份 `relativeTimeSeconds` 是内部快照、实测比响应旧 0–41 秒，
+ * 只按它算会整体走晚，见 cf/contest.js 的 2026-11-16 那条），不受后台标签页节流影响。
  *
  * 【阶段自己算，不跟着 phase 走】列表可能缓存了一小时（Worker 侧 contest.list 的 TTL），
  * 期间某场从 BEFORE 变成 CODING。界面若要等下一次刷新才翻面，会在开赛那一刻显示错的状态。

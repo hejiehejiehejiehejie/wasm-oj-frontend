@@ -349,14 +349,19 @@ export function cfSolved(handles, { force = false } = {}) {
  *
  * 失败时 reject 的 Error.code 见 cfContestProblems。`contest` 可能为 null ——
  * group 的比赛不在 contest.list 里，拿不到元数据但题目列表仍可能拿到。
+ *
+ * `force` 绕过 Worker 那 1 小时的 `contest.list` 缓存。开赛时刻会被 CF 改（延期），
+ * 所以「倒计时归零那一刻」和「用户手动点载入」这两处必须给 true。
  * @param {{ kind: string, contestId: string, groupId?: string }} spec
+ * @param {{force?: boolean}} [options]
  */
-export function cfContest(spec) {
+export function cfContest(spec, { force = false } = {}) {
   return request({
     type: 'contest',
     contestId: spec?.contestId,
     kind: spec?.kind,
     groupId: spec?.groupId,
+    force,
   })
 }
 

@@ -393,19 +393,28 @@ async function contestIdsOfCategories(rawCats, problems) {
  * 在比赛列表里找一场。找不到返回 null（用户可能贴了 group 或 edu 的比赛，那些不在列表里）。
  *
  * 先查非 gym，没命中再查 gym —— 后者要多下 1MB，别为了一场普通比赛白拉。
+ *
+ * 【force 的用处】`contest.list` 缓存 1 小时，而 CF 会改某场的开赛时刻（延期 / 提前）。
+ * 延期态下「查一次新时刻」必须绕过缓存，否则会一直回旧时刻（见 HANDOFF §56.6）。
+ *
+ * 【missing 与 null 的分家】`missing: true` = **查过了**，这场确实不在列表里（取消 / 已换场）；
+ * 而 `null` = 两份列表一份都没拉到（断网 / 限流），什么都不能断言。两者混在一起的话，
+ * 一次网络抖动就会被主线程说成「这场比赛被取消了」。
  */
-async function findContest(contestId, preferGym) {
+async function findContest(contestId, preferGym, force = false) {
   const order = preferGym ? [true, false] : [false, true]
+  let searched = false
   for (const gym of order) {
     try {
-      const { list, fetchedAt } = await loadContestList(gym)
+      const { list, fetchedAt } = await loadContestList(gym, { force })
+      searched = true
       const contest = list.find((item) => String(item.id) === String(contestId))
-      if (contest) return { contest, fetchedAt }
+      if (contest) return { contest, fetchedAt, missing: false }
     } catch {
       // 拉不到就换下一份：列表只是用来取名字和开赛时间，拿不到也不该把整件事炸掉
     }
   }
-  return null
+  return searched ? { contest: null, fetchedAt: 0, missing: true } : null
 }
 
 /**
@@ -555,8 +564,13 @@ async function requestStandings(contestId, { force = false } = {}) {
  * 按场次缓存（contestProblems:<id>，24h）—— 每场只付一次；缓存里只有几 KB 的 problems
  * 数组，不存榜单行（榜单只在内存里短留，见 requestStandings）。
  *
- * @returns {Promise<{ problems: Array<Record<string, any>>, source: 'standings', pending?: boolean }>}
+ * @returns {Promise<{ problems: Array<Record<string, any>>, source: 'standings', pending?: boolean,
+ *   contest?: Record<string, any> }>}
  *   `pending` 为真表示「这场还没开赛，题目还没出现」—— 空列表但**不是**错误。
+ *
+ *   `contest` 是 standings 响应自带的**最新**比赛元数据（`phase` / `startTimeSeconds` /
+ *   `durationSeconds` 都在里面）。它只在真打了一次网络时才有 —— 命中 24h 题目缓存时**故意**
+ *   不带（那是不知多旧的东西，拿来校正时刻比没有更糟）。主线程拿它当「已经开赛」的权威反面证据。
  */
 async function loadContestProblems(contestId) {
   const key = contestProblemsKey(contestId)
@@ -590,7 +604,9 @@ async function loadContestProblems(contestId) {
     })
     await writeRecord(key, payload.problems)
   }
-  return { problems: payload.problems, source: 'standings' }
+  // contest 一律透传（哪怕 problems 为空）：它是这次网络请求的**顺带产物**，
+  // 主线程靠它判断「CF 那边到底开没开赛、开赛时刻是多少」
+  return { problems: payload.problems, source: 'standings', contest: payload.contest ?? null }
 }
 
 /**
@@ -783,27 +799,38 @@ const handlers = {
    * 拆开之后元数据先到、界面立刻有东西，题目列表随后自己补上。
    *
    * 返回的 `fetchedAt` 是**元数据取回来的本地时刻**，倒计时拿它算「这份数据放了多久」。
+   *
+   * `force` 绕过 1 小时列表缓存。**只在「查改期」时给**（延期态下的稀疏退避，一次 413KB）；
+   * 倒计时归零那一刻不再 force —— 那条路走 standings，它成功时自带 `contest`（见
+   * loadContestProblems），比 force 一份整列表便宜三个数量级。
    */
   async contest(message) {
     const spec = contestSpecOf(message)
 
     // group 的比赛不进 contest.list：名字与开赛时间都拿不到
-    const meta = spec.kind === 'group' ? null : await findContest(spec.contestId, spec.kind === 'gym')
+    const meta =
+      spec.kind === 'group'
+        ? null
+        : await findContest(spec.contestId, spec.kind === 'gym', message?.force === true)
 
     return {
       contest: meta?.contest ?? null,
       fetchedAt: meta?.fetchedAt ?? 0,
+      // 查过但列表里没有这场（取消 / 换场），与「没查到」不是一回事 —— 见 findContest
+      missing: meta?.missing === true,
     }
   },
 
   /** 某场比赛的题目列表（唯一来源是 standings，按场次缓存 —— 见 loadContestProblems） */
   async contestProblems(message) {
     const spec = contestSpecOf(message)
-    const { problems, source, pending } = await loadContestProblems(spec.contestId)
+    const { problems, source, pending, contest } = await loadContestProblems(spec.contestId)
 
     return {
       source,
       pending: pending === true,
+      // standings 顺路带回来的最新元数据（没打网络时为 null）—— 见 loadContestProblems 的说明
+      contest: contest ?? null,
       problems: problems.map((problem) => {
         const index = String(problem.index ?? '').toUpperCase()
         return {

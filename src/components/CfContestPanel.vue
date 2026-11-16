@@ -320,7 +320,16 @@ const {
   openImported,
   importingAll,
   allImported,
+  setVisible,
 } = useCfContest()
+
+/**
+ * 面板是 v-show 的常驻挂载（见 CfCodeforcesPanel 的说明），所以「露没露出来」只能靠
+ * `props.active` 传下去：延期时的慢轮询要在用户切去写代码时停掉，切回来再补探一次
+ * （见 useCfContest 的 setVisible）。不管它的话，一个被搁在后台的延期场次会一直按
+ * 阶梯拉 413KB 的比赛列表。
+ */
+watch(() => props.active, setVisible, { immediate: true })
 
 /** 赛程在本页之外（合成页签的抬头那一层），进来的第一页就是题目 */
 const tab = ref('problems')
