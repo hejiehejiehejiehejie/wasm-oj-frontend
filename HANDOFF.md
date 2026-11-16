@@ -6643,6 +6643,151 @@ compact
 2. **别用 `contest.list` 当探活**。它们的体积差 5000 倍（413186B vs 79B），而且 standings 的 `phase`
    比 list 快；list 只配用来「查改期」，且必须退避。
 
+## 57. 点开「藏在折叠组里」的页签，那一组要当场展开（2026-11-16，用户报障）
+
+用户：「我在打开了标签页组中的一个标签的时候，标签页组没有展开」，随后补充入口：「我是通过
+codeforce 的抽题或者比赛页面打开的题目」。
+
+### 57.1 症状与根因
+
+- 复现（dev server + 无头 Chrome，浅色，1400×900）：两张页签归一组（`groupTabs`，与 CF 抽题 /
+  比赛页导入时建组同一个入口）→ 点芯片折叠（焦点按十七改转出去；组里只剩自己时转不出去，
+  按十七改的全折叠兜底清空焦点）→ 再**打开组内那道题**。实测：`activeId` 确实指到它，
+  `groups[0].collapsed` 仍是 `true`，那张页签的 DOM 挂着 `is-group-hidden`
+  （`getClientRects().length === 0`）—— 编辑区开着这道题，条带上只有一枚芯片。
+- 根因是**缺一条反向的不变式**。折叠只影响渲染（成员仍在 `stripOrder` 与 DOM 里，被
+  `is-group-hidden` 藏起来），而「把焦点指过去」的入口（`openFile` 对**已打开**文件只写
+  `workspace.activeId`）压根不看分组状态。历史上只有折叠 / 展开两个动作各自结算焦点
+  （`EditorTabs.transferFocusOutOfGroup` / `restoreFocusIntoGroup`），没人管「焦点从外面落进
+  折叠组」这条路 —— 十七改末尾那条「已知残留 ⑤」（刷新后 activeId 从 `cp.activeFile` 恢复、
+  可能正落在折叠组里）就是同一个洞的另一个入口。
+- **CF 这条入口比文件树多一个坑**：抽题 / 比赛页重复导同一道题时，`problemImport` 收尾的
+  `openFile` 赋的是**同一个 id**（该文件里明写「已经打开过这道题时 activeId 不变」），
+  `watch(activeId)` 因此不响 —— 只靠 watcher 修不干净（见 57.2 第二条触发口）。
+
+### 57.2 改法
+
+`services/tabGroups.js` 的 `expandGroupOfActiveTab`：判据 `groupOf(id)?.collapsed` → 就地置
+`collapsed = false`。**两个触发口，缺一不可**：
+
+- `watch(() => workspace.activeId, …)`（模块底部、`load()` 之后注册）：管「焦点真的换了」的
+  所有路 —— 启动恢复、`closeTab` 的焦点回退、组件外的直接赋值。`{ immediate: true }` 必须
+  在 `load()` 之后：启动恢复是异步的（逐个建 model），可能早于也可能晚于本模块求值 ——
+  早了靠 immediate、晚了靠回调。十七改残留 ⑤ 由此关闭，口径从「清空焦点」改成「展开组」
+  （用户这轮要的就是展开）。
+- `focusTabIntent.show`（`workspaceStore` 新增的注入点，与 `codeViewIntent` / `closeFocus`
+  同一套办法：那边不能反向 import 本模块，会成环）：`openFile` 的两条成功路径与
+  `setActiveTab` 在赋值之后**无条件**调一次，**包括值没变的情形** —— 这正是 CF 重复导题
+  走的那条路。判据落在「用户表达了要打开这张页签」上，而不是「活跃文件变了」。
+
+两处配套口径：
+
+- **收口在状态层，不在入口**：能改焦点的路不止一处（文件树、`setActiveTab`、页签右键、
+  `clearActiveTab` 之后的重建、启动恢复 / CF 导入），写在入口上必漏。这是状态层的不变式，
+  与 `isVisible` / `isHiddenTab` 同源，所以放 tabGroups 而不是 EditorTabs。
+- **不做展开动画**：与 `addToGroup` / `addTabsToGroup` 里「往折叠组加页签顺手展开」同档。
+  用户的注意力此刻在编辑区，不需要一段 220ms 的滑动去解释页签去了哪；`toggleGroup` 那套
+  WAAPI 宽度动画仍只归芯片点击用。
+
+### 57.3 实测（改前 / 改后，同一个探针）
+
+| 步骤 | 改前 | 改后 |
+| --- | --- | --- |
+| 点芯片折叠（组 2 张 + 组外 1 张） | 焦点转给组外那张，组 `collapsed: true` | 同（未受影响） |
+| 点组内 main.py（文件树） | 焦点指过去，组仍 `collapsed: true`，页签 `hidden: true / visible: false` | 组 `collapsed: false`，三张全部可见，main.py 选中 |
+| 再折叠后点**非成员** solo.cpp | —— | 组保持 `collapsed: true`（不误触发） |
+| 组内两张全折叠后 `openFile(组员)`（= CF 导题收尾那一句） | 组仍折叠、页签不可见 | 组展开，焦点那张可见 |
+| `activeId` **已经是**组员（同值）+ 组折叠，再 `openFile(同一张)` | 值没变 → 什么都不会发生 | 组展开（走 `focusTabIntent` 那条） |
+
+结论：展开只在「焦点真的落进这一组」时发生，非成员不会误触发；同值重复打开也覆盖到了。
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error。
+
+## 58. 展开组之后条带往右让一格（2026-11-16，用户报障）
+
+用户：「在展开一个标签页组的时候，如果标签页组在最右边，有的时候会导致整体的宽度增加，
+我想让滚动条往右滚动一点，看到更多的标签页组的内容」。
+
+### 58.1 症状与根因
+
+- 实测（760px 窗口 / 六张页签 / 组在最右，浅色）：折叠时 `scrollLeft` 被浏览器夹到 91，
+  展开后仍是 91，而组尾右缘从可视区右侧跑出去 **192px**。**页面本身没被撑宽**
+  （`document.documentElement.scrollWidth` 始终 760），撑宽的是条带内容。
+- 根因：条带是 `overflow-x: auto` 的滚动容器（滚动条隐藏），展开只让 `scrollWidth` 变大、
+  `scrollLeft` 原地不动。于是新露出来的成员全落在可视区右边 —— 看不见，也想不到要去滚。
+
+### 58.2 改法（`components/EditorTabs.vue`）
+
+`revealExpandedGroup(gid)`：把**组尾右缘**推到可视区右缘（外加 `GROUP_REVEAL_GUTTER = 8`，
+留给激活成员那只画在盒子外面的右下外扩脚，否则滚到贴边时圆角被裁平），两头夹紧：
+
+- **只往右滚**（`target <= scrollLeft + 1` 直接返回）：往左拉回会把人正在看的邻签甩走；
+- **最多推到芯片贴左缘为止**（`Math.min(..., chip.offsetLeft)`）：组比可视宽度还宽时，
+  认得出「这是哪一组」比看全所有成员要紧（实测 8 张的组在 408px 条带里：芯片贴左，
+  t03–t06 可见，其余留给自己滚）。
+
+落点用内容坐标算（`offsetLeft / offsetWidth`，条带是定位祖先、无内边距，与 SVG 包络线同一套
+坐标），**不逐帧跟随**：动画期间成员还是收拢态，跟着量只能滚到中途；等 `finishGroupAnim` 的
+`nextTick`（内联宽度与 `fill: both` 都已撤掉、几何是最终值）一次性 `scrollTo({behavior:'smooth'})`，
+正好接上那 180ms 的宽度动画。`prefers-reduced-motion` 下改成 `auto`。
+
+两条触发路：
+
+| 路 | 挂点 |
+| --- | --- |
+| 芯片点击（有动画） | `finishGroupAnim(gid, rec, { reveal: !collapsing })` → `nextTick` 里滚 |
+| 状态层自动展开（无动画：点开藏在折叠组里的文件、往折叠组加页签） | 新增 `watch`（`true → false` 翻转），排除 `animatingGroups` / `groupAnims` 里的组，避免与上面那条各滚一段 |
+
+连点芯片（展开 → 当场折叠）时收尾会晚一步：`revealExpandedGroup` 开头先查
+`groupOfId(gid)?.collapsed`，折回去了就不滚。
+
+### 58.3 实测（760px / 700px，浅色，DSF 2）
+
+| 场景 | 改前 | 改后 |
+| --- | --- | --- |
+| 六张页签、组在最右，点芯片展开 | `scrollLeft` 91 → 91，组尾在可视区外 192px | 91 → 284，组尾贴右缘（752 / 753），页面宽度不变 |
+| 八张的组（比可视宽度还宽），点芯片展开 | 同上，看不到组内容 | `scrollLeft` → 301 = 芯片贴左缘，组尾仍在外（留给手动滚） |
+| 组在中间、右侧还有别的页签 | 不滚 | 只滚到组尾可见（42px），不额外越界 |
+| 折叠 | 不滚 | 不滚（`collapsed` 分支没有 reveal） |
+| 点组内文件走自动展开 | 不滚，焦点页签可能落在可视区外 | `scrollLeft` 127 → 320，`t06` 贴右缘、`t05` 选中可见 |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error。
+
+### 58.4 小行程不做（2026-11-16 用户报「最左那一组点击会抖」）
+
+**症状**：组在条带**最左**时，点芯片展开，整条页签左右各抖一下（每点一次都抖）。
+
+**根因**（探针实测，900px 窗口 / 八张页签全在一组 / 组在最左）：
+「最多推到芯片贴左缘」那道夹紧 `Math.min(..., chip.offsetLeft)` 在这里给出的落点是**芯片的左边距**，
+而芯片是 `margin: 0 6px` —— 行程只有 6px：
+
+| 动作 | `scrollLeft` | `max` |
+| --- | --- | --- |
+| 展开前（折叠） | 0 | 0 |
+| 点展开 | 0 → **6** | 290 |
+| 再点折叠 | 6 → **0**（内容缩回、浏览器把 `scrollLeft` 夹回 0） | 0 |
+
+6px 谁也看不见，但「右移 6 → 夹回 0」这一来一回就是用户说的抖。
+
+**改法**：`revealExpandedGroup` 里加一道陡度闸门 ——
+
+```js
+const GROUP_REVEAL_MIN_STEP = 12
+if (target - strip.scrollLeft < GROUP_REVEAL_MIN_STEP) return
+```
+
+- 12 的取法：**大于**那 6px 边距，又小到「少滚 12px」肉眼看不出；顺带把半像素的行程（`offsetWidth`
+  常带 `.5`）一起挡掉 —— 落点也 `Math.round` 了，不然回回都能算出「还能滚」。
+- **语义上并不损失**：组在最左时，`chip.offsetLeft` 把落点死死压在 6px 以内，本来就不可能滚出
+  有意义的一步；真正要滚的是「组尾在可视区外」那些。
+
+**实测（改后，同环境）**：
+
+| 场景 | 折叠 | 展开 |
+| --- | --- | --- |
+| 组在最左、八张全在组里 | `scrollLeft` 0，`max` 0 | `scrollLeft` **0**，一次 `scrollTo` 都没发（改前发 6） |
+| 组在最右（八张里末尾三张成组） | `scrollLeft` 2 | `scrollTo(289)`，落到 289（改前同值） |
+
+
 ## 59. 失步自愈再收紧：迟到 pending、相位倒退、切面板节流、单场补丁（2026-11-16，用户复审 §56.7 后）
 
 §56.7 落地后又审出四处边界，逐条核对的结果是：**一处是我看错了（本来就没问题）**，

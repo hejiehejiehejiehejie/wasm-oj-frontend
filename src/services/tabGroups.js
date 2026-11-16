@@ -18,6 +18,8 @@
  * 「DOM 顺序 == stripOrder」这条等式上算的（见 composables/useTabDrag.js），一摘就错位。
  * 折叠组的成员**不参与**「拖到旁边即入组」—— Chrome 同款（拖到折叠组边上只是排在它旁边）；
  * 反过来，往折叠组里加页签会把组展开（否则页签凭空消失，看不出发生了什么）。
+ * **焦点落进折叠组也展开**（2026-11-16 补，见 expandGroupOfActiveTab）：文件树点一个「已开着、
+ * 但在折叠组里」的文件时，openFile 只改 activeId —— 不展开就是「编辑区开着它、条带上找不到」。
  *
  * 【落盘】`cp.tabGroups`：`{ groups: [{id,color,name,collapsed}], memberOf: {tabId: groupId} }`。
  * 不带 folder 后缀（成员是节点 id，换工作区后对不上号的部分由 prune 清掉）；
@@ -45,7 +47,7 @@
 import { reactive, watch } from 'vue'
 import { isViewOpen } from './editorViews.js'
 import { isViewId, moveStripItem, stripOrder } from './tabStrip.js'
-import { closeFocus, closeTab, createFile, workspace } from './vfs/workspaceStore.js'
+import { closeFocus, closeTab, createFile, focusTabIntent, workspace } from './vfs/workspaceStore.js'
 import { templateForPath } from './fileTemplates.js'
 
 const STORAGE_KEY = 'cp.tabGroups'
@@ -230,6 +232,39 @@ export function isHiddenTab(tabId) {
   const g = groupOf(tabId)
   return !!g && !!g.collapsed
 }
+
+/**
+ * 焦点落进被折叠的组 → 立刻展开那一组（2026-11-16 补，「焦点必可见」的反向那一条）。
+ *
+ * 折叠只影响**渲染**（成员仍在 stripOrder 里，被 `is-group-hidden` 藏起来），所以「打开一个
+ * 藏在折叠组里的页签」这条路上原来没人拦：点一个**已开着、但在折叠组里**的文件，`openFile`
+ * 只把 activeId 指过去，组还是折叠的 —— 编辑区开着它、条带上只有一枚芯片，页签在栏里根本
+ * 找不到（用户 2026-11-16 报「打开了标签页组中的一个标签的时候，标签页组没有展开」，
+ * 入口是 **Codeforces 抽题 / 比赛页导入题目**：那道题的文件早就开着、也在组里，再点一次
+ * 只是把焦点指回去）。
+ * 以前只有折叠 / 展开这两个动作各自结算焦点（EditorTabs 的 transferFocusOutOfGroup /
+ * restoreFocusIntoGroup），缺的正是反向那条：焦点**从外面**落进折叠组时由谁来展开它。
+ *
+ * 【两个触发口，缺一不可】
+ *   · `watch(activeId)`（模块底部注册）：管「焦点真的换了」的所有路 —— 启动恢复、closeTab
+ *     的焦点回退、组件外的直接赋值；
+ *   · `focusTabIntent.show`（workspaceStore 的注入点，下面一行就是注册）：管「重复打开同一张
+ *     页签」—— 那时 activeId 赋值前后同值，watch 不响，而 CF 抽题 / 比赛页重复导同一道题
+ *     走的正是这条路（`problemImport` 明写「已经打开过这道题时 activeId 不变」）。
+ * 为什么收口在状态层而不是逐个入口：能改焦点的路不止一处（文件树、setActiveTab、页签菜单、
+ * 快捷键、启动恢复），写在入口上必漏。这是状态层的不变式，与 isVisible 同源。
+ * **不做展开动画**：与 addToGroup / addTabsToGroup 里「往折叠组加页签顺手展开」同档 ——
+ * 此刻用户的注意力在编辑区，不需要一段 220ms 的滑动来交代页签去了哪。
+ * @param {string|null} id 新的焦点页签
+ */
+function expandGroupOfActiveTab(id) {
+  if (!id) return
+  const g = groupOf(id)
+  if (g && g.collapsed) g.collapsed = false
+}
+
+// 「用户要打开 / 切到这张页签」的意图：值没变也算数（见上面那段的两条触发口）
+focusTabIntent.show = expandGroupOfActiveTab
 
 /**
  * 这张页签此刻**看得见**吗：在条带上、还开着、不属于已折叠的分组。
@@ -515,3 +550,10 @@ function save() {
 
 load()
 watch(tabGroups, save)
+
+// 焦点一旦落在折叠组里就把那组展开（见 expandGroupOfActiveTab）。
+// **必须在 load() 之后注册**：`immediate` 那一下要读到已经从 localStorage 恢复的
+// groups / memberOf，否则开机的第一帧照旧是「编辑区开着文件、条带上只有芯片」。
+// immediate 还兼着「启动恢复 activeId」这个时序不确定的场景：恢复是异步的（要逐个建 model），
+// 它可能早于也可能晚于本模块求值 —— 早了靠 immediate 补、晚了靠回调接。
+watch(() => workspace.activeId, expandGroupOfActiveTab, { immediate: true })

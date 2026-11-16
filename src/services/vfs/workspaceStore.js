@@ -353,6 +353,21 @@ export const activeLanguage = computed(() => {
 export const codeViewIntent = { show: null }
 
 /**
+ * 「用户要打开 / 切到这张页签」的注入点（2026-11-16 加，给页签分组用）：`openFile()` 的
+ * 两条成功路径与 `setActiveTab()` 在**赋值之后无条件**调一次，包括 activeId 压根没变的情形。
+ * 由 `services/tabGroups.js` 在模块加载时注册成「焦点落在被折叠的组里就展开那一组」。
+ *
+ * 【为什么还要它 —— watch(activeId) 不够】与上面 `codeViewIntent` 同一个洞：watch 只在值
+ * **变化**时触发。重复打开同一道题 / 同一个文件时 `openFile` 赋的还是同一个 id，watch 不响；
+ * 而「那张页签此刻被折叠藏着」与「activeId 早就指着它」完全可以并存（刷新后从
+ * `cp.activeFile` 恢复、或视图像盖着编辑区时焦点一直停在那个文件上）。CF 抽题 / 比赛页
+ * 重复导同一道题走的正是这条路（`problemImport` 里明写「已经打开过这道题时 activeId 不变」）。
+ * 所以判据落在意图上，与 `codeViewIntent` 同一口径。
+ * @type {{show: ((id: string) => void)|null}}
+ */
+export const focusTabIntent = { show: null }
+
+/**
  * 打开文件：已打开则只切活跃；否则建 model + retain + 加入 tab。
  *
  * `preview` 是「单击文件树」专用的预览语义：第一个文件占住预览槽，再点一个就把上一个
@@ -371,6 +386,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
     // 让位得在这里显式做一次（判据见上面 codeViewIntent）。
     codeViewIntent.show?.()
     workspace.activeId = id
+    focusTabIntent.show?.(id)
     revealId(id)
     return
   }
@@ -396,6 +412,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   // 等读盘这期间，同一个文件可能已经被另一次点击打开了（连点两下）：别再 push 一次
   if (workspace.openTabIds.includes(id)) {
     workspace.activeId = id
+    focusTabIntent.show?.(id)
     revealId(id)
     return
   }
@@ -426,6 +443,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
     workspace.openTabIds.push(id)
   }
   workspace.activeId = id
+  focusTabIntent.show?.(id)
   if (preview) workspace.previewTabId = id
   revealId(id)
 }
@@ -482,7 +500,10 @@ export function pinTab(id) {
 
 /** @param {string} id */
 export function setActiveTab(id) {
-  if (workspace.openTabIds.includes(id)) workspace.activeId = id
+  if (!workspace.openTabIds.includes(id)) return
+  workspace.activeId = id
+  // 同上：值没变也要发一次意图（重复点同一张页签时 watch 不响）
+  focusTabIntent.show?.(id)
 }
 
 /**

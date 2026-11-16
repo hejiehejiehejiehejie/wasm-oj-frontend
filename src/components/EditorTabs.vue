@@ -602,14 +602,82 @@ function cancelGroupAnim(gid) {
   animatingGroups.delete(gid)
 }
 
-function finishGroupAnim(gid, rec) {
+/**
+ * @param {string} gid
+ * @param {{els: HTMLElement[], animations: Animation[]}} rec
+ * @param {{reveal?: boolean}} [opts] `reveal`：这次收尾是**展开**，完了把条带往右让一点
+ *   （见 revealExpandedGroup）
+ */
+function finishGroupAnim(gid, rec, { reveal = false } = {}) {
   if (groupAnims.get(gid) !== rec) return
   for (const el of rec.els) resetGroupAnimInline(el)
   groupAnims.delete(gid)
   animatingGroups.delete(gid)
   nextTick(() => {
     for (const a of rec.animations) a.cancel()
+    // 排在 cancel 之后：fill: both 还托着终态时量到的 offsetLeft / offsetWidth 未必是布局值，
+    // 撤掉动画再滚，落点才是最终几何
+    if (reveal) revealExpandedGroup(gid)
   })
+}
+
+/** 展开后往右滚时，组尾右缘与条带右缘之间留的余量。取激活页签那只右下外扩脚的宽度
+ *  （`.editor-tabs__item--active::after`：8×8、`right: -8px`，画在盒子外面）：正好滚到
+ *  「组尾贴住条带右缘」的话，那只脚会被滚动容器裁平，选中的圆角看着被切了一刀。 */
+const GROUP_REVEAL_GUTTER = 8
+
+/** 落点与当前 `scrollLeft` 相差不到这个距离就**不滚**（2026-11-16 用户口径：「当标签页组在最左侧，
+ *  点击会发生抖动，添加一个防抖，如果移动的距离小于某个距离，则不会有移动」）。
+ *
+ *  最左那一组展开时，上面「最多推到芯片贴左缘」那道夹紧给出的是 `chip.offsetLeft`，而芯片带
+ *  `margin: 0 6px` —— 落点只有 6px。实测（900px 窗口 / 八张页签全在一组、组在条带最左）：
+ *  展开 `scrollLeft` 0 → 6，收起时内容缩回去、`max` 归 0，浏览器把 `scrollLeft` 夹回 0，
+ *  于是每点一下条带就左右各抖 6px。阈值取 12（大于那 6px 边距，又小到「少滚 12px」肉眼看不出）：
+ *  短于它的行程一律不做，条带原地不动。 */
+const GROUP_REVEAL_MIN_STEP = 12
+
+/**
+ * 展开组之后把条带往右滚一点（2026-11-16 用户口径：「在展开一个标签页组的时候，如果标签页组
+ * 在最右边，有的时候会导致整体的宽度增加，我想让滚动条往右滚动一点，看到更多的标签页组的
+ * 内容」）。
+ *
+ * 条带是 overflow-x 的滚动容器（滚动条本身隐藏），展开只让 `scrollWidth` 变大、`scrollLeft`
+ * 原地不动 —— 组贴着右缘时，新露出来的成员全在可视区**右边**，看不到也够不着。实测 760px
+ * 窗口 / 六张页签 / 组在最右：展开前后 `scrollLeft` 都是 91，而组尾右缘从可视区右侧跑出去
+ * 192px（页面本身没被撑宽，撑宽的是条带内容）。
+ *
+ * 落点：把组尾右缘推到可视区右缘（外加一只脚的余量），两头夹紧 ——
+ * · **只往右滚**：往左拉回会把人正在看的邻签甩走；
+ * · **最多推到芯片贴左缘为止**：组比可视宽度还宽时，认得出「这是哪一组」比看全所有成员要紧；
+ * · **不到 GROUP_REVEAL_MIN_STEP 的行程不做**（见上，最左那组的 6px 抖）。
+ *
+ * **不做逐帧跟随**：展开动画期间成员的 offsetLeft 还是收拢态，跟着量只能滚到中途，还会和
+ * 动画抢布局；等收尾（内联宽度与 `fill: both` 都撤掉）一次性 smooth 过去，正好接上那 180ms
+ * 的宽度动画。
+ * @param {string} gid 刚展开的组
+ */
+function revealExpandedGroup(gid) {
+  // 连点芯片（展开 → 当场折叠）：这条会晚一步才跑到这里，组已经折回去了就不该再滚
+  if (tabGroups.groupOfId(gid)?.collapsed) return
+  const strip = rootEl.value?.querySelector('.editor-tabs__strip')
+  if (!strip) return
+  const chip = strip.querySelector(`.editor-tabs__chip[data-group-id="${gid}"]`)
+  const members = [...strip.querySelectorAll(`.editor-tabs__item[data-group-id="${gid}"]`)].filter(
+    (el) => !el.classList.contains('is-group-hidden'),
+  )
+  if (!chip || !members.length) return
+  const max = strip.scrollWidth - strip.clientWidth
+  if (max <= 0) return
+  // 内容坐标：条带是定位祖先（position: relative），offsetLeft 与 SVG 包络线、滚动条吃的
+  // 是同一套坐标（条带没有内边距），且 offsetWidth 不受 FLIP 的 transform 影响
+  const right = Math.max(...members.map((el) => el.offsetLeft + el.offsetWidth))
+  // 取整：落点里全是小数（offsetWidth 常带 .5），不取整会留下半像素的行程，回回都要认定「能滚」
+  const target = Math.round(
+    Math.min(right + GROUP_REVEAL_GUTTER - strip.clientWidth, chip.offsetLeft, max),
+  )
+  if (target - strip.scrollLeft < GROUP_REVEAL_MIN_STEP) return
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  strip.scrollTo({ left: target, behavior: reduce ? 'auto' : 'smooth' })
 }
 
 /**
@@ -752,11 +820,11 @@ function toggleGroup(group, { fromGesture = false } = {}) {
       )
     }
     if (!rec.animations.length) {
-      finishGroupAnim(gid, rec)
+      finishGroupAnim(gid, rec, { reveal: !collapsing })
       return
     }
     Promise.all(rec.animations.map((a) => a.finished.catch(() => null))).then(() =>
-      finishGroupAnim(gid, rec),
+      finishGroupAnim(gid, rec, { reveal: !collapsing }),
     )
   })
 }
@@ -1063,6 +1131,34 @@ function glineTick() {
 watch(animatingGroups, () => {
   if (animatingGroups.size) startGlineFollow()
 })
+
+/* 非动画路径的展开也要让位（2026-11-16，与 revealExpandedGroup 配对）：`tabGroups` 状态层
+   自己把 `collapsed` 翻成 false 的那几处（点开藏在折叠组里的文件 → expandGroupOfActiveTab、
+   往折叠组里加页签 → addTabsToGroup）不经过 toggleGroup，收不到 finishGroupAnim 的 reveal，
+   组在最右时同样会「展开了却看不见」。这里盯住 true → false 的翻转补一刀。
+   **只补没在动画里的组**：芯片点击那条路自己会滚，两边都滚就是两段行程抢同一个 scrollLeft。
+   （toggleGroup 里 `animatingGroups.add` 在 `toggleCollapsed` 之前，所以本回调跑到时判据
+   已经立起来了。） */
+let collapsedMemo = new Map(tabGroups.tabGroups.groups.map((g) => [g.id, g.collapsed]))
+watch(
+  () => tabGroups.tabGroups.groups.map((g) => `${g.id}:${g.collapsed}`).join(','),
+  () => {
+    const expanded = tabGroups.tabGroups.groups
+      .filter(
+        (g) =>
+          !g.collapsed &&
+          collapsedMemo.get(g.id) === true &&
+          !animatingGroups.has(g.id) &&
+          !groupAnims.has(g.id),
+      )
+      .map((g) => g.id)
+    collapsedMemo = new Map(tabGroups.tabGroups.groups.map((g) => [g.id, g.collapsed]))
+    if (!expanded.length) return
+    nextTick(() => {
+      for (const id of expanded) revealExpandedGroup(id)
+    })
+  },
+)
 // 拖拽起手就把包络线切到逐帧跟随：被拖页签（含它是激活组员时那只外扩脚）与让位滑动
 // 的中途位置全部实时反映进 SVG 路径。松手 / 取消后循环**不**立刻停 —— 让位与 settle
 // 两段补间还在跑，撑 GLINE_SETTLE_MS 的窗口继续逐帧贴，跑完自然收敛归零。
