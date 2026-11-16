@@ -435,7 +435,7 @@ function moveAcrossPanes(payload) {
   const target = resolvePaneDrop(payload.pointer, { sourcePaneId: props.paneId })
   if (!target) return false
 
-  // 单页签拖到**自己**的边缘：只切分，不搬页签。
+  // 本窗格只有一张页签、落点又在**自己**的边缘：只切分，不搬页签。
   //
   // 搬过去的话原窗格当场变空、紧接着被 closeEmptyPane 回收，切出来的一格又并回去 ——
   // 鼠标 / 触摸看到的都是「什么都没发生」，连高亮都没有（早先干脆在 resolvePaneDrop 里
@@ -443,6 +443,10 @@ function moveAcrossPanes(payload) {
   // 现在改成与 ⌘⌥\ 同一个结果：页签留在原窗格，旁边多出一格空的（≤ 上限时才有这一下，
   // 上限与最小尺寸由 paneDropTarget 判过）。跨越式落点同样只切 —— 新窗格本来就另起一条，
   // 把页签搬过去的唯一后果是原窗格空掉再被回收，等于白切。
+  //
+  // ⚠️ 整个编辑区只有这一张页签的情况**到不了这里**：那条已在 resolvePaneDrop 里拦掉
+  // （2026-11-17 用户口径「刚开始只有单个标签页就不必分窗格」），本分支只剩「本格一张、
+  // 别处还有页签」—— 切出来才有意义（两边都有东西可看）。
   if (
     target.paneId === props.paneId &&
     target.zone !== 'center' &&

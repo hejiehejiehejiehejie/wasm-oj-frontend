@@ -22,8 +22,11 @@
  *      （见 EditorTabs 的 moveAcrossPanes）。切完原窗格不会空掉，于是不会触发空窗格回收，
  *      结果就是「原窗格留着这张页签 + 旁边多出一格空的」—— 与 ⌘⌥\ 的语义一致。
  *      早先这里一律不认：切分 + 搬页签 + 回收原窗格三步抵消，画面闪一下等于没变。可那样
- *      一来「只有一张页签」的窗格（窄屏刚打开时的常态）就**永远切不出分屏**，而且不亮高亮，
- *      鼠标和触摸看起来都是「手势没反应」；
+ *      一来「本窗格只有一张页签」就**永远切不出分屏**，而且不亮高亮，鼠标和触摸看起来都是
+ *      「手势没反应」。
+ *      **例外（2026-11-17 用户口径）**：整个编辑区总共只有这一张页签时不切 —— 切出来的
+ *      第二格必然是空的，那不算分屏，只是凭空多出一页占位页。判据在 `resolvePaneDrop`
+ *      末尾（要全局页签数，几何层看不到这一层）。
  *   3. **最小尺寸保护**：目标内容区对半分之后两半都得站得住，太窄/太矮就只留另一条轴；
  *      窄屏（`isNarrowLayout()`）**只关左右那条轴**，上下照切 —— 窄屏渲染层是竖排投影
  *      （见 computeNarrowPaneRects），上下分屏看得见、也拖得动；
@@ -56,7 +59,7 @@
  */
 import { shallowRef } from 'vue'
 import { isNarrowLayout } from './shellSettings.js'
-import { leaves, paneLimit, spanPaneShare } from './editorPanes.js'
+import { allTabs, leaves, paneLimit, spanPaneShare } from './editorPanes.js'
 
 /** 边缘带宽占内容区尺寸的比例 */
 const EDGE_RATIO = 0.25
@@ -337,12 +340,16 @@ function insertPercent(strip, cellRect, clientX) {
 }
 
 /**
- * 拖页签时的落点解析：在 `paneDropTargetAt` 之上补一条「这次拖拽特有的」规则。
+ * 拖页签时的落点解析：在 `paneDropTargetAt` 之上补两条「这次拖拽特有的」规则。
  *
  * **同一片窗格的中心区 / 页签栏不算跨窗格落点** —— 交回条带自身的排序（返回 null）；
- * 同一片窗格的**边缘**照认（哪怕里面只有一张页签）。单页签那条落地时只切分、不搬页签，
- * 所以不会再出现「切完原窗格空掉 → 回收 → 原地闪一下」的空转，也不需要在这里静默拦掉
- * —— 拦掉的话窄屏（默认只有一个窗格、一张页签）根本切不出分屏，且连高亮都不亮。
+ * 同一片窗格的**边缘**照认（哪怕本窗格只有一张页签）。单页签那条落地时只切分、不搬页签，
+ * 所以不会再出现「切完原窗格空掉 → 回收 → 原地闪一下」的空转。
+ *
+ * **全局只有一张页签时不切**（用户 2026-11-17 口径「刚开始只有单个标签页就不必分窗格」）：
+ * 这时切出来的第二格必然是空的，只是多一页占位页；页签反正也搬不过去（搬走原格会空、
+ * 立刻被回收，等于原地闪一下）。返回 null 会连高亮一起灭掉，手势看起来就是「这儿不能放」。
+ * 判据放在这里而不是几何层：`paneDropTargetAt` 只认矩形与命中，看不到「整个编辑区有几张页签」。
  *
  * @param {{x: number, y: number}|null|undefined} point
  * @param {{ sourcePaneId?: string|null }} [options]
@@ -354,6 +361,8 @@ export function resolvePaneDrop(point, { sourcePaneId = null } = {}) {
   if (!target) return null
   if (target.paneId !== sourcePaneId) return target
   if (target.zone === 'center' || target.zone === 'tabstrip') return null
+  // 只对「拖页签」成立：文件树拖进来时调用方不传 sourcePaneId，走的不是这条分支
+  if (allTabs().length <= 1) return null
   return target
 }
 
