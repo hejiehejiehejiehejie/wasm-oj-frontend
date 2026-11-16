@@ -34,7 +34,7 @@ export const THEMES = [
     id: 'light',
     scheme: 'light',
     labelKey: 'settings.option.themeLight',
-    swatch: ['#f3f3f3', '#ffffff', '#005fb8', '#1f1f1f'],
+    swatch: ['#f9f9f9', '#ffffff', '#005fb8', '#1f1f1f'],
   },
   {
     id: 'midnight',

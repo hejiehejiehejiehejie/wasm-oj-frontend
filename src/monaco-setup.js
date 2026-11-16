@@ -76,11 +76,15 @@ monaco.editor.defineTheme('light', {
     'editor.background': '#ffffff',
     'editorGutter.background': '#ffffff',
     'minimap.background': '#ffffff',
-    // 光标所在行：与深色主题同口径，整行铺底色而非方框。取浅色主题的 --bg-control-hover
-    // （#e0e0e0），比白底压深 8 阶（深色那支同一天连降两档，这支跟着降一档保持一致；
-    // 浅色下「暗」＝更明显，方向与深色相反）。边框取同色，免得又画出一圈边。
-    'editor.lineHighlightBackground': '#e0e0e0',
-    'editor.lineHighlightBorder': '#e0e0e0',
+    // 光标所在行：与深色主题同口径，整行铺底色而非方框。边框取同色，免得又画出一圈边。
+    // **2026-11-16 由 #e0e0e0 提到 #f0f0f0**（用户：「指针所在行的高亮颜色太深了」）。
+    // 那一版取的是 --bg-control-hover，比白底压深 31 阶，在 #ffffff 的编辑区上读成一整条
+    // 灰阴影；现在压深 15 阶（约 6% 灰），仍能一眼定位光标行，但不与正文抢注意力。
+    // **别再往 --bg-control-hover / --border-soft 那类「控件面」上靠** —— 那些档位都是给
+    // 小块按钮 / 描边定的，铺满整行宽度就会重一大截。取值的参照关系是「比同词高亮
+    // #E8E8E8 更淡」：行带面积大，理应比小面积高亮更轻。
+    'editor.lineHighlightBackground': '#f0f0f0',
+    'editor.lineHighlightBorder': '#f0f0f0',
     // 选中文字：vs 自带的 #ADD6FF 压在白底上只有约 1.5:1，选中了也几乎看不出来
     // （用户报「浅色下选中的颜色太淡」）。换成同色相（--accent 那支蓝）再压深一档的
     // #A8CDF4（约 1.65:1）—— 早一版取 #9CC6F2（1.8:1）实机偏重，往白底方向退一档，
