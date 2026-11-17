@@ -1478,6 +1478,8 @@ function onTreePointerDown(event) {
  * - 点自家右键菜单（Teleport 到 body）不算离开：菜单项常常顺手把焦点送回树里（重命名），
  *   中间夹一帧浅色就是一次闪烁。两侧确认卡片没这层顾虑 —— 点上去按「离开」算，
  *   而「取消删除」会把焦点还回那一行，于是它自己又亮回来（见 cancelDelete）。
+ * - 菜单那张铺满视口的遮罩（`.context-menu-scrim`）**按底下的东西判**，不按它自己判 ——
+ *   否则「菜单开着点树的空白处」会被读成「点到了资源管理器外面」，高光退浅一档
  */
 const treeActive = ref(false)
 
@@ -1486,13 +1488,51 @@ function inSidebar(target) {
   return !!target?.closest?.('.sidebar')
 }
 
+/**
+ * 右键菜单的遮罩挡着时，指针命中的永远是那张透明层（`.context-menu-scrim`，铺满视口、在菜单
+ * 下面），可用户认定的落点是**它底下那一格**。于是用坐标反查：取命中栈里第一个不属于菜单的
+ * 元素，就当作真正的落点。遮罩本身没有坐标信息可给，只能这么问。
+ */
+function underScrim(event) {
+  const stack = document.elementsFromPoint(event.clientX, event.clientY)
+  return stack.find((el) => !el.closest?.('.context-menu, .context-menu-scrim')) ?? null
+}
+
+/**
+ * 这一格算不算「树的空白处」—— 与 onTreePointerDown / onTreeClick 同一套判据
+ * （节点子树 `.tree-item` 之外、且不在内联新建行上）。
+ */
+function isTreeBlank(target) {
+  if (!target?.closest?.('.explorer__tree')) return false
+  return !target.closest('.tree-item, .create-row')
+}
+
 function onDocPointerDown(event) {
-  if (inSidebar(event.target)) {
+  // 遮罩把这一发吞了（底下什么都收不到），所以「点的是哪儿」只能自己按坐标反查
+  const onScrim = !!event.target?.closest?.('.context-menu-scrim')
+  const target = onScrim ? underScrim(event) : event.target
+  // 自家右键菜单是 body 下的浮层，点它不等于离开资源管理器
+  if (target?.closest?.('.context-menu')) return
+  if (inSidebar(target)) {
     treeActive.value = true
+    /**
+     * 菜单开着时点树的空白处：遮罩吃掉了这一发，`onTreePointerDown` / `onTreeClick` 一个都收
+     * 不到 —— 菜单关掉了、选区却还在，而且高光被上面判断成「已离开」退成了浅的一档
+     * （2026-11-18 用户报「点空白高光应该直接消失，而不是变浅」就是这个）。空白处没有别的语义，
+     * 所以这里替它们把那一脚补上：焦点回到根（容器上 `tabindex="-1"`），选区清空。
+     * 落在**行**上则不补 —— 关菜单的那一下只关菜单，不去改选中（与遮罩的既定口径一致）。
+     */
+    if (onScrim && isTreeBlank(target)) {
+      selectNode(null)
+      /**
+       * 焦点**不能当场给**：这一发的落点是遮罩，`mousedown` 的默认动作会在事件派发结束后
+       * 把焦点拨给 `body`（实测时间线：`focusin: explorer__tree` 紧跟着 `focusout: explorer__tree
+       * → body`，同步调 `focus()` 会被它当场抹掉）。等这一发走完再给。
+       */
+      requestAnimationFrame(() => rootEl.value?.focus({ preventScroll: true }))
+    }
     return
   }
-  // 自家右键菜单是 body 下的浮层，点它不等于离开资源管理器
-  if (event.target?.closest?.('.context-menu')) return
   treeActive.value = false
 }
 
