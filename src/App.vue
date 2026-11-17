@@ -1564,9 +1564,7 @@ watch(
  * 同一个键两种语义，按焦点窗格当前的状态决定：
  *   · 焦点窗格是空的且不是最后一格 → 收掉它（分屏后反悔最自然的一步）；
  *   · 否则 → 把焦点窗格一分为二（新窗格在后，且获焦）。
- * 方向随屏幕：宽屏左右分，窄屏只能上下分 —— 390px 宽上并排两片各剩不到 200px，读不了
- * 代码；上下两段则完全可用（窄屏渲染层就是竖排投影，见 computeNarrowPaneRects）。
- * 上限也随屏幕：宽屏 4 片、窄屏 2 片（`paneLimit()`），到顶时提示的是各自那句。 */
+ * 宽窄屏共用同一套行为：一律左右分，上限同为 4 片（`MAX_PANES`）。 */
 function toggleSplitPane() {
   const pane = focusedLeaf()
   if (!pane) return
@@ -1574,11 +1572,8 @@ function toggleSplitPane() {
     closeEmptyPane(pane.id)
     return
   }
-  const narrow = isNarrowLayout()
-  const axis = narrow ? 'y' : 'x'
-  if (!splitPane(pane.id, axis, 'after')) {
-    const key = narrow ? 'app.splitLimitNarrow' : 'app.splitLimit'
-    notify({ type: 'info', message: t(key), duration: 2600, tag: 'split-editor' })
+  if (!splitPane(pane.id, 'x', 'after')) {
+    notify({ type: 'info', message: t('app.splitLimit'), duration: 2600, tag: 'split-editor' })
   }
 }
 

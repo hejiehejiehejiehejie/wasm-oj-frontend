@@ -26,8 +26,6 @@ export default {
       closePane: '关闭窗格',
       /** 已经四格时的说明 */
       splitLimit: '最多同时打开四个窗格',
-      /** 窄屏只支持两格（上限随屏幕走，见 editorPanes 的 paneLimit） */
-      splitLimitNarrow: '窄屏最多同时打开两个窗格',
       /** 评测面板页脚那颗 ▶ 的 title */
       runAllTests: '运行全部测试用例',
 
@@ -196,7 +194,6 @@ export default {
       emptyKeymapOpenSettings: 'Open settings',
       closePane: 'Close pane',
       splitLimit: 'At most four panes can be open at once',
-      splitLimitNarrow: 'At most two panes can be open on narrow screens',
       runAllTests: 'Run all test cases',
 
       toolchain: {

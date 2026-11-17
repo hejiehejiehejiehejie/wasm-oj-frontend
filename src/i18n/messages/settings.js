@@ -278,7 +278,7 @@ export default {
         toggleLayout: { label: '侧边栏左右对调' },
         splitEditor: {
           label: '分屏 / 收起空窗格',
-          hint: '把当前窗格一分为二；焦点窗格为空时再按一次收起它。最多四格，窄屏两个（只能上下分）',
+          hint: '把当前窗格一分为二；焦点窗格为空时再按一次收起它。最多四格',
         },
         newCase: { label: '新增一条测试用例' },
         newFile: {
@@ -913,7 +913,7 @@ export default {
         toggleLayout: { label: 'Swap sidebar side' },
         splitEditor: {
           label: 'Split editor / close empty pane',
-          hint: 'Splits the focused pane in two; pressing again while it is empty closes it. Up to four panes (two, stacked, on narrow screens)',
+          hint: 'Splits the focused pane in two; pressing again while it is empty closes it. Up to four panes',
         },
         newCase: { label: 'Add a test case' },
         newFile: {

@@ -820,7 +820,7 @@ onBeforeUnmount(() => {
   releasePasteGuard?.()
   releasePasteGuard = null
   // 卸载前把本窗格当前文件的光标 / 滚动 / 折叠存回全局表（按 fileId，跨窗格共享）。
-  // 分屏 + 窄屏降级都会真的卸载窗格（窄屏只渲染焦点叶），不存的话切回来就跳回文件开头。
+  // 关窗格 / 合并窗格 / 切换工作区都会真的卸载窗格，不存的话再打开就跳回文件开头。
   const leaving = editor.value
   if (leaving && paneActiveId.value) {
     const state = leaving.saveViewState()

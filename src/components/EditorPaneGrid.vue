@@ -9,19 +9,15 @@
  *   页签的格子才走得到；装过页签又变空的格子由 `editorPanes.reapEmptyPanes()` 自动收掉）。
  * - 每片叶子一个 `<EditorPane :pane-id>`，`:key` 用 **leaf.id**。分割叶子时 editorPanes
  *   复用原叶子 id（不变式 4），所以分割那一刻原窗格的 Monaco 实例不重建、不闪。
- * - 窄屏（`isNarrowLayout()`）走**竖排投影**（`computeNarrowPaneRects`）：叶子上下排开、
- *   `y`-split 保留可拖的分割条，`x`-split 折成等高两段。树本身在进入窄屏时已经被
- *   `editorPanes.adaptPanesToLayout()` 归并成最多两格（宽屏的 3–4 格会把页签攒进两个窗格，
- *   原布局记成「宽屏预设」等回来时还原），所以这里通常只需画一段或两段。
+ * - 宽窄屏共用同一套几何（`computePaneRects`）：布局树怎么分就怎么画，旋屏只改变容器尺寸，
+ *   不会把上下分翻成左右、也不会归并窗格。
  *
  * 【对外接口】App.vue 把原来直接挂在 EditorPane 上的 ref 挂到这里，`layout()` /
  * `focus()` / `exportImage()` / `openNode()` 一律转给**焦点窗格**的实例；其余 props 与
  * 监听器经 `$attrs` 原样透传给每一片 EditorPane（它们都是同一份全局设置）。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { isNarrowLayout } from '../services/shellSettings.js'
 import {
-  computeNarrowPaneRects,
   computePaneRects,
   editorPanes,
   focusPane,
@@ -57,11 +53,8 @@ defineProps({
 
 const gridEl = ref(null)
 
-/** 渲染用的矩形：宽屏按布局树，窄屏按竖排投影（见 computeNarrowPaneRects） */
-const layout = computed(() => {
-  const root = editorPanes.root
-  return isNarrowLayout() ? computeNarrowPaneRects(root) : computePaneRects(root)
-})
+/** 渲染用的矩形：宽窄屏同一套几何，直接按布局树换算 */
+const layout = computed(() => computePaneRects(editorPanes.root))
 
 function cellStyle(rect) {
   return {

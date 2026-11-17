@@ -19,34 +19,18 @@
  * 把树换算成百分比矩形，绝对定位渲染每一片叶子（`:key` 用 leaf.id —— 见不变式 4），
  * 每个 split 节点渲染一条可拖的分割条，拖动调 `setRatio`。布局树本身仍在启动时由
  * `restorePanes()` 从 `cp.editorPanes` 恢复，之后每次改动由文件末尾的 watch 落盘。
+ *
+ * 【宽窄屏同一套布局】窄屏不再做竖排投影，也不再把宽屏布局归并成两格：同一棵树在两种
+ * 屏幕下按同样的方向渲染、同样的上限（4 片）。旋屏只影响各组件自己的尺寸，不动布局树。
  */
 import { reactive, watch } from 'vue'
-import { isNarrowLayout } from './shellSettings.js'
 import { isViewId } from './editorViewIds.js'
 
 /** 根叶子的固定 id：单窗格阶段 App / EditorPane 直接认它，P1 后仍作为初始叶子的 id */
 export const PANE_ROOT_ID = 'pane-root'
 
-/** 叶子数上限（用户口径：最多四格） */
+/** 叶子数上限（用户口径：最多四格，宽窄屏一致） */
 export const MAX_PANES = 4
-
-/**
- * 窄屏的叶子数上限（用户口径 2026-11-17：窄屏下只支持两个窗格）。
- *
- * 窄屏是**竖排投影**（见 computeNarrowPaneRects）：一屏最多叠两段，再分每段就只剩百来
- * 像素、连一行代码都摆不下。4 这个数是宽屏的口径，窄屏另算。
- *
- * 两条路都要卡住：
- *   · 新增一格 —— `splitPane` 用 `paneLimit()` 拦；
- *   · 存档里本来就是 3–4 格 —— `restorePanes` 照旧全收（否则页签会被当成超限节点丢掉），
- *     紧接着由 `adaptPanesToLayout()` 归并成两格，并把原布局存成「宽屏预设」等回宽屏还原。
- */
-export const MAX_PANES_NARROW = 2
-
-/** 此刻允许多少片叶子：宽屏 4、窄屏 2（判据只有 shellSettings 那一份） */
-export function paneLimit() {
-  return isNarrowLayout() ? MAX_PANES_NARROW : MAX_PANES
-}
 
 /** 分割比例的安全区间：两侧都至少留 20%，拖到头也不会把另一侧压没 */
 export const MIN_RATIO = 0.2
@@ -365,7 +349,7 @@ export function hydrate(tabIds) {
  * @returns {string|null} 新叶子的 id；已到上限或找不到目标时 null
  */
 export function splitPane(paneId, axis = 'x', side = 'after') {
-  if (leaves().length >= paneLimit()) return null
+  if (leaves().length >= MAX_PANES) return null
   const slot = findSlot(editorPanes.root, paneId)
   if (!slot || !isLeaf(slot.node)) return null
 
@@ -377,9 +361,6 @@ export function splitPane(paneId, axis = 'x', side = 'after') {
     ratio: 0.5,
     a: side === 'before' ? fresh : slot.node,
     b: side === 'before' ? slot.node : fresh,
-    // 窄屏切出来的那一刀记个记号（见 adaptPanesToLayout）：窄屏只允许上下分，回到宽屏时
-    // 这一刀要翻成左右（上 → 左、下 → 右），而宽屏本来就这么叠着的 y-split 不能被一起翻掉。
-    ...(isNarrowLayout() ? { narrowBorn: true } : {}),
   }
   if (slot.parent) slot.parent[slot.key] = split
   else editorPanes.root = split
@@ -410,7 +391,7 @@ export function splitPane(paneId, axis = 'x', side = 'after') {
  * @returns {string|null} 新叶子 id；已到上限时 null
  */
 export function splitSpanning(axis, side = 'after') {
-  if (leaves().length >= paneLimit()) return null
+  if (leaves().length >= MAX_PANES) return null
   const dir = axis === 'y' ? 'y' : 'x'
   const share = spanPaneShare(dir)
   const old = editorPanes.root
@@ -423,8 +404,6 @@ export function splitSpanning(axis, side = 'after') {
     ratio: side === 'before' ? share : 1 - share,
     a: side === 'before' ? fresh : old,
     b: side === 'before' ? old : fresh,
-    // 窄屏最多两格、根本进不到这里；记号只是让 serializeNode 的形状自洽（见 adaptPanesToLayout）
-    ...(isNarrowLayout() ? { narrowBorn: true } : {}),
   }
   editorPanes.root = split
   editorPanes.focusedPaneId = fresh.id
@@ -724,67 +703,6 @@ export function computePaneRects(root = editorPanes.root) {
   return { leaves: leavesOut, splitters }
 }
 
-/**
- * 窄屏用的**竖排投影**：把整棵布局树压成一列，每片叶子占满宽度、按树内顺序上下排开。
- *
- * 【为什么窄屏也要渲染全部叶子】窄屏（手机 / 视口 ≤ 600px）以前只画焦点叶子 —— 那时
- * 分屏在窄屏上是关掉的（拖放直接退化为中心区、⌘⌥\ 弹一句「窄屏不支持分屏」），画不画
- * 其它的都无所谓。现在窄屏允许**上下分屏**（并排两片在 390px 宽上各剩不到 200px，实在
- * 没法读代码），如果仍只画焦点叶子，切出来的新窗格当场看不见，等于白切。所以这里改成
- * 竖排渲染：分屏看得见、分割条拖得动、拖页签时的高亮也落在真实的那一段上。
- *
- * 【两条投影规则】
- *   · `axis: 'y'`（上下分）→ 按 ratio 切这一段高度，并**保留可拖的分割条**（ratio 就是
- *     它原本的语义，拖拽回写 `setRatio` 即可，不用换算）；
- *   · `axis: 'x'`（左右分）→ 两半边**各占这段高度的一半**，顺序照旧（a 在上、b 在下）。
- *     x 轴的 ratio 说的是宽度，竖排里没有对应物，平均分配是最中性的答案；这一刀也没有
- *     分割条 —— 树里没有「这两片谁高谁矮」的比例可改，硬给一条能拖的线只会拖出幻觉。
- *
- * 【不改树】投影是纯派生：树里仍可能是左右分的，只是窄屏这么显示。回到宽屏后几何恢复
- * 原样（x 的 ratio 一个都没被动过）—— 这也是它不写进树、只在渲染层调用的原因。
- *
- * @param {any} [root]
- * @returns {{ leaves: Array<{id:string,x:number,y:number,w:number,h:number}>,
- *            splitters: Array<{id:string,axis:'y',at:number,x:number,y:number,w:number,h:number,
- *                              region:{x:number,y:number,w:number,h:number}}> }}
- */
-export function computeNarrowPaneRects(root = editorPanes.root) {
-  const leavesOut = []
-  const splitters = []
-  let cursor = 0
-  const walk = (node, h) => {
-    if (!node || h <= 0) return
-    if (isLeaf(node)) {
-      leavesOut.push({ id: node.id, x: 0, y: cursor, w: 100, h })
-      cursor += h
-      return
-    }
-    const ratio = clamp(Number(node.ratio) || 0.5, MIN_RATIO, MAX_RATIO)
-    if (node.axis === 'y') {
-      const top = cursor
-      const hA = h * ratio
-      walk(node.a, hA)
-      splitters.push({
-        id: node.id,
-        axis: 'y',
-        at: cursor,
-        x: 0,
-        y: top,
-        w: 100,
-        h,
-        region: { x: 0, y: top, w: 100, h },
-      })
-      walk(node.b, h - hA)
-      return
-    }
-    const half = h / 2
-    walk(node.a, half)
-    walk(node.b, half)
-  }
-  walk(root, 100)
-  return { leaves: leavesOut, splitters }
-}
-
 // ------------------------------------------------------------ 跨刷新记着
 
 /** 布局树的存档键。与 `cp.editorViews` 同一档（本机界面状态，不进云同步）。 */
@@ -808,8 +726,6 @@ function serializeNode(node) {
     ratio: node.ratio,
     a: serializeNode(node.a),
     b: serializeNode(node.b),
-    // 只在窄屏切出来的那一刀上留记号，宽屏的存档形态与以前完全一致
-    ...(node.narrowBorn ? { narrowBorn: true } : {}),
   }
 }
 
@@ -819,9 +735,8 @@ export function serializePanes() {
 }
 
 /**
- * 内部：把存档形态的树重建成可用的布局树，**不碰** `editorPanes`（恢复与「还原宽屏预设」
- * 共用同一套校验：认不出来的节点、超限叶子、失效页签一律丢弃，同一张页签只留在第一次
- * 出现的那片叶子里 —— 不变式 1）。
+ * 内部：把存档形态的树重建成可用的布局树，**不碰** `editorPanes`（认不出来的节点、
+ * 超限叶子、失效页签一律丢弃，同一张页签只留在第一次出现的那片叶子里 —— 不变式 1）。
  *
  * @param {any} savedRoot `serializeNode()` 的产物
  * @param {(id: string) => boolean} isAlive 文件页签的存活判据（合成视图永远存活）
@@ -869,7 +784,6 @@ function buildTree(savedRoot, isAlive) {
         ratio: clamp(Number(node.ratio) || 0.5, MIN_RATIO, MAX_RATIO),
         a,
         b,
-        ...(node.narrowBorn ? { narrowBorn: true } : {}),
       }
     }
     return null
@@ -911,242 +825,15 @@ function persistPanes() {
   }
 }
 
-// ------------------------------------------------------------ 宽窄屏流转
-
-/**
- * 宽屏预设的落盘键。与 `cp.editorPanes` 分开存：
- *
- * 窄屏最多两格（`MAX_PANES_NARROW`），宽屏的 3–4 格进窄屏时必须归并成两格，否则每段只剩
- * 百来像素。归并会把多余的叶子从树上摘掉，原布局就只活在这一份「预设」里 —— 存到
- * localStorage 是为了**窄屏下刷新**也不丢：下次回到宽屏仍能把原来的几格摆回来。
- */
-export const PANES_WIDE_STORAGE_KEY = 'cp.editorPanesWide'
-
-/** 已加载 / 已更新的预设：`{ saved, mirror }`，`mirror` 是归并出来的那棵树的结构签名 */
-let widePresetCache = null
-let widePresetLoaded = false
-
-function loadWidePreset() {
-  if (widePresetLoaded) return widePresetCache
-  widePresetLoaded = true
-  try {
-    const raw = window.localStorage.getItem(PANES_WIDE_STORAGE_KEY)
-    const parsed = raw ? JSON.parse(raw) : null
-    if (parsed?.saved?.root && typeof parsed.mirror === 'string') widePresetCache = parsed
-  } catch {
-    /* 存档坏了就当没有预设 */
-  }
-  return widePresetCache
-}
-
-function setWidePreset(preset) {
-  widePresetCache = preset
-  widePresetLoaded = true
-  try {
-    if (preset) window.localStorage.setItem(PANES_WIDE_STORAGE_KEY, JSON.stringify(preset))
-    else window.localStorage.removeItem(PANES_WIDE_STORAGE_KEY)
-  } catch {
-    /* 隐私模式 / 配额满：预设只在本次会话里有效 */
-  }
-}
-
-/**
- * 布局树的**结构签名**（不看比例、不看页签）：叶子按 id 标记，split 带上轴。
- *
- * 用来判「窄屏里这棵树还是不是当初归并出来的那一棵」。用户拖分割条、搬页签都不改签名
- * （回到宽屏仍还原预设）；一旦关了窗格又重新分屏，签名就变了 —— 那时说明用户确实在窄屏
- * 里重排过，预设作废，改走「上下翻成左右」那条路。
- *
- * @param {any} node
- * @returns {string}
- */
-function structureSignature(node) {
-  if (!node) return '-'
-  if (isLeaf(node)) return `L(${node.id})`
-  return `S(${node.id}:${node.axis},${structureSignature(node.a)},${structureSignature(node.b)})`
-}
-
-/**
- * 内部：把 >2 片叶子归并成两片 —— 按 DFS 顺序切一半，前一半的页签并进上面一格、
- * 后一半并进下面一格（页签一张不丢，顺序照旧）。
- *
- * 为什么按叶子数对分而不是按页签数：窄屏的竖排投影就是 DFS 顺序，前一半叶子正是宽屏里
- * 「上半部分」。按叶子数切，用户心里的「上半 / 下半」能对上；按页签数切会把视觉相邻的
- * 两格拆到不同的段里。
- *
- * 两格都复用各自组内**第一片叶子**的 id（渲染层按 id 复用 Monaco 实例，见不变式 4）。
- *
- * @returns {boolean} 是否真的归并了
- */
-function collapseForNarrow() {
-  const list = leaves()
-  if (list.length <= MAX_PANES_NARROW) return false
-
-  const cut = Math.ceil(list.length / 2)
-  const groups = [list.slice(0, cut), list.slice(cut)]
-  const focusedId = editorPanes.focusedPaneId
-
-  const paneFrom = (group) => {
-    const host = group[0]
-    const tabs = []
-    let active = null
-    let preview = null
-    for (const leaf of group) {
-      for (const tab of leaf.tabs) if (!tabs.includes(tab)) tabs.push(tab)
-      // 焦点原来在哪一片，就优先把它正在看的那张带过来（别把用户眼前的文件换掉）
-      if (leaf.id === focusedId && leaf.active) active = leaf.active
-      else if (!active && leaf.active) active = leaf.active
-      if (!preview && leaf.preview) preview = leaf.preview
-    }
-    return {
-      kind: 'leaf',
-      id: host.id,
-      tabs,
-      active: active && tabs.includes(active) ? active : lastFileTab(tabs) ?? tabs[0] ?? null,
-      preview: preview && tabs.includes(preview) ? preview : null,
-    }
-  }
-
-  const first = paneFrom(groups[0])
-  const second = paneFrom(groups[1])
-  if (!first || !second) return false
-
-  editorPanes.root = {
-    kind: 'split',
-    id: newId('split'),
-    axis: 'y',
-    ratio: 0.5,
-    a: first,
-    b: second,
-    // 这一刀是窄屏口径的产物：预设万一丢了，回到宽屏时也该翻成左右，而不是竖着叠
-    narrowBorn: true,
-  }
-  editorPanes.focusedPaneId = groups[1].some((leaf) => leaf.id === focusedId)
-    ? second.id
-    : first.id
-  return true
-}
-
-/**
- * 内部：把宽屏预设摆回来，同时**不丢窄屏里任何页签**。
- *
- * 三件事：
- *   1. 预设树里的页签只保留「此刻还活着」的那些 —— 在窄屏里关掉的页签不该借尸还魂；
- *   2. 窄屏里新开的页签不在预设里，按所在窗格的 id 补回同 id 的那片叶子（找不到就补进
- *      第一片），顺序接在末尾；
- *   3. 焦点送回「用户此刻正在看的那张」所在的窗格。
- *
- * @param {any} saved `serializePanes()` 的产物
- * @returns {boolean} 是否还原成功
- */
-function applyWidePreset(saved) {
-  const live = new Set(allTabs())
-  const root = buildTree(saved?.root, (id) => live.has(id))
-  if (!root) return false
-
-  const presetLeaves = leaves(root)
-  const byId = new Map(presetLeaves.map((leaf) => [leaf.id, leaf]))
-  const placed = new Set(presetLeaves.flatMap((leaf) => leaf.tabs))
-  // 先记下「此刻眼前的页签」—— 下一行就要换树了
-  const watching = focusedLeaf()?.active ?? null
-
-  for (const leaf of leaves()) {
-    for (const tab of leaf.tabs) {
-      if (placed.has(tab)) continue
-      const host = byId.get(leaf.id) ?? presetLeaves[0]
-      if (!host) continue
-      host.tabs.push(tab)
-      if (leaf.active === tab) host.active = tab
-      placed.add(tab)
-    }
-  }
-
-  for (const leaf of presetLeaves) {
-    if (leaf.preview && !leaf.tabs.includes(leaf.preview)) leaf.preview = null
-    if (!leaf.active || !leaf.tabs.includes(leaf.active)) {
-      leaf.active = lastFileTab(leaf.tabs) ?? leaf.tabs[0] ?? null
-    }
-  }
-
-  editorPanes.root = root
-  const owner = watching
-    ? presetLeaves.find((leaf) => leaf.tabs.includes(watching)) ?? null
-    : null
-  if (owner) {
-    owner.active = watching
-    editorPanes.focusedPaneId = owner.id
-  } else {
-    const wanted = typeof saved?.focusedPaneId === 'string' ? saved.focusedPaneId : null
-    editorPanes.focusedPaneId = wanted && byId.has(wanted) ? wanted : presetLeaves[0]?.id ?? null
-  }
-  return true
-}
-
-/**
- * 内部：把**在窄屏切出来**的分割翻成宽屏方向（`y` → `x`：上边变左边、下边变右边），
- * 顺手摘掉记号（它们已经是宽屏的普通分割了）。宽屏原本就有的 `y`-split 没有记号，不动。
- *
- * @param {any} node
- * @returns {boolean} 是否改动过（调用方据此决定要不要落盘）
- */
-function transposeNarrowSplits(node) {
-  if (!node || isLeaf(node)) return false
-  let changed = transposeNarrowSplits(node.a)
-  changed = transposeNarrowSplits(node.b) || changed
-  if (node.narrowBorn) {
-    delete node.narrowBorn
-    changed = true
-    if (node.axis === 'y') node.axis = 'x'
-  }
-  return changed
-}
-
-/**
- * 宽窄屏切换时把布局树搬到当前口径上。由 `shellSettings` 的 `isNarrowLayout` 变化触发
- * （模块底部那条 watch），启动恢复之后也显式跑一次（见 `enablePanesPersistence`）。
- *
- * 【窄屏】3 片及以上归并成两片：先把当前树快照成「宽屏预设」，再 `collapseForNarrow()`。
- * 页签一张不丢，只是攒进两个窗格。
- *
- * 【宽屏】两条路：
- *   · 有预设且当前树还是当初归并出来的那一棵（结构签名对得上）→ 原样还原宽屏布局，
- *     窄屏里新开的页签补进去；
- *   · 否则说明窄屏里确实重排过 → 把窄屏切出来的上下分割翻成左右（上 → 左、下 → 右）。
- *
- * @param {boolean} [narrow]
- * @returns {boolean} 树是否变了
- */
-export function adaptPanesToLayout(narrow = isNarrowLayout()) {
-  if (narrow) {
-    if (leaves().length <= MAX_PANES_NARROW) return false
-    const saved = serializePanes()
-    if (!collapseForNarrow()) return false
-    setWidePreset({ saved, mirror: structureSignature(editorPanes.root) })
-    persistPanes()
-    return true
-  }
-
-  const preset = loadWidePreset()
-  if (preset && preset.mirror === structureSignature(editorPanes.root)) {
-    const restored = applyWidePreset(preset.saved)
-    setWidePreset(null)
-    if (restored) persistPanes()
-    return restored
-  }
-
-  // 结构已经变了（或压根没有预设）：旧预设作废，免得下次窄屏又把它翻出来
-  setWidePreset(null)
-  const changed = transposeNarrowSplits(editorPanes.root)
-  if (changed) persistPanes()
-  return changed
-}
-
 /** 恢复完成（或确认没有存档）之后调用一次，打开落盘开关。 */
 export function enablePanesPersistence() {
   persistReady = true
-  // 恢复出来的可能是宽屏存档，而此刻已经是窄屏（手机竖屏打开）—— 先归并成两格再把
-  // 归并结果写回去；反过来「上次退出在窄屏、这次在宽屏」也在这里把预设还原回来。
-  adaptPanesToLayout()
+  // 旧版本窄屏归并时留下的「宽屏预设」已不再使用，顺手清掉
+  try {
+    window.localStorage.removeItem('cp.editorPanesWide')
+  } catch {
+    /* 隐私模式 / 配额满：忽略 */
+  }
   persistPanes()
 }
 
@@ -1180,7 +867,3 @@ watch(
   () => persistPanes(),
   { deep: true },
 )
-
-// 宽窄屏切换（旋屏 / 拖窗口跨过 600px / 平板插拔键盘）：把布局树搬到新口径上。
-// 底层是一个 ref，所以这条 watcher 只回答「变没变」，不需要轮询。
-watch(isNarrowLayout, (narrow) => adaptPanesToLayout(narrow))

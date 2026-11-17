@@ -16,8 +16,8 @@
  * 判成「上边缘切分」—— 这是最典型的误触。
  *
  * 【四条防误触规则】
- *   1. 窗格数已到上限 → 两条轴一律不可切，整个内容区都是中心区；上限随屏幕走
- *      （宽屏 4、窄屏 2，见 editorPanes 的 `paneLimit()`）；
+ *   1. 窗格数已到上限 → 两条轴一律不可切，整个内容区都是中心区（上限见 editorPanes 的
+ *      `MAX_PANES`，宽窄屏一致）；
  *   2. 同一片窗格 + 唯一一张页签拖到自己的边缘 → **认**，但落地时只切分、不搬页签
  *      （见 EditorTabs 的 moveAcrossPanes）。切完原窗格不会空掉，于是不会触发空窗格回收，
  *      结果就是「原窗格留着这张页签 + 旁边多出一格空的」—— 与 ⌘⌥\ 的语义一致。
@@ -27,9 +27,8 @@
  *      **例外（2026-11-17 用户口径）**：整个编辑区总共只有这一张页签时不切 —— 切出来的
  *      第二格必然是空的，那不算分屏，只是凭空多出一页占位页。判据在 `resolvePaneDrop`
  *      末尾（要全局页签数，几何层看不到这一层）。
- *   3. **最小尺寸保护**：目标内容区对半分之后两半都得站得住，太窄/太矮就只留另一条轴；
- *      窄屏（`isNarrowLayout()`）**只关左右那条轴**，上下照切 —— 窄屏渲染层是竖排投影
- *      （见 computeNarrowPaneRects），上下分屏看得见、也拖得动；
+ *   3. **最小尺寸保护**：目标内容区对半分之后两半都得站得住，太窄/太矮就只留另一条轴
+ *      （宽窄屏同一套判据）；
  *   4. 同一片窗格的中心区 / 页签栏 → 交回条带自身的排序，不亮「跨窗格」高亮。
  *
  * 【外沿落点 = 跨越整块编辑区】并排三列时把页签拖到底部，切一片叶子得到的是「第三列再分
@@ -58,8 +57,7 @@
  * `.editor-grid__cell` 才是指针真正悬停的那片。
  */
 import { shallowRef } from 'vue'
-import { isNarrowLayout } from './shellSettings.js'
-import { allTabs, leaves, paneLimit, spanPaneShare } from './editorPanes.js'
+import { allTabs, leaves, MAX_PANES, spanPaneShare } from './editorPanes.js'
 
 /** 边缘带宽占内容区尺寸的比例 */
 const EDGE_RATIO = 0.25
@@ -245,12 +243,10 @@ export function paneDropTargetAt(point) {
   const rect = stage.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return { paneId, zone: 'center' }
 
-  // 窗格数到顶就不再认边缘：上限随屏幕走（宽屏 4、窄屏 2，见 editorPanes 的 paneLimit）。
-  const allowed = leaves().length < paneLimit()
-  // 窄屏只留上下分：编辑区在 390px 宽上左右对半各剩不到 200px，读不了代码；上下两段
-  // 则完全可用（渲染层是竖排投影，见 computeNarrowPaneRects）。所以这里不是「窄屏不
-  // 分屏」，只是把左右那两条边缘带整体关掉 —— 指针落在那儿就按中心区处理。
-  const canSplitX = !isNarrowLayout() && allowed && rect.width >= MIN_PANE_WIDTH * 2
+  // 窗格数到顶就不再认边缘：上限见 editorPanes 的 MAX_PANES（宽窄屏一致）。
+  const allowed = leaves().length < MAX_PANES
+  // 最小尺寸保护：左右对半后每片都得站得住。宽窄屏同一套判据。
+  const canSplitX = allowed && rect.width >= MIN_PANE_WIDTH * 2
   const canSplitY = allowed && rect.height >= MIN_PANE_HEIGHT * 2
   const sticky = stickyEdge?.paneId === paneId ? stickyEdge.zone : null
   const zone = hitTestFiveZones(rect, point.x, point.y, { canSplitX, canSplitY, sticky })
@@ -269,9 +265,6 @@ export function paneDropTargetAt(point) {
  *      边不算，那本来就是「切这一片」；
  *   2. 叶子数 ≥ `SPAN_MIN_PANES`：两片时切一片正好是一半，外沿判据不必介入（见文件头）。
  *
- * 窄屏不进这条：叶子上限是 2，本来就到不了门槛；而且窄屏的竖排投影里「外沿」已经不是
- * 几何上的外沿了（x-split 被折成上下两段），按屏幕边界判会误中。
- *
  * @param {Element} cell
  * @param {string} zone
  * @param {boolean} allowed 窗格数还没到上限
@@ -279,7 +272,7 @@ export function paneDropTargetAt(point) {
  */
 function spanTargetOf(cell, zone, allowed) {
   const side = splitTargetOf(zone)
-  if (!side || !allowed || isNarrowLayout()) return null
+  if (!side || !allowed) return null
   if (leaves().length < SPAN_MIN_PANES) return null
 
   const gridRect = cell.closest('.editor-grid')?.getBoundingClientRect()
