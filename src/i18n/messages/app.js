@@ -47,6 +47,9 @@ export default {
 
       /** 编辑区的上下文菜单（桌面鼠标右键 / 触屏长按，2026-10-10 加） */
       editorMenu: {
+        /* 只对**能跑的**文件出现（判题语言 cpp / python，见 judgeLanguageOfPath）——
+           非代码文件（题解这类）菜单里根本没有这一项 */
+        run: '运行代码',
         cut: '剪切',
         copy: '复制',
         paste: '粘贴',
@@ -210,6 +213,7 @@ export default {
       },
 
       editorMenu: {
+        run: 'Run code',
         cut: 'Cut',
         copy: 'Copy',
         paste: 'Paste',

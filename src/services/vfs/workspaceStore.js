@@ -387,17 +387,26 @@ export const activeNode = computed(() =>
 )
 
 /**
- * 活跃文件对应的「判题语言」。引擎只支持 cpp/python：
+ * 某个路径的「判题语言」。引擎只支持 cpp/python：
  * .c 头/源按 cpp 走；其余扩展不可直接判题（null）。
+ *
+ * 抽成函数的理由（2026-11-18）：它现在有两个消费者 —— 全局的 `activeLanguage`
+ * 与编辑区右键菜单的「运行代码」。分屏后那格文件**可能不是**活跃文件，
+ * 菜单不能读全局，只能按自己那一格的路径现算；两处必须是同一条规则，
+ * 否则会出现「菜单给了运行、按下去什么都不跑」。
+ * @param {string} [path]
+ * @returns {'cpp' | 'python' | null}
  */
-export const activeLanguage = computed(() => {
-  const node = activeNode.value
-  if (!node) return null
-  const monacoLang = languageForPath(node.path)
+export function judgeLanguageOfPath(path) {
+  if (!path) return null
+  const monacoLang = languageForPath(path)
   if (monacoLang === 'cpp' || monacoLang === 'c') return 'cpp'
   if (monacoLang === 'python') return 'python'
   return null
-})
+}
+
+/** 活跃文件对应的判题语言（口径见上一条） */
+export const activeLanguage = computed(() => judgeLanguageOfPath(activeNode.value?.path))
 
 // ------------------------------------------------------------ Actions
 

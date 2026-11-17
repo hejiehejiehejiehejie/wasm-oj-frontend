@@ -59,10 +59,15 @@
  *
  * 【右列的键位】剪切 / 复制 / 粘贴 / 全选 / 更改所有匹配项 / 命令面板取自下面的 `SHORTCUT`
  * （`formatCombo`）——显示的就是 Monaco 自己的默认键位，按了真的会跑，不是占位提示。
- * **「生成图片」是唯一例外**：它不是 Monaco action，键位归站内的绑定表管（设置 › 快捷键里
- * 可改绑），所以那一列在 `buildItems()` 里现读 `bindings.value['export-image']`，不写死 ——
- * 改绑之后菜单上那一列会跟着变；用户把它清掉了就什么都不显示。
+ * **「生成图片」「运行代码」是两处例外**：它们不是 Monaco action，键位归站内的绑定表管
+ * （设置 › 快捷键里可改绑），所以那两列在 `buildItems()` 里现读 `bindings.value['export-image']`
+ * / `bindings.value.run`，不写死 —— 改绑之后菜单上那一列会跟着变；用户把它清掉了就什么都不显示。
  * 写法与设置页的快捷键列表同源，所以平台符号（⌘ / Ctrl）也对得上。
+ *
+ * 【「运行代码」只在跑得动的文件上出现（2026-11-18 用户要求）】
+ * 判据由面板注入（`canRun`），与 ⌘ / Ctrl + Enter、评测面板页脚那颗 ▶ 同源；题解 / .txt
+ * 这类没有判题语言的文件，菜单里**根本没有这一条**（不是置灰）—— 灰着摆在那儿只会让人
+ * 去猜「为什么点不动」。它自成一簇排在最前，因为右键一段代码最常见的诉求就是跑一遍。
  *
  * 【触屏那条为什么不按「先选词再弹菜单」的顺序拆分】
  * `getTargetAtClientPoint` 要的是按下那一刻的坐标，手指按住不动时一直有效；先选词再开菜单
@@ -205,11 +210,15 @@ const SHORTCUT = {
 }
 
 /**
- * @param {{ editor: import('vue').Ref, host: import('vue').Ref }} options
+ * @param {{ editor: import('vue').Ref, host: import('vue').Ref, canRun?: () => boolean,
+ *   run?: () => void }} options
  *   `editor` = Monaco 实例（创建前为 null，事件回调触发时才读，所以时序没问题）
  *   `host` = 编辑器容器元素，手势与原生菜单都挂它
+ *   `canRun` = 这一格的文件跑不跑得动（判题语言才有）。**每次开菜单现问** ——
+ *     文件可以在一格窗格里被换掉，判据不能是开菜单那一刻的快照
+ *   `run` = 点「运行代码」时干的事（由面板转发给全局的 `run` 动作）
  */
-export function useEditorMenu({ editor, host }) {
+export function useEditorMenu({ editor, host, canRun = () => false, run = () => {} }) {
   /** 打开中的菜单：`{ x, y, items }`；null = 没开 */
   const menu = ref(null)
   /**
@@ -265,7 +274,22 @@ export function useEditorMenu({ editor, host }) {
   function buildItems() {
     const selection = editor.value?.getSelection()
     const hasSelection = Boolean(selection && !selection.isEmpty())
-    return [
+    const items = []
+    // 【运行代码置顶（2026-11-18 用户要求）】右键一段代码，最常见的诉求就是「跑一遍」，
+    // 所以它自成一簇排在最前，与下面「改代码」的那一簇用分隔线分开。
+    // **跑不动的文件整条不给**（题解 / .txt 这类没有判题语言），不是置灰：灰着摆在那里，
+    // 用户还得自己猜「为什么点不动」。判据由面板现给（`canRun`）—— 与 ⌘ / Ctrl + Enter、
+    // 评测面板页脚那颗 ▶ 完全同源，不另立一套「能不能跑」的说法。
+    // 右列键位读绑定表（与「生成图片」同一口径）：设置里改绑这里跟着变，解绑了就空着。
+    if (canRun()) {
+      items.push({
+        id: 'run',
+        label: t('app.editorMenu.run'),
+        shortcut: formatCombo(bindings.value.run),
+      })
+      items.push({ id: 'sep-run', divider: true })
+    }
+    items.push(
       { id: 'changeAll', label: t('app.editorMenu.changeAll'), shortcut: SHORTCUT.changeAll },
       { id: 'sep-mod', divider: true },
       { id: 'cut', label: t('app.editorMenu.cut'), shortcut: SHORTCUT.cut, disabled: !hasSelection },
@@ -288,7 +312,8 @@ export function useEditorMenu({ editor, host }) {
         label: t('app.editorMenu.commandPalette'),
         shortcut: SHORTCUT.commandPalette,
       },
-    ]
+    )
+    return items
   }
 
   /**
@@ -554,6 +579,12 @@ export function useEditorMenu({ editor, host }) {
   function onMenuSelect(id) {
     const instance = editor.value
     closeMenu()
+    if (id === 'run') {
+      // 不先 focus：运行会把侧栏切到评测样例，焦点在那儿没意义；触屏上还会白弹一次键盘。
+      // 具体跑什么、要不要先切活跃文件，全由面板给的 `run` 决定（见 EditorPane.runFromMenu）。
+      run()
+      return
+    }
     if (id === 'exportImage') {
       exportEditorImage()
       return

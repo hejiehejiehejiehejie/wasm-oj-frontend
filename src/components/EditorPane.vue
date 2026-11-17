@@ -61,6 +61,7 @@ import { getViewState, saveViewState } from '../services/editorViewStates.js'
 import {
   activeLanguage,
   getNodeById,
+  judgeLanguageOfPath,
   openFile,
   pinTab,
   saveActive,
@@ -170,6 +171,30 @@ const preview = ref(null)
 const cursor = ref({ lineNumber: 1, column: 1 })
 const selectedChars = ref(0)
 
+/**
+ * 这一格文件的判题语言（跑得动才非 null）——右键菜单里「运行代码」那一项的唯一判据。
+ *
+ * 读本窗格的 `activeNode` 而不是全局的 `activeLanguage`：分屏后右键落在哪一格，
+ * 判的就是哪一格的文件；非焦点窗格若读全局，会拿别人的语言去决定这一格给不给运行。
+ * 规则本身与全局那条同一个函数（`judgeLanguageOfPath`），不另写一份。
+ */
+const paneLanguage = computed(() => judgeLanguageOfPath(activeNode.value?.path))
+
+/**
+ * 右键菜单里的「运行代码」。与 ⌘ / Ctrl + Enter 走**同一条出口**：只往 App 喊一个动作 id
+ * （`shortcut` → SHORTCUT_HANDLERS 的 `run` → runAll），所以「菜单里点」与「手上按」
+ * 永远是同一个行为，不会分岔。
+ *
+ * 分屏下先把这一格的文件设成活跃：`runAll` 跑的是全局 `activeNode`，而 `workspace.activeId`
+ * 的 setter 顺手会把焦点移到它所在的窗格（见 workspaceStore 里那条属性的 set）。
+ * 同一格时是空操作。
+ */
+function runFromMenu() {
+  const id = paneActiveId.value
+  if (id && workspace.activeId !== id) workspace.activeId = id
+  emit('shortcut', 'run')
+}
+
 // 编辑区的上下文菜单：桌面鼠标右键与触屏长按共用一份（见 composables/useEditorMenu.js）。
 // 它同时负责拦掉 Monaco 自己的英文内置菜单。
 const {
@@ -180,7 +205,13 @@ const {
   exporting: imageExporting,
   ask: imageAsk,
   answerImageAction,
-} = useEditorMenu({ editor, host })
+} = useEditorMenu({
+  editor,
+  host,
+  // 「运行代码」只在这格文件跑得动时出现（题解 / .txt 这类没有判题语言 → 菜单里没有这一条）
+  canRun: () => Boolean(paneLanguage.value),
+  run: runFromMenu,
+})
 
 // 「生成图片」画布期间的局部等待胶囊。渲染通常只有一瞬，所以先等 140ms 再露 ——
 // 快的时候一闪而过反而像画面抖了一下；题解带公式那种慢的才看得到它。
