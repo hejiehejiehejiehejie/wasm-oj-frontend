@@ -285,6 +285,10 @@ export default {
           label: '新建文件',
           hint: '亮出资源管理器并就地起一行内联新建；落点跟随当前选中的那一行',
         },
+        findFile: {
+          label: '查找文件',
+          hint: '亮出资源管理器并聚焦搜索框；支持文件名与题目链接',
+        },
         openSettings: { label: '打开 / 收起设置' },
         exportImage: {
           label: '生成图片',
@@ -919,6 +923,10 @@ export default {
         newFile: {
           label: 'New file',
           hint: 'Reveals the explorer and starts an inline new file next to the current selection',
+        },
+        findFile: {
+          label: 'Find file',
+          hint: 'Reveals the explorer and focuses the search box; matches file names and problem URLs',
         },
         openSettings: { label: 'Open / close settings' },
         exportImage: {

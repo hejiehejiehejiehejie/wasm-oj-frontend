@@ -20,7 +20,15 @@ export default {
       /** 文件树全空时的占位语 */
       emptyTree: '还没有文件，点上方按钮新建',
 
+      /** 树顶部「查找文件」搜索栏（快捷键 / 右键菜单打开） */
+      search: {
+        placeholder: '按文件名或题目链接查找',
+        noResults: '没有匹配的文件',
+      },
+
       menu: {
+        /** 资源管理器顶部的搜索栏（快捷键 / 右键菜单「查找文件」） */
+        findFile: '查找文件',
         meta: '题目信息',
         openUrl: '打开题目',
         /** 「打开题目」右列的前半截：⌘ / Ctrl +，后面的「单击」是一枚指针图标（见 ContextMenu 的
@@ -146,7 +154,13 @@ export default {
 
       emptyTree: 'No files yet — create one above',
 
+      search: {
+        placeholder: 'Search by file name or problem URL',
+        noResults: 'No matching files',
+      },
+
       menu: {
+        findFile: 'Find file',
         meta: 'Problem info',
         openUrl: 'Open problem',
         openUrlPointer: '{mod} +',

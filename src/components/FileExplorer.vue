@@ -57,6 +57,7 @@ import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { pageDropTarget } from '../composables/usePageDrop.js'
 import { IS_MAC, formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
+import { fileIconName } from '../services/fileIcons.js'
 import { templateForPath } from '../services/fileTemplates.js'
 import {
   CAN_EXPORT_TO_DISK,
@@ -75,6 +76,8 @@ import {
   deleteNode,
   getNodeById,
   moveNode,
+  openFile,
+  problemUrlKey,
   revealId,
   selectMany,
   selectNode,
@@ -137,6 +140,14 @@ const creating = ref(null)
 const creatingRow = ref(null)
 /** 右键菜单状态：{ x, y, node, items } | null */
 const menu = ref(null)
+/** 查找文件：搜索栏是否展开（展开时结果列表替代文件树） */
+const searchOpen = ref(false)
+/** 查找文件：搜索词，可以是文件名片段或完整的 / 部分题目链接 */
+const searchQuery = ref('')
+/** 查找文件：当前高亮的结果下标（方向键 / 指针移动） */
+const searchActive = ref(0)
+/** 查找文件：输入框，展开后把焦点送进去 */
+const searchInput = ref(null)
 /** 需要进入重命名的节点 id */
 const renameTarget = ref(null)
 /** 树内最近获得焦点的 id（roving tabindex） */
@@ -396,19 +407,30 @@ function toggleSolved(node) {
 }
 
 /**
+ * 菜单的分组口径（2026-11-17 用户重排，三份菜单同一套路）：
+ *
+ * 1. **核心业务置顶**：右键一行，用户最想干的是操作**这一行本身**——文件是它的题目属性
+ *    （打开题目 / 标记已通过 / 题目信息），目录是往里加东西（新建）。
+ * 2. **同类跟随、异类隔线**：往目录里灌外部内容（导入）与新建不同源，用分隔线隔开，
+ *    但都还在上半区，因为它们都是「内容扩充」。
+ * 3. **全局操作下放**：⌘ + ⇧ + F 是资源管理器级的全量搜索，与某一行关系最弱，
+ *    排在「对节点本身的管理」之后、危险操作之前，绝不占首位。
+ * 4. **危险操作置底**：删除永远单独一条分隔线垫在最后，防误触。
+ *
  * 题目信息只对文件有意义；新建 / 导入只对目录有意义——目标就是被右键的那个目录。
  * （页头按钮那条路只能跟随聚焦节点，表达不了「建在哪个目录」。）
  *
  * 「重命名 / 删除」两项挂上右列键位：它们是真的能按的（键位读绑定表 —— mac 上重命名是 Enter、其它平台 F2，见下 shortcutOf），
  * 不是装饰。目录与文件共用同一组键位。
  *
- * 一条分隔线把「往这个目录里加东西」（新建 / 导入）与「对已有项的动作」（导出 / 重命名 / 删除）
- * 分开 —— 后三项作用于**节点本身**，与上面那组不是一类。
  * 「导入文件夹」只在真选得动文件夹的平台上给（Android / iOS 的 file input 拿不到目录结构，
  * 见 fileTransfer.canPickFolder）。
  */
 function buildMenuItems(node) {
   const items = []
+  // 右键落在**多选中的某一行**上时，导出 / 删除作用于整个选区（VS Code 口径），标签也就跟着
+  // 报数，免得用户以为只动手底下这一个。右键一行不在选区里时照旧只对它自己。
+  const multi = node && workspace.selectedIds.includes(node.id) && workspace.selectedIds.length > 1
   if (node?.type === 'file') {
     // 右列不是 keydown 组合键，是 ⌘ / Ctrl + 单击这一行这个**手势**本身 —— 走不了 formatCombo
     // （它只吃 'Mod+KeyX' 那种串），但它是真的能按的，所以照旧填右列、不留空。
@@ -434,7 +456,29 @@ function buildMenuItems(node) {
       }
     }
     items.push({ id: 'meta', label: t('explorer.menu.meta') })
+    // 第一组到此为止：上面三条都是「这道题」的属性，下面的都是文件本身的管理动作。
+    items.push({ divider: true })
+    // 第二组：通用文件流转。重命名排在导出前面 —— 频率更高（改个名字比打包下载常见）。
+    items.push({
+      id: 'rename',
+      label: t('explorer.menu.rename'),
+      shortcut: shortcutOf('rename-node'),
+    })
+    items.push({
+      id: 'export',
+      label: multi
+        ? t('explorer.menu.exportMany', { n: workspace.selectedIds.length })
+        : t('explorer.menu.export'),
+    })
+    // 第三组：全局搜索。它与「这一个文件」关系最弱，下放到管理动作之后、删除之前。
+    items.push({ divider: true })
+    items.push({
+      id: 'find-file',
+      label: t('explorer.menu.findFile'),
+      shortcut: shortcutOf('find-file'),
+    })
   } else if (node?.type === 'directory') {
+    // 第一组：往这个目录里「生成」新东西 —— 右键文件夹的第一诉求。
     // 「新建文件」的右列挂全局那条键位（=`new-file` 动作，读绑定而不写死）。它与重命名 /
     // 删除那两条同一个口径：菜单里报的就是真按得动的那个键，用户在设置里改绑这里跟着变。
     items.push({
@@ -443,20 +487,33 @@ function buildMenuItems(node) {
       shortcut: shortcutOf('new-file'),
     })
     items.push({ id: 'new-folder', label: t('explorer.menu.newFolder') })
+    // 第二组：扩充内容，但来源是「外部」（导入 ≠ 新建），所以隔一条线。
+    items.push({ divider: true })
     items.push({ id: 'import-file', label: t('explorer.menu.importFile') })
     if (canPickFolder()) items.push({ id: 'import-folder', label: t('explorer.menu.importFolder') })
+    // 第三组：全局搜索，紧跟内容扩充之后。
+    items.push({ divider: true })
+    items.push({
+      id: 'find-file',
+      label: t('explorer.menu.findFile'),
+      shortcut: shortcutOf('find-file'),
+    })
+    // 第四组：对这个目录自身的管理（重命名在前，频率高于导出）。
+    items.push({ divider: true })
+    items.push({
+      id: 'rename',
+      label: t('explorer.menu.rename'),
+      shortcut: shortcutOf('rename-node'),
+    })
+    items.push({
+      id: 'export',
+      label: multi
+        ? t('explorer.menu.exportMany', { n: workspace.selectedIds.length })
+        : t('explorer.menu.export'),
+    })
   }
+  // 危险操作一律垫底，并且**自己**一条分隔线隔开（文件 / 目录两份菜单共用这一段）。
   items.push({ divider: true })
-  // 右键落在**多选中的某一行**上时，导出 / 删除作用于整个选区（VS Code 口径），标签也就跟着
-  // 报数，免得用户以为只动手底下这一个。右键一行不在选区里时照旧只对它自己。
-  const multi = node && workspace.selectedIds.includes(node.id) && workspace.selectedIds.length > 1
-  items.push({
-    id: 'export',
-    label: multi
-      ? t('explorer.menu.exportMany', { n: workspace.selectedIds.length })
-      : t('explorer.menu.export'),
-  })
-  items.push({ id: 'rename', label: t('explorer.menu.rename'), shortcut: shortcutOf('rename-node') })
   items.push({
     id: 'delete',
     label: multi
@@ -481,9 +538,11 @@ function shortcutOf(actionId) {
 async function onMenuSelect(id) {
   const node = menu.value?.node
   menu.value = null
+  // 「查找文件」是资源管理器级动作，与具体节点无关；空白处那份菜单也给它
+  if (id === 'find-file') openSearch()
   // 「往这个目录里加东西」这四项节点行与空白处两份菜单共用：`node` 就是目标目录（行上那份是那一行，
   // 空白处那份由 onTreeContextMenu 用 headerCreateTarget() 算出来；null = 根目录，见两个签名的默认值）。
-  if (id === 'new-file') startCreate('file', node)
+  else if (id === 'new-file') startCreate('file', node)
   else if (id === 'new-folder') startCreate('directory', node)
   // 导入的两条必须在**这次点击的调用栈里**走到 pickFromDisk 的 input.click() ——
   // 浏览器的规矩是「文件选择器只能由用户手势打开」，绕到 await 后面就会被静默忽略。
@@ -498,6 +557,142 @@ async function onMenuSelect(id) {
   else if (id === 'export') requestExport(node.id)
   else if (id === 'rename') beginRename(node.id)
   else if (id === 'delete') requestDelete(node.id)
+}
+
+// ------------------------------------------------------------ 查找文件
+
+/** 结果条数上限：再多也没人逐个翻，滚动成本反而更高 */
+const SEARCH_RESULT_LIMIT = 200
+
+/** 工作区里的全部文件（展平嵌套树）；目录只在结果行的路径里出现 */
+const searchableFiles = computed(() => {
+  const files = []
+  const walk = (nodes) => {
+    for (const node of nodes) {
+      if (node.type === 'file') files.push(node)
+      if (node.children) walk(node.children)
+    }
+  }
+  walk(workspace.tree)
+  return files
+})
+
+/**
+ * 搜索词 / 题目链接归一成可比键。
+ *
+ * 完整链接走 `problemUrlKey`；用户常省略协议（`codeforces.com/contest/1/problem/A`），
+ * 补一个 `https://` 再归一。纯关键词（`cpp`、`main`）不参与 —— 否则短词会命中所有带它的链接。
+ * @param {string} [text]
+ * @returns {string}
+ */
+function normalizedUrlKey(text) {
+  const trimmed = (text || '').trim()
+  if (!trimmed) return ''
+  const key = problemUrlKey(trimmed)
+  if (key) return key
+  if (!/[./]/.test(trimmed)) return ''
+  return problemUrlKey(`https://${trimmed.replace(/^\/+/, '')}`)
+}
+
+/**
+ * 搜索匹配：文件名 > 路径 > 题目链接。
+ *
+ * 链接先按 `problemUrlKey` 归一再比，所以 `/contest/1/problem/A` 与
+ * `/problemset/problem/1/A` 两种写法能互相命中（归一判据与去重共用一份）。
+ */
+const searchResults = computed(() => {
+  const raw = searchQuery.value.trim()
+  if (!raw) return searchableFiles.value.slice(0, SEARCH_RESULT_LIMIT)
+
+  const needle = raw.toLowerCase()
+  const needleUrl = normalizedUrlKey(raw).toLowerCase()
+  const matches = []
+
+  for (const node of searchableFiles.value) {
+    const name = node.name.toLowerCase()
+    const path = node.path.toLowerCase()
+    const url = (node.meta?.url || '').toLowerCase()
+    let score = 0
+    if (name === needle) score = 100
+    else if (name.startsWith(needle)) score = 80
+    else if (name.includes(needle)) score = 60
+    else if (path.includes(needle)) score = 40
+    else if (url.includes(needle)) score = 30
+    else if (needleUrl) {
+      const urlKey = normalizedUrlKey(node.meta?.url).toLowerCase()
+      if (urlKey === needleUrl || urlKey.includes(needleUrl)) score = 35
+    }
+    if (score) matches.push({ node, score })
+  }
+
+  matches.sort((a, b) => b.score - a.score || a.node.path.localeCompare(b.node.path))
+  return matches.slice(0, SEARCH_RESULT_LIMIT).map((item) => item.node)
+})
+
+watch(searchQuery, () => {
+  searchActive.value = 0
+})
+
+watch(searchResults, (list) => {
+  if (searchActive.value >= list.length) searchActive.value = Math.max(list.length - 1, 0)
+})
+
+/** 打开搜索栏（快捷键 / 右键菜单两条入口都走这里） */
+function openSearch() {
+  menu.value = null
+  searchOpen.value = true
+  searchQuery.value = ''
+  searchActive.value = 0
+  nextTick(() => searchInput.value?.focus())
+}
+
+function closeSearch() {
+  searchOpen.value = false
+  searchQuery.value = ''
+  searchActive.value = 0
+}
+
+function moveSearchActive(delta) {
+  const total = searchResults.value.length
+  if (!total) return
+  searchActive.value = (searchActive.value + delta + total) % total
+}
+
+function onSearchKeydown(event) {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    moveSearchActive(event.key === 'ArrowDown' ? 1 : -1)
+    return
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    openSearchResult(searchResults.value[searchActive.value])
+    return
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeSearch()
+    nextTick(() => rootEl.value?.focus({ preventScroll: true }))
+  }
+}
+
+/**
+ * 选中并打开一条结果。`revealId` 先把祖先目录展开 —— 关掉搜索后回到树里，
+ * 那一行才是可见的（选区高亮与页签同时到位）。
+ * @param {object} [node]
+ */
+function openSearchResult(node) {
+  if (!node) return
+  revealId(node.id)
+  selectNode(node.id)
+  closeSearch()
+  openFile(node.id, node).catch(() => {})
+}
+
+/** 结果行的目录部分：切掉文件名，去掉末尾分隔符；根目录给 '/' */
+function directoryOf(node) {
+  const dir = node.path.slice(0, node.path.length - node.name.length)
+  return dir.replace(/\/+$/, '') || '/'
 }
 
 function beginRename(id) {
@@ -1037,8 +1232,11 @@ watch(metaTarget, (node) => {
 })
 
 /**
- * 树空白处右键：弹一份「往当前目录里加东西」的菜单（新建文件 / 新建文件夹 / 导入文件 /
- * 导入文件夹），与落在目录行上的那份是同一组条目、同一批 i18n key。
+ * 树空白处右键：弹一份「往当前目录里加东西 + 全局搜索」的菜单
+ * （新建文件 / 新建文件夹 ── 导入文件 / 导入文件夹 ── 查找文件），与落在目录行上的那份
+ * 是同一组条目、同一批 i18n key、同一个分组口径（用户 2026-11-17 重排）：
+ * 空白处没有具体实体，讲不了「重命名 / 导出 / 删除」，于是只剩「生成」与「全局搜索」两段，
+ * 菜单因此极简 —— 别把行上那份的管理项顺手带过来。
  *
  * 空白处没有节点，所以目标目录与页头那四颗按钮同源 —— `headerCreateTarget()`：主选中那一行
  * 推出来的目录（选中的是目录就是它自己，选中的是文件就取其父目录），什么都没选中
@@ -1051,14 +1249,20 @@ watch(metaTarget, (node) => {
 function onTreeContextMenu(event) {
   if (event.target.closest('.tree-item, .create-row')) return
   event.preventDefault()
+  // 与目录行上那份同一套分组（新建 → 导入 → 查找），只是砍掉了「对节点本身的管理」那一段 ——
+  // 空白处没有选中实体，重命名 / 导出 / 删除在这里无从谈起。
   const items = [
-    // 与目录行上那份逐条相同（同一批 id、同一批 i18n key），右列键位也同一处取
     { id: 'new-file', label: t('explorer.menu.newFile'), shortcut: shortcutOf('new-file') },
     { id: 'new-folder', label: t('explorer.menu.newFolder') },
+    { divider: true },
     { id: 'import-file', label: t('explorer.menu.importFile') },
   ]
   // 判据与目录行上那一项共用：Android / iOS 的 file input 拿不到目录结构，见 fileTransfer.canPickFolder
   if (canPickFolder()) items.push({ id: 'import-folder', label: t('explorer.menu.importFolder') })
+  items.push(
+    { divider: true },
+    { id: 'find-file', label: t('explorer.menu.findFile'), shortcut: shortcutOf('find-file') },
+  )
   menu.value = { x: event.clientX, y: event.clientY, node: headerCreateTarget(), items }
 }
 
@@ -1293,6 +1497,8 @@ defineExpose({
    * @param {'file'|'directory'} [type]
    */
   startCreate: (type = 'file') => startCreate(type, shortcutCreateTarget()),
+  /** 打开「查找文件」搜索栏（快捷键 / 右键菜单同源） */
+  openSearch,
   /**
    * 从系统里拖进来的文件落进某个目录（App.vue 的 usePageDrop 调它）。
    * 与选文件那条同源（`importItems`），返回导入统计 —— 调用方据此决定要不要顺手打开它。
@@ -1346,7 +1552,58 @@ defineExpose({
       <span>{{ transferNotice || notice }}</span>
     </p>
 
+    <!-- 查找文件：树顶部搜索栏；展开时结果列表替代文件树（两条入口见 openSearch / buildMenuItems） -->
+    <div v-if="searchOpen" class="explorer__search">
+      <input
+        ref="searchInput"
+        v-model="searchQuery"
+        class="explorer__search-input"
+        type="text"
+        :placeholder="t('explorer.search.placeholder')"
+        data-keep-focus-on-pan
+        @keydown="onSearchKeydown"
+      />
+      <button
+        type="button"
+        class="explorer__search-close"
+        :title="t('app.cancel')"
+        @click="closeSearch"
+      >
+        <AppIcon name="close" :size="14" />
+      </button>
+    </div>
+
+    <div v-if="searchOpen" class="explorer__results" role="listbox">
+      <button
+        v-for="(node, index) in searchResults"
+        :key="node.id"
+        type="button"
+        class="explorer__result"
+        :class="{ 'explorer__result--active': index === searchActive }"
+        role="option"
+        :aria-selected="index === searchActive"
+        :title="node.meta?.url || node.path"
+        @click="openSearchResult(node)"
+        @pointermove="searchActive = index"
+      >
+        <AppIcon
+          class="explorer__result-icon"
+          :class="`is-${fileIconName(node.name)}`"
+          :name="fileIconName(node.name)"
+          :size="15"
+        />
+        <span class="explorer__result-text">
+          <span class="explorer__result-name">{{ node.name }}</span>
+          <span class="explorer__result-path">{{ directoryOf(node) }}</span>
+        </span>
+      </button>
+      <p v-if="!searchResults.length" class="explorer__empty">
+        {{ t('explorer.search.noResults') }}
+      </p>
+    </div>
+
     <div
+      v-show="!searchOpen"
       ref="rootEl"
       class="explorer__tree"
       :class="{ 'is-drop-root': mergedRootDrop }"
@@ -1958,6 +2215,130 @@ defineExpose({
 /* 进行中是中性灰，不是错误红：它说的是「稍等」，不是「出事了」 */
 .explorer__notice--busy {
   color: var(--text-dim);
+}
+
+/* ---------------------------------------------------------------- 查找文件
+   搜索栏贴在树顶部；展开时结果列表整块接替文件树（见模板里的 v-show）。 */
+.explorer__search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.explorer__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: 400 12.5px/24px var(--font-sans, system-ui);
+}
+
+.explorer__search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.explorer__search-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+:where(html.is-hoverable) .explorer__search-close:hover {
+  background: var(--bg-control-hover);
+  color: var(--text);
+}
+
+.explorer__results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 24px;
+  scrollbar-width: none;
+}
+
+.explorer__results::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.explorer__result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+:where(html.is-hoverable) .explorer__result:hover {
+  background: var(--bg-hover-soft);
+}
+
+.explorer__result--active,
+:where(html.is-hoverable) .explorer__result--active:hover {
+  background: var(--bg-hover);
+}
+
+.explorer__result-icon {
+  flex: 0 0 auto;
+}
+
+.explorer__result-icon.is-cpp {
+  color: var(--icon-cpp);
+}
+
+.explorer__result-icon.is-python {
+  color: var(--icon-python);
+}
+
+.explorer__result-icon.is-markdown {
+  color: var(--icon-markdown);
+}
+
+.explorer__result-text {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.explorer__result-name,
+.explorer__result-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explorer__result-name {
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.explorer__result-path {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 14px;
 }
 
 /* 拖拽幽灵：Teleport 到 body，只依赖主题变量 */

@@ -1577,7 +1577,7 @@ function toggleSplitPane() {
   }
 }
 
-// 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那 7 条；另有两条**作用域受限**的
+// 下面这张 SHORTCUT_HANDLERS 是「在哪儿按都算」的那些；另有两条**作用域受限**的
 // （F2 重命名 / ⌘⌫ 删除资源树节点，Delete 是后者的别名键）在它下面单独一张表里，理由见那里的注释。
 // 监听挂在 window 的**捕获**阶段：Monaco 的键位服务挂在编辑器内部的 DOM 上，捕获是从外
 // 往内走的，所以在 window 上就能先一步拦下按键并 stopPropagation，编辑器里也归这套表管。
@@ -1607,6 +1607,8 @@ const SHORTCUT_HANDLERS = {
   // 新建文件（2026-11-17 加）：与空编辑区那块快捷键板的第一行、侧栏页头那颗按钮同源。
   // 全局可按下 —— 空态、评测面板、题解全屏里都能起一个（落点仍按 FileExplorer 的主选中算）
   'new-file': () => createFileInExplorer(),
+  // 查找文件（2026-11-17 加）：与资源管理器右键菜单那条同源（FileExplorer.openSearch）
+  'find-file': () => findFileInExplorer(),
   'open-settings': () => (settingsTab.active ? deactivateSettingsTab() : openSettingsTab()),
   // 生成图片：落在 EditorPane 里（那边持有 Monaco 实例与选区）。没有选区时导出整个文件，
   // 没开文件（或文件为空）时静默返回 —— 与右键菜单那一项同源
@@ -1723,6 +1725,12 @@ function regionUnderPointer() {
  * @returns {{ rowId: string|null }|undefined}
  */
 function treeScopeFrom(event, actionId) {
+  const target = event.target
+  if (!(target instanceof Element)) return undefined
+  // 输入框优先放行：查找文件 / 内联新建 / 重命名的输入框里，⌘A 必须是「全选文本」，
+  // 不能被下面那条「指针还在资源管理器里」的分支抢成选节点
+  if (target.closest('input, textarea, select, [contenteditable]')) return undefined
+
   if (actionId === 'select-all-nodes') {
     const region = regionUnderPointer()
     if (region === 'editor') return undefined
@@ -1731,9 +1739,6 @@ function treeScopeFrom(event, actionId) {
     }
   }
 
-  const target = event.target
-  if (!(target instanceof Element)) return undefined
-  if (target.closest('input, textarea, select, [contenteditable]')) return undefined
   if (!target.closest('[data-panel="explorer"]')) return undefined
 
   // 重命名另加两道（2026-10-20）：它在 macOS 上的键位是**裸 Enter**，误触的代价是
@@ -1846,6 +1851,24 @@ useCompanionImport({
  * 侧栏本来就是展开的走不到这条分支，点下去当场聚焦。
  */
 async function createFileInExplorer() {
+  await revealExplorer()
+  fileExplorer.value?.startCreate('file')
+}
+
+/**
+ * 查找文件（⌘⇧F / Ctrl+Shift+F）：与新建文件同一条前置路径 —— 先亮出资源管理器，
+ * 再让 FileExplorer 打开搜索栏。侧栏收着时不亮出来，搜索框建好了也看不见。
+ */
+async function findFileInExplorer() {
+  await revealExplorer()
+  fileExplorer.value?.openSearch()
+}
+
+/**
+ * 亮出侧栏并切到资源管理器。新建文件与查找文件共用：两条都可能从屏幕中央发起
+ * （快捷键 / 空编辑区那块板），不先亮出来就等于「按了没反应」。
+ */
+async function revealExplorer() {
   if (!panelVisible.value) {
     try {
       await togglePanel()
@@ -1854,7 +1877,6 @@ async function createFileInExplorer() {
     }
   }
   sidebarRef.value?.showPanel('explorer')
-  fileExplorer.value?.startCreate('file')
 }
 
 /**

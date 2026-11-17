@@ -112,6 +112,17 @@ export const SHORTCUT_ACTIONS = [
     hintKey: 'settings.shortcut.newFile.hint',
     default: 'Mod+Alt+KeyN',
   },
+  /**
+   * 查找文件（2026-11-17 加）：亮出资源管理器并聚焦树顶部的搜索框。
+   * 默认 ⌘⇧F / Ctrl+Shift+F —— 与 VS Code「查找文件」同一手感，且不抢 Monaco 的 ⌘F。
+   * 执行落在 App.vue 的 findFileInExplorer，与右键菜单那条「查找文件」同源。
+   */
+  {
+    id: 'find-file',
+    labelKey: 'settings.shortcut.findFile.label',
+    hintKey: 'settings.shortcut.findFile.hint',
+    default: 'Mod+Shift+KeyF',
+  },
   { id: 'open-settings', labelKey: 'settings.shortcut.openSettings.label', default: 'Mod+Comma' },
   /**
    * 生成图片：把编辑器里的选区（没有选区就整篇）导成 PNG（实现在 composables/useEditorMenu.js，
