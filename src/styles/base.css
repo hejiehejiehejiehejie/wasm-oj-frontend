@@ -270,9 +270,61 @@
        悬停底 = list.activeSelectionBackground   深 #04395E / 浅 #0060C0
        悬停字 = list.activeSelectionForeground   两套都是白
      ⚠️ --menu-hover-bg 是**蓝**的，与站内通用的灰悬停（--bg-hover）不同源：模板如此，
-     而且它本来就是 VS Code 列表选中色。别为了「与文件树悬停一致」把它换成灰的。 */
-  --menu-bg: #252526;
+     而且它本来就是 VS Code 列表选中色。别为了「与文件树悬停一致」把它换成灰的。
+
+     2026-11-18：从「原生 IDE 还原」再往「现代浮层质感」调一档，四处改动 ——
+       · **面**：--menu-bg 换成同色值 + 半透明，配 --menu-backdrop（微毛玻璃）；
+         菜单浮在代码层 / 页签上时透出底色，不再是一块贴上去的实心板。
+         ⚠️ 透明度别往上调回 0.85：面与底同色时，0.85 压在 #1e1e1e 上算出来只比实色菜单
+         暗 2 个色阶（实测面板亮度 35.1 vs 37.1），玻璃写了等于没写 —— 用户当场看不出效果。
+         现在深色 0.72 / 浅色 0.80；浅色再低会发灰，11px 的快捷键那一列先糊。
+       · **边**：--menu-edge 单独承担「容器那一圈材质高光」。
+         它和 --menu-border 是两件事，别合回去：后者是主题芯片 / 复制钮 / 输入框这类
+         **内联控件**的实色发丝线，8% 的白画在 1px 上等于没有（theme chip 会直接散进背景）。
+       · **影**：外圈轮廓 + 环境晕染 + 远距锐影（`-4px` 扩散让落地感更沉）。
+       · **尺**：--menu-scale / --menu-pad-x / --menu-item-pad-x / --menu-radius-lg 上提到这里。
+         原先 0.92 四个组件各写一份、条目左右内边距 ContextMenu 20px 而 SettingsMenu 12px，
+         鼠标在两份菜单间游走时留白对不上（2026-11-18 用户要求单点控制 + 统一节奏）。
+
+     2026-11-18 二次调整（用户要求「干掉物理边框」，走 macOS 那种内阴影高光）：
+       · 五个浮层容器全部 `border: none`。哪怕把描边色压到 8% 白，只要 border 属性在，
+         它仍然在**外面**占 1px、把内容框成一个盒子 —— 用户要的是「无描边但边缘清晰」。
+       · 原先 --menu-shadow 第一层 `0 0 0 1px rgba(0,0,0,.3)` 一并删掉：那是 outset 的
+         1px 环，画出来就是一条线，等于给 border 换了个属性名，同样得干掉。
+       · 改由 `inset 0 0 0 1px var(--menu-edge)` 在面料**内侧**打一圈高光：不侵占任何外部
+         像素，圆角也跟着 border-radius 走；深色面上 4% 的白实测能抬 ≈9 个色阶，够看出边。
+       · 外阴影从「贴脸」换成「离地」：大半径低不透明度（38px / -10px 扩散），
+         靠 Z 轴落差而不是靠线来分区。深色玻璃面在 #1e1e1e 上仍有 ≈8 个色阶的明度差兜底。
+
+     ⚠️ 加新主题时：--menu-bg 一定要给半透明值，否则面不透明、毛玻璃等于没开；
+     --menu-edge / --menu-shadow / --menu-knob-bg 不覆盖就继承本方案（深色那支），
+     浅色主题必须自己补一份浅色版（见 :root[data-scheme='light']），否则白面上会是一圈黑影。 */
+
+  /* 尺子与形态：与配色无关，四个菜单浮层（ContextMenu / TabGroupCard / SettingsMenu /
+     ComponentsMenu）共用。改大小只动这几行，组件里别再写 0.92 这种字面量。 */
+  --menu-scale: 0.92;
+  /* 容器左右内边距：悬停胶囊与容器边缘之间那一线呼吸位（条目区靠它才不贴边） */
+  --menu-pad-x: 4px;
+  /* 条目左右内边距：原先右键菜单 20px、设置菜单 12px 两套；设置菜单行尾还要排开关 / 步进器，
+     折中统一到 12px（+ 容器 4px = 文字距容器边缘 16px，正好是原来 20 与 12 的中间值） */
+  --menu-item-pad-x: 12px;
+  /* 组件菜单那档「量出来 10px」的容器圆角（2026-10-25 用户指定）。它是全系唯一
+     不乘 --menu-scale 的圆角，收到这里当令牌，别在组件里写死字面量。 */
+  --menu-radius-lg: 10px;
+  /* 微毛玻璃。saturate 提一档是为了玻璃后面的颜色不发灰（纯 blur 会把底图洗淡）。
+     ⚠️ 组件里只写 `backdrop-filter: var(--menu-backdrop)`，**不要补 `-webkit-` 前缀**：
+     构建期 Lightning CSS 见到「标准 + 前缀」成对出现只留前缀那条，而 Chrome 141 起已移除
+     `-webkit-backdrop-filter` 别名 —— 产物里整条失效（同 CountdownCard 2026-10-26 那条）。 */
+  --menu-backdrop: blur(16px) saturate(140%);
+
+  --menu-bg: rgba(37, 37, 38, 0.72);
   --menu-border: #454545;
+  /* 容器「边」：不再是描边，而是 --menu-shadow 第一层那圈内阴影的颜色。
+     它画在面料内侧（inset），不占外部像素，所以菜单外围没有那条框线。
+     ⚠️ 强度别按描边去调回 0.08 以上：0.04 的纯白压在 0.72 的玻璃面上约抬 9 个色阶，
+     已经够勾出轮廓；往上加就会重新出现用户否掉的那道「物理框」。
+     内联控件仍用上面的 --menu-border。 */
+  --menu-edge: rgba(255, 255, 255, 0.04);
   --menu-text: #cccccc;
   /* 快捷键那一列（11px）比主文字暗一档；与 --text-faint 无关，别合并 */
   --menu-muted: #858585;
@@ -285,7 +337,15 @@
      绝不能复用 --menu-hover-bg —— 那是蓝色的列表选中色，铺成静态色块后浅色主题下会是一块亮蓝。 */
   --menu-tile-bg: rgba(255, 255, 255, 0.06);
   --menu-separator: #454545;
-  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  /* 设置菜单开关的滑块：**必须不透明** —— 它是压在 --accent 轨道上的实体旋钮，
+     跟着 --menu-bg 变半透明会把轨道那抹蓝透上来（浅色主题下白旋钮会变成淡蓝）。 */
+  --menu-knob-bg: #252526;
+  /* 三层：内侧高光（替代 border）+ 环境弥散 + 近景投影。
+     第一层的 var(--menu-edge) 就是主题那支（深色白 / 浅色黑 / contrast 实灰）。 */
+  --menu-shadow:
+    inset 0 0 0 1px var(--menu-edge),
+    0 10px 38px -10px rgba(0, 0, 0, 0.4),
+    0 10px 20px -15px rgba(0, 0, 0, 0.2);
 
   /* 图标提示框（components/AppTooltip.vue，唯一消费者，2026-10-24 晚加）。
      用户要求「去边框 + 深底 + 柔和投影」：深色这一支就是近黑底配白字，
@@ -538,9 +598,14 @@
 
   /* 右键菜单：Dark+ ↔ Light+ 的官方配对，来源 id 见深色主题那段注释。
      与深色的唯一「不同值」是 --menu-muted —— 模板的 #858585 压在白底上只有 3.4:1、
-     11px 的字太虚，这里压到 #767676（4.5:1），保住「比主文字暗一档但仍读得清」的关系。 */
-  --menu-bg: #ffffff;
+     11px 的字太虚，这里压到 #767676（4.5:1），保住「比主文字暗一档但仍读得清」的关系。
+     2026-11-18：面同样转半透明 + 毛玻璃（0.80 —— 白面本来就亮，透明度再高会把底下的
+     代码透得太明显）；--menu-edge 翻成**黑**的半透明（白玻璃的边是暗的，用白线画在
+     白面上等于没有），并降半档到 0.03 —— 它现在是内阴影而不是描边，白面上的暗环比
+     深色面上的亮环更「压秤」，同值会显脏；投影整体压淡一档，三层结构不变（见深色那支）。 */
+  --menu-bg: rgba(255, 255, 255, 0.80);
   --menu-border: #cecece;
+  --menu-edge: rgba(0, 0, 0, 0.03);
   --menu-text: #616161;
   --menu-muted: #767676;
   --menu-hover-bg: #0060c0;
@@ -550,8 +615,14 @@
   --menu-tile-bg: rgba(0, 0, 0, 0.05);
   /* 模板的 #454545 压在深色底上是一道看得清的发丝线；白底上同等的可见度约在 #d4d4d4 */
   --menu-separator: #d4d4d4;
-  /* 深色那份 0.5 的黑影是为 #252526 那种暗面准备的，白底上会糊成一圈脏边，单独调淡 */
-  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  /* 开关滑块：深色那支是近黑的实心旋钮，浅色这边对应纯白 */
+  --menu-knob-bg: #ffffff;
+  /* 深色那份的黑影是为 #252526 那种暗面准备的，白底上会糊成一圈脏边，三层一起调淡；
+     第一层是内阴影高光（替代 border），不是外圈 */
+  --menu-shadow:
+    inset 0 0 0 1px var(--menu-edge),
+    0 10px 34px -10px rgba(0, 0, 0, 0.14),
+    0 4px 12px rgba(0, 0, 0, 0.1);
 
   /* 提示框：浅色下翻成白底深字（2026-11-10，用户：「自绘的 hover 在浅色主题下，显示的
      提示还是深色的」）。原先这里与深色同值（近黑底 + 白字），理由是「临时标签不该跟主题
@@ -662,7 +733,9 @@
 
   --splitter-line: #1f7ac4;
 
-  --menu-bg: #1a1d28;
+  /* 菜单面跟主题同色相的半透明（2026-11-18，与深色那支同一条玻璃口径）；
+     描边 / 投影 / 滑块沿用深色方案 —— 它们只是「材质」，不带色相 */
+  --menu-bg: rgba(26, 29, 40, 0.72);
   --menu-border: #3a4154;
   --menu-text: #ccd3e1;
   --menu-muted: #8892a6;
@@ -720,10 +793,18 @@
   --case-border: #333333;
   --case-chip-bg: #1c1c1c;
 
-  --menu-bg: #101010;
+  /* 纯黑主题的面也走半透明，但透明度更高（0.9）：OLED 用户要的是那片真黑，
+     玻璃只留一点点底图信息，别把黑冲淡成灰 */
+  --menu-bg: rgba(10, 10, 10, 0.72);
   --menu-border: #333333;
   --menu-separator: #333333;
-  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --menu-knob-bg: #101010;
+  /* 纯黑上阴影本来就看不见，第一层那圈内阴影高光（0.04 的白在近黑面上几乎不可见）
+     不足以定边，所以给它单独加一档更亮的白环 —— 仍然走 inset，不画 border */
+  --menu-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 4px 12px rgba(0, 0, 0, 0.45),
+    0 12px 24px -4px rgba(0, 0, 0, 0.6);
 
   --scrollbar-thumb: #2a2a2a;
   --scrollbar-thumb-hover: #3a3a3a;
@@ -801,14 +882,19 @@
 
   --splitter-line: #b06a00;
 
-  --menu-bg: #fffdf7;
+  /* 面转半透明（同色相的米白），浅色主题沿用浅色方案的 edge / 滑块。
+     这条 shadow 只写了外投影，必须自己带上第一层内阴影高光，否则本主题的菜单会没有边 */
+  --menu-bg: rgba(255, 253, 247, 0.80);
   --menu-border: #d8cdb8;
   --menu-text: #5f5748;
   --menu-muted: #7c715d; /* 11px 快捷键：4.7:1，与浅色基础方案的 4.5 口径对齐（原 #8b8271 仅 3.7） */
   --menu-hover-bg: #9a5b00;
   --menu-hover-muted: #f3d9b0;
   --menu-separator: #d8cdb8;
-  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+  --menu-shadow:
+    inset 0 0 0 1px var(--menu-edge),
+    0 10px 34px -10px rgba(0, 0, 0, 0.14),
+    0 4px 12px rgba(0, 0, 0, 0.12);
 
   --scrollbar-thumb: #ded5c4;
   --scrollbar-thumb-hover: #cbc1ae;
@@ -886,7 +972,7 @@
 
   --splitter-line: #3a8155;
 
-  --menu-bg: #fbfdf9;
+  --menu-bg: rgba(251, 253, 249, 0.80);
   --menu-border: #c8d3c2;
   --menu-text: #55605a;
   --menu-muted: #6c786f; /* 11px 快捷键：4.5:1，与浅色基础方案同口径（原 #7f8b82 仅 3.5） */
@@ -967,7 +1053,7 @@
 
   --splitter-line: #a78bfa;
 
-  --menu-bg: #23252f;
+  --menu-bg: rgba(35, 37, 47, 0.72);
   --menu-border: #44475a;
   --menu-text: #e4e4ee;
   --menu-muted: #9698b0;
@@ -1048,7 +1134,7 @@
 
   --splitter-line: #34a06c;
 
-  --menu-bg: #161d19;
+  --menu-bg: rgba(22, 29, 25, 0.72);
   --menu-border: #3a4d41;
   --menu-text: #cdd9d1;
   --menu-muted: #8b9a90;
@@ -1133,14 +1219,26 @@
 
   --splitter-line: #6fc3df;
 
+  /* 高对比主题**刻意不开玻璃**（全站唯一例外）：半透明面 + 模糊会把底图的明暗带进来，
+     而这套主题的全部意义是「字与底之间没有中间层」。
+     描边也保持实色，不用那圈 4% / 3% 的微弱高光；但同样走 inset 而不是 border ——
+     1px 的实灰环画在面料内侧，视觉与原来的 border 几乎一致（高对比不看「呼吸感」），
+     好处是全系五个浮层只有一种画边方式，组件里不必为它开特例。 */
   --menu-bg: #0a0a0a;
   --menu-border: #8a8a8a;
+  --menu-edge: #8a8a8a;
+  --menu-backdrop: none;
   --menu-text: #ffffff;
   --menu-muted: #d0d0d0;
   --menu-hover-bg: #0f5a8a;
   --menu-hover-muted: #d6f2ff;
   --menu-separator: #6a6a6a;
-  --menu-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+  --menu-knob-bg: #0a0a0a;
+  /* 黑底上的投影几乎是隐形的，把内阴影那圈拉到实灰 #8a8a8a 给菜单定边 */
+  --menu-shadow:
+    inset 0 0 0 1px var(--menu-edge),
+    0 4px 12px rgba(0, 0, 0, 0.55),
+    0 12px 24px -4px rgba(0, 0, 0, 0.7);
 
   --scrollbar-thumb: #6a6a6a;
   --scrollbar-thumb-hover: #8a8a8a;
@@ -1216,7 +1314,7 @@
 
   --splitter-line: #5e81ac;
 
-  --menu-bg: #f7fafc;
+  --menu-bg: rgba(247, 250, 252, 0.80);
   --menu-border: #c3cddb;
   --menu-text: #4c566a;
   --menu-muted: #677284; /* 11px 快捷键：4.6:1，与浅色基础方案同口径（原 #7b8698 仅 3.5） */

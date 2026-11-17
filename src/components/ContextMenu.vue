@@ -6,12 +6,22 @@
  *
  * 视觉以一份 vanilla IDE 右键菜单模板为准（2026-10-10，用户指定）：颜色全部走
  * `base.css` 的 `--menu-*` 令牌（那组是 VS Code Dark+ / Light+ 的原装配对），
- * 形状与字距照模板 —— 6px 圆角、220px 最小宽、通栏方形悬停、0.1s 弹开；
- * 字体 13px、条目内边距 6px 20px、右列键位 11px 且与文字至少隔 20px。
+ * 形状与字距照模板 —— 6px 圆角、220px 最小宽；
+ * 字体 13px、条目内边距 6px 12px（模板是 6px 20px，已按下面 2026-11-18 的统一口径收窄）、
+ * 右列键位 11px 且与文字至少隔 20px。
  * **行高不写死**（模板也没写）：交给字体的天然行盒，见 `.context-menu__item` 那条注释。
  *
+ * 2026-11-18 用户要求从「原生 IDE 还原」再往现代浮层的质感走一档，三处偏离模板：
+ *   · **胶囊式悬停**：容器左右恢复 `--menu-pad-x`（4px）内边距、条目给 4px 圆角，
+ *     深蓝色块不再通栏顶到边框（模板是通栏方形块，这里刻意改了）。
+ *   · **玻璃面 + 无描边 + 三层影**：`--menu-bg` 半透明、边缘靠 `--menu-shadow` 第一层
+ *     `inset 0 0 0 1px var(--menu-edge)` 在面料内侧打高光（**不写 border**，见下方那条注释）、
+ *     外两层是环境弥散与近景投影，令牌全在 `base.css`，本文件不写色值。
+ *   · **阻尼动效**：0.15s + `cubic-bezier(0.16, 1, 0.3, 1)`，起手 0.92 并轻微上浮。
+ *
  * 尺寸统一由 `--menu-scale` 从模板原值乘出来（2026-10-11 用户要「整体等比缩小一号」，
- * 原比例 1）。宽 / 内边距 / 圆角 / 字号 / 条目间距都跟着这一档走 —— **改小改大都只动这一个数**，
+ * 原比例 1）。宽 / 内边距 / 圆角 / 字号 / 条目间距都跟着这一档走 —— **改小改大都只动那一个数**
+ * （2026-11-18 起它定义在 `base.css` 的 `:root`，四个菜单组件共用一份，别在组件里再声明）。
  * 别去单独调某一个 px，那样就不是等比了。模板原值一律留在 `calc()` 里当被乘数，
  * 免得日后有人把乘出来的结果当成手感值删掉（坑 33 明令不许凭手感调这组令牌）。
  * 站内所有右键菜单都走这一个组件（文件树、编辑区），改样式只改这里。
@@ -113,22 +123,28 @@ function select(item) {
 </template>
 
 <style scoped>
-/* 颜色一律走 base.css 的 --menu-* 令牌，这里不写死任何一个色值。
-   形状照模板：6px 圆角 / 220px 最小宽 / 容器上下 6px / 条目 6px 20px / 分隔线 6px 10px。
+/* 颜色一律走 base.css 的 --menu-* 令牌，这里不写死任何一个色值；
+   尺子（--menu-scale / --menu-pad-x / --menu-item-pad-x）也定义在那边，四个菜单共用一份。
+   形状：6px 圆角 / 220px 最小宽 / 容器上下 6px 左右 4px / 条目 6px 12px / 分隔线 6px 6px。
    这些数值不直接写，一律 `模板原值 × --menu-scale`（见文件头那条注释）。 */
 .context-menu {
-  /* 等比缩放系数。0.92 = 13px 字降到 12px，其余尺寸按同一比例跟下来 */
-  --menu-scale: 0.92;
   position: fixed;
   z-index: 120;
   min-width: calc(220px * var(--menu-scale));
-  /* 左右**不留**内边距是刻意的：悬停色块要通栏顶到菜单两端（模板如此）。
-     上下那 6px 是首末条目与边框之间的呼吸位，也顺带让圆角处不会被色块切到。 */
-  padding: calc(6px * var(--menu-scale)) 0;
+  /* 左右**留** 4px 内边距（2026-11-18 改）：悬停是胶囊式色块，与边框之间要有呼吸位，
+     不再像模板那样通栏顶到两端。条目 12px + 这里 4px = 文字距边框 16px。 */
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
+  /* 这里**没有** border（2026-11-18）：容器边缘改由 box-shadow 第一层的
+     `inset 0 0 0 1px var(--menu-edge)` 画在面料内侧，不占外部像素。
+     别因为「看不出边」就补回来 —— 一旦写了 border，哪怕 4% 白，也会被框成一个盒子。
+     内联控件（主题芯片 / 复制钮 / 输入框）仍用 --menu-border。 */
+  border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
+  /* 微毛玻璃（2026-11-18 加）：面是 0.85 的半透明，这层滤镜才看得出「底下还有东西」。
+     对比度主题把 --menu-backdrop 设成 none 就把玻璃关掉。 */
+  backdrop-filter: var(--menu-backdrop);
   visibility: hidden;
   /* 匣比菜单矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
   overflow-y: auto;
@@ -138,16 +154,19 @@ function select(item) {
 
 /* 展开动效用**动画**而不是 transition：本组件每次打开都是新挂载（父级用 v-if 控），
    没有「旧状态 → 新状态」可过渡，只能靠 keyframes 播一遍。
+   0.15s + 自定义缓出（2026-11-18）：浏览器默认 ease 收得太快，弹开显得「啪」一下；
+   cubic-bezier(0.16, 1, 0.3, 1) 是快起慢收的那派曲线，收尾带一点惯性。
    prefers-reduced-motion 由 base.css 的全局规则统一压掉，这里不用再写一遍。 */
 .context-menu--ready {
   visibility: visible;
-  animation: context-menu-in 0.1s ease;
+  animation: context-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes context-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    /* 0.92 起手 + 上浮 4px：比纯缩放多一档「落定」的纵向感 */
+    transform: scale(0.92) translateY(-4px);
   }
 }
 
@@ -157,11 +176,12 @@ function select(item) {
   justify-content: space-between;
   gap: calc(20px * var(--menu-scale));
   width: 100%;
-  padding: calc(6px * var(--menu-scale)) calc(20px * var(--menu-scale));
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-item-pad-x) * var(--menu-scale));
   background: transparent;
   border: none;
-  /* 不做圆角：悬停要是通栏的方形色块（模板如此，对应上面容器左右 0 内边距） */
-  border-radius: 0;
+  /* 胶囊式悬停（2026-11-18 改，原为通栏方形 block）：4px × 系数，全站三档圆角里的 4px 那档。
+     配容器左右 --menu-pad-x，悬停色块四周都不贴边。 */
+  border-radius: calc(4px * var(--menu-scale));
   color: var(--menu-text);
   font-family: var(--font-sans, system-ui);
   font-size: calc(13px * var(--menu-scale));
@@ -250,7 +270,8 @@ function select(item) {
 
 .context-menu__divider {
   height: 1px;
-  margin: calc(6px * var(--menu-scale)) calc(10px * var(--menu-scale));
+  /* 容器左右已有 --menu-pad-x（4px），这里收到 6px —— 视觉上仍是距边框约 10px 的那条内缩线 */
+  margin: calc(6px * var(--menu-scale)) calc(6px * var(--menu-scale));
   background: var(--menu-separator);
 }
 </style>

@@ -582,8 +582,8 @@ async function placeSubmenu() {
 /**
  * 二级的缩放系数从它自己的 `--menu-scale` 读。
  *
- * Teleport 出去之后它不再继承 `.settings-menu` 上那个变量（样式表里已经给它补了同一档），
- * 这里也读同一份，别在脚本里再写一个 0.92 —— 改大小仍然只动样式表那一处。
+ * 2026-11-18 起这个令牌定义在 `base.css` 的 `:root`（四个菜单共用一份），
+ * Teleport 出去也照样继承得到；这里仍按「读元素上的计算值」取，别在脚本里再写一个 0.92。
  */
 function menuScaleOf(el) {
   const scale = Number.parseFloat(getComputedStyle(el).getPropertyValue('--menu-scale'))
@@ -1121,11 +1121,14 @@ function currentOption(row) {
 </template>
 
 <style scoped>
-/* 尺寸的单一来源是 --menu-scale（与 ContextMenu 共用同一个值）：模板原值留在 calc() 里
-   当被乘数，别把乘出来的结果当成手感值写死 —— HANDOFF 第 5 节坑 33。
-   颜色一律走 base.css 的 --menu-* 令牌，这里不写死任何色值。 */
+/* 尺寸的单一来源是 --menu-scale（与右键菜单共用同一个值，2026-11-18 起定义在
+   base.css 的 :root 上，本文件不再自己声明）：模板原值留在 calc() 里当被乘数，
+   别把乘出来的结果当成手感值写死 —— HANDOFF 第 5 节坑 33。
+   颜色一律走 base.css 的 --menu-* 令牌，这里不写死任何色值。
+   2026-11-18 与另三个菜单同步：玻璃面 + 内侧高光边（--menu-edge 走 shadow 的 inset）+ 三层影
+   + 胶囊式条目悬停 + 0.15s 阻尼动效；条目左右内边距统一走 --menu-item-pad-x
+   （原先这里 12px、右键菜单 20px 两套）。容器不再画 border：边缘是内阴影，不占外部像素。 */
 .settings-menu {
-  --menu-scale: 0.92;
   position: fixed;
   z-index: 125;
   /* 换边 / 折叠这类 View Transition 里必须自己成组：浮层 Teleport 到 body、排在 #app 之后，
@@ -1134,11 +1137,13 @@ function currentOption(row) {
      自身位置变化（换边后重锚）也因此跟着布局一起移动，而不是硬跳。 */
   view-transition-name: settings-menu;
   min-width: calc(220px * var(--menu-scale));
-  padding: calc(6px * var(--menu-scale)) 0;
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
+  /* 无 border：边缘是 --menu-shadow 第一层的 inset 高光 */
+  border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
+  backdrop-filter: var(--menu-backdrop);
   visibility: hidden;
   /* 弹开时从齿轮那个角长出来：与右键菜单同一种动画，只是 transform-origin 换成右上 */
   transform-origin: top right;
@@ -1146,7 +1151,8 @@ function currentOption(row) {
 
 .settings-menu--ready {
   visibility: visible;
-  animation: settings-menu-in 0.1s ease;
+  /* 0.15s + 自定义缓出，与右键菜单同一支曲线（2026-11-18） */
+  animation: settings-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /**
@@ -1163,7 +1169,7 @@ function currentOption(row) {
 @keyframes settings-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.92) translateY(-4px);
   }
 }
 
@@ -1171,18 +1177,19 @@ function currentOption(row) {
   position: relative;
 }
 
-/* 与 ContextMenu 同一套条目写法：通栏方形悬停（容器左右不留内边距给了这份自由）、
-   12/20px 左右内边距、行高交给字体的天然行盒 */
+/* 与 ContextMenu 同一套条目写法：胶囊式悬停（容器左右 --menu-pad-x 给了这份余地）、
+   12px 左右内边距（走 --menu-item-pad-x）、行高交给字体的天然行盒。
+   2026-11-18 之前这里 12px 而右键菜单 20px，鼠标在两份菜单间游走时文字左缘差 8px —— 现已统一。 */
 .settings-menu__item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: calc(12px * var(--menu-scale));
   width: 100%;
-  padding: calc(6px * var(--menu-scale)) calc(12px * var(--menu-scale));
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-item-pad-x) * var(--menu-scale));
   background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: calc(4px * var(--menu-scale));
   color: var(--menu-text);
   font-family: var(--font-sans, system-ui);
   font-size: calc(13px * var(--menu-scale));
@@ -1192,7 +1199,7 @@ function currentOption(row) {
   transition: background-color 0.1s ease, color 0.1s ease;
 }
 
-/* 悬停与键盘高亮共用同一种反馈：通栏方块 + 提亮的文字 —— 「这是我的目标」只有一种说法 */
+/* 悬停与键盘高亮共用同一种反馈：胶囊色块 + 提亮的文字 —— 「这是我的目标」只有一种说法 */
 .settings-menu__item.is-active,
 :where(html.is-hoverable) .settings-menu__item:hover:not(:disabled) {
   background: var(--menu-hover-bg);
@@ -1313,7 +1320,9 @@ function currentOption(row) {
   width: calc(8px * var(--menu-scale));
   height: calc(8px * var(--menu-scale));
   border-radius: 50%;
-  background: var(--menu-bg);
+  /* 旋钮必须是**不透明**的实色：--menu-bg 现在是 0.85 的玻璃面，压在 accent 轨道上会把
+     那抹蓝透上来（浅色主题下白旋钮会变成淡蓝），所以单独走 --menu-knob-bg */
+  background: var(--menu-knob-bg);
   transition: transform 0.14s ease;
 }
 
@@ -1325,20 +1334,20 @@ function currentOption(row) {
    Teleport 到 body、`position: fixed`，坐标由脚本按所属那一行实测给出（见 placeSubmenu）；
    这里只负责长相。
 
-   ⚠️ 它已经不在 `.settings-menu` 里了，那个盒子上定义的 `--menu-scale` 继承不过来，
-   所以这里必须补同一档。改大小仍然是两处一起动（`.settings-menu` 与这里），别只改一处。
-   颜色不用管：`--menu-*` 令牌挂在 `:root` 上，Teleport 到 body 照样拿得到。
+   它已经不在 `.settings-menu` 里了，但 `--menu-*` 令牌挂在 `:root` 上（2026-11-18 起
+   连 --menu-scale 也在那边），Teleport 到 body 照样继承得到，**不用再补一份**。
    z-index 要压过一级（125），否则二级会被一级盖在下面。 */
 .settings-menu__sub {
-  --menu-scale: 0.92;
   position: fixed;
   z-index: 126;
   min-width: calc(150px * var(--menu-scale));
-  padding: calc(6px * var(--menu-scale)) 0;
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
+  /* 无 border：边缘是 --menu-shadow 第一层的 inset 高光 */
+  border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
+  backdrop-filter: var(--menu-backdrop);
   /* 量好之前藏着（与一级的 --ready 同一套路）：fixed 元素还没有 left / top 时落在
      文档流的静态位置，露出半帧就会在屏幕角落闪一下 */
   visibility: hidden;
@@ -1437,7 +1446,8 @@ function currentOption(row) {
 
 .settings-menu__divider {
   height: 1px;
-  margin: calc(6px * var(--menu-scale)) calc(10px * var(--menu-scale));
+  /* 容器左右已有 --menu-pad-x（4px），这里收到 6px —— 与右键菜单的分隔线同一条内缩 */
+  margin: calc(6px * var(--menu-scale)) calc(6px * var(--menu-scale));
   background: var(--menu-separator);
 }
 

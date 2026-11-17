@@ -127,21 +127,25 @@ async function action(id) {
 
 <style scoped>
 /* 与右键菜单同一族观感，且**同尺寸**（2026-10-23 用户要求）：
-   尺寸与 ContextMenu 共用同一个 --menu-scale，宽度直接取菜单那 220px 模板宽 × 同一系数，
+   尺寸与 ContextMenu 共用同一个 --menu-scale（2026-11-18 起统一挂在 base.css 的 :root 上，
+   本文件不再自己声明），宽度直接取菜单那 220px 模板宽 × 同一系数，
    字号 / 内边距 / 条目行高 / 圆角全跟着 0.92 走，并排看不出两套尺子。
    色点行是这里独有的内容：8 个点 × 16.56 + 7 个间距，按 8px×0.92 排会超出 202.4 的版心
-   （178.3），所以间距单独收到 6px×0.92，其余一律不手调。 */
+   （178.3），所以间距单独收到 6px×0.92，其余一律不手调。
+   2026-11-18 与右键菜单同步：玻璃面 + 内侧高光边（无 border）+ 三层影 + 胶囊式条目悬停
+   + 0.15s 阻尼动效。 */
 .tab-group-card {
-  /* 与 ContextMenu.vue 的 .context-menu 同一个值 */
-  --menu-scale: 0.92;
   position: fixed;
   z-index: 120;
   width: calc(220px * var(--menu-scale));
   padding: calc(12px * var(--menu-scale)) calc(12px * var(--menu-scale)) calc(6px * var(--menu-scale));
   background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
+  /* 不画 border，边缘靠 --menu-shadow 的 inset 高光（见 base.css 那段说明） */
+  border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
+  /* 与右键菜单同一层微毛玻璃；卡里那颗命名框自己是实底的，读字不受影响 */
+  backdrop-filter: var(--menu-backdrop);
   visibility: hidden;
   /* 匣比卡片矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
   overflow-y: auto;
@@ -150,14 +154,14 @@ async function action(id) {
 
 .tab-group-card--ready {
   visibility: visible;
-  /* 复用右键菜单那支 0.1s 弹开（keyframes 在 scoped 下会改名，这里本地另写一份同名动作） */
-  animation: tab-group-card-in 0.1s ease;
+  /* 复用右键菜单那支动效的曲线与时长（keyframes 在 scoped 下会改名，这里本地另写一份同名动作） */
+  animation: tab-group-card-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes tab-group-card-in {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.92) translateY(-4px);
   }
 }
 
@@ -207,20 +211,23 @@ async function action(id) {
 }
 
 .tab-group-card__items {
+  /* 负边距让它横向铺满卡片（上面那块命名区的 12px 内边距在这里被抵掉），
+     再靠自己的 --menu-pad-x 给条目留出与边框之间的呼吸位 —— 与右键菜单的容器内距同一档 */
   margin: 0 calc(-12px * var(--menu-scale)) calc(-6px * var(--menu-scale));
-  padding: calc(6px * var(--menu-scale)) 0;
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   border-top: 1px solid var(--menu-separator);
 }
 
-/* 条目与右键菜单的条目同一套尺子：6px 20px × 0.92、字号 13px × 0.92，
-   行高交给字体天然行盒（菜单那边也是），所以条目高度正好都是 28px。 */
+/* 条目与右键菜单的条目同一套尺子：6px 12px × 0.92、字号 13px × 0.92，
+   行高交给字体天然行盒（菜单那边也是），所以条目高度正好都是 28px。
+   圆角 4px × 系数也是同一档（胶囊式悬停，2026-11-18）。 */
 .tab-group-card__item {
   display: block;
   width: 100%;
-  padding: calc(6px * var(--menu-scale)) calc(20px * var(--menu-scale));
+  padding: calc(6px * var(--menu-scale)) calc(var(--menu-item-pad-x) * var(--menu-scale));
   background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: calc(4px * var(--menu-scale));
   color: var(--menu-text);
   font-family: var(--font-sans, system-ui);
   font-size: calc(13px * var(--menu-scale));
@@ -237,7 +244,8 @@ async function action(id) {
 
 .tab-group-card__divider {
   height: 1px;
-  margin: calc(6px * var(--menu-scale)) calc(10px * var(--menu-scale));
+  /* 条目区已有 --menu-pad-x（4px）内距，这里收到 6px —— 与右键菜单的分隔线同一条视觉内缩 */
+  margin: calc(6px * var(--menu-scale)) calc(6px * var(--menu-scale));
   background: var(--menu-separator);
 }
 </style>

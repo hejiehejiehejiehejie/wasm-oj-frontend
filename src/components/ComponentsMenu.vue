@@ -152,9 +152,9 @@ watch(ready, (shown) => {
 </template>
 
 <style scoped>
-/* 与 SettingsMenu 同一条纪律：尺寸单一来源 --menu-scale，颜色走 --menu-* 令牌 */
+/* 与 SettingsMenu 同一条纪律：尺寸单一来源 --menu-scale（2026-11-18 起挂在 base.css 的
+   :root 上，四个菜单共用一份），颜色走 --menu-* 令牌 */
 .components-menu {
-  --menu-scale: 0.92;
   position: fixed;
   z-index: 125;
   /* 与 SettingsMenu 同一条：View Transition 里浮层要自己成组，否则会被两栏快照盖住，
@@ -163,12 +163,16 @@ watch(ready, (shown) => {
   min-width: calc(200px * var(--menu-scale));
   padding: calc(10px * var(--menu-scale));
   background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
-  /* 圆角是本文件里「尺寸一律挂 --menu-scale」那条纪律的唯一例外（2026-10-25 用户指定
-     「组件弹窗的圆角改为 10px」，原值 calc(14px * 0.92) ≈ 12.88px）：用户要的是**量出来
-     10px**，所以这里不乘系数（乘了 0.92 只有 9.2px）。其余尺寸照旧跟着 --menu-scale 缩放。 */
-  border-radius: 10px;
+  /* 无 border（2026-11-18）：边缘改由 --menu-shadow 第一层的 inset 高光画在面料内侧，
+     不再向外占 1px、把这块菜单框成一个盒子 */
+  border: none;
+  /* 圆角 10px 是全系唯一**不乘** --menu-scale 的那档（2026-10-25 用户指定「量出来 10px」，
+     乘 0.92 只有 9.2px）。2026-11-18 起收到令牌层 --menu-radius-lg，不再在本文件写死字面量；
+     其余尺寸照旧跟着 --menu-scale 缩放。 */
+  border-radius: var(--menu-radius-lg);
   box-shadow: var(--menu-shadow);
+  /* 与另三个菜单同一层微毛玻璃 */
+  backdrop-filter: var(--menu-backdrop);
   visibility: hidden;
   /* 匣比菜单矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
   overflow-y: auto;
@@ -177,13 +181,14 @@ watch(ready, (shown) => {
 
 .components-menu--ready {
   visibility: visible;
-  animation: components-menu-in 0.1s ease;
+  /* 0.15s + 自定义缓出，与右键菜单同一支曲线（2026-11-18） */
+  animation: components-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes components-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.95);
+    transform: scale(0.92) translateY(-4px);
   }
 }
 
