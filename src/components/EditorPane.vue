@@ -1295,7 +1295,9 @@ defineExpose({
     </div>
 
     <!-- 状态栏说的都是活跃文件的事（行列、语言、空格数），看着合成视图时它没有意义；
-         题解下要不要收掉见样式表末尾那组闸门。分屏后只给**焦点窗格**挂（见 paneFocused） -->
+         题解下要不要收掉见样式表末尾那组闸门。分屏后只给**焦点窗格**挂（见 paneFocused）——
+         这也是它默认关闭的原因：没焦点的那片会连 22px 一起消失，切换焦点时正文会上下跳
+         （2026-11-17 用户定，见 editorOptions 的 statusBar 注释）。 -->
     <footer v-if="paneFocused && activeNode && !viewActive" class="editor-pane__status">
       <span class="opt-file">{{ activeNode.name }}</span>
       <span class="dot opt-file"></span>

@@ -24,9 +24,11 @@ const EDITOR_SETTINGS_KEY = 'cp.editorSettings'
 // v7（2026-11-05）：语义级悬停改为默认开，把老存档里由默认值自动写入的那份 false
 // 改成 true（原因见下面那条分支）。
 // v8（2026-11-14）：光标平滑移动改为默认关，同理把老存档里那份自动写入的 true 改成 false。
+// v9（2026-11-17）：底部状态栏改为默认关（分屏后只有焦点窗格挂，导致窗格间高度不一致），
+// 同样把老存档里由默认值自动写入的 true 改成 false。
 // **教训：动这个常量时必须和它对应的迁移分支在同一次编辑里落地，别分两步。**
 const EDITOR_SETTINGS_VERSION_KEY = 'cp.editorSettingsVersion'
-const EDITOR_SETTINGS_VERSION = 8
+const EDITOR_SETTINGS_VERSION = 9
 // 默认值、可选项表、逐键校验、以及「偏好 → Monaco 选项」的映射都在 services/editorOptions.js
 const EDITOR_SETTING_KEYS = Object.keys(EDITOR_SETTINGS_DEFAULTS)
 
@@ -58,6 +60,9 @@ function readEditorSettings() {
       // true 是默认值被深度 watch 写进去的，只改 EDITOR_SETTINGS_DEFAULTS 对老用户无效。
       // 改写之后版本号就是 8，用户再手动打开不会被覆盖。
       parsed.cursorSmoothCaretAnimation = false
+      // v9（2026-11-17，用户定「状态栏默认关闭」）：同 v7/v8 的口径 —— 存档里的 true 是
+      // 默认值被深度 watch 写进去的。改写之后版本号就是 9，用户再手动打开不会被覆盖。
+      parsed.statusBar = false
     }
     // 只采纳已知字段，并且逐键夹成合法值：历史遗留的过期配置（如已移除的 keybinding）
     // 会被 normalizeEditorSetting 丢掉，越界 / 认不出来的值一律退回默认。

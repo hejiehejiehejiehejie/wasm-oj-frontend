@@ -329,8 +329,9 @@ export const EDITOR_SETTINGS_DEFAULTS = {
   stickyScroll: false,
   // 底下这条不是 Monaco 选项（editorOptions() 里没有它），是编辑器面板自己的开关：
   // 攒在同一个存档里只是图「新增一项偏好不用再开一份 localStorage」。
-  // 默认开＝改造前就有状态栏，老用户升上来零变化。
-  statusBar: true,
+  // 默认关（2026-11-17 用户定）：分屏后状态栏只挂焦点窗格，没焦点的那片会连 22px 一起
+  // 消失，切换焦点时整片正文跟着上下跳，看起来像「有的有、有的没有」。要显示去设置里打开。
+  statusBar: false,
   /**
    * 悬停提示（2026-11-05 加，见 services/monaco/hover.js）。
    *
