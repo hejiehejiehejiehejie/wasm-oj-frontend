@@ -370,7 +370,7 @@ div.app（column，100% 高；padding 只有安全区，2026-09-28 起顶栏已�
 | 双击 | 选中光标下的词 | Monaco（`tapCount: 2` → `wordSelect`）；键盘没弹着时同样走下面的防抖那一路 |
 | **三击** | **选中整行**（连行尾的换行一起选） | **`composables/useEditorMenu.js`**（Monaco 的 `tapCount` 封顶在 2、数不到 3，见坑 31） |
 | **四击** | **全选** | 同上 |
-| **长按 450ms** | **先选中手指下的词，再弹出「剪切 / 复制 / 粘贴 / 全选」** | **`composables/useEditorMenu.js`** |
+| **长按 450ms** | **先选中手指下的词；落点不是词（缩进空白 / 标点 / 空行）时选中该处一个字符 —— 选区一出来手柄就跟着出来。在选区里再长按一拍才弹菜单（窄选区带 ±2 列、缩进里 ±4 列容差）** | **`composables/useEditorMenu.js`** |
 | 拖动 | 滚动（触摸下不做框选） | Monaco（`Gesture` 的 Change → `deltaScrollNow`） |
 | **拖手柄** | **按住两颗圆点之一拖动 = 改选区两端**（拖到上下边缘自动滚） | **`composables/useSelectionHandles.js`** |
 | 鼠标右键（桌面） | 弹同一份菜单（这正是它替掉 Monaco 英文内置菜单的地方） | 同上 |
@@ -7533,3 +7533,75 @@ font-size:   11.5px;            →  12px;
 | 深色 + paper | 方帽右缘连成一列，词帽紧随其后，无溢出 |
 
 `npm run verify` A–H 全 PASS，`npm run lint` 无 error（`lint:css` 只剩 7 条登记在案的圆角存量）。
+
+## 72. 触屏长按落在「不是词」的地方，也要出手柄（2026-11-17，用户报「不长按一个词无法选中任何内容」）
+
+### 72.1 病根
+
+触屏上**能起选区的路只有长按这一条**：Monaco 的触摸拖动只滚动（`touch.js` 的 Change →
+`deltaScrollNow`），双击只认词，而自绘的两颗圆点只在「已有非空选区」时出现
+（`useSelectionHandles.update()` 见 `isEmpty()` 就返回 null）。长按那条路原先只做
+`getWordAtPosition()`，落点是缩进空白 / 标点 / 空行时**没有词**，于是只 `setPosition()` 落一个
+光标 —— 选区为空、手柄不出现，用户连「从这儿开始选」都做不到。菜单倒是弹了，可那不是选内容。
+
+### 72.2 修法
+
+`useEditorMenu.js` 新增 `selectCharUnder()`，`fireLongPress()` 改成
+`selectWordUnder() || selectCharUnder()`：词优先，不是词时给一个**最小选区**。
+
+| 落点 | 选区 |
+| --- | --- |
+| 行内有字符（含缩进空白、标点） | 落点右侧那一个字符；点在行尾取左侧那一个 |
+| 空行（非末行） | 该行行尾的换行 `(line,1)…(line+1,1)` |
+| 末行且为空 | 上一行行尾的换行（文件末尾没有换行可选） |
+| 整个文件只有一行空行 | 无字符可选，返回 false，照旧弹菜单 |
+
+「两拍」的出口不变：第一拍产生选区（不弹菜单），**在那段选区里再长按一拍才弹菜单** ——
+`selectCharUnder()` 与 `selectWordUnder()` 用同一条判据（`selection.containsPosition(position)`），
+落在已有选区里返回 false 且一个字都不改。
+
+### 72.3 顺带补上的一个洞：长按松手那一发 Tap 会把选区抹掉
+
+原先 `onMonacoGestureTap` 对 `handledTouch`（长按已接管）只是 `return`、**不拦**。探针实测：
+按住 **650ms** 松手时，Monaco 把它判成 Tap，在松手点 `moveTo()` 落一个光标 —— 刚选好的词 /
+字符与手柄当场消失（选区为空、手柄 0 颗）。按住 700ms 以上它判的是 contextmenu（已被无条件拦掉）、
+不再发 Tap，所以这个洞只在「选好就松手」这一段露。现在这一发改成 `stopPropagation()` +
+`preventDefault()` 吞掉；`handledTouch` 在每次 `pointerdown` 归零，下一轮轻点不受影响。
+吞掉也不影响焦点：长按本来就不补聚焦（`cancelSettleFocus()`）。
+
+### 72.4 实测（探针：1400×1000 横屏触摸仿真 + CDP `Input.dispatchTouchEvent`，跑完即删）
+
+| 场景 | 结果 |
+| --- | --- |
+| 按住 550ms 缩进空白（第 5 行第 2 列） | 选区 `(5,2)-(5,3)` = 一个空格；手柄 2 颗；菜单不弹 |
+| 同一位置再长按一拍 | 选区原样；菜单弹出（两拍出口） |
+| 按住 550ms 词 `int` | 选区 `(5,5)-(5,8)`；手柄 2 颗；菜单不弹 |
+| 长按空行（文件末尾补一行） | 选中行尾换行 `(19,1)-(20,1)`；手柄 2 颗；菜单不弹 |
+| 双击词 | 仍选整词 `int`（吞 Tap 没有影响下一轮轻点） |
+
+`npm run verify` A–H 全 PASS，`npm run lint` 无 error。
+
+### 72.5 第二拍容差与非 BMP 对齐（2026-11-17 第二轮）
+
+**第二拍命中放宽**：长按第一拍在缩进 / 标点处只选中一个字符，若第二拍还要求精确命中那一个字符，
+手指偏一格就变成「重起选」，菜单等于打不开。判据改由 `isPositionInSelectionWithTolerance()`
+（只在长按那条路，经 `isSecondBeat()` 调用）给出：
+
+- 严格 `containsPosition` 优先；跨行选区（如空行的 `(line,1)→(line+1,1)`）与宽选区**不放宽**。
+- 同行窄选区（列跨度 ≤ 2，覆盖单字符与代理对 emoji）左右各放宽 **±2 列** ——
+  等宽字体 1 列约 7–9px，总热区 35–45px，对齐移动端 44px 触控目标。
+- 落点也在**行首缩进空白**内时放宽到 **±4 列**：那里第二拍的唯一意图就是呼出菜单。
+- 双击选词仍走 `selectWordUnder` 里的严格判据 —— 双击落在窄选区旁边一个词上时，
+  用户要的是那个词，不是「保持原选区」。
+
+**非 BMP 对齐**：`selectCharUnder()` 的单字符选区过 `alignSurrogatePair()`，
+命中高低代理时扩成完整码点，emoji 不会再被截半、走菜单「复制」也不会拿到孤立代理项。
+
+**常驻回归测试**：`scripts/verify-ui.mjs` 新增 I 段（另开一页 + CDP 触摸仿真，
+1400×1000 横屏避开窄屏抽屉布局），I1–I7 固化了词 / 缩进空白 / 空行 / 第二拍容差 /
+容差外重起选 / emoji 整码点 / 双击选词七条。`npm run verify` 现为 A–H + I1–I7 全 PASS。
+
+**单空格选区的可见度**：没有加 `min-width: 1ch` —— Monaco 的 `.selected-text` 也落在
+10px 的圆角补片上（`selections.js` 的 `_createSelectionPiece`），大字号下 `1ch > 10px` 会把
+圆角撑坏；而空格选区本身的宽度就是 1ch，这条规则对目标场景无效。`renderWhitespace` 没有在
+源码里被覆盖，仍是 Monaco 默认的 `'selection'`，空格被选中时自带 `·` 标记。

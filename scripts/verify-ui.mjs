@@ -797,6 +797,201 @@ try {
     )
   })
 
+  /**
+   * I. 触屏长按（CDP 原生触摸事件）。
+   * 450ms 定时器 → 长按接管 → 松手那一发 Tap 被吞，这条链路鼠标点不出来，只能真触摸。
+   * 单独开一页、横屏 + touch 跑 I1–I7，跑完关掉，不影响前面 A–H 的桌面状态。
+   */
+  await step('I. 触屏长按：非词位置起选区、第二拍容差与代理对', async () => {
+    const touchPage = await browser.newPage()
+    try {
+      const cdp = await touchPage.target().createCDPSession()
+      // 必须横屏：竖屏触屏会进窄屏抽屉布局（isNarrowLayout），侧栏盖住编辑器，
+      // 落点会打到资源管理器上而不是正文
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 1400,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false,
+        screenOrientation: { type: 'landscapePrimary', angle: 90 },
+      })
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 })
+      touchPage.on('pageerror', (err) =>
+        logs.push(`[touch-pageerror] ${String(err.message).slice(0, 240)}`),
+      )
+
+      await touchPage.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      await touchPage.waitForSelector('.monaco-editor', { visible: true, timeout: 40000 })
+      await touchPage.waitForFunction(() => document.querySelectorAll('.view-line').length > 3, {
+        timeout: 40000,
+      })
+
+      // 固定一份可预期的正文：第 5 行缩进、第 6 行带 emoji、第 8 行空行
+      const TOUCH_LINES = [
+        '#include <bits/stdc++.h>',
+        'using namespace std;',
+        '',
+        'void solve() {',
+        '    int a, b;',
+        '    // 注释 😀 结束',
+        '    cin >> a >> b;',
+        '',
+        '    cout << a + b << endl;',
+        '}',
+        '',
+      ]
+      await touchPage.evaluate(async (lines) => {
+        const { monaco } = await import('/src/monaco-setup.js')
+        const editor = monaco.editor.getEditors().find((item) => item.getModel())
+        window.__touchEd = editor
+        editor.getModel().setValue(lines.join('\n'))
+        editor.setPosition({ lineNumber: 1, column: 1 })
+        editor.revealLine(1)
+      }, TOUCH_LINES)
+      await wait(400)
+
+      // 落点：先确保该行在视口里，再按 caret 左缘 +3px 取坐标（+3px 落在字符内）
+      const tapPoint = async (lineNumber, column) => {
+        await touchPage.evaluate((line) => window.__touchEd.revealLine(line), lineNumber)
+        await wait(120)
+        return touchPage.evaluate(
+          ({ lineNumber, column }) => {
+            const editor = window.__touchEd
+            const rect = editor.getDomNode().getBoundingClientRect()
+            const pos = editor.getScrolledVisiblePosition({ lineNumber, column })
+            return { x: rect.left + pos.left + 3, y: rect.top + pos.top + pos.height / 2 }
+          },
+          { lineNumber, column },
+        )
+      }
+
+      const touchLongPress = async (x, y, holdMs = 550) => {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x, y, radiusX: 4, radiusY: 4, id: 1 }],
+        })
+        await wait(holdMs)
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await wait(220)
+      }
+
+      const touchTap = async (x, y) => {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x, y, radiusX: 4, radiusY: 4, id: 1 }],
+        })
+        await wait(50)
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      }
+
+      const readTouch = () =>
+        touchPage.evaluate(() => {
+          const editor = window.__touchEd
+          const selection = editor.getSelection()
+          return {
+            text: selection ? editor.getModel().getValueInRange(selection) : null,
+            range: selection
+              ? [
+                  selection.startLineNumber,
+                  selection.startColumn,
+                  selection.endLineNumber,
+                  selection.endColumn,
+                ]
+              : null,
+            handles: document.querySelectorAll('.selection-handles .selection-handle').length,
+            menu: Boolean(document.querySelector('.context-menu')),
+          }
+        })
+
+      const clearTouchState = async () => {
+        await touchPage.keyboard.press('Escape')
+        await touchPage.evaluate(() => {
+          window.__touchEd.setPosition({ lineNumber: 1, column: 1 })
+        })
+        await wait(200)
+      }
+
+      // I1 标识符长按：选整词、出手柄、不弹菜单（550ms < Monaco 的 700ms 阈值，
+      // 松手那一发 Tap 正是被 onMonacoGestureTap 吞掉的那一拍）
+      const solvePoint = await tapPoint(4, 7)
+      await touchLongPress(solvePoint.x, solvePoint.y)
+      const i1 = await readTouch()
+      record(
+        'I1 触屏长按识别符：选整词 + 手柄、不弹菜单',
+        i1.text === 'solve' && i1.handles === 2 && !i1.menu,
+        i1,
+      )
+      await clearTouchState()
+
+      // I2 缩进空白（不是词）：补一个字符选区，手柄照样出来
+      const indentPoint = await tapPoint(5, 2)
+      await touchLongPress(indentPoint.x, indentPoint.y)
+      const i2 = await readTouch()
+      record(
+        'I2 触屏长按缩进空白：补 1 个字符 + 手柄、不弹菜单',
+        i2.text === ' ' && i2.handles === 2 && !i2.menu,
+        i2,
+      )
+      await touchPage.screenshot({ path: `${SHOTS}cp-9-touch-longpress.png` })
+
+      // I4 第二拍容差：同行偏 1 列仍算命中 → 选区不变、弹菜单
+      const tolerancePoint = await tapPoint(5, 4)
+      await touchLongPress(tolerancePoint.x, tolerancePoint.y)
+      const i4 = await readTouch()
+      record('I4 第二拍容差命中：选区保持 + 弹菜单', i4.text === ' ' && i4.menu === true, i4)
+      await clearTouchState()
+
+      // I5 容差之外：清旧选区、落新选区、不弹菜单
+      const restartPoint = await tapPoint(5, 8)
+      await touchLongPress(restartPoint.x, restartPoint.y)
+      const i5 = await readTouch()
+      record(
+        'I5 容差之外长按：重起选、不弹菜单',
+        Boolean(i5.range) && i5.range[1] !== 2 && !i5.menu,
+        i5,
+      )
+      await clearTouchState()
+
+      // I3 空行长按：选行尾换行（否则选区长度为 0，手柄不会出现）
+      const emptyPoint = await tapPoint(8, 1)
+      await touchLongPress(emptyPoint.x, emptyPoint.y)
+      const i3 = await readTouch()
+      record(
+        'I3 触屏长按空行：选行尾换行 + 手柄',
+        i3.text === '\n' && i3.handles === 2 && !i3.menu,
+        i3,
+      )
+      await clearTouchState()
+
+      // I6 代理对：emoji 必须整码点选中，不能截成半个代理项
+      const emojiColumn = await touchPage.evaluate(
+        () => window.__touchEd.getModel().getLineContent(6).indexOf('😀') + 1,
+      )
+      const emojiPoint = await tapPoint(6, emojiColumn)
+      await touchLongPress(emojiPoint.x, emojiPoint.y)
+      const i6 = await readTouch()
+      record(
+        'I6 触屏长按 emoji：整码点选中',
+        i6.text === '😀' && i6.range?.[3] - i6.range?.[1] === 2 && !i6.menu,
+        i6,
+      )
+      await clearTouchState()
+      // 离上一发被吞掉的 Tap 超过 400ms，让 Monaco 的 tapCount 归 1，别把双击算成三击
+      await wait(500)
+
+      // I7 双击选词回归（吞 Tap 不能污染下一轮轻点的计数）
+      const cinPoint = await tapPoint(7, 5)
+      await touchTap(cinPoint.x, cinPoint.y)
+      await wait(90)
+      await touchTap(cinPoint.x, cinPoint.y)
+      await wait(320)
+      const i7 = await readTouch()
+      record('I7 触屏双击选词照旧', i7.text === 'cin' && i7.handles === 2, i7)
+    } finally {
+      await touchPage.close()
+    }
+  })
+
   console.log(`\n控制台告警/错误: ${JSON.stringify(logs.slice(0, 12), null, 1)}`)
   console.log(`localStorage: panel=${await page.evaluate(() => localStorage.getItem('cp.panelPosition'))}`)
   if (results.some((item) => !item.ok)) exitCode = 1

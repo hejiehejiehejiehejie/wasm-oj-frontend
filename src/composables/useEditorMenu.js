@@ -3,17 +3,22 @@
  *
  * 两端共用同一份菜单（2026-10-10 加），取代 Monaco 内置那份英文菜单：
  * - **桌面**：鼠标右键弹它。内置菜单的文案是英文的，与站点的双语界面不一致；
- * - **触屏**：长按 `LONG_PRESS_MS` 先选中手指下的词 —— 这是 iOS / Android
- *   原生文本控件与 VS Code 移动版的通行分工：轻点 = 光标、双击 = 选词、长按 = 选词。
+ * - **触屏**：长按 `LONG_PRESS_MS` 先选中手指下的词（落点不是词时选中该处一个字符，
+ *   见下面【长按的两拍】）—— 这是 iOS / Android 原生文本控件与 VS Code 移动版的通行分工：
+ *   轻点 = 光标、双击 = 选词、长按 = 选词。
  *   若长按处本来就在选区里，则保持原选区不动（同 iOS：长按已选中的内容 = 直接弹菜单）。
  *
  * 【长按的两拍：选词那一拍不弹菜单（2026-11-14 用户口径）】
- * 只有**没选中任何内容**的那次长按才带菜单；如果这一发长按自己就把词选上了，**菜单不弹**。
+ * 只有**这一发长按没产生选区**（落在已有选区里 = 第二拍，或空文件连一个字符都没有）才带菜单；
+ * 如果这一发长按自己就把词 / 字符选上了，**菜单不弹**。
  * 理由是菜单贴在长按点、也就是选区右侧那颗手柄旁边，正好压住刚选出来的选区与手柄，
  * 手一抬就得先关掉它才能接着拖（用户报的原话：「有点挡住右边的指针」）。
  * 于是长按的语义变成两拍：**第一拍选词（安静）、在选区里再长按一拍才出菜单** ——
  * 「已经选着内容」正是第二拍的判据，与 iOS「长按已选中的内容 = 弹菜单」同一个直觉。
- * 长按在空白处（那里连词都没有）不产生选区，仍按原来弹菜单，否则长按就成了一个没有出口的手势。
+ * 长按落在不是词的地方（缩进空白 / 标点 / 空行）也按第一拍处理：**选中该处一个字符**
+ * （见 `selectCharUnder`），因为触屏上没有第二条能起选区的路 —— 若那里只落一个光标，
+ * 自绘的手柄不会出现，用户连「从这儿开始选」都做不到（2026-11-17 用户报：
+ * 「不长按一个词，无法选中任何内容」）。菜单的出口仍在：在那段选区里再长按一拍。
  *
  * 多击手势（2026-10-11 加）：**三击 = 选中整行、四击 = 全选**，对齐 Monaco 自己在鼠标下的
  * 口径；触屏上 Monaco 数不到 3，只能由这里接着数（见 `onMonacoGestureTap`）。
@@ -93,6 +98,81 @@ const MONACO_GESTURE_TAP = '-monaco-gesturetap'
  * 「Monaco 认为还在双击、我们已经把键盘弹了」）。
  */
 const TAP_SETTLE_MS = 400
+
+/**
+ * 「第二拍」的触控容差（2026-11-17 加）。
+ *
+ * 长按第一拍在缩进空白 / 标点处只会选中**一个字符**，第二拍若还要求精确命中那一个字符，
+ * 手指偏一格就变成「重起选」，菜单等于打不开。所以按当前选区的**几何跨度**给水平容差：
+ * - 同行窄选区（跨度 ≤ `NARROW_SELECTION_SPAN` 列，覆盖单字符与代理对 emoji）：
+ *   左右各放宽 `SECOND_BEAT_TOLERANCE` 列。等宽字体 1 列约 7–9px，±2 列约 35–45px，
+ *   刚好对齐移动端 44px 的触控目标，又不会把同行稍远处的长按也算成第二拍。
+ * - 落在**行首缩进空白**里再放宽到 `SECOND_BEAT_TOLERANCE_INDENT` 列：在缩进上长按第二拍，
+ *   唯一真实的意图就是呼出菜单（粘贴之类），不会是想改选旁边另一个空格。
+ * - 跨行选区（如空行的 `(line,1)→(line+1,1)`）与普通多字符选区**不放宽**：
+ *   `containsPosition` 已经覆盖了整行 / 整段，再放宽反而会吞掉旁边的手势。
+ *
+ * 注意：容差**只用于长按第二拍**（见 `isSecondBeat`），不要拿去改双击选词 ——
+ * 双击落在窄选区旁边一个词上时，用户要的是那个词，不是「保持原选区」。
+ */
+const SECOND_BEAT_TOLERANCE = 2
+const SECOND_BEAT_TOLERANCE_INDENT = 4
+const NARROW_SELECTION_SPAN = 2
+
+/**
+ * 长按落点是否算「在已有选区里」（第二拍）。
+ * @param {import('monaco-editor').Selection | null} selection
+ * @param {import('monaco-editor').Position} position
+ * @param {import('monaco-editor').editor.ITextModel} model
+ * @returns {boolean}
+ */
+function isPositionInSelectionWithTolerance(selection, position, model) {
+  if (!selection || selection.isEmpty()) return false
+  if (selection.containsPosition(position)) return true
+  if (
+    selection.startLineNumber !== selection.endLineNumber ||
+    position.lineNumber !== selection.startLineNumber
+  ) {
+    return false
+  }
+  if (selection.endColumn - selection.startColumn > NARROW_SELECTION_SPAN) return false
+  const firstNonWhitespaceColumn = model.getLineFirstNonWhitespaceColumn(position.lineNumber)
+  // `getLineFirstNonWhitespaceColumn` 在整行空白时返回 0
+  const inLeadingWhitespace =
+    firstNonWhitespaceColumn === 0 ||
+    (selection.endColumn <= firstNonWhitespaceColumn &&
+      position.column <= firstNonWhitespaceColumn)
+  const tolerance = inLeadingWhitespace ? SECOND_BEAT_TOLERANCE_INDENT : SECOND_BEAT_TOLERANCE
+  return (
+    position.column >= selection.startColumn - tolerance &&
+    position.column <= selection.endColumn + tolerance
+  )
+}
+
+/**
+ * 把「一个码元」的列区间对齐到完整 UTF-16 码点。
+ *
+ * `column` 是 1-based 的 UTF-16 码元下标，`[col, col + 1]` 落在 emoji（高低代理各一列）
+ * 中间时会截出孤立代理项 —— 选区看着别扭，走菜单「复制」还会复制出坏字符。
+ * 命中高位代理就右扩一列，命中低位代理就左移一列；非代理对原样返回。
+ * @param {string} lineContent 该行的完整文本（`model.getLineContent`）
+ * @param {number} startColumn 1-based 起始列
+ * @returns {[number, number]} 修正后的 `[startColumn, endColumn]`
+ */
+function alignSurrogatePair(lineContent, startColumn) {
+  const maxColumn = lineContent.length + 1
+  let start = Math.max(1, Math.min(startColumn, maxColumn - 1))
+  let end = start + 1
+  const code = lineContent.charCodeAt(start - 1)
+  if (code >= 0xdc00 && code <= 0xdfff && start > 1) {
+    const previous = lineContent.charCodeAt(start - 2)
+    if (previous >= 0xd800 && previous <= 0xdbff) start -= 1
+  } else if (code >= 0xd800 && code <= 0xdbff && end < maxColumn) {
+    const next = lineContent.charCodeAt(start)
+    if (next >= 0xdc00 && next <= 0xdfff) end += 1
+  }
+  return [start, end]
+}
 
 /**
  * 菜单项 → Monaco 的 action id。
@@ -531,16 +611,36 @@ export function useEditorMenu({ editor, host }) {
     // 长按接管的这一轮不再补聚焦：用户要的是选区 / 菜单，不是键盘（400ms 的防抖若照常到点，
     // 键盘会在选区或菜单已经出来之后把视口收矮，看着就像跳了一下）。
     cancelSettleFocus()
-    // 这一发长按自己选中了词 → 只留选区，不弹菜单（见文件头【长按的两拍】）。
-    // 已经选着内容 / 落在空白处时才弹 —— 前者的选区原样留着，后者靠菜单给出后续操作。
-    if (selectWordUnder(x, y)) return
+    // 第二拍：落点算「在已有选区里」（窄选区带触控容差）→ 只弹菜单，选区一个字都不改。
+    // 必须排在选词 / 选字之前，否则容差范围内的那一拍会先被当成「重起选」。
+    if (isSecondBeat(x, y)) {
+      openAt(x, y)
+      return
+    }
+    // 这一发长按自己产生了选区（手指下的词，或不是词时该处的一个字符）→ 只留选区与手柄，
+    // 不弹菜单（见文件头【长按的两拍】）。只有空文件（一个字符都选不出来）才交给菜单。
+    if (selectWordUnder(x, y) || selectCharUnder(x, y)) return
     openAt(x, y)
   }
 
+  /** 长按落点是否算「在已有选区里」（第二拍，带窄选区的触控容差，口径见文件头那两个常量） */
+  function isSecondBeat(clientX, clientY) {
+    const instance = editor.value
+    const model = instance?.getModel()
+    if (!instance || !model) return false
+    const position = instance.getTargetAtClientPoint(clientX, clientY)?.position
+    if (!position) return false
+    return isPositionInSelectionWithTolerance(instance.getSelection(), position, model)
+  }
+
   /**
-   * 长按处已在选区里就保持不动，否则选中词（词都没有就只把光标挪过去）。
-   * @returns {boolean} 这一发是否**新产生了选区** —— 是则调用方不再弹菜单（见文件头【长按的两拍】）。
-   *   只是挪了光标（空白处，没有词）时返回 false：没有选区可保护，菜单照旧弹。
+   * 长按处已在选区里就保持不动，否则选中词（词都没有就只把光标挪过去 —— 长按那条路
+   * 随后由 `selectCharUnder` 补一个字符选区，见 `fireLongPress`）。
+   * @returns {boolean} 这一发是否**自己产生了选区**。false 有两种：
+   *   1. 落在已有选区里 —— 一个字都不改。长按那条路的第二拍在 `fireLongPress` 里
+   *      已经先判过（带触控容差），这里只剩双击那条路会走到；
+   *   2. 那里没有词、只挪了光标 —— 长按那条路紧接着用 `selectCharUnder` 补一个字符选区，
+   *      所以仍然不弹菜单（双击那条路不看返回值，表现与以前一致）。
    */
   function selectWordUnder(clientX, clientY) {
     const instance = editor.value
@@ -558,6 +658,57 @@ export function useEditorMenu({ editor, host }) {
     instance.setSelection(
       new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
     )
+    return true
+  }
+
+  /**
+   * 长按处的字符 —— 落点不是词（缩进空白 / 标点 / 空行）时的那一拍。
+   *
+   * 为什么要补这一手：触屏上**没有第二条能起选区的路** —— Monaco 的触摸拖动只滚动、
+   * 双击只认词，自绘的手柄又只在「已有选区」时出现。落点不是词时若只挪光标，
+   * 一个手柄都不会出来，用户连「从这儿开始选」都做不到（2026-11-17 用户报）。
+   * 所以这里给出一个最小选区：优先取落点右侧那个字符，点在行尾则取左侧那个；
+   * 空行取行尾的换行（末行的空行取上一行的换行）。长度始终 ≥ 1，手柄就一定出得来，
+   * 之后照常拖圆点扩选。
+   *
+   * ⚠️ 落在**已有选区里**时返回 false 且一个字都不改。长按那条路的第二拍（带容差）已经在
+   * `fireLongPress` 里先判过，这里这条严格判据只是兜底，口径与 `selectWordUnder` 一致。
+   * @returns {boolean} 是否真的产生了选区
+   */
+  function selectCharUnder(clientX, clientY) {
+    const instance = editor.value
+    const model = instance?.getModel()
+    if (!instance || !model) return false
+    const position = instance.getTargetAtClientPoint(clientX, clientY)?.position
+    if (!position) return false
+    const selection = instance.getSelection()
+    if (selection && !selection.isEmpty() && selection.containsPosition(position)) return false
+    const lineNumber = position.lineNumber
+    const maxColumn = model.getLineMaxColumn(lineNumber)
+    let range = null
+    if (maxColumn > 1) {
+      // 行内有字：落点右侧那个；点在行尾（column === maxColumn）时取左侧那个。
+      // 再用 `alignSurrogatePair` 对齐码点边界，别把 emoji 截成半个代理项。
+      const column = position.column < maxColumn ? position.column : position.column - 1
+      const [startColumn, endColumn] = alignSurrogatePair(
+        model.getLineContent(lineNumber),
+        column,
+      )
+      range = new monaco.Range(lineNumber, startColumn, lineNumber, endColumn)
+    } else if (lineNumber < model.getLineCount()) {
+      // 空行：选它行尾的换行（选区长度为 0 的话手柄不会出现）
+      range = new monaco.Range(lineNumber, 1, lineNumber + 1, 1)
+    } else if (lineNumber > 1) {
+      // 末行且为空：文件末尾没有换行可选，取上一行行尾那一个
+      range = new monaco.Range(
+        lineNumber - 1,
+        model.getLineMaxColumn(lineNumber - 1),
+        lineNumber,
+        1,
+      )
+    }
+    if (!range) return false
+    instance.setSelection(range)
     return true
   }
 
@@ -594,8 +745,15 @@ export function useEditorMenu({ editor, host }) {
    */
   function onMonacoGestureTap(event) {
     // 这一发是长按松手带出来的（450ms 时已经被我们接管）：整轮早结束了，别拿它当下一轮的第一击。
-    // 也不拦 —— 只把计数让开，行为与加这段逻辑之前完全一致。
-    if (handledTouch) return
+    // ⚠️ **必须吞掉**（2026-11-17）：按住 450–700ms 就松手时，Monaco 会把这一发判成 Tap、
+    // 在松手点落一个光标 —— 刚选好的词 / 字符和手柄当场被抹掉（探针实测按住 650ms：选区为空、
+    // 手柄 0 颗）。按住 700ms 以上它判的是 contextmenu（已被我们拦掉）、不再发 Tap，
+    // 所以这个洞只在「选好就松手」这一段露出来。吞掉也不影响焦点：长按本来就不补聚焦。
+    if (handledTouch) {
+      event.stopPropagation()
+      event.preventDefault()
+      return
+    }
     tapSequence = event.tapCount === 2 ? tapSequence + 1 : 1
     // 手势事件带的是 page 坐标。本站没有文档级滚动，两者本来就是同一个数，
     // 减一下只是不让「哪天真能滚页面」时悄悄错位。
