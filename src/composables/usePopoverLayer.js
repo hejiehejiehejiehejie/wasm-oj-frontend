@@ -60,6 +60,18 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left', also
   const position = ref({ left: `${toValue(x)}px`, top: `${toValue(y)}px` })
   // 量完之前不显形，否则会看见「先在期望位置闪一下再被拉回来」
   const ready = ref(false)
+  /**
+   * 浮层是不是被**往上**夹了（下方空间不够，只能长到锚点上方）。
+   *
+   * 判据只看「最终 top 比期望 y 小」：那是匣把浮层往上推的直接证据，不需要知道锚点在哪。
+   *
+   * 为什么要暴露它：入场动画的 `transform-origin` 写死在样式表里（菜单 top left、
+   * 设置与组件菜单 top right），而贴底那颗齿轮（`.activity-bar__group--tools`）弹菜单时
+   * 一定走这条路 —— 实测 700px 高的窗口里齿轮在 y=656，菜单被夹到 349，**整体在齿轮上方**，
+   * origin 却还是右上角：菜单从离齿轮最远的那一角长出来、位移方向也朝下，读起来就是
+   * 「向上展开却在往下掉」。组件拿这个标记换 origin 与位移方向（见 --menu-enter-y）。
+   */
+  const flipped = ref(false)
 
   /** 返回键那一层的注销函数（注册在 onMounted，见那里那段） */
   let releaseBack = null
@@ -189,7 +201,10 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left', also
     // 右缘对齐时先左移一个自身宽度，把「右缘」换算成「左缘」，之后才夹进视口
     const rawX = toValue(align) === 'right' ? toValue(x) - width : toValue(x)
     const left = Math.max(box.left + gap, Math.min(rawX, box.right - width - gap))
-    const top = Math.max(box.top + gap, Math.min(toValue(y), box.bottom - height - gap))
+    const desiredTop = toValue(y)
+    const top = Math.max(box.top + gap, Math.min(desiredTop, box.bottom - height - gap))
+    // 被往上夹了 = 下方放不下，浮层实际长在锚点上方（见 flipped 的说明）
+    flipped.value = top < desiredTop - 0.5
     position.value = {
       left: `${left}px`,
       top: `${top}px`,
@@ -326,5 +341,5 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left', also
     releaseBack = null
   })
 
-  return { root, position, ready }
+  return { root, position, ready, flipped }
 }

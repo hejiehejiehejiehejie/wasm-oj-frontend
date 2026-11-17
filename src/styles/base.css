@@ -322,6 +322,11 @@
   /* 组件菜单那档「量出来 10px」的容器圆角（2026-10-25 用户指定）。它是全系唯一
      不乘 --menu-scale 的圆角，收到这里当令牌，别在组件里写死字面量。 */
   --menu-radius-lg: 10px;
+  /* 入场动画的纵向起手位移（2026-11-18 加）：负值 = 从上往下落，正值 = 从下浮上来。
+     四份 keyframes 都写 `translateY(var(--menu-enter-y))`，容器自己的 `--flip` 类把它翻成 +4px
+     并同时把 transform-origin 换到下半边 —— 详见 usePopoverLayer 里 `flipped` 那段：
+     贴底齿轮弹菜单时浮层被匣到锚点**上方**，origin 若还钉在 top，就会「向上展开却往下掉」。 */
+  --menu-enter-y: calc(-4px * var(--menu-scale));
   /* 微毛玻璃。saturate 提一档是为了玻璃后面的颜色不发灰（纯 blur 会把底图洗淡）。
      ⚠️ 组件里只写 `backdrop-filter: var(--menu-backdrop)`，**不要补 `-webkit-` 前缀**：
      构建期 Lightning CSS 见到「标准 + 前缀」成对出现只留前缀那条，而 Chrome 141 起已移除
@@ -337,7 +342,13 @@
   --menu-text: #cccccc;
   /* 快捷键那一列（11px）比主文字暗一档；与 --text-faint 无关，别合并 */
   --menu-muted: #858585;
-  --menu-hover-bg: #04395e;
+  /* 悬停胶囊：**半透明**（2026-11-18），让面转玻璃之后悬停块也透同一层底 —— 实色块会把
+     那一小块底图整个切断，鼠标扫过一排条目时像一块块贴纸浮在玻璃上。
+     alpha 按明暗分两档，判据是「白字对比度掉多少」：深色 .8 时 11.9 → 12.6:1（几乎无损）；
+     浅色若也取 .8，白面透上来会把白字压到 4.1:1，所以浅色系一律 .94（6.2 → 5.2:1）。
+     ⚠️ 别再为了「更透」把浅色也降到 .8：13px 正文会跌破 AA，11px 快捷键先糊。
+     contrast 主题保持实色 —— 它的面本来就不透明，半透明没有意义。 */
+  --menu-hover-bg: rgba(4, 57, 94, 0.8);
   --menu-hover-text: #ffffff;
   /* 悬停那一行的快捷键：压在深蓝底上要够亮，模板给的就是这抹淡蓝（两套主题同值 —— 两边的
      悬停底都是深蓝，同一支淡蓝都压得住） */
@@ -349,15 +360,31 @@
   /* 设置菜单开关的滑块：**必须不透明** —— 它是压在 --accent 轨道上的实体旋钮，
      跟着 --menu-bg 变半透明会把轨道那抹蓝透上来（浅色主题下白旋钮会变成淡蓝）。 */
   --menu-knob-bg: #252526;
-  /* 三层：1px 收束影 + 中层悬浮 + 底层大范围弥散。
+  /* 四层：双圈收束影（1px 实心 + 2px 半透）+ 中层悬浮 + 底层大范围弥散。
      没有任何环 —— 菜单轮廓靠「面比底亮」这一条撑着，配色主题改了底色就得复核这条差值。
-     首层 `0 0 1px rgba(0,0,0,.8)`：blur 1px、不扩散，是一道**虚化**的收边（不是 border，
-     也不同于方案 1 的 inset 亮环）。它同时负责「二级菜单叠在一级菜单上」那处边界 ——
-     两级面同色同透明度，不靠这圈影就完全分不开（见 HANDOFF / 子菜单实测）。 */
+
+     收束影为什么是两圈（2026-11-18 第三轮，用户要「边缘更利」）：
+       · 单圈 `0 0 1px` 只有 1px 宽，落到 2× 屏上就是 2 个设备像素的暗带，
+         跳变永远只有 20 个色阶上下；再叠一圈 `0 0 2px` 之后暗带变成 3~4 个设备像素，
+         边界跳变 20 → 24（深色左边缘）、2.1 → 12.2（上边缘）。
+       · 两圈都是 blur、都不是 border：blur 1px 那圈 alpha 到 1 也只是「更深的虚影」，
+         不会变成一条 1px 实线（实线会被认成盒子，用户 2026-11-18 否过）。
+       · **别再靠提 --menu-bg 的不透明度来让边缘更利**：实测 0.72 → 0.80 只让面料亮度
+         从 35 涨到 36（背后是 #1e1e1e 的暗代码，面本来就近饱和），浅色更是 254 → 254
+         一动不动；代价却是玻璃可见度掉一档。要利就动这两圈影，别动面。
+
+     2026-11-18 第四轮（用户「阴影改浅一点」）：结构保留，四层 alpha 一起压一档
+     （1 / .8 → .8、.55 → .4、.4 → .3、.5 → .35）。跳变从 24 / 12.2 落到 21 / 7.2 ——
+     边缘仍比单圈那版利，但暗带不再发闷。再往下压一档（.6 / .28 / .22 / .24）实测
+     跳变只有 18 / 2.1，等于退回单圈水平，那一档不要用。
+
+     它同时负责「二级菜单叠在一级菜单上」那处边界 —— 两级面同色同透明度，
+     不靠这圈影就完全分不开（见 HANDOFF / 子菜单实测）。 */
   --menu-shadow:
     0 0 1px rgba(0, 0, 0, 0.8),
-    0 8px 16px rgba(0, 0, 0, 0.4),
-    0 16px 32px -8px rgba(0, 0, 0, 0.5);
+    0 0 2px rgba(0, 0, 0, 0.4),
+    0 8px 16px rgba(0, 0, 0, 0.3),
+    0 16px 32px -8px rgba(0, 0, 0, 0.35);
 
   /* 图标提示框（components/AppTooltip.vue，唯一消费者，2026-10-24 晚加）。
      用户要求「去边框 + 深底 + 柔和投影」：深色这一支就是近黑底配白字，
@@ -612,14 +639,14 @@
      与深色的唯一「不同值」是 --menu-muted —— 模板的 #858585 压在白底上只有 3.4:1、
      11px 的字太虚，这里压到 #767676（4.5:1），保住「比主文字暗一档但仍读得清」的关系。
      2026-11-18：面同样转半透明 + 毛玻璃（0.80 —— 白面本来就亮，透明度再高会把底下的
-     代码透得太明显）；投影整体压淡一档，三层结构不变（见深色那支的说明）。
-     浅色是方案 2 最容易「糊」的一档：白面与浅灰底只差 ~10 个色阶，全靠首层那道
-     虚化发丝影把轮廓收住，所以这条 shadow 的第一层不能省、也别调成完全透明。 */
+     代码透得太明显）；投影整体压淡一档，结构跟深色那支一致（两圈收束影 + 双层投影）。
+     浅色是方案 2 最容易「糊」的一档：白面与浅灰底只差 ~10 个色阶，全靠那两圈收束影
+     把轮廓收住 —— 所以它们不能省、也别调成完全透明（提 --menu-bg 在这里无效，面已 254 饱和）。 */
   --menu-bg: rgba(255, 255, 255, 0.80);
   --menu-border: #cecece;
   --menu-text: #616161;
   --menu-muted: #767676;
-  --menu-hover-bg: #0060c0;
+  --menu-hover-bg: rgba(0, 96, 192, 0.94);
   --menu-hover-text: #ffffff;
   --menu-hover-muted: #b0d0ff;
   /* 见深色那支的说明：白底上取一层极淡的灰，别用蓝色 */
@@ -628,13 +655,18 @@
   --menu-separator: #d4d4d4;
   /* 开关滑块：深色那支是近黑的实心旋钮，浅色这边对应纯白 */
   --menu-knob-bg: #ffffff;
-  /* 深色那份的黑影是为 #252526 那种暗面准备的，白底上会糊成一圈脏边，三层一起调淡。
-     首层仍是那道虚化收束影（方案 2 全靠它收边），白面上取 15% 黑 —— 再重就像画了一圈黑线。
-     注意：浅色这支已经没有内环，菜单与背景的分离全靠这三层 + 6~8 个色阶的面/底明度差。 */
+  /* 深色那份的黑影是为 #252526 那种暗面准备的，白底上会糊成一圈脏边，整体调淡。
+     收束影同样是两圈（2026-11-18「边缘更利」）：白面提到 0.86 实测面料仍是 254（已饱和），
+     提不透明度对浅色的边缘**毫无作用**，唯一有效的是首层加码，再叠一圈 2px。
+     当时（.30 / .16）边界跳变 27 → 51 个色阶；第四轮「阴影改浅一点」压到 .22 / .11，
+     跳变落到 38（白面 254 / 暗带 216）——仍是单圈 .15 的 1.4 倍，但暗带不再像一道灰线。
+     ⚠️ 再压就要退了：.16 / .08 实测跳变 30，比改之前的单圈 .15 只高 3 个色阶，等于白改。
+     ⚠️ 也别往上加：浅色没有「面比底亮」可用（面已 254），全靠这圈影。 */
   --menu-shadow:
-    0 0 1px rgba(0, 0, 0, 0.15),
-    0 8px 16px rgba(0, 0, 0, 0.08),
-    0 16px 32px -8px rgba(0, 0, 0, 0.05);
+    0 0 1px rgba(0, 0, 0, 0.22),
+    0 0 2px rgba(0, 0, 0, 0.11),
+    0 8px 16px rgba(0, 0, 0, 0.06),
+    0 16px 32px -8px rgba(0, 0, 0, 0.04);
 
   /* 提示框：浅色下翻成白底深字（2026-11-10，用户：「自绘的 hover 在浅色主题下，显示的
      提示还是深色的」）。原先这里与深色同值（近黑底 + 白字），理由是「临时标签不该跟主题
@@ -751,7 +783,7 @@
   --menu-border: #3a4154;
   --menu-text: #ccd3e1;
   --menu-muted: #8892a6;
-  --menu-hover-bg: #17416b;
+  --menu-hover-bg: rgba(23, 65, 107, 0.8);
   --menu-separator: #3a4154;
 
   --scrollbar-thumb: #2b3142;
@@ -805,7 +837,7 @@
   --case-border: #333333;
   --case-chip-bg: #1c1c1c;
 
-  /* 纯黑主题的面也走半透明，但透明度更高（0.9）：OLED 用户要的是那片真黑，
+  /* 纯黑主题的面也走半透明，与其他深色主题同档（0.72）：OLED 用户要的是那片真黑，
      玻璃只留一点点底图信息，别把黑冲淡成灰 */
   --menu-bg: rgba(10, 10, 10, 0.72);
   --menu-border: #333333;
@@ -815,9 +847,10 @@
      所以方案 2 在这套主题里退化成「一圈虚化白影」：blur 1px、不扩散，比方案 1 的 inset 高光虚，
      但它仍是唯一能把菜单从纯黑里拎出来的东西 —— 别把这一层删掉。 */
   --menu-shadow:
-    0 0 1px rgba(255, 255, 255, 0.22),
-    0 8px 16px rgba(0, 0, 0, 0.5),
-    0 16px 32px -8px rgba(0, 0, 0, 0.6);
+    0 0 1px rgba(255, 255, 255, 0.24),
+    0 0 2px rgba(255, 255, 255, 0.12),
+    0 8px 16px rgba(0, 0, 0, 0.38),
+    0 16px 32px -8px rgba(0, 0, 0, 0.42);
 
   --scrollbar-thumb: #2a2a2a;
   --scrollbar-thumb-hover: #3a3a3a;
@@ -901,13 +934,14 @@
   --menu-border: #d8cdb8;
   --menu-text: #5f5748;
   --menu-muted: #7c715d; /* 11px 快捷键：4.7:1，与浅色基础方案的 4.5 口径对齐（原 #8b8271 仅 3.7） */
-  --menu-hover-bg: #9a5b00;
+  --menu-hover-bg: rgba(154, 91, 0, 0.94);
   --menu-hover-muted: #f3d9b0;
   --menu-separator: #d8cdb8;
   --menu-shadow:
-    0 0 1px rgba(0, 0, 0, 0.13),
-    0 8px 16px rgba(0, 0, 0, 0.08),
-    0 16px 32px -8px rgba(0, 0, 0, 0.06);
+    0 0 1px rgba(0, 0, 0, 0.19),
+    0 0 2px rgba(0, 0, 0, 0.1),
+    0 8px 16px rgba(0, 0, 0, 0.06),
+    0 16px 32px -8px rgba(0, 0, 0, 0.045);
 
   --scrollbar-thumb: #ded5c4;
   --scrollbar-thumb-hover: #cbc1ae;
@@ -989,7 +1023,7 @@
   --menu-border: #c8d3c2;
   --menu-text: #55605a;
   --menu-muted: #6c786f; /* 11px 快捷键：4.5:1，与浅色基础方案同口径（原 #7f8b82 仅 3.5） */
-  --menu-hover-bg: #2f7048;
+  --menu-hover-bg: rgba(47, 112, 72, 0.94);
   --menu-hover-muted: #cfe6d6;
   --menu-separator: #c8d3c2;
 
@@ -1070,7 +1104,7 @@
   --menu-border: #44475a;
   --menu-text: #e4e4ee;
   --menu-muted: #9698b0;
-  --menu-hover-bg: #4a3a86;
+  --menu-hover-bg: rgba(74, 58, 134, 0.8);
   --menu-hover-muted: #d6c8ff;
   --menu-separator: #44475a;
 
@@ -1151,7 +1185,7 @@
   --menu-border: #3a4d41;
   --menu-text: #cdd9d1;
   --menu-muted: #8b9a90;
-  --menu-hover-bg: #1c5c40;
+  --menu-hover-bg: rgba(28, 92, 64, 0.8);
   --menu-hover-muted: #a9d9c1;
   --menu-separator: #3a4d41;
 
@@ -1331,7 +1365,7 @@
   --menu-border: #c3cddb;
   --menu-text: #4c566a;
   --menu-muted: #677284; /* 11px 快捷键：4.6:1，与浅色基础方案同口径（原 #7b8698 仅 3.5） */
-  --menu-hover-bg: #43698f;
+  --menu-hover-bg: rgba(67, 105, 143, 0.94);
   --menu-hover-muted: #c9dbf0;
   --menu-separator: #c3cddb;
 
@@ -1619,5 +1653,56 @@ html.is-narrow .monaco-editor .margin-view-overlays .current-line,
   * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+/* ---------------------------------------------------------------------------
+   系统级强制色彩（Windows 高对比度 / `forced-colors: active`）
+
+   与 `data-theme='contrast'` 是**两件事**：那套是应用自己的高对比主题（用户在本站选），
+   这里接管的是**操作系统**层面开启的强制色彩模式 —— 它由浏览器强制执行，与站内主题无关。
+
+   在这个模式下浏览器会做三件事，恰好把方案 2 的定边手段逐条打掉：
+     · `box-shadow` 被移除 → 首层那圈收束影没了；
+     · `backdrop-filter` 被禁用 → 玻璃面退回不透明；
+     · `background-color` 被强制成 `Canvas` → 面料与底图的明度差也归零（全站同色）。
+   三件一起失效，菜单会变成一块**没有轮廓的纯色块**，直接散进背景。
+
+   所以这里把「边界」交还给系统色：`CanvasText` 是系统给文字/边框用的前景色，
+   在深底白字与白底黑字两种高对比方案下都跟着翻。不改 alpha、不加阴影 ——
+   在这个模式里任何作者定义的颜色都会被系统覆盖，唯一还能表达的只有「有没有边」。
+
+   ⚠️ 这三条必须带 `!important`：组件里的 `.context-menu` 等规则是 **scoped** 的
+   （编译成 `.context-menu[data-v-xxxx]`，特异性 (0,2,0)），全局这条只有 (0,1,0)，
+   不加就整条失效 —— 实测过：outline 那条生效、border 那条被 `border: none` 压掉，
+   菜单在强制色彩模式下依旧是块没边的色块。这里不是「覆盖用户意图」，是**补回系统
+   拿走的边界**，与 `prefers-reduced-motion` 那条用 `!important` 是同一个理由。
+   --------------------------------------------------------------------------- */
+@media (forced-colors: active) {
+  .context-menu,
+  .tab-group-card,
+  .settings-menu,
+  .settings-menu__sub,
+  .components-menu {
+    border: 1px solid CanvasText !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /**
+   * 悬停 / 键盘高亮同样被抹平：`background-color` 强制成 Canvas 之后，深蓝胶囊整片消失，
+   * 鼠标扫过一排条目完全没有反馈（选中态与普通态长得一样）。
+   * 改用系统高亮色描一圈 —— `outline` 不占盒模型，二级子菜单靠一级的 rect 定位，
+   * 不能用 border 把几何顶开。
+   */
+  :where(html.is-hoverable) .context-menu__item:hover:not(:disabled),
+  .context-menu__item:focus-visible,
+  :where(html.is-hoverable) .tab-group-card__item:hover:not(:disabled),
+  .settings-menu__item.is-active,
+  :where(html.is-hoverable) .settings-menu__item:hover:not(:disabled),
+  .settings-menu__theme-chip.is-on,
+  :where(html.is-hoverable) .components-menu__item:hover,
+  .components-menu__item:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }

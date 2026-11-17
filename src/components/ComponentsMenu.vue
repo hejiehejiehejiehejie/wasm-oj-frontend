@@ -58,7 +58,7 @@ const desired = computed(() => {
   return { x: rect.right, y: rect.bottom + GAP, align: 'right' }
 })
 
-const { root, position, ready } = usePopoverLayer({
+const { root, position, ready, flipped } = usePopoverLayer({
   x: () => desired.value.x,
   y: () => desired.value.y,
   align: () => desired.value.align,
@@ -117,7 +117,7 @@ watch(ready, (shown) => {
     <div
       ref="root"
       class="components-menu"
-      :class="{ 'components-menu--ready': ready }"
+      :class="{ 'components-menu--ready': ready, 'components-menu--flip': flipped }"
       :style="position"
       role="menu"
       :aria-label="t('components.menu.title')"
@@ -179,16 +179,25 @@ watch(ready, (shown) => {
   transform-origin: top right;
 }
 
+/* 被匣到锚点上方时（贴底打开）：origin 翻到右下角 —— 那一角才挨着按钮，
+   起手位移同时翻成正的（从下浮上来）。见 base.css 的 --menu-enter-y */
+.components-menu--flip {
+  transform-origin: bottom right;
+  --menu-enter-y: calc(4px * var(--menu-scale));
+}
+
 .components-menu--ready {
   visibility: visible;
   /* 0.15s + 自定义缓出，与右键菜单同一支曲线（2026-11-18） */
   animation: components-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  /* 阴影 + 玻璃面的浮层提前提层，避免动画首帧掉帧（与另三个菜单同一条） */
+  will-change: transform, opacity;
 }
 
 @keyframes components-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(-4px);
+    transform: scale(0.92) translateY(var(--menu-enter-y));
   }
 }
 

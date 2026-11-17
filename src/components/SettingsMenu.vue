@@ -139,7 +139,7 @@ const desired = computed(() => {
   return { x: rect.right, y: rect.bottom + GAP, align: 'right' }
 })
 
-const { root, position, ready } = usePopoverLayer({
+const { root, position, ready, flipped } = usePopoverLayer({
   x: () => desired.value.x,
   y: () => desired.value.y,
   align: () => desired.value.align,
@@ -725,7 +725,11 @@ function currentOption(row) {
     <div
       ref="root"
       class="settings-menu"
-      :class="{ 'settings-menu--ready': ready, 'settings-menu--scroll': menuScrollable }"
+      :class="{
+        'settings-menu--ready': ready,
+        'settings-menu--flip': flipped,
+        'settings-menu--scroll': menuScrollable,
+      }"
       :style="position"
       role="menu"
       :aria-label="t('app.settings')"
@@ -1125,7 +1129,7 @@ function currentOption(row) {
    base.css 的 :root 上，本文件不再自己声明）：模板原值留在 calc() 里当被乘数，
    别把乘出来的结果当成手感值写死 —— HANDOFF 第 5 节坑 33。
    颜色一律走 base.css 的 --menu-* 令牌，这里不写死任何色值。
-   2026-11-18 与另三个菜单同步：玻璃面 + 无描边 + 三层影 + 胶囊式条目悬停 + 0.15s 阻尼动效；
+   2026-11-18 与另四个菜单同步：玻璃面 + 无描边 + 多层影 + 胶囊式条目悬停 + 0.15s 阻尼动效；
    条目左右内边距统一走 --menu-item-pad-x（原先这里 12px、右键菜单 20px 两套）。
    容器不画 border、也不画内环：轮廓全靠 --menu-shadow 首层那道虚化发丝影 + 明度差。 */
 .settings-menu {
@@ -1149,10 +1153,27 @@ function currentOption(row) {
   transform-origin: top right;
 }
 
+/**
+ * 被匣到锚点**上方**时翻个面（2026-11-18 加）。
+ *
+ * 贴底那颗齿轮（折叠侧栏后的 `.activity-bar__group--tools`）用 `placement="beside"`，
+ * 菜单顶对齐齿轮顶、向下长，必然超底 → `clampIntoViewport` 把它整块推到齿轮上方。
+ * 实测 700px 高的窗口：齿轮 y=656，菜单被夹到 349，**整份菜单在齿轮上面**。
+ * 此时 origin 若还钉在右上角，菜单就是「从离齿轮最远的那一角长出来、还向下掉」，
+ * 而人眼期待它从齿轮那一侧（右下角）往上浮 —— 所以 origin 与位移方向一起翻。
+ * 判据在 usePopoverLayer 的 `flipped`（最终 top 比期望 y 小即视为上翻）。
+ */
+.settings-menu--flip {
+  transform-origin: bottom right;
+  --menu-enter-y: calc(4px * var(--menu-scale));
+}
+
 .settings-menu--ready {
   visibility: visible;
   /* 0.15s + 自定义缓出，与右键菜单同一支曲线（2026-11-18） */
   animation: settings-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  /* 阴影 + 玻璃面的浮层提前提层，避免动画首帧掉帧（与另三个菜单同一条） */
+  will-change: transform, opacity;
 }
 
 /**
@@ -1169,7 +1190,8 @@ function currentOption(row) {
 @keyframes settings-menu-in {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(-4px);
+    /* 位移方向读令牌：默认 -4px（从上落下），--flip 时 +4px（从下浮上） */
+    transform: scale(0.92) translateY(var(--menu-enter-y));
   }
 }
 
@@ -1320,7 +1342,7 @@ function currentOption(row) {
   width: calc(8px * var(--menu-scale));
   height: calc(8px * var(--menu-scale));
   border-radius: 50%;
-  /* 旋钮必须是**不透明**的实色：--menu-bg 现在是 0.85 的玻璃面，压在 accent 轨道上会把
+  /* 旋钮必须是**不透明**的实色：--menu-bg 现在是 0.72 / 0.80 的玻璃面，压在 accent 轨道上会把
      那抹蓝透上来（浅色主题下白旋钮会变成淡蓝），所以单独走 --menu-knob-bg */
   background: var(--menu-knob-bg);
   transition: transform 0.14s ease;

@@ -14,7 +14,7 @@
  * 2026-11-18 用户要求从「原生 IDE 还原」再往现代浮层的质感走一档，三处偏离模板：
  *   · **胶囊式悬停**：容器左右恢复 `--menu-pad-x`（4px）内边距、条目给 4px 圆角，
  *     深蓝色块不再通栏顶到边框（模板是通栏方形块，这里刻意改了）。
- *   · **玻璃面 + 无描边 + 三层影**：`--menu-bg` 半透明、边缘不画环（**不写 border**，
+ *   · **玻璃面 + 无描边 + 多层影**：`--menu-bg` 半透明、边缘不画环（**不写 border**，
  *     也不画 inset 高光），靠 `--menu-shadow` 首层那道虚化发丝影 + 明度差定轮廓；
  *     令牌全在 `base.css`，本文件不写色值。
  *   · **阻尼动效**：0.15s + `cubic-bezier(0.16, 1, 0.3, 1)`，起手 0.92 并轻微上浮。
@@ -28,6 +28,17 @@
  *
  * 定位收敛与「什么时候关」两件事已抽到 `composables/usePopoverLayer.js`（2026-10-11），
  * 与设置下拉菜单共用同一套；本组件只剩渲染。
+ *
+ * 【遮罩】2026-11-18 按用户口径加：菜单一开，**整页都不可点、也不许滚** —— 编辑区、文件树、
+ * 页签条一概不响应滚轮 / 触摸拖动 / 点击，点任意位置只是把菜单收掉。
+ * 做法是在菜单**下面铺一层铺满视口的透明层**（`.context-menu-scrim`，z-index 119），
+ * 于是：① 指针命中全落在它身上 —— 底下那三块滚动容器与 Monaco 的 mousedown 那一套根本收不到事件，
+ * 「点空白顺手把光标落进编辑器 / 顺手切了页签」这类副作用一并没了；② 它 `touch-action: none`
+ * 且 `wheel` 上 `preventDefault`，滚轮与手指滑动都到此为止（Monaco 的滚动是它自己的
+ * `ScrollableElement` + `Gesture`，不是原生滚动容器，靠 `overflow: hidden` 拦不住，只能靠遮罩）。
+ * **关闭不需要这里再加一份逻辑**：点遮罩 = 点在菜单外面，走 `usePopoverLayer` 那条
+ * `pointerdown` 捕获（会在关闭前登记一次 `swallowNextTap`，触屏抬手不会把键盘弹出来）。
+ * 遮罩只加在本组件 —— 设置 / 组件菜单 / 页签组卡片是「下拉」，开着的当下还要能点别处，别跟着铺。
  */
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -67,7 +78,7 @@ const emit = defineEmits(['select', 'close'])
  */
 const hasChecks = computed(() => props.items.some((item) => typeof item.checked === 'boolean'))
 
-const { root, position, ready } = usePopoverLayer({
+const { root, position, ready, flipped } = usePopoverLayer({
   x: () => props.x,
   y: () => props.y,
   onDismiss: () => emit('close'),
@@ -81,10 +92,20 @@ function select(item) {
 
 <template>
   <Teleport to="body">
+    <!-- 遮罩：铺满视口、透明，只负责「别让底下任何东西被点到 / 被滚到」。
+         它没有自己的关闭逻辑 —— 点它就等于点菜单外面，由 usePopoverLayer 的 pointerdown 捕获收掉。
+         `touch-action: none` 管触屏的滑动，`wheel` 上的 prevent 管滚轮；右键在这一层也要吃掉，
+         否则会冒出系统菜单（那时菜单已经被上面那一发 pointerdown 收掉了）。 -->
+    <div
+      class="context-menu-scrim"
+      aria-hidden="true"
+      @wheel.prevent
+      @contextmenu.prevent
+    ></div>
     <div
       ref="root"
       class="context-menu"
-      :class="{ 'context-menu--ready': ready }"
+      :class="{ 'context-menu--ready': ready, 'context-menu--flip': flipped }"
       :style="position"
       role="menu"
     >
@@ -127,6 +148,32 @@ function select(item) {
    尺子（--menu-scale / --menu-pad-x / --menu-item-pad-x）也定义在那边，四个菜单共用一份。
    形状：6px 圆角 / 220px 最小宽 / 容器上下 6px 左右 4px / 条目 6px 12px / 分隔线 6px 6px。
    这些数值不直接写，一律 `模板原值 × --menu-scale`（见文件头那条注释）。 */
+/* ---------------------------------------------------------------- 遮罩
+   铺满视口的透明层，压在菜单本体（120）之下、压过编辑区里所有浮层（最高的选择手柄是 118）。
+   取 119 而不是更低：资源管理器 / 页签 / 编辑区里那些 100~118 的抬层（拖拽中的页签、包络线、
+   选区手柄）都得被盖住，否则菜单开着还能点到它们。
+
+   **不压暗画面**（用户口径是「不可点击」不是「变暗」）：IDE 里右键菜单本就不带幕布，
+   加一层深色会把注意力从菜单上拽走。真要一点反馈就把 background 换成下面这行注释值。
+
+   滚动由两条分工拦：`touch-action: none` 让这一层上的手指不再产生平移 / 缩放（浏览器在
+   `touchstart` 那一刻就定下了手势归属，晚改没用，所以必须写在静态样式里）；滚轮的 `preventDefault`
+   由模板上的 `@wheel.prevent` 出，Vue 挂的是非被动监听（这一层是 div，不是 Chrome 默认加被动的
+   window/document/body）。两条都只作用于「指针落在遮罩上」—— 菜单自己是遮罩的上层，
+   菜单内部滚（矮窗口下被 max-height 压住时）不受影响。 */
+.context-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 119;
+  /* 想加一点可感知的压暗就换成 rgba(0, 0, 0, 0.08)（深浅两套通用），并同步写进注释 */
+  background: transparent;
+  touch-action: none;
+  /* 遮罩上的滚到头别再往父级链（body 是 overflow: hidden，本来也滚不动，这道是兜底） */
+  overscroll-behavior: contain;
+  /* 光标保持箭头：遮罩不算文字区域，出 I 形光标会让人以为能选字 */
+  cursor: default;
+}
+
 .context-menu {
   position: fixed;
   z-index: 120;
@@ -142,14 +189,21 @@ function select(item) {
   border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
-  /* 微毛玻璃（2026-11-18 加）：面是 0.85 的半透明，这层滤镜才看得出「底下还有东西」。
+  /* 微毛玻璃（2026-11-18 加）：面是深 0.72 / 浅 0.80 的半透明，这层滤镜才看得出「底下还有东西」。
      对比度主题把 --menu-backdrop 设成 none 就把玻璃关掉。 */
   backdrop-filter: var(--menu-backdrop);
   visibility: hidden;
   /* 匣比菜单矮时（矮窗口 / 键盘顶起来）usePopoverLayer 会压一个 max-height，这里负责滚 */
   overflow-y: auto;
-  /* 弹开时从鼠标点那个角长出来（模板同） */
+  /* 弹开时从鼠标点那个角长出来（模板同）。被匣到锚点上方时翻到下半边，见 --flip */
   transform-origin: top left;
+}
+
+/* 菜单被推到锚点上方（屏幕底部右击）：origin 翻到下半边，起手位移也从「落下」改「浮上来」。
+   --menu-enter-y 是 base.css 的令牌，本节 keyframes 只读它，不写死 -4px。 */
+.context-menu--flip {
+  transform-origin: bottom left;
+  --menu-enter-y: calc(4px * var(--menu-scale));
 }
 
 /* 展开动效用**动画**而不是 transition：本组件每次打开都是新挂载（父级用 v-if 控），
@@ -160,13 +214,19 @@ function select(item) {
 .context-menu--ready {
   visibility: visible;
   animation: context-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  /* 独立合成层（2026-11-18 加）：多层阴影 + backdrop-filter 已经是重活，再叠一个 scale 动画时
+     首帧容易掉一帧。will-change 让浏览器在动画开始**之前**就把它提层，而不是第一帧才提。
+     只写在 --ready 上（不是容器基类）：不显形时不必占显存。 */
+  will-change: transform, opacity;
 }
 
 @keyframes context-menu-in {
   from {
     opacity: 0;
-    /* 0.92 起手 + 上浮 4px：比纯缩放多一档「落定」的纵向感 */
-    transform: scale(0.92) translateY(-4px);
+    /* 0.92 起手 + 纵向位移：比纯缩放多一档「落定」的纵向感。
+       位移方向读令牌（负 = 落下 / 正 = 浮上），--flip 时由容器翻成正的 —— 写死 -4px 会在
+       「菜单被匣到锚点上方」时变成向上展开却向下掉（见 base.css 的 --menu-enter-y）。 */
+    transform: scale(0.92) translateY(var(--menu-enter-y));
   }
 }
 

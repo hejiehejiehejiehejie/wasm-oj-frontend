@@ -32,7 +32,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close'])
 
-const { root, position, ready } = usePopoverLayer({
+const { root, position, ready, flipped } = usePopoverLayer({
   x: () => props.x,
   y: () => props.y,
   onDismiss: () => emit('close'),
@@ -79,7 +79,7 @@ async function action(id) {
     <div
       ref="root"
       class="tab-group-card"
-      :class="{ 'tab-group-card--ready': ready }"
+      :class="{ 'tab-group-card--ready': ready, 'tab-group-card--flip': flipped }"
       :style="position"
       role="dialog"
       :aria-label="t('app.tabs.groupChip')"
@@ -132,7 +132,7 @@ async function action(id) {
    字号 / 内边距 / 条目行高 / 圆角全跟着 0.92 走，并排看不出两套尺子。
    色点行是这里独有的内容：8 个点 × 16.56 + 7 个间距，按 8px×0.92 排会超出 202.4 的版心
    （178.3），所以间距单独收到 6px×0.92，其余一律不手调。
-   2026-11-18 与右键菜单同步：玻璃面 + 无描边 + 三层影 + 胶囊式条目悬停 + 0.15s 阻尼动效。 */
+   2026-11-18 与右键菜单同步：玻璃面 + 无描边 + 多层影 + 胶囊式条目悬停 + 0.15s 阻尼动效。 */
 .tab-group-card {
   position: fixed;
   z-index: 120;
@@ -151,16 +151,25 @@ async function action(id) {
   transform-origin: top left;
 }
 
+/* 卡片被匣到锚点上方（靠近窗口底部右键分组芯片）：origin 与起手位移一起翻，见 base.css 的
+   --menu-enter-y 与 usePopoverLayer 的 flipped */
+.tab-group-card--flip {
+  transform-origin: bottom left;
+  --menu-enter-y: calc(4px * var(--menu-scale));
+}
+
 .tab-group-card--ready {
   visibility: visible;
   /* 复用右键菜单那支动效的曲线与时长（keyframes 在 scoped 下会改名，这里本地另写一份同名动作） */
   animation: tab-group-card-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  /* 与右键菜单同一条：阴影 + 玻璃面叠动画时提前提层，避免首帧掉帧 */
+  will-change: transform, opacity;
 }
 
 @keyframes tab-group-card-in {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(-4px);
+    transform: scale(0.92) translateY(var(--menu-enter-y));
   }
 }
 
