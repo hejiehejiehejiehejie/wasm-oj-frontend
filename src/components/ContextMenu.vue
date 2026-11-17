@@ -14,9 +14,9 @@
  * 2026-11-18 用户要求从「原生 IDE 还原」再往现代浮层的质感走一档，三处偏离模板：
  *   · **胶囊式悬停**：容器左右恢复 `--menu-pad-x`（4px）内边距、条目给 4px 圆角，
  *     深蓝色块不再通栏顶到边框（模板是通栏方形块，这里刻意改了）。
- *   · **玻璃面 + 无描边 + 三层影**：`--menu-bg` 半透明、边缘靠 `--menu-shadow` 第一层
- *     `inset 0 0 0 1px var(--menu-edge)` 在面料内侧打高光（**不写 border**，见下方那条注释）、
- *     外两层是环境弥散与近景投影，令牌全在 `base.css`，本文件不写色值。
+ *   · **玻璃面 + 无描边 + 三层影**：`--menu-bg` 半透明、边缘不画环（**不写 border**，
+ *     也不画 inset 高光），靠 `--menu-shadow` 首层那道虚化发丝影 + 明度差定轮廓；
+ *     令牌全在 `base.css`，本文件不写色值。
  *   · **阻尼动效**：0.15s + `cubic-bezier(0.16, 1, 0.3, 1)`，起手 0.92 并轻微上浮。
  *
  * 尺寸统一由 `--menu-scale` 从模板原值乘出来（2026-10-11 用户要「整体等比缩小一号」，
@@ -135,9 +135,9 @@ function select(item) {
      不再像模板那样通栏顶到两端。条目 12px + 这里 4px = 文字距边框 16px。 */
   padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   background: var(--menu-bg);
-  /* 这里**没有** border（2026-11-18）：容器边缘改由 box-shadow 第一层的
-     `inset 0 0 0 1px var(--menu-edge)` 画在面料内侧，不占外部像素。
-     别因为「看不出边」就补回来 —— 一旦写了 border，哪怕 4% 白，也会被框成一个盒子。
+  /* 这里**没有** border（2026-11-18）：容器不画任何环 —— 轮廓交给
+     `--menu-shadow` 首层那道虚化发丝影（blur 1px、不扩散）+ 面料与底图的明度差。
+     别因为「看不出边」就补回来：一旦写了 border，哪怕 4% 白，也会被框成一个盒子。
      内联控件（主题芯片 / 复制钮 / 输入框）仍用 --menu-border。 */
   border: none;
   border-radius: calc(6px * var(--menu-scale));

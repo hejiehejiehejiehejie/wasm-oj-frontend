@@ -1125,9 +1125,9 @@ function currentOption(row) {
    base.css 的 :root 上，本文件不再自己声明）：模板原值留在 calc() 里当被乘数，
    别把乘出来的结果当成手感值写死 —— HANDOFF 第 5 节坑 33。
    颜色一律走 base.css 的 --menu-* 令牌，这里不写死任何色值。
-   2026-11-18 与另三个菜单同步：玻璃面 + 内侧高光边（--menu-edge 走 shadow 的 inset）+ 三层影
-   + 胶囊式条目悬停 + 0.15s 阻尼动效；条目左右内边距统一走 --menu-item-pad-x
-   （原先这里 12px、右键菜单 20px 两套）。容器不再画 border：边缘是内阴影，不占外部像素。 */
+   2026-11-18 与另三个菜单同步：玻璃面 + 无描边 + 三层影 + 胶囊式条目悬停 + 0.15s 阻尼动效；
+   条目左右内边距统一走 --menu-item-pad-x（原先这里 12px、右键菜单 20px 两套）。
+   容器不画 border、也不画内环：轮廓全靠 --menu-shadow 首层那道虚化发丝影 + 明度差。 */
 .settings-menu {
   position: fixed;
   z-index: 125;
@@ -1139,7 +1139,7 @@ function currentOption(row) {
   min-width: calc(220px * var(--menu-scale));
   padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   background: var(--menu-bg);
-  /* 无 border：边缘是 --menu-shadow 第一层的 inset 高光 */
+  /* 无 border、也不画内环：轮廓靠 --menu-shadow 首层那道虚化发丝影 */
   border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
@@ -1343,7 +1343,12 @@ function currentOption(row) {
   min-width: calc(150px * var(--menu-scale));
   padding: calc(6px * var(--menu-scale)) calc(var(--menu-pad-x) * var(--menu-scale));
   background: var(--menu-bg);
-  /* 无 border：边缘是 --menu-shadow 第一层的 inset 高光 */
+  /* 无 border、也不画内环：轮廓靠 --menu-shadow 首层那道虚化收束影。
+     2026-11-18 叠压实测（窄视口下 placeSubmenu 会把二级回收、压在一级上）：
+       一级面亮度 24 → 收束影 19 → 二级面 38。
+     二级比一级**亮 14 个色阶** —— 两层 0.72 的玻璃叠在一起，上面那层逼近实色，
+     所以「两级同色分不开」这件事其实没发生；收束影只负责中间那 5 个色阶的过渡。
+     把首层从 .8 提到 1.0 只多 2 个色阶（19 → 17），不值得为它单独开一条规则。 */
   border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);

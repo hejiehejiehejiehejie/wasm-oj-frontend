@@ -163,7 +163,7 @@ watch(ready, (shown) => {
   min-width: calc(200px * var(--menu-scale));
   padding: calc(10px * var(--menu-scale));
   background: var(--menu-bg);
-  /* 无 border（2026-11-18）：边缘改由 --menu-shadow 第一层的 inset 高光画在面料内侧，
+  /* 无 border（2026-11-18）：不画任何环，轮廓靠 --menu-shadow 首层那道虚化发丝影，
      不再向外占 1px、把这块菜单框成一个盒子 */
   border: none;
   /* 圆角 10px 是全系唯一**不乘** --menu-scale 的那档（2026-10-25 用户指定「量出来 10px」，

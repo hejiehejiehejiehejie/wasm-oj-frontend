@@ -132,15 +132,14 @@ async function action(id) {
    字号 / 内边距 / 条目行高 / 圆角全跟着 0.92 走，并排看不出两套尺子。
    色点行是这里独有的内容：8 个点 × 16.56 + 7 个间距，按 8px×0.92 排会超出 202.4 的版心
    （178.3），所以间距单独收到 6px×0.92，其余一律不手调。
-   2026-11-18 与右键菜单同步：玻璃面 + 内侧高光边（无 border）+ 三层影 + 胶囊式条目悬停
-   + 0.15s 阻尼动效。 */
+   2026-11-18 与右键菜单同步：玻璃面 + 无描边 + 三层影 + 胶囊式条目悬停 + 0.15s 阻尼动效。 */
 .tab-group-card {
   position: fixed;
   z-index: 120;
   width: calc(220px * var(--menu-scale));
   padding: calc(12px * var(--menu-scale)) calc(12px * var(--menu-scale)) calc(6px * var(--menu-scale));
   background: var(--menu-bg);
-  /* 不画 border，边缘靠 --menu-shadow 的 inset 高光（见 base.css 那段说明） */
+  /* 不画 border，也不画内环：边缘靠 --menu-shadow 首层那道虚化发丝影（见 base.css 那段说明） */
   border: none;
   border-radius: calc(6px * var(--menu-scale));
   box-shadow: var(--menu-shadow);
