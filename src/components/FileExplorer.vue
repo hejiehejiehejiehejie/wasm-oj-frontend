@@ -658,7 +658,17 @@ function moveSearchActive(delta) {
   searchActive.value = (searchActive.value + delta + total) % total
 }
 
+/**
+ * 搜索框键盘：上/下选结果、回车打开、Esc 关栏。
+ *
+ * 组字中的按键一个都不接：中文输入法里「回车」常常是「确认候选词」而不是「提交」，
+ * 那一发 keydown 的 isComposing 还是 true —— 照旧往下走，等于拼音刚上屏、搜索栏连同
+ * 整块查找一起被关掉（结果列表里恰好有命中时还会顺手把文件打开）。上/下键同理，
+ * 那是输入法在选候选词。keyCode 229 是部分输入法组字时不报 isComposing 的补漏；
+ * 与全局快捷键同一条规矩（见 App.vue 的 onKeydown）。
+ */
 function onSearchKeydown(event) {
+  if (event.isComposing || event.keyCode === 229) return
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault()
     moveSearchActive(event.key === 'ArrowDown' ? 1 : -1)

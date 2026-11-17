@@ -51,6 +51,21 @@ function commitName() {
   renameGroup(props.group.id, name.value.trim())
 }
 
+/**
+ * 回车提交组名。中文输入法里「回车」常常是「确认候选词」而不是「提交」，
+ * 组字期间敲下去会把半截拼音当成组名落盘（组芯片上就顶着「zhong」）——
+ * 与仓库同一条规矩（见 FileExplorer 的 onSearchKeydown / InlineCreateRow 的 submitCreateOnEnter）：
+ * 组字中一律不当成提交。
+ *
+ * 模板里**不能**写成 `@keydown.enter.prevent`：`.prevent` 先于本函数执行，会把组字那一下
+ * 的默认行为（候选词上屏）一起吃掉。keyCode 229 是部分输入法组字时不报 isComposing 的补漏。
+ */
+function commitNameOnEnter(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  commitName()
+}
+
 async function action(id) {
   if (id === 'add-tab') await appendNewTabToGroup(props.group.id)
   else if (id === 'close-group' || id === 'delete-group') closeGroup(props.group.id)
@@ -75,7 +90,7 @@ async function action(id) {
         :placeholder="t('app.tabs.groupNamePh')"
         :aria-label="t('app.tabs.groupNamePh')"
         @change="commitName"
-        @keydown.enter.prevent="commitName"
+        @keydown.enter="commitNameOnEnter"
       />
       <div class="tab-group-card__colors" role="radiogroup" :aria-label="t('app.tabs.groupColors')">
         <button
