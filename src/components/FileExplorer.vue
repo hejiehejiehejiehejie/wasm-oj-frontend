@@ -20,6 +20,11 @@
  * 删除与导出（右键那两项、以及全局的 ⌘⌫ / Delete）作用于**整个选区** —— 选区只有一项时退化成
  * 那一行。
  *
+ * 【选中高光两档】（2026-11-18 加，对齐 VS Code）选中行的底色分「资源管理器是活动区域」与
+ * 「不是」两档（`--active` / `--active-idle`，样式在 FileTreeItem），判据是本组件的
+ * `treeActive`：按在侧栏里就是活动，按到编辑区 / 别处就退一档。行上的右键也把那一行选中
+ * （`openContextMenu`）。判据**刻意不用焦点**，理由见「活动区域」那一节。
+ *
  * 【导入 / 导出】（2026-10-12 加）与外部文件系统之间搬文件，通路全在 `services/fileTransfer.js`
  * （选文件 / 打包 / 落盘都不在这个组件里）。本组件只负责**入口与落点**：
  * - 导入：页头两颗（文件 / 文件夹）+ 右键目录那两项，都落在「被右键的目录」或主选中目录；
@@ -45,7 +50,7 @@
  * 那三条快捷键的作用域闸门是「焦点在资源管理器这块面板里」（行上或树的空白处都算，见 App.vue 的
  * treeScopeFrom），所以空白处也必须是个焦点落点：容器上有 `tabindex="-1"`，由 onTreePointerDown 接住。
  */
-import { computed, inject, nextTick, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -283,9 +288,10 @@ function focusCreateInput() {
  * 全局「新建文件」键位（⌥⌘N / Ctrl+Alt+N）落在哪个目录。
  *
  * 右键菜单**开着**时以它指的那一行为准 —— 菜单里那条「新建文件」的右列就写着这个键位，
- * 两者必须是同一件事。否则「右键某个目录 → 看到 ⌥⌘N → 按下去」会落到另一处：右键只写
- * `focusedId`、不动选区（见 openContextMenu），而页头那颗按钮跟的是**主选中**，
- * 于是菜单说 A 目录、键位却建到 B 目录去。
+ * 两者必须是同一件事。行上的右键 2026-11-18 起会顺手把那一行选中（见 openContextMenu），
+ * 所以绝大多数时候它和页头那颗按钮（跟**主选中**）本来就指向同一处；仍然按 `menu.node`
+ * 算是为了**空白处那份菜单**：它没有节点，`node` 是 `headerCreateTarget()` 现算的，
+ * 与页头那颗同源，键位落在哪儿跟着同一个判据走。
  * 菜单落在文件行上时取它的父目录（文件行那份菜单里没有「新建文件」，但键位是全局的，
  * 照样得有个合理落点）；菜单没开就与页头那颗同源（`headerCreateTarget()`），
  * 什么都没选中时回落根目录。
@@ -362,6 +368,11 @@ async function commitCreate() {
 function openContextMenu(event, node) {
   if (!node) return // 索引尚未就绪等情况：静默，不弹菜单
   focusedId.value = node.id
+  // 右键也把这一行的高光「落下」（2026-11-18 加，用户要求对齐 VS Code：右键之后要有较深的
+  // 高光代表选中）。语义照 VS Code：落在**选区外**就把选区收成这一行，落在**多选里面**则保留
+  // 那一整片 —— 菜单里「导出 N 项 / 删除 N 项」正是按选区报数的（见 buildMenuItems 的 multi），
+  // 右键其中一项就把多选冲掉的话，那条菜单永远报不出 N。
+  if (!workspace.selectedIds.includes(node.id)) selectNode(node.id)
   menu.value = { x: event.clientX, y: event.clientY, node, items: buildMenuItems(node) }
 }
 
@@ -1447,6 +1458,58 @@ function onTreePointerDown(event) {
   rootEl.value?.focus({ preventScroll: true })
 }
 
+// ------------------------------------------------------------ 活动区域（选中高光的深浅）
+
+/**
+ * 资源管理器此刻是不是「活动区域」—— 决定选中那一行用重高光还是退一档的浅高光
+ * （2026-11-18 加，用户要求对齐 VS Code：点过 / 右键过的那一行高光重，指针去了编辑区就变浅）。
+ *
+ * 判据刻意**不是**「焦点在不在树里」，这一点必须记清楚：点一行文件会把它打开，
+ * EditorPane 换完 model 立刻 `instance.focus()` 把焦点交给 Monaco（那是「点开就能直接打字」
+ * 的既定行为，见那边的注释），于是「焦点判据」会让刚点的那一行**立刻**变浅 —— 与要的正好相反。
+ * 所以这里按**用户最后一次把指针按在哪儿**记账（捕获阶段监听，先于任何组件自己的处理器）：
+ *
+ * - 按在侧栏里 → 活动。整栏都算：树、页头那几颗新建钮（它们是从本面板 Teleport 上去的）、
+ *   内联新建框、查找框。按行判的话，点页头那颗按钮会先浅一帧、再被内联新建框的聚焦点亮回来。
+ * - 按在别处（编辑区、页签栏、活动栏、分隔条……）→ 不活动。
+ * - 焦点自己落进侧栏（键盘 Tab / 方向键、程序化 focus）→ 也算活动，但**不反向**：
+ *   焦点离开侧栏不判「不活动」，那条只归指针管。原因同上（Monaco 抢焦点），
+ *   顺带也换来一条稳定的语义 —— 高亮不会因为程序的某次 focus() 自己闪。
+ * - 点自家右键菜单（Teleport 到 body）不算离开：菜单项常常顺手把焦点送回树里（重命名），
+ *   中间夹一帧浅色就是一次闪烁。两侧确认卡片没这层顾虑 —— 点上去按「离开」算，
+ *   而「取消删除」会把焦点还回那一行，于是它自己又亮回来（见 cancelDelete）。
+ */
+const treeActive = ref(false)
+
+/** 这次的按下点在不在侧栏里。用类名判，不用 DOM 包含关系：页头动作区在另一棵子树里。 */
+function inSidebar(target) {
+  return !!target?.closest?.('.sidebar')
+}
+
+function onDocPointerDown(event) {
+  if (inSidebar(event.target)) {
+    treeActive.value = true
+    return
+  }
+  // 自家右键菜单是 body 下的浮层，点它不等于离开资源管理器
+  if (event.target?.closest?.('.context-menu')) return
+  treeActive.value = false
+}
+
+/** 焦点进侧栏（行、树的空白处、内联新建框都算）：只往「活动」这一侧写，见上面的口径 */
+function onDocFocusIn(event) {
+  if (inSidebar(event.target)) treeActive.value = true
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointerDown, true)
+  document.addEventListener('focusin', onDocFocusIn, true)
+})
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
+  document.removeEventListener('focusin', onDocFocusIn, true)
+})
+
 provide('openContextMenu', openContextMenu)
 // 「打开题目」的出口：菜单里那一项与树项上的 ⌘ / Ctrl + 单击都归它，判据只有 problemUrl 一份
 provide('openProblem', openProblem)
@@ -1476,6 +1539,9 @@ provide('draggingId', draggingId)
 // 触屏长按的两段提示：按压进度（还在等）与就绪态（已经到点 —— 菜单已弹出，此后移动即拖动）
 provide('pressingId', pressingId)
 provide('armedId', armedId)
+// 选中高光的深浅档（`--active` / `--active-idle` 二选一）：资源管理器是不是当前活动区域，
+// 见上面「活动区域」那一节
+provide('treeActive', treeActive)
 
 /**
  * 全局快捷键（重命名 / Delete 删除 / ⌘·Ctrl+A 全选）的入口。

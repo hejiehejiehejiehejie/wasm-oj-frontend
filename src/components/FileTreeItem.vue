@@ -13,7 +13,12 @@
  * - 双击文件：把预览页签钉住（转正体）；Enter 等同双击，直接常开。
  *   **macOS 例外（2026-10-20）**：单按回车是「重命名」（与 Finder / VS Code 一致），
  *   「打开 / 切换展开」移到 **⌘ + ↓**；Windows / Linux 不变。
- * - 右键菜单与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
+ * - **右键**：先让这一行「落下选中」（在选区外就收成单选，在多选里就保留那一片，判据在
+ *   FileExplorer 的 `openContextMenu`），再弹菜单 —— 右键的那一行必须有高光。
+ * - 选中高光分两档（2026-11-18 加，对齐 VS Code）：资源管理器是活动区域时用重的那档
+ *   （`--active`），指针去了编辑区 / 别处就退到浅的一档（`--active-idle`）。判据是
+ *   FileExplorer 的 `treeActive`，**不是**焦点在不在树里（点文件会把焦点交给 Monaco）。
+ * - 右键菜单（见上一条）与树内键盘导航均通过 FileExplorer provide 的能力完成（行上的方向键 / Enter 归这里，
  *   而重命名、⌘⌫ 删除（Delete 是别名）、⌘/Ctrl+A 全选是全局快捷键，见 onKeyDown 末尾那条注释）。
  * - 重命名为内联输入：Enter 提交 / Esc 取消 / 失焦提交；改名冲突显示行内错误。
  */
@@ -65,11 +70,20 @@ const dropTargetRowId = inject('dropTargetRowId')
 const draggingId = inject('draggingId')
 const pressingId = inject('pressingId')
 const armedId = inject('armedId')
+/** 资源管理器是不是当前的活动区域（见 FileExplorer 的 treeActive）。
+ *  缺省 true：这个组件单用时按「活动」画，与加这一档之前的样子一致。 */
+const treeActive = inject('treeActive', ref(true))
 
 const expanded = computed(() => workspace.expandedIds.includes(props.node.id))
 /** 这一行在不在高亮集合里。文件与目录同一套判据 —— 目录也能被选中，选中它就意味着
  *  「页头新建落在它里面」。根目录不画成行，所以没选中时整棵树都不亮。 */
 const selected = computed(() => workspace.selectedIds.includes(props.node.id))
+/**
+ * 选中着、但资源管理器已经**不是**当前活动区域（指针跑到编辑区去了）——
+ * 这一行的高光退一档，颜色与曲线见样式里的 `--active-idle`（2026-11-18 加，对齐 VS Code）。
+ * 它和 `selected` **不互斥**：两档类同时挂在这一行上，靠样式表里的源序分胜负。
+ */
+const selectedIdle = computed(() => selected.value && !treeActive.value)
 /** 未保存标记。开了自动保存就不显示：dirty 只存在几百毫秒，圆点只会闪一下，
     反倒是「这文件没保存」的误导。 */
 const dirty = computed(() => !autoSaveEnabled.value && modelManager.isDirty(props.node.id))
@@ -437,6 +451,7 @@ function focusRowAt(el, extend) {
       :class="{
         'tree-item__row--dir': node.type === 'directory',
         'tree-item__row--active': selected,
+        'tree-item__row--active-idle': selectedIdle,
         'tree-item__row--dragging': isDragging,
         'tree-item__row--drop': isDropTarget,
         'tree-item__row--pressing': isPressing,
@@ -619,9 +634,23 @@ function focusRowAt(el, extend) {
   background: var(--bg-hover-soft);
 }
 
+/* 选中行分两档（2026-11-18 加，用户要求对齐 VS Code：「点过 / 右键过的那一行高光重，
+   焦点离开资源管理器就变浅」）：
+   - `--active`：资源管理器**是**当前活动区域 —— 刚点过 / 刚右键过的那一行，高光最重；
+   - `--active-idle`：选中还在，但指针已经去了编辑区 / 别处（判据见 FileExplorer 的 treeActive）。
+     同一支色往宿主面（侧栏就是 --bg-editor）上退到 70%，夹在「悬停」与「选中」之间 ——
+     深色那套的落点：悬停 #242427、失焦选中 #2b2d30、选中 #323539（三个台阶各差 7~8 阶）；
+     浅色那一支见下面按地面掺黑的两条。
+   ⚠️ 两档类**同时**挂在同一行上（选中 + 面板不在活动态），所以 idle 这两条必须排在 active
+   之后：两处特异性都是 (0,2,0)，靠源序决定谁赢。 */
 .tree-item__row--active,
 :where(html.is-hoverable) .tree-item__row--active:hover {
   background: var(--bg-hover);
+}
+
+.tree-item__row--active-idle,
+:where(html.is-hoverable) .tree-item__row--active-idle:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, var(--bg-editor));
 }
 
 /* 浅色方案专用（2026-11-12 加）：宿主面（侧栏 = --bg-editor）与通用的悬停 / 选中档差量太小 ——
@@ -650,6 +679,13 @@ function focusRowAt(el, extend) {
 :root[data-scheme='light'] .tree-item__row--active,
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active:hover {
   background: color-mix(in srgb, var(--bg-editor) 93%, black);
+}
+
+/* 浅色下的「失焦选中」：地面掺 5% 黑（251 → 238，−13 阶）—— 悬停是 −8、选中是 −18，
+   它正好夹在中间（与深色那套的三个台阶同构）。同样必须排在选中那条之后。 */
+:root[data-scheme='light'] .tree-item__row--active-idle,
+:root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active-idle:hover {
+  background: color-mix(in srgb, var(--bg-editor) 95%, black);
 }
 
 /* 触屏长按的两条同色（进度条终点 / 就绪底色）：它们原本取 --bg-hover，浅色下会比上面新的
