@@ -15,10 +15,16 @@
  * 手一抬就得先关掉它才能接着拖（用户报的原话：「有点挡住右边的指针」）。
  * 于是长按的语义变成两拍：**第一拍选词（安静）、在选区里再长按一拍才出菜单** ——
  * 「已经选着内容」正是第二拍的判据，与 iOS「长按已选中的内容 = 弹菜单」同一个直觉。
- * 长按落在不是词的地方（缩进空白 / 标点 / 空行）也按第一拍处理：**选中该处一个字符**
- * （见 `selectCharUnder`），因为触屏上没有第二条能起选区的路 —— 若那里只落一个光标，
- * 自绘的手柄不会出现，用户连「从这儿开始选」都做不到（2026-11-17 用户报：
- * 「不长按一个词，无法选中任何内容」）。菜单的出口仍在：在那段选区里再长按一拍。
+ *
+ * 长按落在**不是词的地方**分两种（2026-11-18 用户口径）：
+ * - **空白**（缩进 / 词间空格 / 行尾之后 / 空行）：**不选字符** —— 光标落到按点、菜单直接弹
+ *   （见 `fireLongPress` 的空白分支）。空白处没有可「选」的东西，硬补一个空格选区只会让人
+ *   莫名其妙（用户原话：「长按必选中，哪怕长按的是空白区域」）；而空白处的诉求本就是
+ *   粘贴之类的菜单动作，iOS 原生也是这么做的。
+ * - **非空白的非词字符**（标点等）：仍选中该处一个字符（见 `selectCharUnder`）——触屏上
+ *   没有第二条能起选区的路，若那里只落一个光标，自绘的手柄不会出现，用户连「从这儿开始选」
+ *   都做不到（2026-11-17 用户报：「不长按一个词，无法选中任何内容」）。
+ * 菜单的出口仍在：在那段选区里再长按一拍。
  *
  * 多击手势（2026-10-11 加）：**三击 = 选中整行、四击 = 全选**，对齐 Monaco 自己在鼠标下的
  * 口径；触屏上 Monaco 数不到 3，只能由这里接着数（见 `onMonacoGestureTap`）。
@@ -656,9 +662,14 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
       openAt(x, y)
       return
     }
-    // 这一发长按自己产生了选区（手指下的词，或不是词时该处的一个字符）→ 只留选区与手柄，
-    // 不弹菜单（见文件头【长按的两拍】）。只有空文件（一个字符都选不出来）才交给菜单。
+    // 这一发长按自己产生了选区（手指下的词，或不是词的**非空白**字符）→ 只留选区与手柄，
+    // 不弹菜单（见文件头【长按的两拍】）。
     if (selectWordUnder(x, y) || selectCharUnder(x, y)) return
+    // 空白落点（缩进 / 词间空格 / 行尾之后 / 空行）与空文件：不选任何东西（2026-11-18 用户口径），
+    // 光标落到按点、菜单直接弹 —— 空白处的诉求本就是粘贴之类的菜单动作。
+    // placeCursor 幂等：selectWordUnder 在「没有词」那条路已经摆过一次光标，这里再摆一次
+    // 只兜住 getTargetAtClientPoint 两处判据不一致的边角（返回 null 时它自己也不会动）。
+    placeCursor(x, y)
     openAt(x, y)
   }
 
@@ -673,13 +684,40 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
   }
 
   /**
-   * 长按处已在选区里就保持不动，否则选中词（词都没有就只把光标挪过去 —— 长按那条路
-   * 随后由 `selectCharUnder` 补一个字符选区，见 `fireLongPress`）。
+   * 手指下的字符下标（`lineContent` 的 0-based 下标；-1 = 按点在行首边界之外）。
+   *
+   * 【为什么不直接用 `position.column - 1`】`getTargetAtClientPoint` 给的是**离手指最近的
+   * 列边界**，字符中心一律断在该字符**右侧**的边界上（探针实测：按在词间空格上命中它右边的
+   * 一列、按在行首 `#` 上命中 1:2 —— 那已经是 `include` 的词首）。直接拿
+   * `lineContent[column - 1]` 当「按点下的字符」会读到右边的字符：词间空格选出了
+   * 空格后面的 `<`，标点 `#` 选出了右边的整个词。
+   * 这里用像素几何把 clientX 归到真正盖住它的那个字符的盒子里：
+   * `getScrolledVisiblePosition` 的 left 是该列边界相对编辑器 dom 的 x（本站缩放走根字号、
+   * 编辑器上没有 CSS transform，两种坐标同刻度，见 useUiScale.js）。命中列边界为
+   * `column`，手指 x 在它左边 → 按点下的字符是它前面那个（`column - 2`），
+   * 在它右边 → 从这一列起（`column - 1`）。
+   */
+  function charIndexUnderPoint(instance, clientX, position) {
+    const hostRect = instance.getDomNode()?.getBoundingClientRect()
+    const boundaryLeft = instance.getScrolledVisiblePosition({
+      lineNumber: position.lineNumber,
+      column: position.column,
+    })?.left
+    if (!hostRect || boundaryLeft == null) return -1
+    const xInHost = clientX - hostRect.left
+    return xInHost >= boundaryLeft ? position.column - 1 : position.column - 2
+  }
+
+  /**
+   * 长按处已在选区里就保持不动，否则选中词（按点不在词上就只把光标挪过去 —— 长按那条路
+   * 随后由 `selectCharUnder` 补一个字符选区或走空白分支，见 `fireLongPress`）。
+   * 词的判定用的是**手指真正盖住的字符**（`charIndexUnderPoint`）而不是命中列，
+   * 双击那条路也走这里，口径一致。
    * @returns {boolean} 这一发是否**自己产生了选区**。false 有两种：
    *   1. 落在已有选区里 —— 一个字都不改。长按那条路的第二拍在 `fireLongPress` 里
    *      已经先判过（带触控容差），这里只剩双击那条路会走到；
-   *   2. 那里没有词、只挪了光标 —— 长按那条路紧接着用 `selectCharUnder` 补一个字符选区，
-   *      所以仍然不弹菜单（双击那条路不看返回值，表现与以前一致）。
+   *   2. 按点下的字符不是词 —— 只挪了光标 —— 长按那条路紧接着用 `selectCharUnder`
+   *      补一个字符选区或走空白分支，所以仍然不弹菜单（双击那条路不看返回值，表现与以前一致）。
    */
   function selectWordUnder(clientX, clientY) {
     const instance = editor.value
@@ -689,8 +727,22 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     if (!position) return false
     const selection = instance.getSelection()
     if (selection && !selection.isEmpty() && selection.containsPosition(position)) return false
-    const word = model.getWordAtPosition(position)
-    if (!word) {
+    const lineContent = model.getLineContent(position.lineNumber)
+    const charIndex = charIndexUnderPoint(instance, clientX, position)
+    // 按点下的字符属于一个词 → 选中那个词；空白 / 行外 → 只挪光标。
+    // 「属于」必须是词真的盖住这个字符：紧贴词尾的空格按 `getWordAtPosition` 的口径
+    // 也算「在词上」（列边界恰好压在词的 endColumn 上），不加这道守卫，
+    // 按在空格上会把左边的词整个选上（探针实测：按在 "include " 的空格上选出 include）。
+    const word =
+      charIndex >= 0 && charIndex < lineContent.length
+        ? model.getWordAtPosition({
+            lineNumber: position.lineNumber,
+            column: charIndex + 1,
+          })
+        : null
+    const wordCoversChar =
+      word && charIndex >= word.startColumn - 1 && charIndex < word.endColumn - 1
+    if (!wordCoversChar) {
       instance.setPosition(position)
       return false
     }
@@ -701,14 +753,18 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
   }
 
   /**
-   * 长按处的字符 —— 落点不是词（缩进空白 / 标点 / 空行）时的那一拍。
+   * 长按处的字符 —— 落点是**非空白的非词字符**（标点等）时的那一拍。
    *
    * 为什么要补这一手：触屏上**没有第二条能起选区的路** —— Monaco 的触摸拖动只滚动、
-   * 双击只认词，自绘的手柄又只在「已有选区」时出现。落点不是词时若只挪光标，
+   * 双击只认词，自绘的手柄又只在「已有选区」时出现。落点是标点这类真实字符时若只挪光标，
    * 一个手柄都不会出来，用户连「从这儿开始选」都做不到（2026-11-17 用户报）。
-   * 所以这里给出一个最小选区：优先取落点右侧那个字符，点在行尾则取左侧那个；
-   * 空行取行尾的换行（末行的空行取上一行的换行）。长度始终 ≥ 1，手柄就一定出得来，
-   * 之后照常拖圆点扩选。
+   * 所以这里给出一个最小选区：取**手指真正盖住的**那个字符（`charIndexUnderPoint`）。
+   * 长度始终 ≥ 1，手柄就一定出得来，之后照常拖圆点扩选。
+   *
+   * 【空白不选（2026-11-18 用户口径）】按点下的字符是空白（空格 / 制表符）或按点已在
+   * 行尾内容之后（含整行空白 / 空行 —— 改前会去选换行或抓左侧最后一个字符）时，
+   * 返回 false 且一个字都不选 —— 交给 `fireLongPress` 的空白分支（光标落按点、菜单直接弹）。
+   * 硬补一个空格选区只会让人莫名其妙，行尾之后那片视觉上的空白也同理。
    *
    * ⚠️ 落在**已有选区里**时返回 false 且一个字都不改。长按那条路的第二拍（带容差）已经在
    * `fireLongPress` 里先判过，这里这条严格判据只是兜底，口径与 `selectWordUnder` 一致。
@@ -723,31 +779,18 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     const selection = instance.getSelection()
     if (selection && !selection.isEmpty() && selection.containsPosition(position)) return false
     const lineNumber = position.lineNumber
-    const maxColumn = model.getLineMaxColumn(lineNumber)
-    let range = null
-    if (maxColumn > 1) {
-      // 行内有字：落点右侧那个；点在行尾（column === maxColumn）时取左侧那个。
-      // 再用 `alignSurrogatePair` 对齐码点边界，别把 emoji 截成半个代理项。
-      const column = position.column < maxColumn ? position.column : position.column - 1
-      const [startColumn, endColumn] = alignSurrogatePair(
-        model.getLineContent(lineNumber),
-        column,
-      )
-      range = new monaco.Range(lineNumber, startColumn, lineNumber, endColumn)
-    } else if (lineNumber < model.getLineCount()) {
-      // 空行：选它行尾的换行（选区长度为 0 的话手柄不会出现）
-      range = new monaco.Range(lineNumber, 1, lineNumber + 1, 1)
-    } else if (lineNumber > 1) {
-      // 末行且为空：文件末尾没有换行可选，取上一行行尾那一个
-      range = new monaco.Range(
-        lineNumber - 1,
-        model.getLineMaxColumn(lineNumber - 1),
-        lineNumber,
-        1,
-      )
-    }
-    if (!range) return false
-    instance.setSelection(range)
+    const lineContent = model.getLineContent(lineNumber)
+    // 空白判据用「手指真正盖住的字符」（`charIndexUnderPoint`，不用命中列 —— 那会把
+    // 词间空格读成它右边的字符）：按点超出本行内容（含空行 / 整行空白 / 行尾之后）
+    // 或该字符本身是空白（空格 / 制表符）时一个字都不选（2026-11-18 用户口径），
+    // 交给 `fireLongPress` 的空白分支（光标落按点、菜单直接弹）。
+    const charIndex = charIndexUnderPoint(instance, clientX, position)
+    const charUnder =
+      charIndex >= 0 && charIndex < lineContent.length ? lineContent[charIndex] : ' '
+    if (/\s/.test(charUnder)) return false
+    // 用 `alignSurrogatePair` 对齐码点边界，别把 emoji 截成半个代理项
+    const [startColumn, endColumn] = alignSurrogatePair(lineContent, charIndex + 1)
+    instance.setSelection(new monaco.Range(lineNumber, startColumn, lineNumber, endColumn))
     return true
   }
 

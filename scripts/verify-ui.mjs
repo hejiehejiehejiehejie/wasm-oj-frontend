@@ -806,7 +806,7 @@ try {
    * 450ms 定时器 → 长按接管 → 松手那一发 Tap 被吞，这条链路鼠标点不出来，只能真触摸。
    * 单独开一页、横屏 + touch 跑 I1–I7，跑完关掉，不影响前面 A–H 的桌面状态。
    */
-  await step('I. 触屏长按：非词位置起选区、第二拍容差与代理对', async () => {
+  await step('I. 触屏长按：空白落点直接弹菜单、第二拍容差与代理对', async () => {
     const touchPage = await browser.newPage()
     try {
       const cdp = await touchPage.target().createCDPSession()
@@ -927,42 +927,57 @@ try {
       )
       await clearTouchState()
 
-      // I2 缩进空白（不是词）：补一个字符选区，手柄照样出来
+      // I2 缩进空白（2026-11-18 用户口径）：**不选字符** —— 光标落按点、菜单直接弹
       const indentPoint = await tapPoint(5, 2)
       await touchLongPress(indentPoint.x, indentPoint.y)
       const i2 = await readTouch()
       record(
-        'I2 触屏长按缩进空白：补 1 个字符 + 手柄、不弹菜单',
-        i2.text === ' ' && i2.handles === 2 && !i2.menu,
+        'I2 触屏长按缩进空白：不选字符、光标落按点 + 菜单',
+        i2.text === '' &&
+          i2.range?.[0] === 5 &&
+          i2.range[1] === i2.range[3] &&
+          i2.handles === 0 &&
+          i2.menu,
         i2,
       )
       await touchPage.screenshot({ path: `${SHOTS}cp-9-touch-longpress.png` })
-
-      // I4 第二拍容差：同行偏 1 列仍算命中 → 选区不变、弹菜单
-      const tolerancePoint = await tapPoint(5, 4)
-      await touchLongPress(tolerancePoint.x, tolerancePoint.y)
-      const i4 = await readTouch()
-      record('I4 第二拍容差命中：选区保持 + 弹菜单', i4.text === ' ' && i4.menu === true, i4)
       await clearTouchState()
 
-      // I5 容差之外：清旧选区、落新选区、不弹菜单
-      const restartPoint = await tapPoint(5, 8)
+      // I4 第二拍容差：先长按出窄选区（"a"，跨度 1 列），再按在容差 ±2 列内的 ','
+      // （第 10 列）→ 算第二拍：选区不动、弹菜单
+      const aPoint = await tapPoint(5, 9)
+      await touchLongPress(aPoint.x, aPoint.y)
+      const i4setup = await readTouch()
+      record('I4 前置：长按 "a" 选出窄选区、不弹菜单', i4setup.text === 'a' && !i4setup.menu, i4setup)
+      const tolerancePoint = await tapPoint(5, 10)
+      await touchLongPress(tolerancePoint.x, tolerancePoint.y)
+      const i4 = await readTouch()
+      record('I4 第二拍容差命中：选区保持 + 弹菜单', i4.text === 'a' && i4.menu === true, i4)
+      await clearTouchState()
+
+      // I5 容差之外：按在真实字符上（"int" 的 n，第 6 列，超出窄选区 ±2 列容差之外）
+      // → 重起选（选词）、不弹菜单
+      const restartPoint = await tapPoint(5, 6)
       await touchLongPress(restartPoint.x, restartPoint.y)
       const i5 = await readTouch()
       record(
         'I5 容差之外长按：重起选、不弹菜单',
-        Boolean(i5.range) && i5.range[1] !== 2 && !i5.menu,
+        i5.text === 'int' && !i5.menu,
         i5,
       )
       await clearTouchState()
 
-      // I3 空行长按：选行尾换行（否则选区长度为 0，手柄不会出现）
+      // I3 空行长按（2026-11-18 用户口径）：空白，不选行尾换行 —— 光标落按点、菜单直接弹
       const emptyPoint = await tapPoint(8, 1)
       await touchLongPress(emptyPoint.x, emptyPoint.y)
       const i3 = await readTouch()
       record(
-        'I3 触屏长按空行：选行尾换行 + 手柄',
-        i3.text === '\n' && i3.handles === 2 && !i3.menu,
+        'I3 触屏长按空行：不选字符、光标落按点 + 菜单',
+        i3.text === '' &&
+          i3.range?.[0] === 8 &&
+          i3.range[1] === i3.range[3] &&
+          i3.handles === 0 &&
+          i3.menu,
         i3,
       )
       await clearTouchState()
