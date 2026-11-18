@@ -2004,6 +2004,23 @@ defineExpose({
   background: color-mix(in srgb, var(--danger-text) 22%, transparent);
 }
 
+/* 去掉键盘聚焦时那圈蓝色光晕（2026-11-19 用户要求），改用色面变化提示焦点：
+   默认的 3px 光圈压在低饱和按钮上像一圈选中高光，和「运行全部」的安静质感不搭。 */
+.confirm-action:focus-visible {
+  outline: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.confirm-action--cancel:focus-visible {
+  background: var(--bg-control);
+  color: var(--text);
+}
+
+.confirm-action--danger:focus-visible {
+  background: color-mix(in srgb, var(--danger-text) 26%, transparent);
+}
+
 .confirm-desc {
   margin: 0;
   overflow-wrap: anywhere;
