@@ -501,7 +501,10 @@ function onTabPointerDown(event, id) {
   // ⌘ / Ctrl + 单击只开题目，**按下也不抢焦点**（与树行同一条语义：修饰键不是「看这个文件」，
   // 是「开它的题目页」）。没链接就照旧按下即获焦。
   const problemClick = !touch && isProblemClick(event) && !!tabProblemUrl(id)
-  if (event.button !== 1 && !hitClose && !touch && !problemClick) focusTab(id)
+  // 分隔条手势持有期间「按下即获焦」让位（2026-11-18 口径「冲突优先分隔条」）：
+  // 双指并发时那一下按下是落在分隔条手势的回合里的，切焦点等于第二个手势插队。
+  // 触屏本就不在这里切（见下），useTabDrag 的入口让位把建档一并拦了。
+  if (event.button !== 1 && !hitClose && !touch && !problemClick && !paneResizing.value) focusTab(id)
   // × 上按下连拖拽起手都不给：关按钮不是拖把柄，按住 × 横移不该拖走页签
   if (!hitClose) dragPointerDown(event, id)
 }
@@ -513,7 +516,8 @@ function onTabPointerDown(event, id) {
 function onViewPointerDown(event, viewItem) {
   const hitClose = event.target.closest?.('.editor-tabs__close')
   const touch = (event.pointerType ?? 'mouse') !== 'mouse'
-  if (event.button !== 1 && !hitClose && !touch) focusTab(viewItem.id)
+  // 与 onTabPointerDown 同一条让位规则：分隔条手势持有期间不抢焦点
+  if (event.button !== 1 && !hitClose && !touch && !paneResizing.value) focusTab(viewItem.id)
   if (!hitClose) dragPointerDown(event, viewItem.id)
 }
 

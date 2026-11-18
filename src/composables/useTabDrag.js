@@ -126,7 +126,8 @@
  * 页签拖动的 payload.liveGid 是被拖页签的实时归属，调用方据它结算成员关系（拖出组 =
  * 退组、拖进组 = 入组、拖空的组就地摘除）。
  */
-import { nextTick, onBeforeUnmount, shallowRef } from 'vue'
+import { nextTick, onBeforeUnmount, shallowRef, watch } from 'vue'
+import { paneResizing } from '../services/paneResize.js'
 
 /** 触屏从按下到「可以拖了」的长按门槛（十九改：450 → 200ms，用户口径）。
  *  ⚠️ 这个数牵着一处样式：`EditorTabs.vue` 里按压进度那条 `transition: background-color 200ms linear`
@@ -273,6 +274,8 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   /** 当前这一轮按压的全部临时状态；null = 没有按压在途 */
   let press = null
   let scrollFrame = 0
+  /** 分屏回停循环的 rAF 句柄；0 = 没在回停（见 updateDrag 开头的分屏冻结段与 parkDrag） */
+  let parkFrame = 0
   /** 目标滚动速度（px/s，带正负号）。0 = 不滚。原先是个每帧像素数，见 SPEED_MAX 那段 */
   let scrollVelocity = 0
   /** 上一帧时间戳（ms），算 dt 用；0 = 还没起过步 */
@@ -481,6 +484,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   function onTabPointerDown(event, id) {
     if (event.button !== 0) return
     if (press || draggingId.value) return
+    // 分隔条手势持有期间页签手势让位（2026-11-18 用户口径「冲突优先分隔条」）：
+    // 双指并发时第一根手指已在拖分隔条，第二根再按页签，两个手势会同时跑、互相抢 ——
+    // 分隔条优先，这一下整个不建档（长按菜单 / 换位都不出）。真源见 services/paneResize.js。
+    if (paneResizing.value) return
     // 关闭按钮（×）上起手不拖 —— 那是要关页签
     if (event.target instanceof Element && event.target.closest('.editor-tabs__close')) return
     // 看得见的只剩一张时照旧建档：单张在本条带内换无可换，但分屏后能拖去另一片窗格
@@ -500,6 +507,8 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   function onChipPointerDown(event, gid) {
     if (event.button !== 0) return
     if (press || draggingId.value) return
+    // 与 onTabPointerDown 同一条让位规则：分隔条手势持有期间芯片不建档（搬组也不行）
+    if (paneResizing.value) return
     beginPress(event, { gid })
   }
 
@@ -821,6 +830,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       wallExitGid: null,
       // 上一帧指针 clientX（方向门控用，见 updateDrag）。null = 还没收到过移动
       lastPointerX: null,
+      // 最近一次指针位置（{x, y}）：updateDrag 每次都先写它再走门控 —— 条带外回停期间
+      // 后面的跟手代码不执行，回停循环（parkDrag 的 step）靠它判「指针是否已回条带」。
+      // 与 lastPointerX 分开存：那边在跟手段里更新，冻结期间会停在旧值上。
+      pointerAt: null,
     }
     liveGroup.value = drag.gid
     // 拖拽态类覆盖整块：块内组员也要关掉 200ms 让位过渡并抬层，
@@ -996,8 +1009,10 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   function updateDrag(clientX, clientY) {
     const strip = drag?.strip ?? stripEl()
     if (!strip || !drag) return
-    // 一帧只量一次几何：rect（原点换算 + 自动滚动的判定区）与 clientWidth（钳制界）都在这里
-    // 取，往下传给 updateAutoScroll。
+    // 最近指针位置：回停循环的解除判据靠它（见 parkDrag 的 step），先写再走门控
+    drag.pointerAt = { x: clientX, y: clientY }
+    // 一帧只量一次几何：rect（门控 + 原点换算 + 自动滚动的判定区）与 clientWidth（钳制界）
+    // 都在这里取，往下传给 updateAutoScroll。
     // ⚠️ 别在写完 transform 之后再量第二次 —— 原先是 stripOriginX 与 updateAutoScroll 各量
     // 一份，后一次正好落在写 transform 之后。2026-11-13 实测（CDP Performance 指标，17 / 32
     // 个页签、左右扫 6 个来回）：
@@ -1008,6 +1023,28 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     // 几何以这一份为准，别再在帧内补读。
     const rect = strip.getBoundingClientRect()
     const clientWidth = strip.clientWidth
+    // 条带内拖拽门控（2026-11-18 用户口径，第二版：「只在标签栏的时候发生一个标签栏中的
+    // 拖拽」—— 被拖页签的跟手 / 换位 / 让位**只在指针位于本条带矩形内时进行**；一旦指针
+    // 离开条带（下探编辑区、去另一片窗格、去分屏区），页签立刻回停到当前虚拟槽位。
+    // 第一版按 paneDropHint 非空判「已定性为分屏」，但指针从条带去分屏区的路上要穿过
+    // 编辑区中心（resolvePaneDrop 对源窗格 center 返回 null → hint 一直是 null），
+    // 页签横着跟手走完了大半程 —— 用户实测「没有用」，才有这条按几何直判的口径。
+    // 范围仅页签拖动（kind === 'tab'）：芯片拖整组跨窗格仍全程跟手，别动它。
+    // 冻结期间落点判定 / 放置指示由 EditorPaneGrid 的 window pointermove 独立维护
+    // （resolvePaneDrop 按指针坐标算，与页签的视觉位置无关），松手落盘走 onStripDrop
+    // 的松手坐标 —— 回停都不碰它们。
+    if (drag.kind === 'tab') {
+      const inStrip =
+        clientX >= rect.left && clientX <= rect.right &&
+        clientY >= rect.top && clientY <= rect.bottom
+      if (!inStrip) {
+        parkDrag()
+        return
+      }
+    }
+    // 指针回到条带：解除回停。回停已把页签放回槽位、grabDX 锚点没动 —— 下一帧
+    // visual 重新咬住指针，与起拖同款，不会跳。
+    stopPark()
     const px = clientX - (rect.left - strip.scrollLeft)
     const prevVisual = drag.visual
 
@@ -1227,6 +1264,59 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
       if (drag.blockSet.has(u)) continue
       const tx = drag.pos.get(u) - u.left
       if (u.tx === tx) continue
+      u.tx = tx
+      u.el.style.transform = `translate3d(${tx}px, 0, 0)`
+    }
+  }
+
+  // ------------------------------------------------------------ 分屏冻结（见 updateDrag 开头）
+
+  /**
+   * 被拖块回停到当前虚拟槽位：逐帧指数趋近（每帧走剩余路程的 35%，60Hz 下十来帧收敛）。
+   * 为什么不用 CSS 过渡：页签本体的过渡在 --dragging 里被关掉（跟手要逐帧直写），
+   * 回停只能自己写帧循环。为什么停「当前槽位」而不是起手原位：冻结前若已换过位，
+   * 邻居停在让位后的槽上 —— 回到当前虚拟槽位整条 strip 才是自洽的静止画面；
+   * 松手分屏时 finishDrag 的残差也就近于 0，settle 不会多补一段。
+   */
+  function parkDrag() {
+    // 冻结期间自动滚动必须停：指针悬在条带边缘附近时，冻结前点火的滚动链不能再续帧
+    stopAutoScroll()
+    // 端缘标记一并收：冻结后落点必是跨窗格 / 分屏区，strip-first / strip-last 的脚不再有意义
+    if (dragEdge.value !== null) dragEdge.value = null
+    const target = drag.pos.get(drag.unit) ?? drag.unit.left
+    if (Math.abs(drag.visual - target) < 0.5) return // 已经停在槽位上
+    if (parkFrame) return // 回停循环已在跑：槽位在冻结期间不变，无需重启
+    const step = () => {
+      parkFrame = 0
+      if (!drag) return // 拖拽收尾（cancelPress 已停过循环，这里只是保险）
+      // 指针已回条带：updateDrag 的门控会 stopPark 接管跟手，这里只是防一帧竞态的保险
+      //（updateDrag 与本循环都跑在 rAF / pointermove 上，stopPark 先到就轮不到这行）。
+      // 判据与门控同一份：指针在 drag.strip 矩形内 = 已回条带（pointerAt 每次移动都刷新）。
+      const p = drag.pointerAt
+      if (p && drag.strip) {
+        const r = drag.strip.getBoundingClientRect()
+        if (p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom) return
+      }
+      const t = drag.pos.get(drag.unit) ?? drag.unit.left
+      const dx = t - drag.visual
+      drag.visual = Math.abs(dx) <= 0.5 ? t : drag.visual + dx * 0.35
+      writeBlockTransform()
+      if (drag.visual !== t) parkFrame = window.requestAnimationFrame(step)
+    }
+    parkFrame = window.requestAnimationFrame(step)
+  }
+
+  /** 解除回停（拖回条带 / 任何收尾出口）。只在循环在跑时才花一次 cancel 的开销 */
+  function stopPark() {
+    if (!parkFrame) return
+    window.cancelAnimationFrame(parkFrame)
+    parkFrame = 0
+  }
+
+  /** 被拖块全体按 drag.visual 直写 transform（与 updateDrag 里那段同一份几何：共用 tx） */
+  function writeBlockTransform() {
+    const tx = drag.visual - drag.unit.left
+    for (const u of drag.block) {
       u.tx = tx
       u.el.style.transform = `translate3d(${tx}px, 0, 0)`
     }
@@ -1500,6 +1590,7 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
     window.removeEventListener('contextmenu', onContextMenuBlock, true)
     window.removeEventListener('keydown', onKeyDown, true)
     stopAutoScroll()
+    stopPark() // 分屏回停循环一并停：所有收尾出口都汇到这条路上（见本函数的注释）
     // 滚动锁必须在任何出口都解开（touch-action 也要还原成样式表里的 pan-x）
     unlockStripScroll()
     press = null
@@ -1547,6 +1638,23 @@ export function useTabDrag({ rootEl, onDrop, onTap, onLongPress, onDragStart, on
   }
 
   onBeforeUnmount(cancelPress)
+
+  /**
+   * 按压 / 拖拽在途时分隔条手势开始了 → 页签手势当场让位（双指并发：先按页签、
+   * 后按分隔条；2026-11-18 用户口径「冲突优先分隔条」）。入口处的另一半个规则在
+   * onTabPointerDown / onChipPointerDown（分隔条持有期间不建档），两条合起来才是完整的
+   * 「谁后到谁让路」。出口与窗口失焦同一条链（见 onWindowBlur）：拖拽中不提交地取消，
+   * 按压中走唯一收口 cancelPress —— 浮起态、滚动锁、park 回停循环全都在那里收。
+   */
+  watch(paneResizing, (on) => {
+    if (!on || !press) return
+    if (press.dragging) {
+      finishDrag(false)
+      markClickSuppressed()
+      return
+    }
+    cancelPress()
+  })
 
   return {
     /** 正在被拖的页签 id（芯片拖动时是 `group:<gid>` 哨兵）；页签上的拖拽态类用 */
