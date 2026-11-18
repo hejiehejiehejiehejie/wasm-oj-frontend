@@ -486,7 +486,8 @@ function equalizeAxisChain(split) {
  *
  * 做法：摘除前先量出被摘叶子在**它父节点那条轴**上占多长（路径上同轴 ratio 连乘），
  * 摘完再沿祖先链把同轴的 ratio 重算一遍 —— 相当于把轴上腾出来的那一段夹掉，再把剩下的
- * 按比例放大回去（`shrinkAxis`）。不同轴的祖先一律不动：那根轴上的区间并没有空出来
+ * 按比例放大回去（`shrinkAxis`；**只算到第一根不同轴 split 为止**——空段在它下面已被
+ * 兄弟吸收，见 shrinkAxis 的「连续」注）。不同轴的祖先一律不动：那根轴上的区间并没有空出来
  * （被兄弟占着），跟着改只会让本不该变的窗格缩水 —— 2×2 收掉右下角时，左列的宽度、
  * 左列两格的高都要原地不动，右下角那格顶满右列才是要的结果。
  *
@@ -578,18 +579,31 @@ function traceAxis(node, targetId, axis, extent = 1) {
 }
 
 /**
- * 内部：把轴上腾出来的 `freed` 从每个**同轴**祖先的区间里夹掉 —— 剩下的自然按原比例
- * 放大回去（这一趟只改 ratio，几何由下一次 `computePaneRects` 反映）。
+ * 内部：把轴上腾出来的 `freed` 从**连续同轴段**的每个祖先区间里夹掉 —— 剩下的自然按原
+ * 比例放大回去（这一趟只改 ratio，几何由下一次 `computePaneRects` 反映）。
  * 已经被摘掉的那个 split 也在 stops 里，改它的 ratio 无副作用。
+ *
+ * 「连续」是关键（2026-11-18 晚修）：`traceAxis` 的 stops 自内向外排（stops[0] = 被摘
+ * 格子的父节点，越往后越靠近根），沿这个方向走，一旦夹着一根**不同轴**的 split 就停 ——
+ * 被摘格子的空段在它下面已经被兄弟整段吸收（兄弟顶满父节点区间），再往上继续
+ * 「夹掉 freed」会把没参与收格的窗格一起缩/放大。实例：一列一格 + 一列两行，把右上格
+ * 唯一的页签拖到外沿底部建跨越窗格（`splitSpanning` 先包了根 y-split ratio 0.5），收掉
+ * 右上格时 freed = 1/4，照旧算法会把根的 ratio 算成 (1/2-1/4)/(1-1/4) = 1/3 —— 上面
+ * 压成 1/3、底下新窗格鼓成 2/3，刚谈好的 1:1 当场作废。夹着的那根 x-split 正是分界：
+ * 它下面的同轴段（被摘父节点）才是「腾出段」真正所属的行；上面的区间原封不动。
+ * `equalizeAxisChain` 的同轴链口径（连续段等分）与此同理。
+ *
  * @param {{ freed: number, axis: 'x'|'y', stops: Array<{node:any, inA:boolean, extent:number, extentA:number}> }} before
  */
 function shrinkAxis(before) {
   const { freed, stops } = before
   if (!(freed > 0) || freed >= 1) return
+  // stops[0] 是被摘格子的父节点（可能已摘离树，改它的 ratio 无副作用），往根方向走
   for (const stop of stops) {
     const axis = stop.node.axis === 'y' ? 'y' : 'x'
-    // 不同轴的祖先：那根轴上没有空出区间，动它会把没参与收格的窗格一起缩掉
-    if (axis !== before.axis) continue
+    // 不同轴的祖先：那根轴上没有空出区间，动它会把没参与收格的窗格一起缩掉 ——
+    // 它更是连续段的边界，再往上（更靠近根）的同轴祖先同样不该动。
+    if (axis !== before.axis) break
     const rest = stop.extent - freed
     if (!(rest > 0)) continue
     const a = stop.inA ? stop.extentA - freed : stop.extentA
