@@ -2446,12 +2446,15 @@ onBeforeUnmount(() => {
      `var(--island-rim)` 岛沿（「去线框化」方案二：十套归零，几何由主题变量接管）。
      历史上这栏加过三代「岛」的折腾（15% 黑沿 → 6% 白沿 → 五档阴影），全部回滚；
      便当盒里它的身份是「一座岛 + 岛内挖坑」，不向外交影。
-     ⚠️ 别恢复外 box-shadow：外影会让这座岛重新「浮起来」，与缝的分割语言打架。
+     ⚠️ 别恢复**重**外 box-shadow：粗 engagement 的外影会让这座岛重新「浮起来」，
+     与缝的分割语言打架。2026-11-18 深夜方案三放进来的是浅色系专属的微重力槽
+     （--island-ambient，1px 下偏 / 2px blur / 5% 黑）—— 量级差三个数量级，
+     只在岛底给一线空气分离感，不改变「贴地便当盒」的读法；深色系恒 none。
      ⚠️ `::after` 的环在 contrast 会画 #5a5a5a 实线（那套全黑，没线就没有边界）。 */
   border: none;
   background: transparent;
-  /* 坑不需要外影（见上面注释）；接缝处的影已全部删除（06:12） */
-  box-shadow: none;
+  /* 岛外影：方案三微重力槽（浅色系生效，深色 none）；分屏时由下面 is-split 显式归零 */
+  box-shadow: var(--island-ambient, none);
 }
 
 /* 分屏：外圈依然什么都不画（透明、无影、无底色）—— 背板从编辑区里透出来，
@@ -2504,6 +2507,8 @@ onBeforeUnmount(() => {
   position: relative;
   border: none;
   background: var(--bg-panel);
+  /* 岛外影：方案三微重力槽（浅色系生效，深色 none），与编辑区同口径 */
+  box-shadow: var(--island-ambient, none);
   /* 统一侧边栏的最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 240px；
      窄屏不再是硬邦邦的 240px，否则 375px 的屏上编辑器会被压成一条缝。
      floor / cap 要乘 --ui-scale 才会跟全局缩放一起变大（它们留在 px、吃不到 rem，
@@ -2555,6 +2560,9 @@ onBeforeUnmount(() => {
   min-width: 1px;
   border-width: 0;
   background: transparent;
+  /* 方案三起 .pane--tests 带了 --island-ambient 外影：折叠态的 1px 卡必须显式归零，
+     否则 1px 缝自己又投出一段微影，「折叠后旁边一条细线」会换个画法回来 */
+  box-shadow: none;
 }
 
 .pane--tests.is-collapsed::after {
