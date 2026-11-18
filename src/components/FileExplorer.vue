@@ -1478,8 +1478,9 @@ function onTreePointerDown(event) {
  * - 点自家右键菜单（Teleport 到 body）不算离开：菜单项常常顺手把焦点送回树里（重命名），
  *   中间夹一帧浅色就是一次闪烁。两侧确认卡片没这层顾虑 —— 点上去按「离开」算，
  *   而「取消删除」会把焦点还回那一行，于是它自己又亮回来（见 cancelDelete）。
- * - 菜单那张铺满视口的遮罩（`.context-menu-scrim`）**按底下的东西判**，不按它自己判 ——
- *   否则「菜单开着点树的空白处」会被读成「点到了资源管理器外面」，高光退浅一档
+ * - 菜单那张铺满视口的遮罩（`.menu-scrim`，右键 / 设置 / 组件三个菜单共用同一张，见
+ *   MenuScrim.vue）**按底下的东西判**，不按它自己判 —— 否则「菜单开着点树的空白处」
+ *   会被读成「点到了资源管理器外面」，高光退浅一档
  */
 const treeActive = ref(false)
 
@@ -1489,13 +1490,15 @@ function inSidebar(target) {
 }
 
 /**
- * 右键菜单的遮罩挡着时，指针命中的永远是那张透明层（`.context-menu-scrim`，铺满视口、在菜单
+ * 菜单遮罩挡着时，指针命中的永远是那张透明层（`.menu-scrim`，铺满视口、在菜单
  * 下面），可用户认定的落点是**它底下那一格**。于是用坐标反查：取命中栈里第一个不属于菜单的
  * 元素，就当作真正的落点。遮罩本身没有坐标信息可给，只能这么问。
+ * 右键 / 设置 / 组件三个菜单共用这张遮罩（MenuScrim.vue），类名只有一个 `.menu-scrim` ——
+ * 改类名必须与那边成对改。
  */
 function underScrim(event) {
   const stack = document.elementsFromPoint(event.clientX, event.clientY)
-  return stack.find((el) => !el.closest?.('.context-menu, .context-menu-scrim')) ?? null
+  return stack.find((el) => !el.closest?.('.context-menu, .menu-scrim')) ?? null
 }
 
 /**
@@ -1509,7 +1512,7 @@ function isTreeBlank(target) {
 
 function onDocPointerDown(event) {
   // 遮罩把这一发吞了（底下什么都收不到），所以「点的是哪儿」只能自己按坐标反查
-  const onScrim = !!event.target?.closest?.('.context-menu-scrim')
+  const onScrim = !!event.target?.closest?.('.menu-scrim')
   const target = onScrim ? underScrim(event) : event.target
   // 自家右键菜单是 body 下的浮层，点它不等于离开资源管理器
   if (target?.closest?.('.context-menu')) return

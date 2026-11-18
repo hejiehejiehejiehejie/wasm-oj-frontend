@@ -5,11 +5,21 @@
  * 形态照应用抽屉（手机上的「九宫格」）那一路：深色圆角面板、网格，
  * 每格一枚圆角方块图标 + 图标下方的名字。抬头只有一行「组件」（2026-10-20 按类分组时
  * 这行是去掉的 —— 两组各自带小标题；2026-11-14 并成一组，反过来留一行抬头更省地方）。与
- * SettingsMenu / ContextMenu 共用三样东西（同它们同一套纪律）：
+ * SettingsMenu / ContextMenu 共用四样东西（同它们同一套纪律）：
  * - 颜色走同一组 `--menu-*` 令牌（base.css 的 VS Code Dark+ / Light+ 配对）；
  * - 尺寸走同一个等比缩放系数 `--menu-scale`（HANDOFF 第 5 节坑 33：
  *   要调大小只动这一个数，别单独动某一项 px）；
- * - 定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`。
+ * - 定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`；
+ * - 外部点击走同一张遮罩 `MenuScrim.vue`（2026-11-18 起，见下面【遮罩】）。
+ *
+ * 【遮罩】2026-11-18 用户要求三个浮层菜单统一口径：**点菜单外部只收起菜单，不触发
+ * 该区域的点击、跳转、选择或任何业务逻辑**。此前这张菜单不铺遮罩，点外部虽然会经
+ * usePopoverLayer 的 pointerdown 捕获关掉菜单，但那一发点击仍会继续落到底下的元素上。
+ * 现在与右键菜单 / 设置菜单一样铺一张铺满视口的透明遮罩（`MenuScrim`，z-index 124）：
+ * 指针命中全落在它身上，底下什么也收不到；点它 = 点在菜单外面，由 usePopoverLayer 收掉
+ * 菜单（触屏会先登记一次吞点，抬手不会补发点击）。菜单本体（125）在遮罩之上，内部点击
+ * 照常；遮罩压过通知中心（115）、页签组卡片（120）等应用层浮层，130 及以上的模态确认框
+ * 与菜单不该同时开、不必被它压住 —— 层级取舍的完整记录见 MenuScrim.vue 文件头。
  *
  * 【菜单里有什么】一格一个组件，一屏并排两格（2026-11-14 用户要求：Codeforces 与倒计时
  * **并排**、抬头只留一个「组件」，所以原来的「Codeforces / 工具」两组并成一组）：
@@ -26,6 +36,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import MenuScrim from './MenuScrim.vue'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { t } from '../i18n/index.js'
@@ -114,6 +125,11 @@ watch(ready, (shown) => {
 
 <template>
   <Teleport to="body">
+    <!-- 遮罩：与右键菜单 / 设置菜单同一张（MenuScrim.vue），铺满视口、透明，只负责
+         「别让底下任何东西被点到 / 被滚到」。它没有自己的关闭逻辑 —— 点它就等于点菜单
+         外面，由 usePopoverLayer 的 pointerdown 捕获收掉（触屏先登记吞点）。层级 124：
+         菜单本体 125 在它上面，内部点击照常；理由见文件头【遮罩】。 -->
+    <MenuScrim :z="124" />
     <div
       ref="root"
       class="components-menu"

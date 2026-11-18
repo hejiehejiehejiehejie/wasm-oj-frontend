@@ -14,11 +14,24 @@
  * 另一边看不见）；这里只画它。
  *
  * 【为什么不用 ContextMenu.vue】那份只有扁平的 action 列表。二级 + 内联控件 + 键盘导航
- * 塞进去，会把站内唯一的右键菜单拖成两件套。但有三件事仍然共用：
+ * 塞进去，会把站内唯一的右键菜单拖成两件套。但有四件事仍然共用：
  * - 颜色走同一组 `--menu-*` 令牌（base.css 里 VS Code Dark+ / Light+ 的原装配对）；
  * - 尺寸走同一个等比缩放系数 `--menu-scale`（HANDOFF 第 5 节坑 33 明令
  *   「要调大小只动这一个数，别单独动某一项 px」）；
- * - 定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`。
+ * - 定位收敛与关闭逻辑走同一个 `composables/usePopoverLayer.js`；
+ * - 外部点击走同一张遮罩 `MenuScrim.vue`（2026-11-18 起，见下面【遮罩】）。
+ *
+ * 【遮罩】2026-11-18 用户要求与右键菜单统一口径：**点菜单外部只收起菜单，不触发
+ * 该区域的点击、跳转、选择或任何业务逻辑**。此前这张菜单不铺遮罩（旧口径是「下拉开着
+ * 还要能点别处」），点外部虽然会经 usePopoverLayer 的 pointerdown 捕获关掉菜单，但那一发
+ * 点击仍会继续落到底下的元素上 —— 点到文件会顺手把它打开、点到编辑区会把光标落进去。
+ * 现在与右键菜单一样铺一张铺满视口的透明遮罩（`MenuScrim`，z-index 124）：指针命中全落在
+ * 它身上，底下什么也收不到；点它 = 点在菜单外面，由 usePopoverLayer 收掉菜单（触屏会先
+ * 登记一次吞点，抬手不会补发点击）。菜单本体（125）与二级（126）都在遮罩之上，
+ * 内部点击照常；遮罩压过通知中心（115）、页签组卡片（120）等应用层浮层，130 及以上的
+ * 模态确认框与菜单不该同时开、不必被它压住 —— 层级取舍的完整记录见 MenuScrim.vue 文件头。
+ * 一处要注意的联动：FileExplorer 按坐标反查「遮罩底下的真实落点」时按 `.menu-scrim`
+ * 类名认这张层（`underScrim`），三个菜单的遮罩共用一个类名，改要成对改。
  *
  * 【数据在哪】一行数据都不在本文件：整张表连同「写哪份偏好」都在
  * `services/settingsMenu.js`，这里只按 `kind` 挑控件。加一项不必改这个组件。
@@ -30,6 +43,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
+import MenuScrim from './MenuScrim.vue'
 import { appViewportBox, onViewportChange } from '../composables/useMobileKeyboard.js'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
@@ -722,6 +736,11 @@ function currentOption(row) {
 
 <template>
   <Teleport to="body">
+    <!-- 遮罩：与右键菜单同一张（MenuScrim.vue），铺满视口、透明，只负责「别让底下任何东西
+         被点到 / 被滚到」。它没有自己的关闭逻辑 —— 点它就等于点菜单外面，由 usePopoverLayer
+         的 pointerdown 捕获收掉（触屏先登记吞点）。层级 124：菜单本体 125、二级 126 在它
+         上面，内部点击照常；压过通知中心 / 页签组卡片等应用层浮层，理由见文件头【遮罩】。 -->
+    <MenuScrim :z="124" />
     <div
       ref="root"
       class="settings-menu"
