@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import AppDialog from './components/AppDialog.vue'
 import EditorPaneGrid from './components/EditorPaneGrid.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import TestPanel from './components/TestPanel.vue'
@@ -1046,8 +1047,7 @@ const runBlockedReason = computed(() => {
  */
 const submitting = ref(false)
 const pendingSubmit = ref(null)
-const confirmSubmitBtn = ref(null)
-const cancelSubmitBtn = ref(null)
+
 
 const submitBlocked = computed(() =>
   submitBlockedReason({
@@ -1059,15 +1059,8 @@ const submitBlocked = computed(() =>
 )
 const showSubmit = computed(() => shouldShowSubmit(activeNode.value) && !submitBlocked.value)
 
-// 弹窗一出现就把焦点送到默认动作上：普通情形是「确认提交」（Enter 确认、Esc 取消）；
-// 重复代码那一版默认落在「取消」—— 重交注定被拒，别让多按一下 Enter 就送出去
-watch(
-  () => pendingSubmit.value,
-  (pending) => {
-    if (!pending) return
-    nextTick(() => (pending.duplicate ? cancelSubmitBtn.value : confirmSubmitBtn.value)?.focus())
-  },
-)
+// 默认焦点由 AppDialog 的 initial-focus 决定（见模板）：普通情形落在「确认提交」，
+// 重复代码那一版落在「取消」—— 重交注定被拒，别让多按一下 Enter 就送出去。
 
 /** 门卫：能交才弹确认；交不了的那一屏没有按钮可点，按快捷键也得听一句解释 */
 function requestSubmitConfirmation() {
@@ -1104,9 +1097,8 @@ function requestSubmitConfirmation() {
 }
 
 function cancelSubmit() {
+  // 焦点由 AppDialog 归还给打开前的元素（即那颗提交按钮），这里不用再 nextTick 抢一次
   pendingSubmit.value = null
-  // 键盘取消后焦点别掉到 <body>：回到那颗提交按钮（弹窗只会在它存在时打开）
-  nextTick(() => document.querySelector('.panel .submit-inline')?.focus())
 }
 
 /**
@@ -2301,50 +2293,41 @@ onBeforeUnmount(() => {
     <CountdownCard />
 
     <!-- 提交确认：点页脚那颗提交 / 按 Mod+Shift+Enter 都先停在这里，点「确认提交」
-         才真的发。与删除确认同款自绘卡片（不用 window.confirm，理由见 FileExplorer
-         的 requestDelete），Teleport 到 body 只依赖主题变量。
-         点遮罩 / Esc = 取消。同一份代码重交时换一版文案（CF 必然拒收），默认焦点
-         落在「取消」上；普通情形落在「确认提交」上。纯键盘两种都能走完。 -->
-    <Teleport to="body">
-      <div v-if="pendingSubmit" class="confirm" @pointerdown.self="cancelSubmit">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="submit-confirm-title"
-          :aria-describedby="pendingSubmit.duplicate ? 'submit-confirm-desc' : undefined"
-          @keydown.esc.stop.prevent="cancelSubmit"
+         才真的发。外壳走 AppDialog，点遮罩 / Esc = 取消。
+         同一份代码重交时换一版文案（CF 必然拒收）并染警示色，默认焦点落在「取消」上；
+         普通情形落在「确认提交」上。纯键盘两种都能走完。 -->
+    <AppDialog
+      v-if="pendingSubmit"
+      role="alertdialog"
+      :icon="pendingSubmit.duplicate ? 'alert' : 'upload'"
+      :tone="pendingSubmit.duplicate ? 'warn' : 'default'"
+      size="sm"
+      :describedby="pendingSubmit.duplicate ? 'submit-confirm-desc' : ''"
+      :initial-focus="pendingSubmit.duplicate ? '.js-cancel' : '.js-primary'"
+      :title="
+        pendingSubmit.duplicate
+          ? t('tests.submit.duplicateTitle')
+          : t('tests.submit.confirmTitle', { name: pendingSubmit.name })
+      "
+      @close="cancelSubmit"
+    >
+      <p v-if="pendingSubmit.duplicate" id="submit-confirm-desc" class="submit-confirm-desc">
+        {{ t('tests.submit.duplicateDesc', { name: pendingSubmit.name }) }}
+      </p>
+
+      <template #footer>
+        <button type="button" class="app-dialog__btn js-cancel" @click="cancelSubmit">
+          {{ t('app.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--primary js-primary"
+          @click="confirmSubmit"
         >
-          <p
-            id="submit-confirm-title"
-            class="confirm__title"
-            :class="{ 'confirm__title--warn': pendingSubmit.duplicate }"
-          >
-            {{
-              pendingSubmit.duplicate
-                ? t('tests.submit.duplicateTitle')
-                : t('tests.submit.confirmTitle', { name: pendingSubmit.name })
-            }}
-          </p>
-          <p v-if="pendingSubmit.duplicate" id="submit-confirm-desc" class="confirm__desc">
-            {{ t('tests.submit.duplicateDesc', { name: pendingSubmit.name }) }}
-          </p>
-          <div class="confirm__actions">
-            <button ref="cancelSubmitBtn" type="button" class="confirm__btn" @click="cancelSubmit">
-              {{ t('app.cancel') }}
-            </button>
-            <button
-              ref="confirmSubmitBtn"
-              type="button"
-              class="confirm__btn confirm__btn--primary"
-              @click="confirmSubmit"
-            >
-              {{ pendingSubmit.duplicate ? t('tests.submit.duplicateAction') : t('tests.submit.confirmAction') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+          {{ pendingSubmit.duplicate ? t('tests.submit.duplicateAction') : t('tests.submit.confirmAction') }}
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 原生右键被压掉、又没有站内菜单接管的落点：兜底一条「刷新」 -->
     <ContextMenu
@@ -3028,86 +3011,10 @@ onBeforeUnmount(() => {
 }
 
 /* ---------------------------------------------------------------- 提交确认
-   Teleport 到 body，所以这里的定位与色值都只依赖主题变量，不依赖应用容器。
-   与 FileExplorer 的删除确认同一套尺寸与色值（两处各自 scoped，改动要成对看一眼）。 */
-.confirm {
-  position: fixed;
-  inset: 0;
-  /* 高于右键菜单（120），与删除确认同一档 */
-  z-index: 130;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.32);
-}
-
-.confirm__card {
-  width: min(340px, 100%);
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-
-.confirm__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-  /* 提交确认的标题里带文件名（可能很长），到边界就折，别把卡片撑破 */
-  overflow-wrap: anywhere;
-}
-
-/* 重复提交那版标题染成警示色：两张卡长得一模一样时，用户很容易当成普通确认一路回车 */
-.confirm__title--warn {
-  color: var(--warn);
-}
-
-.confirm__desc {
+   外壳 / 标题 / 按钮都在 AppDialog（含 base.css 的 .app-dialog__btn），这里只剩正文。 */
+.submit-confirm-desc {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-dim);
   overflow-wrap: anywhere;
-}
-
-.confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.confirm__btn {
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font: 500 12.5px/1.5 var(--font-sans, system-ui);
-  cursor: pointer;
-}
-
-:where(html.is-hoverable) .confirm__btn:hover {
-  background: var(--bg-hover);
-}
-
-/* 主操作沿用 accent：与站内其它主要按钮同色 */
-.confirm__btn--primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-:where(html.is-hoverable) .confirm__btn--primary:hover {
-  background: var(--accent-hover);
-}
-
-.confirm__btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
 }
 </style>
 

@@ -67,6 +67,7 @@ import {
   saveActive,
   workspace,
 } from '../services/vfs/workspaceStore.js'
+import AppDialog from './AppDialog.vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import CfCodeforcesPanel from './CfCodeforcesPanel.vue'
@@ -231,11 +232,7 @@ watch(imageExporting, (busy) => {
 })
 onBeforeUnmount(() => window.clearTimeout(imageExportTimer))
 
-// 询问弹窗一出现就把焦点送进「复制」：Enter / Esc 都能纯键盘走完（与删除确认同款）
-const askCopyBtn = ref(null)
-watch(imageAsk, (open) => {
-  if (open) nextTick(() => askCopyBtn.value?.focus())
-})
+// 询问弹窗的默认焦点由 AppDialog 的 initial-focus 决定（落在「复制」上）。
 
 /**
  * 弹窗的答复口。取消时把焦点还给编辑器 —— 弹窗一撤焦点就落到 <body> 上，
@@ -1363,42 +1360,33 @@ defineExpose({
     />
 
     <!-- 「生成图片」之后那一次询问：复制还是保存（设置项 codeImageAsk 关掉时不会走到这里）。
-         自绘弹窗，Teleport 到 body —— 与资源管理器那份删除确认同款（不用 window.confirm，
-         原生弹窗在装成应用窗口打开时返回值不由我们掌控）。 -->
-    <Teleport to="body">
-      <div v-if="imageAsk" class="image-ask" @pointerdown.self="answerImage(null)">
-        <div
-          class="image-ask__card"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="image-ask-title"
-          @keydown.esc.stop.prevent="answerImage(null)"
+         外壳走 AppDialog —— 不用 window.confirm，原生弹窗在装成应用窗口打开时返回值不由我们掌控。 -->
+    <AppDialog
+      v-if="imageAsk"
+      icon="image"
+      size="sm"
+      initial-focus=".js-primary"
+      :title="t('app.imageAsk.title')"
+      @close="answerImage(null)"
+    >
+      <p class="image-ask-desc">{{ t('app.imageAsk.desc') }}</p>
+
+      <template #footer>
+        <button type="button" class="app-dialog__btn" @click="answerImage(null)">
+          {{ t('app.cancel') }}
+        </button>
+        <button type="button" class="app-dialog__btn" @click="answerImage('save')">
+          {{ t('app.imageAsk.save') }}
+        </button>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--primary js-primary"
+          @click="answerImage('copy')"
         >
-          <p id="image-ask-title" class="image-ask__title">{{ t('app.imageAsk.title') }}</p>
-          <p class="image-ask__desc">{{ t('app.imageAsk.desc') }}</p>
-          <div class="image-ask__actions">
-            <button type="button" class="image-ask__btn" @click="answerImage(null)">
-              {{ t('app.cancel') }}
-            </button>
-            <button
-              type="button"
-              class="image-ask__btn"
-              @click="answerImage('save')"
-            >
-              {{ t('app.imageAsk.save') }}
-            </button>
-            <button
-              ref="askCopyBtn"
-              type="button"
-              class="image-ask__btn image-ask__btn--primary"
-              @click="answerImage('copy')"
-            >
-              {{ t('app.imageAsk.copy') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+          {{ t('app.imageAsk.copy') }}
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 拖手柄时的放大镜：手指本身把落点附近的代码挡住了，就把**选区端点周围那一片**原尺寸
          搬到指针所在那一行的上方（iOS 的放大镜是同一个动机，只是那边会放大；这边要的是「看得见选中的是哪一处」，
@@ -2356,78 +2344,8 @@ defineExpose({
 }
 
 /* ---------------------------------------------------------------- 生成图片：复制还是保存
-   与资源管理器那份删除确认同款（Teleport 到 body，色值只吃主题变量）。
-   样式不共用是因为那份写在 FileExplorer 的 scoped 里 —— 抽出来会动到资源管理器，
-   这里只有一处消费，先各留一份。 */
-.image-ask {
-  position: fixed;
-  inset: 0;
-  /* 与删除确认同一层（高于右键菜单 120，低于系统级浮层） */
-  z-index: 130;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.32);
-}
-
-.image-ask__card {
-  width: min(340px, 100%);
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-
-.image-ask__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-}
-
-.image-ask__desc {
+   外壳 / 标题 / 按钮都在 AppDialog（含 base.css 的 .app-dialog__btn），这里只剩说明文字。 */
+.image-ask-desc {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-dim);
-}
-
-.image-ask__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.image-ask__btn {
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font: 500 12.5px/1.5 var(--font-sans, system-ui);
-  cursor: pointer;
-}
-
-:where(html.is-hoverable) .image-ask__btn:hover {
-  background: var(--bg-hover);
-}
-
-/* 主按钮 = 「复制」：与「题目信息」弹窗那颗保存同款强调色 */
-.image-ask__btn--primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-:where(html.is-hoverable) .image-ask__btn--primary:hover {
-  background: var(--accent-hover);
-}
-
-.image-ask__btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
 }
 </style>

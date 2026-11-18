@@ -9,7 +9,7 @@
  * - 设置面板整份回写 → App.vue → `editorSettings.updateEditorSettings`
  * - 齿轮菜单单项     → `editorSettings.setEditorSetting`
  * - 侧边栏位置 → `shellSettings.setPanelPosition`；窄屏折叠方向 → `shellSettings.setNarrowCollapseSide`；
- *   界面缩放 → `uiScalePref`（面板与菜单**两处**直接写这个 ref）
+ *   评测样例视图 → `shellSettings.setCaseView`；界面缩放 → `uiScalePref`（面板与菜单**两处**直接写这个 ref）
  * - 界面语言         → `i18n.setLocale`；模板开关 → `fileTemplates.setTemplatesEnabled`
  * 逐条插钩要动五个文件（缩放那条还没有单一出口，得先给它造一个 setter），漏一条就漏一类设置。
  * 而它们最终都落回**模块级单例 ref**（就是「抽单例」这件事本身的收益），在这里挂 watch 一次全覆盖。
@@ -30,8 +30,8 @@
  *
  * 【文案里的设置名与取值】标题是「{设置名}」已更新为「{取值名}」，两个名字都按约定取自现有表：
  * 设置名按 `settings.editor.<id>.label`（与 settingsMenu.js 里 `settings.section.${id}` 同一体例），
- * 不在编辑器域的那几个（主题 / 字号 / 缩放 / 语言 / 侧边栏位置 / 窄屏折叠方向 / 模板开关 ——
- * 它们在设置面板里就算「外观」「模板」栏）走下面的例外表。取值名复用面板下拉与菜单档位
+ * 不在编辑器域的那几个（主题 / 字号 / 缩放 / 语言 / 侧边栏位置 / 窄屏折叠方向 / 样例视图 / 模板开关
+ * —— 它们在设置面板里就算「外观」「模板」栏）走下面的例外表。取值名复用面板下拉与菜单档位
  * 那一批选项表（见 VALUE_LABELERS），开关译成「开启 / 关闭」。
  * 改词条位置时两边一起改，探针会逐键校验每一条都译得出来。
  * 撤回之后标题要跟着换成刚还原的那一档 —— 否则通知上会停着一个已经不在生效的值。
@@ -62,10 +62,13 @@ import {
 } from './editorOptions.js'
 import { editorSettings, setEditorSetting } from './editorSettings.js'
 import {
+  CASE_VIEWS,
+  caseView,
   NARROW_COLLAPSE_SIDES,
   PANEL_POSITIONS,
   narrowCollapseSide,
   panelPosition,
+  setCaseView,
   setNarrowCollapseSide,
   setPanelPosition,
   uiScalePref,
@@ -96,6 +99,7 @@ const EXTRA_LABEL_KEYS = {
   locale: 'settings.appearance.locale.label',
   panelPosition: 'settings.appearance.panelPosition.label',
   narrowCollapseSide: 'settings.appearance.narrowCollapseSide.label',
+  caseView: 'settings.appearance.caseView.label',
   templatesEnabled: 'settings.templates.enable.label',
   celebration: 'settings.judge.celebration.label',
   crossCheck: 'settings.judge.crossCheck.label',
@@ -135,6 +139,7 @@ const VALUE_LABELERS = {
   uiScale: (value) => `${Math.round(value * 100)}%`,
   panelPosition: (value) => optionLabel(PANEL_POSITIONS, value),
   narrowCollapseSide: (value) => optionLabel(NARROW_COLLAPSE_SIDES, value),
+  caseView: (value) => optionLabel(CASE_VIEWS, value),
   locale: (value) => optionLabel(LOCALES, value),
 }
 
@@ -155,6 +160,7 @@ const RESTORE = {
   },
   panelPosition: (value) => setPanelPosition(value),
   narrowCollapseSide: (value) => setNarrowCollapseSide(value),
+  caseView: (value) => setCaseView(value),
   templatesEnabled: (value) => setTemplatesEnabled(value),
   locale: (value) => setLocale(value),
 }
@@ -263,6 +269,7 @@ export function initSettingsUndo() {
   watch(narrowCollapseSide, (next, prev) => handleChange('narrowCollapseSide', prev, next), {
     flush: 'sync',
   })
+  watch(caseView, (next, prev) => handleChange('caseView', prev, next), { flush: 'sync' })
   watch(templatesEnabled, (next, prev) => handleChange('templatesEnabled', prev, next), { flush: 'sync' })
   watch(locale, (next, prev) => handleChange('locale', prev, next), { flush: 'sync' })
 }

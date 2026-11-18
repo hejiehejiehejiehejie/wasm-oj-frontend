@@ -129,9 +129,10 @@ export function setNarrowCollapseSide(next) {
  * 排在一起 —— 它是「这块面板长什么样」的偏好，不是每次都要顺手点的动作，
  * 常驻页头反而占掉了 verdict / 耗时那一行的地方。
  *
- * 【谁读它】TestPanel 据此决定渲染哪一套外壳（见那边的 showTabs）；写它的只有设置面板
- * 那一行（`EditorSettingsPanel.vue` 的 SHELL_ROWS）。两边读的是同一个 ref，
- * 所以设置面板里改完，面板当场就换 —— 不需要重新挂载，也不用刷新。
+ * 【谁读它】TestPanel 据此决定渲染哪一套外壳（见那边的 showTabs）；写它的有两处：
+ * 设置面板「外观」那一行（`EditorSettingsPanel.vue` 的 SHELL_ROWS）与设置菜单同一行
+ * （`settingsMenu.js`，2026-11-19 用户要求加进菜单）。几处读的是同一个 ref，
+ * 所以哪边改完，面板当场就换 —— 不需要重新挂载，也不用刷新。
  *
  * 用例空着时两种视图看到的是同一片空白，TestPanel 统一退回列表那套空态（那边判据）。
  */

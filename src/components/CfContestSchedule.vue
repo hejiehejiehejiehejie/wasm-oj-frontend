@@ -119,80 +119,71 @@
 
     <!-- 报名 / 开 VP 是**不可逆**的：点一次 = 扩展在带着登录态的 CF 页面上提交一次表单，
          没有撤销。所以不直接发，先问一句；遮罩、Esc、「取消」都能退出来。 -->
-    <Teleport to="body">
-      <div v-if="pendingEntry" class="confirm" @pointerdown.self="cancelEntry">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="contest-entry-title"
-          aria-describedby="contest-entry-desc"
-          @keydown.esc.stop.prevent="cancelEntry"
+    <AppDialog
+      v-if="pendingEntry"
+      role="alertdialog"
+      icon="play"
+      size="sm"
+      describedby="contest-entry-desc"
+      initial-focus=".js-primary"
+      :title="
+        t(`cf.contest.schedule.entryTitle.${pendingEntry.kind}`, {
+          name: pendingEntry.contest.name,
+        })
+      "
+      @close="cancelEntry"
+    >
+      <p id="contest-entry-desc" class="confirm-desc">
+        {{ t(`cf.contest.schedule.entryDesc.${pendingEntry.kind}`) }}
+      </p>
+      <!-- 报名方式（2026-10-30 加）：CF 只对允许 unrated 的轮次给这颗控件，站点看不见
+           那一页，所以先摆出来让用户自己选；扩展那边设不上就不提交，回一句
+           「这场比赛没有不计分选项」。VP 本来就不计分，这一行不出现。 -->
+      <div
+        v-if="showEntryMode"
+        class="confirm__choice"
+        role="radiogroup"
+        :aria-label="t('cf.contest.schedule.entryMode.label')"
+      >
+        <label
+          v-for="mode in ENTRY_MODES"
+          :key="mode"
+          class="confirm__option"
+          :class="{ 'is-on': entryMode === mode }"
         >
-          <p id="contest-entry-title" class="confirm__title">
-            {{
-              t(`cf.contest.schedule.entryTitle.${pendingEntry.kind}`, {
-                name: pendingEntry.contest.name,
-              })
-            }}
-          </p>
-          <p id="contest-entry-desc" class="confirm__desc">
-            {{ t(`cf.contest.schedule.entryDesc.${pendingEntry.kind}`) }}
-          </p>
-          <!-- 报名方式（2026-10-30 加）：CF 只对允许 unrated 的轮次给这颗控件，站点看不见
-               那一页，所以先摆出来让用户自己选；扩展那边设不上就不提交，回一句
-               「这场比赛没有不计分选项」。VP 本来就不计分，这一行不出现。 -->
-          <div
-            v-if="showEntryMode"
-            class="confirm__choice"
-            role="radiogroup"
-            :aria-label="t('cf.contest.schedule.entryMode.label')"
-          >
-            <label
-              v-for="mode in ENTRY_MODES"
-              :key="mode"
-              class="confirm__option"
-              :class="{ 'is-on': entryMode === mode }"
-            >
-              <input v-model="entryMode" type="radio" :value="mode" />
-              <span>{{ t(`cf.contest.schedule.entryMode.${mode}`) }}</span>
-            </label>
-          </div>
-          <p v-if="showEntryMode" class="confirm__hint">
-            {{ t(`cf.contest.schedule.entryMode.hint.${entryMode}`) }}
-          </p>
-          <!-- 虚拟参赛的开始时刻（2026-11-03 加）：CF 的 VP 表单本来就有这一行，默认「现在」，
-               站点把它摆到确认卡片上。旧扩展没有这条能力，整行不出现，行为与以前一样 -->
-          <div v-if="showEntryStart" class="confirm__field">
-            <label class="confirm__label" for="contest-vp-start">
-              {{ t('cf.contest.schedule.entryStart.label') }}
-            </label>
-            <input
-              id="contest-vp-start"
-              v-model="entryStartAt"
-              class="confirm__input"
-              type="datetime-local"
-            />
-          </div>
-          <p v-if="showEntryStart" class="confirm__hint">
-            {{ t('cf.contest.schedule.entryStart.hint') }}
-          </p>
-          <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelEntry">
-              {{ t('cf.contest.schedule.entryCancel') }}
-            </button>
-            <button
-              ref="entryConfirmBtn"
-              type="button"
-              class="confirm__btn confirm__btn--primary"
-              @click="confirmEntry"
-            >
-              {{ t('cf.contest.schedule.entryConfirm') }}
-            </button>
-          </div>
-        </div>
+          <input v-model="entryMode" type="radio" :value="mode" />
+          <span>{{ t(`cf.contest.schedule.entryMode.${mode}`) }}</span>
+        </label>
       </div>
-    </Teleport>
+      <p v-if="showEntryMode" class="confirm__hint">
+        {{ t(`cf.contest.schedule.entryMode.hint.${entryMode}`) }}
+      </p>
+      <!-- 虚拟参赛的开始时刻（2026-11-03 加）：CF 的 VP 表单本来就有这一行，默认「现在」，
+           站点把它摆到确认卡片上。旧扩展没有这条能力，整行不出现，行为与以前一样 -->
+      <div v-if="showEntryStart" class="confirm__field">
+        <label class="confirm__label" for="contest-vp-start">
+          {{ t('cf.contest.schedule.entryStart.label') }}
+        </label>
+        <input
+          id="contest-vp-start"
+          v-model="entryStartAt"
+          class="confirm__input"
+          type="datetime-local"
+        />
+      </div>
+      <p v-if="showEntryStart" class="confirm__hint">
+        {{ t('cf.contest.schedule.entryStart.hint') }}
+      </p>
+
+      <template #footer>
+        <button type="button" class="app-dialog__btn" @click="cancelEntry">
+          {{ t('cf.contest.schedule.entryCancel') }}
+        </button>
+        <button type="button" class="app-dialog__btn app-dialog__btn--primary js-primary" @click="confirmEntry">
+          {{ t('cf.contest.schedule.entryConfirm') }}
+        </button>
+      </template>
+    </AppDialog>
   </section>
 </template>
 
@@ -211,9 +202,10 @@
  * 不过在时**整列都不出现**（老扩展下版式与改动前一模一样）。两个动作不可逆，所以走
  * 确认卡片；确认之后才交给 useCfSchedule 发出去，结果用一条通知收尾。
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 import { contestUrl } from '../cf/contest.js'
+import AppDialog from './AppDialog.vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { t } from '../i18n/index.js'
@@ -346,9 +338,8 @@ const statesNote = computed(() => {
   return ''
 })
 
-/** 待确认的动作（null = 没有卡片）；确认卡片一出现就把焦点放到「确认」上 */
+/** 待确认的动作（null = 没有卡片）；默认焦点由 AppDialog 的 initial-focus 决定 */
 const pendingEntry = ref(null)
-const entryConfirmBtn = ref(null)
 
 /**
  * 报名方式的两个取值（键名同时是 `cf.contest.schedule.entryMode.*` 与 `.hint.*` 的键）。
@@ -405,9 +396,7 @@ function entryErrorText(reason, kind) {
   return t(`cf.contest.schedule.entryErrors.${keys[reason] || 'fallback'}`)
 }
 
-watch(pendingEntry, (entry) => {
-  if (entry) nextTick(() => entryConfirmBtn.value?.focus())
-})
+// 默认焦点由 AppDialog 接管（见模板里的 initial-focus）。
 
 async function confirmEntry() {
   const entry = pendingEntry.value
@@ -818,39 +807,10 @@ async function confirmEntry() {
 
 /* ---------------- 确认卡片 ---------------- */
 /* 与提交确认 / 卸载确认同一套视觉：Teleport 到 body，只依赖主题变量 */
-.confirm {
-  position: fixed;
-  inset: 0;
-  /* 高于右键菜单（120），低于顶栏下拉之类的系统级浮层 */
-  z-index: 130;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.32);
-}
-
-.confirm__card {
-  width: min(340px, 100%);
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-
-.confirm__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-}
-
-.confirm__desc {
+/* 外壳 / 标题 / 动作按钮都在 AppDialog（含 base.css 的 .app-dialog__btn）；
+   这里只剩报名卡特有的单选、提示与时间输入。 */
+.confirm-desc {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-dim);
   overflow-wrap: anywhere;
 }
 
@@ -938,45 +898,7 @@ async function confirmEntry() {
   outline-offset: 1px;
 }
 
-.confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
 
-.confirm__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font: 500 12.5px/1.5 var(--font-sans, system-ui);
-  cursor: pointer;
-}
-
-:where(html.is-hoverable) .confirm__btn:hover {
-  background: var(--bg-hover);
-}
-
-.confirm__btn--primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-:where(html.is-hoverable) .confirm__btn--primary:hover {
-  background: var(--accent-hover);
-}
-
-.confirm__btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
 </style>
 
 <style scoped src="../styles/cf-console.css"></style>

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import AppDialog from './AppDialog.vue'
 import AppIcon from './AppIcon.vue'
 import EngineSettingsPanel from './EngineSettingsPanel.vue'
 import HelpPanel from './HelpPanel.vue'
@@ -1986,8 +1987,6 @@ async function downloadRuntime(entry) {
  *  转成 reactive 并**自动拆包**（`entry.state` 直接变成字符串），后面 `entry.state.value = 'idle'`
  *  就会抛「Cannot create property 'value' on string」——卸载看起来毫无反应。 */
 const pendingUninstall = shallowRef(null)
-/** 卸载确认弹窗里的「卸载」按钮：弹窗打开时把焦点送进去 */
-const uninstallBtn = ref(null)
 /** 正在清缓存的目标 id：确认之后弹窗就收了，这一行得自己转圈，别让人对着
  *  一颗还能再点的「卸载」等（删 76MB 缓存不是一瞬间的事）。 */
 const uninstallingId = ref('')
@@ -2053,10 +2052,7 @@ async function confirmUninstall() {
   }
 }
 
-// 弹窗一出现就把焦点放到「卸载」上：Enter 确认、Esc 取消都能纯键盘走完
-watch(pendingUninstall, (entry) => {
-  if (entry) nextTick(() => uninstallBtn.value?.focus())
-})
+// 卸载确认的默认焦点由 AppDialog 的 initial-focus 决定（落在「卸载」上）。
 
 // ------------------------------------------------------------ 抽题组件（默认安装的组件）
 // 它不在 RUNTIMES 里：那一套的状态机绑死了 toolsRuntime 的 preload / probeRuntime / uninstallRuntime，
@@ -2401,16 +2397,11 @@ function setChecker(event) {
  * 因此那边是单一真相，这边只剩渲染。
  */
 
-/** 待确认的解绑；与下面卸载确认同款自绘弹窗 */
+/** 待确认的解绑；与下面卸载确认同一套 AppDialog 外壳 */
 const pendingUnbind = ref(false)
-const unbindBtn = ref(null)
 
 /** 地址里带来的 handle（`/<handle>`），等用户点头才套用；空串 = 没有这次询问 */
 const cloudApplyHandle = ref('')
-const cloudApplyBtn = ref(null)
-
-/** 地址里带来的 handle，但云端根本没有这份配置：只弹一句提示。空串 = 没有 */
-const cloudMissingBtn = ref(null)
 
 const cloudTimeFormat = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -2548,15 +2539,7 @@ watch(
   { immediate: true },
 )
 
-// 弹窗一出现就把焦点送到「套用」上，Enter / Esc 都能纯键盘走完（与解绑弹窗同款）
-watch(cloudApplyHandle, (handle) => {
-  if (handle) nextTick(() => cloudApplyBtn.value?.focus())
-})
-
-// 「云端没有这份配置」的提示：同样一出现就把焦点送进去，Esc 也能关掉（与上面同款）
-watch(cloudEntryMissingHandle, (handle) => {
-  if (handle) nextTick(() => cloudMissingBtn.value?.focus())
-})
+// 套用 / 缺配置这两张卡的默认焦点都由 AppDialog 的 initial-focus 决定。
 
 // 关掉设置页签就等于「这次不套用」：这条链接带来的询问只该当面提一次，
 // 用户下次自己打开设置页时不该再冒出来。
@@ -2684,10 +2667,7 @@ function confirmUnbind() {
   unbindCloud()
 }
 
-// 弹窗一出现就把焦点送到「解绑」上，Enter / Esc 都能纯键盘走完
-watch(pendingUnbind, (open) => {
-  if (open) nextTick(() => unbindBtn.value?.focus())
-})
+// 解绑确认的默认焦点由 AppDialog 的 initial-focus 决定（落在「解绑」上）。
 </script>
 
 <template>
@@ -4131,147 +4111,130 @@ watch(pendingUnbind, (open) => {
       </div>
     </div>
 
-    <!-- 卸载确认：自绘弹窗，与文件树删除确认同款（不用 window.confirm，见 FileExplorer.requestDelete）。
+    <!-- 卸载确认：AppDialog 外壳（不用 window.confirm，见 FileExplorer.requestDelete）。
          点遮罩 / Esc = 取消，只有点「卸载」才会真的清缓存。 -->
-    <Teleport to="body">
-      <div v-if="pendingUninstall" class="confirm" @pointerdown.self="cancelUninstall">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="uninstall-title"
-          aria-describedby="uninstall-desc"
-          @keydown.esc.stop.prevent="cancelUninstall"
-        >
-          <p id="uninstall-title" class="confirm__title">
-            {{ t(pendingUninstall.uninstallTitleKey, { title: t(pendingUninstall.titleKey) }) }}
-          </p>
-          <p id="uninstall-desc" class="confirm__desc">
-            {{ t(pendingUninstall.uninstallHintKey) }}
-          </p>
-          <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelUninstall">
-              {{ t('app.cancel') }}
-            </button>
-            <button
-              ref="uninstallBtn"
-              type="button"
-              class="confirm__btn confirm__btn--danger"
-              @click="confirmUninstall"
-            >
-              {{ t('runtime.uninstall') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <AppDialog
+      v-if="pendingUninstall"
+      role="alertdialog"
+      icon="trash"
+      tone="danger"
+      size="sm"
+      describedby="uninstall-desc"
+      initial-focus=".js-primary"
+      :title="t(pendingUninstall.uninstallTitleKey, { title: t(pendingUninstall.titleKey) })"
+      @close="cancelUninstall"
+    >
+      <p id="uninstall-desc" class="confirm-desc">
+        {{ t(pendingUninstall.uninstallHintKey) }}
+      </p>
 
-    <!-- 解绑确认：与上面卸载确认同款。解绑只是断开这台设备与账号的关联，
-         云端已存的那份配置不由这里决定，所以文案只说本机这一侧。 -->
-    <Teleport to="body">
-      <div v-if="pendingUnbind" class="confirm" @pointerdown.self="cancelUnbind">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="unbind-title"
-          aria-describedby="unbind-desc"
-          @keydown.esc.stop.prevent="cancelUnbind"
+      <template #footer>
+        <button type="button" class="app-dialog__btn" @click="cancelUninstall">
+          {{ t('app.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--danger js-primary"
+          @click="confirmUninstall"
         >
-          <p id="unbind-title" class="confirm__title">
-            {{ t('settings.cloud.unbindConfirmTitle') }}
-          </p>
-          <p id="unbind-desc" class="confirm__desc">
-            {{ t('settings.cloud.unbindConfirmDesc', { handle: cloudAccount.handle }) }}
-          </p>
-          <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelUnbind">
-              {{ t('app.cancel') }}
-            </button>
-            <button
-              ref="unbindBtn"
-              type="button"
-              class="confirm__btn confirm__btn--danger"
-              @click="confirmUnbind"
-            >
-              {{ t('settings.cloud.unbind') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+          {{ t('runtime.uninstall') }}
+        </button>
+      </template>
+    </AppDialog>
+
+    <!-- 解绑确认：与上面卸载确认同一套外壳。解绑只是断开这台设备与账号的关联，
+         云端已存的那份配置不由这里决定，所以文案只说本机这一侧。 -->
+    <AppDialog
+      v-if="pendingUnbind"
+      role="alertdialog"
+      icon="link"
+      tone="danger"
+      size="sm"
+      describedby="unbind-desc"
+      initial-focus=".js-primary"
+      :title="t('settings.cloud.unbindConfirmTitle')"
+      @close="cancelUnbind"
+    >
+      <p id="unbind-desc" class="confirm-desc">
+        {{ t('settings.cloud.unbindConfirmDesc', { handle: cloudAccount.handle }) }}
+      </p>
+
+      <template #footer>
+        <button type="button" class="app-dialog__btn" @click="cancelUnbind">
+          {{ t('app.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--danger js-primary"
+          @click="confirmUnbind"
+        >
+          {{ t('settings.cloud.unbind') }}
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 地址里带来的 /<handle>：问一次要不要套用这份云端配置。
          别人的链接刻意**不**自动套用也不自动登录 —— 链接谁都能构造，替换本机设置该由用户点头才发生。
          （地址里那位正是本机在跟的那位时不走弹窗：cloudEntry.js 已经直接对齐了，见那里的文件头。
-           反过来，用户在这儿点了「套用」就等于认下这位，之后打开站点会继续用它那一套。）
-         与上面两个确认同款自绘弹窗。 -->
-    <Teleport to="body">
-      <div v-if="cloudApplyHandle" class="confirm" @pointerdown.self="cancelCloudApply">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="cloud-apply-title"
-          aria-describedby="cloud-apply-desc"
-          @keydown.esc.stop.prevent="cancelCloudApply"
+           反过来，用户在这儿点了「套用」就等于认下这位，之后打开站点会继续用它那一套。） -->
+    <AppDialog
+      v-if="cloudApplyHandle"
+      role="alertdialog"
+      icon="cloud"
+      tone="warn"
+      size="sm"
+      describedby="cloud-apply-desc"
+      initial-focus=".js-primary"
+      :title="t('settings.cloud.applyConfirmTitle')"
+      @close="cancelCloudApply"
+    >
+      <p id="cloud-apply-desc" class="confirm-desc">
+        {{ t('settings.cloud.applyConfirmDesc', { handle: cloudApplyHandle }) }}
+      </p>
+
+      <template #footer>
+        <button type="button" class="app-dialog__btn" @click="cancelCloudApply">
+          {{ t('settings.cloud.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--danger js-primary"
+          :disabled="cloudBusy"
+          @click="runCloud('apply', confirmCloudApply)"
         >
-          <p id="cloud-apply-title" class="confirm__title">
-            {{ t('settings.cloud.applyConfirmTitle') }}
-          </p>
-          <p id="cloud-apply-desc" class="confirm__desc">
-            {{ t('settings.cloud.applyConfirmDesc', { handle: cloudApplyHandle }) }}
-          </p>
-          <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelCloudApply">
-              {{ t('settings.cloud.cancel') }}
-            </button>
-            <button
-              ref="cloudApplyBtn"
-              type="button"
-              class="confirm__btn confirm__btn--danger"
-              :disabled="cloudBusy"
-              @click="runCloud('apply', confirmCloudApply)"
-            >
-              <LoadingSpinner v-if="cloudPending === 'apply'" :size="12" />
-              <span>{{ t('settings.cloud.applyConfirm') }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+          <LoadingSpinner v-if="cloudPending === 'apply'" :size="12" />
+          <span>{{ t('settings.cloud.applyConfirm') }}</span>
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 地址里带来的 /<handle>，但云端根本没有这份配置：套不了，只把「为什么地址回去了」讲清楚。
          地址已经在探测那一步抹回根路径（见 cloudEntry.js 的 confirmCloudEntry），这里不再动它。 -->
-    <Teleport to="body">
-      <div v-if="cloudEntryMissingHandle" class="confirm" @pointerdown.self="dismissCloudMissing">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="cloud-missing-title"
-          aria-describedby="cloud-missing-desc"
-          @keydown.esc.stop.prevent="dismissCloudMissing"
+    <AppDialog
+      v-if="cloudEntryMissingHandle"
+      role="alertdialog"
+      icon="cloud"
+      tone="warn"
+      size="sm"
+      describedby="cloud-missing-desc"
+      initial-focus=".js-primary"
+      :title="t('settings.cloud.applyMissingTitle')"
+      @close="dismissCloudMissing"
+    >
+      <p id="cloud-missing-desc" class="confirm-desc">
+        {{ t('settings.cloud.applyMissingDesc', { handle: cloudEntryMissingHandle }) }}
+      </p>
+
+      <template #footer>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--primary js-primary"
+          @click="dismissCloudMissing"
         >
-          <p id="cloud-missing-title" class="confirm__title">
-            {{ t('settings.cloud.applyMissingTitle') }}
-          </p>
-          <p id="cloud-missing-desc" class="confirm__desc">
-            {{ t('settings.cloud.applyMissingDesc', { handle: cloudEntryMissingHandle }) }}
-          </p>
-          <div class="confirm__actions">
-            <button
-              ref="cloudMissingBtn"
-              type="button"
-              class="confirm__btn"
-              @click="dismissCloudMissing"
-            >
-              {{ t('settings.cloud.applyMissingOk') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+          {{ t('settings.cloud.applyMissingOk') }}
+        </button>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -6023,82 +5986,10 @@ a.download-button {
   color: var(--ok);
 }
 
-/* ---------------------------------------------------------------- 卸载确认
-   与 FileExplorer 的删除确认同款（那份是自绘弹窗的样板）：Teleport 到 body，
-   所以这里的定位与色值只依赖主题变量，跟设置视图自己的容器查询互不相干。 */
-.confirm {
-  position: fixed;
-  inset: 0;
-  /* 高于右键菜单（120），低于顶栏下拉之类的系统级浮层 */
-  z-index: 130;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.32);
-}
-
-.confirm__card {
-  width: min(340px, 100%);
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-
-.confirm__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-}
-
-.confirm__desc {
+/* ---------------------------------------------------------------- 确认卡正文
+   外壳 / 标题 / 按钮都在 AppDialog（含 base.css 的 .app-dialog__btn），这里只剩说明文字。 */
+.confirm-desc {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-dim);
   overflow-wrap: anywhere;
-}
-
-.confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.confirm__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font: 500 12.5px/1.5 var(--font-sans, system-ui);
-  cursor: pointer;
-}
-
-:where(html.is-hoverable) .confirm__btn:hover {
-  background: var(--bg-hover);
-}
-
-.confirm__btn--danger {
-  border-color: transparent;
-  background: var(--danger-bg);
-  color: var(--danger-text);
-}
-
-:where(html.is-hoverable) .confirm__btn--danger:hover {
-  background: var(--danger-bg-hover);
-}
-
-.confirm__btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
 }
 </style>

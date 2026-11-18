@@ -446,6 +446,18 @@
     0 8px 16px rgba(0, 0, 0, 0.3),
     0 16px 32px -8px rgba(0, 0, 0, 0.35);
 
+  /* 对话框（components/AppDialog.vue，2026-11-19 统一全站自绘确认卡）。
+     面料直接继承菜单那套玻璃；阴影在菜单四层之上再补一层大范围落影 ——
+     菜单是「贴在锚点旁」，对话框是「整页压暗后浮起来」，Z 轴要再高一层。
+     ⚠️ 只在这里定义一次，别在组件里写字面量：12 套主题换色时它跟着 --menu-* 走；
+     浅色那支在 data-scheme='light' 里把最外层落影压淡（白底上黑影会发脏）。 */
+  --dialog-bg: var(--menu-bg);
+  --dialog-backdrop: var(--menu-backdrop);
+  --dialog-shadow: var(--menu-shadow), 0 24px 64px -18px rgba(0, 0, 0, 0.5);
+  --dialog-scrim: rgba(0, 0, 0, 0.46);
+  --dialog-radius: 12px;
+  --dialog-pad: 20px;
+
   /* 图标提示框（components/AppTooltip.vue，唯一消费者，2026-10-24 晚加）。
      用户要求「去边框 + 深底 + 柔和投影」：深色这一支就是近黑底配白字，
      它是浮在界面之上的临时标签，不跟着**深色系**主题的色相走（午夜蓝 / OLED 都不覆盖）。
@@ -764,6 +776,9 @@
     0 0 2px rgba(0, 0, 0, 0.11),
     0 8px 16px rgba(0, 0, 0, 0.06),
     0 16px 32px -8px rgba(0, 0, 0, 0.04);
+  /* 对话框：浅色同样在白面之外补一层落影，但 alpha 比深色低一档（见 :root 的说明） */
+  --dialog-shadow: var(--menu-shadow), 0 24px 56px -20px rgba(0, 0, 0, 0.18);
+  --dialog-scrim: rgba(0, 0, 0, 0.32);
 
   /* 提示框：浅色下翻成白底深字（2026-11-10，用户：「自绘的 hover 在浅色主题下，显示的
      提示还是深色的」）。原先这里与深色同值（近黑底 + 白字），理由是「临时标签不该跟主题
@@ -1861,12 +1876,76 @@ html.is-narrow .monaco-editor .margin-view-overlays .current-line,
    菜单在强制色彩模式下依旧是块没边的色块。这里不是「覆盖用户意图」，是**补回系统
    拿走的边界**，与 `prefers-reduced-motion` 那条用 `!important` 是同一个理由。
    --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   对话框动作按钮（AppDialog 的 footer 插槽，2026-11-19）
+
+   放在全局而不是 AppDialog 的 scoped 块里：插槽内容的作用域属于各个业务组件，
+   子组件的 scoped 选择器够不到它们。全站确认卡共用这一套尺寸与配色，
+   以后别再在 FileExplorer / App / 设置面板里各写一份 .confirm__btn。
+   --------------------------------------------------------------------------- */
+.app-dialog__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-field);
+  color: var(--text);
+  font: 500 12.5px/1 var(--font-sans, system-ui);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:where(html.is-hoverable) .app-dialog__btn:hover:not(:disabled) {
+  background: var(--bg-control);
+}
+
+.app-dialog__btn:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.app-dialog__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.app-dialog__btn--primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+:where(html.is-hoverable) .app-dialog__btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.app-dialog__btn--danger {
+  border-color: transparent;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* 导出卡那种竖排落点：按钮拉满，别让三个落点长短不一 */
+.app-dialog__foot--stack > .app-dialog__btn {
+  width: 100%;
+}
+
+:where(html.is-hoverable) .app-dialog__btn--danger:hover:not(:disabled) {
+  background: var(--danger-bg-hover);
+}
+
 @media (forced-colors: active) {
   .context-menu,
   .tab-group-card,
   .settings-menu,
   .settings-menu__sub,
-  .components-menu {
+  .components-menu,
+  .app-dialog__card {
     border: 1px solid CanvasText !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -1885,7 +1964,8 @@ html.is-narrow .monaco-editor .margin-view-overlays .current-line,
   :where(html.is-hoverable) .settings-menu__item:hover:not(:disabled),
   .settings-menu__theme-chip.is-on,
   :where(html.is-hoverable) .components-menu__item:hover,
-  .components-menu__item:focus-visible {
+  .components-menu__item:focus-visible,
+  .app-dialog__btn:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }

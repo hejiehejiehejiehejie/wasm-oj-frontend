@@ -52,6 +52,7 @@
  */
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import AppDialog from './AppDialog.vue'
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import FileTreeItem from './FileTreeItem.vue'
@@ -161,15 +162,11 @@ const focusedId = ref(null)
 const pendingDelete = ref([])
 /** 删除确认弹窗里最多列几条路径（再多就折成一句「另有 N 项」，免得卡片长得没法看） */
 const DELETE_LIST_MAX = 6
-/** 确认弹窗里的「删除」按钮：弹窗打开时把焦点送进去 */
-const confirmBtn = ref(null)
 /** 待删名单里有没有目录 —— 有就多提示一句「里面的东西会一起删掉」 */
 const hasDirectory = computed(() => pendingDelete.value.some((node) => node.type === 'directory'))
 
 /** 待导出的节点（**只有桌面壳**会先攒在这里弹二选一卡片）；空数组 = 卡片没开 */
 const pendingExport = ref([])
-/** 导出卡片里第一颗按钮：卡片打开时把焦点送进去（Esc 才落在卡片上、Enter 能直接确认） */
-const exportFirstBtn = ref(null)
 /** 导入 / 导出进行中：两颗页头按钮与菜单项据此禁用，别让用户连点 */
 const transferBusy = ref(false)
 
@@ -211,8 +208,6 @@ const metaTarget = ref(null)
 const metaForm = ref(emptyMeta())
 /** 保存失败的提示 */
 const metaError = ref('')
-/** 弹窗里的「OJ」下拉：出现后把焦点送进去 */
-const metaFirstField = ref(null)
 
 // ------------------------------------------------------------ 内联新建
 
@@ -775,9 +770,9 @@ function pruneNested(ids) {
 function cancelDelete() {
   const list = pendingDelete.value
   pendingDelete.value = []
-  // 弹窗一出现就把焦点送进了「删除」那颗按钮（见下面那条 watch），弹窗一撤焦点就落到 <body> 上。
-  // 交还给主选中那一行（没有就还给名单里的头一个）—— 否则「Esc 取消删除」之后紧接着再按 Delete
-  // 是没反应的，得先点回那一行。
+  // 弹窗一撤焦点会落到 <body> 上。交还给主选中那一行（没有就还给名单里的头一个）——
+  // 否则「Esc 取消删除」之后紧接着再按 Delete 是没反应的，得先点回那一行。
+  // AppDialog 那边传了 restore-focus=false，这里自己接管，避免两处抢焦点。
   const id = workspace.selectedId ?? list[0]?.id
   if (id) refocusRow(id)
 }
@@ -821,13 +816,8 @@ async function confirmDelete() {
   if (failed) showNotice(t('explorer.deleteFailed', { n: failed }))
 }
 
-// 弹窗一出现就把焦点放到「删除」上：Enter 确认、Esc 取消都能纯键盘走完
-watch(
-  () => pendingDelete.value.length,
-  (count) => {
-    if (count) nextTick(() => confirmBtn.value?.focus())
-  },
-)
+// 删除确认的默认焦点是「取消」（见模板里的 initial-focus）：不可撤销的动作
+// 不该一按 Enter 就执行；想删得自己 Tab 到危险按钮或点它。
 
 /**
  * 装成 app 时的**系统返回** = 取消删除（2026-10-30）：与 Esc、点遮罩同一个出口。
@@ -836,13 +826,7 @@ watch(
  */
 const stopBackDelete = watchBackLayer(() => pendingDelete.value.length > 0, cancelDelete)
 
-// 导出卡片同理：焦点进第一颗按钮，Esc 才落得到卡片上（keydown 是绑在卡片元素上的）
-watch(
-  () => pendingExport.value.length,
-  (count) => {
-    if (count) nextTick(() => exportFirstBtn.value?.focus())
-  },
-)
+// 导出卡片的默认焦点是第一颗落点（「导出到磁盘」），见模板里的 initial-focus。
 
 /**
  * 导出卡片也接上返回键（2026-10-30）：它是二选一（下载 / 写进本机目录），
@@ -1247,10 +1231,7 @@ async function confirmMeta() {
   }
 }
 
-// 弹窗一出现就把焦点放到第一个字段上
-watch(metaTarget, (node) => {
-  if (node) nextTick(() => metaFirstField.value?.focus())
-})
+// 题目信息打开时默认聚焦 URL（见模板里的 initial-focus）。
 
 /**
  * 树空白处右键：弹一份「往当前目录里加东西 + 全局搜索」的菜单
@@ -1758,167 +1739,169 @@ defineExpose({
       @close="menu = null"
     />
 
-    <!-- 删除确认：自己实现的弹窗（不用 window.confirm，见 requestDelete 的注释）。
+    <!-- 删除确认：统一走 AppDialog（不用 window.confirm，见 requestDelete 的注释）。
          点遮罩 / Esc = 取消，只有点「删除」才会真的动文件。
-         多选删除时标题报个数、正文把路径列出来（超过 DELETE_LIST_MAX 条折成一句「另有 N 项」）。 -->
-    <Teleport to="body">
-      <div v-if="pendingDelete.length" class="confirm" @pointerdown.self="cancelDelete">
-        <div
-          class="confirm__card"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="confirm-title"
-          aria-describedby="confirm-desc"
-          @keydown.esc.stop.prevent="cancelDelete"
-        >
-          <p id="confirm-title" class="confirm__title">
-            {{
-              pendingDelete.length > 1
-                ? t('explorer.deleteConfirm.titleMany', { n: pendingDelete.length })
-                : t('explorer.deleteConfirm.title')
-            }}
-          </p>
-          <div id="confirm-desc" class="confirm__desc">
-            <ul class="confirm__list">
-              <li v-for="node in pendingDelete.slice(0, DELETE_LIST_MAX)" :key="node.id">
-                {{ node.path }}
-              </li>
-            </ul>
-            <p v-if="pendingDelete.length > DELETE_LIST_MAX" class="confirm__more">
-              {{ t('explorer.deleteConfirm.more', { n: pendingDelete.length - DELETE_LIST_MAX }) }}
-            </p>
-            <p v-if="hasDirectory" class="confirm__more">
-              {{ t('explorer.deleteConfirm.directoryNote') }}
-            </p>
-          </div>
-          <div class="confirm__actions">
-            <button type="button" class="confirm__btn" @click="cancelDelete">
-              {{ t('app.cancel') }}
-            </button>
-            <button
-              ref="confirmBtn"
-              type="button"
-              class="confirm__btn confirm__btn--danger"
-              @click="confirmDelete"
-            >
-              {{ t('explorer.menu.delete') }}
-            </button>
-          </div>
-        </div>
+         多选删除时标题报个数、正文把路径列出来（超过 DELETE_LIST_MAX 条折成一句「另有 N 项」）。
+         默认焦点是「取消」：不可撤销的动作不该一按 Enter 就执行。 -->
+    <AppDialog
+      v-if="pendingDelete.length"
+      role="alertdialog"
+      icon="trash"
+      tone="danger"
+      size="sm"
+      describedby="confirm-desc"
+      initial-focus=".js-cancel"
+      :restore-focus="false"
+      :title="
+        pendingDelete.length > 1
+          ? t('explorer.deleteConfirm.titleMany', { n: pendingDelete.length })
+          : t('explorer.deleteConfirm.title')
+      "
+      @close="cancelDelete"
+    >
+      <div id="confirm-desc" class="confirm-desc">
+        <ul class="confirm-list">
+          <li v-for="node in pendingDelete.slice(0, DELETE_LIST_MAX)" :key="node.id">
+            {{ node.path }}
+          </li>
+        </ul>
+        <p v-if="pendingDelete.length > DELETE_LIST_MAX" class="confirm-more">
+          {{ t('explorer.deleteConfirm.more', { n: pendingDelete.length - DELETE_LIST_MAX }) }}
+        </p>
+        <p v-if="hasDirectory" class="confirm-warning">
+          {{ t('explorer.deleteConfirm.directoryNote') }}
+        </p>
       </div>
-    </Teleport>
+
+      <template #footer>
+        <button type="button" class="app-dialog__btn js-cancel" @click="cancelDelete">
+          {{ t('app.cancel') }}
+        </button>
+        <button type="button" class="app-dialog__btn app-dialog__btn--danger" @click="confirmDelete">
+          {{ t('explorer.menu.delete') }}
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 导出落点：**只有桌面壳**弹这张卡片 —— 别的平台只有一个落点（下载），点菜单就直接走了。
          两个按钮各自带一句 title 说明代价（写盘会覆盖同名文件 / zip 是个压缩包）。
-         与删除确认同款自绘卡片（理由见 requestDelete 的注释），复用 .confirm 那套样式。 -->
-    <Teleport to="body">
-      <div v-if="pendingExport.length" class="confirm" @pointerdown.self="cancelExport">
-        <div
-          class="confirm__card"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="export-title"
-          @keydown.esc.stop.prevent="cancelExport"
-        >
-          <p id="export-title" class="confirm__title">{{ t('explorer.transfer.exportTitle') }}</p>
-          <div class="confirm__desc">
-            <ul class="confirm__list">
-              <li v-for="node in pendingExport.slice(0, DELETE_LIST_MAX)" :key="node.id">
-                {{ node.path }}
-              </li>
-            </ul>
-            <p v-if="pendingExport.length > DELETE_LIST_MAX" class="confirm__more">
-              {{ t('explorer.deleteConfirm.more', { n: pendingExport.length - DELETE_LIST_MAX }) }}
-            </p>
-          </div>
-          <div class="confirm__actions confirm__actions--stack">
-            <button
-              ref="exportFirstBtn"
-              type="button"
-              class="confirm__btn confirm__btn--primary"
-              :title="t('explorer.transfer.exportToDiskHint')"
-              @click="runExportToDisk(pendingExport)"
-            >
-              {{ t('explorer.transfer.exportToDisk') }}
-            </button>
-            <button
-              type="button"
-              class="confirm__btn"
-              :title="t('explorer.transfer.exportZipHint')"
-              @click="runExportDownload(pendingExport)"
-            >
-              {{ t('explorer.transfer.exportZip') }}
-            </button>
-            <button type="button" class="confirm__btn" @click="cancelExport">
-              {{ t('app.cancel') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+         三个落点竖排（AppDialog 的 stack-actions），默认焦点在第一颗。 -->
+    <AppDialog
+      v-if="pendingExport.length"
+      icon="download"
+      size="sm"
+      stack-actions
+      initial-focus=".js-primary"
+      :title="t('explorer.transfer.exportTitle')"
+      @close="cancelExport"
+    >
+      <ul class="confirm-list">
+        <li v-for="node in pendingExport.slice(0, DELETE_LIST_MAX)" :key="node.id">
+          {{ node.path }}
+        </li>
+      </ul>
+      <p v-if="pendingExport.length > DELETE_LIST_MAX" class="confirm-more">
+        {{ t('explorer.deleteConfirm.more', { n: pendingExport.length - DELETE_LIST_MAX }) }}
+      </p>
 
-    <!-- 题目信息：与删除确认同款自绘弹窗。难度控件跟着 OJ 走（见 problemMeta.js）。 -->
-    <Teleport to="body">
-      <div v-if="metaTarget" class="meta" @pointerdown.self="cancelMeta">
-        <div
-          class="meta__card"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="meta-title"
-          @keydown.esc.stop.prevent="cancelMeta"
+      <template #footer>
+        <button
+          type="button"
+          class="app-dialog__btn app-dialog__btn--primary js-primary"
+          :title="t('explorer.transfer.exportToDiskHint')"
+          @click="runExportToDisk(pendingExport)"
         >
-          <p id="meta-title" class="meta__title">{{ t('explorer.meta.title') }}</p>
-          <p class="meta__file">{{ metaTarget.path }}</p>
+          {{ t('explorer.transfer.exportToDisk') }}
+        </button>
+        <button
+          type="button"
+          class="app-dialog__btn"
+          :title="t('explorer.transfer.exportZipHint')"
+          @click="runExportDownload(pendingExport)"
+        >
+          {{ t('explorer.transfer.exportZip') }}
+        </button>
+        <button type="button" class="app-dialog__btn" @click="cancelExport">
+          {{ t('app.cancel') }}
+        </button>
+      </template>
+    </AppDialog>
 
-          <label class="meta__field">
-            <span class="meta__label">{{ t('explorer.meta.url') }}</span>
-            <input v-model="metaForm.url" class="meta__input" type="url" placeholder="https://…" />
+    <!-- 题目信息：AppDialog 表单卡。难度控件跟着 OJ 走（见 problemMeta.js）。 -->
+    <AppDialog
+      v-if="metaTarget"
+      icon="file"
+      size="md"
+      initial-focus=".js-meta-url"
+      :title="t('explorer.meta.title')"
+      @close="cancelMeta"
+    >
+      <template #subtitle>
+        <span class="meta-file">{{ metaTarget.path }}</span>
+      </template>
+
+      <form id="meta-form" class="meta-form" @submit.prevent="confirmMeta">
+        <label class="meta-field">
+          <span class="meta-label">{{ t('explorer.meta.url') }}</span>
+          <input
+            v-model="metaForm.url"
+            class="meta-input js-meta-url"
+            type="url"
+            placeholder="https://…"
+          />
+        </label>
+
+        <div class="meta-grid">
+          <label class="meta-field">
+            <span class="meta-label">OJ</span>
+            <span class="meta-select">
+              <select v-model="metaForm.oj" class="meta-input" @change="onOjChange">
+                <option value="">{{ t('explorer.meta.ojUnset') }}</option>
+                <option v-for="item in OJ_LIST" :key="item.id" :value="item.id">
+                  {{ labelOf(item) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="meta-select__chevron" />
+            </span>
           </label>
 
-          <label class="meta__field">
-            <span class="meta__label">OJ</span>
-            <select ref="metaFirstField" v-model="metaForm.oj" class="meta__input" @change="onOjChange">
-              <option value="">{{ t('explorer.meta.ojUnset') }}</option>
-              <option v-for="item in OJ_LIST" :key="item.id" :value="item.id">
-                {{ labelOf(item) }}
-              </option>
-            </select>
-          </label>
-
-          <label class="meta__field">
-            <span class="meta__label">{{ t('explorer.meta.difficulty') }}</span>
-            <select v-if="metaDifficultyOptions" v-model="metaForm.difficulty" class="meta__input">
-              <option value="">{{ t('explorer.meta.difficultyUnset') }}</option>
-              <option v-for="item in metaDifficultyOptions" :key="item.id" :value="item.id">
-                {{ labelOf(item) }}
-              </option>
-            </select>
+          <label class="meta-field">
+            <span class="meta-label">{{ t('explorer.meta.difficulty') }}</span>
+            <span v-if="metaDifficultyOptions" class="meta-select">
+              <select v-model="metaForm.difficulty" class="meta-input">
+                <option value="">{{ t('explorer.meta.difficultyUnset') }}</option>
+                <option v-for="item in metaDifficultyOptions" :key="item.id" :value="item.id">
+                  {{ labelOf(item) }}
+                </option>
+              </select>
+              <AppIcon name="chevron" :size="12" class="meta-select__chevron" />
+            </span>
             <input
               v-else-if="metaSystem === 'free'"
               v-model="metaForm.difficulty"
-              class="meta__input"
+              class="meta-input"
               type="text"
               :placeholder="t('explorer.meta.difficultyCustom')"
             />
             <input
               v-else
-              class="meta__input"
+              class="meta-input"
               type="text"
               disabled
               :placeholder="t('explorer.meta.difficultyPickOj')"
             />
           </label>
 
-          <label class="meta__field">
-            <span class="meta__label">{{ t('explorer.meta.date') }}</span>
-            <input v-model="metaForm.date" class="meta__input" type="date" />
+          <label class="meta-field">
+            <span class="meta-label">{{ t('explorer.meta.date') }}</span>
+            <input v-model="metaForm.date" class="meta-input" type="date" />
           </label>
 
-          <label class="meta__field">
-            <span class="meta__label">{{ t('explorer.meta.timeLimit') }}</span>
+          <label class="meta-field">
+            <span class="meta-label">{{ t('explorer.meta.timeLimit') }}</span>
             <input
               v-model="metaForm.timeLimit"
-              class="meta__input"
+              class="meta-input"
               type="number"
               min="0.1"
               step="0.5"
@@ -1926,33 +1909,36 @@ defineExpose({
               inputmode="decimal"
             />
           </label>
+        </div>
 
-          <!-- 输出比对方式（2026-10-25 加，2026-11-09 改为「按题覆盖」）：留空 = 跟随
-               设置 › 评测 › 输出比对；选了就把这道题钉死，与全局设置无关。
-               只影响 exit 0 之后的 AC / WA 判定，不改变 TLE / MLE / RE 的口径。 -->
-          <label class="meta__field">
-            <span class="meta__label">{{ t('explorer.meta.checker') }}</span>
-            <select v-model="metaForm.checker" class="meta__input">
+        <!-- 输出比对方式（2026-10-25 加，2026-11-09 改为「按题覆盖」）：留空 = 跟随
+             设置 › 评测 › 输出比对；选了就把这道题钉死，与全局设置无关。
+             只影响 exit 0 之后的 AC / WA 判定，不改变 TLE / MLE / RE 的口径。 -->
+        <label class="meta-field">
+          <span class="meta-label">{{ t('explorer.meta.checker') }}</span>
+          <span class="meta-select">
+            <select v-model="metaForm.checker" class="meta-input">
               <option value="">{{ t('explorer.meta.checkerDefault') }}</option>
               <option v-for="item in CHECKER_OPTIONS" :key="item.id" :value="item.id">
                 {{ t(item.labelKey) }}
               </option>
             </select>
-          </label>
+            <AppIcon name="chevron" :size="12" class="meta-select__chevron" />
+          </span>
+        </label>
 
-          <p v-if="metaError" class="meta__error">{{ metaError }}</p>
+        <p v-if="metaError" class="meta-error" role="alert">{{ metaError }}</p>
+      </form>
 
-          <div class="meta__actions">
-            <button type="button" class="meta__btn" @click="cancelMeta">
-              {{ t('app.cancel') }}
-            </button>
-            <button type="button" class="meta__btn meta__btn--primary" @click="confirmMeta">
-              {{ t('app.save') }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+      <template #footer>
+        <button type="button" class="app-dialog__btn" @click="cancelMeta">
+          {{ t('app.cancel') }}
+        </button>
+        <button type="submit" form="meta-form" class="app-dialog__btn app-dialog__btn--primary">
+          {{ t('app.save') }}
+        </button>
+      </template>
+    </AppDialog>
 
     <!-- 拖拽幽灵：跟着指针走，必须 pointer-events: none，否则 elementFromPoint 只命中它自己 -->
     <Teleport to="body">
@@ -1976,231 +1962,144 @@ defineExpose({
   flex: 1 1 auto;
 }
 
-/* ---------------------------------------------------------------- 删除确认
-   Teleport 到 body，所以这里的定位与色值都只依赖主题变量，不依赖侧边栏的容器 */
-.confirm {
-  position: fixed;
-  inset: 0;
-  /* 高于右键菜单（120），低于顶栏下拉之类的系统级浮层 */
-  z-index: 130;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.32);
-}
+/* ---------------------------------------------------------------- 删除 / 导出 / 题目信息
+   外壳、按钮与动效都在 AppDialog（含 base.css 的 .app-dialog__btn），
+   这里只剩卡片内部的排版。 */
 
-.confirm__card {
-  width: min(340px, 100%);
-  padding: 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-
-.confirm__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-}
-
-.confirm__desc {
+.confirm-desc {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-dim);
-  /* 长路径要能换行，别把卡片撑破 */
   overflow-wrap: anywhere;
 }
 
-/* 待删路径列表：一行一条（单条删除时也就这一行，看着与原先那句纯文本一样） */
-.confirm__list {
+/* 路径列表：内凹的滚动井。多选时一眼能扫完，超过六条也不把卡片顶长 */
+.confirm-list {
   margin: 0;
-  padding: 0;
+  padding: 8px 10px;
   list-style: none;
-  color: var(--text);
-}
-
-/* 折行提示与「目录里的东西一起删」那句：与路径拉开一点，别糊成一坨 */
-.confirm__more {
-  margin: 4px 0 0;
-}
-
-.confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.confirm__btn {
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font: 500 12.5px/1.5 var(--font-sans, system-ui);
-  cursor: pointer;
-}
-
-:where(html.is-hoverable) .confirm__btn:hover {
-  background: var(--bg-hover);
-}
-
-/* 危险动作沿用 icon-btn--danger 的配色，两套主题各自有变量 */
-.confirm__btn--danger {
-  border-color: transparent;
-  background: var(--danger-bg);
-  color: var(--danger-text);
-}
-
-:where(html.is-hoverable) .confirm__btn--danger:hover {
-  background: var(--danger-bg-hover);
-}
-
-/* 导出卡片那颗主操作：沿用 accent（与题目信息弹窗的「保存」、站内其它主要按钮同色） */
-.confirm__btn--primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-:where(html.is-hoverable) .confirm__btn--primary:hover {
-  background: var(--accent-hover);
-}
-
-/* 导出卡片的三颗是竖排的：它们不是「取消 / 确认」那种对照关系，而是三个并列的落点
-   （写进磁盘 / 打成 zip / 算了），横排会挤成一坨，也分不清哪个是主操作 */
-.confirm__actions--stack {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.confirm__actions--stack .confirm__btn {
-  width: 100%;
-  padding: 6px 14px;
-}
-
-.confirm__btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-/* ---------------------------------------------------------------- 题目信息
-   与删除确认同款：Teleport 到 body，只依赖主题变量 */
-.meta {
-  position: fixed;
-  inset: 0;
-  z-index: 130;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.32);
-}
-
-.meta__card {
-  width: min(360px, 100%);
-  /* 六项字段在矮屏（手机横屏 / 小窗口）会顶破视口：卡片自己滚，遮罩不动 */
-  max-height: calc(100dvh - 32px);
+  max-height: 160px;
   overflow-y: auto;
-  padding: 14px;
+  overscroll-behavior: contain;
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-raised);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-
-.meta__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 650;
+  border-radius: 8px;
+  background: var(--bg-field);
   color: var(--text);
+  font: 400 11.5px/22px var(--font-mono, ui-monospace, monospace);
 }
 
-.meta__file {
-  margin: 0 0 12px;
-  font: 400 11.5px/16px var(--font-mono, ui-monospace, monospace);
+.confirm-list li + li {
+  border-top: 1px solid var(--border-soft);
+}
+
+.confirm-more {
+  margin: 8px 0 0;
+  font-size: 11.5px;
   color: var(--text-faint);
-  overflow-wrap: anywhere;
 }
 
-.meta__field {
-  display: block;
-  margin-bottom: 10px;
+/* 「目录里的东西会一起删」：一条淡警示条，比原来混在灰字里显眼 */
+.confirm-warning {
+  margin: 8px 0 0;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--warn-face);
+  color: var(--warn);
+  font-size: 11.5px;
+  line-height: 16px;
 }
 
-.meta__label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
+/* ---------------------------------------------------------------- 题目信息 */
+
+.meta-file {
+  font: 400 11.5px/16px var(--font-mono, ui-monospace, monospace);
+}
+
+.meta-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* URL / 比对方式独占整行，中间四项两列 —— 六项平铺改成分组后不再是一堵墙 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.meta-label {
+  font-size: 11.5px;
+  line-height: 1.3;
   color: var(--text-dim);
 }
 
-.meta__input {
+.meta-input {
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  background: var(--bg-input);
+  height: 32px;
+  padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: 6px;
+  background: var(--bg-field);
   color: var(--text);
-  font: 400 13px/26px var(--font-sans, system-ui);
+  font: 400 12.5px/30px var(--font-sans, system-ui);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.meta__input:focus {
+:where(html.is-hoverable) .meta-input:hover:not(:disabled) {
+  background: var(--bg-control);
+}
+
+.meta-input:focus-visible {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-.meta__input:disabled {
+.meta-input:disabled {
   opacity: 0.5;
 }
 
-.meta__error {
-  margin: 0 0 8px;
+/* 下拉与设置页同一套：去掉原生箭头，右侧补 AppIcon 的 chevron */
+.meta-select {
+  position: relative;
+  display: block;
+}
+
+.meta-select select {
+  appearance: none;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.meta-select__chevron {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-dim);
+}
+
+.meta-error {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--fail-face);
   color: var(--danger-text);
   font-size: 11.5px;
   line-height: 16px;
 }
 
-.meta__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.meta__btn {
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  font: 500 12.5px/1.5 var(--font-sans, system-ui);
-  cursor: pointer;
-}
-
-:where(html.is-hoverable) .meta__btn:hover {
-  background: var(--bg-hover);
-}
-
-.meta__btn--primary {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-:where(html.is-hoverable) .meta__btn--primary:hover {
-  background: var(--accent-hover);
-}
-
-.meta__btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
+@media (max-width: 420px) {
+  .meta-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 页头本身已上提到 Sidebar 的共享页头（.sidebar__head，2026-10-11）：

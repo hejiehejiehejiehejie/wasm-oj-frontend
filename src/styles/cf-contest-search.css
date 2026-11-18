@@ -62,7 +62,7 @@
 
 /* 外层容器直接作为「唯一的一张输入框卡面」：
    总高从 64px 收窄至 48px。圆角取全站三档里的面上两档（见 HANDOFF §1.A）：
-   卡面（容器）10px、卡内控件 6px —— 与 `.confirm__card` / `.confirm__btn` 同一套内外搭配
+   卡面（容器）12px、卡内控件 6px —— 与 AppDialog / `.app-dialog__btn` 同一套内外搭配
    （这里两件控件都 ≥36px 高，按「6 / 4 按高度挑」那条该取 6；22px 上下的小输入框才用 4） */
 .cf-search {
   display: flex;

@@ -49,11 +49,14 @@ import { openSettingsTab } from './editorViews.js'
 import { setTemplatesEnabled, templatesEnabled } from './fileTemplates.js'
 import { UI_SCALE_OPTIONS } from '../composables/useUiScale.js'
 import {
+  CASE_VIEWS,
+  caseView,
   isNarrowLayout,
   NARROW_COLLAPSE_SIDES,
   PANEL_POSITIONS,
   narrowCollapseSide,
   panelPosition,
+  setCaseView,
   setNarrowCollapseSide,
   setPanelPosition,
   uiScalePref,
@@ -167,6 +170,16 @@ export const SETTINGS_MENU_ROWS = [
     options: () => NARROW_COLLAPSE_SIDES,
     current: () => narrowCollapseSide.value,
     select: (id) => setNarrowCollapseSide(id),
+  },
+  {
+    // 评测样例视图（2026-11-19 用户要求加进设置菜单）：卡片流 / 分项标签两档一键切换。
+    // 档位表与设置面板「外观」那颗段钮共用 CASE_VIEWS，改完 TestPanel 当场换壳。
+    id: 'caseView',
+    kind: 'toggle',
+    labelKey: 'settings.appearance.caseView.label',
+    options: () => CASE_VIEWS,
+    current: () => caseView.value,
+    select: (id) => setCaseView(id),
   },
 
   { kind: 'divider' },
