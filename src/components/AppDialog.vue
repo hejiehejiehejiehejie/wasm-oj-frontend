@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
 :where(html.is-narrow) .app-dialog__card {
   width: min(520px, 100%);
   max-height: min(88dvh, 760px);
-  border-radius: 14px 14px 0 0;
+  border-radius: 12px 12px 0 0;
   padding-bottom: calc(var(--dialog-pad) + env(safe-area-inset-bottom, 0px));
   animation-name: app-dialog-sheet;
 }

@@ -1746,8 +1746,6 @@ defineExpose({
     <AppDialog
       v-if="pendingDelete.length"
       role="alertdialog"
-      icon="trash"
-      tone="danger"
       size="sm"
       describedby="confirm-desc"
       initial-focus=".js-cancel"
@@ -1774,10 +1772,18 @@ defineExpose({
       </div>
 
       <template #footer>
-        <button type="button" class="app-dialog__btn js-cancel" @click="cancelDelete">
+        <button
+          type="button"
+          class="app-dialog__btn confirm-action confirm-action--cancel js-cancel"
+          @click="cancelDelete"
+        >
           {{ t('app.cancel') }}
         </button>
-        <button type="button" class="app-dialog__btn app-dialog__btn--danger" @click="confirmDelete">
+        <button
+          type="button"
+          class="app-dialog__btn confirm-action confirm-action--danger"
+          @click="confirmDelete"
+        >
           {{ t('explorer.menu.delete') }}
         </button>
       </template>
@@ -1965,6 +1971,38 @@ defineExpose({
 /* ---------------------------------------------------------------- 删除 / 导出 / 题目信息
    外壳、按钮与动效都在 AppDialog（含 base.css 的 .app-dialog__btn），
    这里只剩卡片内部的排版。 */
+
+/* 删除确认的两颗按钮（2026-11-19 用户要求模仿「运行全部」）：
+   36px 高、6px 圆角、无描边，颜色只落在文字上，面积靠一层低饱和度色面撑住；
+   主次靠色相区分 —— 取消是中性面，删除沿危险色，不靠实心红块抢注意力。 */
+.confirm-action {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12.5px;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.confirm-action--cancel {
+  background: var(--bg-field);
+  color: var(--text-dim);
+}
+
+:where(html.is-hoverable) .confirm-action--cancel:hover:not(:disabled) {
+  background: var(--bg-control);
+  color: var(--text);
+}
+
+.confirm-action--danger {
+  background: var(--fail-face);
+  color: var(--danger-text);
+}
+
+:where(html.is-hoverable) .confirm-action--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-text) 22%, transparent);
+}
 
 .confirm-desc {
   margin: 0;

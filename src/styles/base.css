@@ -455,7 +455,8 @@
   --dialog-backdrop: var(--menu-backdrop);
   --dialog-shadow: var(--menu-shadow), 0 24px 64px -18px rgba(0, 0, 0, 0.5);
   --dialog-scrim: rgba(0, 0, 0, 0.46);
-  --dialog-radius: 12px;
+  /* 2026-11-19 用户要求「圆角再小一档」：12 → 10，仍是卡面与控件之间的中间档 */
+  --dialog-radius: 10px;
   --dialog-pad: 20px;
 
   /* 图标提示框（components/AppTooltip.vue，唯一消费者，2026-10-24 晚加）。
