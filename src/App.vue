@@ -2442,8 +2442,8 @@ onBeforeUnmount(() => {
   /* 编辑区 = **便当盒里装着坑的那座岛**（2026-11-18 05:54，口径见 base.css）：
      外壳透明、无外影 —— 岛面由内部的页签栏（--bg-panel）铺出来，坑由 EditorPane 的
      --bg-editor-pane（#0d0d0f）铺出来（stage 的坑口内阴影 --pit-shadow 已于 06:12
-     随「页签栏与编辑区之间不要影」一并删掉）；岛沿走下面 `::after` 的 inset 环
-     （--island-edge，深色 5% 白微光）。
+     随「页签栏与编辑区之间不要影」一并删掉）；岛沿走下面 `::after` 的
+     `var(--island-rim)` 顶光刃（「去线框化」方案一，几何由主题变量接管）。
      历史上这栏加过三代「岛」的折腾（15% 黑沿 → 6% 白沿 → 五档阴影），全部回滚；
      便当盒里它的身份是「一座岛 + 岛内挖坑」，不向外交影。
      ⚠️ 别恢复外 box-shadow：外影会让这座岛重新「浮起来」，与缝的分割语言打架。
@@ -2464,13 +2464,13 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-/* 编辑区的岛沿：画在**内侧**（贴 padding-box，圆角 10px 与本栏一致），与分屏窗格同一条
-   `inset 0 0 0 1px var(--island-edge)`。
-   06:30 四阶重校准后 --island-edge 十套全部有值（深 5% 白 / 浅 6% 黑 / 各主题色相微光 /
-   contrast #52525b 实灰），这条规则在所有主题都真实画出沿 —— 马赫带效应：交界处这道
-   半透明发丝线让岛与地的分离感翻倍，同时保持「静置无影」的克制。
-   contrast 仍是十套里唯一「必须画线」的主题（四层底色全黑），2026-11-18 曾直接删掉
-   这一版规则，contrast 的单窗格边界跟着消失，又按「变量即开关」放回来 —— 别再删。
+/* 编辑区的岛沿：画在**内侧**（贴 padding-box，圆角 10px 与本栏一致），与分屏窗格、侧栏
+   同读一支 `var(--island-rim)`（2026-11-18 晚「去线框化」方案一）：
+   原先 `inset 0 0 0 1px` 四条边全包的环有两处破坏「无边框高级感」——深色系左/右/底也
+   受光违背「光源来自上方」的物理直觉（大脑切换为「人为画的 1px 线框」）；浅色系内侧
+   暗线本质就是表格线。现在几何收进主题变量：除 contrast（四层全黑、必须全环）外，
+   十套全部是 **`inset 0 1px 0 0` 单向顶光刃** —— 只有岛的顶部 1px 受光，左右与底边
+   靠岛面/地面的色阶硬切，没有闭合回路，人眼读不出边框。
    用伪元素而不是 inset box-shadow：后者画在子内容**下面**，页签栏 / Monaco 一铺就看不见了
    （分屏窗格踩过同一个坑）。
    ⚠️ 只在单窗格出现：分屏时最外圈窗格自己有一条，两层叠在一起会在最外沿画成 2px 亮线。 */
@@ -2481,13 +2481,13 @@ onBeforeUnmount(() => {
   z-index: 2;
   pointer-events: none;
   border-radius: 10px;
-  box-shadow: inset 0 0 0 1px var(--island-edge);
+  box-shadow: var(--island-rim);
 }
 
 .pane--tests {
   flex: 1 1 auto;
   /* 侧栏 = **一座普通的岛**（2026-11-18 05:54 深色便当盒，定稿）：铺 --bg-panel，
-     沿（--island-edge）由下面 ::after 的 inset 环画在**岛的内侧**。
+     沿（--island-rim）由下面 ::after 画在岛沿（现为主题变量接管的顶光刃）。
      2026-11-18 07:05 用户「浅色主题下，外面一圈样式不同」：原先侧栏用 `0 0 0 1px`
      把沿画在**盒外**（环叠在地面色上），编辑区却画在盒内（环叠在岛面色上）——
      同一支半透明沿压在两种底色上合成出两圈深浅不同的线：深色下都是极淡白沿看不出
@@ -2518,7 +2518,8 @@ onBeforeUnmount(() => {
 }
 
 /* 侧栏的岛沿：与编辑区（`.pane--editor:not(.is-split)::after`）和分屏窗格
-   （EditorPaneGrid 的 `.editor-grid__cell::after`）完全同一条 `inset 0 0 0 1px`。
+   （EditorPaneGrid 的 `.editor-grid__cell::after`）同读一支 `var(--island-rim)`
+   （2026-11-18 晚「去线框化」：除 contrast 全环外，十套都是顶部 1px 迎光刃）。
    圆角 10px 与本栏一致。z-index / pointer-events 同编辑区那版。 */
 .pane--tests::after {
   content: '';
@@ -2527,7 +2528,7 @@ onBeforeUnmount(() => {
   z-index: 2;
   pointer-events: none;
   border-radius: 10px;
-  box-shadow: inset 0 0 0 1px var(--island-edge);
+  box-shadow: var(--island-rim);
 }
 
 /* 折叠态留在排版里、宽度收到 1px（不再 display: none）。

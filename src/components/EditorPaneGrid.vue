@@ -548,11 +548,12 @@ defineExpose({
   background-clip: padding-box;
 }
 
-/* 岛的「沿」：一圈 1px 的 --island-edge，画在**岛的内侧**（贴 padding-box，圆角 10 = 12 − 2）。
+/* 岛的「沿」：主题变量 --island-rim 接管几何（2026-11-18 晚「去线框化」方案一），
+   画在**岛的内侧**（贴 padding-box，圆角 10 = 12 − 2）。除 contrast 全环外，十套都是
+   `inset 0 1px 0 0` 顶部 1px 迎光刃 —— 原先 `0 0 0 1px` 全包环的左右/底边受光违背
+   「光源来自上方」，且浅色内侧暗线就是表格线；现在三边靠岛面与地面的色阶硬切。
    不用 box-shadow 的 `0 0 0 1px`：那是画在盒子外面的，两片相邻时会各画一条、在缝里
    叠成一条 2px 的深线 —— 正好变回用户不要的分割线。贴内侧则永远跨不过缝。
-   06:30 四阶重校准后十套 --island-edge 全部有值（深 5% 白 / 浅 6% 黑 / 各主题微光 /
-   contrast 实灰），这条沿在所有主题都真实画出 —— 马赫带效应补足 4px 窄缝的分离感。
    用伪元素而不是 inset box-shadow：后者画在子内容**下面**，页签栏 / Monaco 一铺就看不见了。 */
 .editor-grid.is-split .editor-grid__cell::after {
   content: '';
@@ -561,7 +562,7 @@ defineExpose({
   z-index: 2;
   pointer-events: none;
   border-radius: 10px;
-  box-shadow: inset 0 0 0 1px var(--island-edge);
+  box-shadow: var(--island-rim);
 }
 
 /* 拖放落点高亮：中心 = 整片窗格；四边 = 即将切出来的那一半；外沿 = 横跨整块编辑区的一条
