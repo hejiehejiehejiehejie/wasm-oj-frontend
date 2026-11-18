@@ -423,8 +423,15 @@ function insertIndexAt(paneId, pointer) {
  *   · 四边 → 先把目标窗格在该边一分为二，再搬进**新窗格**（新窗格获焦）；
  *   · 编辑区**最外沿**（并排 ≥3 片的底部、三排的左右…）→ 新窗格**横跨整块编辑区**，
  *     不是切一片（见 createPaneForDrop 与 paneDropTarget 的 spanTargetOf）；
- *   · 同一片窗格的中心区不算跨窗格（返回 null，交回条带自身排序）；唯一一张页签拖到
- *     自己边缘时只切分、不搬页签（下面那段注释）。
+ *   · 同一片窗格的中心区不算跨窗格（返回 null，交回条带自身排序）。
+ *
+ * 「源窗格只有一张页签、落点在自己的边缘」**不需要特判**（2026-11-18 用户口径，取代
+ * 2026-11-17 的「只切分、不搬页签」）：照常建窗格 + 搬页签，源窗格随即空掉，placeTab
+ * 自带的那步 `closeEmptyPane` 会把它收掉、兄弟顶位 —— 三列并排、把中间那格唯一的页签
+ * 拖到外沿底部，结果就是中间那格**消失**、底下多出一条横跨三列的新窗格（页签在里面）。
+ * 旧口径留下的「旁边多一格空的、页签原地不动」正是用户报的 bug；它当时担心的
+ * 「切完又并回去、白切一趟」只在源窗格是**整块编辑区唯一一片**时成立，而那种情形
+ * 已在 resolvePaneDrop 里拦掉（`allTabs() ≤ 1`，2026-11-17 口径不变）。
  *
  * 两条限制：
  *   · 组是**窗格内**的概念 —— 搬过去之前先退组（旧组空了随后摘掉），不做跨叶入组；
@@ -435,35 +442,18 @@ function moveAcrossPanes(payload) {
   const target = resolvePaneDrop(payload.pointer, { sourcePaneId: props.paneId })
   if (!target) return false
 
-  // 本窗格只有一张页签、落点又在**自己**的边缘：只切分，不搬页签。
-  //
-  // 搬过去的话原窗格当场变空、紧接着被 closeEmptyPane 回收，切出来的一格又并回去 ——
-  // 鼠标 / 触摸看到的都是「什么都没发生」，连高亮都没有（早先干脆在 resolvePaneDrop 里
-  // 拦掉，代价是「只有一个窗格 + 一张页签」时永远分不了屏，而窄屏刚打开时正是这个状态）。
-  // 现在改成与 ⌘⌥\ 同一个结果：页签留在原窗格，旁边多出一格空的（≤ 上限时才有这一下，
-  // 上限与最小尺寸由 paneDropTarget 判过）。跨越式落点同样只切 —— 新窗格本来就另起一条，
-  // 把页签搬过去的唯一后果是原窗格空掉再被回收，等于白切。
-  //
-  // ⚠️ 整个编辑区只有这一张页签的情况**到不了这里**：那条已在 resolvePaneDrop 里拦掉
-  // （2026-11-17 用户口径「刚开始只有单个标签页就不必分窗格」），本分支只剩「本格一张、
-  // 别处还有页签」—— 切出来才有意义（两边都有东西可看）。
-  if (
-    target.paneId === props.paneId &&
-    target.zone !== 'center' &&
-    target.zone !== 'tabstrip' &&
-    (leafById(props.paneId)?.tabs.length ?? 0) === 1
-  ) {
-    if (!createPaneForDrop(target)) return false
-    clearPaneTabDrag()
-    clearPaneDropHint()
-    return true
-  }
-
   if (tabGroups.groupOf(payload.id)) tabGroups.removeFromGroup(payload.id)
   let paneId = target.paneId
   if (target.zone !== 'center' && target.zone !== 'tabstrip') {
     paneId = createPaneForDrop(target) || target.paneId
   }
+  // 视图页签不吃 placeTab 的 makeActive：`leaf.active` 按不变式只装文件 id
+  // （editorViews.show 的说明），且「视图盖住窗格」判的是 editorViews 的
+  // `state[id].active`（activeViewIdIn）—— placeTab 摸不到那一层，只搬页签的话
+  // 页签过去了、内容却永远「点不开」（用户 2026-11-18 报的另一半 bug）。
+  // 激活交给 focusTab：activateView → show() 翻 open/active、焦点交给宿主窗格，
+  // 与点这条页签本身是同一条路。文件页签维持 makeActive，行为不变。
+  const isView = isViewId(payload.id)
   placeTab(payload.id, {
     paneId,
     // 页签栏落点 = 插到指针所在的那两格之间；中心区也按条带位置插（指针在正文里时
@@ -473,7 +463,9 @@ function moveAcrossPanes(payload) {
       target.zone === 'center' || target.zone === 'tabstrip'
         ? insertIndexAt(paneId, payload.pointer)
         : undefined,
+    makeActive: !isView,
   })
+  if (isView) focusTab(payload.id)
   tabGroups.removeEmptyGroups()
   tabGroups.normalizeRuns()
   clearPaneTabDrag()

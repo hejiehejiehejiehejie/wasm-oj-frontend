@@ -18,24 +18,41 @@
  * 【四条防误触规则】
  *   1. 窗格数已到上限 → 两条轴一律不可切，整个内容区都是中心区（上限见 editorPanes 的
  *      `MAX_PANES`，宽窄屏一致）；
- *   2. 同一片窗格 + 唯一一张页签拖到自己的边缘 → **认**，但落地时只切分、不搬页签
- *      （见 EditorTabs 的 moveAcrossPanes）。切完原窗格不会空掉，于是不会触发空窗格回收，
- *      结果就是「原窗格留着这张页签 + 旁边多出一格空的」—— 与 ⌘⌥\ 的语义一致。
- *      早先这里一律不认：切分 + 搬页签 + 回收原窗格三步抵消，画面闪一下等于没变。可那样
- *      一来「本窗格只有一张页签」就**永远切不出分屏**，而且不亮高亮，鼠标和触摸看起来都是
- *      「手势没反应」。
- *      **例外（2026-11-17 用户口径）**：整个编辑区总共只有这一张页签时不切 —— 切出来的
- *      第二格必然是空的，那不算分屏，只是凭空多出一页占位页。判据在 `resolvePaneDrop`
- *      末尾（要全局页签数，几何层看不到这一层）。
+ *   2. 同一片窗格 + 唯一一张页签拖到自己的边缘 → **认**，落地时照常搬家（见 EditorTabs
+ *      的 moveAcrossPanes）：搬走后源窗格空掉，placeTab 自带的 `closeEmptyPane` 把它收掉、
+ *      兄弟顶位 —— 三列并排、中间那格唯一的页签拖到外沿底部，结果就是中间格**消失**、
+ *      底下多出一条横跨三列的新窗格（2026-11-18 用户口径，取代 2026-11-17 的
+ *      「只切分、不搬页签」—— 那版会留下一个空窗格、页签原地不动，正是报的 bug）。
+ *      「整个编辑区总共只有这一张页签」时仍不切：切出来的第二格必然是空的，那不算分屏，
+ *      只是凭空多出一页占位页。判据在 `resolvePaneDrop` 末尾（要全局页签数，几何层
+ *      看不到这一层；2026-11-17 口径不变）。
+ *      **再收紧一格（2026-11-18 晚，评审第 3A 条）**：同一片窗格 + 唯一一张页签 +
+ *      落点在**自己的边缘**且**不是跨越** → 也不认：切开自己 → 页签搬进新格 → 原格空掉
+ *      被回收 → 新格顶满原位，净效果为零、白做一次 DOM 销毁重建。跨越不受此限 ——
+ *      跨越建的新格挂在根上，回收源格后树层级真的变了（三列中格落底 = 真变化）。
  *   3. **最小尺寸保护**：目标内容区对半分之后两半都得站得住，太窄/太矮就只留另一条轴
  *      （宽窄屏同一套判据）；
  *   4. 同一片窗格的中心区 / 页签栏 → 交回条带自身的排序，不亮「跨窗格」高亮。
  *
- * 【外沿落点 = 跨越整块编辑区】并排三列时把页签拖到底部，切一片叶子得到的是「第三列再分
- * 上下」—— 半格只有一列宽，装不下代码。所以再加一条几何判据：落点那条边**正好压在网格
- * 边界上**（这片窗格的外沿就是编辑区的外沿）且叶子数 ≥ `SPAN_MIN_PANES` 时，改判为
- * 「在外面接一条」：新窗格横跨全部列（落左右时纵贯全部行），落地走 `splitSpanning`，
- * 高亮也按整块网格的一半（或 1/(n+1)）画。三列落底部、三排落左右都是这一条。
+ * 【外沿落点分两段（2026-11-18 晚二次定稿：对调 + 对齐 + 解禁）】外沿 = 这片窗格的那条边
+ * 正好压在网格边界上（容差 `OUTER_EDGE_EPS`）且叶子数 ≥ `SPAN_MIN_PANES`。此时同一条
+ * 边缘带分成两段：
+ *   · **贴边最外 `SPLIT_SEGMENT_PX` = 跨越段**：新窗格横跨全部列（落左右时纵贯全部行），
+ *     落地走 `splitSpanning`，高亮按整块网格的 1/(n+1) 画。「推到底 = 全局」——从窗格
+ *     中心往外拖，先局部切分、推到底变全局跨越，轨迹单调（2026-11-18 晚用户采纳评审
+ *     口径，取代同日早前「最外=小窗格」的版本）；
+ *   · **越过 `SPLIT_SEGMENT_PX` 往里 = 小窗格段**：切开贴边这片窗格（`splitPane`）。
+ *     没有这一段，「上两格 + 下一格」这类复合布局里「下方拆左右」「第一行左侧加小格」
+ *     这些树完全表达得了的形状到不了手。
+ * 三条配套（评审第 1/4/6 条）：
+ *   · **外沿带宽按根网格算**：`min(网格尺寸 × 25%, 120px)`，与指针所在窗格无关 ——
+ *     上下两片共享同一条外沿时，分段边界才能上下对齐（各窗格自己算会出现 90 vs 120 的
+ *     断层，竖着移过去会从边缘落点掉进中心区）；非外沿的边仍按各窗格自身尺寸算。
+ *   · **最小尺寸只连坐局部切分**：某片窗格自身切不动（对半 < 120px）时，它的外沿带
+ *     **整条让给跨越**，不消失 —— 跨越切的是根网格，空间够就不该被这片窗格拖累；
+ *     根网格塞不下 1/(n+1) 的新窗格时才真禁跨越。
+ *   · **分段线有独立迟滞**（`SEGMENT_STICKY_PX`）：40px 线两侧「半格矩形 ↔ 全局长条」
+ *     面积差太大，±6px 死区防抖。
  *
  * 两片时不跨越：那时切一片正好得到一半宽/高，本来就好用，而「只切这一列」才是主操作 ——
  * 外沿判据只管 ≥3 片的并排，别把老手感改掉。
@@ -57,7 +74,7 @@
  * `.editor-grid__cell` 才是指针真正悬停的那片。
  */
 import { shallowRef } from 'vue'
-import { allTabs, leaves, MAX_PANES, spanPaneShare } from './editorPanes.js'
+import { allTabs, leaves, leafById, MAX_PANES, spanPaneShare } from './editorPanes.js'
 
 /** 边缘带宽占内容区尺寸的比例 */
 const EDGE_RATIO = 0.25
@@ -68,6 +85,23 @@ const EDGE_STICKY_PX = 12
 
 /** 外沿落点改判为「跨越整块编辑区」所需的叶子数（三列落底部、三排落左右；两片见文件头） */
 const SPAN_MIN_PANES = 3
+/**
+ * 外沿边缘带里归「跨越段」的那段深度（px），从这条边量起：贴边最外这几十 px = 在整棵
+ * 树外面接一条横贯/纵贯的大窗格；**越过它往里才是小窗格段**（切开贴边这片窗格）。
+ * 2026-11-18 晚对调（用户采纳评审第 2 条）：「推到底 = 全局」，从中心往外拖先局部后
+ * 全局、轨迹单调 —— 取代同日早前「最外=小窗格」的版本。
+ *
+ * 深度按 stage 矩形量起：外沿处 stage 边 ≈ 网格边（容差 `OUTER_EDGE_EPS`）；顶边情形
+ * 页签栏单独成 tabstrip 区，能落到边缘带的点都在页签栏下方。
+ */
+const SPLIT_SEGMENT_PX = 40
+/**
+ * 分段线（`SPLIT_SEGMENT_PX`）的迟滞量：分段两侧「半格矩形 ↔ 全局长条」面积差太大，
+ * 不加死区会在 39↔41px 之间高频互跳。比边缘↔中心的 12px 用得省 —— 40px 的跨越段
+ * 经不起再吃掉一截。当前在跨越段要退到 46px 以外才切回小窗格段；在小窗格段要进到
+ * 34px 以内才切入跨越段。
+ */
+const SEGMENT_STICKY_PX = 6
 /** 判「这片窗格的外沿就是网格边界」的容差（百分比定位有小数，不能直接相等） */
 const OUTER_EDGE_EPS = 1.5
 
@@ -103,6 +137,12 @@ export const paneDropHint = shallowRef(null)
 /** 上一次命中的边（`{ paneId, zone }`）；一次拖拽会话内有效，见文件头的「迟滞」 */
 let stickyEdge = null
 
+/**
+ * 上一次命中的分段（`{ paneId, zone, seg }`，seg ∈ 'span'|'split'）；分段线迟滞用。
+ * 同一片窗格的同一条边上，40px 分段线两侧各让 `SEGMENT_STICKY_PX` 的死区。
+ */
+let stickySegment = null
+
 /** @param {{paneId: string, zone: string, band?: object|null, insertX?: number|null, span?: object|null}|null} next */
 export function setPaneDropHint(next) {
   const value = next
@@ -131,10 +171,15 @@ export function setPaneDropHint(next) {
   }
   paneDropHint.value = value
   stickyEdge = value && EDGE_ZONES.has(value.zone) ? { paneId: value.paneId, zone: value.zone } : null
+  stickySegment =
+    value && EDGE_ZONES.has(value.zone)
+      ? { paneId: value.paneId, zone: value.zone, seg: value.span ? 'span' : 'split' }
+      : null
 }
 
 export function clearPaneDropHint() {
   stickyEdge = null
+  stickySegment = null
   if (paneDropHint.value) paneDropHint.value = null
 }
 
@@ -142,71 +187,73 @@ export function clearPaneDropHint() {
  * 五区几何判定（**纯函数**：只回答「这个点落在矩形的哪个区」，不读 DOM、不认拖拽源）。
  * 单独拆出来是为了能脱离浏览器验算边界：角部、带宽、迟滞都是纯算式。
  *
+ * 四条边**各有自己的带宽**（2026-11-18 起）：外沿边按根网格尺寸算、内沿边按窗格自身算，
+ * 由调用方（`paneDropTargetAt`）算好传入 —— 本函数只管「点落在哪」。
+ *
  * @param {{left: number, top: number, width: number, height: number}} rect 内容区矩形
  * @param {number} clientX
  * @param {number} clientY
- * @param {{canSplitX?: boolean, canSplitY?: boolean, sticky?: string|null}} [options]
- *   canSplitX = 能否左右切（false 时左右边缘带整体消失）；sticky = 上一帧命中的边
+ * @param {{bands?: {left?: number, right?: number, top?: number, bottom?: number},
+ *          sticky?: string|null}} [options]
+ *   bands = 四条边各自的带宽（px，0 = 那条边不可落）；sticky = 上一帧命中的边
  * @returns {'center'|'left'|'right'|'top'|'bottom'|null} null = 点不在这个矩形里
  */
 export function hitTestFiveZones(
   rect,
   clientX,
   clientY,
-  { canSplitX = true, canSplitY = true, sticky = null } = {},
+  { bands = {}, sticky = null } = {},
 ) {
   const x = clientX - rect.left
   const y = clientY - rect.top
   if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null
 
-  const bandX = canSplitX ? Math.min(rect.width * EDGE_RATIO, EDGE_MAX_PX) : 0
-  const bandY = canSplitY ? Math.min(rect.height * EDGE_RATIO, EDGE_MAX_PX) : 0
-  if (!bandX && !bandY) return 'center'
+  const b = {
+    left: bands.left ?? 0,
+    right: bands.right ?? 0,
+    top: bands.top ?? 0,
+    bottom: bands.bottom ?? 0,
+  }
+  if (!b.left && !b.right && !b.top && !b.bottom) return 'center'
 
-  const zone = nearestEdge(x, y, rect.width, rect.height, bandX, bandY)
+  const zone = nearestEdge(x, y, rect.width, rect.height, b)
   if (zone !== 'center' || !sticky) return zone
 
-  // 迟滞：上一帧就在某条边上，两条带宽都外扩 12px 再判一次 —— 于是「贴着 106px 进来、
+  // 迟滞：上一帧就在某条边上，四条带宽都外扩 12px 再判一次 —— 于是「贴着 106px 进来、
   // 退到 118px 才出去」，中间 12px 是死区。判出来是哪条边就认哪条（可能横移到角上的另一条），
   // 只有真退回中心才返回 center。
-  return nearestEdge(
-    x,
-    y,
-    rect.width,
-    rect.height,
-    bandX ? bandX + EDGE_STICKY_PX : 0,
-    bandY ? bandY + EDGE_STICKY_PX : 0,
-  )
+  return nearestEdge(x, y, rect.width, rect.height, {
+    left: b.left ? b.left + EDGE_STICKY_PX : 0,
+    right: b.right ? b.right + EDGE_STICKY_PX : 0,
+    top: b.top ? b.top + EDGE_STICKY_PX : 0,
+    bottom: b.bottom ? b.bottom + EDGE_STICKY_PX : 0,
+  })
 }
 
 /**
  * 内部：取「归一化深度最小」的那条边；不在任何边缘带内返回 'center'。
  *
- * 用 `x / bandX`（而非 `x`）比大小是关键：左右带与上下带的宽度通常不等，像素口径会在
+ * 用 `x / band`（而非 `x`）比大小是关键：左右带与上下带的宽度通常不等，像素口径会在
  * 角部产生一条 45° 的分界，归一化之后分界才连得上内框顶点。
  */
-function nearestEdge(x, y, width, height, bandX, bandY) {
+function nearestEdge(x, y, width, height, bands) {
   let zone = 'center'
   let best = Infinity
-  if (bandX > 0) {
-    if (x < bandX && x / bandX < best) {
-      best = x / bandX
-      zone = 'left'
-    }
-    if (width - x < bandX && (width - x) / bandX < best) {
-      best = (width - x) / bandX
-      zone = 'right'
-    }
+  if (bands.left > 0 && x < bands.left && x / bands.left < best) {
+    best = x / bands.left
+    zone = 'left'
   }
-  if (bandY > 0) {
-    if (y < bandY && y / bandY < best) {
-      best = y / bandY
-      zone = 'top'
-    }
-    if (height - y < bandY && (height - y) / bandY < best) {
-      best = (height - y) / bandY
-      zone = 'bottom'
-    }
+  if (bands.right > 0 && width - x < bands.right && (width - x) / bands.right < best) {
+    best = (width - x) / bands.right
+    zone = 'right'
+  }
+  if (bands.top > 0 && y < bands.top && y / bands.top < best) {
+    best = y / bands.top
+    zone = 'top'
+  }
+  if (bands.bottom > 0 && height - y < bands.bottom && (height - y) / bands.bottom < best) {
+    best = (height - y) / bands.bottom
+    zone = 'bottom'
   }
   return zone
 }
@@ -242,35 +289,79 @@ export function paneDropTargetAt(point) {
 
   const rect = stage.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return { paneId, zone: 'center' }
+  const gridRect = cell.closest('.editor-grid')?.getBoundingClientRect() ?? rect
 
   // 窗格数到顶就不再认边缘：上限见 editorPanes 的 MAX_PANES（宽窄屏一致）。
   const allowed = leaves().length < MAX_PANES
-  // 最小尺寸保护：左右对半后每片都得站得住。宽窄屏同一套判据。
-  const canSplitX = allowed && rect.width >= MIN_PANE_WIDTH * 2
-  const canSplitY = allowed && rect.height >= MIN_PANE_HEIGHT * 2
+  // 局部切分的最小尺寸保护：这片窗格自身对半后每片都得站得住。宽窄屏同一套判据。
+  // 2026-11-18 起**只连坐局部切分**（评审第 4 条）：切不动时这片窗格的外沿带整条让给
+  // 跨越（跨越切的是根网格，空间够就不该被这片窗格拖累）；非外沿的边才真的消失。
+  const localSplitX = allowed && rect.width >= MIN_PANE_WIDTH * 2
+  const localSplitY = allowed && rect.height >= MIN_PANE_HEIGHT * 2
+  // 跨越的可行性：叶子数够 + 根网格在该轴上再塞一条 1/(n+1) 的新窗格还站得住。
+  const spanOkX =
+    allowed &&
+    leaves().length >= SPAN_MIN_PANES &&
+    gridRect.width * spanPaneShare('x') >= MIN_PANE_WIDTH
+  const spanOkY =
+    allowed &&
+    leaves().length >= SPAN_MIN_PANES &&
+    gridRect.height * spanPaneShare('y') >= MIN_PANE_HEIGHT
+
+  // 四条边各自算带宽：**外沿边按根网格**（同一条外沿上的各片窗格共用一个分段边界，
+  // 否则 360px 的上左 90px 带、800px 的下方 120px 带，竖着移过去会从边缘掉进中心区，
+  // 评审第 1 条）；内沿边按窗格自身（切的就是这一片，带多宽随它）。
+  const cellRect = cell.getBoundingClientRect()
+  const outerL = cellRect.left - gridRect.left <= OUTER_EDGE_EPS
+  const outerR = gridRect.right - cellRect.right <= OUTER_EDGE_EPS
+  const outerT = cellRect.top - gridRect.top <= OUTER_EDGE_EPS
+  const outerB = gridRect.bottom - cellRect.bottom <= OUTER_EDGE_EPS
+  const localBandX = localSplitX ? Math.min(rect.width * EDGE_RATIO, EDGE_MAX_PX) : 0
+  const localBandY = localSplitY ? Math.min(rect.height * EDGE_RATIO, EDGE_MAX_PX) : 0
+  const gridBandX = Math.min(gridRect.width * EDGE_RATIO, EDGE_MAX_PX)
+  const gridBandY = Math.min(gridRect.height * EDGE_RATIO, EDGE_MAX_PX)
+  const bands = {
+    left: outerL && spanOkX ? gridBandX : localBandX,
+    right: outerR && spanOkX ? gridBandX : localBandX,
+    top: outerT && spanOkY ? gridBandY : localBandY,
+    bottom: outerB && spanOkY ? gridBandY : localBandY,
+  }
+
   const sticky = stickyEdge?.paneId === paneId ? stickyEdge.zone : null
-  const zone = hitTestFiveZones(rect, point.x, point.y, { canSplitX, canSplitY, sticky })
+  const zone = hitTestFiveZones(rect, point.x, point.y, { bands, sticky })
   // 边界上的取整误差可能让点落到矩形外：按中心区兜底，不要凭空返回 null 断掉整条链
   if (!zone) return { paneId, zone: 'center' }
-  // 外沿落点改判为「跨越整块编辑区」（见文件头）：三列落底部 → 横跨三列的一整行
-  const span = spanTargetOf(cell, zone, allowed)
+  // 外沿落点分两段：贴边最外 SPLIT_SEGMENT_PX = 跨越段，越过它往里 = 小窗格段
+  // （切开这片，走局部切分）—— 判据见 spanTargetOf。localOk 告诉它「局部切分到底可不可
+  // 用」：不可用时整条外沿带都归跨越。
+  const localOk = zone === 'left' || zone === 'right' ? localSplitX : localSplitY
+  const span = spanTargetOf(cell, zone, allowed, rect, point, localOk)
   return span ? { paneId, zone, span } : { paneId, zone }
 }
 
 /**
- * 内部：这次边缘落点是不是**编辑区最外沿**，该不该跨越整块编辑区。
+ * 内部：这次边缘落点该不该判成**跨越**（外沿 + 贴边最外的跨越段）。
  *
- * 两条判据：
- *   1. 这片窗格的那条边正好压在网格边界上（容差 `OUTER_EDGE_EPS`）—— 夹在两片中间的
+ * 判据：
+ *   1. `allowed`：窗格数没到上限；
+ *   2. 叶子数 ≥ `SPAN_MIN_PANES`：两片时切一片正好是一半，外沿判据不必介入（见文件头）；
+ *   3. 这片窗格的那条边正好压在网格边界上（容差 `OUTER_EDGE_EPS`）—— 夹在两片中间的
  *      边不算，那本来就是「切这一片」；
- *   2. 叶子数 ≥ `SPAN_MIN_PANES`：两片时切一片正好是一半，外沿判据不必介入（见文件头）。
+ *   4. 分段：贴边最外 `SPLIT_SEGMENT_PX` = 跨越段，越过它往里 = 小窗格段（2026-11-18
+ *      晚对调，见文件头）。**局部切分不可用（`localOk` = false，这片窗格自身切不动）时
+ *      整条外沿带都归跨越** —— 最小尺寸只连坐局部，不连坐全局（评审第 4 条）；
+ *   5. 分段线迟滞（`SEGMENT_STICKY_PX`）：记着上一帧这条边判成了哪段（`stickySegment`），
+ *      在 40px 线两侧各让 6px 死区，防止「半格矩形 ↔ 全局长条」高频互跳（评审第 6 条）。
  *
  * @param {Element} cell
  * @param {string} zone
  * @param {boolean} allowed 窗格数还没到上限
- * @returns {{axis: 'x'|'y', side: 'before'|'after', share: number}|null}
+ * @param {DOMRect} stageRect 指针所在窗格的正文矩形（分段深度从这里量起）
+ * @param {{x: number, y: number}} point
+ * @param {boolean} localOk 这条边对应的轴上，这片窗格自身可不可以局部切分
+ * @returns {{axis: 'x'|'y', side: 'before'|'after', share: number}|null} null = 小窗格段（走局部切分）
  */
-function spanTargetOf(cell, zone, allowed) {
+function spanTargetOf(cell, zone, allowed, stageRect, point, localOk) {
   const side = splitTargetOf(zone)
   if (!side || !allowed) return null
   if (leaves().length < SPAN_MIN_PANES) return null
@@ -288,6 +379,30 @@ function spanTargetOf(cell, zone, allowed) {
         ? gridRect.right - cellRect.right <= OUTER_EDGE_EPS
         : cellRect.left - gridRect.left <= OUTER_EDGE_EPS
   if (!onOuter) return null
+
+  // 局部切分本身切不动（这片窗格太窄/太矮）：整条外沿带都归跨越，不分小窗格段。
+  if (!localOk) return { axis: side.axis, side: side.side, share: spanPaneShare(side.axis) }
+
+  // 分段深度：从 stage 的这条边量起（外沿处 stage 边 ≈ 网格边）。
+  const depth =
+    side.axis === 'y'
+      ? side.side === 'after'
+        ? stageRect.bottom - point.y
+        : point.y - stageRect.top
+      : side.side === 'after'
+        ? stageRect.right - point.x
+        : point.x - stageRect.left
+
+  // 分段线迟滞：上一帧在同一片同一条边上判过的段，往它那边多让 6px —— 在跨越段要退到
+  // 46px 以外才切回小窗格段，在小窗格段要进到 34px 以内才切入跨越段。
+  const prev =
+    stickySegment?.paneId === cell.dataset.paneId && stickySegment?.zone === zone
+      ? stickySegment.seg
+      : null
+  const threshold =
+    SPLIT_SEGMENT_PX + (prev === 'span' ? SEGMENT_STICKY_PX : prev === 'split' ? -SEGMENT_STICKY_PX : 0)
+  // 贴边最外 = 跨越段；depth 越过阈值往里 = 小窗格段（返回 null，走局部切分）。
+  if (depth > threshold) return null
 
   return { axis: side.axis, side: side.side, share: spanPaneShare(side.axis) }
 }
@@ -336,13 +451,15 @@ function insertPercent(strip, cellRect, clientX) {
  * 拖页签时的落点解析：在 `paneDropTargetAt` 之上补两条「这次拖拽特有的」规则。
  *
  * **同一片窗格的中心区 / 页签栏不算跨窗格落点** —— 交回条带自身的排序（返回 null）；
- * 同一片窗格的**边缘**照认（哪怕本窗格只有一张页签）。单页签那条落地时只切分、不搬页签，
- * 所以不会再出现「切完原窗格空掉 → 回收 → 原地闪一下」的空转。
- *
- * **全局只有一张页签时不切**（用户 2026-11-17 口径「刚开始只有单个标签页就不必分窗格」）：
- * 这时切出来的第二格必然是空的，只是多一页占位页；页签反正也搬不过去（搬走原格会空、
- * 立刻被回收，等于原地闪一下）。返回 null 会连高亮一起灭掉，手势看起来就是「这儿不能放」。
- * 判据放在这里而不是几何层：`paneDropTargetAt` 只认矩形与命中，看不到「整个编辑区有几张页签」。
+ * 同一片窗格的**边缘**照认，但带两条豁免（都返回 null，手势看起来就是「这儿不能放」）：
+ *   · **整个编辑区只有一张页签**（用户 2026-11-17 口径「刚开始只有单个标签页就不必
+ *     分窗格」）：切出来的第二格必然是空的，只是多一页占位页；页签反正也搬不过去
+ *     （搬走原格会空、立刻被回收，等于原地闪一下）；
+ *   · **本窗格只有这一张页签、且不是跨越**（评审第 3A 条）：切开自己 → 页签搬进新格 →
+ *     原格空掉被 `closeEmptyPane` 回收 → 新格顶满原位，净效果为零、白做一次 DOM
+ *     销毁重建。跨越不受此限：新格挂在根上，回收源格后树层级真的变了。
+ * 判据放在这里而不是几何层：`paneDropTargetAt` 只认矩形与命中，看不到「页签有几张、
+ * 源窗格是谁」。
  *
  * @param {{x: number, y: number}|null|undefined} point
  * @param {{ sourcePaneId?: string|null }} [options]
@@ -356,6 +473,8 @@ export function resolvePaneDrop(point, { sourcePaneId = null } = {}) {
   if (target.zone === 'center' || target.zone === 'tabstrip') return null
   // 只对「拖页签」成立：文件树拖进来时调用方不传 sourcePaneId，走的不是这条分支
   if (allTabs().length <= 1) return null
+  // 同窗格 + 唯一一张页签 + 自己的边缘（非跨越）：落地是「切开自己再回收自己」的空转
+  if (!target.span && (leafById(sourcePaneId)?.tabs.length ?? 0) === 1) return null
   return target
 }
 

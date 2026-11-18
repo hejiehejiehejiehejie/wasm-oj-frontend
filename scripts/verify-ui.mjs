@@ -750,9 +750,12 @@ try {
         // 状态栏是 v-if 存在、靠 .editor-pane.is-md 收掉，所以只能看渲染盒
         statusVisible: visible('.editor-pane__status'),
         // 运行按钮在「评测样例」页签里（v-show 藏着，但节点在 DOM 里，disabled 读得到）；
-        // 此刻有用例（E 步加的那 1 条）、没在运行，唯一能置灰它的就是题解这条闸门
+        // 没在运行，唯一能置灰它的就是题解这条闸门
         runDisabled: runButton ? runButton.disabled : null,
-        runBlocked: document.querySelector('.run-blocked')?.textContent.trim() ?? '',
+        // 闸门原因（2026-11-18 起随 TestPanel 的口径走）：列表空着时原因写在空态标题
+        // （.empty__title），页脚那行 .run-blocked 让位避重复 —— 所以这里读标题；
+        // 断言要求非空且不是写死的英文兜底，闸门若失效这里会退回「No test cases yet.」
+        runBlocked: document.querySelector('.empty__title')?.textContent.trim() ?? '',
       }
     })
 
@@ -789,6 +792,7 @@ try {
         !mdState.statusVisible &&
         mdState.runDisabled === true &&
         mdState.runBlocked.length > 0 &&
+        mdState.runBlocked !== 'No test cases yet.' &&
         !mdTextBefore.includes('**') &&
         mdTextAfter.includes('**') &&
         mdSidebarAfter &&

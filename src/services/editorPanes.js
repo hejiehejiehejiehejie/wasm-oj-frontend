@@ -598,6 +598,91 @@ function shrinkAxis(before) {
 }
 
 /**
+ * 「假如现在按边缘切一刀，新窗格会落在哪」——**纯预览**，不动真树。
+ *
+ * 【为什么不能拿「目标窗格的一半」当高亮】真实的落地（`splitPane` → `placeTab`）里还有
+ * 两步会改几何，naive 的对半矩形对不上：
+ *   1. `equalizeAxisChain`：新窗格落进同轴链时整条链重排成等分 —— 两片并排时切一片的
+ *      右缘，新窗格占右**三分之一**（三列各 1/3），不是目标窗格的右半（四分之一幅）；
+ *   2. 源窗格搬空回收：把某片的**最后一张页签**拖到另一片的边缘时，页签搬进新窗格、
+ *      源窗格空掉被 `closeEmptyPane` 收掉（含同轴比例重算）—— 两片并排、拖最后一签到
+ *      另一片底缘，落地是**上下两栏各占一半**，高亮得是整幅的下半，不是那片的下半
+ *      （2026-11-18 06:29 用户口径：「高亮区域 = 经过计算之后一定会造成的区域」）。
+ *
+ * 做法：`structuredClone` 一棵克隆树，在克隆上走与真实落地**完全相同的几何三步**
+ * （切分 + 等分 / 回收 + `shrinkAxis` / `computePaneRects`），取新叶子的矩形。
+ * 真树一个字节都不碰 —— 高亮是逐帧重算的界面量，绝不能有写副作用。
+ *
+ * @param {{ paneId: string, axis: 'x'|'y', side?: 'before'|'after',
+ *            recyclePaneId?: string|null }} params
+ *   `recyclePaneId`：预计会被搬空回收的源窗格（页签拖拽且源格只剩被拖那张时由渲染层传入）。
+ *   2026-11-18 起**允许等于 `paneId`**（落点在源窗格自己的边缘）：照常建新窗格 + 搬页签，
+ *   原格搬空被回收、新窗格顶满原格位置 —— 模拟里回收的正是切分后留在原位的那一半。
+ *   文件树拖入不回收，传 null。
+ * @returns {{ x: number, y: number, w: number, h: number }|null} 新窗格的百分比矩形
+ */
+export function previewSplitRect({ paneId, axis, side = 'after', recyclePaneId = null }) {
+  const dir = axis === 'y' ? 'y' : 'x'
+  if (leaves().length >= MAX_PANES) return null
+  let clone
+  try {
+    // JSON 往返而不是 structuredClone：真树的节点里有 reactive 代理引用（splitPane 把
+    // findSlot 摘出的 slot.node 直接挂进树），structuredClone 碰到代理会抛 DataCloneError；
+    // JSON.stringify 读穿透代理，树又是纯数据（字符串 / 数字 / null），往返无损。
+    clone = JSON.parse(JSON.stringify(editorPanes.root))
+  } catch {
+    return null // 克隆失败（理论上到不了）：调用方退回 naive 矩形
+  }
+  const slot = findSlot(clone, paneId)
+  if (!slot || !isLeaf(slot.node)) return null
+
+  // ① 切分（与 splitPane 同构：ratio 0.5，原叶子保 id 保页签）
+  const PREVIEW_ID = '__preview-pane__'
+  const fresh = { kind: 'leaf', id: PREVIEW_ID, tabs: [], active: null, preview: null }
+  const split = {
+    kind: 'split',
+    id: '__preview-split__',
+    axis: dir,
+    ratio: 0.5,
+    a: side === 'before' ? fresh : slot.node,
+    b: side === 'before' ? slot.node : fresh,
+  }
+  if (slot.parent) slot.parent[slot.key] = split
+
+  // ② 同轴链等分（与 equalizeAxisChain 同一套算法，作用在克隆上 —— 那个函数读的是真树）
+  const chain = ancestorChain(clone, split.id) ?? []
+  const members = [split]
+  for (let i = chain.length - 1; i >= 0; i -= 1) {
+    if (chain[i].axis !== dir) break
+    members.push(chain[i])
+  }
+  for (const node of members) {
+    const total = axisSegments(node, dir)
+    if (total < 2) continue
+    node.ratio = clamp(axisSegments(node.a, dir) / total, MIN_RATIO, MAX_RATIO)
+  }
+
+  // ③ 回收搬空的源窗格（与 closeEmptyPane 的几何部分同一步骤：兄弟顶替 + shrinkAxis）
+  // recyclePaneId === paneId = 落点在源窗格自己的边缘（2026-11-18 口径）：切分后搬走
+  // 唯一页签，原格（split 的另一半）空掉被收，新窗格顶满 —— 模拟里回收的正是它自己。
+  if (recyclePaneId) {
+    const dead = findSlot(clone, recyclePaneId)
+    if (dead && isLeaf(dead.node) && dead.parent) {
+      const parentSlot = findSlot(clone, dead.parent.id)
+      const sibling = dead.parent.a === dead.node ? dead.parent.b : dead.parent.a
+      const deadAxis = dead.parent.axis === 'y' ? 'y' : 'x'
+      const before = traceAxis(clone, recyclePaneId, deadAxis)
+      if (parentSlot?.parent) parentSlot.parent[parentSlot.key] = sibling
+      else clone = sibling
+      if (before) shrinkAxis(before)
+    }
+  }
+
+  const rects = computePaneRects(clone)
+  return rects.leaves.find((leaf) => leaf.id === PREVIEW_ID) ?? null
+}
+
+/**
  * 设置分割比例（夹在 [MIN_RATIO, MAX_RATIO]）。
  * @param {string} splitId
  * @param {number} ratio

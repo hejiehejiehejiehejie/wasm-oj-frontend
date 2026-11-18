@@ -1002,20 +1002,14 @@ function switchSidebarPanel({ instant = false } = {}) {
  * 于是把它变成**入口上的禁用态**而不是「点了没反应」——
  * 非空字符串即「不可运行」，这句话同时充当提示行文案与两个 ▶ 的 title。
  * 「一个文件都没打开」与「打开的不是代码」是两回事，别混成一句话说。
+ * 2026-11-18 起它还兼职评测面板**空态那行标题**（跑不了时顶掉写死的
+ * `No test cases yet.`，见 TestPanel 的 `emptyTitle`）与右上角 verdict 的隐藏判据
+ * （`showVerdict`）—— 所以这两句都必须能独立成句，别写成依赖上下文的短语。
  */
 const runBlockedReason = computed(() => {
   if (activeLanguage.value) return ''
   return activeNode.value ? t('tests.panel.runBlocked') : t('tests.panel.runBlockedNoFile')
 })
-
-/**
- * 有没有打开文件（2026-11-17 加）。评测面板要拿它分辨空态的两种情形：
- * 「什么都没打开」时那行标题说「没有打开的文件」，而「打开了但没有用例」时
- * 仍是写死的 `No test cases yet.`（见 TestPanel 的 `emptyTitle`）。
- * 没打开文件时用例必然为空（`config.tests` 跟着活跃文件走，见上面那条 watch），
- * 所以这一位只影响空态。
- */
-const hasOpenFile = computed(() => Boolean(activeNode.value))
 
 /**
  * 一键提交到 Codeforces（2026-10-23 加）。
@@ -2223,7 +2217,6 @@ onBeforeUnmount(() => {
                 :running="running"
                 :elapsed="elapsed"
                 :run-blocked="runBlockedReason"
-                :no-file="!hasOpenFile"
                 :notice="emptyNotice"
                 :show-submit="showSubmit"
                 :submitting="submitting"

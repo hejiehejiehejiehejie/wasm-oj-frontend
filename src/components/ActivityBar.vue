@@ -418,6 +418,20 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   background: var(--bg-hover);
 }
 
+/* 深色主题下闲置档整体压暗一档（2026-11-18 用户要求）：折叠栏这几枚图标在深色地面上
+   顶着 --text-dim（midnight #98a3b8 / oled #a0a0a0 / dusk #b9bac6…）显得扎眼 ——
+   那一档原本是按「正文次级文字」校准的，放进一条只有图标的窄栏里就偏亮了。
+   改用 --text-faint：每套深色主题里比 dim 恰好低一档的灰（midnight #6b7488 /
+   oled #707070 / dusk #7d8199…），四阶校准（06:30）已经把明暗关系排好，不用逐主题再调。
+   浅色主题不动：那边 dim（#616161 这档）本来就不刺眼，faint 反而更亮，方向是反的。
+   ⚠️ 选择器用 `:where(…)` 包住 scheme 判据：特异性只剩 (0,1,0)+scoped 属性，
+   压不过下面的 hover / is-active（(0,2,0)/(0,3,0)）—— 闲置暗下去之后，
+   「悬停最亮、选中居中」的梯度反而拉开了，那两档必须原样保留。
+   chevron 伪元素吃 currentColor，跟着一起暗，正好。 */
+:where(html[data-scheme='dark']) .activity-bar__item {
+  color: var(--text-faint);
+}
+
 /* 选中态**按格分、不按簇分**（2026-10-04 定「上下不对称」，2026-10-22 把判据从簇改成格 ——
    因为两类的成员现在混在同一簇里：上簇两枚面板 + 第三格「组件」）：
    - 面板格不提亮：折叠态下**总有一个面板是 active**，提亮就等于常驻高亮；何况点一下

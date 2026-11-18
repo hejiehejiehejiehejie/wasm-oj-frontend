@@ -22,7 +22,9 @@ import {
   editorPanes,
   focusPane,
   focusedLeaf,
+  leafById,
   paneOf,
+  previewSplitRect,
   setRatio,
 } from '../services/editorPanes.js'
 import {
@@ -30,6 +32,7 @@ import {
   clearPaneDropHint,
   resolvePaneDrop,
   setPaneDropHint,
+  splitTargetOf,
 } from '../services/paneDropTarget.js'
 import { createPaneForDrop, paneTabDragSource } from '../services/editorPaneDrop.js'
 import { beginPaneResize, endPaneResize } from '../services/paneResize.js'
@@ -99,6 +102,22 @@ function splitterStyle(splitter) {
    的下半」时，同一个元素只改 left/top/width/height，那块底色就会滑过去；如果按窗格各放一个，
    换片等于销毁重建，只能闪一下换位置。
    元素常驻、靠 `.is-on` 切透明度 —— 落点消失时停在原地淡出，不会先跳回原点。 */
+/**
+ * 这次落点会不会把**源窗格**搬空回收：只在跨窗格拖页签、且源窗格只剩被拖这一张时成立
+ * （`placeTab` 搬走唯一页签 → 源格空 → `closeEmptyPane` 收掉，落地几何因此变样，
+ * 见 editorPanes 的 previewSplitRect）。文件树拖入不搬页签，恒 null。
+ *
+ * 2026-11-18 口径：落点在**源窗格自己的边缘**也算 —— 照常建新窗格 + 搬页签（取代
+ * 2026-11-17 的「只切分、不搬页签」），原格随即搬空被回收、新窗格顶满原格的位置，
+ * 高亮必须按这个真实结果画（previewSplitRect 支持 recyclePaneId === paneId 的模拟）。
+ */
+const recycleSourceId = computed(() => {
+  const hint = paneDropHint.value
+  const source = paneTabDragSource.value
+  if (!hint || !source) return null
+  return leafById(source)?.tabs.length === 1 ? source : null
+})
+
 const dropRect = computed(() => {
   const hint = paneDropHint.value
   if (!hint) return null
@@ -118,6 +137,21 @@ const dropRect = computed(() => {
   }
   const rect = layout.value.leaves.find((leaf) => leaf.id === hint.paneId)
   if (!rect) return null
+  // 四边落点：高亮 = **落地后真实会出现的那块区域**（2026-11-18 06:29 用户口径）。
+  // splitPane 会把同轴链重排成等分、搬空最后一个页签的源窗格还会被回收 —— 两片并排时
+  // 把一片的最后一张页签拖到另一片底缘，落地是上下两栏各占一半，naive 的「那片的一半」
+  // 是错的。按 previewSplitRect 在克隆树上模拟整次落地取新窗格矩形；模拟不出才退回
+  // 下面的对半矩形（纯几何兜底，正常路径到不了）。
+  const side = splitTargetOf(hint.zone)
+  if (side) {
+    const sim = previewSplitRect({
+      paneId: hint.paneId,
+      axis: side.axis,
+      side: side.side,
+      recyclePaneId: recycleSourceId.value,
+    })
+    if (sim) return sim
+  }
   switch (hint.zone) {
     case 'left':
       return { x: rect.x, y: rect.y, w: rect.w / 2, h: rect.h }
