@@ -708,6 +708,36 @@ export function setRatio(splitId, ratio) {
   slot.node.ratio = clamp(ratio, MIN_RATIO, MAX_RATIO)
 }
 
+/**
+ * 把一条分割线复位到**它自己的默认位置**（双击分割条走这里）。
+ *
+ * 【作用范围：只有这条缝，不牵动同轴的其它缝】双击是「这条缝拖歪了，把它摆回来」，
+ * 不是「这一行 / 一列全部拉齐」。所以这里只改**被双击那个 split 的 ratio 一个数** ——
+ * 树上其它节点一个都不碰，几何上就只有这条缝两侧的窗格换宽窄，同一行里剩下的窗格
+ * 原地不动（2026-11-19 用户口径：「我只想改变相邻与分隔线的两个窗格的宽高」）。
+ * 曾经按「整段连续同轴区域一起重排」实现过，结果是双击一条缝把整行都排成等宽，被驳回。
+ *
+ * 【默认值不是 0.5】ratio 是相对**所属 split 自己的 region** 的占比，而这条轴上不一定
+ * 只有两段。三列时根节点的默认值是 1/3（a 支一段）或 2/3（a 支两段）、四列是 1/4 或 3/4；
+ * 写死 0.5 会摆出 50/25/25、50/16.7/16.7/16.7 —— 缝落到整块编辑区的正中，而不是它
+ * 等分时应处的位置（同一个 bug 的前半段）。取值口径 = `axisSegments(a) / axisSegments(本级)`，
+ * 与建窗格时 `equalizeAxisChain` 同一个来源：所有兄弟段等长时，缝两侧那两个窗格正好等宽
+ * （三列里根缝两侧是「a 支的最后一格」和「b 支的第一格」—— 2/3 让它们各占 1/3）。
+ *
+ * @param {string} splitId
+ * @returns {boolean} 是否真的复位了一条缝
+ */
+export function resetRatio(splitId) {
+  const slot = findSlot(editorPanes.root, splitId)
+  if (!slot || isLeaf(slot.node)) return false
+  const node = slot.node
+  const axis = node.axis === 'y' ? 'y' : 'x'
+  const total = axisSegments(node, axis)
+  if (total < 2) return false
+  node.ratio = clamp(axisSegments(node.a, axis) / total, MIN_RATIO, MAX_RATIO)
+  return true
+}
+
 /** 内部：找到节点本身与它挂在父节点的哪一格上（渲染层算矩形也用它） */
 export function findSlot(node, id, parent = null, key = null) {
   if (!node) return null

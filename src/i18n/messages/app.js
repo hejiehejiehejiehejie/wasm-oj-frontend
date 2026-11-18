@@ -61,6 +61,11 @@ export default {
         pasteBlockedBody: '浏览器拒绝了剪贴板访问，请改用键盘上的「粘贴」',
       },
 
+      /** 原生右键被全局压掉之后，没有站内菜单接管的落点兜底那份菜单 */
+      nativeMenu: {
+        reload: '刷新',
+      },
+
       /** 「生成图片」之后那一次询问：要复制还是保存（设置里可关掉，见 codeImageAsk） */
       imageAsk: {
         // 渲染期间编辑区底部那颗小胶囊（图还没出来，问句也还没弹）
@@ -223,6 +228,11 @@ export default {
         commandPalette: 'Command Palette',
         pasteBlockedTitle: 'Can’t read the clipboard',
         pasteBlockedBody: 'The browser blocked clipboard access — use Paste on your keyboard instead',
+      },
+
+      /** Fallback menu for spots where no in-app context menu takes over */
+      nativeMenu: {
+        reload: 'Reload',
       },
 
       imageAsk: {

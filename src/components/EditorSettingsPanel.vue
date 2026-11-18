@@ -109,10 +109,13 @@ import {
 } from '../services/cloudSession.js'
 import { fetchCloudProfile } from '../services/cloudProfile.js'
 import {
+  CASE_VIEWS,
+  caseView,
   isNarrowLayout,
   NARROW_COLLAPSE_SIDES,
   PANEL_POSITIONS,
   narrowCollapseSide,
+  setCaseView,
   setNarrowCollapseSide,
 } from '../services/shellSettings.js'
 import {
@@ -456,14 +459,15 @@ const CODE_IMAGE_ROWS = [
 ]
 
 /**
- * 外观栏里那三条「外壳」偏好：值不在 editorSettings 里，各有自己的出口 ——
- * 缩放走 App 的 cp.uiScale、界面语言由 i18n 模块自己持久化、侧边栏位置只是发起一次对调。
+ * 外观栏里那五条「外壳」偏好：值不在 editorSettings 里，各有自己的出口 ——
+ * 缩放走 App 的 cp.uiScale、界面语言由 i18n 模块自己持久化、侧边栏位置只是发起一次对调、
+ * 评测样例视图读写 shellSettings 的 cp.caseView。
  *
  * 2026-10-12 收进 APPEARANCE_ROWS、与主题和「代码图片」共用一个循环：「代码图片」那组要摆在
  * 这一栏**末尾**（外观栏原本就有的那几行在前），拆成两段循环就得把行模板抄两遍。
  * 差异（取值 / 落值 / 选项显示名）由 rowValue / rowSelect / rowOptionLabel 分流；
  * `external` 用来关掉「已改动」指示线与行尾键名——那两样只对 editorSettings 的键有意义。
- * 现有四条：界面缩放 / 界面语言 / 侧边栏位置 / 窄屏折叠方向。
+ * 现有五条：界面缩放 / 界面语言 / 侧边栏位置 / 窄屏折叠方向 / 评测样例视图。
  */
 const SHELL_ROWS = [
   {
@@ -523,12 +527,30 @@ const SHELL_ROWS = [
     readValue: () => narrowCollapseSide.value,
     onSelect: (raw) => setNarrowCollapseSide(raw),
   },
+  {
+    // 「评测样例」面板的列表面孔：卡片流 / 分项标签（2026-11-19）。
+    // 原先它是样例面板页头右上角的一颗图标钮，同日用户要求挪到「设置 › 外观」、排在
+    // 「侧边栏位置」下方 —— 这是「这块面板长什么样」的偏好，不是每次都要顺手点的动作。
+    // 值住在 services/shellSettings.js 的 cp.caseView（TestPanel 读的是同一个 ref，
+    // 改完当场换，不必重开面板）；档位表也从那里 import，与侧边栏位置同一体例。
+    // 排在 SHELL_ROWS 末尾而不是紧跟 panelPosition：「窄屏折叠方向」是那一条的窄屏分支，
+    // 两者挨着更好读；它在宽屏整行不摆（见上面那行 when），于是宽屏上这一行照样紧贴
+    // 「侧边栏位置」。
+    key: 'caseView',
+    external: true,
+    labelKey: 'settings.appearance.caseView.label',
+    hintKey: 'settings.appearance.caseView.hint',
+    control: 'toggle',
+    options: CASE_VIEWS,
+    readValue: () => caseView.value,
+    onSelect: (raw) => setCaseView(raw),
+  },
 ]
 
 // 「外观」是独立的一级分类：顺序为 主题 → 界面缩放 · 界面语言 · 侧边栏位置 · 窄屏折叠方向
-// → 「代码图片」三条。
+// · 评测样例视图 → 「代码图片」三条。
 // 字体大小本来就只对代码区有意义，已挪去「编辑器 › 字体」（见 EDITOR_GROUPS）。
-// 除了三条外壳偏好，其余行仍是 editorSettings 的键，所以照搬编辑器那套行渲染
+// 除了五条外壳偏好，其余行仍是 editorSettings 的键，所以照搬编辑器那套行渲染
 // （键 / 校验 / Monaco 都同源）。
 const APPEARANCE_ROWS = [
   {
@@ -2793,8 +2815,9 @@ watch(pendingUnbind, (open) => {
         </p>
       </section>
 
-      <!-- 外观：主题、三条界面偏好（缩放 / 语言 / 侧边栏位置），末尾是「代码图片」那三条。
-           除三条界面偏好各有出口外，其余行都是 editorSettings 的键，与编辑器组同源。
+      <!-- 外观：主题、五条界面偏好（缩放 / 语言 / 侧边栏位置 / 窄屏折叠方向 / 评测样例视图），
+           末尾是「代码图片」那三条。
+           除五条界面偏好各有出口外，其余行都是 editorSettings 的键，与编辑器组同源。
            字体大小已挪去编辑器组。 -->
       <section
         v-if="paneRendered('appearance')"

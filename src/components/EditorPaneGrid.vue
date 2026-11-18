@@ -25,6 +25,7 @@ import {
   leafById,
   paneOf,
   previewSplitRect,
+  resetRatio,
   setRatio,
 } from '../services/editorPanes.js'
 import {
@@ -395,10 +396,12 @@ function endResize() {
   window.removeEventListener('pointercancel', endResize)
 }
 
-/** 双击分割条回到对半 —— 拖歪了不用靠手感拖回来 */
-function resetRatio(splitter) {
-  setRatio(splitter.id, 0.5)
-}
+/* ------------------------------------------------------------ 双击复位
+   双击分割条 = 把这条缝摆回它的默认位置，拖歪了不用靠手感拖回来。
+   比例的算法在 `editorPanes.resetRatio` —— 只改**这一条** ratio，同一行 / 列里别的缝不动，
+   于是只有缝两侧那两个窗格换宽窄。**不能写死 0.5**：ratio 相对所属 split 的 region 计，
+   三列 / 四列的默认值是 2/3、3/4 这类「a 支段数 / 本级段数」，不是一半（2026-11-19 修，
+   详见那边注释）。 */
 
 /* ------------------------------------------------------------ 对 App 的代理 */
 
@@ -487,7 +490,7 @@ defineExpose({
       role="separator"
       :aria-orientation="splitter.axis === 'y' ? 'horizontal' : 'vertical'"
       @pointerdown="beginResize($event, splitter)"
-      @dblclick="resetRatio(splitter)"
+      @dblclick="resetRatio(splitter.id)"
     />
   </div>
 </template>

@@ -200,6 +200,21 @@ export default {
         /** 徽标文案：跑完的用例改用判定码（AC/WA/CE/TLE/RE/ERR），这里只有「还没跑」和「正在跑」 */
         idle: '待运行',
         running: '运行中',
+        /**
+         * 判定码的定性名（2026-11-19 加）：只给分项视图的加长徽标用（`AC · 通过`）。
+         * 卡片头栏仍然只显示判定码 —— 那里紧跟在「样例 N」后面，加长会把标题挤掉。
+         * 措辞刻意比 submit.verdict 那组短（超时 / 运行错误，而非运行超时 / 运行出错）：
+         * 这一行还要和耗时并排，长一档就会折行。
+         */
+        verdictName: {
+          ac: '通过',
+          wa: '答案错误',
+          ce: '编译错误',
+          tle: '超时',
+          mle: '内存超限',
+          re: '运行错误',
+          err: '运行出错',
+        },
         expand: '展开该用例',
         collapse: '折叠该用例',
         runOne: '仅运行该用例',
@@ -208,7 +223,7 @@ export default {
         /** 窄容器下的短称（卡片头栏 @container 22.5rem 那一档换用它） */
         staleLabelShort: '待重测',
         timingTitle: '程序运行耗时（不含编译）',
-        remove: '删除该用例',
+        remove: '删除该样例',
         copyOutput: '复制实际输出',
         /** 实际输出标签行上的第二个按钮：把 stdout 誊进期望输出（结论已过期的标记由写入那条路带上） */
         useActual: '实际输出写入期望',
@@ -229,6 +244,10 @@ export default {
          */
         inputPlaceholder: '输入',
         expectedPlaceholder: '期望输出',
+
+        /** 输入 / 期望框右键菜单（2026-11-19 加）：没选中任何内容时两个动作都作用于全部内容 */
+        copy: '复制',
+        paste: '粘贴',
 
         copyFull: '复制完整内容（也可全选后 Ctrl+C）',
         copyFullShort: '复制全部',
@@ -294,6 +313,27 @@ export default {
         failed: '评测失败（{outcome}）',
         /** {engine} 是引擎显示名 */
         unsupportedLanguage: '{engine} 引擎不支持该语言，请换引擎或改用 C++ / Python',
+      },
+
+      /**
+       * 分项标签视图（2026-11-19 加）。与 card 那组的分工：卡片有头栏（样例 N 是标题 + 折叠开关），
+       * 分项视图的 Tab 胶囊只承担导航，所以它的短称另开一组，别把 card.title 直接拿来当
+       * 「窄屏缩写」用 —— 两者的取舍不同（标题可以省略号，Tab 只允许换一种更短的写法）。
+       */
+      tabs: {
+        /** Tab 胶囊在窄侧栏下的短称：`样例 3` → `#3`（窄到 15.625rem 再退成纯数字，那条在组件里） */
+        shortTitle: '#{n}',
+        /** 标签轨的无障碍名（它本身是一排可点的胶囊，没有可见标题） */
+        railLabel: '测试样例',
+        /** 切到分项视图后，正文区承接 Tab 的语义（读屏念的是「第 N 条样例的输入与输出」） */
+        panelLabel: '样例 {n} 的输入与输出',
+        /** 分项状态栏运行中的徽标：省略号表示还在等结果（卡片那侧仍是「运行中」） */
+        badgeRunning: '评测中…',
+        /**
+         * 悬停 Tab 胶囊时的输入预览（2026-11-19 加，截断规则见 caseSummary 的 caseInputPreview）。
+         * 只有一句「输入为空」：截断本身不写「还有 N 行」，末行一个 `…` 就够（用户同日要求去掉）。
+         */
+        previewEmpty: '输入为空',
       },
     },
   },
@@ -420,6 +460,16 @@ export default {
         title: 'Testcase {n}',
         idle: 'Not run',
         running: 'Running',
+        /** 见 zh-CN 那侧：分项视图加长徽标用的定性名 */
+        verdictName: {
+          ac: 'Accepted',
+          wa: 'Wrong answer',
+          ce: 'Compilation error',
+          tle: 'Time limit',
+          mle: 'Memory limit',
+          re: 'Runtime error',
+          err: 'Run failed',
+        },
         expand: 'Expand this case',
         collapse: 'Collapse this case',
         runOne: 'Run this case only',
@@ -437,6 +487,10 @@ export default {
         // 见 zh-CN 那侧的注释；只有两个框的占位提示走这张表。
         inputPlaceholder: 'input',
         expectedPlaceholder: 'Expected output',
+
+        /** Same as zh-CN: right-click menu on the input / expected boxes */
+        copy: 'Copy',
+        paste: 'Paste',
 
         copyFull: 'Copy full content (or Select All + Ctrl+C)',
         copyFullShort: 'Copy all',
@@ -468,6 +522,16 @@ export default {
         failed: 'Judging failed ({outcome})',
         unsupportedLanguage:
           'The {engine} engine doesn’t support this language; use another engine or C++ / Python',
+      },
+
+      /** 见 zh-CN 那侧的说明 */
+      tabs: {
+        shortTitle: '#{n}',
+        railLabel: 'Test cases',
+        panelLabel: 'Input and output of test case {n}',
+        badgeRunning: 'Judging…',
+        /** 见 zh-CN 那侧的说明（悬停 Tab 时的输入预览） */
+        previewEmpty: 'No input',
       },
     },
   },

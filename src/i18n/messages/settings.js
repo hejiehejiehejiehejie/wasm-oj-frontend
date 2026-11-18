@@ -103,6 +103,10 @@ export default {
           label: '窄屏折叠方向',
           hint: '窄屏收起侧栏后，图标栏贴屏幕上方或下方',
         },
+        caseView: {
+          label: '评测样例视图',
+          hint: '样例栏用卡片流逐条列出，或换成顶部分项标签只展开一条',
+        },
         locale: {
           label: '界面语言',
           hint: '界面与帮助的语言，不影响判题语言',
@@ -259,6 +263,10 @@ export default {
         sideRight: '右侧',
         sideTop: '上方',
         sideBottom: '下方',
+        /* 评测样例栏的两种列表面孔（2026-11-19）：选项名只说「长什么样」，
+           不说「点一下会变成什么」—— 这颗段钮显示的是**当前档**，与侧边栏位置同一读法 */
+        caseViewList: '卡片流',
+        caseViewTabs: '分项标签',
         qualityMedium: '中',
         qualityHigh: '高',
         qualityUltra: '极致',
@@ -733,6 +741,10 @@ export default {
           label: 'Narrow-screen collapse edge',
           hint: 'On narrow screens, dock the collapsed icon bar at the top or bottom',
         },
+        caseView: {
+          label: 'Test case view',
+          hint: 'List every case as a card, or show them as tabs one at a time',
+        },
         locale: {
           label: 'Interface language',
           hint: 'Language of the interface and help; not the judge language',
@@ -899,6 +911,8 @@ export default {
         sideRight: 'Right',
         sideTop: 'Top',
         sideBottom: 'Bottom',
+        caseViewList: 'Card list',
+        caseViewTabs: 'Tabs',
         qualityMedium: 'Medium',
         qualityHigh: 'High',
         qualityUltra: 'Ultra',

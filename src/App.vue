@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import EditorPaneGrid from './components/EditorPaneGrid.vue'
+import ContextMenu from './components/ContextMenu.vue'
 import TestPanel from './components/TestPanel.vue'
 import Sidebar from './components/Sidebar.vue'
 import ActivityBar from './components/ActivityBar.vue'
@@ -760,6 +761,10 @@ const CLICK_WIDTH_EPS = 2
 // 干等。拖拽本身只写 dragPanelPx / editorShare，与 runCases 不共用任何状态；唯一要留意的
 // 是运行中把侧栏收起来会看不见进度，但结果有 runNotify 那条常驻通知兜底。
 function beginDrag(event) {
+  // 只认主键（左键 / 触摸）：右键不该拖动分隔条。修复前 pointerdown 不看按键，
+  // 右键按住一拖同样会改宽度，且松手还会弹原生菜单（现已被全局压掉）——
+  // 与 EditorPaneGrid 的分屏分隔条（beginResize）同一条口径。
+  if (event.button !== 0) return
   const surface = workspace.value
   if (!surface) return
   // 取消 pointerdown 会按规范抑制兼容的 mousedown/mouseup，用来阻断从分隔条起手的
@@ -2023,6 +2028,45 @@ function onVisibilityChange() {
   if (document.hidden) void flush()
 }
 
+/**
+ * 全局禁用浏览器原生右键菜单（2026-11-19 用户口径），并在**没有站内菜单接管**的地方兜底
+ * 弹出一条「刷新」菜单。
+ *
+ * 挂 window 的**冒泡阶段**（不写 capture）是这里的关键：
+ * - 站内自己的右键处理器都挂得更近（目标元素 / 编辑区容器），它们先跑。只要其中任何一个
+ *   `preventDefault()` 过（等于「这一处有站内菜单 / 已被接管」），`event.defaultPrevented`
+ *   就是真，这里直接放过，绝不叠一份兜底菜单。
+ * - 带 `.stop` / `stopPropagation` 的处理器（文件树、页签、编辑区）干脆不让事件冒到
+ *   window，本函数连跑都不会跑 —— 它们已经开过自己的菜单，同样无需兜底。
+ * - 只有**谁都没管**的那一处才落到这里：取消默认动作压掉原生菜单，再弹「刷新」。
+ *
+ * 以后新加的右键功能只要沿用普通 `contextmenu` 处理器（preventDefault 或 stop），
+ * 都会自动落进上面两条通道，不受影响。
+ *
+ * 兜底菜单只给鼠标右键（`button === 2`）：触屏长按与键盘菜单键同样压掉原生菜单，
+ * 但不该冒出一个「刷新」。
+ */
+const nativeFallbackMenu = ref(null)
+
+function onGlobalContextMenu(event) {
+  // 站内处理器已经接管（开过自己的菜单 / 主动吞掉）：什么都不加
+  if (event.defaultPrevented) return
+  // 压掉原生菜单。触屏长按、键盘菜单键也一并取消，与上一版口径一致
+  event.preventDefault()
+  if (event.button !== 2) return
+  nativeFallbackMenu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    items: [{ id: 'reload', label: t('app.nativeMenu.reload') }],
+  }
+}
+
+/** 兜底菜单目前只有「刷新」一条；以后扩条目在这一处加分支 */
+function onNativeFallbackSelect(id) {
+  nativeFallbackMenu.value = null
+  if (id === 'reload') window.location.reload()
+}
+
 onMounted(async () => {
   // 上一次动作寄下的那条通知（云端导入 / 登录成功会整页刷新，通知只能先寄存 —— 见
   // services/notifications.js 文件头那条例外）。放在第一行：它说的是「你刚做完的那件事」，
@@ -2040,6 +2084,8 @@ onMounted(async () => {
   disposeAutoSave = initAutoSave()
   window.addEventListener('blur', onWindowBlur)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  // 全局压掉浏览器原生右键菜单，未接管的落点兜底弹「刷新」（冒泡阶段，见函数注释）
+  window.addEventListener('contextmenu', onGlobalContextMenu)
   // 初始化 VFS（含旧草稿迁移）→ 恢复上次会话的 tab 与 model
   try {
     await initWorkspace()
@@ -2109,6 +2155,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('contextmenu', onGlobalContextMenu)
   disposeAutoSave?.()
   disposeAutoSave = null
   window.clearTimeout(staleTimer)
@@ -2298,6 +2345,16 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </Teleport>
+
+    <!-- 原生右键被压掉、又没有站内菜单接管的落点：兜底一条「刷新」 -->
+    <ContextMenu
+      v-if="nativeFallbackMenu"
+      :x="nativeFallbackMenu.x"
+      :y="nativeFallbackMenu.y"
+      :items="nativeFallbackMenu.items"
+      @select="onNativeFallbackSelect"
+      @close="nativeFallbackMenu = null"
+    />
   </div>
 </template>
 

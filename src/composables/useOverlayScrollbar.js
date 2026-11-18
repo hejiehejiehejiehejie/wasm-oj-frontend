@@ -25,7 +25,7 @@
  *
  * @param {import('vue').Ref<HTMLElement|null>} elRef 滚动容器的模板 ref（它自己必须能滚）
  */
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
 
 /** 停止滚动后多久淡出（ms）—— 与 VS Code 的 1s 同量级，稍快一点 */
 const HIDE_DELAY = 800
@@ -165,8 +165,17 @@ export function useOverlayScrollbar(elRef) {
     scheduleHide()
   }
 
-  onMounted(() => {
-    el = elRef.value
+  /**
+   * 挂到一个滚动容器上：造滑块、挂监听、量一次。
+   *
+   * 2026-11-19 起这套动作被 `bind` / `unbind` 包起来，由下面那条 watch 在**容器换人**时
+   * 重新跑一遍：样例栏有两种视图（卡片流 / 分项标签），两者的滚动所有者不是同一个元素
+   * （`.cases` 与 `.case-viewport`），来回切的时候模板 ref 指向的节点会被整个换掉。
+   * 原来只在 onMounted 里绑一次 —— 切过去再切回来，滑块就永久留在第一个容器上了。
+   * 资源管理器那边传的是稳定 ref，watch 不触发，行为与改前完全一样。
+   */
+  function bind(next) {
+    el = next
     if (!el) return
 
     thumb = document.createElement('div')
@@ -189,15 +198,31 @@ export function useOverlayScrollbar(elRef) {
     ro = new ResizeObserver(() => update())
     ro.observe(el)
     update()
-  })
+  }
 
-  onBeforeUnmount(() => {
+  /** 摘干净，允许再次 bind。旧滑块整个删掉重造：它的几何与 key 都是上一个容器的 */
+  function unbind() {
     clearTimeout(hideTimer)
     stopLoop()
     ro?.disconnect()
+    ro = null
     el?.removeEventListener('scroll', show)
     thumb?.remove()
     el = null
     thumb = null
-  })
+    lastKey = ''
+    visible = false
+    hovering = false
+    dragging = false
+  }
+
+  onMounted(() => bind(elRef.value))
+
+  // flush: 'post' —— 等 DOM patch 完、新节点已经在文档里再量，否则拿到的是 null 或旧盒子
+  watch(elRef, (next) => {
+    unbind()
+    bind(next)
+  }, { flush: 'post' })
+
+  onBeforeUnmount(unbind)
 }

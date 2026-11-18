@@ -18,10 +18,13 @@
  */
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import SidebarSwitcher from './SidebarSwitcher.vue'
+import ContextMenu from './ContextMenu.vue'
 import { t } from '../i18n/index.js'
+import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { usePersistentRef } from '../composables/usePersistentRef.js'
 import { uiScale } from '../composables/useUiScale.js'
 import { countdown } from '../services/countdown.js'
+import { flipPanelPosition, isNarrowLayout } from '../services/shellSettings.js'
 import {
   closeSettingsTab,
   codeforcesTab,
@@ -134,23 +137,91 @@ const collapseEntry = computed(() => ({
   toggle: () => emit('collapse'),
 }))
 
+// ------------------------------------------------------------ 页头右键菜单（2026-11-19 加）
+/**
+ * 页头右键＝折叠态那条图标栏右键菜单里的「侧边栏移到左/右侧」这一项（用户口径）。
+ *
+ * 判据与 ActivityBar 的 onBarContextMenu 完全一致：**窄屏 / 触屏不接管**。
+ * 窄屏页头是 display: contents、左簇已经沉到侧栏底部，没有桌面意义上的「页头」；
+ * 触屏长按同样会派发 contextmenu，放开会让长按页头冒出一份桌面菜单。
+ * 这两种情况直接 return（不 preventDefault），交给全局那条兜底。
+ */
+const headMenuAt = ref(null)
+
+function onHeadContextMenu(event) {
+  if (isNarrowLayout() || isTouchPointer()) return
+  event.preventDefault()
+  headMenuAt.value = { x: event.clientX, y: event.clientY }
+}
+
+// 动作项写「移到另一侧」而不是「当前在哪侧」—— 与 ActivityBar 的 barMenuItems 同一套文案
+const headMenuItems = computed(() => [
+  {
+    id: 'flip-side',
+    label: t(props.panelPosition === 'right' ? 'components.bar.moveLeft' : 'components.bar.moveRight'),
+  },
+])
+
+function onHeadMenuSelect(id) {
+  headMenuAt.value = null
+  if (id === 'flip-side') flipPanelPosition()
+}
+
 // ------------------------------------------------------------ 页头的两种自适应
 const rootEl = ref(null)
 
 // ① 两档紧凑：判定文案先收、胶囊段位标签后收（2026-11-01 用户要求「异步收窄」）。
 //   - verdictCompact（< 400 逻辑 px）：评测面板页头的「全部 AC / n/m AC」先换短文案
 //     （去掉「 AC」后缀，见 TestPanel 的 verdict），这一档先省下 ~25px；
-//   - compact（< 350 逻辑 px）：胶囊段位再收起文字标签、退回纯图标。
-//   两个阈值分开而不是共用一条：一起收的话，页头会在同一档宽度上「整排缩一下」；
-//   先收文案、后收标签，400→350 这一档是「标签还在、词条已短」的过渡。
-//   350 的来历：带标签的胶囊 208px + 间距 8 + 右侧动作区 + 页头内边距，实测最坏
-//   （「运行中」+ 转圈 + 耗时）≈346px，取 350 留几像素余量；再往下调（如 340）这档
-//   就会在运行中把页头挤折行。判定文案已在 400 先收，所以标签可以比原来的 360 多留 10px。
+//   - compact：胶囊段位再收起文字标签、退回纯图标 —— **不设固定阈值，实测页头折不折行**。
+//   两档分开而不是共用一条：一起收的话，页头会在同一档宽度上「整排缩一下」。
+//
+//   为什么 compact 不再是 376 那种死阈值（2026-11-19 用户：「阈值太大了，大部分情况下都
+//   不会碰到，现在这个样式有些零散」）：数字只能按**最坏**那一份文案去取 —— 带标签 208 +
+//   固定开销 26 + 判定簇最坏 121（英文「Running」+ 转圈 + 耗时）≈ 355，再留 20px 呼吸就是
+//   376。可最坏只在「正在跑」或五位数毫秒的那一刻出现，其余时间页头明明塞得下「文件 / 评测」
+//   两个词，却也退成了四颗光秃秃的图标：左边一簇图标、右边「120ms AC」，中间一大段空白，
+//   读起来是散的。所以改成**按当下真实需求判**：把带标签那一份量出来，跟页头剩下多少地方
+//   比一比，放不下才收。
+//
+//   量法沿用 SidebarSwitcher 里 `labeledRowWidth` 那条：临时摘掉 is-compact 量一次再放回去，
+//   同步完成、浏览器不会画出中间那一帧 —— 所以量到的永远是「带标签」那一份，与当前 compact
+//   是什么值无关。判据因此不会自我强化（不像「已经收了 → 更放得下 → 继续收」那样锁死），
+//   也不会在两档之间来回抖。标签自带 84px 的差值（208 ↔ 124），这一来一回足够把折行挡在
+//   第二行之外。
+//
+//   两条滞回（hysteresis）：折了立刻收，但回弹要多留 8px（`slack >= 16` = 两簇间距 8 + 呼吸 8），
+//   中间这一档维持现状 —— 否则拖分隔条时正好压在临界点上，会一格一格地闪。
+//   （slack 是「带标签时」两簇之间的空当；收到最紧时它就是那条 gap = 8。）
+//
+//   ⚠️ 页头的宽度需求会随文案变（运行中 → AC、耗时出现 / 消失、中英文切换），所以除了侧栏
+//   宽度，还要观察 #sidebar-context 自己的尺寸 —— 只看侧栏宽的话，跑起来那一刻页头会折行。
 //   用 ResizeObserver 而不用 @container：页头里有 fixed 定位的浮层（SettingsMenu），
 //   container-type 附带的 layout containment 会把它的定位基准从视口改到页头。
 const compact = ref(false)
 const verdictCompact = ref(false)
+const headEl = ref(null)
 let compactObserver = null
+
+/** 页头「带标签」时还放得下吗；顺便回一段左右余量给滞回用 */
+function headFitWithLabels() {
+  const head = headEl.value
+  // 窄屏页头是 display: contents（没有自己的盒子），那一档不吃 compact —— 底栏另有判据
+  if (!head || head.getClientRects().length === 0) return null
+  const nav = head.querySelector('.sidebar-switcher')
+  const ctx = head.querySelector('.sidebar__context')
+  if (!nav || !ctx) return null
+
+  const wasCompact = nav.classList.contains('is-compact')
+  if (wasCompact) nav.classList.remove('is-compact')
+  const navBox = nav.getBoundingClientRect()
+  const ctxBox = ctx.getBoundingClientRect()
+  if (wasCompact) nav.classList.add('is-compact')
+
+  // 同一行时 ctx 在 nav 里垂直居中（ctx.top < nav.bottom），折到第二行才会掉到它下面
+  const wrapped = ctxBox.top >= navBox.bottom - 0.5
+  return { wrapped, slack: wrapped ? 0 : ctxBox.left - navBox.right }
+}
 
 // ② 滚动显影：列表没滚动时页头与正文一色（2026-10-04「透明页头」的定稿不变）；
 //   一旦内容滚动，页头下沿浮出 1px 发丝线，交代「内容正从页头底下穿过」。
@@ -177,13 +248,25 @@ onMounted(() => {
   }
   syncHeadScrolled()
 
-  compactObserver = new ResizeObserver(() => {
+  const judge = () => {
     const width = rootEl.value?.getBoundingClientRect().width ?? 0
     // 阈值是逻辑尺寸，要随 uiScale 走（与 useUiScale 的 px() 同口径）
-    compact.value = width > 0 && width < 350 * uiScale.value
     verdictCompact.value = width > 0 && width < 400 * uiScale.value
-  })
-  if (rootEl.value) compactObserver.observe(rootEl.value)
+    const fit = headFitWithLabels()
+    if (!fit) return
+    if (fit.wrapped) compact.value = true
+    else if (fit.slack >= 16) compact.value = false
+    // 夹在中间（0 ≤ slack < 16）就维持现状：这一条就是滞回带，别改成 else compact = false
+  }
+  compactObserver = new ResizeObserver(judge)
+  if (rootEl.value) {
+    compactObserver.observe(rootEl.value)
+    // 上下文动作自身的宽也会变（运行中 ↔ AC、耗时出现、中英文切换），
+    // 那时侧栏宽度没动、但页头的需求变了，必须单独盯住
+    const ctxEl = rootEl.value.querySelector('.sidebar__context')
+    if (ctxEl) compactObserver.observe(ctxEl)
+  }
+  judge()
 })
 
 onBeforeUnmount(() => {
@@ -228,7 +311,12 @@ defineExpose({
     <!-- 全站唯一的一份侧栏页头：左边是面板切换 + 抽题 + 设置（SidebarSwitcher），
          右边 #sidebar-context 是当前面板 Teleport 上来的上下文动作
          （资源管理器 = 新建文件/文件夹；评测样例 = verdict + 耗时）。 -->
-    <header class="sidebar__head" :class="{ 'is-scrolled': headScrolled }">
+    <header
+      ref="headEl"
+      class="sidebar__head"
+      :class="{ 'is-scrolled': headScrolled }"
+      @contextmenu="onHeadContextMenu"
+    >
       <div class="sidebar__switcher"><SidebarSwitcher /></div>
       <span id="sidebar-context" class="sidebar__context"></span>
     </header>
@@ -244,6 +332,16 @@ defineExpose({
         <slot name="tests" />
       </div>
     </div>
+
+    <!-- 页头右键菜单（自己 Teleport 到 body，挂在这里只为就近读状态） -->
+    <ContextMenu
+      v-if="headMenuAt"
+      :x="headMenuAt.x"
+      :y="headMenuAt.y"
+      :items="headMenuItems"
+      @select="onHeadMenuSelect"
+      @close="headMenuAt = null"
+    />
   </div>
 </template>
 
@@ -263,7 +361,8 @@ defineExpose({
    不铺底纹（2026-10-04 定稿不变）：侧栏展开后它是整栏最上一条，整块侧栏从头到尾
    一个色，胶囊自己浮在上面。底边那 1px 留给滚动显影 —— 常时透明、不占视觉，
    列表一滚动才描成发丝线（.is-scrolled），所以常态高度仍是 35px 不抖动。
-   折行只会在窄面板 + 评测样例的 verdict 挤不下时发生（同重构前的评测页头）。 */
+   折行本不该发生：computed 那边的 compact 会在「带标签放不下」时先收标签（见 headFitWithLabels）。
+   留 flex-wrap 是给极窄档兜底（侧栏压到 ~230 以下，连纯图标 + 判定簇都摆不开）。 */
 .sidebar__head {
   flex: 0 0 auto;
   display: flex;

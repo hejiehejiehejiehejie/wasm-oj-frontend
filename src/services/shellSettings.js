@@ -42,6 +42,7 @@ import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 const PANEL_POSITION_KEY = 'cp.panelPosition'
 const UI_SCALE_KEY = 'cp.uiScale'
 const NARROW_COLLAPSE_SIDE_KEY = 'cp.narrowCollapseSide'
+const CASE_VIEW_KEY = 'cp.caseView'
 
 function read(key, fallback, revive) {
   try {
@@ -118,6 +119,38 @@ export const NARROW_COLLAPSE_SIDES = [
 export function setNarrowCollapseSide(next) {
   if (next !== 'top' && next !== 'bottom') return
   narrowCollapseSide.value = next
+}
+
+/**
+ * 「评测样例」面板的列表面孔：'list'（纵向卡片流）| 'tabs'（分项标签 + 单用例正文）。
+ *
+ * 【为什么在设置里】2026-11-19 两种视图刚落地时，切换钮是页头右上角一颗图标钮；
+ * 同日用户要求把它挪进**设置 › 外观**（评测样例视图），与「侧边栏位置」这类外壳偏好
+ * 排在一起 —— 它是「这块面板长什么样」的偏好，不是每次都要顺手点的动作，
+ * 常驻页头反而占掉了 verdict / 耗时那一行的地方。
+ *
+ * 【谁读它】TestPanel 据此决定渲染哪一套外壳（见那边的 showTabs）；写它的只有设置面板
+ * 那一行（`EditorSettingsPanel.vue` 的 SHELL_ROWS）。两边读的是同一个 ref，
+ * 所以设置面板里改完，面板当场就换 —— 不需要重新挂载，也不用刷新。
+ *
+ * 用例空着时两种视图看到的是同一片空白，TestPanel 统一退回列表那套空态（那边判据）。
+ */
+export const caseView = ref(read(CASE_VIEW_KEY, 'list', (value) => (value === 'tabs' ? 'tabs' : 'list')))
+watch(caseView, (value) => persist(CASE_VIEW_KEY, value), { immediate: true })
+
+/**
+ * 两档的取值名（与 PANEL_POSITIONS 同一体例：**档位表只在这里**，i18n 只管文案）。
+ * 顺序是「列表 → 分项」：先摆着默认的那一档，与设置面板那颗段钮显示的当前值一致。
+ */
+export const CASE_VIEWS = [
+  { id: 'list', labelKey: 'settings.option.caseViewList' },
+  { id: 'tabs', labelKey: 'settings.option.caseViewTabs' },
+]
+
+/** 指定评测样例的列表面孔（设置面板那一行走这里；'tabs' 之外的一律按 'list' 处理） */
+export function setCaseView(next) {
+  if (next !== 'list' && next !== 'tabs') return
+  caseView.value = next
 }
 
 /**

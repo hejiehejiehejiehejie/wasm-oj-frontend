@@ -345,7 +345,8 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
    还隔着一条 8px 空隙；贴地之后再描一圈 1px 更没有着落。
    ⚠️ 边框一去掉，内容盒就是栏宽，下面 .activity-bar__item 的左边距就是
    (栏宽 − 方块 40) / 2（`box-sizing: border-box` 是全局的）。2026-10-26 按用户
-   「收窄一点」把栏从 48 收到 44，左边距随之 4 → 2。
+   「收窄一点」把栏从 48 收到 44，左边距随之 4 → 2；2026-11-19 那 2px 又整体挪到
+   **窗口外缘**一侧（用户「往窗口边缘挪 1~2px 更好看」），见下一条变量。
    宽度写 px 即可随全局缩放：postcss-pxtorem 会把它转成 rem（JS 不读这个值）。 */
 .activity-bar {
   flex: 0 0 44px;
@@ -363,6 +364,20 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   /* 地面色（--bg-ground，2026-11-18 06:08 定稿，沿革见上）：折叠态贴回背景底色。
      十套主题各自路由到自己的地面色（oled / contrast 为纯黑），不用另配。 */
   background: var(--bg-ground);
+  /* 方块在栏内的左边距（**值是「贴窗口外缘」那一档**，理由与算式见 .activity-bar__item
+     里那段 2026-11-19 的注释）。左停靠时窗口外缘就在左边 ⇒ 0，方块左缘与栏左缘齐；
+     停靠在右时由下一条镜像成 4（44 − 40）。
+     ⚠️ 数值挂在变量上、而不是直接写进 .activity-bar__item：那条基础规则必须留在
+     (0,1,0) —— App.vue 里窄屏横排用 `:deep(.activity-bar__item) { margin-left: 0 }`
+     把它压成 0，一旦这里升到 (0,3,0) 就跟那条同特异性、只能靠跨文件的源码顺序决胜负。 */
+  --activity-item-inset: 0px;
+}
+
+/* 侧栏停靠在右：窗口外缘在右边，同一份「朝外偏」镜像过来 —— 方块整体右移，
+   右缘与栏右缘齐（4 = 栏 44 − 方块 40），左边剩下 4px 让给内侧。
+   这是唯一一条改左边距的规则，别在别处再写一份（窄屏那条覆盖在 App.vue）。 */
+.activity-bar[data-side='right'] {
+  --activity-item-inset: 4px;
 }
 
 /* 展开态不写规则：这一栏的在场与否由 App 的 v-show 决定（判据与 is-collapsed 同源），
@@ -373,8 +388,8 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
 .activity-bar__group {
   display: flex;
   flex-direction: column;
-  /* 方块定宽 40px + 固定左边距 4px，靠 flex-start 钉在同一列（别改成 center / stretch：
-     这一栏伸缩时容器在变窄，居中会让方块跟着横移） */
+  /* 方块定宽 40px + 固定左边距（--activity-item-inset），靠 flex-start 钉在同一列
+     （别改成 center / stretch：这一栏伸缩时容器在变窄，居中会让方块跟着横移） */
   align-items: flex-start;
   /* 相邻两格的间隔：格里是 24px 图标、方块 40×40，不留间隔时两枚图标是「紧挨着的两个方块」，
      加 4px 后图标之间的呼吸感与 VS Code 接近（间距只加在这里，方块本身的可点面积不变） */
@@ -391,14 +406,26 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   align-items: center;
   justify-content: center;
   /* 2026-10-11：可点区从「整宽长条」改成 40×40 的圆角正方形（用户要求），
-     格子四周的留白因此不再进可点范围。左边距 2px = (栏 44 − 方块 40) / 2
-     （2026-10-26 栏从 48 收到 44，这条跟着 4 → 2；再改栏宽必须同时改它，
-     否则方块不再水平居中）。
+     格子四周的留白因此不再进可点范围。
      仍用固定边距而不是居中对齐：这一栏伸缩时宽度从右边变，固定的左边距让方块
-     一直钉在同一列上，不会随容器变窄而横移。半径 10px 与这条栏自己的圆角同值。 */
+     一直钉在同一列上，不会随容器变窄而横移。半径 10px 与这条栏自己的圆角同值。
+
+     【左边距 2026-11-19 改：从「栏内居中」2px 改成「贴窗口外缘」0 / 4px】
+     用户口径：「折叠 + 非窄屏时，侧栏上的按钮应该朝窗口边缘挪 1~2px，更美观」。
+     原先两侧对称的 2px（= (44 − 40) / 2）只保证「在 44px 栏里居中」，可这条栏自己
+     并不贴窗口边：左边压着 .workspace 的 8px 留白，右边隔着 4px 净缝才是编辑区那座岛。
+     算一遍就看出偏了 —— 图标中心原本落在 8 + 2 + 20 = 30px，而「窗口边 → 岛边」这段
+     ～56px（岛左缘实测 57）的中点在 28.5：整列图标读起来是往内侧（岛那边）靠的。
+     把 2px 整个挪到外缘后图标中心正好 28，两侧各留 28 —— 一条图标带居中浮在缝里，
+     与两侧的呼吸对称。这也是「1 或 2px」里取 2 的理由：1px 只补一半，仍偏 1px。
+     停靠在右时镜像（值同上，见 .activity-bar[data-side='right']）。
+     ⚠️ 用变量消费而不是写死，是为了让这条基础规则留在 (0,1,0) —— App.vue 的窄屏横排
+     要靠 `:deep(.activity-bar__item) { margin-left: 0 }` 压掉它（那条横排是整排居中，
+     偏移只会把每组第一格推出去）。特异性的账记在 --activity-item-inset 那条注释里。
+     ⚠️ 再改栏宽要同时改这三处：栏的 flex-basis、这条的变量值、方块宽度。 */
   width: 40px;
   height: 40px;
-  margin-left: 2px;
+  margin-left: var(--activity-item-inset);
   padding: 0;
   border: none;
   border-radius: 10px;
@@ -416,6 +443,18 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
 :where(html.is-hoverable) .activity-bar__item:hover {
   color: var(--text);
   background: var(--bg-hover);
+}
+
+/* 键盘焦点环**画在方块内侧**（2026-11-19，随上面那条「贴外缘」一起改）。
+   全局那条 `:focus-visible { outline: 1px; outline-offset: 1px }` 是画在盒子**外面**的：
+   方块贴到栏外缘之后（外停靠侧 margin-left 0），外面那 1px 正好落到 `.activity-bar` 的
+   `overflow: hidden` 里被裁掉 —— 实测第一格只剩上 / 下 / 内缘三条边，外缘那条整根消失。
+   改成 offset -1 之后环贴着方块内缘走（与全站浮层条目 `outline-offset: -2px` 同一体例），
+   四边一定完整，且与停靠侧无关（左右两档镜像都不用再补规则）。
+   ⚠️ 特异性 (0,2,0) 压得住全局那条的 (0,1,0)，别写成 `:where(...)` 包住类名 —— 那样会掉到 (0,1,0)
+   与全局规则同档，胜负就由注入顺序决定了。 */
+.activity-bar__item:focus-visible {
+  outline-offset: -1px;
 }
 
 /* 深色主题下闲置档整体压暗一档（2026-11-18 用户要求）：折叠栏这几枚图标在深色地面上

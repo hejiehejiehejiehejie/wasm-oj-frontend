@@ -478,12 +478,105 @@ function onRootKeydown(event) {
 }
 
 // ---------------------------------------------------------------------- 鼠标 / 触屏
-// hover 当场展开二级；移出一整块之后给 220ms 的宽限再收 —— 从一级挪进二级的途中
-// 会短暂离开两个盒子，没有这段宽限二级会在半路消失。
+// hover 当场展开二级；**收起一律走宽限**，分四档（2026-11-19 用户口径「鼠标一滑出二级就直接
+// 消失，有些不方便」）：
+//
+// - `GRACE_ROW`：指针压到另一行（那一行没有二级），且那一行**不在去二级的路上**。以前这里是
+//   **当场收**（`openSubmenuAt` 对不可展开的行直接 `closeSubmenu`），指针一路过就没了。
+// - `GRACE_ROW_BLOCK`：压到的那一行**挡在去二级的路上** —— 它的纵向范围与二级重叠。二级比
+//   一级高时（「主题」那两排色卡就压在「界面缩放 / 字体大小」上），从行中心斜着往二级里挪，
+//   中途必然压过这一行；这一行既是「另一行」又是「必经之路」，只能按路算：给足 520ms
+//   （慢慢挪的人斜穿也要三四百毫秒），停在上面不动才收。
+// - `GRACE_AWAY`：指针离开两级（去别处干别的）。原来 220ms，手脚慢一点就超时；放宽到 420ms。
+// - `GRACE_CORRIDOR`：指针还在「两级之间的通道」里 —— 从一级走向二级、或从二级走回一级时会
+//   经过的那片空地。二级比一级高时尤其明显：「设置分类」那七档比所属那一行高出一大截，
+//   斜着走过去必然先离开一级、再进入二级，中间那段既不属于一级也不属于二级，以前只能靠
+//   220ms 硬闯。这一段不收起，只留 1.2s 兜底：真停在空地上不动，二级也不会永远挂着。
+//
+// 一进一级（任何位置，含内边距）/ 一进二级就撤掉待收的定时器 —— 回来了就该留着。
+// 四档都只对鼠标生效；触屏那套「轻点展开、二级常驻」一行都没动，理由见下面两个函数。
+const GRACE_ROW = 200
+const GRACE_ROW_BLOCK = 520
+const GRACE_AWAY = 420
+const GRACE_CORRIDOR = 1200
+/** 通道判断往外放宽一点：行按钮与一级盒子差着 1px 边框，手停在缝上时不该判成「已经离开」 */
+const CORRIDOR_SLACK = 4
+
 let closeTimer = 0
 
+/** 撤掉待收的定时器（指针回来了、或者换了一个要展开的行） */
+function cancelClose() {
+  window.clearTimeout(closeTimer)
+  closeTimer = 0
+}
+
+/** 排一次收起：同名定时器只留最后一个 */
+function scheduleClose(delay) {
+  cancelClose()
+  closeTimer = window.setTimeout(() => {
+    closeTimer = 0
+    closeSubmenu()
+  }, delay)
+}
+
 /**
- * 指针移进一级行：鼠标才当场展开二级。
+ * 指针还在不在「两级之间的通道」里。
+ *
+ * 通道 = 四块拼起来（见下），刻意**不用两级的整体包络**：二级比一级宽时，包络会横向拉满，
+ * 连一级右边那片与二级毫无关系的空地都算进来，指针往右一甩二级要赖够 1.2s 才收。
+ *
+ *   1. 一级本身、2. 二级本身；
+ *   3. 两级之间那条**横带**（二级贴着长出来时只有几个像素宽 —— 一级盒子与行按钮差着 1px
+ *      边框；窄屏上二级被夹回视口、压在一级身上时就整个落在里面）；
+ *   4. 二级比一级**高**时，多出来的那一截在一级旁边撑出的**台阶**。这一块是重点：
+ *      「设置分类」那七档比所属那一行高出一大截，从行中心斜着往最后一档走，落点是从
+ *      一级的**下沿**出去的 —— 那一路上既不属于一级也不属于二级，就是一个大台阶。
+ *      二级比一级矮时（「主题」那两排色卡）台阶不存在，往右一甩就按 GRACE_AWAY 收，
+ *      正好。
+ *
+ * 判据都放宽 `CORRIDOR_SLACK`：手停在两道边的缝上时不该判成「已经离开」。
+ * 二级还没量好（`subRoot` 为空）时退化成只看一级 —— 那一发通常由二级随后那发
+ * `pointerenter` 兜住，只是多排了一次定时器又撤掉。
+ */
+function inSubmenuCorridor(event) {
+  if (openSubmenu.value === null) return false
+  const menu = root.value?.getBoundingClientRect()
+  if (!menu) return false
+  const x = event.clientX
+  const y = event.clientY
+  const hit = (rect) =>
+    x >= rect.left - CORRIDOR_SLACK &&
+    x <= rect.right + CORRIDOR_SLACK &&
+    y >= rect.top - CORRIDOR_SLACK &&
+    y <= rect.bottom + CORRIDOR_SLACK
+  if (hit(menu)) return true
+
+  const sub = subRoot.value?.getBoundingClientRect() ?? null
+  if (!sub) return false
+  if (hit(sub)) return true
+
+  // 3. 横带：两级相对的那两条边之间，纵向盖住两者
+  const gapLeft = Math.min(menu.right, sub.right)
+  const gapRight = Math.max(menu.left, sub.left)
+  if (gapLeft < gapRight && hit({
+    left: gapLeft,
+    right: gapRight,
+    top: Math.min(menu.top, sub.top),
+    bottom: Math.max(menu.bottom, sub.bottom),
+  })) return true
+
+  // 4. 台阶：二级探出一级上/下沿的那一截。横向取两级合起来的宽度 —— 指针是从一级的
+  // 任意一列往下走、再拐进二级的，窄了就会在半路上判成「已经离开」
+  const step = sub.bottom > menu.bottom
+    ? { left: Math.min(menu.left, sub.left), right: Math.max(menu.right, sub.right), top: menu.bottom, bottom: sub.bottom }
+    : sub.top < menu.top
+      ? { left: Math.min(menu.left, sub.left), right: Math.max(menu.right, sub.right), top: sub.top, bottom: menu.top }
+      : null
+  return step ? hit(step) : false
+}
+
+/**
+ * 指针移进一级行：鼠标才当场展开二级；不可展开的行给一段宽限再收。
  *
  * 【触屏为什么不能走这条】触屏没有「悬停」，`pointerenter` 是在 **touchstart 那一刻**来的，
  * 于是二级立刻插进 DOM；而同一根手指抬起后浏览器补的那发 `click`，是按**那一刻**落点
@@ -494,53 +587,69 @@ let closeTimer = 0
  * 自己长出来的二级就不可能把自己这一下接走。`activeIndex` 仍在这里记 —— 按下即高亮。
  */
 function onRowPointerEnter(event, index) {
-  window.clearTimeout(closeTimer)
-  closeTimer = 0
+  cancelClose()
   activeIndex.value = index
   // 空串的平台（老浏览器 / 合成事件）按鼠标算，与下面 onRootPointerLeave 同一条口径
   if (event?.pointerType && event.pointerType !== 'mouse') return
-  openSubmenuAt(index)
+  const row = rows.value[index]
+  if (row?.kind === 'radio' || row?.kind === 'cloud') {
+    openSubmenuAt(index)
+    return
+  }
+  // 不可展开的行：以前是当场收，斜穿去二级时会被这一下打断（见上面两档 GRACE_ROW 那段）
+  if (openSubmenu.value !== null) {
+    scheduleClose(blocksSubmenu(event) ? GRACE_ROW_BLOCK : GRACE_ROW)
+  }
 }
 
 /**
- * 移出整块后收二级 —— **只收鼠标那一套**。
+ * 指针压到的这一行，是不是挡在「去二级的路上」—— 它的纵向范围与二级重叠。
+ *
+ * 二级的横向就在一级旁边，所以纵向一旦重叠，从这一行往右挪就是二级；二级比一级高时
+ * （「主题」压在「界面缩放 / 字体大小」上、同步表单压在「安装为应用」上），斜着往二级
+ * 里走必然先压过这样的行。拿事件里那一行自己的盒子比，不比 `activeIndex` —— 条件行会让
+ * 屏幕上的第几行与 `rows` 下标对不上（同 `placeSubmenu` 里 rowElement 那条注释）。
+ */
+function blocksSubmenu(event) {
+  const row = event?.currentTarget instanceof Element ? event.currentTarget : rowElement()
+  const sub = subRoot.value?.getBoundingClientRect()
+  if (!row || !sub) return false
+  const rect = row.getBoundingClientRect()
+  return rect.bottom > sub.top && rect.top < sub.bottom
+}
+
+/**
+ * 移出整块后收二级 —— **只收鼠标那一套**，而且要过宽限。
  *
  * 触屏没有「悬停」：手指抬起时那个 pointer 直接不存在了，浏览器会照规矩补一发
- * `pointerleave`（`pointerType === 'touch'`）。照鼠标那样排 220ms 的定时器，二级会在
- * 用户手指还没落下去之前自己收掉 —— 实测（430×800、hasTouch）轻点「设置分类」后
- * 160ms 二级还在（8 项）、450ms 已经归零，二级**根本点不到**；手速极快（80ms 内）才选得中。
+ * `pointerleave`（`pointerType === 'touch'`）。照鼠标那样排定时器，二级会在用户手指还没
+ * 落下去之前自己收掉 —— 实测（430×800、hasTouch）轻点「设置分类」后 160ms 二级还在（8 项）、
+ * 450ms 已经归零，二级**根本点不到**；手速极快（80ms 内）才选得中。
  * 所以触屏改成「轻点展开、二级常驻」：轻点别的行换二级，收起交给「点菜单外」那一路。
+ *
+ * 二级 Teleport 到了 body，两个盒子之间不再有包含关系 —— 指针跨过去时一级会先收到一发
+ * `pointerleave`，这一发要能分辨「是往二级走」还是「真走了」，所以先问 `inSubmenuCorridor`。
  */
 function onRootPointerLeave(event) {
   if (event?.pointerType && event.pointerType !== 'mouse') return
-  window.clearTimeout(closeTimer)
-  closeTimer = window.setTimeout(closeSubmenu, 220)
+  scheduleClose(inSubmenuCorridor(event) ? GRACE_CORRIDOR : GRACE_AWAY)
 }
 
-/**
- * 指针从一级行挪进二级：取消待收。
- *
- * 二级 Teleport 到了 body，两个盒子之间不再有包含关系 —— 指针跨过去时一级会先收到一发
- * `pointerleave`（排上 220ms 的收起定时器），只能靠二级这一发 `pointerenter` 把它撤掉。
- * 触屏不算：那条 220ms 的定时器本来就不会为触屏排（见上面 onRootPointerLeave）。
- */
-function keepOpen(event) {
-  if (event?.pointerType && event.pointerType !== 'mouse') return
-  window.clearTimeout(closeTimer)
-  closeTimer = 0
-}
-
-// 打开即接过焦点：不然 Esc / 方向键都落在别处。高亮钉在第一行而不是容器上，
-// 上下键才有起点（滚动容器自身不可聚焦也不会吞掉方向键）。
-// **触屏上不送**（2026-11-18 用户报「点开设置菜单，第一行『主题』就是高亮的」）：
-// focusRow 会先把 activeIndex 置成第一行、再把焦点送进去，前半下就把那一行的
-// is-active 高亮点亮了（与键盘漫游共用同一条规则），触屏没有上下键要走，纯属误亮。
-// 判断与 ComponentsMenu 打开菜单不送焦点同一条口径（2026-10-31 同类问题）。
-// 键盘漫游不因此残废：onRootKeydown 里 ↓ / ↑ 在 activeIndex 为 -1 时各有兜底起点
-// （FIRST_SELECTABLE / 表尾），带键盘的设备按一下方向键照样有高亮。
+// 打开即接过焦点 —— 但要接给**菜单盒子本身**（`tabindex="-1"`），不是第一行。
+//
+// 以前是 `focusRow(FIRST_SELECTABLE)`，两个动作绑在一起：先 `activeIndex = 第一行`（点亮
+// `is-active`），再把焦点送过去。于是「打开即有高光」—— 2026-11-18 触屏报过一次，当时只挡住了
+// 触屏（`isTouchPointer()`）；鼠标点开的路一条没挡，2026-11-19 用户再报「打开设置菜单，
+// 第一个元素有高光」，就是这条。**高亮应当由用户动作产生**（悬停 / 方向键），不该是打开的副作用。
+//
+// 焦点放容器上照样满足「Esc / 方向键落在菜单里」：↑↓ 在 activeIndex 为 -1 时各有兜底起点
+// （见 onRootKeydown，FIRST_SELECTABLE / 表尾），按一下才亮起第一行 / 最后一行。
+// `preventScroll` 是因为盒子刚定位好，聚焦不该再让它自己滚一下。
+// **触屏仍不送**：没有方向键要走，而脚本聚焦在 Chrome 里会被判成键盘意图
+// （见 ComponentsMenu 里 2026-10-31 那次同类记录），徒增误判。
 watch(ready, (shown) => {
   if (!shown || isTouchPointer()) return
-  nextTick(() => focusRow(FIRST_SELECTABLE.value))
+  nextTick(() => root.value?.focus({ preventScroll: true }))
 })
 
 /**
@@ -763,7 +872,9 @@ function currentOption(row) {
       :style="position"
       role="menu"
       :aria-label="t('app.settings')"
+      tabindex="-1"
       @keydown="onRootKeydown"
+      @pointerenter="cancelClose"
       @pointerleave="onRootPointerLeave"
       @scroll.passive="onMenuScroll"
     >
@@ -860,7 +971,7 @@ function currentOption(row) {
               role="menu"
               :aria-label="t(row.labelKey)"
               @keydown="onRootKeydown"
-              @pointerenter="keepOpen"
+              @pointerenter="cancelClose"
               @pointerleave="onRootPointerLeave"
             >
               <!-- 主题：10 档横排成两行（深色一行、浅色一行）。竖排列表在这里会长到
@@ -930,7 +1041,7 @@ function currentOption(row) {
               role="group"
               :aria-label="t(row.labelKey)"
               @keydown="onRootKeydown"
-              @pointerenter="keepOpen"
+              @pointerenter="cancelClose"
               @pointerleave="onRootPointerLeave"
               @click.stop
             >
@@ -1181,6 +1292,16 @@ function currentOption(row) {
   visibility: hidden;
   /* 弹开时从齿轮那个角长出来：与右键菜单同一种动画，只是 transform-origin 换成右上 */
   transform-origin: top right;
+}
+
+/**
+ * 盒子自己会被聚焦（打开时把焦点接过来，见 `watch(ready)` 那段），但不该画出聚焦环 ——
+ * 它是容器不是可操作项，高亮只属于行（`.settings-menu__item.is-active`）。
+ * 鼠标 / 键盘两条路都压掉：Chrome 对脚本聚焦有时判成键盘意图，`outline: none` 兜住即可。
+ */
+.settings-menu:focus,
+.settings-menu:focus-visible {
+  outline: none;
 }
 
 /**

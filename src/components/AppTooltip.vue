@@ -14,8 +14,8 @@ import { appViewportBox } from '../composables/useMobileKeyboard.js'
  * 会被滚动容器裁掉；挂到 body 才能真浮起来。
  *
  * 定位匣取 `appViewportBox()`（与 usePopoverLayer / 应用层同一口径，理由见那里）：软键盘弹起时
- * window.innerHeight 不变，拿它当匣会让气泡停到键盘底下。默认在上方，
- * 上方放不下就翻到下方，左右夹进视口。
+ * window.innerHeight 不变，拿它当匣会让气泡停到键盘底下。默认在上方，上方放不下就翻到下方，
+ * 左右夹进视口。要反过来的场合（气泡该往下弹）传 `placement="bottom"`，见那个 prop 的注释。
  *
  * 【触屏不弹】（2026-11-09，用户报「触屏点击运行单个样例的按钮之后，会出现一个悬浮的提示」）
  * 手指抬起之后浏览器会补一串**兼容鼠标事件**，mouseover / mouseenter 都在其中 —— 于是轻点
@@ -45,6 +45,18 @@ const props = defineProps({
   delay: { type: Number, default: 300 },
   /** 与触发元素、视口边缘的间隙 */
   gap: { type: Number, default: 8 },
+  /**
+   * 优先弹在哪一侧：'top'（默认）或 'bottom'。另一侧放不下时才翻过去。
+   * 只有「上方有东西不该被盖住」的场合才需要改成 bottom —— 目前是分项标签轨末尾那颗「+」：
+   * 它上方就是侧栏页头（面板切换器 + 判定簇），气泡从那儿冒出来像是在盖页头。
+   */
+  placement: { type: String, default: 'top', validator: (v) => v === 'top' || v === 'bottom' },
+  /**
+   * 内容是「一段输入 / 代码」而不是一句说明：等宽、左对齐、保留换行、放宽到 320px。
+   * 走这条就不要塞整句话进去了 —— `.app-tip` 的居中排版对多行文本很难看。
+   * 多行时行数别超过 6：气泡是浮层，太高会盖住底下正在看的东西。
+   */
+  code: { type: Boolean, default: false },
 })
 
 const trigger = ref(null)
@@ -75,8 +87,16 @@ async function place() {
     box.left + props.gap,
     Math.min(a.left + a.width / 2 - b.width / 2, box.right - b.width - props.gap),
   )
-  let top = a.top - b.height - props.gap
-  if (top < box.top + props.gap) top = a.bottom + props.gap
+  let top
+  if (props.placement === 'bottom') {
+    // 优先下方：越过触发元素下沿一个 gap
+    top = a.bottom + props.gap
+    // 下方装不下（贴着页脚 / 视口底）再翻上去
+    if (top + b.height > box.bottom - props.gap) top = a.top - b.height - props.gap
+  } else {
+    top = a.top - b.height - props.gap
+    if (top < box.top + props.gap) top = a.bottom + props.gap
+  }
   top = Math.max(box.top + props.gap, Math.min(top, box.bottom - b.height - props.gap))
   position.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` }
   ready.value = true
@@ -160,7 +180,7 @@ onBeforeUnmount(() => {
         v-if="visible"
         ref="bubble"
         class="app-tip"
-        :class="{ 'is-ready': ready }"
+        :class="{ 'is-ready': ready, 'app-tip--code': code }"
         :style="position"
         role="tooltip"
       >
@@ -197,5 +217,20 @@ onBeforeUnmount(() => {
 
 .app-tip.is-ready {
   opacity: 1;
+}
+
+/* 代码 / 输入预览（`code` prop）：等宽、左对齐、吃换行，横向放宽到 320。
+   行宽与行数由调用方（caseSummary 的 caseInputPreview）先截断，这里只兜住「万一还是太宽」
+   —— `overflow-wrap: anywhere` 让超长无空格串就地折行，而不是把气泡撑出屏幕。 */
+.app-tip--code {
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 7px 10px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 </style>

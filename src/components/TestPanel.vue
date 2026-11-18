@@ -4,9 +4,12 @@ import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseCard from './TestCaseCard.vue'
+import TestCaseTabs from './TestCaseTabs.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
+import { useScrollEdge } from '../composables/useScrollEdge.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { mountConfetti, unmountConfetti } from '../services/confetti.js'
+import { caseView } from '../services/shellSettings.js'
 import { t } from '../i18n/index.js'
 
 // 页头右侧的 verdict + 耗时经 Teleport 投进 Sidebar 的共享页头（#sidebar-context），
@@ -14,9 +17,12 @@ import { t } from '../i18n/index.js'
 const { activeTab, verdictCompact } = inject('sidebarTabs')
 const isActivePanel = computed(() => activeTab.value === 'tests')
 
-// 用例列表是面板里唯一的长滚动区：原生滚动条会占掉 11px 宽度（卡片跟着变窄、出现 / 消失时
-// 折行位置还会跳），改用覆盖式滑块（2026-10-13）。原生那条由下面 .cases 的
-// scrollbar-width / ::-webkit-scrollbar 藏掉
+/**
+ * 用例列表是面板里唯一的长滚动区：原生滚动条会占掉 11px 宽度（卡片跟着变窄、出现 / 消失时
+ * 折行位置还会跳），改用覆盖式滑块（2026-10-13）。原生那条由下面 .cases 的
+ * scrollbar-width / ::-webkit-scrollbar 藏掉。
+ * 分项模式的滚动所有者在 TestCaseTabs 里（它自己挂一条），两者不会同时存在。
+ */
 const listEl = ref(null)
 useOverlayScrollbar(listEl)
 
@@ -64,6 +70,20 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit'])
+
+/**
+ * 样例栏有两种列表面孔（2026-11-19，用户提的方案）：
+ *   - `list`：纵向卡片流，每张卡可折叠 —— 适合「扫一眼几条样例都是什么结果」；
+ *   - `tabs`：顶部标签轨 + 单用例正文 —— 适合「盯住一条改」，纵向空间全给代码面。
+ *
+ * 偏好住在 `services/shellSettings.js` 的模块级单例里（键 `cp.caseView`），**不在这里**：
+ * 写它的入口是**设置 › 外观 › 评测样例视图**那一行，两处读的是同一个 ref，
+ * 所以设置里改完这块面板当场就换。外壳与正文的划分见 TestCaseTabs / TestCaseCard
+ * 的文件头，这一层只管「渲染哪一套」与两种模式共用的空态 / 页脚。
+ */
+// 用例空着时一律退回列表模式的空态（黄金分割处那行字 + 底部虚线框）：
+// 分项模式的标签轨与状态栏在 0 条用例时没有意义，而空态只有一份实现，不必写两套。
+const showTabs = computed(() => caseView.value === 'tabs' && props.cases.length > 0)
 
 // 页脚主条里面那行气泡文案（2026-10-24 凌晨用户要求「鼠标在运行全部按钮上时，显示它的快捷键」）。
 // 组合键走 formatCombo(bindings.run) —— 绑定表是唯一口径，设置里改键这里跟着变；解绑了退回纯动作名。
@@ -141,39 +161,15 @@ const showVerdict = computed(() => !props.runBlocked)
 //   页头在顶上：scrollTop > 0 才画（内容从页头底下穿过去了）。
 //   页脚在底下：**没滚到底才画** —— 还有内容压在这条线后面，才需要把它描出来；
 //   滚到最底 / 一屏装得下 / 空列表，都没有「下文」，线就不该出现（用户 2026-10-23 纠正）。
-//   −1 是亚像素余量：缩放后 scrollHeight 常带小数，差 0.5px 时「已到底」会被读成
-//   「还有下文」，那条线就永远擦不掉。
 // ⚠️ 别改成「恒定描边」：列表装得下时，那条线会把一块空白切成两截。
 // ⚠️ 这条 border 常时也在（透明），只是为了显示 / 隐藏时页脚高度不抖 1px。
-const moreBelow = ref(false)
-function syncFootEdge() {
-  const el = listEl.value
-  if (!el) {
-    moreBelow.value = false
-    return
-  }
-  moreBelow.value = el.scrollTop + el.clientHeight < el.scrollHeight - 1
-}
-
-let listObserver = null
-
-onMounted(() => {
-  const el = listEl.value
-  if (!el) return
-  el.addEventListener('scroll', syncFootEdge, { passive: true })
-  // 面板在两个页签间用 v-show 切（不是 v-if）：藏起来时 clientHeight 是 0、判据算不出东西，
-  // 切成「评测样例」那一刻盒子从 0 变高，ResizeObserver 会补发这次重算 ——
-  // 光靠 scroll 事件的话，进面板后只要不动滚轮，线就一直缺着。
-  listObserver = new ResizeObserver(syncFootEdge)
-  listObserver.observe(el)
-  syncFootEdge()
-})
-
-onBeforeUnmount(() => {
-  listEl.value?.removeEventListener('scroll', syncFootEdge)
-  listObserver?.disconnect()
-  listObserver = null
-})
+//
+// 2026-11-19：判定逻辑搬进 composables/useScrollEdge.js —— 分项视图的滚动所有者换成了
+// `.case-viewport`，同一套判据要服务两个容器。这里只负责「哪种视图的判定结果算数」。
+const { moreBelow: listMoreBelow, sync: syncFootEdge } = useScrollEdge(listEl)
+// 分项视图那边的值由子组件算好 emit 上来（它自己也是 useScrollEdge 的使用者）
+const tabsMoreBelow = ref(false)
+const moreBelow = computed(() => (showTabs.value ? tabsMoreBelow.value : listMoreBelow.value))
 
 // 增删用例（以及改动输入让卡片长高 / 变矮）改的是内容高度，没人滚 —— 补一次重算。
 // 卡片自己的折叠态在子组件里，这里看不到：那种情形最多在「收起后刚好不再溢出」时
@@ -231,19 +227,21 @@ const elapsedText = computed(() => {
 
 <template>
   <section class="panel" :aria-label="t('tests.panel.ariaLabel')">
-    <!-- 页头动作区：verdict + 耗时投进 Sidebar 共享页头的 #sidebar-context。
+    <!-- 页头动作区：耗时与结论投进 Sidebar 共享页头的 #sidebar-context（顺序见下面那一簇）。
          不激活时 disabled、内容原地渲染（面板 v-show 藏着，不可见）；defer 的来历
          见 FileExplorer 里那颗同款 Teleport 的注释。
          具体是 WA 还是 TLE 由各张卡片的徽标说明，这里不堆长句。
          2026-11-18：跑不了（`runBlocked` 非空，含「没打开文件」与「打开了但不是代码」
-         两种）时整块不画 —— 那时这里只会是一颗「无测试用例」或一份没有意义的旧结论，
-         与空态标题「为什么跑不了」自相矛盾（判据见脚本的 `showVerdict`）。 -->
+         两种）时**结论那一对**（verdict + 耗时）不画 —— 那时这里只会是一颗「无测试用例」
+         或一份没有意义的旧结论，与空态标题「为什么跑不了」自相矛盾（判据见脚本的
+         `showVerdict`）。
+         2026-11-19：视图切换钮曾住在这块末尾（同日又按用户要求挪进「设置 › 外观」），
+         现在这一格只剩结论那一对 —— 于是外层 `v-if` 与 `showVerdict` 又合成一层。 -->
     <Teleport defer :disabled="!isActivePanel" to="#sidebar-context">
       <div v-if="showVerdict" class="panel__heading">
-        <span class="verdict" :data-tone="verdict.tone">
-          <LoadingSpinner v-if="counts.running" :size="9" />
-          <span>{{ verdict.text }}</span>
-        </span>
+        <!-- 顺序：耗时在前、结论在后（2026-11-19 用户要求交换）。右端最后落的是那枚 12px/600
+             的判定，它是这一簇里唯一的重音；耗时是 11px 的淡色附注，放在左边当引子。
+             两段都是 `flex: 0 0 auto`，交换只动 DOM 顺序，宽度与折行判据一点没变。 -->
         <span
           v-if="elapsedText"
           class="elapsed"
@@ -251,10 +249,18 @@ const elapsedText = computed(() => {
         >
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
         </span>
+        <span class="verdict" :data-tone="verdict.tone">
+          <LoadingSpinner v-if="counts.running" :size="9" />
+          <span>{{ verdict.text }}</span>
+        </span>
       </div>
     </Teleport>
 
-    <ul ref="listEl" class="cases" :class="{ 'is-empty': !cases.length }">
+    <!-- 两种列表面孔二选一（2026-11-19）：列表流 / 分项标签。同一时刻只有一套在 DOM 里 ——
+         不是 v-show —— 因为分项模式的核心就是「只留一份正文」：挂着四张卡不动，
+         等于四份 textarea、四份差异计算、四条折叠外壳一起常驻。
+         用例空着时 showTabs 为 false，落回下面这套列表标记的空态（空态只有一份实现）。 -->
+    <ul v-if="!showTabs" ref="listEl" class="cases" :class="{ 'is-empty': !cases.length }">
       <li v-if="!cases.length" class="empty">
         <!-- 空态只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个用例…」和一颗
              「添加第一个用例」大按钮，前者是废话、后者与列表末尾那颗「添加测试样例」重复
@@ -331,6 +337,20 @@ const elapsedText = computed(() => {
         </button>
       </li>
     </ul>
+
+    <!-- 分项标签视图（2026-11-19）：标签轨 + 单用例状态栏 + 唯一滚动区。
+         `@more-below` 是页脚那条发丝线的判据来源（滚动所有者在它内部，见上面 moreBelow）。 -->
+    <TestCaseTabs
+      v-else
+      :cases="cases"
+      :running="running"
+      :run-blocked="runBlocked"
+      :add-title="addTitle"
+      @add="emit('add')"
+      @remove="emit('remove', $event)"
+      @run-one="emit('run-one', $event)"
+      @more-below="tabsMoreBelow = $event"
+    />
 
     <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
       <!-- 跑不了的原因写成一行看得见的字（置灰的按钮在浏览器里收不到鼠标事件，
@@ -441,51 +461,63 @@ const elapsedText = computed(() => {
   min-width: 0;
   /* 换行后单独占一行时仍然贴右（不写会在换行那一行落到左边） */
   margin-left: auto;
+  /* 与侧栏右沿之间多留 6px（2026-11-19，用户：「太靠右了，加入一个右边距」）。
+     页头本身只给 8px 内边距（合计 14px），而侧栏顶部是个圆角岛 —— 判定那一簇最后几个字
+     正好压在拐角弧线上，读起来像贴边。这 6px 也只在这种「纯文字、无边框」的判定上才显得紧：
+     资源管理器那两颗图标钮有自己的 32px 热区，8px 就够。
+     ⚠️ 窄屏这一档必须归零（见下面 :where(html.is-narrow) 那条）：那时页头是居中的唯一
+     顶栏，左右内边距刻意做成对称，单边加 6px 会让整簇偏 3px。 */
+  margin-right: 6px;
+}
+
+/* 窄屏：页头这条退成「唯一的顶栏」，Sidebar 把 padding 改成左右对称 8/8 就是为了居中准
+   （见 Sidebar 的 :where(html.is-narrow) .sidebar__context），这里多出的右边距会把内容盒
+   挤偏 —— 归零。特异性 (0,2,0)，不参与 Sidebar 那条 margin-left 的争夺。 */
+:where(html.is-narrow) .panel__heading {
+  margin-right: 0;
 }
 
 .verdict {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 1px 8px;
-  /* 圆角矩形 6px，与卡片上那颗判定码徽标（TestCaseCard 的 .badge）同一形状语言；
-     2026-10-23 由胶囊（999px）改过来（用户：「所有显示评测结果的胶囊都改成圆角矩形」）。
-     6px 是全站最多的圆角值，也是本面板两颗按钮 .add / .run-inline 的圆角。
-     ⚠️ 别改成 10px：这枚才 ~17px 高，10 + 10 超过高度，浏览器会按比例把四个角夹小，
-     又回到半圆胶囊的样子。 */
-  border-radius: 6px;
-  font-size: 11px;
+  /* 纯文字结论（2026-11-19，Typographic Status）：圆角矩形底色、左右内边距、那条用来凑高度的
+     1px 透明占位边框全部删掉。有底色那版靠 ~17px 高的色块撑体量，一抽掉就只剩 11px 的裸字；
+     体量改由字号阶梯承担 —— 12px / 600 比右侧 11px 的时钟与耗时大一号、粗一档，是页头右栏
+     唯一的视觉锚点，靠 Flex 的 align-items 自然垂直居中，不再需要边框凑高度。
+     ⚠️ 别再往这里加 background / border-radius：旧底色是硬编码的暗色系亮色相
+     （rgba(137,209,133,.13) 那一批），在 paper / leaf / mist 这些浅底主题上会叠出脏荧光，
+     而 --err 没有对应的 --err-face。颜色只有一处来源：--ok / --fail / --err / --info / --warn。 */
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  /* 3/4 AC、2/4 待重测：数字等宽，通过数跳动时判定句不左右晃 */
+  font-variant-numeric: tabular-nums;
   color: var(--text-dim);
-  background: var(--case-chip-bg);
-  border: 1px solid transparent;
   white-space: nowrap;
-  transition: color 0.18s ease, background-color 0.18s ease;
+  transition: color 0.18s ease;
 }
 
 .verdict[data-tone='passed'] {
   color: var(--ok);
-  background: rgba(137, 209, 133, 0.13);
 }
 
 .verdict[data-tone='failed'] {
   color: var(--fail);
-  background: rgba(244, 135, 113, 0.13);
 }
 
 .verdict[data-tone='error'] {
   color: var(--err);
-  background: rgba(224, 163, 78, 0.13);
 }
 
 .verdict[data-tone='info'] {
   color: var(--info);
-  background: rgba(79, 193, 255, 0.12);
 }
 
 /* 有结论过期（代码/输入改后未重跑）：琥珀色提示，不再给绿色「全部 AC」 */
 .verdict[data-tone='warn'] {
   color: var(--warn);
-  background: rgba(201, 164, 92, 0.14);
 }
 
 .elapsed {

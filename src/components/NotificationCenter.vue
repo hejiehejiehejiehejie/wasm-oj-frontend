@@ -190,7 +190,6 @@ function openLink(notif, event) {
   align-items: flex-start;
   gap: 10px;
   padding: 12px;
-  border: 1px solid var(--border);
   border-radius: 2px;
   background: var(--toast-bg);
   /* 只写标准属性：成对写前缀会被 Lightning CSS 只留前缀、Chrome 141+ 又不认前缀（见 CountdownCard） */
