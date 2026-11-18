@@ -36,7 +36,9 @@
  * `ScrollableElement` + `Gesture`，不是原生滚动容器，靠 `overflow: hidden` 拦不住，只能靠遮罩），
  * 「点空白顺手把光标落进编辑器 / 顺手切了页签」这类副作用一并没了。
  * **关闭不需要在这里再加一份逻辑**：点遮罩 = 点在菜单外面，走 `usePopoverLayer` 那条
- * `pointerdown` 捕获（会在关闭前登记一次 `swallowNextTap`，触屏抬手不会把键盘弹出来）。
+ * `pointerdown` 捕获 —— 关闭前登记 `swallowGestureTail()` 把那一发手势的收尾整段吞掉
+ * （遮罩卸载后 compat 鼠标事件会重新命中到底下：光标落进编辑器 / 弹键盘 / 切页签，
+ * 2026-11-18 探针实测补的洞，细节见 useMobileKeyboard 里 `swallowGestureTail` 的说明）。
  * 设置 / 组件菜单原本不铺（当时口径是「下拉开着还要能点别处」）；2026-11-18 用户要求统一成
  * 「点外部只收菜单、不触发底下业务逻辑」，两个菜单也换用了同一张（z-index 124）——
  * 三个菜单的外部点击口径自此完全一致，细节见 MenuScrim.vue 的文件头。

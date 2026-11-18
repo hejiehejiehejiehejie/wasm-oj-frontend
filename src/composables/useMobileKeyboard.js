@@ -57,10 +57,6 @@ const SETTLE_DELAYS = [60, 180, 420]
 const WATCHDOG_MS = 250
 // 连续这么多拍读数都没变、键盘也不在、焦点也不在输入框上，就把看门狗停掉（别让空转的定时器常驻）
 const WATCHDOG_QUIET_TICKS = 8
-// 「接下来这一发轻点是关浮层用的」登记的有效期（见 swallowNextTap）。
-// 700ms：Tap 的两种来源（`Gesture.HOLD_DELAY` 450ms 之内的抬手、以及滚动那一路）都在这个
-// 窗口里落地，再留一点余量。超时即作废 —— 点在侧栏 / 按钮上时压根不会有 Tap 来消费它。
-const TAP_SWALLOW_MS = 700
 
 const isEditable = (node) => node instanceof Element && Boolean(node.closest(FOCUSABLE_SURFACE))
 // 普通输入框。刻意**不含 textarea**：测试样例的 `.ta` 走既有口径「轻点别处 → 焦点不动」
@@ -99,30 +95,75 @@ export const isKeyboardShown = () => keyboardShown
 
 // ------------------------------------------------------------------ 吞点（关浮层专用）
 /**
- * 「接下来这一发轻点是在关浮层，别让它落到编辑器上」的登记（见 `swallowNextTap`）。
- * 时刻制而不是布尔：这一次点击若压根不产生 Tap（点在侧栏 / 按钮上），登记必须自己过期，
- * 不然往后第一下点编辑器会被白白吃掉。
+ * 「关浮层那一发手势的收尾」整段吞掉的登记（见 `swallowGestureTail`）。
+ * 监听句柄本身就是状态：null = 没在吞。
  */
-let swallowTapUntil = 0
+let tailSwallow = null
+// 兜底有效期：收尾事件（compat click）正常在抬手后几十毫秒内落地，800ms 还没来
+// 就是压根不会有 click（滚走了 / 系统取消），自己过期，别挡着后面的正常操作。
+const TAIL_SWALLOW_MS = 800
 
 /**
- * 登记「接下来这一发轻点是用来关浮层的」。
+ * 登记「这一发手势是用来关浮层的，收尾整段都别落到下面的元素上」。
  *
- * 【为什么需要】浮层（设置菜单 / 组件弹窗 / 右键菜单 —— 都走 `usePopoverLayer.js`）是在
- * 文档**捕获阶段**的 `pointerdown` 上关的，可那一发触摸照样继续往下派发：手指底下就是编辑区，
- * Monaco 在 `touchend` 里把它认成轻点，而它 `onTap()` 的第一句就是 `focusTextArea()` ——
- * 于是「点空白关菜单」变成了「关菜单 + 弹软键盘」（2026-11-08 用户报）。
- * 关闭浮层的那一下因此要在这里登记，让 `onMonacoGestureTap` 把整发吃掉。
+ * 【为什么需要】菜单那张遮罩在 `pointerdown` 里就跟着浮层一起卸载（`usePopoverLayer`
+ * 的 dismiss），而浏览器对**同一发手势**的后续事件是逐个重新命中测试的：遮罩没了，
+ * `pointerup` / 兼容鼠标 `mousedown` / `mouseup` / `click` 就全打到手指/光标底下的元素上
+ * （2026-11-18 探针实测：`mousedown@编辑器` = 光标落进去 + 抢焦点，真机上软键盘跟着弹起来；
+ * `click@页签` = 切页签；`click@文件` = 打开文件）。早先只拦 Monaco Tap 的 `swallowNextTap`
+ * （已拆）拦不住这串 —— 实测那串里根本没有 Tap，走的是兼容鼠标这条路。
  *
- * 【只吃这一发】Monaco 的 `onTap` 收不到（`stopPropagation` 在 document 捕获阶段就把路掐了），
- * `useEditorMenu` 的单击防抖同样收不到 —— 光标不动、键盘不弹，也不会有 400ms 后那次补聚焦。
- * **下一次点编辑区照常聚焦**，不会变成「点了没反应」。
+ * 【吞什么】`pointerup` / `pointercancel` / `mousedown` / `mouseup` / `click` / `touchend`
+ * / Monaco 的 Tap —— 一律 `stopPropagation` + `preventDefault`（window 捕获，谁都收不到）。
+ * **不吞 `pointerdown` / `touchstart` / `contextmenu`**：那一发 `pointerdown` 已经过去
+ * （本函数就是在它的派发途中登记的，同一次事件不会进新挂的监听）；`contextmenu` 不吞，
+ * 右键别处换一个菜单是 VS Code 的口径，用户的口径只说「点击或触摸」外部只关菜单。
  *
- * 【为什么不用布尔】点了浮层外面、但落在不是编辑器的位置（侧栏、按钮）时不会产生 Tap，
- * 布尔标记就会一直挂着。所以带时间窗 + 一次性消费。
+ * 【何时失效】收尾的第一个 `click` / `pointercancel`、新手势的 `pointerdown` / `touchstart`、
+ * 或 800ms 兜底，取先到者。所以「关掉菜单后马上再点一下」绝不会被吃掉。
+ * 新手势的判定带一道 `tailDown` 闸：有的引擎把同一发的 `touchstart` 排在 `pointerdown`
+ * 之后（甚至重新命中到 body 冒上来），不能把它误认成新手势 —— 只有**抬手之后**再来
+ * 的 `pointerdown` / `touchstart` 才算新的一发。
  */
-export function swallowNextTap() {
-  swallowTapUntil = performance.now() + TAP_SWALLOW_MS
+export function swallowGestureTail() {
+  clearGestureTail()
+  let tailDown = false
+  const stop = (event) => {
+    if (event.type === 'click' || event.type === 'pointercancel') {
+      clearGestureTail()
+    } else if (event.type === 'pointerup' || event.type === 'touchend') {
+      tailDown = true
+    }
+    event.stopPropagation()
+    event.preventDefault()
+  }
+  const onNewGesture = () => {
+    if (tailDown) clearGestureTail()
+  }
+  const events = [
+    'pointerup',
+    'pointercancel',
+    'mousedown',
+    'mouseup',
+    'click',
+    'touchend',
+    MONACO_GESTURE_TAP,
+  ]
+  for (const name of events) window.addEventListener(name, stop, true)
+  window.addEventListener('pointerdown', onNewGesture, true)
+  window.addEventListener('touchstart', onNewGesture, true)
+  const timer = window.setTimeout(clearGestureTail, TAIL_SWALLOW_MS)
+  tailSwallow = { stop, onNewGesture, events, timer }
+}
+
+function clearGestureTail() {
+  if (!tailSwallow) return
+  const { stop, onNewGesture, events, timer } = tailSwallow
+  tailSwallow = null
+  window.clearTimeout(timer)
+  for (const name of events) window.removeEventListener(name, stop, true)
+  window.removeEventListener('pointerdown', onNewGesture, true)
+  window.removeEventListener('touchstart', onNewGesture, true)
 }
 
 /**
@@ -309,19 +350,8 @@ export function useMobileKeyboard() {
   // 于是在编辑器上小幅滑动（10–30px）也会聚焦、弹键盘。这里按我们自己的阈值先截下来：
   // 判定为滑动就掐掉这次 Tap，Monaco 压根收不到，也就不会聚焦（不会有「闪一下又收」）。
   function onMonacoGestureTap(event) {
-    // 这一发是「点空白关浮层」的那一下（见 `swallowNextTap`）：整发吃掉。
-    // 必须排在下面 `panning` 那道闸之前 —— 关浮层的点击绝大多数都是原地轻点（不是滑动），
-    // 走不到那条分支去；这里拦不住的话 Monaco 的 `focusTextArea()` 立刻把键盘弹起来。
-    if (swallowTapUntil) {
-      const fresh = performance.now() <= swallowTapUntil
-      // 一次性：过期的登记也在这里顺手清掉（点在侧栏 / 按钮上时不会有 Tap 来消费它）
-      swallowTapUntil = 0
-      if (fresh) {
-        event.stopPropagation()
-        event.preventDefault()
-        return
-      }
-    }
+    // 「点空白关浮层」那一下的 Tap 由 `swallowGestureTail()` 在 window 捕获整段吞掉
+    // （含 MONACO_GESTURE_TAP），到不了这里 —— 这里只剩下面滑动那道闸。
     if (!panning) return
     event.stopPropagation()
     event.preventDefault()
@@ -491,8 +521,6 @@ export function useMobileKeyboard() {
     window.visualViewport?.removeEventListener('scroll', onViewportSignal)
     for (const timer of settleTimers) window.clearTimeout(timer)
     settleTimers = []
-    // 这条拦截已经摘了，登记留着没人消费：清掉，免得下次挂载后第一下轻点被白白吃掉
-    swallowTapUntil = 0
     stopWatchdog()
   }
 

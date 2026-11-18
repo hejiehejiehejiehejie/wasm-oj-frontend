@@ -1,7 +1,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, toValue, watch } from 'vue'
 
 import { pushBackLayer } from '../services/backStack.js'
-import { appViewportBox, onViewportChange, swallowNextTap } from './useMobileKeyboard.js'
+import { appViewportBox, onViewportChange, swallowGestureTail } from './useMobileKeyboard.js'
 
 /**
  * usePopoverLayer —— Teleport 到 body 的浮层躲不开的两件事：定位收敛 + 什么时候关。
@@ -103,15 +103,15 @@ export function usePopoverLayer({ x, y, onDismiss, gap = 8, align = 'left', also
   function onPointerDown(event) {
     if (!root.value || contains(event.target)) return
     /**
-     * 触屏：这一下点在浮层外面，多半就是落在编辑区上 —— 而浮层一关，那一发触摸**照样继续
-     * 往下派发**，Monaco 在 `touchend` 里把它认成轻点、`focusTextArea()` 把软键盘弹起来。
-     * 用户的口径是「点空白只关浮层」（2026-11-08 报：设置菜单 / 组件弹窗 / 编辑区菜单，
-     * 点编辑区想关掉，结果唤出了键盘）。所以关闭之前先登记一次吞点，由
-     * `useMobileKeyboard` 的 Tap 拦截把这一发吃掉（见那里的 `swallowNextTap`）。
-     *
-     * 鼠标不登记：桌面点空白本来就该把光标落进编辑器（键盘不会弹），而且 Tap 只有触摸才有。
+     * 这一下点在浮层外面，多半就是落在编辑区上 —— 而浮层一关（遮罩跟着卸载），那一发
+     * 手势的**收尾会重新命中到底下的元素上**：兼容鼠标 mousedown 打进 Monaco 会落光标、
+     * 抢焦点、弹软键盘；click 打到页签 / 文件上会切页签、开文件（2026-11-18 探针实测）。
+     * 用户的口径是「点外部只收菜单，不触发底下任何业务逻辑」，所以关闭之前先登记
+     * `swallowGestureTail()`（鼠标 + 触屏同一口径）：把这一发手势的收尾整段吞掉
+     * （含 Monaco 的 Tap 那条路），详见 useMobileKeyboard 里的说明。
+     * 下一发新手势照常，不会变成「点了没反应」。
      */
-    if (event.pointerType !== 'mouse') swallowNextTap()
+    swallowGestureTail()
     dismiss()
   }
 
