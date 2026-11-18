@@ -335,11 +335,14 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
 
 <style scoped>
 /* 收起侧栏之后在场的那一条：圆角 44px 竖条，**底色与整页底色相同**。
-   底色本是与 .pane 同值的 --bg-panel（29 档），2026-10-23 用户要求「折叠 / 展开都与
-   页面底色一致」—— 改成 --bg-editor 之后它不再是一块比地面亮一档的「卡」，
-   读起来就是地面本身让出了一列图标（展开态的 .sidebar 同一支变量，见 Sidebar.vue）。
+   2026-11-18 06:08 定稿：铺 --bg-ground（地面色），折叠后这条栏融进背景 ——
+   读起来就是地面本身让出了一列图标，而不是一块浮着的卡。口径沿革：
+   2026-10-23 用户要求「折叠 / 展开都与页面底色一致」（当时地面 = --bg-editor）→
+   05:54 便当盒曾随展开态侧栏同铺 --bg-panel（岛面）→ 同日用户再次要求改回地面色。
+   ⚠️ 展开态侧栏（Sidebar 的 .sidebar / 外层 .pane--tests）铺的仍是 --bg-panel ——
+   展开是一座岛、折叠贴回地面，两处是**有意**不同值，别再「对齐」。
    **不描边**（2026-10-22 用户要求去掉外面那一圈细线）：折叠态下它与编辑器卡片之间
-   还隔着一条 4px 空隙；再描一圈 1px 反而像第三块卡片。
+   还隔着一条 8px 空隙；贴地之后再描一圈 1px 更没有着落。
    ⚠️ 边框一去掉，内容盒就是栏宽，下面 .activity-bar__item 的左边距就是
    (栏宽 − 方块 40) / 2（`box-sizing: border-box` 是全局的）。2026-10-26 按用户
    「收窄一点」把栏从 48 收到 44，左边距随之 4 → 2。
@@ -357,7 +360,9 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
   padding: 4px 0;
   overflow: hidden;
   border-radius: 10px;
-  background: var(--bg-editor);
+  /* 地面色（--bg-ground，2026-11-18 06:08 定稿，沿革见上）：折叠态贴回背景底色。
+     十套主题各自路由到自己的地面色（oled / contrast 为纯黑），不用另配。 */
+  background: var(--bg-ground);
 }
 
 /* 展开态不写规则：这一栏的在场与否由 App 的 v-show 决定（判据与 is-collapsed 同源），

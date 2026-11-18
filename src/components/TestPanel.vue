@@ -414,9 +414,13 @@ const elapsedText = computed(() => {
   /* 作为统一侧边栏「评测样例」页签里的 flex 子项撑满内容区（与 FileExplorer 的 .explorer 同款） */
   flex: 1 1 auto;
   min-height: 0;
-  /* 与统一侧边栏同色（--bg-editor，即整页底色）：这个面板盖在 .sidebar 上，
-     两边不同值的话切页签就能看出「底板被换了一档」（2026-10-23）。 */
-  background: var(--bg-editor);
+  /* 与统一侧边栏同色（--bg-panel，即岛面）：这个面板盖在 .sidebar 上，
+     两边不同值的话切页签就能看出「底板被换了一档」（2026-10-23）。
+     2026-11-18 悬浮岛：侧栏整座岛铺 --bg-panel（05:54 便当盒模型，见 App.vue 的
+     .pane--tests），评测栏作为侧栏的一个页签必须同值 —— 曾经跟着「地面」口径写过
+     --bg-ground，那版模型下面板是坐地上的；岛模型下它坐在岛面上，不跟改就会
+     在资源管理器 ↔ 评测栏之间切页签时露馅。 */
+  background: var(--bg-panel);
   /* 纸屑层（.panel__confetti）的定位上下文。写成 relative 而不是给画布用 position: fixed ——
      画布必须跟着面板走，面板被 v-show 藏起来时它才一起消失（2026-10-23）。 */
   position: relative;

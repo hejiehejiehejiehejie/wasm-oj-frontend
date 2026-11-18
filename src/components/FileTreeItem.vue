@@ -650,7 +650,7 @@ function focusRowAt(el, extend) {
 
 .tree-item__row--active-idle,
 :where(html.is-hoverable) .tree-item__row--active-idle:hover {
-  background: color-mix(in srgb, var(--bg-hover) 70%, var(--bg-editor));
+  background: color-mix(in srgb, var(--bg-hover) 70%, var(--bg-ground));
 }
 
 /* 浅色方案专用（2026-11-12 加）：宿主面（侧栏 = --bg-editor）与通用的悬停 / 选中档差量太小 ——
@@ -661,8 +661,8 @@ function focusRowAt(el, extend) {
      → 收回 4% / 9%（悬停 −17、选中 −33）。
    - 2026-11-16 地面两轮提亮（#f3f3f3 → #fbfbfb）。那两支掺黑的底是**绝对灰度**、不随地面走，
      于是选中的行固定在 −40 阶（#d3d3d3）—— 用户第三轮报「文件总选中文件的高亮有些深了」。
-   - **2026-11-16 第三轮：锚点从 --bg-hover 换成地面**。悬停 = 地面掺 3% 黑（251 → 243，−8）、
-     选中 = 掺 7% 黑（→ 233，−18）。这两个阶差与深色那对（面板 +7 / +21）同构，而且以后
+   - **2026-11-16 第三轮：锚点从 --bg-hover 换成地面**。悬停 = 地面掺 3% 黑（241 → 233，−8）、
+     选中 = 掺 7% 黑（→ 224，−17）。这两个阶差与深色那对（面板 +7 / +21）同构，而且以后
      地面再怎么动，行高亮自动跟着走，不会再像这次一样漂成一块灰砖。
    用 color-mix 掺黑而不是写死灰度：paper / leaf / mist 也走 light scheme，各有自己的暖 / 绿 /
    蓝底色，掺黑能保留色相，写死 #d8d8d8 会让它们变灰。
@@ -673,19 +673,19 @@ function focusRowAt(el, extend) {
    就成了 `:root` 的后代 —— 而 <html> 永远不是自己的后代，整条规则永不命中（2026-11-12 踩过：
    悬停那一条死活不生效，选中那一条却好着，因为后者不带这个闸门）。 */
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row:hover {
-  background: color-mix(in srgb, var(--bg-editor) 97%, black);
+  background: color-mix(in srgb, var(--bg-ground) 97%, black);
 }
 
 :root[data-scheme='light'] .tree-item__row--active,
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active:hover {
-  background: color-mix(in srgb, var(--bg-editor) 93%, black);
+  background: color-mix(in srgb, var(--bg-ground) 93%, black);
 }
 
-/* 浅色下的「失焦选中」：地面掺 5% 黑（251 → 238，−13 阶）—— 悬停是 −8、选中是 −18，
+/* 浅色下的「失焦选中」：地面掺 5% 黑（241 → 229，−12 阶）—— 悬停是 −8、选中是 −18，
    它正好夹在中间（与深色那套的三个台阶同构）。同样必须排在选中那条之后。 */
 :root[data-scheme='light'] .tree-item__row--active-idle,
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active-idle:hover {
-  background: color-mix(in srgb, var(--bg-editor) 95%, black);
+  background: color-mix(in srgb, var(--bg-ground) 95%, black);
 }
 
 /* 触屏长按的两条同色（进度条终点 / 就绪底色）：它们原本取 --bg-hover，浅色下会比上面新的
@@ -693,7 +693,7 @@ function focusRowAt(el, extend) {
    特异性 (0,4,0) 压得住 (0,2,0) 的那两条。 */
 :root[data-scheme='light'] .tree-item__row.tree-item__row--pressing,
 :root[data-scheme='light'] .tree-item__row.tree-item__row--armed {
-  background: color-mix(in srgb, var(--bg-editor) 93%, black);
+  background: color-mix(in srgb, var(--bg-ground) 93%, black);
 }
 
 /* 正在被拖的那一行 */

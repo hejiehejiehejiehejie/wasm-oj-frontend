@@ -423,17 +423,17 @@ const HEAD_ICON_SIZE = 19
    从 7 阶涨到 15 阶，一枚 26px 高的小控件就读成了一块灰砖。
    **不能直接抬 --bg-control**：它还被设置页的按钮、CF 控制台、快捷键录制框那些**落在面板上**
    的控件共用（与面板差 17 阶是它们该有的分量），一起抬会把那些控件抹平。所以只在这一处
-   换锚点：轨道 = 地面掺 3% 黑（251 → 243，−8 阶），悬停再压 3 阶（→ 236）。
+   换锚点：轨道 = 地面掺 3% 黑（241 → 233，−8 阶），悬停再压 3 阶（→ 226）。
    color-mix 保色相，paper / leaf / mist 也各自跟着自己那套地面走。
    ⚠️ `:root[data-scheme='light']:where(html.is-hoverable)` 中间不能有空格（见 FileTreeItem
    同款告警）：第一个复合选择器必须仍是 html 自己，否则 `:where()` 成了 :root 的后代、
    整条规则永不命中。 */
 :root[data-scheme='light'] .sidebar-switcher__pill {
-  background: color-mix(in srgb, var(--bg-editor) 97%, black);
+  background: color-mix(in srgb, var(--bg-ground) 97%, black);
 }
 
 :root[data-scheme='light']:where(html.is-hoverable) .sidebar-switcher__pill:hover {
-  background: color-mix(in srgb, var(--bg-editor) 94%, black);
+  background: color-mix(in srgb, var(--bg-ground) 94%, black);
 }
 
 /* 蓝色指示块：单实例后它是 pill 里的一个真实元素，active 变化只改 transform，

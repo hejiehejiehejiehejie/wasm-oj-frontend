@@ -323,6 +323,15 @@ const running = ref(false)
 // order 换序：splitter 恒 2；统一侧边栏在右时 editor 1 / tests 3，反之对调。
 // flexBasis 两栏之和恒为 100% —— 折叠态靠侧栏那一栏收到 0%（见下），
 // 全屏编辑则是编辑器自己不给 basis（另一栏整个不参与排版）
+/**
+ * 编辑区是否处于分屏（两片及以上）。
+ *
+ * 这一栏的「悬浮岛」身份只属于单窗格：那时 `.pane--editor` 就是一张卡，网格是卡里的内容。
+ * 分屏后必须把外圈这颗岛撤掉（见 `.pane--editor.is-split`），否则窗格之间的呼吸缝只能
+ * 落在卡的内部，读起来仍是「一张大卡里画了几条分割线」。
+ * 判据取自布局真源（editorPanes 的叶子数），不另存一份状态。
+ */
+const paneSplit = computed(() => leaves().length > 1)
 const editorPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 1 : 3,
   // 像素直连拖拽期间：编辑器只负责填满剩余空间（面板宽由 tests 的像素 flex-basis 定死），
@@ -2139,7 +2148,7 @@ onBeforeUnmount(() => {
            点它等于「收起抽屉」，与侧栏底栏那枚箭头是同一个动作（都是 togglePanel）。 -->
       <div class="drawer-scrim" aria-hidden="true" @click="togglePanel()"></div>
 
-      <section class="pane pane--editor" :style="editorPaneStyle">
+      <section class="pane pane--editor" :class="{ 'is-split': paneSplit }" :style="editorPaneStyle">
         <EditorPaneGrid
           ref="editorPane"
           :settings="editorSettings"
@@ -2358,10 +2367,12 @@ onBeforeUnmount(() => {
   position: relative;
   /* 布局对调只发生在这里 */
   flex-direction: row;
-  /* 四周留白 6px + 两栏之间 4px 空隙（分隔条负外边距后剩下的部分，见 .splitter）：
-     两块卡片浮在底色上 */
-  padding: 6px;
-  background: var(--bg-editor);
+  /* 四周留白 8px + 两栏之间 8px 呼吸缝（分隔条负外边距后剩下的部分，见 .splitter）：
+     编辑器那张卡浮在地面上，侧栏是地面让出来的一块。
+     2026-11-18（悬浮岛）：留白 6 → 8、缝 4 → 8，与方案三的「Island UI」同尺度；
+     地面也从 --bg-editor 换成 --bg-ground（更暗一档）—— 岛要浮起来，脚下的地必须先沉下去。 */
+  padding: 8px;
+  background: var(--bg-ground);
   /* 统一侧边栏（原评测面板所在的「测试栏」）最低宽度的三个参数。JS 的拖拽上限
      （measureLimits）读的就是这三个变量，同一个数字不在样式和脚本里各写一份。
      变量名保留 --tests-* 是历史沿革，现在约束的就是这个统一侧边栏。
@@ -2435,19 +2446,71 @@ onBeforeUnmount(() => {
      侧边栏无论停靠左 / 右都不会被浮层盖到 */
   position: relative;
   view-transition-name: pane-editor;
+  /* 编辑区 = **便当盒里装着坑的那座岛**（2026-11-18 05:54，口径见 base.css）：
+     外壳透明、无外影 —— 岛面由内部的页签栏（--bg-panel）铺出来，坑由 EditorPane 的
+     --bg-editor-pane（#0d0d0f）铺出来（stage 的坑口内阴影 --pit-shadow 已于 06:12
+     随「页签栏与编辑区之间不要影」一并删掉）；岛沿走下面 `::after` 的 inset 环
+     （--island-edge，深色 5% 白微光）。
+     历史上这栏加过三代「岛」的折腾（15% 黑沿 → 6% 白沿 → 五档阴影），全部回滚；
+     便当盒里它的身份是「一座岛 + 岛内挖坑」，不向外交影。
+     ⚠️ 别恢复外 box-shadow：外影会让这座岛重新「浮起来」，与缝的分割语言打架。
+     ⚠️ `::after` 的环在 contrast 会画 #5a5a5a 实线（那套全黑，没线就没有边界）。 */
+  border: none;
+  background: transparent;
+  /* 坑不需要外影（见上面注释）；接缝处的影已全部删除（06:12） */
+  box-shadow: none;
+}
+
+/* 分屏：外圈依然什么都不画（透明、无影、无底色）—— 背板从编辑区里透出来，
+   每片窗格自己是一个坑（坑面 / 8px 缝 / 缝缘浅槽影全在 EditorPaneGrid 的 is-split 那组里）。
+   2026-11-18 05:39 口径：缝底 = 地面 —— 05:48 地面提亮成背板后，缝里透出的正是背板，
+   「两块背板之间的空隙」与实心背板模型天然自洽；
+   外圈若再铺底色或影，缝就退回「一张大卡内部的装饰线」。 */
+.pane--editor.is-split {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 编辑区的岛沿：画在**内侧**（贴 padding-box，圆角 10px 与本栏一致），与分屏窗格同一条
+   `inset 0 0 0 1px var(--island-edge)`。
+   06:30 四阶重校准后 --island-edge 十套全部有值（深 5% 白 / 浅 6% 黑 / 各主题色相微光 /
+   contrast #52525b 实灰），这条规则在所有主题都真实画出沿 —— 马赫带效应：交界处这道
+   半透明发丝线让岛与地的分离感翻倍，同时保持「静置无影」的克制。
+   contrast 仍是十套里唯一「必须画线」的主题（四层底色全黑），2026-11-18 曾直接删掉
+   这一版规则，contrast 的单窗格边界跟着消失，又按「变量即开关」放回来 —— 别再删。
+   用伪元素而不是 inset box-shadow：后者画在子内容**下面**，页签栏 / Monaco 一铺就看不见了
+   （分屏窗格踩过同一个坑）。
+   ⚠️ 只在单窗格出现：分屏时最外圈窗格自己有一条，两层叠在一起会在最外沿画成 2px 亮线。 */
+.pane--editor:not(.is-split)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--island-edge);
 }
 
 .pane--tests {
   flex: 1 1 auto;
-  /* 侧边栏不再画自己那一圈 1px 边框（2026-10-10 试改）：`.pane` 统一给的 `border`
-     在这里收掉，只保留圆角。底色也不跟 `.pane` 走 --bg-panel，而是**与整页底色同一个
-     变量**（2026-10-23 用户要求「侧栏折叠 / 展开都跟页面底色一样」）——
-     编辑器那半张卡仍是 --bg-panel + 边框，所以「卡片」的语言只落在编辑器一侧，
-     侧边栏读起来就是地面让出来的一块，靠 4px 留白与编辑器分开。
-     `border: none` 与 box-sizing: border-box 并存，外框尺寸不变，折叠态那条
-     `border-width: 0` 与动画里那两条「让出朝向对方那条边」的规则随之变成空操作。 */
+  /* 侧栏 = **一座普通的岛**（2026-11-18 05:54 深色便当盒，定稿）：铺 --bg-panel，
+     沿（--island-edge）由下面 ::after 的 inset 环画在**岛的内侧**。
+     2026-11-18 07:05 用户「浅色主题下，外面一圈样式不同」：原先侧栏用 `0 0 0 1px`
+     把沿画在**盒外**（环叠在地面色上），编辑区却画在盒内（环叠在岛面色上）——
+     同一支半透明沿压在两种底色上合成出两圈深浅不同的线：深色下都是极淡白沿看不出
+     差别，浅色下地面 #e3e5e8 上的环 ≈#d5、岛面 #fcfcfd 上的环 ≈#ed，一眼两种。
+     统一成编辑区同一条 `inset 0 0 0 1px`：环永远叠在自己的岛面上，各主题两侧的
+     底色关系从此一致。历史口径链：10-23 贴地 → 05:19 亮墙 → 05:37 贴地 → 05:44
+     路由变量 → 05:48 实心背板 → 05:54 便当盒 → 本版（口径见 base.css 顶部注释）。
+     地面（--bg-ground 近黑 / 浅色 #e3e5e8）从缝里流过它和编辑区之间 —— 分割交给缝，
+     不交给墙或影。侧栏与编辑区内芯是等高岛（等高岛模型，口径见 base.css 顶部注释）。
+     内部 .sidebar / 折叠图标栏（ActivityBar）同铺 --bg-panel，三处一体，别只改一处。
+     这条盒子同时是窄屏抽屉的定位基准（见下面窄屏展开态），动背景前先看那里。
+     用伪元素而不是 inset box-shadow：后者画在子内容**下面**，Sidebar 一铺 --bg-panel
+     就盖没了（编辑区同款踩坑，见 `.pane--editor:not(.is-split)::after`）。 */
+  position: relative;
   border: none;
-  background: var(--bg-editor);
+  background: var(--bg-panel);
   /* 统一侧边栏的最低宽度随视口收缩（参数见 .workspace）：宽屏恒为 240px；
      窄屏不再是硬邦邦的 240px，否则 375px 的屏上编辑器会被压成一条缝。
      floor / cap 要乘 --ui-scale 才会跟全局缩放一起变大（它们留在 px、吃不到 rem，
@@ -2461,6 +2524,19 @@ onBeforeUnmount(() => {
   view-transition-name: pane-tests;
 }
 
+/* 侧栏的岛沿：与编辑区（`.pane--editor:not(.is-split)::after`）和分屏窗格
+   （EditorPaneGrid 的 `.editor-grid__cell::after`）完全同一条 `inset 0 0 0 1px`。
+   圆角 10px 与本栏一致。z-index / pointer-events 同编辑区那版。 */
+.pane--tests::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--island-edge);
+}
+
 /* 折叠态留在排版里、宽度收到 1px（不再 display: none）。
    View Transitions 靠「旧快照 vs 新快照」补间，display:none 的元素没有旧快照，
    展开会退化成凭空出现，所以折叠态必须有个（哪怕很小的）盒子。
@@ -2469,11 +2545,26 @@ onBeforeUnmount(() => {
    - flex-grow 归 0：.pane--tests 是 flex: 1 1 auto，basis 归零后它仍会从剩余空间里
      分走一半，编辑器就涨不满；
    - min-width：上面那个 clamp()（宽屏 240px）会把宽度钉在那儿，收不下去；
-   - border-width 归 0：border-box 的边框盒最小就是 2px，不收掉会留一条常驻竖线。 */
+   - border-width 归 0：border-box 的边框盒最小就是 2px，不收掉会留一条常驻竖线。
+   2026-11-18 便当盒补两条（用户报「折叠之后旁边一条细线」）：05:54 改版给 .pane--tests
+   新增了两个**会画墨迹**的属性，它们不归 border 管、上面三条收不掉 ——
+     - background: var(--bg-panel)：1px 缝自己就铺着岛面色（现 #161617），压在近黑地面
+       （现 #080808）上是一条亮缝；
+     - box-shadow / 岛沿环（07:05 起是上面 ::after 的 inset 环，之前是盒外
+       `0 0 0 1px`）：1px 沿立在缝边上，缝的两侧各多 1px 墨迹。
+   合计 ≈3px 墨迹立在图标栏旁边。改版前地面 / 面板色差小看不出来，地面压黑后显形。
+   折叠态它必须什么都不画：透明底 + 摘掉 ::after，露出脚下的地面才等于不存在。
+   （View Transitions 不受影响：展开的新快照自带完整底色与沿，折叠的旧快照本来就该
+   收成「看不见」。） */
 .pane--tests.is-collapsed {
   flex-grow: 0;
   min-width: 1px;
   border-width: 0;
+  background: transparent;
+}
+
+.pane--tests.is-collapsed::after {
+  content: none;
 }
 
 /* 收到底之后，侧栏里那层内容整块退出绘制。
@@ -2510,16 +2601,17 @@ onBeforeUnmount(() => {
    收起后是「编辑器 + 一条通栏图标栏」（见下面折叠态那块）—— 两种形态都不挤。
 
    四条缺一不可：
-   - `position: absolute` + `inset-block: 6px`：脱离主轴（编辑器是 `flex: 1 1 60%`，grow 还在，
-     行里只剩它一个就自然铺满）；上下缘与 6px 内边距同值，与编辑器卡片对齐；
+   - `position: absolute` + `inset-block: 8px`：脱离主轴（编辑器是 `flex: 1 1 60%`，grow 还在，
+     行里只剩它一个就自然铺满）；上下缘与 8px 内边距同值，与编辑器卡片对齐；
    - 宽度 `min(86%, 420px)`：手机上基本铺满（留出编辑器的一条边，暗示后面还有东西），
      平板竖屏封顶 420px —— 768 宽的机器上不至于盖掉大半个屏；
    - 贴它停靠的那一侧：默认 `left`，`.is-right` 时镜像到右边（与宽屏 order 同一套判据）；
    - `z-index: 30`：压得住编辑器那一栏，又低于 toast（115）/ 菜单（120 / 125）/ 确认框（130）——
      抽屉开着时「运行完成」那条通知照样看得见。
 
-   底面仍是 `--bg-editor`（2026-10-23 用户口径「侧栏折叠 / 展开都跟页面底色一样」），
-   于是边界交给「1px 淡环 + 一层投影」，与 CF 页那个小面板同一套写法（`.cf-handle__panel`）。
+   底面仍是地面色（2026-10-23 用户口径「侧栏折叠 / 展开都跟页面底色一样」，2026-11-18 起
+   那支变量是 --bg-ground），于是边界交给「1px 淡环 + 一层投影」，与 CF 页那个小面板
+   同一套写法（`.cf-handle__panel`）。
    刻意不画真 `border`：`pinSidebarWidth` 靠 `borderLeftWidth / borderRightWidth` 反算内容宽，
    多一条真边框就多扣 2px，钉出来的内层会比外层窄两像素。
 
@@ -2529,22 +2621,32 @@ onBeforeUnmount(() => {
    `:where()` 只是为了不贡献特异性 —— 与上面两块同一个写法。 */
 :where(html.is-narrow) .workspace:not(.is-collapsed) .pane--tests {
   position: absolute;
-  inset-block: 6px;
-  left: 6px;
+  inset-block: 8px;
+  left: 8px;
   z-index: 30;
   width: min(86%, 420px);
+  /* 抽屉是绝对定位浮层的**岛**：宽屏那版虽然也是 --bg-panel，但浮层必须有自己
+     完整的描边环 + 影（岛沿之外再加一层「浮在坑上方」的投影），别删。 */
+  background: var(--bg-panel);
   box-shadow: 0 0 0 1px var(--border-divider), 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+/* 抽屉态摘掉宽屏那枚 ::after 内沿环（07:05）：抽屉的边界已经由上面那条
+   「border-divider 环 + 投影」完整交代（浮层语言），基础层的岛沿环再画一遍就是
+   贴着描边环内侧的双环。 */
+:where(html.is-narrow) .workspace:not(.is-collapsed) .pane--tests::after {
+  content: none;
 }
 
 /* 侧栏停到右边时贴右边（上面那条的 left 是默认方向，这里连 left 一起归位） */
 :where(html.is-narrow) .workspace.is-right:not(.is-collapsed) .pane--tests {
   left: auto;
-  right: 6px;
+  right: 8px;
 }
 
 /* 窄屏展开态没有那条缝：分隔条整条撤掉。
    它表达的是「两栏共用这条宽度」，而抽屉已经把侧栏从主轴里摘出来了 —— 留着它只会在
-   编辑器的另一侧留一条 4px 的净占宽（12px 热区 − 8px 负外边距），宽屏那套算式在这里没有意义。
+   编辑器的另一侧留一条 8px 的净占宽（16px 热区 − 8px 负外边距），宽屏那套算式在这里没有意义。
    收起侧栏的入口仍是侧栏底栏那枚箭头（Sidebar.vue 的 .sidebar-switcher__collapse，只在窄屏出现）。 */
 :where(html.is-narrow) .workspace:not(.is-collapsed) .splitter {
   display: none;
@@ -2704,13 +2806,16 @@ onBeforeUnmount(() => {
    平时连这条线也不画，见 .splitter__line 的 opacity: 0）。
    热区做宽是为了好抓：线的视觉不变，但左右各多出几像素可以被按住。
    负外边距（只往右扩 −8）把热区整体推进空隙右侧，占宽 = 12 − 8 = 4px，于是两块卡片
-   实际只离 4px —— 热区宽度没缩水，编辑器卡片的位置也一点没动。
+   实际只离 4px（2026-11-18 06:54 用户「8px 间隔有些宽了」：热区 16 → 12，缝 8 → 4；
+   热区往编辑器里压的 8px 不变，手感不缩水）。
    ⚠️ 热区**只向一侧外扩**，不左右对称（2026-10-13 改）：原先是 margin: 0 -4px，热区
    左缘要伸进树里 4px，正好压住资源树那条覆盖式滚动条（滑块右缘只在侧栏右缘里 1px），
    于是瞄准线左侧想抓分隔条时会抓到滚动条、光标还不一样。现在左缘正好落在侧栏右缘上，
    两者只隔 1px，谁也不压谁。
-   代价：热区的 50% 不再等于空隙中心（偏右整 4px），线得在 .splitter__line 里单独减掉。
-   净空隙 = 12 − 8，改这里要连带改触屏那条负外边距和线的偏移。
+   代价：热区的 50% 不再等于空隙中心，线得在 .splitter__line 里单独减掉。
+   净空隙 = 12 − 8 = 4；线的偏移刚好还是 `calc(50% - 4px)`（6 − 4 = 2 = 缝的正中）——
+   热区与缝同步缩 4px 时这个偏移值不变（16px 时代是 8 − 4 = 4，缝 8px 的正中也是它），
+   改热区宽度时这个自洽要被重新算一遍。
    ⚠️ 上面那套只描述「侧栏在左」。侧栏停到右边时同一个方向就变成**往侧栏里长**，
    必须整体镜像 —— 见下面 .workspace.is-right 那两条。 */
 .splitter {
@@ -2733,12 +2838,13 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-/* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区翻倍到 24px，负外边距按同样幅度加大
+/* 触屏：指尖比鼠标粗得多，12px 热区太窄。热区放大到 24px，负外边距保持 −20
    （仍是只往右扩：24 − 20 = 4），于是两块卡片的位置和间距与鼠标下逐像素一致
-   （净空隙同为 4px）—— 只有可抓区域变宽，视觉一点没动。
+   （净空隙同为 4px，06:54 缩缝后口径）—— 只有可抓区域变宽，视觉一点没动。
    热区加宽后它的 50% 又往外挪了，线要跟着挪回来 —— 那条偏移写在 .splitter__line 后面的
-   同名媒体查询里（⚠️ 不能写在这个块里：同特异性下会被后面那条基础规则压掉，实测踩过，
-   线停在默认的 4px 偏移上，跑到空隙外 6px）。
+   同名媒体查询里（⚠️ 不能写在这个块里：同特异性下会被后面那条基础规则压掉，实测踩过）。
+   06:54 缩缝后 24px 热区 / −20 边距：50% = 12 − 10 = 2 = 缝的正中，偏移值与 28px 时代
+   （14 − 10 = 4）不同值但同一条规则 —— 因为热区与缝同步缩 4px，偏移恰好都不变。
    折叠态也用这一条宽度（不再另写一条），所以触屏下折叠前后仍是同一个 24px 热区。 */
 @media (pointer: coarse) {
   .splitter {
@@ -2774,7 +2880,7 @@ onBeforeUnmount(() => {
    上下两段直接透给底下的页签栏 / 侧栏，轻点落在页签上就是点页签。
    ⚠️ 不能只在 beginDrag 里按 Y 提前 return：pointerdown 的 target 仍是分隔条，那一趟既不会
    开始拖、也不会落到页签上，等于白点一下。必须让指针真的穿过去。
-   ⚠️ 宽度那套（24px / −20px）一个字不改：可见的线、净空隙、左右可抓范围都维持原样。 */
+   ⚠️ 宽度那套（28px / −20px）一个字不改：可见的线、净空隙、左右可抓范围都维持原样。 */
 @media (pointer: coarse) {
   .splitter {
     pointer-events: none;
@@ -2795,8 +2901,8 @@ onBeforeUnmount(() => {
 
 /* 折叠态的分隔条不再单独加宽。它以前贴窗口边缘（加宽到 24px 才抓得住），现在两侧是
    编辑器卡片和折叠图标栏、不是边缘；若在这里只加宽 flex-basis 而不同步负外边距，
-   净空隙会从 4px 变成 16px —— 折叠前后两块卡片的间距就不一样了。
-   折叠态因此直接用上面那条 12px 热区（触屏按媒体查询走 24px / −20px，净空隙同为 4px）。 */
+   净空隙会从 8px 变成 20px —— 折叠前后两块卡片的间距就不一样了。
+   折叠态因此直接用上面那条 16px 热区（触屏按媒体查询走 28px / −20px，净空隙同为 8px）。 */
 
 /* 两栏各有自己的边，空隙里默认不再画线；指针移上来时才显出一条蓝线
    （2026-10-11 当天在「--focus 亮蓝 → 中性灰 → 比 --focus 暗一档的干净蓝」之间落定，
@@ -2809,8 +2915,10 @@ onBeforeUnmount(() => {
      要的是一小截固定退让，与窗口/面板高度无关（4px ≥ 3 会跟着界面缩放走，与线上同口径） */
   top: 4px;
   bottom: 4px;
-  /* 不从热区中心起算：热区只向右侧外扩，它的 50% 落在空隙里偏右 4px（见 .splitter 的
-     margin）。减掉这 4px 把线钉回空隙正中（12px 热区：50% = 6 − 4 = 2，即热区左缘起第 2px）。
+  /* 不从热区中心起算：热区只向右侧外扩，它的 50% 落在空隙里偏右（见 .splitter 的
+     margin）。减掉这 4px 把线钉回空隙正中（12px 热区：50% = 6，6 − 4 = 2，即热区左缘起
+     第 2px，正好是 4px 缝隙的中线 —— 16px/8px 时代是 8 − 4 = 4，热区与缝同步缩 4px 后
+     偏移值恰好不变）。
      两个数都经 postcss-pxtorem 转 rem，界面缩放时比例不变；触屏那条 24px 热区另有偏移。 */
   left: calc(50% - 4px);
   /* 用 translate 居中，不写 margin-left: -1px：这样居中与线的宽度无关，将来宽度
@@ -2823,7 +2931,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-/* 触屏那条 24px 热区的线偏移（热区加宽后 50% = 12，空隙中心在左缘起第 2px，故减 10）。
+/* 触屏那条 28px 热区的线偏移（热区加宽后 50% = 14，空隙中心在左缘起第 4px，故减 10）。
    ⚠️ 必须写在这里，不能并进上面那个 `@media (pointer: coarse)`：同特异性下，位置更靠后的
    基础规则 `left: calc(50% - 4px)` 会把它压掉（实测：线停在 4px 偏移上、跑到空隙外 6px）。 */
 @media (pointer: coarse) {
@@ -2833,7 +2941,7 @@ onBeforeUnmount(() => {
 }
 
 /* 侧栏在右时热区镜像（见 .splitter 的 is-right 那两条），线要改成从热区**右缘**往左数：
-   偏移量与上面两条同源、号取反（12px 热区：50% = 6，要落到热区左缘起第 10px ⇒ 6 + 4）。
+   偏移量与上面两条同源、号取反（16px 热区：50% = 8，要落到热区左缘起第 12px ⇒ 8 + 4）。
    ⚠️ 粗指针那条必须写在这个基础规则之后（同特异性 (0,3,0)，靠顺序分胜负）。 */
 .workspace.is-right .splitter__line {
   left: calc(50% + 4px);

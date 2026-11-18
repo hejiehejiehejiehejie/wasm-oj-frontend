@@ -88,7 +88,9 @@ onBeforeUnmount(clearRevealTimer)
 </template>
 
 <style scoped>
-/* 铺满且不透明：这一层画出来时界面还没准备好，透出后面的半成品反而更乱 */
+/* 铺满且不透明：这一层画出来时界面还没准备好，透出后面的半成品反而更乱。
+   底色取地面（--bg-ground，2026-11-18 前是 --bg-editor）：它盖住的是整块界面，
+   与 .workspace 同色才不会在边缘露出一圈。 */
 .gate {
   position: fixed;
   inset: 0;
@@ -97,7 +99,7 @@ onBeforeUnmount(clearRevealTimer)
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: var(--bg-editor);
+  background: var(--bg-ground);
 }
 
 .gate__box {

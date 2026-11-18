@@ -1469,6 +1469,9 @@ defineExpose({
   min-height: 0;
 }
 
+/* （坑口内阴影覆盖层已删，2026-11-18 06:12：--pit-shadow 连同浅色 none 那支一起撤，
+   用户口径「页签栏与编辑区之间不要影」—— 接缝只靠页签栏与代码内芯的色阶分。） */
+
 .editor-pane__host {
   position: absolute;
   inset: 0;

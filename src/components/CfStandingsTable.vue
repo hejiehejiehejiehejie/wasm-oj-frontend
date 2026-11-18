@@ -544,7 +544,7 @@ watch(
   margin-bottom: 8px;
   padding: 0 12px;
   border-radius: 10px;
-  background: linear-gradient(var(--accent-face-soft), var(--accent-face-soft)), var(--bg-editor);
+  background: linear-gradient(var(--accent-face-soft), var(--accent-face-soft)), var(--bg-ground);
   font-size: 12px;
 }
 
@@ -632,7 +632,7 @@ watch(
   top: 0;
   z-index: 1;
   height: 32px;
-  background: var(--bg-editor);
+  background: var(--bg-ground);
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 600;
@@ -778,7 +778,7 @@ watch(
   height: 36px;
   border-top: 1px solid var(--border-divider);
   border-bottom: none;
-  background: var(--bg-editor);
+  background: var(--bg-ground);
 }
 
 .cf-table__foot-cell {

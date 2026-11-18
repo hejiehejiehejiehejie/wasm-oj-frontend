@@ -52,7 +52,7 @@ export const THEMES = [
     id: 'paper',
     scheme: 'light',
     labelKey: 'settings.option.themePaper',
-    swatch: ['#f6f1e6', '#fbf7ee', '#9a5b00', '#2f2a22'],
+    swatch: ['#f6f1e6', '#faf6ed', '#9a5b00', '#2f2a22'],
   },
   {
     id: 'leaf',

@@ -87,6 +87,11 @@ const RADIUS_OK = [
   /\.sidebar-switcher__indicator/, // = 轨道 10 − 2×1px 内距，同心
   /\.sidebar-switcher__seg/,
   /\.editor-tabs__item/, // 页签：上两角 8px、下沿要接页签栏直线；悬停影子跟着页签走同值
+  // 分屏窗格（与拖放高亮）：12 = 10px 岛圆角 + 2px 透明呼吸缝，同心 —— 与上面那条
+  // sidebar-switcher__indicator 同一种「外框扣除内距」的算法，不是第四个圆角档位
+  // （06:54 缝 8 → 4：边框 4px → 2px，外框 14 → 12，可见圆角 10 不变）
+  /\.editor-grid__cell/,
+  /\.editor-grid__drop/,
 ]
 
 const RULES = {
