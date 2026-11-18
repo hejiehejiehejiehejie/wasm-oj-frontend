@@ -44,7 +44,11 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import MenuScrim from './MenuScrim.vue'
-import { appViewportBox, onViewportChange } from '../composables/useMobileKeyboard.js'
+import {
+  appViewportBox,
+  isTouchPointer,
+  onViewportChange,
+} from '../composables/useMobileKeyboard.js'
 import { usePopoverLayer } from '../composables/usePopoverLayer.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
@@ -528,8 +532,15 @@ function keepOpen(event) {
 
 // 打开即接过焦点：不然 Esc / 方向键都落在别处。高亮钉在第一行而不是容器上，
 // 上下键才有起点（滚动容器自身不可聚焦也不会吞掉方向键）。
+// **触屏上不送**（2026-11-18 用户报「点开设置菜单，第一行『主题』就是高亮的」）：
+// focusRow 会先把 activeIndex 置成第一行、再把焦点送进去，前半下就把那一行的
+// is-active 高亮点亮了（与键盘漫游共用同一条规则），触屏没有上下键要走，纯属误亮。
+// 判断与 ComponentsMenu 打开菜单不送焦点同一条口径（2026-10-31 同类问题）。
+// 键盘漫游不因此残废：onRootKeydown 里 ↓ / ↑ 在 activeIndex 为 -1 时各有兜底起点
+// （FIRST_SELECTABLE / 表尾），带键盘的设备按一下方向键照样有高亮。
 watch(ready, (shown) => {
-  if (shown) nextTick(() => focusRow(FIRST_SELECTABLE.value))
+  if (!shown || isTouchPointer()) return
+  nextTick(() => focusRow(FIRST_SELECTABLE.value))
 })
 
 /**

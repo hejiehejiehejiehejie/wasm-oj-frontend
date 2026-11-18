@@ -306,6 +306,15 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier, on
    * 撤掉长按。`null` = 已触发 / 已撤销 / 没在按。
    */
   let handlePress = null
+  /**
+   * 手柄长按弹菜单之后的「滚动锁」（2026-11-18 用户报，与 useEditorMenu.js 的
+   * touchLock 同一条口径）：菜单已出、手指未松时继续滑动，内容不许滚动 / 翻动。
+   * 触摸事件始终派发在 touchstart 的目标元素上 —— 手柄上的长按，后续 touchmove
+   * 沿 stage 一路冒泡，**根本不经过 host**，useEditorMenu 那把锁够不着，所以
+   * 这里在 stage 上自己拦（stage 是 host 的父层，恰好覆盖手柄这条链）。
+   * 锁到 touchend（全部手指离开）/ touchcancel / 下一次 pointerdown 解除。
+   */
+  let touchLock = false
   /** 边缘自动滚动的 rAF 句柄 */
   let edgeFrame = 0
   /** 重算的 rAF 句柄（滚动 / 选区变动会成串地来，一帧算一次够了） */
@@ -488,6 +497,8 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier, on
     if (!instance || !selection || selection.isEmpty()) return
     event.preventDefault()
     event.stopPropagation()
+    // 上一发长按万一没等到 touchend（监听被摘、元素被换之类），锁不能带进新手势
+    touchLock = false
     // 两颗盒子叠在一起时（见 `nearestHandle()`），按圆心距离认领这一按
     const which = nearestHandle(pressed, event)
     // 对面那一端全程钉住；自己这一端跟着手指走
@@ -545,8 +556,44 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier, on
     if (!handlePress || !drag) return
     const { x, y } = handlePress
     handlePress = null
+    // 从这一刻到松手，内容不许滚动 / 翻动（见 touchLock 的注释）。
+    // 能走到这里说明手指必然还按着：动了超过 slop 的那几发 pointermove
+    // 早就把 handlePress 清了（见 onDragMove），计时器到点前被清就不会进这里。
+    touchLock = true
     abortDrag()
     onLongPress?.(x, y)
+  }
+
+  // ------------------------------------------------- 长按菜单开着时的滚动锁
+
+  /**
+   * 手柄长按弹菜单后、手指未松时的锁（口径见 useEditorMenu.js 的同名组）：
+   * touchmove 一律 `preventDefault + stopPropagation` —— 前者挡住祖先滚动容器的
+   * 原生滚动，后者让任何监听更深处的手势层（包括 Monaco 自己的）都收不到。
+   * 监听常驻、锁没开就早退，普通拖手柄 / 滑动零影响；注意拖手柄途中的
+   * 边缘自动滚动（stepEdgeScroll）走的是 `setScrollTop`，不经 touch 事件，不受影响。
+   */
+  function onTouchMoveLock(event) {
+    if (!touchLock) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  /**
+   * 长按这一手的收尾同样什么都不做：preventDefault 掐掉合成鼠标事件
+   * （松手点不许落成一次「点击手柄」或抢焦点），stopPropagation 不给
+   * 任何手势层派发收尾事件的机会。最后一根手指离开才解锁。
+   */
+  function onTouchEndLock(event) {
+    if (!touchLock) return
+    if (event.touches.length === 0) touchLock = false
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  /** 系统把触摸收走：锁当场解除，别把下一次手势也锁住 */
+  function onTouchCancelLock() {
+    touchLock = false
   }
 
   function onDragMove(event) {
@@ -868,10 +915,20 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier, on
 
   onMounted(() => {
     host.value?.addEventListener('pointerdown', onHostPointerDown, true)
+    // 滚动锁挂 stage（手柄这条触摸链的必经祖先）：touchmove 必须是非被动的，
+    // 与 useEditorMenu / useSwipeTrack 里那条结论同源 —— Chrome 在 touchstart
+    // 那一刻就按祖先链上的非被动监听决定要不要等 JS，事后补挂拦不住第一帧。
+    stage.value?.addEventListener('touchmove', onTouchMoveLock, { capture: true, passive: false })
+    stage.value?.addEventListener('touchend', onTouchEndLock, { capture: true, passive: false })
+    stage.value?.addEventListener('touchcancel', onTouchCancelLock, { capture: true })
   })
 
   onBeforeUnmount(() => {
     host.value?.removeEventListener('pointerdown', onHostPointerDown, true)
+    stage.value?.removeEventListener('touchmove', onTouchMoveLock, true)
+    stage.value?.removeEventListener('touchend', onTouchEndLock, true)
+    stage.value?.removeEventListener('touchcancel', onTouchCancelLock, true)
+    touchLock = false
     onDragEnd(null)
     if (handlePress) {
       window.clearTimeout(handlePress.timer)

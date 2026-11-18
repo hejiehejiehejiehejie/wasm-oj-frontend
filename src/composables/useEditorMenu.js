@@ -247,6 +247,12 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
   /** 本次触摸是否已被我们接管成长按 —— 用来拦掉 Monaco 700ms 时那一发 */
   let handledTouch = false
   /**
+   * 长按接管之后的「滚动锁」（2026-11-18 用户报）：菜单已出、手指未松时，继续上下滑动
+   * **不许再滚动 / 翻动内容** —— 见下面「长按后的滚动锁」那组监听。锁只覆盖这一次触摸，
+   * 到 touchend（全部手指离开）/ touchcancel / 下一次 pointerdown 任意一个先到就解除。
+   */
+  let touchLock = false
+  /**
    * 这一轮连续轻点已经点到第几下（1 = 单击、2 = 双击、3 = 三击…）。
    * 由 Monaco 的 `tapCount` 驱动：它报 1 就说明这一轮断了（间隔超 400ms），报 2 就往下数。
    */
@@ -629,6 +635,9 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
   function onPointerDown(event) {
     // 鼠标路径不走这里（右键另有一条，见 onContextMenu）
     handledTouch = false
+    // 上一发长按万一没等到 touchend（监听被摘、元素被换之类），锁不能带进新手势：
+    // 这里是锁的最后一道兜底，宁可漏锁一帧也不许把普通滚动锁死。
+    touchLock = false
     if (event.pointerType === 'mouse') return
     clearPress()
     press = { x: event.clientX, y: event.clientY, timer: 0 }
@@ -653,6 +662,10 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     const { x, y } = press
     clearPress()
     handledTouch = true
+    // 从这一刻到松手，内容不许滚动 / 翻动（见下面「长按后的滚动锁」）。
+    // 能走到这里说明手指必然还按着：press 只被 pointerup / pointercancel / 撤销清掉，
+    // 那三条路都会连计时器一起清，清了计时器 fireLongPress 就不会再跑。
+    touchLock = true
     // 长按接管的这一轮不再补聚焦：用户要的是选区 / 菜单，不是键盘（400ms 的防抖若照常到点，
     // 键盘会在选区或菜单已经出来之后把视口收矮，看着就像跳了一下）。
     cancelSettleFocus()
@@ -961,6 +974,51 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     event.stopPropagation()
   }
 
+  // ------------------------------------------------------------ 触屏：长按后的滚动锁
+
+  /**
+   * 长按接管之后，手指仍按着继续上下滑动时，这次触摸**不许再滚动 / 翻动内容**
+   * （2026-11-18 用户报）：菜单已经出来，这时继续拖动不该把编辑区滚走 ——
+   * 选区、菜单锚点都会跟内容脱节。而 Monaco 自己的手势层（触屏滚动挂在
+   * `.view-lines` 等内层元素上）照常收得到 touchmove，会把内容滚走。
+   * 所以从 `fireLongPress` 到松手这一段，在 host 的捕获阶段把 touchmove 拦死：
+   * - `preventDefault`：祖先滚动容器的原生滚动也不再走；
+   * - `stopPropagation`：Monaco 的手势层根本收不到，内容一个像素都不动。
+   *
+   * 监听从挂载起就常驻（不随手势增删）：Chrome 在 touchstart 那一刻就按祖先链上
+   * 「有没有非被动 touchmove 监听」决定要不要等 JS 说话（与 useSwipeTrack.js 里
+   * 那条结论同源），事后补挂的拦不住第一帧。没在锁定期时这里直接早退，
+   * 对普通的上下滑动、点击零影响。
+   *
+   * 菜单本身的点击不受影响：菜单 Teleport 在 body 上，点它是**新的**一次触摸，
+   * touchstart 目标不在 host 之内，这条监听根本不在它的祖先链上。
+   */
+  function onTouchMoveLock(event) {
+    if (!touchLock) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  /**
+   * 长按这一手的收尾也不许「做点什么」：
+   * - `preventDefault` 掐掉浏览器补发的合成鼠标事件（mousedown / click）——
+   *   不掐的话松手点会落回编辑器上：抢焦点、弹键盘，还可能把刚选好的选区抹掉；
+   * - `stopPropagation` 让 Monaco 的手势层连 Tap 都不再派发（`onMonacoGestureTap`
+   *   那条 handledTouch 兜底仍保留，双保险）。
+   * 只在**最后一根手指**离开时解锁：菜单开着时另一根手指的滑动同样不该滚内容。
+   */
+  function onTouchEndLock(event) {
+    if (!touchLock) return
+    if (event.touches.length === 0) touchLock = false
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  /** 系统把触摸收走（来电、手势劫持）：锁当场解除，别把下一次手势也锁住 */
+  function onTouchCancelLock() {
+    touchLock = false
+  }
+
   // ------------------------------------------------------------ 挂 / 摘
 
   onMounted(() => {
@@ -972,6 +1030,10 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     el.addEventListener('pointercancel', clearPress, true)
     el.addEventListener('contextmenu', onContextMenu, true)
     el.addEventListener('-monaco-gesturecontextmenu', onMonacoMenu, true)
+    // 长按后的滚动锁：touchmove 必须是非被动的（见 onTouchMoveLock 的注释）
+    el.addEventListener('touchmove', onTouchMoveLock, { capture: true, passive: false })
+    el.addEventListener('touchend', onTouchEndLock, { capture: true, passive: false })
+    el.addEventListener('touchcancel', onTouchCancelLock, { capture: true })
     // 必须在捕获阶段：Monaco 的 Tap 监听挂在 .view-lines 自己身上，冒泡阶段就晚了
     el.addEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
   })
@@ -988,6 +1050,9 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     el.removeEventListener('pointercancel', clearPress, true)
     el.removeEventListener('contextmenu', onContextMenu, true)
     el.removeEventListener('-monaco-gesturecontextmenu', onMonacoMenu, true)
+    el.removeEventListener('touchmove', onTouchMoveLock, true)
+    el.removeEventListener('touchend', onTouchEndLock, true)
+    el.removeEventListener('touchcancel', onTouchCancelLock, true)
     el.removeEventListener(MONACO_GESTURE_TAP, onMonacoGestureTap, true)
   })
 

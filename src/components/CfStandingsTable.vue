@@ -544,7 +544,10 @@ watch(
   margin-bottom: 8px;
   padding: 0 12px;
   border-radius: 10px;
-  background: linear-gradient(var(--accent-face-soft), var(--accent-face-soft)), var(--bg-ground);
+  /* 10% 蓝的 tint 铺在窗格岛面上（--bg-editor-pane）：置顶条 sticky 在滚动区顶边，行从它
+     底下滚过，底必须不透明且与行背后的岛面同色。旧值 --bg-ground 是「页面地面 ≈ 岛面」
+     时代的遗留，岛改版后成了白岛上的灰片（见下面 .cf-table 的锚点沿革注）。 */
+  background: linear-gradient(var(--accent-face-soft), var(--accent-face-soft)), var(--bg-editor-pane);
   font-size: 12px;
 }
 
@@ -608,8 +611,10 @@ watch(
   overflow: auto;
 }
 
-/* 表：无外框、无竖线，只剩行间一条 5% 的淡线；表头 / 表尾贴边（背景用页面地面，
-   滚动时盖住下面的行）。 */
+/* 表：无外框、无竖线，只剩行间一条 5% 的淡线；表头 / 表尾贴边（背景用窗格岛面，
+   滚动时盖住下面的行）。⚠️ 锚点沿革：旧值 --bg-ground 是「页面地面 ≈ 岛面」时代的
+   遗留——2026-11-18 悬浮岛改版后行背后透出的是窗格岛面 --bg-editor-pane（浅色 #ffffff），
+   再铺地面（#e3e5e8）表头就成了白岛上的一条灰带（差 28 阶）。 */
 .cf-table {
   width: 100%;
   border-collapse: separate;
@@ -632,7 +637,7 @@ watch(
   top: 0;
   z-index: 1;
   height: 32px;
-  background: var(--bg-ground);
+  background: var(--bg-editor-pane);
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 600;
@@ -778,7 +783,7 @@ watch(
   height: 36px;
   border-top: 1px solid var(--border-divider);
   border-bottom: none;
-  background: var(--bg-ground);
+  background: var(--bg-editor-pane);
 }
 
 .cf-table__foot-cell {

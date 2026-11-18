@@ -406,7 +406,7 @@ const HEAD_ICON_SIZE = 19
   padding: 2px;
   border: none;
   border-radius: 10px;
-  background: var(--bg-control);
+  background: color-mix(in srgb, var(--bg-control) 80%, var(--bg-panel));
   cursor: pointer;
   transition: background-color 0.16s ease;
 }
@@ -414,26 +414,31 @@ const HEAD_ICON_SIZE = 19
 /* hover 提亮整条轨道（而不是只提亮某一段）：这是「整枚都可以按」的反馈。
    指示块压在轨道上面，所以轨道 hover 变亮时当前段仍是实心蓝 */
 :where(html.is-hoverable) .sidebar-switcher__pill:hover {
-  background: var(--bg-control-hover);
+  background: color-mix(in srgb, var(--bg-control-hover) 80%, var(--bg-panel));
 }
 
-/* 浅色方案专用（2026-11-16 第三轮）：轨道底改成**按地面锚定**，不再用 --bg-control。
-   用户口径：「侧边栏颜色改浅之后，文件和评测按钮的底色显得有些深了」。来历：地面两轮从
-   #f3f3f3 抬到 #fbfbfb（+8 阶），而 --bg-control 一直是 #ececec 没动 —— 轨道与地面的差量
-   从 7 阶涨到 15 阶，一枚 26px 高的小控件就读成了一块灰砖。
-   **不能直接抬 --bg-control**：它还被设置页的按钮、CF 控制台、快捷键录制框那些**落在面板上**
-   的控件共用（与面板差 17 阶是它们该有的分量），一起抬会把那些控件抹平。所以只在这一处
-   换锚点：轨道 = 地面掺 3% 黑（241 → 233，−8 阶），悬停再压 3 阶（→ 226）。
-   color-mix 保色相，paper / leaf / mist 也各自跟着自己那套地面走。
+/* 浅色方案专用（2026-11-16 第三轮定，2026-11-18 晚多轮反复后落定）：轨道底**锚 --bg-panel**，
+   控件实际所在的那张岛面。口径沿革：
+   - 11-16 用户报「侧边栏颜色改浅之后，文件和评测按钮的底色显得有些深了」→ 定锚地面掺 3% 黑，
+     当时侧栏铺的就是地面，锚 ground 是对的；
+   - 11-18 悬浮岛改版把浅色地面压到 #e3e5e8（227）、侧栏改铺岛面 --bg-panel（#fcfcfd，253），
+     这条规则没跟上——地面掺 3% 黑 ≈220，坐在 253 岛头上差 33 阶，灰砖感比 11-16 报的还重；
+   - 11-18 晚我一度换锚 panel 2%/4%，用户当时报「有点太浅」→ 收到 3%/5%；随后用户拍板回滚
+     初始值（认为观感问题是文件树行高亮的锚点 bug 造成，树修好后地面锚也该正常）——
+     回滚后又连续两轮「调低一档」「再改浅一档」仍不对味，最终澄清：**锚应该在岛上**，
+     在岛面锚上多轮试参（2%/4%、回调等），用户最终拍板：掺黑 **3%**（253 → 245，−8 阶）、
+     悬停 **6%**（→ 238，比静止深 7 阶）——与 11-16 认可过的 3%/6% 同数、锚在岛上。
+   深色那边的「一档」落在基础规则里：--bg-control 向 --bg-panel 掺 20%（见上面）。
+   color-mix 保色相，paper / leaf / mist 也各自跟着自己的岛面走。
    ⚠️ `:root[data-scheme='light']:where(html.is-hoverable)` 中间不能有空格（见 FileTreeItem
    同款告警）：第一个复合选择器必须仍是 html 自己，否则 `:where()` 成了 :root 的后代、
    整条规则永不命中。 */
 :root[data-scheme='light'] .sidebar-switcher__pill {
-  background: color-mix(in srgb, var(--bg-ground) 97%, black);
+  background: color-mix(in srgb, var(--bg-panel) 97%, black);
 }
 
 :root[data-scheme='light']:where(html.is-hoverable) .sidebar-switcher__pill:hover {
-  background: color-mix(in srgb, var(--bg-ground) 94%, black);
+  background: color-mix(in srgb, var(--bg-panel) 94%, black);
 }
 
 /* 蓝色指示块：单实例后它是 pill 里的一个真实元素，active 变化只改 transform，

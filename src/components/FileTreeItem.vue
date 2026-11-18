@@ -611,6 +611,11 @@ function focusRowAt(el, extend) {
   display: flex;
   align-items: center;
   height: 24px;
+  /* 高亮态的圆角（2026-11-18 加）：行底色（悬停 / 选中 / 失焦 / 长按）不再顶满树容器，
+     容器两侧各有 4px 内边距（见 FileExplorer 的 .explorer__tree）—— 浅色下高亮色与
+     岛外地面只差 7 阶，方角高亮贴着岛沿会被读成「高亮延续到地面里」。圆角 4px 与
+     .explorer__tree.is-drop-root 的落点底同档。透明底时圆角不可见，无副作用。 */
+  border-radius: 4px;
   /* 缩进步长走 rem（--depth 是模板给的无单位层数），全局缩放时与行高、字号同步 */
   padding-left: calc(var(--depth, 0) * 10px + 8px);
   padding-right: 8px;
@@ -638,9 +643,10 @@ function focusRowAt(el, extend) {
    焦点离开资源管理器就变浅」）：
    - `--active`：资源管理器**是**当前活动区域 —— 刚点过 / 刚右键过的那一行，高光最重；
    - `--active-idle`：选中还在，但指针已经去了编辑区 / 别处（判据见 FileExplorer 的 treeActive）。
-     同一支色往宿主面（侧栏就是 --bg-editor）上退到 70%，夹在「悬停」与「选中」之间 ——
-     深色那套的落点：悬停 #242427、失焦选中 #2b2d30、选中 #323539（三个台阶各差 7~8 阶）；
-     浅色那一支见下面按地面掺黑的两条。
+     同一支色往宿主面（侧栏岛面 --bg-panel，2026-11-18 岛改版后修正锚点——旧值掺 --bg-ground，
+     深色 midnight 下算出 ≈#262628，离悬停只 3 阶；掺岛面 ≈#2a2a2c 才落回设计档）上退到 70%，
+     夹在「悬停」与「选中」之间 —— 深色那套的落点：悬停 --bg-hover-soft、失焦选中、选中
+     --bg-hover（三个台阶各差 7~8 阶）；浅色那一支见下面按岛面掺黑的两条。
    ⚠️ 两档类**同时**挂在同一行上（选中 + 面板不在活动态），所以 idle 这两条必须排在 active
    之后：两处特异性都是 (0,2,0)，靠源序决定谁赢。 */
 .tree-item__row--active,
@@ -650,22 +656,27 @@ function focusRowAt(el, extend) {
 
 .tree-item__row--active-idle,
 :where(html.is-hoverable) .tree-item__row--active-idle:hover {
-  background: color-mix(in srgb, var(--bg-hover) 70%, var(--bg-ground));
+  background: color-mix(in srgb, var(--bg-hover) 70%, var(--bg-panel));
 }
 
-/* 浅色方案专用（2026-11-12 加）：宿主面（侧栏 = --bg-editor）与通用的悬停 / 选中档差量太小 ——
-   用户报「资源管理器里选中的文件、以及指针停在文件上的高亮，颜色都太浅了」，实机上确实几乎
-   看不出选中了哪一行。深色那对相对面板是 +7 / +21，浅色这一支按同样的相对关系拉开才读得出。
-   三轮经过，**锚点换过一次**，别看旧值去猜：
+/* 浅色方案专用（2026-11-12 加，2026-11-18 晚换锚）：宿主面与通用的悬停 / 选中档差量太小
+   —— 用户报「资源管理器里选中的文件、以及指针停在文件上的高亮，颜色都太浅了」，实机上
+   确实几乎看不出选中了哪一行。深色那对相对面板是 +7 / +21，浅色这一支按同样的相对关系
+   拉开才读得出。
+   四轮经过，**锚点换过两次**，别看旧值去猜：
    - 2026-11-12 初版按 --bg-hover / --bg-hover-soft 掺黑 6% / 13%；当天用户「#cacaca 偏重」
      → 收回 4% / 9%（悬停 −17、选中 −33）。
    - 2026-11-16 地面两轮提亮（#f3f3f3 → #fbfbfb）。那两支掺黑的底是**绝对灰度**、不随地面走，
      于是选中的行固定在 −40 阶（#d3d3d3）—— 用户第三轮报「文件总选中文件的高亮有些深了」。
-   - **2026-11-16 第三轮：锚点从 --bg-hover 换成地面**。悬停 = 地面掺 3% 黑（241 → 233，−8）、
-     选中 = 掺 7% 黑（→ 224，−17）。这两个阶差与深色那对（面板 +7 / +21）同构，而且以后
-     地面再怎么动，行高亮自动跟着走，不会再像这次一样漂成一块灰砖。
+   - 2026-11-16 第三轮：锚点换成地面（当时侧栏铺的就是地面）。悬停 −8、选中 −17、失焦 −12，
+     与深色那对（+7 / +21）同构；地面再动，行高亮自动跟着走。
+   - **2026-11-18 晚第四轮：锚点换成 --bg-panel**。悬浮岛改版（fbfed25）把侧栏从地面改成
+     铺岛面（浅色 #fcfcfd，253），这一支被顺手改锚到 --bg-ground（227）—— 锚到了**缝底**
+     而不是行实际坐的那张面：悬停变成 227 掺 3% ≈ 220，在 253 岛面上 Δ33，比设计意图
+     （−8）深了 25 阶，选中更是 Δ42。掺黑比例原样保留（3 / 7 / 5 / 7），换锚后阶差自动
+     回到 −8 / −18 / −13，与深色那对重新同构。
    用 color-mix 掺黑而不是写死灰度：paper / leaf / mist 也走 light scheme，各有自己的暖 / 绿 /
-   蓝底色，掺黑能保留色相，写死 #d8d8d8 会让它们变灰。
+   蓝岛面，掺黑能保留色相，写死 #d8d8d8 会让它们变灰。
    ⚠️ **不动** base.css 的 --bg-hover / --bg-hover-soft：那两支还被按钮、面板标题等处共用，
    这里只覆盖文件树的这几条状态色。
    ⚠️ `:root[data-scheme='light']:where(html.is-hoverable)` 中间**不能有空格**：这些选择器
@@ -673,27 +684,27 @@ function focusRowAt(el, extend) {
    就成了 `:root` 的后代 —— 而 <html> 永远不是自己的后代，整条规则永不命中（2026-11-12 踩过：
    悬停那一条死活不生效，选中那一条却好着，因为后者不带这个闸门）。 */
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row:hover {
-  background: color-mix(in srgb, var(--bg-ground) 97%, black);
+  background: color-mix(in srgb, var(--bg-panel) 97%, black);
 }
 
 :root[data-scheme='light'] .tree-item__row--active,
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active:hover {
-  background: color-mix(in srgb, var(--bg-ground) 93%, black);
+  background: color-mix(in srgb, var(--bg-panel) 93%, black);
 }
 
-/* 浅色下的「失焦选中」：地面掺 5% 黑（241 → 229，−12 阶）—— 悬停是 −8、选中是 −18，
+/* 浅色下的「失焦选中」：岛面掺 5% 黑（253 → 240，−13 阶）—— 悬停是 −8、选中是 −18，
    它正好夹在中间（与深色那套的三个台阶同构）。同样必须排在选中那条之后。 */
 :root[data-scheme='light'] .tree-item__row--active-idle,
 :root[data-scheme='light']:where(html.is-hoverable) .tree-item__row--active-idle:hover {
-  background: color-mix(in srgb, var(--bg-ground) 95%, black);
+  background: color-mix(in srgb, var(--bg-panel) 95%, black);
 }
 
 /* 触屏长按的两条同色（进度条终点 / 就绪底色）：它们原本取 --bg-hover，浅色下会比上面新的
-   悬停色还浅，长按走到一半会「回亮」一下。终点与选中同色（同样是地面掺 7% 黑）。
+   悬停色还浅，长按走到一半会「回亮」一下。终点与选中同色（同样是岛面掺 7% 黑）。
    特异性 (0,4,0) 压得住 (0,2,0) 的那两条。 */
 :root[data-scheme='light'] .tree-item__row.tree-item__row--pressing,
 :root[data-scheme='light'] .tree-item__row.tree-item__row--armed {
-  background: color-mix(in srgb, var(--bg-ground) 93%, black);
+  background: color-mix(in srgb, var(--bg-panel) 93%, black);
 }
 
 /* 正在被拖的那一行 */
