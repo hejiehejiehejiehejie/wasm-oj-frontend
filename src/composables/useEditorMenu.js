@@ -612,6 +612,14 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     press = null
   }
 
+  /**
+   * 长按那条路要用的「在按点开菜单」。导出给选区手柄那层复用（见
+   * `useSelectionHandles` 的 `onLongPress`）：手柄住在 stage 里、在 host 之外，
+   * 上面这条 pointerdown 监听够不着它 —— 手柄上的长按由那边自己判，开了菜单
+   * 走的仍是这一份（model 判空、按点、条目都同源）。
+   */
+  const openMenu = openAt
+
   function onPointerDown(event) {
     // 鼠标路径不走这里（右键另有一条，见 onContextMenu）
     handledTouch = false
@@ -951,5 +959,6 @@ export function useEditorMenu({ editor, host, canRun = () => false, run = () => 
     exporting,
     ask,
     answerImageAction,
+    openMenu,
   }
 }

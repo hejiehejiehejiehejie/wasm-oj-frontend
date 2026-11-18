@@ -205,6 +205,7 @@ const {
   exporting: imageExporting,
   ask: imageAsk,
   answerImageAction,
+  openMenu: openEditorMenuAt,
 } = useEditorMenu({
   editor,
   host,
@@ -269,6 +270,10 @@ const {
   stage,
   active: handlesActive,
   magnifier: magnifierEl,
+  // 按住手柄不动 450ms = 第二拍（长按选区含手柄 = 弹菜单，iOS 同款）：
+  // 手柄层在 host 之外，useEditorMenu 那条长按计时器够不着它，所以由手柄这边
+  // 自己判（见 useSelectionHandles.js 文件头），到点把菜单开在按压点。
+  onLongPress: openEditorMenuAt,
 })
 
 // ------------------------------------------------------------ 从外部打开文件

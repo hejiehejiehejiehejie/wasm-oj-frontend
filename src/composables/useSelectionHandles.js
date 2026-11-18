@@ -48,6 +48,18 @@
  * `pointer-events: none` 的元素会被 `elementFromPoint` 跳过，所以拖动一开始就把两颗手柄
  * 都设成隐身即可；监听挂在 window 上、触摸另有隐式指针捕获，拖动本身不受影响。
  *
+ * 【按住手柄不动 450ms = 第二拍（弹菜单）（2026-11-18 加）】
+ * 两拍长按（选词一拍、选区里再长按一拍弹菜单，见 useEditorMenu.js 文件头）有个洞：
+ * 第二拍最自然的落点——**圆点与手柄的热区**——根本到不了那条路。长按计时器挂在 host
+ * 的 pointerdown 上，而手柄层住在 stage 里（host 的兄弟层），按住圆点只会被
+ * `onHandleDown` 当场抓成拖拽现场（放大镜弹出、is-dragging 挂上），450ms 时什么
+ * 都不发生 —— 用户看到的就是「无论如何长按都唤出手柄，菜单唤不出」（2026-11-18 报）。
+ * 修法与 iOS 同款：**长按已选中的内容（含手柄）= 弹菜单**。按下那一刻起表
+ * （`HANDLE_LONG_PRESS_MS`，与文本那条 450ms 同口径），到点还没动就整场退掉抓取
+ * （`abortDrag`，选区不动）并在按点弹菜单；动了（> `HANDLE_LONG_PRESS_SLOP`）就是
+ * 真拖拽，长按作废。判定期间放大镜也不出（它挪到第一发 `applyDrag()` 才画）——
+ * 按住不动的窗口里画面保持干净，不再「先闪一下放大镜又收掉」。
+ *
  * 【只对触摸出手柄】
  * 桌面鼠标本来就有一条「按住拖选」的路，再挂两颗圆点只会碍事（也挡不住手柄底下的点击）。
  * 判据是「最近一次落在编辑区的指针是不是触摸」：初值取触摸屏的两种口径
@@ -162,6 +174,14 @@ const CONTENT_PAD = 2
  */
 const ROW_SWITCH_RATIO = 0.8
 /**
+ * 手柄上的长按判定：按住 450ms 不动 = 第二拍（弹菜单），动了 = 真拖拽。
+ * 与 useEditorMenu.js / useTreeDrag.js 的 LONG_PRESS_MS 同口径 —— 改一处要三处对齐，
+ * 不然「文本上的长按」和「手柄上的长按」手感会分岔。
+ */
+const HANDLE_LONG_PRESS_MS = 450
+/** 长按判定的位移窗（同 useEditorMenu 的 MOVE_SLOP）：动过这么多就当拖拽，撤掉长按 */
+const HANDLE_LONG_PRESS_SLOP = 10
+/**
  * 放大镜镜片的参数（逻辑 px）。这几个数是**唯一出处** —— 镜片尺寸由 `syncProbe()` 连同位置
  * 一起写进 `--probe-lens-w / -h / -gap`，CSS 只消费变量，不再重复写一遍。
  * 逻辑 px 同样要乘 `uiScale()`（CSS 那边写 px 会被 postcss-pxtorem 转 rem、跟着 --ui-scale 缩，
@@ -241,14 +261,17 @@ function lensSize(instance, tip) {
  *   stage: import('vue').Ref,
  *   active: import('vue').Ref<boolean>,
  *   magnifier: import('vue').Ref<HTMLElement|null>,
+ *   onLongPress?: (clientX: number, clientY: number) => void,
  * }} options
  *   `editor` = Monaco 实例（setup 里还是 null，由 watch 在它出现时补订阅）
  *   `host` = 编辑器容器（指针类型探测挂它）
  *   `stage` = 浮层的定位父层（手柄坐标相对它）
  *   `active` = 编辑区此刻真的露着（被设置 / 抽题 / 预览盖住时为 false，手柄整层收掉）
  *   `magnifier` = 放大镜那层的外壳（EditorPane 里 v-if 出来的，`paintProbe()` 往它里面搬 DOM）
+ *   `onLongPress` = 按住手柄不动 450ms（第二拍）时回调，参数是按压点坐标。
+ *     由 EditorPane 接到 useEditorMenu 的 `openMenu` 上 —— 菜单的判空 / 条目 / 定位都同源。
  */
-export function useSelectionHandles({ editor, host, stage, active, magnifier }) {
+export function useSelectionHandles({ editor, host, stage, active, magnifier, onLongPress }) {
   /** 两颗手柄：相对 stage 的**盒子左上角**；null = 当下不该显示 */
   const handles = ref(null)
 
@@ -277,6 +300,12 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
   let disposables = []
   /** 拖动现场；null = 没在拖 */
   let drag = null
+  /**
+   * 手柄上的长按现场（2026-11-18 加）：按下圆点 / 热区那一刻起表，按住不动 450ms
+   * 就是第二拍 —— 整场退掉这次「抓取」、在按点弹菜单；动了（> slop）就是真拖拽，
+   * 撤掉长按。`null` = 已触发 / 已撤销 / 没在按。
+   */
+  let handlePress = null
   /** 边缘自动滚动的 rAF 句柄 */
   let edgeFrame = 0
   /** 重算的 rAF 句柄（滚动 / 选区变动会成串地来，一帧算一次够了） */
@@ -489,14 +518,48 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     }
     // 先把两颗手柄对命中测试隐身，再收后续事件 —— 顺序反了第一帧就会撞上「落点在盒子里」。
     dragging.value = true
-    syncProbe()
+    // 放大镜**不在这里出**：它随第一发 `applyDrag()`（真拖动）出现。按住不动的那 450ms
+    // 是「长按 = 第二拍弹菜单」的判定窗（见 fireHandleLongPress），判定期间画面应当
+    // 保持干净 —— 上一版按下去放大镜当场弹出，长按弹菜单时它又跟着撤，看着像闪了一下。
     window.addEventListener('pointermove', onDragMove, { passive: false })
     window.addEventListener('pointerup', onDragEnd)
     window.addEventListener('pointercancel', onDragEnd)
+    // 长按判定窗。⚠️ 不能指望 useEditorMenu 那条长按：它的计时器挂在 host 的
+    // pointerdown 上，而手柄层住在 stage 里（host 的**兄弟**层），host 的监听够不着
+    // —— 过去按住圆点 / 热区只会被当场抓成拖拽，菜单在最自然的落点上永远开不出来
+    // （2026-11-18 用户报「无论如何长按都会唤出手柄，无法唤出菜单」）。
+    handlePress = { x: event.clientX, y: event.clientY }
+    handlePress.timer = window.setTimeout(fireHandleLongPress, HANDLE_LONG_PRESS_MS)
+  }
+
+  /**
+   * 长按判定到点：按住圆点 / 热区不动满 450ms = **第二拍**（iOS 的口径：长按已选中的
+   * 内容 = 弹菜单 —— 圆点与热区是选区最醒目的部分，用户「再长按一下选区」最自然的
+   * 落点就是它俩）。做三件事：
+   * 1. 整场退掉这次「抓取」（`abortDrag` 只清现场、选区一个字都不动）；
+   * 2. 之后手指再怎么动都不再有拖拽效果 —— 监听已摘、`drag` 已清（`onDragMove`
+   *    见 `!drag` 早退）；
+   * 3. 在按压点开菜单（EditorPane 把它接到 useEditorMenu 的 `openMenu`）。
+   */
+  function fireHandleLongPress() {
+    if (!handlePress || !drag) return
+    const { x, y } = handlePress
+    handlePress = null
+    abortDrag()
+    onLongPress?.(x, y)
   }
 
   function onDragMove(event) {
     if (!drag || event.pointerId !== drag.pointerId) return
+    // 动过了（超过长按的位移窗）= 这一按是真拖拽，长按判定当场作废
+    if (
+      handlePress &&
+      (Math.abs(event.clientX - handlePress.x) > HANDLE_LONG_PRESS_SLOP ||
+        Math.abs(event.clientY - handlePress.y) > HANDLE_LONG_PRESS_SLOP)
+    ) {
+      window.clearTimeout(handlePress.timer)
+      handlePress = null
+    }
     event.preventDefault()
     drag.x = event.clientX
     drag.y = event.clientY
@@ -749,8 +812,21 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
     edgeFrame = window.requestAnimationFrame(stepEdgeScroll)
   }
 
+  /**
+   * 整场退掉一次「抓取」：只清现场（监听、drag、放大镜、边缘滚动），**选区一个字都不动**。
+   * 两个出口：长按到点弹菜单（`fireHandleLongPress`，用户要的是菜单不是拖拽），
+   * 以及组件卸载时的兜底。松手（`onDragEnd`）不走这里 —— 那是拖拽的正常收尾。
+   */
+  function abortDrag() {
+    onDragEnd(null)
+  }
+
   function onDragEnd(event) {
     if (!drag || (event && event.pointerId !== drag.pointerId)) return
+    if (handlePress) {
+      window.clearTimeout(handlePress.timer)
+      handlePress = null
+    }
     drag = null
     dragging.value = false
     probe.value = null
@@ -797,6 +873,10 @@ export function useSelectionHandles({ editor, host, stage, active, magnifier }) 
   onBeforeUnmount(() => {
     host.value?.removeEventListener('pointerdown', onHostPointerDown, true)
     onDragEnd(null)
+    if (handlePress) {
+      window.clearTimeout(handlePress.timer)
+      handlePress = null
+    }
     if (updateFrame) {
       window.cancelAnimationFrame(updateFrame)
       updateFrame = 0
