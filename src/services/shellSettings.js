@@ -136,13 +136,17 @@ export function setNarrowCollapseSide(next) {
  * 所以哪边改完，面板当场就换 —— 不需要重新挂载，也不用刷新。
  *
  * 用例空着时两种视图看到的是同一片空白，TestPanel 统一退回列表那套空态（那边判据）。
+ *
+ * 【默认档】'tabs'（2026-11-20 用户要求）：首次使用直接落在分项标签视图，
+ * 盯住一条样例改是更常用的动作；已经有存档的机器仍按存档走，不会被覆盖。
  */
-export const caseView = ref(read(CASE_VIEW_KEY, 'list', (value) => (value === 'tabs' ? 'tabs' : 'list')))
+export const caseView = ref(read(CASE_VIEW_KEY, 'tabs', (value) => (value === 'tabs' ? 'tabs' : 'list')))
 watch(caseView, (value) => persist(CASE_VIEW_KEY, value), { immediate: true })
 
 /**
  * 两档的取值名（与 PANEL_POSITIONS 同一体例：**档位表只在这里**，i18n 只管文案）。
- * 顺序是「列表 → 分项」：先摆着默认的那一档，与设置面板那颗段钮显示的当前值一致。
+ * 段钮仍按「列表 → 分项」排列（列表是更早出现的面孔，位置固定不跳）；
+ * 默认档见上面的 `caseView`（2026-11-20 起为 'tabs'，与排列顺序无关）。
  */
 export const CASE_VIEWS = [
   { id: 'list', labelKey: 'settings.option.caseViewList' },
