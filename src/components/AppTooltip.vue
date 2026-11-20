@@ -8,14 +8,16 @@ import { appViewportBox } from '../composables/useMobileKeyboard.js'
  *
  * 为什么不用原生 title（2026-10-24 晚，用户要求）：原生提示框带一圈灰色实体边框、
  * 底色跟着系统走，在深色界面里像一块贴上去的系统控件；而且位置由浏览器决定，
- * 经常偏到触发元素左侧。这里自己画：近黑底 + 柔和投影 + 水平居中于触发元素。
+ * 经常偏到触发元素左侧。这里自己画：与右键菜单同族的玻璃浮层 + 水平居中于触发元素
+ * （2026-11-21 用户要求「参考右键菜单的样式」后，材质改为 --menu-* 那套）。
  *
  * 为什么 Teleport 到 body：评测样例面板 .cases 是 overflow-y: auto，气泡留在卡片里
  * 会被滚动容器裁掉；挂到 body 才能真浮起来。
  *
  * 定位匣取 `appViewportBox()`（与 usePopoverLayer / 应用层同一口径，理由见那里）：软键盘弹起时
  * window.innerHeight 不变，拿它当匣会让气泡停到键盘底下。默认在上方，上方放不下就翻到下方，
- * 左右夹进视口。要反过来的场合（气泡该往下弹）传 `placement="bottom"`，见那个 prop 的注释。
+ * 左右夹进视口。要换方向的场合传 `placement`：'bottom'（气泡该往下弹）、'left' / 'right'
+ * （贴边的竖排工具条，气泡朝远离那条边的方向展开），见那个 prop 的注释。
  *
  * 【触屏不弹】（2026-11-09，用户报「触屏点击运行单个样例的按钮之后，会出现一个悬浮的提示」）
  * 手指抬起之后浏览器会补一串**兼容鼠标事件**，mouseover / mouseenter 都在其中 —— 于是轻点
@@ -35,9 +37,10 @@ import { appViewportBox } from '../composables/useMobileKeyboard.js'
  * 顺带在触发体上补一发 mouseleave、把定时器清了。但那是浏览器的情分，不是我们的约定
  * （Safari / 安卓补不补那串 compat 事件向来说不准）。所以回调里自己再读一次
  * `isHoverable()`，成本为零。键盘那条直接调 `show()`，不经过这个定时器，不受影响。
- * 【配色跟明暗走】底色 / 字色 / 投影全由 --tooltip-* 三个变量给（styles/base.css）：
- * 深色系是近黑底白字，浅色系是白底深字 + 一圈头发丝勾边（2026-11-10 用户报浅色下仍是深色）。
- * 别在组件里写死颜色 —— 这个组件同时被评测面板、样例卡片、编辑器页签等好几处用。
+ * 【配色跟菜单走】底色 / 字色 / 投影 / 毛玻璃全由 --tooltip-* 令牌给（styles/base.css 里
+ * 已别名到 --menu-*）：深浅两色与右键菜单同一族，玻璃面 + 多层影 + 无描边。
+ * 别在组件里写死颜色，也别单独给提示框调一套色值 —— 这个组件同时被评测面板、
+ * 样例卡片、编辑器页签等好几处用。
  */
 const props = defineProps({
   text: { type: String, default: '' },
@@ -46,11 +49,15 @@ const props = defineProps({
   /** 与触发元素、视口边缘的间隙 */
   gap: { type: Number, default: 8 },
   /**
-   * 优先弹在哪一侧：'top'（默认）或 'bottom'。另一侧放不下时才翻过去。
-   * 只有「上方有东西不该被盖住」的场合才需要改成 bottom —— 目前是分项标签轨末尾那颗「+」：
-   * 它上方就是侧栏页头（面板切换器 + 判定簇），气泡从那儿冒出来像是在盖页头。
+   * 优先弹在哪一侧：'top'（默认）、'bottom'、'left'、'right'。放不下时才翻到对侧。
+   * 纵向空间要留给下方内容时用 bottom（分项标签轨末尾的「+」）；贴边的竖排工具条
+   * （如折叠评测岛）用 left / right，让气泡朝编辑区那一侧展开，不压住岛自己的内容。
    */
-  placement: { type: String, default: 'top', validator: (v) => v === 'top' || v === 'bottom' },
+  placement: {
+    type: String,
+    default: 'top',
+    validator: (v) => ['top', 'bottom', 'left', 'right'].includes(v),
+  },
   /**
    * 内容是「一段输入 / 代码」而不是一句说明：等宽、左对齐、保留换行、放宽到 320px。
    * 走这条就不要塞整句话进去了 —— `.app-tip` 的居中排版对多行文本很难看。
@@ -83,19 +90,33 @@ async function place() {
   const a = anchor.getBoundingClientRect()
   const b = el.getBoundingClientRect()
   const box = appViewportBox()
-  const left = Math.max(
-    box.left + props.gap,
-    Math.min(a.left + a.width / 2 - b.width / 2, box.right - b.width - props.gap),
-  )
+  let left
   let top
-  if (props.placement === 'bottom') {
-    // 优先下方：越过触发元素下沿一个 gap
-    top = a.bottom + props.gap
-    // 下方装不下（贴着页脚 / 视口底）再翻上去
-    if (top + b.height > box.bottom - props.gap) top = a.top - b.height - props.gap
+  if (props.placement === 'left' || props.placement === 'right') {
+    // 侧向：垂直居中于触发元素；朝该侧放不下时翻到另一侧，再夹进视口
+    top = a.top + a.height / 2 - b.height / 2
+    if (props.placement === 'left') {
+      left = a.left - b.width - props.gap
+      if (left < box.left + props.gap) left = a.right + props.gap
+    } else {
+      left = a.right + props.gap
+      if (left + b.width > box.right - props.gap) left = a.left - b.width - props.gap
+    }
+    left = Math.max(box.left + props.gap, Math.min(left, box.right - b.width - props.gap))
   } else {
-    top = a.top - b.height - props.gap
-    if (top < box.top + props.gap) top = a.bottom + props.gap
+    left = Math.max(
+      box.left + props.gap,
+      Math.min(a.left + a.width / 2 - b.width / 2, box.right - b.width - props.gap),
+    )
+    if (props.placement === 'bottom') {
+      // 优先下方：越过触发元素下沿一个 gap
+      top = a.bottom + props.gap
+      // 下方装不下（贴着页脚 / 视口底）再翻上去
+      if (top + b.height > box.bottom - props.gap) top = a.top - b.height - props.gap
+    } else {
+      top = a.top - b.height - props.gap
+      if (top < box.top + props.gap) top = a.bottom + props.gap
+    }
   }
   top = Math.max(box.top + props.gap, Math.min(top, box.bottom - b.height - props.gap))
   position.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` }
@@ -201,15 +222,17 @@ onBeforeUnmount(() => {
   /* 气泡只是说明书，不该挡住底下的任何点击（尤其是触发元素自己） */
   pointer-events: none;
   max-width: min(260px, calc(100vw - 16px));
-  padding: 6px 9px;
-  border-radius: 6px;
-  font-size: 11.5px;
+  /* 形状与字号跟右键菜单走同一把尺（--menu-scale），读起来是同一族浮层 */
+  padding: calc(5px * var(--menu-scale)) calc(10px * var(--menu-scale));
+  border-radius: calc(6px * var(--menu-scale));
+  font-size: calc(13px * var(--menu-scale));
   line-height: 1.45;
   letter-spacing: 0.01em;
   text-align: center;
   color: var(--tooltip-text);
   background: var(--tooltip-bg);
   box-shadow: var(--tooltip-shadow);
+  backdrop-filter: var(--tooltip-backdrop);
   opacity: 0;
   transition: opacity 0.12s ease;
   overflow-wrap: break-word;
@@ -224,7 +247,7 @@ onBeforeUnmount(() => {
    —— `overflow-wrap: anywhere` 让超长无空格串就地折行，而不是把气泡撑出屏幕。 */
 .app-tip--code {
   max-width: min(320px, calc(100vw - 16px));
-  padding: 7px 10px;
+  padding: calc(6px * var(--menu-scale)) calc(11px * var(--menu-scale));
   font-family: var(--mono-font);
   font-size: 11px;
   line-height: 1.5;

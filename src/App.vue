@@ -256,6 +256,19 @@ const testCases = ref([])
 /** 面板里这批样例是从哪个文件读来的（回写靠它认路；null = 还没有文件） */
 let casesNodeId = null
 
+/**
+ * 每个文件上一轮的评测结果（卡片对象原样留存，按文件 id 记账）。
+ *
+ * 运行结论 / 实际输出 / 耗时只活在内存里，config.tests 只存输入与期望两栏；
+ * 切文件时 testCases 会被整批重建，不做这一层的话切走一次再切回来就只剩空白卡片。
+ * 切回来时用 sameTests 核对两栏：对得上才认这份结论（没改过代码就原样保留），
+ * 对不上说明样例被外部换过，按新样例重建。
+ *
+ * stale 也一起留在缓存里 —— 「编辑 → 判定过期」按文件 id 落账（见下面那条），
+ * 改过代码的文件回来时仍是「待重测」，没改过的才保持新鲜。
+ */
+const caseCache = new Map()
+
 // ------------------------------------------------------------ 用例回写
 // 用户手写的两栏跟着文件走：切走再切回来、刷新页面，都还在（原本是全局存 localStorage，
 // 那正是「打开 B 题却看见 A 题样例」的来源）。只动 config.tests 这一个字段，
@@ -309,8 +322,12 @@ watch(
     // 内容没变就原样留着：一来保住每张卡上的运行结论（回写自己也会引发一次树重建），
     // 二来省掉「刚写进去又当成一次外部修改读回来」的空转
     if (id === casesNodeId && sameTests(testCases.value, seeds)) return
+    // 切走前把这一批（含运行结论）记到它自己名下，切回来再取
+    if (casesNodeId && id !== casesNodeId) caseCache.set(casesNodeId, testCases.value)
     casesNodeId = id
-    testCases.value = seeds.map((seed) => createCase(seed))
+    const cached = id === null ? null : caseCache.get(id)
+    testCases.value =
+      cached && sameTests(cached, seeds) ? cached : seeds.map((seed) => createCase(seed))
   },
   { immediate: true },
 )
@@ -1466,7 +1483,7 @@ async function runAll() {
   // 它们这一轮根本没有产出，上一轮的输出也不再是「这次的结果」——
   // 复位时留下的那一份在这里一并清掉，退回占位语（与引擎给的 cancelled 补丁同口径：
   // 那种卡片已经被补丁清过了，不会走到这个分支）。
-  for (const item of testCases.value) {
+  for (const item of queue) {
     if (item.status !== 'running') continue
     item.status = 'idle'
     item.actualOutput = ''
@@ -1582,19 +1599,28 @@ watch(
   { immediate: true },
 )
 
-// 用户输入（dirty 集合变化）后，之前的判定不再可信，标成「待重测」。
+// 用户输入之后，之前那一轮判定不再代表现在这份代码，标成「待重测」。
+// 记账按**文件 id**：被编辑的文件可能就在眼前（testCases），也可能已经被切走
+// （卡片住在 caseCache 里）—— 两处都要落，且只落被改的那一份。
+// 原先只盯 dirtyIds.size，任何文件一改就把眼前这批全标 stale，切文件后
+// 会把别的文件的结论一起带脏；保存（dirty 清零）也会触发同一套逻辑。
 let staleTimer = 0
-watch(
-  () => modelManager.dirtyIds.size,
-  () => {
-    window.clearTimeout(staleTimer)
-    staleTimer = window.setTimeout(() => {
-      for (const item of testCases.value) {
+const staleNodeIds = new Set()
+const stopEditWatch = modelManager.onDidEdit((id) => {
+  staleNodeIds.add(id)
+  window.clearTimeout(staleTimer)
+  staleTimer = window.setTimeout(() => {
+    const ids = [...staleNodeIds]
+    staleNodeIds.clear()
+    for (const id of ids) {
+      const list = id === casesNodeId ? testCases.value : caseCache.get(id)
+      if (!list) continue
+      for (const item of list) {
         if (item.status !== 'idle' && item.status !== 'running') item.stale = true
       }
-    }, 400)
-  },
-)
+    }
+  }, 400)
+})
 
 // ------------------------------------------------------------ 全局快捷键
 // 键位表在 useShortcutManager 里（含持久化与冲突检测），这里只把动作 id 接上真正的函数。
@@ -2191,6 +2217,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('contextmenu', onGlobalContextMenu)
   disposeAutoSave?.()
   disposeAutoSave = null
+  stopEditWatch()
   window.clearTimeout(staleTimer)
   window.clearTimeout(reclampTimer)
   abortController?.abort()
@@ -2730,9 +2757,10 @@ onBeforeUnmount(() => {
   z-index: 30;
   width: min(86%, 420px);
   /* 抽屉是绝对定位浮层的**岛**：宽屏那版虽然也是 --bg-panel，但浮层必须有自己
-     完整的描边环 + 影（岛沿之外再加一层「浮在坑上方」的投影），别删。 */
+     「浮在坑上方」的投影。2026-11-20 用户要求去掉外面那一圈线：
+     不再画 1px 的 --border-divider 描边环，边界只靠投影交代。 */
   background: var(--bg-panel);
-  box-shadow: 0 0 0 1px var(--border-divider), 0 12px 28px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
 /* 抽屉态摘掉宽屏那枚 ::after 内沿环（07:05）：抽屉的边界已经由上面那条

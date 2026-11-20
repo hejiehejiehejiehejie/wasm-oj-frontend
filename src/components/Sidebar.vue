@@ -406,7 +406,7 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="rootEl" class="sidebar">
+  <div ref="rootEl" class="sidebar" :class="{ 'is-tests-active': activeTab === 'tests' }">
     <!-- 全站唯一的一份侧栏页头：左边是面板切换 + 抽题 + 设置（SidebarSwitcher），
          右边 #sidebar-context 是当前面板 Teleport 上来的上下文动作
          （资源管理器 = 新建文件/文件夹；评测样例 = verdict + 耗时）。 -->
@@ -576,6 +576,15 @@ defineExpose({
    `html.is-narrow .x` 那种直写形式 —— 那会给整块凭空套上一层特异性，把这些算式全推翻。 */
 :where(html.is-narrow) .sidebar__head {
   display: contents;
+}
+
+/* 窄屏评测页：页头那格上下文动作整块摘掉（2026-11-20 用户要求「与纵向评测岛同一套
+   形态」）—— 结论与耗时已下沉到评测底栏左侧（见 TestPanel 的 `narrowSidebar`）。
+   这里不能再留那条 35px 的空行：它是给资源管理器的新建按钮兜高度的，评测页没有内容时
+   只会白吃侧栏高度。用 display: none 而不是摘掉节点：Teleport 目标还在，切回资源
+   管理器时不必等一帧重挂。 */
+:where(html.is-narrow) .sidebar.is-tests-active .sidebar__context {
+  display: none;
 }
 
 /* 顶层那一条：只剩当前面板的动作（资源管理器 = 新建文件/文件夹，

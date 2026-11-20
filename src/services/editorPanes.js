@@ -37,6 +37,42 @@ export const MAX_PANES = 4
 export const MIN_RATIO = 0.2
 export const MAX_RATIO = 0.8
 
+/* ------------------------------------------------------------ 评测岛折叠（窄条）
+
+   评测岛是唯一允许被拖到「一条」的窗格：用户把 splitter 一路拖窄时，它收成 48px 窄条
+   （格子的目标尺寸 52px，含 2px 透明边框）。为了让右侧/底部的岛也能收到底，tests split
+   的比例边界必须**非对称**放宽 —— ratio 记的永远是 a 支占比：
+     · tests 是 a（左侧停靠）：ratio 极小 = 岛极窄 → 下限 0.02，上限仍 0.8（护住代码格）；
+     · tests 是 b（右侧/底部）：ratio 极大 = 岛极窄 → 上限 0.98，下限仍 0.2；
+   其它 split 仍走 [MIN_RATIO, MAX_RATIO]，代码格永远不会被压到 20% 以下。 */
+export const TESTS_RAIL_PX = 52
+export const TESTS_COLLAPSE_PX = 120
+export const TESTS_EXPAND_PX = 160
+export const TESTS_SPLIT_MIN_RATIO = 0.02
+export const TESTS_SPLIT_MAX_RATIO = 0.98
+
+/**
+ * 这条 split 的比例安全区间。只有**直接子节点是 tests 叶**才放宽 —— 评测岛永远由
+ * `splitSpanning` 挂在根 split 的一侧，不会藏在更深层。
+ * @param {any} node
+ * @returns {{ min: number, max: number }}
+ */
+function testsRatioBounds(node) {
+  if (isLeaf(node?.a) && node.a.content === 'tests') {
+    return { min: TESTS_SPLIT_MIN_RATIO, max: MAX_RATIO }
+  }
+  if (isLeaf(node?.b) && node.b.content === 'tests') {
+    return { min: MIN_RATIO, max: TESTS_SPLIT_MAX_RATIO }
+  }
+  return { min: MIN_RATIO, max: MAX_RATIO }
+}
+
+/** 按 split 自己的安全区间夹一次比例 */
+function clampRatio(node, ratio) {
+  const { min, max } = testsRatioBounds(node)
+  return clamp(ratio, min, max)
+}
+
 let seq = 0
 function newId(prefix) {
   seq += 1
@@ -487,6 +523,109 @@ export function lastTestsPaneSide() {
   return lastVerticalSide
 }
 
+/* ------------------------------------------------------------ 评测岛折叠态
+
+   折叠只是界面状态，真源仍是 split 的 ratio（窄条 ≈52px/分区尺寸）。折叠位（collapsed）
+   与折叠前的岛份额（lastShare）会跟布局一起写进存档：刷新后仍是同一条窄条，
+   点展开也还能回到折叠前的宽度。恢复时 ratio 先按 0.2/0.8 收口，真正的 48px
+   由 EditorPaneGrid 挂载后按当前分区尺寸再算一次。 */
+export const testsRail = reactive({
+  /** 岛当前是否收成一条（TestsPane 据此切换窄条） */
+  collapsed: false,
+  /**
+   * 折叠前那次拖动起手时，评测岛占整条 split 的份额（0~1，**岛这一侧**，不是 a 支）。
+   * 存份额而不是原始 ratio：岛从右换到左时 a/b 会互换，原始 ratio 会还原出相反宽度。
+   */
+  lastShare: null,
+  /** 窄条里点了哪条样例（TestCaseTabs 消费后清空） */
+  pendingCaseId: null,
+})
+
+/**
+ * 评测岛所在 split 的身份：它永远是根 split 的直接子节点。
+ * ratio 始终是 a 支占比 —— `testsIsA` 交给渲染层换算「岛这一侧」的宽高。
+ * @returns {{ splitId: string, testsIsA: boolean, axis: 'x'|'y' }|null}
+ */
+export function testsSplitInfo() {
+  const leaf = testsLeaf()
+  if (!leaf) return null
+  const slot = findSlot(editorPanes.root, leaf.id)
+  const parent = slot?.parent
+  if (!parent) return null
+  return {
+    splitId: parent.id,
+    testsIsA: parent.a === slot.node,
+    axis: parent.axis === 'y' ? 'y' : 'x',
+  }
+}
+
+/** 记下这次拖动起手时岛占的份额（只记展开态；从窄条上起拖不覆盖） */
+export function rememberTestsRatio() {
+  if (testsRail.collapsed) return
+  const info = testsSplitInfo()
+  if (!info) return
+  const slot = findSlot(editorPanes.root, info.splitId)
+  if (!slot || isLeaf(slot.node)) return
+  const ratio = slot.node.ratio
+  testsRail.lastShare = info.testsIsA ? ratio : 1 - ratio
+}
+
+/**
+ * 收成窄条。ratio 直接写进 split 节点（不走 setRatio 的另一层语义），
+ * 但几何仍会被 `computePaneRects` 按 tests 的非对称边界正确渲染。
+ * @param {number} regionPx splitter 所在分区在拖动轴上的像素长度
+ */
+export function collapseTestsPane(regionPx) {
+  const info = testsSplitInfo()
+  if (!info || !(regionPx > TESTS_RAIL_PX)) return false
+  const slot = findSlot(editorPanes.root, info.splitId)
+  if (!slot || isLeaf(slot.node)) return false
+  const share = TESTS_RAIL_PX / regionPx
+  slot.node.ratio = info.testsIsA ? share : 1 - share
+  testsRail.collapsed = true
+  return true
+}
+
+/**
+ * 展开窄条。
+ * @param {{ ratio?: number|null }} [options] 传入时按指针位置展开（拖动路径），
+ *   不传则回到折叠前那次拖动的起手比例。
+ */
+export function expandTestsPane({ ratio = null } = {}) {
+  const info = testsSplitInfo()
+  testsRail.collapsed = false
+  if (!info) {
+    testsRail.lastShare = null
+    return false
+  }
+  const slot = findSlot(editorPanes.root, info.splitId)
+  if (!slot || isLeaf(slot.node)) return false
+  const fallback = info.axis === 'y' ? TESTS_PANE_SHARE.bottom : 0.38
+  const share = testsRail.lastShare ?? fallback
+  // lastShare 记的是「岛这一侧」，换边后 a/b 互换，这里换算回 split 的 a 支占比
+  const target = Number.isFinite(ratio) ? ratio : info.testsIsA ? share : 1 - share
+  slot.node.ratio = clampRatio(slot.node, target)
+  testsRail.lastShare = null
+  return true
+}
+
+/** 岛的创建 / 关闭 / 换边 / 恢复存档之后都必须清一次，避免陈旧折叠位 */
+export function resetTestsRail() {
+  testsRail.collapsed = false
+  testsRail.lastShare = null
+  testsRail.pendingCaseId = null
+}
+
+// 兜底：评测岛被摘掉（切工作区 prune、关闭 / 停靠回侧栏）时清折叠位。
+// 只认「岛消失」—— 换边与存档恢复会换一个 tests 叶 id，但折叠态要保留，
+// 那两条路径各自有显式的 reset 时机。
+watch(
+  () => testsLeaf()?.id ?? null,
+  (id) => {
+    if (!id) resetTestsRail()
+  },
+)
+
 /**
  * 自动停靠侧：窄屏、或代码区已经横向切成 ≥2 列 → 底部（底部通栏能让样例输入与答案并排）；
  * 其余情况右侧。用户手动切过之后由 `testsPanePlacement` 覆盖这里。
@@ -518,18 +657,22 @@ export function openTestsPane() {
         ? 0.5
         : TESTS_PANE_SHARE.bottom
       : TESTS_PANE_SHARE[side]
-  return splitSpanning(side === 'bottom' ? 'y' : 'x', side === 'left' ? 'before' : 'after', {
+  const id = splitSpanning(side === 'bottom' ? 'y' : 'x', side === 'left' ? 'before' : 'after', {
     focus: false,
     share,
     content: 'tests',
   })
+  if (id) resetTestsRail()
+  return id
 }
 
 /** 把评测岛停靠回侧边栏（摘掉 tests 叶；焦点与 activeId 不受影响） */
 export function closeTestsPane() {
   const leaf = testsLeaf()
   if (!leaf) return false
-  return closeEmptyPane(leaf.id)
+  const closed = closeEmptyPane(leaf.id)
+  if (closed) resetTestsRail()
+  return closed
 }
 
 /**
@@ -724,7 +867,7 @@ function subtreeHas(node, id) {
 function traceAxis(node, targetId, axis, extent = 1) {
   if (!node) return null
   if (isLeaf(node)) return node.id === targetId ? { freed: extent, axis, stops: [] } : null
-  const ratio = clamp(Number(node.ratio) || 0.5, MIN_RATIO, MAX_RATIO)
+  const ratio = clampRatio(node, Number(node.ratio) || 0.5)
   const along = node.axis === axis
   const extentA = along ? extent * ratio : extent
   const extentB = along ? extent * (1 - ratio) : extent
@@ -770,7 +913,7 @@ function shrinkAxis(before) {
     const rest = stop.extent - freed
     if (!(rest > 0)) continue
     const a = stop.inA ? stop.extentA - freed : stop.extentA
-    stop.node.ratio = clamp(a / rest, MIN_RATIO, MAX_RATIO)
+    stop.node.ratio = clampRatio(stop.node, a / rest)
   }
 }
 
@@ -870,7 +1013,7 @@ export function setRatio(splitId, ratio) {
   const slot = findSlot(editorPanes.root, splitId)
   if (!slot || isLeaf(slot.node)) return
   if (!Number.isFinite(ratio)) return
-  slot.node.ratio = clamp(ratio, MIN_RATIO, MAX_RATIO)
+  slot.node.ratio = clampRatio(slot.node, ratio)
 }
 
 /**
@@ -899,7 +1042,7 @@ export function resetRatio(splitId) {
   const axis = node.axis === 'y' ? 'y' : 'x'
   const total = axisSegments(node, axis)
   if (total < 2) return false
-  node.ratio = clamp(axisSegments(node.a, axis) / total, MIN_RATIO, MAX_RATIO)
+  node.ratio = clampRatio(node, axisSegments(node.a, axis) / total)
   return true
 }
 
@@ -962,7 +1105,7 @@ export function computePaneRects(root = editorPanes.root) {
       leavesOut.push({ id: node.id, x, y, w, h })
       return
     }
-    const ratio = clamp(Number(node.ratio) || 0.5, MIN_RATIO, MAX_RATIO)
+    const ratio = clampRatio(node, Number(node.ratio) || 0.5)
     if (node.axis === 'y') {
       const hA = h * ratio
       walk(node.a, x, y, w, hA)
@@ -1024,9 +1167,15 @@ function serializeNode(node) {
   }
 }
 
-/** 当前布局树的存档形态（`{ root, focusedPaneId }`）。只读快照，可直接 JSON 化。 */
+/** 当前布局树的存档形态（`{ root, focusedPaneId, testsCollapsed, testsShare }`）。只读快照，可直接 JSON 化。 */
 export function serializePanes() {
-  return { root: serializeNode(editorPanes.root), focusedPaneId: editorPanes.focusedPaneId }
+  return {
+    root: serializeNode(editorPanes.root),
+    focusedPaneId: editorPanes.focusedPaneId,
+    // 折叠位与展开尺寸一起存档：刷新后停在窄条，展开仍回到折叠前的宽度
+    testsCollapsed: testsRail.collapsed,
+    testsShare: Number.isFinite(testsRail.lastShare) ? testsRail.lastShare : null,
+  }
 }
 
 /**
@@ -1108,6 +1257,14 @@ export function restorePanes(saved, isAlive = () => true) {
   const root = buildTree(saved?.root, isAlive)
   if (!root) return []
   editorPanes.root = root
+  // 同 id 的 tests 叶可能被复用：先清掉内存里的旧折叠位，再按存档恢复
+  resetTestsRail()
+  if (saved?.testsCollapsed === true && testsLeaf()) {
+    testsRail.collapsed = true
+    const share = Number(saved?.testsShare)
+    // lastShare 只在 (0,1) 内才是合法的「岛份额」；坏值当作没记过，展开用默认比例
+    if (Number.isFinite(share) && share > 0 && share < 1) testsRail.lastShare = share
+  }
   const focused = saved?.focusedPaneId
   const focusedLeafNode = leafById(focused)
   // 焦点只能落在代码叶子上：存档里的 focusedPaneId 若指向评测岛（或已失效），回落到代码格

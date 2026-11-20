@@ -24,15 +24,24 @@
  * 【单活】全站只有这一份 TestPanel 实例：移出后侧栏那页只显示占位（见 App.vue 的 `#tests`
  * 槽），所以之前担心的双快捷键 / 双纸屑 / 状态漂移不会发生。
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { t } from '../i18n/index.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
-import { lastTestsPaneSide, testsPaneSide } from '../services/editorPanes.js'
+import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
+import {
+  expandTestsPane,
+  lastTestsPaneSide,
+  testsPaneSide,
+  testsRail,
+} from '../services/editorPanes.js'
+import { caseInputPreview, caseStampCode, caseStampTone } from '../services/caseSummary.js'
 import { caseView } from '../services/shellSettings.js'
 import {
   getTestsPaneDragStartKind,
   testsPaneDrag,
 } from '../services/testsPaneDrag.js'
+import AppIcon from './AppIcon.vue'
+import AppTooltip from './AppTooltip.vue'
 import ContextMenu from './ContextMenu.vue'
 import TestPanel from './TestPanel.vue'
 
@@ -139,6 +148,128 @@ function onHeaderDblClick(event) {
   const target = testsPaneSide() === 'bottom' ? lastTestsPaneSide() : 'bottom'
   testsPaneDrag.settle?.(target, 'island')
 }
+
+/* ------------------------------------------------------------ 折叠窄条
+
+   岛被 splitter 拖到极窄时（见 EditorPaneGrid 的折叠阈值），正文与页头都保留挂载、
+   只隐藏，窄条顶替它们的可见位置：
+     · 页头不能卸载 —— #tests-pane-tabs / -context / -actions 是 Teleport 落点；
+     · TestPanel 不能卸载 —— textarea 撤销栈与当前样例都住在里面。
+   窄条里只留三件事：通过个数、每条样例页签（判定码水印）、运行全部。
+   展开 / 折叠都交给「改岛宽的拖拽条」（分割条，见 EditorPaneGrid 的单击切换）；
+   样例页签点下去先展开、再写 pendingCaseId，让 TestCaseTabs 在可见布局上落选中。 */
+const collapsed = computed(() => testsRail.collapsed)
+const railHorizontal = computed(() => testsPaneSide() === 'bottom')
+/** 窄条气泡朝编辑区一侧弹：右停靠 → 左，左停靠 → 右，底部 → 上，不压住岛自己的内容 */
+const railTipPlacement = computed(() =>
+  railHorizontal.value ? 'top' : testsPaneSide() === 'left' ? 'right' : 'left',
+)
+
+const railCounts = computed(() => {
+  const tally = { passed: 0, failed: 0, error: 0, stale: 0, running: 0 }
+  for (const item of props.cases) {
+    if (item.status === 'passed') tally.passed += 1
+    else if (item.status === 'failed') tally.failed += 1
+    else if (item.status === 'error') tally.error += 1
+    if (item.stale) tally.stale += 1
+    if (item.status === 'running') tally.running += 1
+  }
+  return tally
+})
+
+/**
+ * 窄条顶部的读数：空间只够写 `2/5` 这一档。结论过期时用 `?/n`（与页脚 verdict 同口径），
+ * 运行中直接写 `RUN` —— 一条窄轨里「运行中」三个汉字会折行。
+ */
+const railSummary = computed(() => {
+  const total = props.cases.length
+  if (!total) {
+    return {
+      text: '0/0',
+      tone: 'muted',
+      title: t('tests.pane.passedTooltip', { passed: 0, total: 0 }),
+    }
+  }
+  if (railCounts.value.running) {
+    return { text: 'RUN', tone: 'info', title: t('tests.verdict.running') }
+  }
+  if (railCounts.value.stale) {
+    return {
+      text: `?/${total}`,
+      tone: 'warn',
+      title: t('tests.pane.passedTooltip', { passed: '?', total }),
+    }
+  }
+  const passed = railCounts.value.passed
+  const tone =
+    passed === total ? 'ok' : railCounts.value.error || railCounts.value.failed ? 'fail' : 'muted'
+  return {
+    text: `${passed}/${total}`,
+    tone,
+    title: t('tests.pane.passedTooltip', { passed, total }),
+  }
+})
+
+const { bindings } = useShortcutManager()
+const railRunDisabled = computed(
+  () => props.running || !props.cases.length || Boolean(props.runBlocked),
+)
+const railRunTitle = computed(() => {
+  if (props.runBlocked) return props.runBlocked
+  const combo = formatCombo(bindings.value.run)
+  return combo ? t('tests.panel.runAllTip', { key: combo }) : t('tests.panel.runAll')
+})
+
+function onRailCase(id) {
+  // 顺序不能反：先把岛展开，再让 TestCaseTabs 消费选中请求
+  expandTestsPane()
+  if (caseView.value === 'tabs') testsRail.pendingCaseId = id
+}
+
+/** 底部横条：把纵向滚轮映射成横向滚动（列表本身没有纵向溢出） */
+function onRailWheel(event) {
+  if (!railHorizontal.value) return
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
+  event.currentTarget.scrollLeft += event.deltaY
+  event.preventDefault()
+}
+
+/* ------------------------------------------------------------ 横排窄条按空间选页签形态
+
+   用户口径（2026-11-21）：「看下方的空间有多少，如果多，则为展开态，少则为折叠。」
+   竖排只有 48px 宽，永远是「状态点 + 序号」的紧凑胶囊；横排铺满编辑区宽度，
+   放得下时就把样例还原成纵向岛页头那套展开态页签（状态点 + 「样例 N」+ 判定水印）。
+
+   判据用一条隐藏量尺量真实排版宽度（不猜字号 / 不按字数估）：
+   量尺按展开态排同样几条胶囊，总宽不超过列表可视宽就上展开态，
+   否则退回紧凑态。竖排 / 收起时不渲染量尺，直接按紧凑态走。 */
+const railEl = ref(null)
+const railCasesEl = ref(null)
+const railMeasureEl = ref(null)
+const railRoomy = ref(false)
+let railObserver = null
+
+function updateRailRoomy() {
+  const room = railCasesEl.value?.clientWidth ?? 0
+  const need = railMeasureEl.value?.scrollWidth ?? 0
+  railRoomy.value = Boolean(railHorizontal.value && room > 0 && need > 0 && need <= room)
+}
+
+function bindRailObserver() {
+  railObserver?.disconnect()
+  railObserver = null
+  if (!collapsed.value || !railEl.value) return
+  railObserver = new ResizeObserver(updateRailRoomy)
+  railObserver.observe(railEl.value)
+  updateRailRoomy()
+}
+
+// 岛展开 / 收起、换边、增删样例都会换掉量尺或可用宽度：重挂一次观察器再量
+watch([collapsed, railHorizontal, () => props.cases.length], () => nextTick(bindRailObserver), {
+  immediate: true,
+})
+onMounted(bindRailObserver)
+onBeforeUnmount(() => railObserver?.disconnect())
 </script>
 
 <template>
@@ -155,6 +286,7 @@ function onHeaderDblClick(event) {
          「底部 ↔ 上次纵向侧」之间切换。页签多时整条 35px 页头几乎全是可拖区。 -->
     <header
       v-if="!workbench"
+      v-show="!collapsed"
       class="tests-pane__head"
       @pointerdown="onHeaderPointerDown"
       @contextmenu="onHeaderContextMenu"
@@ -174,6 +306,7 @@ function onHeaderDblClick(event) {
     </header>
 
     <TestPanel
+      v-show="!collapsed"
       variant="pane"
       :compact-actions="isBottomDocked"
       :vertical-dock="isSideDocked"
@@ -192,6 +325,94 @@ function onHeaderDblClick(event) {
       @submit="emit('submit')"
       @drag-start="emit('drag-start', $event)"
     />
+
+    <!-- 折叠窄条：岛被 splitter 拖到极窄时顶替页头 + 正文的可见位置。
+         整条窄条点一下即展开（拖动则是换位）；样例页签与运行键各自 stop。
+         `data-pane-drag-proxy` 让整条窄条都能按住拖动换边 —— 与样例页签同一档 7px 阈值，
+         位移越过阈值才接管，单击照常落到按钮自己的动作上。 -->
+    <div
+      v-if="collapsed"
+      class="tests-rail"
+      :class="railHorizontal ? 'is-horizontal' : 'is-vertical'"
+      :aria-label="t('tests.pane.railLabel')"
+      ref="railEl"
+      data-pane-drag-proxy
+      @pointerdown="onHeaderPointerDown"
+    >
+      <!-- 读数 + 样例列表：窄条本身只当拖动把手，展开靠点分割条（见 EditorPaneGrid）。 -->
+      <AppTooltip :text="railSummary.title" :placement="railTipPlacement">
+        <div class="tests-rail__summary" :data-tone="railSummary.tone">
+          <span class="tests-rail__count">{{ railSummary.text }}</span>
+        </div>
+      </AppTooltip>
+      <span class="tests-rail__sep" aria-hidden="true"></span>
+      <div ref="railCasesEl" class="tests-rail__cases" @wheel="onRailWheel">
+        <AppTooltip
+          v-for="(item, index) in cases"
+          :key="item.id"
+          class="tests-rail__case-wrap"
+          :text="caseInputPreview(item.input)"
+          :placement="railTipPlacement"
+          code
+        >
+          <button
+            type="button"
+            class="tests-rail__case"
+            :class="{ 'is-stamped': Boolean(caseStampCode(item)), 'is-wide': railRoomy }"
+            :data-tone="caseStampTone(item) || null"
+            :aria-label="t('tests.pane.caseTab', { n: index + 1 })"
+            @click.stop="onRailCase(item.id)"
+          >
+            <span class="tests-rail__num">{{ index + 1 }}</span>
+            <span v-if="railRoomy" class="tests-rail__label">{{
+              t('tests.card.title', { n: index + 1 })
+            }}</span>
+            <span
+              v-if="caseStampCode(item)"
+              class="tests-rail__stamp"
+              :class="{ 'is-long': caseStampCode(item).length >= 3 }"
+              aria-hidden="true"
+              >{{ caseStampCode(item) }}</span
+            >
+          </button>
+        </AppTooltip>
+      </div>
+      <!-- 隐藏量尺：按展开态的样子排同样几条页签，只用来量总宽（见脚本里的 updateRailRoomy）。
+           绝对定位在轨内、visibility: hidden，不参与布局也不出滚动条。 -->
+      <div v-if="railHorizontal" ref="railMeasureEl" class="tests-rail__measure" aria-hidden="true">
+        <span
+          v-for="(item, index) in cases"
+          :key="item.id"
+          class="tests-rail__case is-wide"
+          :class="{ 'is-stamped': Boolean(caseStampCode(item)) }"
+          :data-tone="caseStampTone(item) || null"
+        >
+          <span class="tests-rail__label">{{ t('tests.card.title', { n: index + 1 }) }}</span>
+          <span
+            v-if="caseStampCode(item)"
+            class="tests-rail__stamp"
+            :class="{ 'is-long': caseStampCode(item).length >= 3 }"
+            >{{ caseStampCode(item) }}</span
+          >
+        </span>
+      </div>
+      <!-- 脚：运行全部。与展开态页脚那颗「运行全部」同一位置（竖排贴底 / 横排贴右），
+           展开与收起之间视线和鼠标都不用重新找。 -->
+      <AppTooltip :text="railRunTitle" :placement="railTipPlacement">
+        <button
+          type="button"
+          class="tests-rail__run"
+          :disabled="railRunDisabled"
+          :aria-label="t('tests.panel.runAll')"
+          @click.stop="emit('run-all')"
+        >
+          <!-- 单三角（与展开态紧凑底栏的「运行」同一枚字形）：折叠态只有 32px，
+               实心双三角 + 折线的 run-all 会读成播放器快进、墨量也比 < 与 1/2 重。
+               语义仍是「运行全部」，由 aria-label 与气泡交代。 -->
+          <AppIcon name="play-solid" :size="12" />
+        </button>
+      </AppTooltip>
+    </div>
 
     <!-- 页头右键的停靠菜单：与拖拽落位共用 testsPaneDrag.settle -->
     <ContextMenu
@@ -340,6 +561,386 @@ function onHeaderDblClick(event) {
    留着会让页签轨右侧凭空多出 16px 呼吸。 */
 .tests-pane__context:empty {
   display: none;
+}
+
+/* ------------------------------------------------------------ 折叠窄条（可视 48px）
+
+   2026-11-21 单中轴 + 零描边纯哑光体系：整条按「头 / 身 / 脚」收束 ——
+   顶部是读数、中部是样例列表、底部（横条为右端）是运行全部，与展开态页脚
+   那颗「运行全部」同位。整条窄条就是展开热区（点一下即展开，没有单独的折叠按钮），
+   拖动则换位。样例项与展开态页签同源：横排按空间在「样例 N」与数字档之间切换。
+   格子目标仍是 52px（2px 透明边 + 48px 可视），像素宽度见 editorPanes 的 TESTS_RAIL_PX。 */
+.tests-rail {
+  position: relative;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  gap: 6px;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  background: var(--bg-panel);
+}
+
+.tests-rail.is-vertical {
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.tests-rail.is-horizontal {
+  flex-direction: row;
+  padding: 0 8px;
+}
+
+/* 读数：直接复用展开态页头 span.verdict 的那套字 —— 12px / 600、等宽数字、
+   按状态上色；折叠条里放不下判定句的后半段，只保留 2/5 这一截。
+   min-width 仍与下方 32px 控件对齐，两位数以上自然长宽、保持居中。
+   只展示，不响应点击 —— 展开 / 折叠都点分割条。 */
+.tests-rail__summary {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 22px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: default;
+}
+
+.tests-rail__count {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 与 .verdict 同一组 tone 色：通过绿、失败红、待重测琥珀、运行中蓝 */
+.tests-rail__summary[data-tone='ok'] {
+  color: var(--ok);
+}
+
+.tests-rail__summary[data-tone='fail'] {
+  color: var(--fail);
+}
+
+.tests-rail__summary[data-tone='warn'] {
+  color: var(--warn);
+}
+
+.tests-rail__summary[data-tone='info'] {
+  color: var(--info);
+}
+
+/* 运行键：克制的哑光灰实底（零描边、零渐变、零圆环），视觉沉稳 */
+.tests-rail__run {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease,
+    opacity 0.14s ease;
+}
+
+.tests-rail__run:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+/* 分隔线：极淡发丝线，与 32px 控件形成柔和收束 */
+.tests-rail__sep {
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.tests-rail.is-vertical .tests-rail__sep {
+  width: 20px;
+  height: 1px;
+  margin: 2px 0;
+}
+
+.tests-rail.is-horizontal .tests-rail__sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+}
+
+/* 样例列表：紧凑等距，统一中轴 */
+.tests-rail__cases {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.tests-rail__cases::-webkit-scrollbar {
+  display: none;
+}
+
+.tests-rail.is-vertical .tests-rail__cases {
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.tests-rail.is-horizontal .tests-rail__cases {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  overflow-y: hidden;
+}
+
+/* AppTooltip 的触发壳：竖排里也必须能撑成一格，否则一排 tooltip 会挤成一条线 */
+.tests-rail__case-wrap {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+/* 样例项：与展开态页签同源的纯哑光无描边色块，严格单行居中 */
+.tests-rail__case {
+  --tone: var(--text-dim);
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+/* 语义色集中映射：AC 压淡，异常档保持锋利。
+   err（WA）走 --fail 红、re（CE / RE / ERR）走 --err 橙红 —— 与展开态页签的
+   `--tab-tone` 映射逐条一致（2026-11-21 用户要求折叠态与页签样式对齐）。 */
+.tests-rail__case[data-tone='ok'] {
+  --tone: var(--ok);
+}
+
+.tests-rail__case[data-tone='err'] {
+  --tone: var(--fail);
+}
+
+.tests-rail__case[data-tone='re'] {
+  --tone: var(--err);
+}
+
+.tests-rail__case[data-tone='warn'] {
+  --tone: var(--warn);
+}
+
+.tests-rail__case[data-tone='info'] {
+  --tone: var(--info);
+}
+
+/* 哑光平铺语义底色（与展开态页签一致：无边框、无光晕） */
+.tests-rail__case[data-tone] {
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+}
+
+/* 单行形态：5px 实色状态点 + 序号并排居中，彻底去掉双行微字 */
+.tests-rail__case[data-tone]::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--tone);
+}
+
+/* 横排（底部折叠条）里的胶囊一律走纵向岛页签的材质：26px、内容宽、
+   右侧留 24px 水印槽，透明底 / 6% 语义底、7px 点、12px/600 字。
+   空间够（railRoomy）时换成「样例 N」全称；不够就保留页签收窄后的纯数字。 */
+.tests-rail.is-horizontal .tests-rail__case {
+  width: auto;
+  padding: 0 24px 0 9px;
+  gap: 5px;
+  overflow: hidden;
+  isolation: isolate;
+  background: transparent;
+}
+
+.tests-rail.is-horizontal .tests-rail__case[data-tone] {
+  background: color-mix(in srgb, var(--tone) 6%, transparent);
+}
+
+/* 页签的 7px 状态点；带了判定水印就不画点（与页签同一条规矩） */
+.tests-rail.is-horizontal .tests-rail__case[data-tone]::before {
+  width: 7px;
+  height: 7px;
+}
+
+.tests-rail.is-horizontal .tests-rail__case.is-stamped[data-tone]::before {
+  visibility: hidden;
+}
+
+/* 收窄档的序号：与页签同字体同字重（不是等宽小字） */
+.tests-rail.is-horizontal .tests-rail__num {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tests-rail__label {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tests-rail__case.is-wide .tests-rail__num {
+  display: none;
+}
+
+/* 量尺：与真正的展开态页签同宽同距，只测宽不显示 */
+.tests-rail__measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 4px;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tests-rail__measure > * {
+  flex: 0 0 auto;
+}
+
+.tests-rail__num {
+  color: var(--text);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tests-rail__case:not([data-tone]) .tests-rail__num {
+  color: var(--text-dim);
+}
+
+/* 紧凑态不显示判定码水印：单行胶囊只留「状态点 + 序号」。
+   若想改成「有结果时单行直接显示 WA / AC」，见下面的备选注释。 */
+.tests-rail__stamp {
+  display: none;
+}
+
+/* 横排页签（全称 / 收窄两档）都带判定水印：贴右下角，字号与语义透明度全照页签
+   （与 TestCaseTabs 的 .tab__stamp 同一组值）。 */
+.tests-rail.is-horizontal .tests-rail__stamp {
+  display: block;
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  z-index: 0;
+  font-family: var(--mono-font);
+  font-size: 16px;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  color: color-mix(in srgb, var(--tone) 22%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+.tests-rail.is-horizontal .tests-rail__stamp.is-long {
+  right: 7px;
+  bottom: 0;
+  font-size: 13px;
+  letter-spacing: -0.06em;
+}
+
+/* 未通过的状态比 AC 更醒目：一排扫过去绿色安静、红黄跳脱（与页签同档） */
+.tests-rail.is-horizontal .tests-rail__case[data-tone='ok'] .tests-rail__stamp {
+  color: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+
+.tests-rail.is-horizontal .tests-rail__case[data-tone='err'] .tests-rail__stamp,
+.tests-rail.is-horizontal .tests-rail__case[data-tone='warn'] .tests-rail__stamp,
+.tests-rail.is-horizontal .tests-rail__case[data-tone='re'] .tests-rail__stamp,
+.tests-rail.is-horizontal .tests-rail__case[data-tone='info'] .tests-rail__stamp {
+  color: color-mix(in srgb, var(--tone) 28%, transparent);
+}
+
+/* ------------------------------------------------------------
+   备选形态：若想直接单行显示 WA / AC 而不是「• 1」，
+   把上面 ::before 和 .tests-rail__stamp 注释掉，启用下面 3 条即可：
+   ------------------------------------------------------------
+.tests-rail__case.is-stamped .tests-rail__num { display: none; }
+.tests-rail__stamp {
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--tone);
+  pointer-events: none;
+}
+.tests-rail__stamp.is-long { font-size: 9.5px; letter-spacing: -0.04em; }
+*/
+
+/* 悬停态：全部走干净的哑光加亮，不铺彩色脏底 */
+:where(html.is-hoverable) .tests-rail__run:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+:where(html.is-hoverable) .tests-rail__case:not([data-tone]):hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+:where(html.is-hoverable) .tests-rail__case:not([data-tone]):hover .tests-rail__num {
+  color: var(--text);
+}
+
+:where(html.is-hoverable) .tests-rail__case[data-tone]:hover {
+  background: color-mix(in srgb, var(--tone) 20%, transparent);
+}
+
+/* 横排页签的悬停：与展开态页签同一条哑光加亮（语义底再叠一档，不被整块盖掉） */
+:where(html.is-hoverable) .tests-rail.is-horizontal .tests-rail__case:hover {
+  background: var(--icon-hover-bg);
+}
+
+:where(html.is-hoverable) .tests-rail.is-horizontal .tests-rail__case[data-tone]:hover {
+  background: color-mix(in srgb, var(--tone) 10%, var(--icon-hover-bg));
 }
 
 </style>

@@ -24,7 +24,7 @@ export default {
             这条要短到窄侧栏也放得下 */
         runAllLabel: '运行全部',
         /** 紧凑底栏那颗「只跑当前样例」的可见文字（2026-11-20 方案二）：与右钮「运行全部」成对 */
-        runOneLabel: '运行当前',
+        runOneLabel: '运行',
         /** 左钮的悬停说明：明确「只跑这一条」，不让人误解成单元测试 */
         runOneTip: '仅运行当前样例（样例 {n}）',
         /**
@@ -343,6 +343,11 @@ export default {
         dockSidebar: '收回到侧边栏',
         dropKeep: '保持当前位置',
         dropEditor: '松开以在编辑区打开',
+        /** 折叠窄条（2026-11-20）：岛被拖到极窄时只留一条，这几条是它的可读说明 */
+        railLabel: '评测折叠栏',
+        expandTooltip: '展开评测',
+        passedTooltip: '{passed}/{total} 通过',
+        caseTab: '样例 {n}',
       },
     },
   },
@@ -358,7 +363,7 @@ export default {
             (or `runAll` when the shortcut is unbound) */
         runAllLabel: 'Run all',
         /** see zh-CN: visible label of the vertical dock footer's single-case button */
-        runOneLabel: 'Run current',
+        runOneLabel: 'Run',
         runOneTip: 'Run only this case (case {n})',
         /** 见 zh-CN 那侧的说明 */
         runBlocked: 'Non-code files can’t be run',
@@ -555,6 +560,11 @@ export default {
         dockSidebar: 'Dock back to sidebar',
         dropKeep: 'Keep current position',
         dropEditor: 'Release to open in the editor',
+        /** see zh-CN: the collapsed 32px rail */
+        railLabel: 'Collapsed tests rail',
+        expandTooltip: 'Expand tests',
+        passedTooltip: '{passed} of {total} passed',
+        caseTab: 'Test case {n}',
       },
     },
   },

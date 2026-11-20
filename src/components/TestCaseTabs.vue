@@ -23,9 +23,12 @@ import { useScrollEdge } from '../composables/useScrollEdge.js'
 import {
   caseDotStatus,
   caseInputPreview,
+  caseStampCode,
+  caseStampTone,
   caseTimingText,
 } from '../services/caseSummary.js'
 import { isTestsPaneDragInteractive } from '../services/testsPaneDrag.js'
+import { testsRail } from '../services/editorPanes.js'
 import { locale, t } from '../i18n/index.js'
 
 const props = defineProps({
@@ -63,6 +66,7 @@ const props = defineProps({
   runTitle: { type: String, default: '' },
   submitTitle: { type: String, default: '' },
   verdictText: { type: String, default: '' },
+  verdictShortText: { type: String, default: '' },
   verdictTone: { type: String, default: 'muted' },
   verdictVisible: { type: Boolean, default: true },
   elapsedText: { type: String, default: '' },
@@ -167,32 +171,29 @@ const activeId = ref(props.cases[0]?.id ?? null)
 const activeIndex = computed(() => props.cases.findIndex((item) => item.id === activeId.value))
 const activeCase = computed(() => props.cases[activeIndex.value] ?? null)
 
+/**
+ * 评测岛窄条的「点样例 → 展开并选中」请求。窄条在 TestsPane 里，选中状态归本组件，
+ * 所以走一次性请求位而不是把 activeId 提升出去：
+ *   · 先展开、再写 pending（TestsPane 保证顺序），这里的 watcher 在可见布局上落选中；
+ *   · 消费后立刻清空，避免切换文件 / 视图时被一条陈旧请求劫持。
+ */
+watch(
+  () => testsRail.pendingCaseId,
+  (id) => {
+    if (!id) return
+    if (props.cases.some((item) => item.id === id)) activeId.value = id
+    testsRail.pendingCaseId = null
+  },
+)
+
 // 状态与动作已收进页签水印、ACTUAL 列头和紧凑底栏（2026-11-20 整岛方案），
 // 原 36px 的 active-case-head 整块退场。
 
 /* ---------- 页签的状态水印（2026-11-20） ---------- */
-/**
- * 页签右下的叠印水印：用判定码本身代替 7px 小圆点，窄轨里也能一眼扫出哪条挂了。
- * 运行中给蓝色的 `RUN`；没跑过（verdict 为空）或结论已过期（stale）都不画 ——
- * 后者把旧结论留在页签上等于骗人。
- */
-function tabStampCode(record) {
-  if (!record) return ''
-  if (record.status === 'running') return 'RUN'
-  if (!record.verdict || record.stale) return ''
-  return record.verdict
-}
-
-/** 水印语义档：RUN 蓝、AC 绿、WA 红、TLE / MLE 琥珀、CE / RE / ERR 橙红 */
-function tabStampTone(record) {
-  const code = tabStampCode(record)
-  if (code === 'RUN') return 'info'
-  if (code === 'AC') return 'ok'
-  if (code === 'WA') return 'err'
-  if (code === 'TLE' || code === 'MLE') return 'warn'
-  if (code === 'CE' || code === 'RE' || code === 'ERR') return 're'
-  return ''
-}
+/* 口径已收进 services/caseSummary.js（评测岛窄条也画同一枚水印），这里只保留局部别名，
+   模板与既有调用点一个字都不用改。 */
+const tabStampCode = caseStampCode
+const tabStampTone = caseStampTone
 
 /**
  * 页签的状态点：待重测时水印不画、圆点也回到最初的空心环，而不是再亮一颗琥珀实心点。
@@ -741,6 +742,12 @@ function onRailHeadPointerDown(event) {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   bindRailObserver()
+  // 请求可能在组件挂载前就已写入（折叠窄条 → 展开途中切回分项视图）：挂载时补消费一次
+  const pending = testsRail.pendingCaseId
+  if (pending) {
+    if (props.cases.some((item) => item.id === pending)) activeId.value = pending
+    testsRail.pendingCaseId = null
+  }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -936,14 +943,15 @@ onBeforeUnmount(() => {
           <template v-if="verdictVisible">
             <span class="workbench__verdict" :data-tone="verdictTone">
               <LoadingSpinner v-if="running" :size="9" />
-              <span>{{ verdictText }}</span>
+              <span class="workbench__verdict-long">{{ verdictText }}</span>
+              <span class="workbench__verdict-short">{{ verdictShortText }}</span>
             </span>
             <span
               v-if="elapsedText"
               class="workbench__elapsed"
               :title="t('tests.elapsedTitle', { time: elapsedText })"
             >
-              <AppIcon name="clock" :size="11" />{{ elapsedText }}
+              <AppIcon class="workbench__clock" name="clock" :size="11" />{{ elapsedText }}
             </span>
           </template>
         </div>
@@ -973,8 +981,9 @@ onBeforeUnmount(() => {
           class="case-row"
           :class="{ 'is-active': item.id === activeId }"
           :data-case-id="item.id"
-          :data-tone="tabStampTone(item)"
+          :data-tone="tabStampTone(item) || null"
           role="option"
+          :aria-label="t('tests.card.title', { n: index + 1 })"
           :aria-selected="item.id === activeId ? 'true' : 'false'"
           tabindex="0"
           @click="onTabClick(item.id)"
@@ -991,6 +1000,7 @@ onBeforeUnmount(() => {
           ></span>
           <span class="case-row__label">
             <span class="case-row__name">{{ t('tests.card.title', { n: index + 1 }) }}</span>
+            <span class="case-row__num">{{ index + 1 }}</span>
             <!-- 与标签轨同款判定水印（2026-11-20 用户要求）：横跨岛左侧列表也对齐胶囊的
                  状态读法；水印紧贴样例名，耗时移进 title，ACTUAL 列头仍常显「AC · 3ms」。 -->
             <span
@@ -1804,11 +1814,15 @@ onBeforeUnmount(() => {
 }
 
 .workbench__rail {
-  flex: 0 0 188px;
+  /* 2026-11-21 用户要求：横跨岛的页签轨宽度动态 —— 随岛宽在 112–188px 之间伸缩，
+     宽的时候维持原来的「状态点 + 样例 N」，窄到 152px 以下只留序号（见文件末尾
+     以它为容器的 @container）。 */
+  flex: 0 0 clamp(112px, 22%, 188px);
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
 }
 
 /* 轨页头 = 拖动把手：整条可抓；「+」与结论文字上的按下交给各自的控件 */
@@ -1893,6 +1907,28 @@ onBeforeUnmount(() => {
 .workbench__verdict > span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 窄轨判定语只留计数（x/x），去掉「 AC」后缀；耗时也去掉钟表图标只留数字
+   （2026-11-21 用户要求）。页签轨随岛宽在 112–188px 间伸缩，最窄时
+   「0/10 AC」+ 钟表 + 耗时会被 ellipsis 吃掉；152px 与轨道自己的窄态断点一致
+   （见文件末尾的「样例 N」→ 序号切换）。 */
+.workbench__verdict-short {
+  display: none;
+}
+
+@container (max-width: 152px) {
+  .workbench__verdict-long {
+    display: none;
+  }
+
+  .workbench__verdict-short {
+    display: inline;
+  }
+
+  .workbench__clock {
+    display: none;
+  }
 }
 
 .workbench__verdict[data-tone='passed'] {
@@ -1994,10 +2030,33 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-/* 选中态：与胶囊同一个 --case-chip-bg；带判定时再叠 12% 语义色（见下面的 data-tone 组） */
+/* 选中态：与胶囊同一个 --case-chip-bg；带判定时再叠 5% 语义色（见上面的 data-tone 组） */
 .case-row.is-active {
   background: var(--case-chip-bg);
   color: var(--text);
+}
+
+/* 横跨岛的样例行是**通栏**（约 176×30），把 26px 胶囊那档 --case-chip-bg 整块铺上去，
+   面积是纵向岛页签（约 100×26）的两倍，同一支色读起来会明显更亮（用户 2026-11-21：
+   「标签选中之后的高亮太亮，参考纵向评测岛被选中时的亮度」）。
+   深色系把选中底往岛面 --bg-panel 拉回 28%（#303034 → ≈#29292a），整行悬停同时收到
+   「5% 前景色」这一档（原先是 8% 白的 --icon-hover-bg，≈#292929）—— 不一起收的话，
+   选中会比悬停还暗，层级就反了。
+   浅色系**不动**：那里 chip 比岛面深，往岛面拉会把选中拉得比悬停还轻。 */
+:root[data-scheme='dark']:where(html.is-hoverable) .case-row:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+:root[data-scheme='dark'] .case-row.is-active {
+  background: color-mix(in srgb, var(--case-chip-bg) 72%, var(--bg-panel));
+}
+
+:root[data-scheme='dark'] .case-row.is-active[data-tone] {
+  background: color-mix(
+    in srgb,
+    var(--tab-tone) 5%,
+    color-mix(in srgb, var(--case-chip-bg) 72%, var(--bg-panel))
+  );
 }
 
 .case-row:focus-visible {
@@ -2028,6 +2087,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 轨收窄时替代名称的纯序号（默认不渲染，见末尾 @container 152px） */
+.case-row__num {
+  display: none;
+  position: relative;
+  z-index: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 水印紧贴样例名（2026-11-20 用户要求），不再锚在行右端。
@@ -2222,15 +2289,19 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
 }
 
-/* 岛很窄时的让步：轨收窄、耗时让位（状态点 + 名称仍够认出是哪条）。
-   三列数据面只收缩、不换行 —— 代码区宁可窄，也不要上下堆叠后再多一层滚动。 */
-@container (max-width: 34rem) {
-  .workbench__rail {
-    flex-basis: 152px;
+/* 轨窄到放不下「样例 N」时换成纯序号，并让动作按钮紧跟在序号后面 ——
+   不再被 flex-grow 的标签推到行尾，序号与运行键之间不留一大段空档。 */
+@container (max-width: 152px) {
+  .case-row__name {
+    display: none;
   }
 
-  .case-row__time {
-    display: none;
+  .case-row__num {
+    display: inline;
+  }
+
+  .case-row__label {
+    flex: 0 0 auto;
   }
 }
 </style>

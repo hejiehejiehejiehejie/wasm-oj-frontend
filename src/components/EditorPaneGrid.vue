@@ -28,6 +28,15 @@ import {
   previewSplitRect,
   resetRatio,
   setRatio,
+  TESTS_COLLAPSE_PX,
+  TESTS_EXPAND_PX,
+  TESTS_RAIL_PX,
+  collapseTestsPane,
+  expandTestsPane,
+  rememberTestsRatio,
+  resetTestsRail,
+  testsRail,
+  testsSplitInfo,
 } from '../services/editorPanes.js'
 import {
   beginTestsPaneDrag,
@@ -289,7 +298,19 @@ function settleTestsDrop(target, source) {
     return
   }
   if (target === 'sidebar') emit('dock-tests')
-  else if (target) moveTestsPane(target)
+  else if (target) {
+    // 从折叠窄条上拖走：换边后仍保持折叠（否则松手会突然弹开一整座岛）。
+    // moveTestsPane 会重建 split 且清掉折叠位，所以先记状态，落地后再收一次。
+    const wasCollapsed = testsRail.collapsed
+    const savedShare = testsRail.lastShare
+    moveTestsPane(target)
+    if (wasCollapsed) {
+      nextTick(() => {
+        applyTestsRailSize()
+        if (Number.isFinite(savedShare)) testsRail.lastShare = savedShare
+      })
+    }
+  }
 }
 
 /* ------------------------------------------------------------ 拖放：页签 / 文件树
@@ -359,6 +380,41 @@ function onFileDragLeave() {
 }
 
 let unregisterDropZone = null
+let gridResizeObserver = null
+
+/**
+ * 折叠窄条按**像素**定宽（48px），但 split 里存的是比例 —— 窗口 / 侧栏尺寸一变，
+ * 同一条 ratio 画出来就不再是 48px。这里在网格尺寸变化时按新分区长度重算一次 ratio，
+ * 让窄条始终保持一条。只在折叠态动作，展开态的拖拽比例一点不碰。
+ */
+function applyTestsRailSize() {
+  const el = gridEl.value
+  if (!el) return
+  const info = testsSplitInfo()
+  if (!info) return
+  const rect = el.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  const splitter = computePaneRects().splitters.find((item) => item.id === info.splitId)
+  if (!splitter) return
+  const region = splitter.region
+  const regionPx =
+    info.axis === 'y' ? (region.h / 100) * rect.height : (region.w / 100) * rect.width
+  collapseTestsPane(regionPx)
+}
+
+/** 尺寸变化时只处理折叠态；换边后恢复折叠由 settleTestsDrop 直接调 applyTestsRailSize */
+function syncTestsRailSize() {
+  if (!testsRail.collapsed) return
+  applyTestsRailSize()
+}
+
+// 存档恢复是异步的：网格挂载后折叠位才置 true 时，也必须立刻把 ratio 换成 48px
+watch(
+  () => testsRail.collapsed,
+  (collapsed) => {
+    if (collapsed) nextTick(syncTestsRailSize)
+  },
+)
 
 onMounted(() => {
   // 评测拖动的落点结算注入（服务只算手势与命中，落位要动布局树 + 通知 App）
@@ -371,6 +427,12 @@ onMounted(() => {
     onDragLeave: onFileDragLeave,
     onDrop: onFileDrop,
   })
+  if (gridEl.value) {
+    gridResizeObserver = new ResizeObserver(syncTestsRailSize)
+    gridResizeObserver.observe(gridEl.value)
+    // 从存档恢复的折叠态：首帧就把 ratio 换成 48px，避免先闪一下 20% 宽的面板
+    syncTestsRailSize()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -380,6 +442,9 @@ onBeforeUnmount(() => {
   // 拖到一半被卸载（关工作区、切到没有编辑区的视图）：把「正在拖」这个瞬时状态和一整套
   // window 监听一起收干净，否则页签栏会一直停在瞬时过渡上
   if (drag) endResize()
+  window.clearTimeout(splitClickTimer)
+  gridResizeObserver?.disconnect()
+  gridResizeObserver = null
   unregisterDropZone?.()
   unregisterDropZone = null
 })
@@ -387,6 +452,12 @@ onBeforeUnmount(() => {
 /* ------------------------------------------------------------ 分割条拖拽 */
 
 let drag = null
+
+/* 单击分割条 = 折叠 / 展开评测岛（用户口径 2026-11-21：改岛宽的「拖拽条」就是这条缝）。
+   拖动仍然优先：起手后指针位移超过 4px 记为拖动，松手那发 click 不切换；
+   双击复位保留 —— 单击先挂起 220ms，双击到来时由 onSplitterDblClick 取消。 */
+let splitClick = null
+let splitClickTimer = 0
 
 /** 正在拖的是哪一条分割线（null = 没在拖）。分割线平时不画（分屏靠地面缝隙分开），
  *  只在悬停 / 拖动时亮出来 —— 拖动时指针未必还压在条上（拖得快、拖到窗格外），
@@ -408,6 +479,8 @@ function beginResize(event, splitter) {
   if (!rect || !rect.width || !rect.height) return
   event.preventDefault()
   const region = splitter.region
+  const testsInfo = testsSplitInfo()
+  const isTests = testsInfo?.splitId === splitter.id
   drag = {
     id: splitter.id,
     axis: splitter.axis,
@@ -415,7 +488,20 @@ function beginResize(event, splitter) {
     top: rect.top + (region.y / 100) * rect.height,
     width: (region.w / 100) * rect.width,
     height: (region.h / 100) * rect.height,
+    // 评测岛的折叠阈值只对「贴着 tests 叶的那条缝」生效
+    isTests,
+    testsIsA: isTests ? testsInfo.testsIsA : false,
   }
+  // 单击判定：记下起手点与分区像素长；位移超过 4px 就只当拖动，不切换折叠
+  splitClick = {
+    id: splitter.id,
+    x: event.clientX,
+    y: event.clientY,
+    moved: false,
+    regionPx: splitter.axis === 'y' ? drag.height : drag.width,
+  }
+  // 记下这次拖动起手前的岛宽 —— 之后展开按它恢复（从窄条上起拖不覆盖）
+  if (isTests) rememberTestsRatio()
   beginPaneResize()
   resizingId.value = splitter.id
   document.body.style.cursor = splitter.axis === 'y' ? 'row-resize' : 'col-resize'
@@ -427,10 +513,41 @@ function beginResize(event, splitter) {
 
 function onResizeMove(event) {
   if (!drag) return
+  // 超过 4px 就从「可能是一次单击」改成「拖动」—— 拖完松手不切换折叠
+  if (splitClick && !splitClick.moved) {
+    const dx = event.clientX - splitClick.x
+    const dy = event.clientY - splitClick.y
+    if (Math.hypot(dx, dy) > 4) splitClick.moved = true
+  }
   const ratio =
     drag.axis === 'y'
       ? (event.clientY - drag.top) / drag.height
       : (event.clientX - drag.left) / drag.width
+
+  if (!drag.isTests) {
+    setRatio(drag.id, ratio)
+    return
+  }
+
+  // 评测岛：按「岛这一侧」的像素宽高判断折叠，ratio 永远只是 a 支占比
+  const regionPx = drag.axis === 'y' ? drag.height : drag.width
+  const testsShare = drag.testsIsA ? ratio : 1 - ratio
+  const testsPx = testsShare * regionPx
+  // 窄分区要按比例收缩阈值，否则小窗口里永远到不了 120 / 160
+  const collapsePx = Math.max(
+    TESTS_RAIL_PX + 8,
+    Math.min(TESTS_COLLAPSE_PX, regionPx * 0.35),
+  )
+  const expandPx = Math.max(collapsePx + 24, Math.min(TESTS_EXPAND_PX, regionPx * 0.5))
+
+  if (testsRail.collapsed) {
+    // 死区：折叠瞬间缝跳到窄条边缘，指针还没越过展开阈值前不能回弹
+    if (testsPx < expandPx) return
+    expandTestsPane({ ratio })
+  } else if (testsPx <= collapsePx) {
+    collapseTestsPane(regionPx)
+    return
+  }
   setRatio(drag.id, ratio)
 }
 
@@ -451,6 +568,36 @@ function endResize() {
    于是只有缝两侧那两个窗格换宽窄。**不能写死 0.5**：ratio 相对所属 split 的 region 计，
    三列 / 四列的默认值是 2/3、3/4 这类「a 支段数 / 本级段数」，不是一半（2026-11-19 修，
    详见那边注释）。 */
+
+function resetSplitterRatio(splitterId) {
+  // 双击评测岛那条缝 = 摆回默认位置，同时退出折叠态（否则会「展开到 rail 比例」）
+  if (testsSplitInfo()?.splitId === splitterId) resetTestsRail()
+  resetRatio(splitterId)
+}
+
+/* ------------------------------------------------------------ 单击分割条切换折叠
+
+   点一下「改岛宽的那条缝」：展开态收成窄条，折叠态回到上次的份额（426 / 526 两条
+   拖动路径仍是唯一改比例的地方）。非评测岛的缝不响应；位移超过 4px 的拖动不响应；
+   双击仍走上面的复位 —— 单击因此挂起 220ms，双击到来时取消。 */
+function onSplitterClick(splitter) {
+  const gesture = splitClick
+  splitClick = null
+  if (!gesture || gesture.id !== splitter.id || gesture.moved) return
+  if (testsSplitInfo()?.splitId !== splitter.id) return
+  window.clearTimeout(splitClickTimer)
+  splitClickTimer = window.setTimeout(() => {
+    splitClickTimer = 0
+    if (testsRail.collapsed) expandTestsPane()
+    else collapseTestsPane(gesture.regionPx)
+  }, 220)
+}
+
+function onSplitterDblClick(splitter) {
+  window.clearTimeout(splitClickTimer)
+  splitClickTimer = 0
+  resetSplitterRatio(splitter.id)
+}
 
 /* ------------------------------------------------------------ 对 App 的代理 */
 
@@ -568,7 +715,8 @@ defineExpose({
       role="separator"
       :aria-orientation="splitter.axis === 'y' ? 'horizontal' : 'vertical'"
       @pointerdown="beginResize($event, splitter)"
-      @dblclick="resetRatio(splitter.id)"
+      @click="onSplitterClick(splitter)"
+      @dblclick="onSplitterDblClick(splitter)"
     />
   </div>
 </template>

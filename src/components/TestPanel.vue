@@ -11,7 +11,7 @@ import { useScrollEdge } from '../composables/useScrollEdge.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { mountConfetti, unmountConfetti } from '../services/confetti.js'
-import { CASE_VIEWS, caseView, setCaseView } from '../services/shellSettings.js'
+import { CASE_VIEWS, caseView, isNarrowLayout, setCaseView } from '../services/shellSettings.js'
 import { t } from '../i18n/index.js'
 
 // 页头右侧的 verdict + 耗时经 Teleport 投进共享页头：侧栏场景是 Sidebar 的
@@ -228,23 +228,33 @@ const footBlocked = computed(() => (props.cases.length ? props.runBlocked : ''))
 const showVerdict = computed(() => !props.runBlocked)
 
 /**
- * 紧凑底栏是否成立（2026-11-20 方案二）：左右停靠的评测岛，或侧栏的分项标签视图
- * （整岛方案已整合进侧栏，正文 / 页签 / 底栏共用同一套），且列表里有用例。
+ * 窄屏侧栏（2026-11-20 用户要求「与纵向评测岛同一套形态」）：页头不再放结论与耗时，
+ * 整格内容改由底栏左侧承载；Sidebar 那边同时把 `#sidebar-context` 整块摘掉。
+ * 判据只有一份 —— 与 CSS 的 `html.is-narrow` 同读 shellSettings 的 `isNarrowLayout()`。
+ */
+const narrowSidebar = computed(() => !isPane.value && isNarrowLayout())
+
+/**
+ * 紧凑底栏是否成立（2026-11-20 方案二）：左右停靠的评测岛、窄屏侧栏，或侧栏的分项标签
+ * 视图（整岛方案已整合进侧栏，正文 / 页签 / 底栏共用同一套），且列表里有用例。
  * 空列表不换成新底栏 —— 那时底栏左侧会是一颗「无测试用例」，与空态标题重复，
  * 而且列表末尾那颗「添加测试样例」正需要多出来的高度。
  */
 const verticalBar = computed(
   () =>
     props.cases.length > 0 &&
-    (props.verticalDock || (!isPane.value && caseView.value === 'tabs')),
+    (props.verticalDock ||
+      narrowSidebar.value ||
+      (!isPane.value && caseView.value === 'tabs')),
 )
 
 /**
- * 页头右上的结论（2026-11-20）：侧栏分项视图虽然也用了紧凑底栏，但结论仍留在页头右上角 ——
- * 那是侧栏原有位置，不跟着底栏走。只有真正的评测岛（isPane）才把结论下沉到底栏。
+ * 页头右上的结论（2026-11-20）：侧栏分项视图虽然也用了紧凑底栏，但宽屏下结论仍留在页头
+ * 右上角 —— 那是侧栏原有位置，不跟着底栏走。只有真正的评测岛（isPane）与窄屏侧栏
+ * 才把结论下沉到底栏。
  */
 const showHeaderVerdict = computed(
-  () => !isWorkbench.value && (!verticalBar.value || !isPane.value),
+  () => !isWorkbench.value && !narrowSidebar.value && (!verticalBar.value || !isPane.value),
 )
 
 /**
@@ -314,25 +324,23 @@ const counts = computed(() => {
 // 先让判定文案省出 ~25px；「0/4 AC」加耗时在侧栏最窄时会挤到折行，数字本身已经表意（2026-10-12）。
 const verdict = computed(() => {
   const total = props.cases.length
-  if (!total) return { text: t('tests.verdict.noCases'), tone: 'muted' }
-  if (counts.value.running) return { text: t('tests.verdict.running'), tone: 'info' }
+  // 同一套判据出两份文案：text 跟随侧栏宽度（verdictCompact），short 恒定是去后缀的那版。
+  // 横跨岛的页签轨会随岛宽缩到 112px，TestPanel 把 short 传给 TestCaseTabs，由容器查询
+  // 在窄轨时换用（2026-11-21 用户要求：太窄只留 x/x，不显示后面的 AC）。
+  const pick = (longKey, shortKey, params) => ({
+    text: t(`tests.verdict.${verdictCompact.value ? shortKey : longKey}`, params),
+    short: t(`tests.verdict.${shortKey}`, params),
+  })
+  if (!total)
+    return { text: t('tests.verdict.noCases'), short: t('tests.verdict.noCases'), tone: 'muted' }
+  if (counts.value.running)
+    return { text: t('tests.verdict.running'), short: t('tests.verdict.running'), tone: 'info' }
   // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待重测）
-  if (counts.value.stale)
-    return {
-      text: t(verdictCompact.value ? 'tests.verdict.staleShort' : 'tests.verdict.stale', { total }),
-      tone: 'warn',
-    }
-  if (counts.value.passed === total)
-    return {
-      text: t(verdictCompact.value ? 'tests.verdict.allPassedShort' : 'tests.verdict.allPassed'),
-      tone: 'passed',
-    }
+  if (counts.value.stale) return { ...pick('stale', 'staleShort', { total }), tone: 'warn' }
+  if (counts.value.passed === total) return { ...pick('allPassed', 'allPassedShort'), tone: 'passed' }
   const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
   return {
-    text: t(verdictCompact.value ? 'tests.verdict.partialShort' : 'tests.verdict.partial', {
-      passed: counts.value.passed,
-      total,
-    }),
+    ...pick('partial', 'partialShort', { passed: counts.value.passed, total }),
     tone,
   }
 })
@@ -481,6 +489,7 @@ const elapsedText = computed(() => {
       :run-title="runTitle"
       :submit-title="submitTitle"
       :verdict-text="verdict.text"
+      :verdict-short-text="verdict.short"
       :verdict-tone="verdict.tone"
       :verdict-visible="showVerdict"
       :elapsed-text="elapsedText"
@@ -499,17 +508,18 @@ const elapsedText = computed(() => {
     <footer v-if="verticalBar" class="panel__foot is-vertical">
       <div class="panel__foot-status">
         <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
-        <template v-else-if="showVerdict && isPane">
+        <template v-else-if="showVerdict && (isPane || narrowSidebar)">
           <span class="verdict" :data-tone="verdict.tone">
             <LoadingSpinner v-if="counts.running" :size="10" />
-            <span>{{ verdict.text }}</span>
+            <span class="verdict-long">{{ verdict.text }}</span>
+            <span class="verdict-short">{{ verdict.short }}</span>
           </span>
           <span
             v-if="elapsedText"
             class="elapsed"
             :title="t('tests.elapsedTitle', { time: elapsedText })"
           >
-            <AppIcon name="clock" :size="11" />{{ elapsedText }}
+            <AppIcon class="elapsed-clock" name="clock" :size="11" />{{ elapsedText }}
           </span>
         </template>
       </div>
@@ -528,13 +538,13 @@ const elapsedText = computed(() => {
         <AppTooltip v-if="showTabs" class="run-one-wrap" :text="runOneTitle">
           <button class="btn-run-one" :disabled="runDisabled" @click="runActiveCase">
             <AppIcon name="play-solid" :size="14" />
-            <span>{{ t('tests.panel.runOneLabel') }}</span>
+            <span class="btn-run-one__label">{{ t('tests.panel.runOneLabel') }}</span>
           </button>
         </AppTooltip>
         <AppTooltip class="run-all-wrap" :text="runTitle">
           <button class="btn-run-all" :disabled="runDisabled" @click="emit('run-all')">
             <AppIcon name="run-all" :size="14" />
-            <span>{{ t('tests.panel.runAllLabel') }}</span>
+            <span class="btn-run-all__label">{{ t('tests.panel.runAllLabel') }}</span>
           </button>
         </AppTooltip>
       </div>
@@ -982,25 +992,22 @@ button.empty__link {
   gap: 10px;
   padding: 8px var(--pane-px, 10px) var(--pane-px, 10px);
   border-top: 0;
+  /* 底栏自己作为容器：岛被拖窄时按它的可用宽度收按钮文案（见下面 @container 那条） */
+  container-type: inline-size;
 }
 
-/* 侧栏分项视图（非评测岛）：内容左右留白与纵向评测岛一致，统一 10px */
+/* 侧栏分项视图（非评测岛）：内容左右留白与纵向评测岛一致，统一 10px。
+   左侧状态不再单独归零 —— 沿用基础那条 6px 引距（见 .panel__foot-status），
+   verdict 的左沿因此与纵向评测岛落在同一条基线上（10 + 6）。 */
 .panel:not(.is-pane) .panel__foot.is-vertical {
   padding: 10px;
 }
 
-.panel:not(.is-pane) .panel__foot.is-vertical .panel__foot-status {
-  padding-left: 0;
-}
-
-/* 侧栏底栏按钮恢复原来的 36px 高（紧凑评测岛仍是 28px），整条底栏回到 56px */
+/* 提交钮保留侧栏原来的 36px 热区（幽灵图标没有底色，视觉大小不变）；
+   运行两颗按 2026-11-21 用户要求收到与纵向评测岛同档的 28px —— 没有提交钮时
+   整条底栏也从 56px 收到 48px。 */
 .panel:not(.is-pane) .panel__foot.is-vertical .submit-inline {
   width: 36px;
-  height: 36px;
-}
-
-.panel:not(.is-pane) .panel__foot.is-vertical .btn-run-one,
-.panel:not(.is-pane) .panel__foot.is-vertical .btn-run-all {
   height: 36px;
 }
 
@@ -1047,6 +1054,12 @@ button.empty__link {
   flex: 0 0 auto;
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* 纵向岛窄底栏：判定只留 x/x、耗时去掉钟表（2026-11-21 用户要求，与横跨岛同一口径）。
+   宽底栏照旧用 long 那版；short 只是同屏备着，默认不渲染。 */
+.panel__foot-status .verdict-short {
+  display: none;
 }
 
 .panel__foot-actions {
@@ -1128,6 +1141,40 @@ button.empty__link {
 .btn-run-all:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* 底栏过窄（约 17rem 内容宽）：两颗运行按钮只留 logo，文案收掉，把宽度让给左侧状态。
+   仍走容器查询而不是视口查询 —— 侧栏抽屉、左右停靠的评测岛宽度都由拖拽 / 分屏决定，
+   与视口宽无关。按钮同时收成正方形，图标保持原来的 14px，悬停说明仍在 AppTooltip 上。 */
+@container (max-width: 17rem) {
+  .btn-run-one__label,
+  .btn-run-all__label {
+    display: none;
+  }
+
+  .btn-run-one,
+  .btn-run-all {
+    width: 28px;
+    padding: 0;
+  }
+}
+
+/* 纵向岛再窄一档：底栏左侧的判定与耗时开始被裁（实测最坏组合 ——
+   「提交 + 单测 + 运行全部」全带文案时，约 19.1rem 以下「0/100 AC + 钟表 + 12.34s」
+   就放不下了）。这里向上取整到 20rem，把判定换成 x/x（与横跨岛同一套 short 文案）、
+   同时收掉钟表图标；只作用于评测岛，侧栏那套宽度收束由 verdictCompact 负责。 */
+@container (max-width: 20rem) {
+  .panel.is-pane .panel__foot-status .verdict-long {
+    display: none;
+  }
+
+  .panel.is-pane .panel__foot-status .verdict-short {
+    display: inline;
+  }
+
+  .panel.is-pane .panel__foot-status .elapsed-clock {
+    display: none;
+  }
 }
 
 .panel__foot.is-vertical .run-one-wrap,
