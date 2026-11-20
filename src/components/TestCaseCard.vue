@@ -120,11 +120,11 @@ const timing = computed(() => caseTimingText(props.testCase))
           <AppIcon name="trash" :size="15" />
         </button>
       </AppTooltip>
-      <AppTooltip class="run-wrap" :text="runBlocked || t('tests.card.runOne')">
+      <AppTooltip v-if="!runBlocked" class="run-wrap" :text="t('tests.card.runOne')">
         <button
           class="icon-btn icon-btn--run"
-          :aria-label="runBlocked || t('tests.card.runOne')"
-          :aria-disabled="locked || Boolean(runBlocked)"
+          :aria-label="t('tests.card.runOne')"
+          :aria-disabled="locked"
           @click="requestRun"
         >
           <AppIcon name="play" :size="15" />

@@ -226,6 +226,51 @@ function onRailCase(id) {
   if (caseView.value === 'tabs') testsRail.pendingCaseId = id
 }
 
+/**
+ * 折叠窄条样例的右键菜单（2026-11-21 用户要求）：与展开态页签同一份菜单 ——
+ * 运行这一条 / 删除这一条，状态也同一口径（运行中整份只读，跑不了就禁用运行项）。
+ * 菜单走 TestsPane 已有的 ContextMenu（停靠菜单也用它），动作仍落回 run-one / remove。
+ */
+const caseMenu = ref(null)
+
+function onRailCaseContextMenu(event, item) {
+  event.preventDefault()
+  caseMenu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    caseId: item.id,
+    items: [
+      {
+        id: 'run',
+        label: t('tests.tabs.runOne'),
+        disabled: props.running || Boolean(props.runBlocked),
+      },
+      { id: 'remove', label: t('tests.card.remove'), disabled: props.running },
+    ],
+  }
+}
+
+function onCaseMenuSelect(id) {
+  const menu = caseMenu.value
+  // 选中即收：菜单盖住的那片区域会吞掉下一次按下
+  caseMenu.value = null
+  if (!menu) return
+  // 父级 runOne / removeCase 收的是**用例对象**（不是 id）：这里按 id 回指当前那一批，
+  // 既兼容菜单打开期间用例被换过，也不会把字符串当用例传上去。
+  const target = props.cases.find((item) => item.id === menu.caseId)
+  if (!target) return
+  if (id === 'run') emit('run-one', target)
+  if (id === 'remove') emit('remove', target)
+}
+
+// 开跑 / 跑完时收掉菜单：items 是打开那一刻的快照，留着会和当前状态对不上
+watch(
+  () => props.running,
+  () => {
+    caseMenu.value = null
+  },
+)
+
 /** 底部横条：把纵向滚轮映射成横向滚动（列表本身没有纵向溢出） */
 function onRailWheel(event) {
   if (!railHorizontal.value) return
@@ -324,6 +369,7 @@ onBeforeUnmount(() => railObserver?.disconnect())
       @run-all="emit('run-all')"
       @submit="emit('submit')"
       @drag-start="emit('drag-start', $event)"
+      @head-context-menu="onHeaderContextMenu"
     />
 
     <!-- 折叠窄条：岛被 splitter 拖到极窄时顶替页头 + 正文的可见位置。
@@ -362,6 +408,7 @@ onBeforeUnmount(() => railObserver?.disconnect())
             :data-tone="caseStampTone(item) || null"
             :aria-label="t('tests.pane.caseTab', { n: index + 1 })"
             @click.stop="onRailCase(item.id)"
+            @contextmenu="onRailCaseContextMenu($event, item)"
           >
             <span class="tests-rail__num">{{ index + 1 }}</span>
             <span v-if="railRoomy" class="tests-rail__label">{{
@@ -396,9 +443,13 @@ onBeforeUnmount(() => railObserver?.disconnect())
           >
         </span>
       </div>
-      <!-- 脚：运行全部。与展开态页脚那颗「运行全部」同一位置（竖排贴底 / 横排贴右），
-           展开与收起之间视线和鼠标都不用重新找。 -->
-      <AppTooltip :text="railRunTitle" :placement="railTipPlacement">
+      <!-- 脚：运行全部。竖排仍贴底（与展开态页脚同一位置）；横排由 CSS 的 order
+           提到读数左侧，组成「▶ ?/4 | 样例 1 样例 2 …」的控制簇，不再独自挂在最右端。 -->
+      <AppTooltip
+        class="tests-rail__run-wrap"
+        :text="railRunTitle"
+        :placement="railTipPlacement"
+      >
         <button
           type="button"
           class="tests-rail__run"
@@ -406,10 +457,9 @@ onBeforeUnmount(() => railObserver?.disconnect())
           :aria-label="t('tests.panel.runAll')"
           @click.stop="emit('run-all')"
         >
-          <!-- 单三角（与展开态紧凑底栏的「运行」同一枚字形）：折叠态只有 32px，
-               实心双三角 + 折线的 run-all 会读成播放器快进、墨量也比 < 与 1/2 重。
-               语义仍是「运行全部」，由 aria-label 与气泡交代。 -->
-          <AppIcon name="play-solid" :size="12" />
+          <!-- 与横跨评测岛里「运行全部」左侧同一枚描边 ▶（play，2026-11-21 用户要求），
+               不用实心字形；语义仍是「运行全部」，由 aria-label 与气泡交代。 -->
+          <AppIcon name="play" :size="14" />
         </button>
       </AppTooltip>
     </div>
@@ -422,6 +472,16 @@ onBeforeUnmount(() => railObserver?.disconnect())
       :items="dockMenu.items"
       @select="onDockMenuSelect"
       @close="dockMenu = null"
+    />
+
+    <!-- 折叠窄条样例的右键菜单：与展开态页签同一份（运行这一条 / 删除这一条） -->
+    <ContextMenu
+      v-if="caseMenu"
+      :x="caseMenu.x"
+      :y="caseMenu.y"
+      :items="caseMenu.items"
+      @select="onCaseMenuSelect"
+      @close="caseMenu = null"
     />
   </section>
 </template>
@@ -640,9 +700,19 @@ onBeforeUnmount(() => railObserver?.disconnect())
   color: var(--info);
 }
 
-/* 运行键：克制的哑光灰实底（零描边、零渐变、零圆环），视觉沉稳 */
-.tests-rail__run {
+/* 运行键（2026-11-21 用户口径）：折叠态只留一枚干净的绿色描边 play 图标（与横跨评测岛
+   「运行全部」左侧同一枚），不铺死灰底；32×28 的命中区保留，悬停才浮一层微灰。
+   横排时由 order 提到读数左边，与 ?/4 组成控制簇，不再孤零零挂在整条轨的最右端。 */
+.tests-rail__run-wrap {
   flex: 0 0 auto;
+  display: flex;
+}
+
+.tests-rail.is-horizontal .tests-rail__run-wrap {
+  order: -1;
+}
+
+.tests-rail__run {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -650,14 +720,19 @@ onBeforeUnmount(() => railObserver?.disconnect())
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  color: var(--text);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ok);
   cursor: pointer;
   transition:
     background-color 0.14s ease,
     color 0.14s ease,
     opacity 0.14s ease;
+}
+
+/* 单三角的视觉重心：flex 居中是几何居中，墨迹略偏左，右移 1px 才真正落在圆心 */
+.tests-rail__run svg {
+  transform: translateX(1px);
 }
 
 .tests-rail__run:disabled {
@@ -855,8 +930,8 @@ onBeforeUnmount(() => railObserver?.disconnect())
   color: var(--text-dim);
 }
 
-/* 紧凑态不显示判定码水印：单行胶囊只留「状态点 + 序号」。
-   若想改成「有结果时单行直接显示 WA / AC」，见下面的备选注释。 */
+/* 紧凑态默认不显示判定码水印；横排与纵向（2026-11-21 用户要求）都改用水印，
+   各自的尺寸见下面两条分支。 */
 .tests-rail__stamp {
   display: none;
 }
@@ -899,6 +974,78 @@ onBeforeUnmount(() => railObserver?.disconnect())
   color: color-mix(in srgb, var(--tone) 28%, transparent);
 }
 
+/* 过期水印（2026-11-21）：与分项页签同一口径 —— 灰章保留上一轮判定码，后缀「?」
+   交代「结果待重测」。问号继承水印的等宽 / 斜体 / 同色，只略收字号。
+   两种折叠方向共用，纵向的章更小，见下面的 .is-vertical 分支。 */
+.tests-rail__case[data-tone='stale'] .tests-rail__stamp {
+  color: color-mix(in srgb, var(--tone) 30%, transparent);
+}
+
+.tests-rail__case[data-tone='stale'] .tests-rail__stamp::after {
+  content: '?';
+  margin-left: 1px;
+  font-size: 0.78em;
+  letter-spacing: 0;
+  vertical-align: 0.08em;
+}
+
+/* 纵向折叠岛（2026-11-21 用户要求）：评测状态也改水印 —— 32px 宽的胶囊放不下 16px 的章，
+   收到 12px（3 字母 9px）贴右下；有水印时状态点直接让位（不占位），序号回到几何中心，
+   否则序号会被隐身圆点的 5px + 间距推到右边、压在章上。 */
+.tests-rail.is-vertical .tests-rail__case {
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.tests-rail.is-vertical .tests-rail__case.is-stamped::before {
+  display: none;
+}
+
+.tests-rail.is-vertical .tests-rail__num {
+  position: relative;
+  z-index: 1;
+}
+
+.tests-rail.is-vertical .tests-rail__stamp {
+  display: block;
+  position: absolute;
+  right: 3px;
+  bottom: -1px;
+  z-index: 0;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  color: color-mix(in srgb, var(--tone) 22%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+.tests-rail.is-vertical .tests-rail__stamp.is-long {
+  right: 2px;
+  font-size: 9px;
+  letter-spacing: -0.06em;
+}
+
+/* 未通过的状态比 AC 更醒目：与横排章同一档 */
+.tests-rail.is-vertical .tests-rail__case[data-tone='ok'] .tests-rail__stamp {
+  color: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+
+.tests-rail.is-vertical .tests-rail__case[data-tone='err'] .tests-rail__stamp,
+.tests-rail.is-vertical .tests-rail__case[data-tone='warn'] .tests-rail__stamp,
+.tests-rail.is-vertical .tests-rail__case[data-tone='re'] .tests-rail__stamp,
+.tests-rail.is-vertical .tests-rail__case[data-tone='info'] .tests-rail__stamp {
+  color: color-mix(in srgb, var(--tone) 28%, transparent);
+}
+
+/* 过期章在纵向上也要比常规章实一档（与横排的 30% 对齐） */
+.tests-rail.is-vertical .tests-rail__case[data-tone='stale'] .tests-rail__stamp {
+  color: color-mix(in srgb, var(--tone) 30%, transparent);
+}
+
 /* ------------------------------------------------------------
    备选形态：若想直接单行显示 WA / AC 而不是「• 1」，
    把上面 ::before 和 .tests-rail__stamp 注释掉，启用下面 3 条即可：
@@ -916,9 +1063,9 @@ onBeforeUnmount(() => railObserver?.disconnect())
 .tests-rail__stamp.is-long { font-size: 9.5px; letter-spacing: -0.04em; }
 */
 
-/* 悬停态：全部走干净的哑光加亮，不铺彩色脏底 */
+/* 悬停：只浮一层微灰底，绿色描边 ▶ 保持本色，不做整块变绿 */
 :where(html.is-hoverable) .tests-rail__run:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  background: var(--icon-hover-bg);
   color: var(--ok);
 }
 

@@ -96,7 +96,7 @@ const props = defineProps({
   verticalDock: Boolean,
 })
 
-const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit', 'drag-start'])
+const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit', 'drag-start', 'head-context-menu'])
 
 const isPane = computed(() => props.variant === 'pane')
 // 工作台只在 TestPanel 真正渲染分项视图时成立（用例清空时会退回列表空态，
@@ -151,6 +151,9 @@ const viewMenuItems = computed(() => [
 
 function onPanelContextMenu(event) {
   if (event.defaultPrevented || isTouchPointer()) return
+  // 工作台页头（左侧样例轨的标题行）的右键归评测岛：停靠菜单在 TestsPane，
+  // 这里别再把「列表 / 分项」视图菜单盖上去（2026-11-21 用户反馈）。
+  if (event.target instanceof Element && event.target.closest('.workbench__rail-head')) return
   event.preventDefault()
   panelMenu.value = { x: event.clientX, y: event.clientY, items: viewMenuItems.value }
 }
@@ -236,16 +239,27 @@ const narrowSidebar = computed(() => !isPane.value && isNarrowLayout())
 
 /**
  * 紧凑底栏是否成立（2026-11-20 方案二）：左右停靠的评测岛、窄屏侧栏，或侧栏的分项标签
- * 视图（整岛方案已整合进侧栏，正文 / 页签 / 底栏共用同一套），且列表里有用例。
- * 空列表不换成新底栏 —— 那时底栏左侧会是一颗「无测试用例」，与空态标题重复，
- * 而且列表末尾那颗「添加测试样例」正需要多出来的高度。
+ * 视图（整岛方案已整合进侧栏，正文 / 页签 / 底栏共用同一套）。
+ * 列表流空着时不换 —— 末尾那颗「添加测试样例」正需要多出来的高度，而且底栏左侧会是一颗
+ * 与空态标题重复的「无测试用例」。
+ * 分项标签空态则用紧凑底栏（2026-11-21 用户要求）：否则会退回底部那条通栏绿色
+ * 「运行全部」，与有样例时的 28px 胶囊排不是同一个样式。
  */
 const verticalBar = computed(
   () =>
-    props.cases.length > 0 &&
+    (props.cases.length > 0 || caseView.value === 'tabs') &&
     (props.verticalDock ||
       narrowSidebar.value ||
       (!isPane.value && caseView.value === 'tabs')),
+)
+
+/**
+ * 底部横跨且一个用例都没有时（2026-11-21 用户要求）：页头右上那组
+ * 「无测试用例 | 提交 / 运行全部」没有任何作用 —— 空态已经说明没有用例，
+ * 运行也没有对象。整组不 Teleport 上去。侧栏与纵向岛不走这一支。
+ */
+const emptyBottomPane = computed(
+  () => isPane.value && !props.verticalDock && !props.cases.length,
 )
 
 /**
@@ -254,7 +268,11 @@ const verticalBar = computed(
  * 才把结论下沉到底栏。
  */
 const showHeaderVerdict = computed(
-  () => !isWorkbench.value && !narrowSidebar.value && (!verticalBar.value || !isPane.value),
+  () =>
+    !isWorkbench.value &&
+    !narrowSidebar.value &&
+    (!verticalBar.value || !isPane.value) &&
+    !emptyBottomPane.value,
 )
 
 /**
@@ -393,20 +411,44 @@ const elapsedText = computed(() => {
     <!-- 两种列表面孔二选一（2026-11-19）：列表流 / 分项标签。同一时刻只有一套在 DOM 里 ——
          不是 v-show —— 因为分项模式的核心就是「只留一份正文」：挂着四张卡不动，
          等于四份 textarea、四份差异计算、四条折叠外壳一起常驻。
-         用例空着时 showTabs 为 false，落回下面这套列表标记的空态（空态只有一份实现）。 -->
-    <ul v-if="!showTabs" ref="listEl" class="cases" :class="{ 'is-empty': !cases.length }">
+         2026-11-21：分项标签空着时也把页签轨渲染出来（`railOnly`），添加按钮住在轨里；
+         正文那片空白继续复用下面这套 `.cases` 空态（标题 + 抓样提示），列表流也不变。 -->
+    <TestCaseTabs
+      v-if="caseView === 'tabs' && !cases.length && !runBlocked"
+      rail-only
+      :cases="cases"
+      :running="running"
+      :run-blocked="runBlocked"
+      :add-title="addTitle"
+      :teleport-rail="isPane"
+      :vertical="verticalDock"
+      @add="emit('add')"
+    />
+    <ul
+      v-if="caseView === 'list' || !cases.length"
+      ref="listEl"
+      class="cases"
+      :class="{
+        'is-empty': !cases.length,
+        'is-tabs-empty': !cases.length && caseView === 'tabs',
+      }"
+    >
       <li v-if="!cases.length" class="empty">
-        <!-- 空态只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个用例…」和一颗
-             「添加第一个用例」大按钮，前者是废话、后者与列表末尾那颗「添加测试样例」重复
-             （那颗当时在页脚，2026-10-23 挪进列表）。
-             这句话默认**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是这行
-             居中的淡灰字）：与三个小标题 input / Expected / Actual 同一个理由 —— 它是一句
-             格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它**不在消息表里**。
-             **例外（2026-11-18，用户要求）**：跑不了（`runBlocked` 非空）时换成跑不了的原因
-             ——「非代码文件无法运行」/「没有打开的文件」（`emptyTitle`，两种情形 App 各给了
-             一句独立成案的文案）。那种情形下「没有用例」是句废话 —— 代码跑不了，用例当然
-             没有结论；真正该说的是「为什么跑不了」。这句话原先写在页脚那行 `.run-blocked`
-             里，同一个意思不说两遍（页脚避让见 `footBlocked`）。
+        <!-- 分项标签的空态（2026-11-21）：添加动作已经挪进上面的页签轨（那里唯一的
+             一枚虚线「空页签」），这里只留标题 / 抓样提示。列表流仍是原来的
+             「一行淡灰字 + 底部通栏 Add New」。 -->
+        <!-- 列表流的空态仍然只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个
+             用例…」和一颗「添加第一个用例」大按钮，前者是废话、后者与列表末尾那颗
+             「添加测试样例」重复（那颗当时在页脚，2026-10-23 挪进列表）。
+             这句话默认**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是
+             这行居中的淡灰字）：与三个小标题 input / Expected / Actual 同一个理由 ——
+             它是一句格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它
+             **不在消息表里**。
+             **例外（2026-11-18，用户要求）**：跑不了（`runBlocked` 非空）时换成跑不了的
+             原因 ——「非代码文件无法运行」/「没有打开的文件」（`emptyTitle`，两种情形 App
+             各给了一句独立成案的文案）。那种情形下「没有用例」是句废话 —— 代码跑不了，
+             用例当然没有结论；真正该说的是「为什么跑不了」。这句话原先写在页脚那行
+             `.run-blocked` 里，同一个意思不说两遍（页脚避让见 `footBlocked`）。
              抓样提示（notice）保留 —— 它是插件自动抓样例那一路唯一的反馈，且仍按语言翻。 -->
         <p class="empty__title">{{ emptyTitle }}</p>
         <!-- 跑不了的原因现在在空态标题里说（见上），这一栏越干净越好。
@@ -459,7 +501,7 @@ const elapsedText = computed(() => {
            与绝对定位在 38.2% 处的空态文案各安其位。
            ⚠️ `title` 不能省：窄屏下那个 `span` 被隐藏（规则在 Sidebar.vue 的窄屏块里），
            AppIcon 是 aria-hidden，没有它这颗按钮就成了一个没有名字的图标按钮。 -->
-      <li class="cases__add">
+      <li v-if="!runBlocked" class="cases__add">
         <button
           class="add"
           :title="addTitle"
@@ -500,6 +542,7 @@ const elapsedText = computed(() => {
       @submit="emit('submit')"
       @more-below="tabsMoreBelow = $event"
       @drag-start="emit('drag-start', $event)"
+      @head-context-menu="emit('head-context-menu', $event)"
     />
 
     <!-- 紧凑底栏（2026-11-20 方案二；侧栏分项视图同款）：左状态、右动作。
@@ -508,7 +551,7 @@ const elapsedText = computed(() => {
     <footer v-if="verticalBar" class="panel__foot is-vertical">
       <div class="panel__foot-status">
         <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
-        <template v-else-if="showVerdict && (isPane || narrowSidebar)">
+        <template v-else-if="showVerdict && cases.length && (isPane || narrowSidebar)">
           <span class="verdict" :data-tone="verdict.tone">
             <LoadingSpinner v-if="counts.running" :size="10" />
             <span class="verdict-long">{{ verdict.text }}</span>
@@ -535,13 +578,13 @@ const elapsedText = computed(() => {
             <AppIcon name="upload" :size="13" />
           </button>
         </AppTooltip>
-        <AppTooltip v-if="showTabs" class="run-one-wrap" :text="runOneTitle">
+        <AppTooltip v-if="showTabs && !runBlocked" class="run-one-wrap" :text="runOneTitle">
           <button class="btn-run-one" :disabled="runDisabled" @click="runActiveCase">
             <AppIcon name="play-solid" :size="14" />
             <span class="btn-run-one__label">{{ t('tests.panel.runOneLabel') }}</span>
           </button>
         </AppTooltip>
-        <AppTooltip class="run-all-wrap" :text="runTitle">
+        <AppTooltip v-if="!runBlocked" class="run-all-wrap" :text="runTitle">
           <button class="btn-run-all" :disabled="runDisabled" @click="emit('run-all')">
             <AppIcon name="run-all" :size="14" />
             <span class="btn-run-all__label">{{ t('tests.panel.runAllLabel') }}</span>
@@ -564,7 +607,12 @@ const elapsedText = computed(() => {
            2026-11-20（底部横跨）：动作条整排 Teleport 进岛页头（compactActions），
            页脚只剩可能的原因行；没有原因时整条塌成 0 高。 -->
       <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
-      <Teleport v-if="!isWorkbench" defer to="#tests-pane-actions" :disabled="!compactActions">
+      <Teleport
+        v-if="!isWorkbench && !emptyBottomPane"
+        defer
+        to="#tests-pane-actions"
+        :disabled="!compactActions"
+      >
         <div class="panel__foot-row" :class="{ 'is-compact': compactActions }">
         <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠左，与主条同高。
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
@@ -609,6 +657,7 @@ const elapsedText = computed(() => {
                站内气泡了。`.run-inline` 的 `flex: 1 1 auto` 随之挪到外层 .run-all-wrap 上：
                气泡的触发体是它自己那个 span，只有它才是这一排的 flex 子项。 -->
           <AppTooltip
+            v-if="!runBlocked"
             class="run-all-wrap"
             :text="runTitle"
             :placement="compactActions ? 'bottom' : 'top'"
@@ -914,6 +963,12 @@ button.empty__link {
   margin-top: auto;
 }
 
+/* 分项标签空态已经把「添加」做成中心那颗页签胶囊，列表末尾的通栏 Add New
+   不再出现 —— 同一片空白里不放两个添加入口。 */
+.cases.is-tabs-empty .cases__add {
+  display: none;
+}
+
 .add {
   display: inline-flex;
   align-items: center;
@@ -1143,17 +1198,53 @@ button.empty__link {
   cursor: default;
 }
 
-/* 底栏过窄（约 17rem 内容宽）：两颗运行按钮只留 logo，文案收掉，把宽度让给左侧状态。
+/* 底栏过窄：左右 / 窄屏的评测岛、窄屏侧栏，底栏左侧还有判定与耗时，约 17rem 内容宽
+   以下两颗运行按钮只留 logo，把宽度让给状态。
+   宽侧栏不在这一档 —— 那里的判定在页头、底栏左侧是空的，文案能留到更窄（见下面
+   2026-11-21 那两条）。
    仍走容器查询而不是视口查询 —— 侧栏抽屉、左右停靠的评测岛宽度都由拖拽 / 分屏决定，
    与视口宽无关。按钮同时收成正方形，图标保持原来的 14px，悬停说明仍在 AppTooltip 上。 */
 @container (max-width: 17rem) {
-  .btn-run-one__label,
-  .btn-run-all__label {
+  .panel.is-pane .btn-run-one__label,
+  .panel.is-pane .btn-run-all__label,
+  :where(html.is-narrow) .panel:not(.is-pane) .btn-run-one__label,
+  :where(html.is-narrow) .panel:not(.is-pane) .btn-run-all__label {
     display: none;
   }
 
-  .btn-run-one,
-  .btn-run-all {
+  .panel.is-pane .btn-run-one,
+  .panel.is-pane .btn-run-all,
+  :where(html.is-narrow) .panel:not(.is-pane) .btn-run-one,
+  :where(html.is-narrow) .panel:not(.is-pane) .btn-run-all {
+    width: 28px;
+    padding: 0;
+  }
+}
+
+/* 宽侧栏（2026-11-21 用户反馈收得太早）：底栏左侧没有状态，判定在页头，两枚文案钮
+   实测只需约 172px 内容宽。带提交钮时多 36px + 一个间距，14rem；没有提交钮时
+   11.5rem 才真的放不下，都不必跟岛一起在 17rem 提前收。 */
+@container (max-width: 14rem) {
+  :where(html:not(.is-narrow)) .panel:not(.is-pane):has(.submit-wrap) .btn-run-one__label,
+  :where(html:not(.is-narrow)) .panel:not(.is-pane):has(.submit-wrap) .btn-run-all__label {
+    display: none;
+  }
+
+  :where(html:not(.is-narrow)) .panel:not(.is-pane):has(.submit-wrap) .btn-run-one,
+  :where(html:not(.is-narrow)) .panel:not(.is-pane):has(.submit-wrap) .btn-run-all {
+    width: 28px;
+    padding: 0;
+  }
+}
+
+@container (max-width: 11.5rem) {
+  :where(html:not(.is-narrow)) .panel:not(.is-pane) .btn-run-one__label,
+  :where(html:not(.is-narrow)) .panel:not(.is-pane) .btn-run-all__label {
+    display: none;
+  }
+
+  :where(html:not(.is-narrow)) .panel:not(.is-pane) .btn-run-one,
+  :where(html:not(.is-narrow)) .panel:not(.is-pane) .btn-run-all {
     width: 28px;
     padding: 0;
   }

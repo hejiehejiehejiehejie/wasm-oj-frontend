@@ -135,22 +135,30 @@ export function caseDotStatus(record) {
 }
 
 /**
- * 页签 / 折叠窄条上的判定码水印（2026-11-20）。
+ * 页签 / 折叠窄条上的判定码水印（2026-11-20；2026-11-21 结论过期也保留）。
  *
  * 用判定码本身代替 7px 小圆点，窄轨里也能一眼扫出哪条挂了。运行中给蓝色的 `RUN`；
- * 没跑过（verdict 为空）或结论已过期（stale）都不画 —— 后者把旧结论留在页签上等于骗人。
- * 侧栏分项视图与评测岛窄条共用这一份口径。
+ * 没跑过（verdict 为空）才不画。
+ *
+ * 结论过期（stale）**照样保留上一轮的判定码**，只是整枚压成中性灰（见 caseStampTone）：
+ * 分项视图是改完代码后唯一还看得到运行结果的地方，抹成空态等于把这份读数也一起丢了；
+ * 灰色既保住读数，又明确表示「这不是当前代码的结论」。
  */
 export function caseStampCode(record) {
   if (!record) return ''
   if (record.status === 'running') return 'RUN'
-  if (!record.verdict || record.stale) return ''
+  if (!record.verdict) return ''
   return record.verdict
 }
 
-/** 水印语义档：RUN 蓝、AC 绿、WA 红、TLE / MLE 琥珀、CE / RE / ERR 橙红 */
+/**
+ * 水印语义档：RUN 蓝、AC 绿、WA 红、TLE / MLE 琥珀、CE / RE / ERR 橙红；
+ * 结论过期（stale）一律 `stale`（中性灰）。
+ */
 export function caseStampTone(record) {
   const code = caseStampCode(record)
+  if (!code) return ''
+  if (record.stale) return 'stale'
   if (code === 'RUN') return 'info'
   if (code === 'AC') return 'ok'
   if (code === 'WA') return 'err'

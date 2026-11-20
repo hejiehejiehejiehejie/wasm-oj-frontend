@@ -334,7 +334,6 @@ export default {
       pane: {
         ariaLabel: '评测样例窗格',
         title: '评测样例',
-        dragHint: '拖动页头可调整停靠位置',
         dockMenuLabel: '停靠位置',
         dropLeft: '停靠到左侧',
         dropRight: '停靠到右侧',
@@ -551,7 +550,6 @@ export default {
       pane: {
         ariaLabel: 'Test cases pane',
         title: 'Test cases',
-        dragHint: 'Drag the header to change where it docks',
         dockMenuLabel: 'Dock position',
         dropLeft: 'Dock to the left',
         dropRight: 'Dock to the right',

@@ -1,4 +1,5 @@
 import confetti from 'canvas-confetti'
+import { testsPaneSide } from './editorPanes.js'
 
 /**
  * 「全部样例通过」的庆祝纸屑（2026-10-23 加，同日改过三次口径）
@@ -37,10 +38,10 @@ const COLOR_TOKENS = ['--confetti-1', '--confetti-2', '--confetti-3', '--confett
  */
 const CURTAIN_WIDE = [
   { delay: 0, x: 0.1 },
-  { delay: 70, x: 0.3 },
-  { delay: 140, x: 0.5 },
-  { delay: 210, x: 0.7 },
-  { delay: 280, x: 0.9 },
+  { delay: 100, x: 0.3 },
+  { delay: 200, x: 0.5 },
+  { delay: 300, x: 0.7 },
+  { delay: 400, x: 0.9 },
 ]
 const CURTAIN_NARROW = [
   { delay: 0, x: 0.2 },
@@ -77,23 +78,29 @@ export function unmountConfetti() {
   canvasEl = null
 }
 
-function drawBurst(x, count, colors) {
+/**
+ * 一小把纸屑。`loose` 是**底部横跨的评测岛**那一档（2026-11-21 用户要求：
+ * 「落下的速度慢一些，喷出的零散一些」）—— 底部岛与宽面板走它，侧栏 / 纵向岛
+ * 保持原来那套参数：
+ *   · 落得慢：gravity 1.2 → 1.05，初速 13 → 9；寿命 300 → 380 帧补回落差，
+ *     否则半空就淡没了（文件头第 2 条那个坑）。
+ *   · 更零散：扇形 80° → 115°，横向漂移与落点抖动都放宽，每把的尺寸也随机一档；
+ *     每把粒子数 18 → 14，配合拉开的时间差，读作一片片飘落而不是几束喷射。
+ */
+function drawBurst(x, count, colors, loose = false) {
   fire({
     particleCount: count,
     colors,
     // 朝正下方扇开 —— 这就是「飘落」。库的默认 90° 是斜上喷，那是礼炮不是纸屑。
     angle: 270,
-    spread: 80,
-    // 初速压得比默认 45 低得多：落得慢，才看得出是一片片纸屑而不是一条射线；
-    // 重力给到 1.2 是补回「太慢」那一头 —— 1.0 以下时纸屑在半空就淡没了，落不到面板下沿
-    startVelocity: 13,
-    gravity: 1.2,
-    // 每把左右偏一点，连放几次不会一成不变地走同一条线
-    drift: (Math.random() - 0.5) * 1.2,
+    spread: loose ? 115 : 80,
+    startVelocity: loose ? 9 : 13,
+    gravity: loose ? 1.05 : 1.2,
+    drift: (Math.random() - 0.5) * (loose ? 1.8 : 1.2),
     // 300 ≈ 5s：够它从顶上落到面板下沿再消失。给 260（首版）时纸屑在半空就淡没了，
     // 看着像「炸了一团」而不是「落下去」
-    ticks: 300,
-    scalar: 0.85,
+    ticks: loose ? 380 : 300,
+    scalar: loose ? 0.72 + Math.random() * 0.36 : 0.85,
     // 起点在面板**上沿之外**一点：纸屑是「从上面落进来」的，
     // 而不是凭空出现在半空（y 给 0 会看到一片粒子在边框内突然冒出来）
     origin: { x, y: -0.05 },
@@ -123,18 +130,22 @@ export function celebrateAllPassed() {
 
   const wide = rect.width >= 700
   const curtain = wide ? CURTAIN_WIDE : CURTAIN_NARROW
-  const count = wide ? 18 : 20
+  // 「慢而散」那一档：底部横跨的评测岛一律用它（判据来自布局，不只看宽度）；
+  // 侧栏 / 纵向岛保持原来那套参数
+  const loose = wide || testsPaneSide() === 'bottom'
+  const count = loose ? 14 : 20
+  // 横向抖动：loose 档散得更开，连放几次不会落在同几条线上
+  const jitter = loose ? 0.14 : 0.08
 
   for (const burst of curtain) {
-    // 横向再加一点抖动，连放几次不会落在同几条线上
-    const x = burst.x + (Math.random() - 0.5) * 0.08
+    const x = burst.x + (Math.random() - 0.5) * jitter
     if (!burst.delay) {
-      drawBurst(x, count, colors)
+      drawBurst(x, count, colors, loose)
       continue
     }
     const id = setTimeout(() => {
       pending.delete(id)
-      if (fire && canvasEl) drawBurst(x, count, colors)
+      if (fire && canvasEl) drawBurst(x, count, colors, loose)
     }, burst.delay)
     pending.add(id)
   }

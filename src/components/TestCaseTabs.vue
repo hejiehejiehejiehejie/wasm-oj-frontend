@@ -50,6 +50,12 @@ const props = defineProps({
    */
   workbench: Boolean,
   /**
+   * 只渲染标签轨（2026-11-21）：分项标签的空态没有页签可显示，但仍要那根
+   * 「页签栏」在场，添加按钮也住在里面。视口与正文整块不渲染，根节点让出高度，
+   * 由 TestPanel 的空态标题接管下面那片空白。
+   */
+  railOnly: Boolean,
+  /**
    * 纵向停靠档（2026-11-20 方案二，左右停靠的评测岛）：
    * 标签轨变成平齐的 IDE 页签（去胶囊），删掉 36px 状态栏，
    * 单样例结论挂进 ACTUAL 列头，正文交给 TestCaseBody 的满高分栏。
@@ -72,7 +78,7 @@ const props = defineProps({
   elapsedText: { type: String, default: '' },
 })
 
-const emit = defineEmits(['add', 'remove', 'run-one', 'more-below', 'drag-start', 'run-all', 'submit'])
+const emit = defineEmits(['add', 'remove', 'run-one', 'more-below', 'drag-start', 'run-all', 'submit', 'head-context-menu'])
 
 /** 工作台轨底那颗「运行全部」的置灰判据 —— 与 TestPanel 页脚同一条算式 */
 const runAllDisabled = computed(
@@ -196,8 +202,8 @@ const tabStampCode = caseStampCode
 const tabStampTone = caseStampTone
 
 /**
- * 页签的状态点：待重测时水印不画、圆点也回到最初的空心环，而不是再亮一颗琥珀实心点。
- * 旧结论作废这件事已经由正文与全局结论（`?/n AC`）交代，页签上不需要再多一个色点。
+ * 页签的状态点：待重测时判定码水印照画（整枚压成灰章），圆点只在「没有判定码」时才登场。
+ * 旧结论作废由灰色水印与全局结论（`?/n AC`）交代，页签上不再亮一颗琥珀实心点。
  */
 function tabDotStatus(record) {
   if (record?.stale) return ''
@@ -739,6 +745,17 @@ function onRailHeadPointerDown(event) {
   event.preventDefault()
 }
 
+/**
+ * 工作台没有独立页头（方案一），左侧轨的标题行就是它的页头（2026-11-21 用户反馈）：
+ * 右键这里应该和横跨岛的页头一样出停靠菜单。菜单本体在 TestsPane，这里只把事件
+ * 冒上去；是否真的弹由 TestsPane 的 getTestsPaneDragStartKind 判定 ——「+」是
+ * button，会被放行成原生菜单，空白 / 拖拽把手 / 结论才弹停靠项。
+ */
+function onRailHeadContextMenu(event) {
+  if (event.defaultPrevented) return
+  emit('head-context-menu', event)
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   bindRailObserver()
@@ -763,7 +780,10 @@ onBeforeUnmount(() => {
     v-if="!workbench"
     ref="rootEl"
     class="tabs-view"
-    :class="[`is-label-${labelFormat}`, { 'is-embedded': teleportRail, 'is-vertical': vertical }]"
+    :class="[
+      `is-label-${labelFormat}`,
+      { 'is-embedded': teleportRail, 'is-vertical': vertical, 'is-rail-only': railOnly },
+    ]"
   >
     <!-- 标签轨（36px，不随下方正文滚动）：可滚的胶囊轨道 + 轨外固定的虚线「+」。
          ⚠️ `+` 必须留在 `.case-tabs__track` **外面**（2026-11-19 用户审查后改）：
@@ -855,15 +875,19 @@ onBeforeUnmount(() => {
         <!-- placement="bottom"（2026-11-19 用户要求）：这颗「+」上方就是侧栏页头（面板切换器 + 判定簇），
              气泡从上方冒出来会盖住页头，看着像页头自己弹出来的。往下弹则落在标签轨下方的正文区上，
              而那一片本来就是临时浮层该占的地方。 -->
-        <AppTooltip class="tab-add-wrap" :text="addTitle" placement="bottom">
+        <AppTooltip v-if="!runBlocked" class="tab-add-wrap" :text="addTitle" placement="bottom">
           <button
             type="button"
             class="tab-add"
+            :class="{ 'is-empty': !cases.length }"
             :aria-label="t('tests.panel.addCase')"
             :disabled="running || Boolean(runBlocked)"
             @click="requestAdd"
           >
             <AppIcon name="plus" :size="14" />
+            <span v-if="!cases.length" class="tab-add__label">{{
+              t('tests.panel.addCase')
+            }}</span>
           </button>
         </AppTooltip>
 
@@ -882,6 +906,7 @@ onBeforeUnmount(() => {
          元素不重挂，textarea 的 undo 栈与滚动位置都留着，高度由组件内那条 flush:'post'
          的 watch 在绘制前重算 —— 绑 key 就会退回到「先按 min-height 排一帧」的闪烁。 -->
     <div
+      v-if="!railOnly"
       ref="viewportEl"
       class="case-viewport"
       :class="{ 'is-vertical': vertical, 'is-bento': !vertical }"
@@ -926,17 +951,13 @@ onBeforeUnmount(() => {
     :aria-label="t('tests.tabs.railLabel')"
   >
     <aside class="workbench__rail">
-      <div class="workbench__rail-head" @pointerdown="onRailHeadPointerDown">
-        <span class="workbench__grip" :title="t('tests.pane.dragHint')" aria-hidden="true">
-          <svg viewBox="0 0 10 18" width="10" height="18" fill="currentColor">
-            <circle cx="3" cy="4" r="1.15" />
-            <circle cx="7" cy="4" r="1.15" />
-            <circle cx="3" cy="9" r="1.15" />
-            <circle cx="7" cy="9" r="1.15" />
-            <circle cx="3" cy="14" r="1.15" />
-            <circle cx="7" cy="14" r="1.15" />
-          </svg>
-        </span>
+      <div
+        class="workbench__rail-head"
+        @pointerdown="onRailHeadPointerDown"
+        @contextmenu="onRailHeadContextMenu"
+      >
+        <!-- 2026-11-21 用户要求：去掉六点拖动图标。整条轨页头仍是拖动面
+             （onRailHeadPointerDown），视觉上不再单独放把手。 -->
         <!-- 全局结论（verdict + 耗时）：与 TestPanel 页头同一套判据 / 文案，由 props 传下来。
              顺序（2026-11-20 用户要求）：通过个数在前、耗时在后，与紧凑底栏同一口径。 -->
         <div class="workbench__context">
@@ -955,7 +976,12 @@ onBeforeUnmount(() => {
             </span>
           </template>
         </div>
-        <AppTooltip class="workbench__add-wrap" :text="addTitle" placement="bottom">
+        <AppTooltip
+          v-if="!runBlocked"
+          class="workbench__add-wrap"
+          :text="addTitle"
+          placement="bottom"
+        >
           <button
             type="button"
             class="workbench__add"
@@ -986,43 +1012,47 @@ onBeforeUnmount(() => {
           :aria-label="t('tests.card.title', { n: index + 1 })"
           :aria-selected="item.id === activeId ? 'true' : 'false'"
           tabindex="0"
+          :title="caseTimingText(item) || null"
           @click="onTabClick(item.id)"
           @keydown.enter.prevent="onTabClick(item.id)"
           @keydown.space.prevent="onTabClick(item.id)"
           @contextmenu="onTabContextMenu($event, item.id)"
           @pointerdown="onTabPointerDown($event, item.id)"
         >
-          <!-- 与标签轨共用同一颗状态点（宽度恒定，未跑是空心环） -->
-          <span
-            class="tab__dot case-row__dot"
-            :class="{ 'is-stamp-slot': tabStampCode(item) }"
-            :data-status="caseDotStatus(item)"
-          ></span>
-          <span class="case-row__label">
-            <span class="case-row__name">{{ t('tests.card.title', { n: index + 1 }) }}</span>
-            <span class="case-row__num">{{ index + 1 }}</span>
-            <!-- 与标签轨同款判定水印（2026-11-20 用户要求）：横跨岛左侧列表也对齐胶囊的
-                 状态读法；水印紧贴样例名，耗时移进 title，ACTUAL 列头仍常显「AC · 3ms」。 -->
+          <!-- 固定宽状态槽（2026-11-21 方案一）：有结果显判定码，未跑 / 运行中显圆点。
+               26px 定宽让所有样例名落在同一条竖线上，右端整段让给 ▶ ×，
+               悬停时状态码纹丝不动、零遮挡。 -->
+          <span class="case-row__status" aria-hidden="true">
             <span
-              v-if="tabStampCode(item)"
+              v-if="tabStampCode(item) && caseDotStatus(item) !== 'running'"
               class="case-row__stamp"
               :class="{ 'is-long': tabStampCode(item).length >= 3 }"
-              :title="caseTimingText(item)"
-              aria-hidden="true"
             >
               {{ tabStampCode(item) }}
             </span>
+            <span v-else class="case-row__dot" :data-status="caseDotStatus(item)"></span>
           </span>
-          <span class="case-row__actions" @pointerdown.stop>
-            <AppTooltip :text="runBlocked || t('tests.card.runOne')" placement="top">
+          <span class="case-row__label">
+            <span class="case-row__name">{{ t('tests.card.title', { n: index + 1 }) }}</span>
+            <span class="case-row__num">{{ index + 1 }}</span>
+          </span>
+          <!-- mousedown.prevent：鼠标按下时不给按钮上焦点。否则点完 ▶ 焦点留在按钮上，
+               个别内核仍匹配 :focus-visible，鼠标移走后 [▶ ×] 会一直亮着（2026-11-21）。
+               键盘 Tab 不经过 mousedown，聚焦按钮时照常浮现。 -->
+          <span class="case-row__actions" @pointerdown.stop @mousedown.prevent>
+            <AppTooltip
+              v-if="!runBlocked"
+              :text="t('tests.card.runOne')"
+              placement="top"
+            >
               <button
                 type="button"
                 class="case-row__btn"
-                :aria-label="runBlocked || t('tests.card.runOne')"
-                :aria-disabled="running || Boolean(runBlocked)"
+                :aria-label="t('tests.card.runOne')"
+                :aria-disabled="running"
                 @click.stop="runCaseById(item.id)"
               >
-                <AppIcon name="play" :size="11" />
+                <AppIcon name="play-solid" :size="10" />
               </button>
             </AppTooltip>
             <AppTooltip :text="t('tests.card.remove')" placement="top">
@@ -1033,7 +1063,7 @@ onBeforeUnmount(() => {
                 :disabled="running"
                 @click.stop="removeCaseById(item.id)"
               >
-                <AppIcon name="close" :size="12" />
+                <AppIcon name="close" :size="10" />
               </button>
             </AppTooltip>
           </span>
@@ -1059,7 +1089,7 @@ onBeforeUnmount(() => {
             <AppIcon name="upload" :size="13" />
           </button>
         </AppTooltip>
-        <AppTooltip class="workbench__run-wrap" :text="runTitle" placement="top">
+        <AppTooltip v-if="!runBlocked" class="workbench__run-wrap" :text="runTitle" placement="top">
           <button
             type="button"
             class="workbench__run"
@@ -1119,6 +1149,12 @@ onBeforeUnmount(() => {
    这样页头内容、正文第一列盒面、页脚按钮落在同一条竖直基准线上。 */
 .tabs-view.is-embedded {
   padding: 0;
+}
+
+/* 空态只借这根轨（2026-11-21）：别把 flex:1 的正文壳撑起来，下面那片
+   空白留给 TestPanel 的 `.empty` 标题。 */
+.tabs-view.is-rail-only {
+  flex: 0 0 auto;
 }
 
 /* ---------------------------------------------------------- 一、标签轨 36px */
@@ -1597,6 +1633,13 @@ onBeforeUnmount(() => {
   --tab-tone: var(--err);
 }
 
+/* 结论过期（2026-11-21 用户要求）：判定码水印不撤，整枚压成中性灰 ——
+   分项视图是改完代码后唯一还看得到运行结果的地方，留一个空态等于把结果读数也丢了。
+   灰章既保住读数，又与「这一轮真的跑过」的语义色区分开。 */
+.case-tabs .tab[data-tone='stale'] {
+  --tab-tone: var(--text-dim);
+}
+
 /* 有结论的页签顺带铺一层极淡同色底，让水印不是干巴巴浮在灰底上 */
 .case-tabs .tab[data-tone] {
   background: color-mix(in srgb, var(--tab-tone) 6%, transparent);
@@ -1628,12 +1671,9 @@ onBeforeUnmount(() => {
   --tab-tone: var(--err);
 }
 
-.case-row[data-tone] {
-  background: color-mix(in srgb, var(--tab-tone) 6%, transparent);
-}
-
-.case-row.is-active[data-tone] {
-  background: color-mix(in srgb, var(--tab-tone) 5%, var(--case-chip-bg));
+/* 横向工作台左轨同理：过期判定码留在状态槽里，只是褪成灰色（2026-11-21） */
+.case-row[data-tone='stale'] {
+  --tab-tone: var(--text-dim);
 }
 
 /* 有判定水印时把圆点藏起来（仍占位，宽度不跳） */
@@ -1687,6 +1727,22 @@ onBeforeUnmount(() => {
   color: color-mix(in srgb, var(--tab-tone) 28%, transparent);
 }
 
+/* 过期水印（2026-11-21）：灰章保留上一轮判定码，后缀一个「?」读作「结果待重测」。
+   问号完全继承水印的字形（等宽 / 斜体 / 同色，只略收字号），读作同一枚章的一部分，
+   而不是贴上去的第二枚符号。 */
+.case-tabs .tab[data-tone='stale'] .tab__stamp {
+  color: color-mix(in srgb, var(--text-dim) 30%, transparent);
+}
+
+.case-tabs .tab[data-tone='stale'] .tab__stamp::after,
+.case-row[data-tone='stale'] .case-row__stamp::after {
+  content: '?';
+  margin-left: 1px;
+  font-size: 0.78em;
+  letter-spacing: 0;
+  vertical-align: 0.08em;
+}
+
 /* 选中页签的水印提亮一档 */
 .case-tabs .tab.is-active .tab__stamp {
   color: color-mix(in srgb, var(--tab-tone, var(--text-dim)) 32%, transparent);
@@ -1710,6 +1766,34 @@ onBeforeUnmount(() => {
 :where(html.is-hoverable) .case-tabs .tab-add:hover:not(:disabled) {
   border-color: transparent;
   background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 空轨（2026-11-21 用户要求把添加按钮挪进页签栏）：没有页签时这颗「+」就是轨道里
+   唯一的一枚「空页签」，带上文案并按内容撑宽。放在 `.case-tabs .tab-add` 后面并用同名
+   提升一级特异度 —— 那套无边框 24×24 幽灵钮的规则在上面，会把它按回图标尺寸。
+   虚线 / 26px 高 / 6px 圆角仍与页签、列表末尾那颗 Add New 同一把尺。 */
+.case-tabs .tab-add.is-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px dashed var(--border-hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+:where(html.is-hoverable) .case-tabs .tab-add.is-empty:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--bg-hover-soft);
   color: var(--text);
 }
 
@@ -1825,58 +1909,23 @@ onBeforeUnmount(() => {
   container-type: inline-size;
 }
 
-/* 轨页头 = 拖动把手：整条可抓；「+」与结论文字上的按下交给各自的控件 */
+/* 轨页头 = 拖动面：整条可抓；「+」与结论文字上的按下交给各自的控件 */
 .workbench__rail-head {
   position: relative;
   flex: 0 0 var(--workbench-head-h);
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* 4px 只防「耗时贴死 +」；耗时仍由 margin-left: auto 推到右端 */
+  gap: 4px;
   min-width: 0;
-  padding: 0 8px 0 10px;
+  /* 左 16 对齐行内容左缘；右 10 让「+」的 14px 图标墨迹落在行内容右缘附近 */
+  padding: 0 10px 0 16px;
   cursor: grab;
   user-select: none;
   touch-action: none;
 }
 
-/* 拖动把手（2026-11-20 幽灵化）：绝对定位，不参与 flex、不占宽度，内容因此整体左移
-   一个把手位；只有悬停这条页头（或正在拖动）时才浮出来。盒左移 2px，墨迹落在
-   1.85 → 8.15，正好躲进 10px 的 padding 槽，不压右侧的耗时 / 结论。 */
-.workbench__grip {
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  margin: 0;
-  color: var(--text-faint, var(--text-dim));
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
-/* 悬停页头显形，但指针落在「+」上时不算（2026-11-20 用户报：移到添加样例上也会冒出
-   拖动把手）。+ 有自己的一层悬停底色，两个提示叠在一起像在暗示「拖这颗按钮」；
-   用 :has 把那一格从把手热区里排除，移到页头的其它位置 / 把手槽里仍会浮现。
-   ⚠️ 整条选择器必须写在一行：scripts/lint-css.mjs 的仓规把跨行分隔的选择器当成漏逗号。 */
-:where(html.is-hoverable) .workbench__rail-head:hover:not(:has(.workbench__add-wrap:hover)) .workbench__grip {
-  opacity: 0.7;
-}
-
-/* 拖起来之后指针多半已经离开页头：这时把手也要留住 */
-:global(body.is-tests-pane-dragging) .workbench__grip {
-  opacity: 0.7;
-}
-
-/* 触屏没有悬停：给一档极淡的常显，否则这颗把手永远不会出现 */
-:where(html:not(.is-hoverable)) .workbench__grip {
-  opacity: 0.28;
-}
-
-/* 全局结论（verdict + 耗时）的落点：吃掉 grip 与「+」之间的整段 */
+/* 全局结论（verdict + 耗时）的落点：吃掉页头里「+」左侧的整段 */
 .workbench__context {
   flex: 1 1 auto;
   min-width: 0;
@@ -1918,6 +1967,10 @@ onBeforeUnmount(() => {
 }
 
 @container (max-width: 152px) {
+  .workbench__rail-head {
+    padding: 0 8px 0 14px;
+  }
+
   .workbench__verdict-long {
     display: none;
   }
@@ -1954,10 +2007,13 @@ onBeforeUnmount(() => {
 .workbench__elapsed {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex: 0 0 auto;
+  /* 左结论 / 右耗时：耗时贴住「+」，空出来的位置落在判定与耗时之间 */
+  margin-left: auto;
   font-family: var(--mono-font);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-faint);
 }
 
@@ -1972,11 +2028,12 @@ onBeforeUnmount(() => {
   width: 24px;
   height: 24px;
   padding: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   border: 0;
   background: transparent;
   color: var(--text-dim);
-  transition: background-color 0.14s ease, color 0.14s ease;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 :where(html.is-hoverable) .workbench__add:hover:not(:disabled) {
@@ -1984,16 +2041,16 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-.workbench__add:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
+.workbench__add:disabled { opacity: 0.4; cursor: default; }
 
 /* 样例行列表：覆盖式滑块接管滚动，原生条藏掉 */
 .workbench__cases {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 4px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 6px 6px;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: none;
@@ -2004,25 +2061,25 @@ onBeforeUnmount(() => {
   height: 0;
 }
 
-/* 一行 = 状态点 + 名称 + 判定水印 + 悬停动作。2026-11-20 向侧栏页签看齐：
-   6px 圆角、12px/600、同款语义底色与 AC / WA / TLE 水印。
-   高度保留 30（列表条目的命中区），水印作为行内小印章紧贴名称，长名先省略。 */
+/* 页签轨（2026-11-21 审查后重构）：左侧 6px 微点 + 名称 + 右端端正等宽判定码。
+   背景只服务「选中 / 悬停」，一律纯中性哑光灰、不混语义色 —— 状态只由圆点与判定码交代。
+   高度 30、行距 2px，同屏多显一条；长名先省略。 */
 .case-row {
   position: relative;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   height: 30px;
-  padding: 0 6px 0 8px;
-  overflow: hidden;
-  isolation: isolate;
+  padding: 0 10px;
   border-radius: 6px;
+  background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: default;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
   user-select: none;
-  transition: background-color 0.14s ease, color 0.14s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 :where(html.is-hoverable) .case-row:hover {
@@ -2030,33 +2087,17 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-/* 选中态：与胶囊同一个 --case-chip-bg；带判定时再叠 5% 语义色（见上面的 data-tone 组） */
 .case-row.is-active {
   background: var(--case-chip-bg);
   color: var(--text);
 }
 
-/* 横跨岛的样例行是**通栏**（约 176×30），把 26px 胶囊那档 --case-chip-bg 整块铺上去，
-   面积是纵向岛页签（约 100×26）的两倍，同一支色读起来会明显更亮（用户 2026-11-21：
-   「标签选中之后的高亮太亮，参考纵向评测岛被选中时的亮度」）。
-   深色系把选中底往岛面 --bg-panel 拉回 28%（#303034 → ≈#29292a），整行悬停同时收到
-   「5% 前景色」这一档（原先是 8% 白的 --icon-hover-bg，≈#292929）—— 不一起收的话，
-   选中会比悬停还暗，层级就反了。
-   浅色系**不动**：那里 chip 比岛面深，往岛面拉会把选中拉得比悬停还轻。 */
 :root[data-scheme='dark']:where(html.is-hoverable) .case-row:hover {
   background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
 :root[data-scheme='dark'] .case-row.is-active {
-  background: color-mix(in srgb, var(--case-chip-bg) 72%, var(--bg-panel));
-}
-
-:root[data-scheme='dark'] .case-row.is-active[data-tone] {
-  background: color-mix(
-    in srgb,
-    var(--tab-tone) 5%,
-    color-mix(in srgb, var(--case-chip-bg) 72%, var(--bg-panel))
-  );
+  background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
 .case-row:focus-visible {
@@ -2064,11 +2105,58 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px var(--focus);
 }
 
+/* 左侧 6px 微点：未跑是极淡空心细环，有结果直接亮成语义色实心点 */
 .case-row__dot {
-  position: relative;
-  z-index: 1;
-  width: 8px;
-  height: 8px;
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--text-dim) 45%, transparent);
+  background: transparent;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.case-row__dot[data-status='passed'] {
+  border-color: transparent;
+  background: var(--ok);
+}
+
+.case-row__dot[data-status='failed'] {
+  border-color: transparent;
+  background: var(--fail);
+}
+
+.case-row__dot[data-status='error'] {
+  border-color: transparent;
+  background: var(--err);
+}
+
+.case-row__dot[data-status='running'] {
+  border-color: transparent;
+  background: var(--info);
+}
+
+.case-row__dot[data-status='stale'] {
+  border-color: transparent;
+  background: var(--warn);
+}
+
+/* 判定码的语义色优先于 runner 的粗粒度 status：TLE / MLE 的 status 也是 failed，
+   但行右端写的是琥珀色 TLE，左侧微点必须跟着黄。data-tone 已把档位映射到 --tab-tone，
+   一条规则收口（特异性高于上面的 data-status）。 */
+.case-row[data-tone] .case-row__dot {
+  border-color: transparent;
+  background: var(--tab-tone);
+}
+
+/* 固定宽状态槽（2026-11-21 方案一）：有结果显判定码，未跑 / 运行中显圆点。
+   定宽让所有样例名从同一条竖线开始；右端整段让给 ▶ ×，悬停时状态码零位移。 */
+.case-row__status {
+  flex: 0 0 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .case-row__label {
@@ -2076,12 +2164,9 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
 }
 
 .case-row__name {
-  position: relative;
-  z-index: 1;
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -2092,86 +2177,75 @@ onBeforeUnmount(() => {
 /* 轨收窄时替代名称的纯序号（默认不渲染，见末尾 @container 152px） */
 .case-row__num {
   display: none;
-  position: relative;
-  z-index: 1;
+  font-family: var(--mono-font);
   font-variant-numeric: tabular-nums;
 }
 
-/* 水印紧贴样例名（2026-11-20 用户要求），不再锚在行右端。
-   字号 / 行高与页签水印保持同一档（16px、0.85 行高），仍靠斜体 + 800 + 低透明度区分。
-   往下压半行：底部由 `.case-row` 的 overflow: hidden 只裁掉一像素上下，读作底纹，
-   不是第二行正文 —— 与页签水印的 bottom: -1px 同一个意思。 */
+/* 状态槽里的判定码：端正等宽，按判定档取色；AC 退淡，让异常一眼跳出来。 */
 .case-row__stamp {
-  position: relative;
-  top: 10px;
-  z-index: 1;
-  flex: 0 0 auto;
-  /* 往名称方向再靠一点（label 的 gap 是 5px，这里抵掉 3px，净留 2px） */
-  margin-left: -3px;
   font-family: var(--mono-font);
-  font-size: 16px;
-  font-weight: 800;
-  font-style: italic;
-  line-height: 0.85;
-  letter-spacing: -0.04em;
-  color: color-mix(in srgb, var(--tab-tone, var(--text-dim)) 22%, transparent);
-  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--tab-tone, var(--text-dim));
   user-select: none;
 }
 
+/* 3 字母（TLE / MLE）略收，26px 槽里也留得下 */
 .case-row__stamp.is-long {
-  font-size: 13px;
-  letter-spacing: -0.06em;
+  font-size: 10px;
+  letter-spacing: -0.04em;
 }
 
-/* 未通过的状态比 AC 更醒目，与页签同一档透明度 */
 .case-row[data-tone='ok'] .case-row__stamp {
-  color: color-mix(in srgb, var(--tab-tone) 18%, transparent);
+  color: color-mix(in srgb, var(--ok) 76%, var(--text-dim));
+  font-weight: 500;
 }
 
-.case-row[data-tone='err'] .case-row__stamp,
-.case-row[data-tone='warn'] .case-row__stamp,
-.case-row[data-tone='re'] .case-row__stamp,
-.case-row[data-tone='info'] .case-row__stamp {
-  color: color-mix(in srgb, var(--tab-tone) 28%, transparent);
-}
-
-.case-row.is-active .case-row__stamp {
-  color: color-mix(in srgb, var(--tab-tone) 32%, transparent);
-}
-
-/* 单跑 / 删除：默认隐身（只占位，不错行），悬停整行才浮出；触屏没有悬停，常显。
-   opacity 而非 display —— 预留宽度，悬停时行内文字不会横向跳一下。 */
+/* 单跑 / 删除：常规 Flex 收在行尾，默认宽度 0 + 隐身；悬停 / 聚焦时展开。
+   状态码住在左槽，这里展开不会盖住任何东西。 */
 .case-row__actions {
-  position: relative;
-  z-index: 1;
   flex: 0 0 auto;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  max-width: 0;
+  overflow: hidden;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.12s ease;
 }
 
 :where(html.is-hoverable) .case-row:hover .case-row__actions,
-.case-row:focus-within .case-row__actions {
+.case-row:has(.case-row__btn:focus-visible) .case-row__actions {
+  max-width: 48px;
   opacity: 1;
+  pointer-events: auto;
 }
 
-:where(html:not(.is-hoverable)) .case-row__actions {
+/* 触屏端（2026-11-21）：没有悬停，未选中行照常显示判定码；
+   只有当前选中行切出 ▶ × —— 状态与操作都不丢。 */
+:where(html:not(.is-hoverable)) .case-row.is-active .case-row__actions {
+  max-width: 48px;
   opacity: 1;
+  pointer-events: auto;
 }
 
 .case-row__btn {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border-radius: 4px;
+  border: 0;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-dim);
-  transition: background-color 0.14s ease, color 0.14s ease;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 :where(html.is-hoverable) .case-row__btn:hover:not(:disabled):not([aria-disabled='true']) {
@@ -2185,7 +2259,7 @@ onBeforeUnmount(() => {
 
 :where(html.is-hoverable) .case-row__btn--danger:hover:not(:disabled) {
   color: var(--fail);
-  background: color-mix(in srgb, var(--fail) 12%, transparent);
+  background: color-mix(in srgb, var(--fail) 14%, transparent);
 }
 
 .case-row__btn:disabled,
@@ -2289,9 +2363,17 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
 }
 
-/* 轨窄到放不下「样例 N」时换成纯序号，并让动作按钮紧跟在序号后面 ——
-   不再被 flex-grow 的标签推到行尾，序号与运行键之间不留一大段空档。 */
+/* 轨窄到放不下「样例 N」时换成纯序号，行距、状态槽与按钮同时收紧。 */
 @container (max-width: 152px) {
+  .case-row {
+    gap: 5px;
+    padding: 0 6px;
+  }
+
+  .case-row__status {
+    flex-basis: 22px;
+  }
+
   .case-row__name {
     display: none;
   }
@@ -2300,8 +2382,9 @@ onBeforeUnmount(() => {
     display: inline;
   }
 
-  .case-row__label {
-    flex: 0 0 auto;
+  .case-row__btn {
+    width: 20px;
+    height: 20px;
   }
 }
 </style>
