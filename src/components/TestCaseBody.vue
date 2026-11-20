@@ -19,7 +19,6 @@ import { locale, t } from '../i18n/index.js'
 import { px, uiScale } from '../composables/useUiScale.js'
 import { DEFAULT_CHECKER_ID } from '../services/checkers.js'
 import { editorSettings } from '../services/editorSettings.js'
-import { caseBadgeLabel, caseTimingText } from '../services/caseSummary.js'
 import { notify } from '../services/notifications.js'
 import { diffOutput, markSegments } from '../services/outputDiff.js'
 
@@ -39,25 +38,6 @@ const props = defineProps({
    * 只放宽上限、**不改 min-height**：短样例在两种布局里仍然是同一个 76px 的起跳高度。
    */
   roomy: Boolean,
-  /**
-   * 工作台档（2026-11-20 方案一，底部横跨的评测岛）：三列并排、满高、贴边，
-   * 不再有固定高度的小框。字号 / 标签语言 / ACTUAL 的显隐都跟着这一档走。
-   */
-  workbench: Boolean,
-  /**
-   * 纵向停靠档（2026-11-20 方案二，左右停靠的评测岛）：上「输入」全宽 45%、
-   * 下「期望 | 实际」并排 55%，每个字段满铺剩余高度、自己滚动。
-   * 它和工作台共用「无圆角、无固定高度、1px 细线分栏」这套语汇，但网格方向相反 ——
-   * 一个横着切三列，一个竖着切两段。窄到 340px 以下回退三行叠放（见样式里的容器查询）。
-   */
-  vertical: Boolean,
-  /**
-   * Bento 内胆（2026-11-20 用户要求）：侧栏的分项标签视图沿用纵向岛的正文布局 ——
-   * 输入全宽在上、「期望 | 实际」并排在下的三个圆角槽位，满高、各自滚动。
-   * 与 `vertical` 的样式完全共用（同一个 is-vertical 类）；区别只在壳 ——
-   * 侧栏不再有 36px 状态行，单条结论改由 ACTUAL 列头承担（见下面的 v-if）。
-   */
-  bento: Boolean,
 })
 
 // 正文直接改用例对象本身：用例记录活在 App 的 `testCases` 里，
@@ -209,14 +189,6 @@ const expectedEl = ref(null)
 // 不是我们加的。下面这个函数因此不再向 Vue 报告溢出状态，纯粹摆盒子。
 function autoGrow(el) {
   if (!el) return
-  // 工作台档的高度由三列分栏接管（height: 100%），框内自己滚动。
-  // 纵向停靠档同理：两块上半 / 下半分栏各自定高，内联高度必须清掉，
-  // 否则切回卡片流时那个值会留在元素上，把自适应高度锁死。
-  if (props.workbench || props.vertical || props.bento) {
-    el.style.height = ''
-    el.style.overflowY = ''
-    return
-  }
   // 面板所在页签没打开时（display: none）scrollHeight 为 0，此时不动高度，
   // 切到该页签时由下面的 ResizeObserver 重算。
   // （折叠不再是 display: none 了 —— 2026-10-06 起走 .card__fold 的行高动画，
@@ -278,23 +250,10 @@ const outputText = computed(() => {
 // 「尚未运行」既像输出为空、又白占一块地方）；后者在框里明说「输出为空」。
 // 运行中即使还没有本轮输出也留着框 —— 收掉会让卡片在点运行的一瞬间塌一截，
 // 正是 App.vue 的 resetCase 里那条「不清上一轮输出」修掉的闪烁。
-//
-// 工作台档例外（2026-11-20 方案一）：三列必须**恒定**并排，否则没跑时只剩两列、
-// 一开跑又变成三列，正文宽度会横跳。所以 idle 也渲染第三列，只是框里写一句
-// 「运行后在此显示输出」。
-const showActual = computed(() => props.workbench || props.testCase.status !== 'idle')
-const actualPlaceholder = computed(() => {
-  if (props.testCase.status === 'running') return t('tests.card.running')
-  if (props.workbench && props.testCase.status === 'idle') return t('tests.card.outputIdle')
-  return t('tests.card.emptyOutput')
-})
-
-/** 工作台 ACTUAL 列头右侧的结论（`AC · 0.4 ms` / `待运行`）—— 状态栏让位之后它才是结果归属 */
-const statusText = computed(() => {
-  const label = caseBadgeLabel(props.testCase)
-  const time = caseTimingText(props.testCase)
-  return time ? `${label} · ${time}` : label
-})
+const showActual = computed(() => props.testCase.status !== 'idle')
+const actualPlaceholder = computed(() =>
+  props.testCase.status === 'running' ? t('tests.card.running') : t('tests.card.emptyOutput'),
+)
 
 // 实际输出也是同一套：超长就只显示开头一段 + 省略行。它天生只读（是个 <pre>），
 // 所以不用像上面两个输入框那样维护「可编辑段」的边界，现算就行。
@@ -304,41 +263,6 @@ const outputView = computed(() => {
   const body = previewBody(text)
   return { long: true, text: `${body}${MARKER_SEED}`, hidden: fmt(text.length - body.length) }
 })
-
-/* ---------- 迷你 Buffer（2026-11-20 方案一）：行号槽 + 行数元信息 ---------- */
-// 行号只给 ACTUAL 那一条只读输出（2026-11-20 用户要求删掉输入 / 期望的行号：
-// 它们的行数少，槽位只是白白占掉一列宽度）。行号用一段 <pre> 文本一口气画出来
-// （不是 N 个节点）：几千行也只是一条文本，而且 line-height 与内容完全相同，天然逐行对齐。
-// ⚠️ 行号只在**不折行**时成立：输出关掉了软换行（pre 的 white-space: pre），
-//   长行走横向滚动，与编辑器缓冲区同一个心智模型。
-const lineCount = (text) => (text ? text.split('\n').length : 0)
-const gutterText = (text) => {
-  const n = Math.max(1, lineCount(text))
-  const out = []
-  for (let i = 1; i <= n; i += 1) out.push(i)
-  return out.join('\n')
-}
-
-// 输出为空时框里显示的是系统提示（运行中 / 待运行 / 输出为空），不是数据行 —— 不给行号。
-// 只要有真实输出（哪怕只有一个换行）就照常从 1 起。
-const actualGutter = computed(() =>
-  outputView.value.text ? gutterText(outputView.value.text) : '',
-)
-
-/**
- * 行号槽跟着内容滚。内容（textarea / pre）是滚动所有者，行号槽是绝对定位的
- * `overflow: hidden` 盒子 —— 写 scrollTop 即可同步，且完全不影响自动高度。
- */
-function syncGutter(event) {
-  const ta = event.currentTarget
-  const gutter = ta.parentElement?.querySelector('.buffer__gutter')
-  if (!gutter) return
-  // 行号槽的视口必须与正文等高：textarea 的 clientHeight 已经扣掉横向滚动条，
-  // 而行号槽是普通绝对定位盒子、不会被滚动条占位。若不等高，行号槽能滚的距离
-  // 更短，滚到底部会提前停住 —— 表现就是「越往下偏得越多」。
-  gutter.style.height = `${ta.clientHeight}px`
-  gutter.scrollTop = ta.scrollTop
-}
 
 // ---------- 差异染色（2026-11-09 加；当晚改版：只改字色、两侧各标各的）----------
 // 判定口径在 services/checkers.js，差异本身在 services/outputDiff.js，这里只负责显示。
@@ -739,34 +663,28 @@ defineExpose({ syncHeight })
 </script>
 
 <template>
-  <div
-    class="card__body"
-    :class="{ 'is-workbench': workbench, 'is-vertical': vertical || bento }"
-    :data-status="testCase.status"
-    :data-roomy="roomy ? '' : null"
-  >
-    <!-- 三个字段的小标题统一走消息表（2026-11-20 用户要求）：工作台与卡片流都写
-         「输入 / 期望输出 / 实际输出」，不再出现 input / Expected / Actual 的英文标识。
-         框内的占位提示同日全部移除 —— 加载完成后应当是空白框，标题已经说明了这里是什么。 -->
+  <div class="card__body" :data-status="testCase.status" :data-roomy="roomy ? '' : null">
+    <!-- 三个字段的小标题（`.field__label`，10px、由 CSS text-transform 变大字）**刻意写死成英文**，
+         中英界面都一样：input / Expected / Actual（用户 2026-09-29 定，理由是并排的三个标签要长得
+         一致）。曾接过 i18n，同日要求**改回去**——别再顺手翻。末二词 2026-10-06 由
+         `Expected Output` / `Actual Output` 砍短：这一行本来就窄，而三个框各自都已经是
+         「标题 + 框」的结构，Output 二字没有增量信息。
+         两个占位提示（框内的灰字）则跟着语言走，见 messages/tests.js。 -->
     <div class="io">
-      <div class="field field--input">
-        <label class="field__label" :for="inputId">
-          <span class="field__name">{{ t('tests.card.field.input') }}</span>
-        </label>
-        <div class="buffer">
-          <textarea
-            :id="inputId"
-            ref="inputEl"
-            v-model="inputModel"
-            class="ta"
-            :class="{ 'ta--truncated': inputHidden > 0 }"
-            spellcheck="false"
-            wrap="off"
-            :disabled="locked"
-            @copy="onLongCopy($event, testCase.input)"
-            @contextmenu="onBoxContextMenu($event, 'input')"
-          ></textarea>
-        </div>
+      <div class="field">
+        <label class="field__label" :for="inputId">input</label>
+        <textarea
+          :id="inputId"
+          ref="inputEl"
+          v-model="inputModel"
+          class="ta"
+          :class="{ 'ta--truncated': inputHidden > 0 }"
+          spellcheck="false"
+          :placeholder="t('tests.card.inputPlaceholder')"
+          :disabled="locked"
+          @copy="onLongCopy($event, testCase.input)"
+          @contextmenu="onBoxContextMenu($event, 'input')"
+        ></textarea>
         <div v-if="inputHidden > 0" class="ionote">
           <span class="ionote__text">
             {{ t('tests.card.omitted', { n: fmt(inputHidden) }) }}
@@ -781,44 +699,40 @@ defineExpose({ syncHeight })
           </button>
         </div>
       </div>
-      <div class="field field--expected">
-        <label class="field__label" :for="expectedId">
-          <span class="field__name">{{ t('tests.card.field.expected') }}</span>
-        </label>
+      <div class="field">
+        <label class="field__label" :for="expectedId">Expected</label>
         <!-- 期望侧「有内容没被打出来」时，这一格换成只读视图：textarea 由浏览器画字，
              没法只给其中几个字符染色。点一下换回输入框（见脚本里的 editExpected）。
              ⚠️ 这一整段必须写在**同一行**里：`<pre>` 内的空白是内容，缩进会变成输出里的空格。 -->
-        <div class="buffer">
-          <pre
-            v-if="expectedSegments && !editingExpected"
-            :id="expectedId"
-            class="ta ta--view"
-            :class="{ 'ta--truncated': expectedHidden > 0 }"
-            :style="workbench || vertical || bento ? null : { maxHeight: `${px(maxIOHeight)}px` }"
-            tabindex="0"
-            @click="editExpected"
-            @keydown.enter="editExpectedByKey"
-            @copy="onLongCopy($event, testCase.expectedOutput)"
-            @contextmenu="onBoxContextMenu($event, 'expected')"
-            @mouseover="onMarkOver"
-            @mouseleave="hoverPair = -1"
-            ><span v-for="(seg, i) in expectedSegments" :key="i" :class="markClass(seg)" :data-pair="seg.pair">{{ seg.text }}</span></pre
-          >
-          <textarea
-            v-else
-            :id="expectedId"
-            ref="expectedEl"
-            v-model="expectedModel"
-            class="ta"
-            :class="{ 'ta--truncated': expectedHidden > 0 }"
-            spellcheck="false"
-            wrap="off"
-            :disabled="locked"
-            @copy="onLongCopy($event, testCase.expectedOutput)"
-            @contextmenu="onBoxContextMenu($event, 'expected')"
-            @blur="editingExpected = false"
-          ></textarea>
-        </div>
+        <pre
+          v-if="expectedSegments && !editingExpected"
+          :id="expectedId"
+          class="ta ta--view"
+          :class="{ 'ta--truncated': expectedHidden > 0 }"
+          :style="{ maxHeight: `${px(maxIOHeight)}px` }"
+          tabindex="0"
+          @click="editExpected"
+          @keydown.enter="editExpectedByKey"
+          @copy="onLongCopy($event, testCase.expectedOutput)"
+          @contextmenu="onBoxContextMenu($event, 'expected')"
+          @mouseover="onMarkOver"
+          @mouseleave="hoverPair = -1"
+          ><span v-for="(seg, i) in expectedSegments" :key="i" :class="markClass(seg)" :data-pair="seg.pair">{{ seg.text }}</span></pre
+        >
+        <textarea
+          v-else
+          :id="expectedId"
+          ref="expectedEl"
+          v-model="expectedModel"
+          class="ta"
+          :class="{ 'ta--truncated': expectedHidden > 0 }"
+          spellcheck="false"
+          :placeholder="t('tests.card.expectedPlaceholder')"
+          :disabled="locked"
+          @copy="onLongCopy($event, testCase.expectedOutput)"
+          @contextmenu="onBoxContextMenu($event, 'expected')"
+          @blur="editingExpected = false"
+        ></textarea>
         <div v-if="expectedHidden > 0" class="ionote">
           <span class="ionote__text">
             {{ t('tests.card.omitted', { n: fmt(expectedHidden) }) }}
@@ -835,39 +749,31 @@ defineExpose({ syncHeight })
       </div>
     </div>
 
-    <div v-if="showActual" class="field field--actual">
+    <div v-if="showActual" class="field">
       <span class="field__label field__label--row">
-        <span
-          v-if="workbench || vertical || bento"
-          class="field__status"
-          :data-status="testCase.status"
-          >{{ statusText }}</span
-        >
-        <span class="field__name">{{ t('tests.card.field.actual') }}</span>
-        <span class="field__head-right">
-          <!-- 两个动作包一层：这一行是三段网格，动作固定落在右端 -->
-          <span class="field__actions">
-            <!-- 把这次跑出来的实际输出誊进期望输出框（WA 之后最常用的一步）。
-                 图标是朝上的箭头（2026-10-06 由 swap 换过来）：目标框就在上面。
-                 尺寸给 14：arrow-up 的墨迹只占 14×14 个网格单位，邻居 copy 占 16.5×18，
-                 同样的 12 号下箭头会明显小一圈（7px 对 8.25×9px）。 -->
-            <button
-              class="icon-btn"
-              :title="t('tests.card.useActual')"
-              :disabled="locked || !testCase.actualOutput"
-              @click="useActualAsExpected"
-            >
-              <AppIcon name="arrow-up" :size="14" />
-            </button>
-            <button
-              class="icon-btn"
-              :title="t('tests.card.copyOutput')"
-              :disabled="locked || !outputText"
-              @click="copyOutput"
-            >
-              <AppIcon name="copy" :size="12" />
-            </button>
-          </span>
+        <span>Actual</span>
+        <!-- 两个动作包一层：这一行是 space-between，三个孩子会有一个被摊到正中间 -->
+        <span class="field__actions">
+          <!-- 把这次跑出来的实际输出誊进期望输出框（WA 之后最常用的一步）。
+               图标是朝上的箭头（2026-10-06 由 swap 换过来）：目标框就在上面。
+               尺寸给 14：arrow-up 的墨迹只占 14×14 个网格单位，邻居 copy 占 16.5×18，
+               同样的 12 号下箭头会明显小一圈（7px 对 8.25×9px）。 -->
+          <button
+            class="icon-btn"
+            :title="t('tests.card.useActual')"
+            :disabled="locked || !testCase.actualOutput"
+            @click="useActualAsExpected"
+          >
+            <AppIcon name="arrow-up" :size="14" />
+          </button>
+          <button
+            class="icon-btn"
+            :title="t('tests.card.copyOutput')"
+            :disabled="locked || !outputText"
+            @click="copyOutput"
+          >
+            <AppIcon name="copy" :size="12" />
+          </button>
         </span>
       </span>
       <!-- 外框（2026-10-26 晚）：系统提示要压在框内第一行，所以背景 / 描边 / 圆角 /
@@ -885,23 +791,19 @@ defineExpose({ syncHeight })
              `is-diffed` 只在**这一框真画出标记**时才撤掉 --fail-soft（2026-11-09 深夜收紧）：
              旧写法 `Boolean(diffMarks)` 让「纯 missing」「差异全在 4000 字符截断区外」这两种
              ACTUAL 一个字都不染的情况也改成常规字色 —— 判了 WA，实际框却和 AC 长得一样。 -->
-        <div class="buffer">
-          <pre class="buffer__gutter" aria-hidden="true">{{ actualGutter }}</pre>
-          <pre
-            class="out"
-            :class="{
-              'is-empty': !outputView.text && !actualSegments,
-              'is-hint': !outputView.text && !actualSegments && testCase.status !== 'running',
-              'is-diffed': Boolean(actualSegments),
-            }"
-            tabindex="0"
-            @scroll="syncGutter"
-            @copy="onLongCopy($event, outputText)"
-            @mouseover="onMarkOver"
-            @mouseleave="hoverPair = -1"
-            ><template v-if="actualSegments"><span v-for="(seg, i) in actualSegments" :key="i" :class="markClass(seg)" :data-pair="seg.pair">{{ seg.text }}</span></template><template v-else>{{ outputView.text || actualPlaceholder }}</template></pre
-          >
-        </div>
+        <pre
+          class="out"
+          :class="{
+            'is-empty': !outputView.text && !actualSegments,
+            'is-hint': !outputView.text && !actualSegments && testCase.status !== 'running',
+            'is-diffed': Boolean(actualSegments),
+          }"
+          tabindex="0"
+          @copy="onLongCopy($event, outputText)"
+          @mouseover="onMarkOver"
+          @mouseleave="hoverPair = -1"
+          ><template v-if="actualSegments"><span v-for="(seg, i) in actualSegments" :key="i" :class="markClass(seg)" :data-pair="seg.pair">{{ seg.text }}</span></template><template v-else>{{ outputView.text || actualPlaceholder }}</template></pre
+        >
       </div>
       <div v-if="outputView.long" class="ionote">
         <span class="ionote__text">
@@ -924,21 +826,25 @@ defineExpose({ syncHeight })
 
 <style scoped>
 .card__body {
-  /* 缓冲区专用行高（2026-11-20）：**必须是整数 px**。
-     小数行高在 textarea 里可能被浏览器按整数取整，而行号只是普通 <pre> 文本，
-     两者按不同精度落行，就会出现「越往下偏得越多」的累积错位。
-     18px ≈ 14.5px × 1.24，与原先的 17.4px 在视觉密度上几乎无差。 */
-  --case-line-h: 18px;
-  /* 2026-11-20 质感升级：左右内边距统一为 --pane-px（原右侧 6px 的 fallback 不对称），
-     上 2px / 下 12px 让标签与卡片头之间不再顶死。 */
-  padding: 2px var(--pane-px, 12px) 12px;
+  /* 无卡片之后（2026-10-24 晚），左内边距必须凑出那条 22px 的左轨：
+     12（这里）+ 1（代码面的隐性描边）+ 9（.ta 的左内边距）= 22，
+     标签靠 .field__label 的 10px 同样落到 22。标题也在 22 —— 四行字一条线。
+     右 6px：三块代码面不必顶到面板分隔条上。
+     上 0（2026-10-24 深夜再收一次，原 4px，更早是 8px）：用户又要求把标题与 INPUT 的间隔
+     再缩小一档。头栏自身的 32px 图标按钮已经比 13.5px 的标题文字高出不少，
+     标题文字底到头栏盒底本来就有约 10px 的天然留白，再叠 4px 会显得空；
+     收到 0 之后，标题到 INPUT 之间只剩头栏自身 2px 下内边距 + 标签行高自带的一点上白边。
+     下 10px：与卡片自身的 10px 下内边距合成 20px 的下半段样例间留白。
+     （折叠态把上下内边距收到 0 的那两条在 TestCaseCard 的 `.card__fold` 里 ——
+       本组件的根节点就是 `.card__body`，父组件的 scoped 规则照样命中它。） */
+  padding: 0 6px 10px 12px;
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .io {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -946,140 +852,67 @@ defineExpose({ syncHeight })
    postcss-pxtorem 不处理 at-rule 参数（见 vite.config.js），写成 px 就会脱节。 */
 @container (min-width: 35rem) {
   .io {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* 宽容器（底部横跨的评测岛约 980px）：input / Expected / Actual 三块并排。
-   判据只看容器宽度，不看停靠侧 —— 右侧岛被拖到同样宽时同样成立，与方案里
-   「用 @container 而不是 JS 判 testsPaneSide()」的口径一致。
-   做法：`.io` 退成 display: contents，它的两块字段直接成为 `.card__body` 网格项，
-   与 Actual 那一块同处一行；窄容器完全不受影响（这条规则只在 ≥56rem 生效）。
-   两列 / 三列由「实际输出有没有渲染」决定：没跑过时 Actual 不存在
-   （`v-if="showActual"`），剩两块各占一半，不把输入框无谓压窄。 */
-@container (min-width: 56rem) {
-  .card__body {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 12px;
-  }
-
-  .card__body:has(.field--actual) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .io {
-    display: contents;
+    grid-template-columns: 1fr 1fr;
   }
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
+  display: block;
   min-width: 0;
 }
 
-/* Buffer 列头（2026-11-20 方案一）：26px、下沿一条 1px 细线，右边挂行数元信息。
-   去掉了 10px uppercase / 字距 / 各种上下 margin —— 标题不再像网页表单，而是代码面板的栏头。 */
-.field__label,
+.field__label {
+  display: block;
+  /* 左 10px（2026-10-24 晚，原为 4px）：标签文字与下方代码文字落在同一条 22px 左轨上
+     （正文 12 + 10 = 22；代码面 12 + 1 + 9 = 22）。无卡片底色之后，对齐就是骨架，
+     这一处不能再让标签自行外飘。
+     写 px 让它跟着全局缩放一起走（.ta 的 9px 内边距同理，两者是同一套坐标）。
+     .field__label--row 那份（ACTUAL）同样吃到这条左内边距：它是 space-between 行，
+     左内边距只推文字、右侧动作组仍贴右缘，不会跟着左移。 */
+  padding-left: 10px;
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
 .field__label--row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex: 0 0 26px;
-  height: 26px;
-  min-height: 26px;
-  margin: 0;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--border-soft);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--text-dim);
+  justify-content: space-between;
+  /* 行高按文字行盒定死（2026-10-06）：右侧动作组是两颗 22px 的图标按钮，不干预的话
+     行高被它们撑到 22px，而 10px 标签文字的行盒只有 12px、垂直居中 → 文字底下白留 5px，
+     再叠 .field__label 的 4px 外边距，实测「文字底 → 框顶」9px，而 input / Expected
+     那两处都只有 4px，看着就是这一栏离框格外远。
+     1.4em = 14px（比 12px 行盒多 2px）：文字在行内只白留 1px。
+     margin-bottom 收到 3px（2026-10-20）：叠上那 1px，「文字底 → 框顶」与 input /
+     Expected 的 4px 完全对齐。代价：22px 按钮的底边从「正好落在框顶」变成压进框 1px
+     （下溢 4px − 外边距 3px），压住的这一条由 .field__actions 的 clip-path 剪掉，
+     否则输入框顶部那 1px 点不到（见下）。
+     margin-top 4px 是补回行高缩掉的那 4px，让上一块到 ACTUAL 文字的视觉距离仍是 11px
+     （配 .card__body 的 gap 6px，与 input → Expected 那处对齐）。 */
+  height: 1.4em;
+  margin-top: 4px;
+  margin-bottom: 3px;
 }
 
-/* 列名不参与收缩（2026-11-20）：窄岛里先让右侧结论走省略号，绝不把「实际输出」
-   折成两行撑破 26px 列头。 */
-.field__name {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-/* 实际输出列头（2026-11-20 用户要求）：状态在左、标题居中、动作在右。
-   两侧各一条 1fr 对称列，标题才落在列宽的正中，而不是被右侧动作挤偏。 */
-.field__label--row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  justify-content: normal;
-}
-
-.field__label--row > .field__status {
-  grid-column: 1;
-  justify-self: start;
-  max-width: 100%;
-}
-
-.field__label--row > .field__name {
-  grid-column: 2;
-  justify-self: center;
-}
-
-.field__label--row > .field__head-right {
-  grid-column: 3;
-  justify-self: end;
-}
-
-/* 焦点只提亮栏头文字（2026-11-20 方案一）：不画框、不发光、不做背景变化 */
-.card__body .field:focus-within > .field__label,
-.card__body .field:focus-within > .field__label--row {
-  color: var(--text);
-}
-
+/* 标签行右侧的动作组（写入期望输出 + 复制）。两个图标按钮挨着放、间距 2px ——
+   它们各自的 22px 方格里已经有留白，再拉开就显得跟标签不是一行了。
+   clip-path（2026-10-20）：行高 14px 装不下 22px 的按钮，上下各溢出 4px；行外边距
+   收到 3px 后（见 .field__label--row 的注释），按钮底边压进下方输入框 1px。inset
+   底边内收 1px 把这一条剪掉 —— clip-path 裁的不只是视觉、也裁命中测试，被剪的 1px
+   点击会落到框上；按钮本体与悬停灰块只少了贴着框的那 1px 弧线，肉眼难辨。 */
 .field__actions {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  margin-right: -2px;
+  clip-path: inset(0 0 1px 0);
 }
 
-/* ---------- 迷你 Buffer：左侧行号槽 + 无壳内容区 ---------- */
-.buffer {
-  position: relative;
-  min-height: 0;
-  background: var(--bg-panel);
-}
-
-/* 行号槽是绝对定位的滚动镜像：不参与布局高度，所以 textarea 的自动高度完全不受影响。
-   行高必须与正文共用同一个整数变量，否则 textarea 取整、pre 不取整时，
-   从第二行起就会累积错位（2026-11-20 用户反馈「越往下偏得越多」）。
-   顶部比正文多 1px（7 vs 6）：行号字号 11.5px 比正文小，在同样的行盒里
-   半行距更大、基线会高出正文 1px；补这 1px 后第一行基线才对得上。
-   底部 10px：让 scrollHeight 不小于正文（正文 6 上 + 10 下，行号 7 上 + 10 下），
-   滚动到底时行号槽不会被提前夹住。 */
-.buffer__gutter {
-  position: absolute;
-  inset: 0 auto 0 0;
-  box-sizing: border-box;
-  width: 28px;
-  margin: 0;
-  padding: 7px 6px 10px 0;
-  overflow: hidden;
-  text-align: right;
-  font-family: var(--mono-font);
-  font-size: 11.5px;
-  line-height: var(--case-line-h);
-  color: var(--text-faint);
-  opacity: 0.45;
-  user-select: none;
-  pointer-events: none;
-}
-
-/* 正文里这两颗是 22×22 的小格（头栏那两颗是 24×24）——
+/* 正文里这两颗是 22×22 的小格（头栏那两颗才是 32×32）——
    组件拆开后 .icon-btn 的底座仍留在 TestCaseCard 上，这里必须自带一份，
-   否则正文里的按钮会退回 <button> 的 UA 默认样式（渐变底 + 边框）。
-   2026-11-20：字段级工具默认收轻（0.42），悬停所在字段抬到 0.72、悬停按钮本身才到 1 ——
-   它们不该和上方「删除 / 运行」抢右上角的注意力。 */
+   否则正文里的按钮会退回 <button> 的 UA 默认样式（渐变底 + 边框）。 */
 .icon-btn {
   display: inline-grid;
   place-items: center;
@@ -1088,58 +921,46 @@ defineExpose({ syncHeight })
   padding: 0;
   border-radius: 4px;
   color: var(--text-dim);
-  opacity: 0.42;
-  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-}
-
-/* 字段级工具在悬停整块字段时先醒一半，指针落到图标上才全亮 */
-:where(html.is-hoverable) .field:hover .icon-btn:not(:disabled) {
-  opacity: 0.72;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 :where(html.is-hoverable) .icon-btn:hover:not(:disabled) {
-  opacity: 1;
   background: var(--bg-hover);
   color: var(--text);
 }
 
-/* 触屏没有悬停：0.42 会一直停在那儿，等于弱化了唯一的两个动作入口 */
-:where(html:not(.is-hoverable)) .icon-btn:not(:disabled) {
-  opacity: 0.8;
-}
-
 .icon-btn:disabled {
-  opacity: 0.28;
+  opacity: 0.35;
   cursor: default;
 }
 
-/* 输入 / 期望缓冲（2026-11-20 方案一）：
-   无边框、无圆角、无阴影、无焦点光晕、无 hover —— 与旁边的 Monaco 一样，只是一块写字的平面。
-   2026-11-20 按用户要求删掉输入 / 期望的行号槽之后，正文直接从 10px 起（左内边距 = 列头内边距，
-   两者落在同一条竖线上）；行高仍与 ACTUAL 共用 --case-line-h。 */
 .ta {
   display: block;
-  box-sizing: border-box;
   width: 100%;
+  /* 高度由脚本按内容自适应（上限 MAX_IO_HEIGHT），不再需要手动拖拽调整 */
   min-height: 76px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  padding: 8px 9px;
+  border-radius: 6px;
+  /* 只填底、不描边（2026-10-24 晚）：无框卡片之后，代码区域靠一块极弱的深色面
+     交代「这里能写 / 这里是读数」，而不是再围一圈线。描边保留 1px 透明：
+     它既撑着那条 22px 左轨的坐标（12 + 1 + 9），也是聚焦环与截断虚线的落点。 */
+  background: var(--code-block-bg);
+  border: 1px solid transparent;
   font-family: var(--mono-font);
+  /* 2026-11-05（用户要求「样例文字增大字号、缩减行距，参考题面样例的样式」）：
+     字号 13.5 → 15、行高 1.55 → 1.2；用户随后「适当减小一点字号」（15 → 14），
+     最后定为 14.5（行高保持 1.2，14.5 × 1.2 = 17.4px）。
+     行高是纯数字，不写 px：改字号时字距同比跟着走。 */
   font-size: 14.5px;
-  line-height: var(--case-line-h);
-  font-variant-ligatures: none;
-  tab-size: 2;
-  white-space: pre; /* 与 wrap="off" 同步：软换行会破坏行号对齐 */
-  color: var(--text);
-  caret-color: var(--focus);
+  line-height: 1.2;
   resize: none;
   overflow-y: hidden;
+  transition: border-color 0.15s ease;
 }
 
 .ta:focus {
   outline: none;
+  border-color: var(--focus);
 }
 
 /* 「框里装不下」的标记（见脚本里的 IO_PREVIEW_TRIGGER 与 overflow 那段）。
@@ -1150,18 +971,10 @@ defineExpose({ syncHeight })
    改成只把底边换成虚线，边框色必须从 --border-soft 提到 --border：前者在浅色主题下几乎看不见，
    1px 的虚线一旦没有对比度就完全白做。
    Actual 那块的虚线画在 `.out-box` 上：描边是外框的属性，`<pre>` 只是内容区。 */
-/* 超长截断指示（2026-11-20）：不再用会沿圆角拐弯的 dashed 底边，
-   改成框内底部一条极细的渐变虚线 —— 圆角与无边框的纵向模式都能干净呈现。 */
 .ta--truncated,
 .out-box.is-truncated {
-  background-image: repeating-linear-gradient(
-    to right,
-    color-mix(in srgb, var(--text-faint) 42%, transparent) 0 4px,
-    transparent 4px 8px
-  );
-  background-size: calc(100% - 20px) 1px;
-  background-position: center bottom 2px;
-  background-repeat: no-repeat;
+  border-bottom-style: dashed;
+  border-bottom-color: var(--border);
 }
 
 /* 提示行：左边一句说明，右边「复制全部」。**只有截断态才有这一行** —— 那一行既是说明、
@@ -1185,10 +998,13 @@ defineExpose({ syncHeight })
   text-overflow: ellipsis;
 }
 
-/* 输出外框只负责把「诊断提示 + 缓冲区」放在一起：没有底色 / 描边 / 圆角 */
+/* Actual 的外框：承载底色、描边、圆角与截断虚线，`<pre>` 退成内容区（见模板注释）。 */
 .out-box {
-  position: relative;
-  min-height: 0;
+  border-radius: 6px;
+  background: var(--code-block-bg);
+  border: 1px solid transparent;
+  /* 让 `<pre>` 的滚动条也落在圆角里，不在四个角上露出直角 */
+  overflow: hidden;
 }
 
 /* 框内顶部的系统提示（目前只有编译期诊断：「源码含除以零…输出结果不可预期」）。
@@ -1240,17 +1056,17 @@ defineExpose({ syncHeight })
   min-height: 76px;
   max-height: 360px;
   overflow: auto;
-  padding: 6px 10px 6px 24px;
+  padding: 8px 9px;
+  /* 底色 / 描边 / 圆角都在 .out-box 上：外框要能包住框内顶部那行提示 */
   font-family: var(--mono-font);
+  /* 与 .ta 同档（2026-11-05）：输出框读的是同一批样例数字，两个框的字号 / 行距必须一致，
+     否则同一条用例的输入与输出在视觉上不是一家。 */
   font-size: 14.5px;
-  line-height: var(--case-line-h);
-  font-variant-ligatures: none;
-  tab-size: 2;
-  white-space: pre;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  word-break: break-word;
   color: var(--text);
   cursor: text;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text-faint) 30%, transparent) transparent;
 }
 
 /* 外框的 `overflow: hidden` 会把浏览器画在 `<pre>` 外面的默认 outline 裁掉，
@@ -1260,8 +1076,14 @@ defineExpose({ syncHeight })
   outline: none;
 }
 
-/* ---------- 判定态（2026-11-20）：轻语义底色 + 轻边框，文字克制不刺眼 ---------- */
-/* 判定色只落在文字上（2026-11-20 方案一）：绝不把整块缓冲区铺成淡绿 / 淡红 */
+.out-box:has(.out:focus) {
+  border-color: var(--focus);
+}
+
+/* ---------- 判定色：AC 绿 / WA 红（2026-10-26 晚）
+   判据挂在**本组件根节点**的 data-status 上（由外壳透传的状态来），不是卡片根节点 ——
+   正文拆出来之后，卡片那层的 `[data-status]` 已经不在 `.out` 的祖先链上了。
+   特异性与卡片上的原写法同档（0,3,0），下面 `.out.is-empty.is-hint` 靠「定义在它之后」才盖得住。 */
 .card__body[data-status='passed'] .out {
   color: var(--ok-soft);
 }
@@ -1271,21 +1093,26 @@ defineExpose({ syncHeight })
   color: var(--fail-soft);
 }
 
+/* 有差异可指时，ACTUAL 正文回到常规字色（2026-11-09 晚）：整框的淡红（--fail-soft）
+   会把红 / 黄标记衬得没有对比 —— 浅色主题里 --fail-soft #a02a22 与 --fail #c93c2c
+   几乎分不出来。判定结论仍由徽标交代，框里只负责「指到哪几个字符」。 */
 .card__body[data-status='failed'] .out.is-diffed {
   color: var(--text);
 }
 
-/* 空输出提示：用 UI 字体，与真实等宽数据划清界线 */
 .out.is-empty {
-  font-family: var(--ui-font);
-  font-size: 12px;
   color: var(--text-faint);
-  opacity: 0.72;
 }
 
+/* 「输出为空」（跑完了、程序什么也没打印）：同一类系统提示，与框内顶部那行同一套长相。
+   「运行中…」不算 —— 它是状态不是结论，且颜色一变会像已经给出了结果，所以留在 faint。
+   字号小一号是因为它占的是正文的位置却没有正文可读，抢眼会让人以为程序打印了这句话。
+   **两段类名是必要的**：`.card__body[data-status='passed'] .out` 把整个 `<pre>` 染成判定色
+   （AC 绿 / WA 红），单写 `.out.is-hint` 特异性不够、会被它压成绿的（实测踩到）。
+   写满三个类与它打平，靠「定义在它之后」才赢 —— 这块规则别往上挪。 */
 .out.is-empty.is-hint {
   color: var(--hint-goose);
-  opacity: 0.9;
+  font-size: 12px;
 }
 
 /* ---------- 差异染色（2026-11-09 加；当晚由「铺底色」改成「只换字色」）----------
@@ -1330,8 +1157,9 @@ defineExpose({ syncHeight })
    除了 pre 必须自己声明的空白处理，尺寸全部沿用 .ta —— 两个形态要看得出是同一个框。 */
 .ta--view {
   margin: 0;
-  overflow: auto;
-  white-space: pre;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
   cursor: text;
 }
 
@@ -1339,13 +1167,13 @@ defineExpose({ syncHeight })
    容器是 TestPanel 里 .cases 的 inline-size（约等于面板宽度 − 16px 内边距 − 滚动条）。
    正文这一侧只在两档上让步，头栏那两档（gap / 「结果待重测」）留在 TestCaseCard 里。 */
 @container (max-width: 22.5rem) {
-  /* 正文：左内边距跟 --pane-px 走（侧栏回落 12px）—— 左轨不能因为面板变窄就断掉；
+  /* 正文：左内边距与基础值同为 12px —— 22px 的左轨不能因为面板变窄就断掉；
      省宽度从右侧出。纵向与基础值一致（上 0 / 下 10），标题与 INPUT 的间隔不因窄屏变大。
      gap 4px 配 .io 的 8px：Actual 那行标签行高定死在 1.4em = 14px、文字白留 1px，
      另有 margin-top 4px（见 .field__label--row 的注释），
      所以 4 + 4 + 1 = 9px，与 input → Expected 那处的 8 + 1 = 9px 齐平。 */
   .card__body {
-    padding: 0 var(--pane-px, 6px) 10px var(--pane-px, 12px);
+    padding: 0 6px 10px 12px;
     gap: 4px;
   }
 
@@ -1366,326 +1194,6 @@ defineExpose({ syncHeight })
 @container (max-width: 15.625rem) {
   .ionote:has(.ionote__btn) .ionote__text {
     display: none;
-  }
-}
-
-/* ------------------------------------------------------------ 工作台档（方案一） */
-/* 三列并排、满高、贴边：不再有圆角小黑框，也不再按内容自适应高度。
-   整块正文就是三块编辑器面板，列与列之间只用 1px 发丝线分开
-   （与 VS Code 的 Diff View / Zed 的面板同一套结构语汇）。 */
-.card__body.is-workbench {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-  height: 100%;
-  min-height: 0;
-  padding: 0;
-}
-
-/* `.io` 原来只是两列输入框的容器；工作台里它退成透明，让三块字段直接成为网格项 */
-.card__body.is-workbench .io {
-  display: contents;
-}
-
-.card__body.is-workbench .field {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-
-/* 1px 竖分割线：Expected 与 Actual 各画一条在左沿；Input 是首列，不画 */
-.card__body.is-workbench .io .field + .field,
-.card__body.is-workbench .field--actual {
-  border-left: 1px solid var(--border-soft);
-}
-
-/* 列头：12px 常规字重、一句话一种语言（不再叠英文大写标签）。
-   高度走 --workbench-head-h，与左侧轨页头严格同高 —— 两排文字落在一条水平线上。 */
-.card__body.is-workbench .field__label,
-.card__body.is-workbench .field__label--row {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  height: var(--workbench-head-h, 34px);
-  margin: 0;
-  /* 默认左右各 12px；只有「输入 / 期望输出」再右移 10px（见下一条）。
-     实际输出列头保持原位（2026-11-20 用户修正）。 */
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-dim);
-}
-
-/* 输入 / 期望的标题与正文现在起在同一条 12px 竖线上（2026-11-20 删掉行号槽后不再需要偏移） */
-
-.card__body.is-workbench .field__head-right {
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 0;
-}
-
-/* ACTUAL 列头的运行结论：状态由 TestCaseTabs 的 36px 状态栏搬到这里 */
-.card__body.is-workbench .field__status {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-faint);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.card__body.is-workbench .field__status[data-status='passed'] {
-  color: var(--ok);
-}
-
-.card__body.is-workbench .field__status[data-status='failed'] {
-  color: var(--fail);
-}
-
-.card__body.is-workbench .field__status[data-status='error'] {
-  color: var(--err);
-}
-
-.card__body.is-workbench .field__status[data-status='running'] {
-  color: var(--info);
-}
-
-/* 散工具贴着列头右沿（12px 内边距）对齐，不再为旧状态栏的 8px 右缘做补偿 */
-.card__body.is-workbench .field__actions {
-  margin-right: 0;
-  clip-path: none;
-}
-
-/* 三个数据面：撑满字段剩余高度，横向节奏与列头同一条竖线（列头 12px → 缓冲区 8 + 4）。
-   行号槽计在缓冲区内部，所以内边距的 24px 由 .ta / .out 自己让出（槽 28 宽、数字右端到正文 2px）。 */
-.card__body.is-workbench .buffer {
-  flex: 1 1 auto;
-  display: flex;
-  min-height: 0;
-  /* 左边不再缩进：输入区的可见底边与上方列头左端对齐（2026-11-20 用户要求往左推） */
-  margin: 0 8px 8px 0;
-}
-
-.card__body.is-workbench .buffer > .ta,
-.card__body.is-workbench .buffer > .out {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
-}
-
-.card__body.is-workbench .ta {
-  height: auto;
-  padding: 6px 8px 8px 12px;
-  overflow: auto;
-}
-
-.card__body.is-workbench .out-box {
-  display: flex;
-  flex: 1 1 auto; /* 与纵向同理：撑满列高，buffer 才有可用的高度 */
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.card__body.is-workbench .out {
-  flex: 1 1 auto;
-  height: auto;
-  min-height: 0;
-  max-height: none;
-  padding: 6px 8px 8px 24px;
-  overflow: auto;
-}
-
-/* 「运行后在此显示输出」是引导语，不是系统结论 —— 不用鹅黄，退到最淡一档 */
-.card__body.is-workbench[data-status='idle'] .out.is-empty.is-hint {
-  color: var(--text-faint);
-}
-
-.card__body.is-workbench .ionote {
-  margin: 0 8px 8px;
-  padding: 0 4px;
-}
-
-/* ---------------------------------------------------------- 纵向停靠档（方案二） */
-/* 左右停靠的评测岛（约 450~550px 宽）：上「输入」全宽、下「期望 | 实际」并排。
-   2026-11-20 Bento：不再用通栏 1px 十字线（那条线会顶穿大圆角外壳，把悬浮岛切成表格），
-   三块字段改成独立的圆角槽位 —— gap 6px 分开、各自一圈极淡描边 + 微底色。
-   岛外壳可见圆角 10px、槽位 6px、底栏按钮 6px、页签关闭键 4px，从外到内递减。
-   极窄（<340px）兜底：三行平分满高，见下面容器查询之前的默认值。 */
-.card__body.is-vertical {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: repeat(3, minmax(70px, 1fr));
-  gap: 6px;
-  height: 100%;
-  min-height: 0;
-  padding: 0;
-}
-
-/* `.io` 退成透明，两个输入字段直接成为网格项（与工作台同一手） */
-.card__body.is-vertical .io {
-  display: contents;
-}
-
-/* 独立圆角槽位：描边比 --border-soft 再淡一档，底色只压 ~6% 的代码面，
-   静息时像一块「嵌进岛里的凹槽」，不靠通栏线划界。 */
-.card__body.is-vertical .field {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border: 1px solid color-mix(in srgb, var(--border-soft) 65%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--code-block-bg) 60%, transparent);
-  overflow: hidden;
-  transition: border-color 0.14s ease, background-color 0.14s ease;
-}
-
-/* 聚焦反馈落在槽位描边上：不改几何、不发光，只把边界提一档 */
-.card__body.is-vertical .field:focus-within {
-  border-color: var(--border);
-}
-
-/* Buffer 原本铺 --bg-panel（与岛面同色），会把槽位底色完全盖掉 —— 在纵向档里让位 */
-.card__body.is-vertical .buffer {
-  background: transparent;
-}
-
-/* 列头 26px：与基础 Buffer 栏头同高，右端挂单样例结论（AC · 0.1ms）与两颗字段级工具。
-   2026-11-20 用户要求：纵向满铺里列头不再画下边线 —— 字段之间已有槽位间隙，列头只做标题。 */
-.card__body.is-vertical .field__label,
-.card__body.is-vertical .field__label--row {
-  flex: 0 0 26px;
-  height: 26px;
-  min-height: 26px;
-  margin: 0;
-  padding: 0 10px;
-  border-bottom: 0;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
-}
-
-.card__body.is-vertical .field__head-right {
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 0;
-}
-
-/* 单样例结论：挂在「实际输出」列头右侧，语义最贴切、零额外占高（状态行已让位给满高分栏） */
-.card__body.is-vertical .field__status {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-faint);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.card__body.is-vertical .field__status[data-status='passed'] {
-  color: var(--ok);
-}
-
-.card__body.is-vertical .field__status[data-status='failed'] {
-  color: var(--fail);
-}
-
-.card__body.is-vertical .field__status[data-status='error'] {
-  color: var(--err);
-}
-
-.card__body.is-vertical .field__status[data-status='running'] {
-  color: var(--info);
-}
-
-.card__body.is-vertical .field__actions {
-  margin-right: -4px;
-}
-
-/* 满铺态：缓冲区直接铺满分栏，没有壳子装饰 */
-.card__body.is-vertical .buffer {
-  flex: 1 1 0;
-  display: flex;
-  min-height: 0;
-}
-
-.card__body.is-vertical .buffer > .ta,
-.card__body.is-vertical .buffer > .out {
-  flex: 1 1 0;
-  width: 100%;
-  min-height: 0;
-}
-
-.card__body.is-vertical .ta {
-  height: auto;
-  padding: 6px 12px 10px 10px;
-  overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text-faint) 30%, transparent) transparent;
-}
-
-.card__body.is-vertical .out-box {
-  display: flex;
-  flex: 1 1 0; /* 关键：满高分栏里它必须吃掉字段剩余高度，否则 buffer 高度为 0、输出被裁空 */
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.card__body.is-vertical .out {
-  flex: 1 1 0;
-  height: auto;
-  min-height: 0;
-  max-height: none;
-  padding: 6px 12px 10px 24px;
-  overflow: auto;
-}
-
-.card__body.is-vertical .ionote {
-  margin: 0 10px 8px;
-  padding: 0;
-}
-
-/* 纵向岛常规宽度（≥340px）：上 45% / 下 55%，下半区「期望 | 实际」并排。
-   ⚠️ 340px 是竖长条下还能并排读两列的下限；再窄就回退到上面的三行叠放。
-   容器是 TestCaseTabs 的 .tabs-view（inline-size = 面板宽），与正文逐像素相同。 */
-@container (min-width: 21.25rem) {
-  .card__body.is-vertical {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: minmax(90px, 0.9fr) minmax(110px, 1.1fr);
-    gap: 6px;
-  }
-
-  .card__body.is-vertical .field--input {
-    grid-column: 1 / -1;
-  }
-
-  /* 尚未运行时没有实际输出，期望输独占下半区（同样饱满，不留空列） */
-  .card__body.is-vertical .field--expected {
-    grid-column: 1 / -1;
-  }
-
-  /* 有实际输出时，下半区左右 50/50 劈开，靠槽位间隙分栏（不再画竖线） */
-  .card__body.is-vertical:has(.field--actual) .field--expected {
-    grid-column: 1 / 2;
-  }
-
-  .card__body.is-vertical .field--actual {
-    grid-column: 2 / 3;
   }
 }
 </style>

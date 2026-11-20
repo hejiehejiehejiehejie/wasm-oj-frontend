@@ -229,6 +229,9 @@ export default {
           expected: '期望输出',
           actual: '实际输出',
         },
+        /** 卡片流两个框内的占位提示（2026-11-20 卡片流恢复原版后重新启用；分项视图不用） */
+        inputPlaceholder: '输入',
+        expectedPlaceholder: '期望输出',
         /** 工作台里 ACTUAL 还没跑过时框内的引导语（跑过但为空仍用 emptyOutput） */
         outputIdle: '运行后在此显示输出',
 
@@ -482,12 +485,14 @@ export default {
         useActual: 'Write actual output to Expected',
         emptyOutput: 'No output',
 
-        // 与 zh-CN 那栏严格对应：三个小标题走本表，框内不再有任何占位提示。
+        // 与 zh-CN 那栏严格对应：三个小标题走本表，占位提示只给卡片流用。
         field: {
           input: 'Input',
           expected: 'Expected',
           actual: 'Actual',
         },
+        inputPlaceholder: 'input',
+        expectedPlaceholder: 'Expected output',
         outputIdle: 'Run to see the output here',
 
         /** Same as zh-CN: right-click menu on the input / expected boxes */

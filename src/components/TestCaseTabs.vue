@@ -17,7 +17,7 @@ import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
 import ContextMenu from './ContextMenu.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
-import TestCaseBody from './TestCaseBody.vue'
+import TestCaseBody from './TestCaseBodyPane.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { useScrollEdge } from '../composables/useScrollEdge.js'
 import {
