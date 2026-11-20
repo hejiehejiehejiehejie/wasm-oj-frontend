@@ -341,6 +341,11 @@ const PATHS = {
 // 四枚品牌字标不在 Lucide 里、也都在 24 网格之外，保留各自的原始路径与收框。
 const SOLID_PATHS = {
   /**
+   * 实心播放三角（2026-11-20 用户指定，16 网格）：紧凑底栏「运行当前」用它。
+   * 10px 下空心线框像原型，实心才像成品工具；其他地方（工作台 / 页头）的线性 play 不动。
+   */
+  'play-solid': ['M4.5 3.6c0-.6.65-.97 1.16-.65l7.2 4.4a.76.76 0 0 1 0 1.3l-7.2 4.4c-.51.32-1.16-.05-1.16-.65V3.6Z'],
+  /**
    * 鼠标指针（2026-11-17 加，用户口径「单击换成鼠标的指针的 logo」）。**唯一一枚非品牌字形**，
    * 也是这里唯一一次自绘 —— 它只服务右键菜单「打开题目」的右列：那颗不是组合键，而是
    * 「⌘ / Ctrl + 单击这一行」这个手势，原先写的是「单击」/ `Click` 两个词，占宽，且与隔壁
@@ -381,9 +386,13 @@ const SOLID_PATHS = {
   ],
 }
 
-// 只有上面这四枚需要额外收框（原始网格不是 24，或者铺满 24 网格比描边图标宽一档）。
-// Lucide 的 62 枚全都自带 24 网格，**不再有任何 viewBox 例外**。
+// 只有下面这几枚需要额外收框（原始网格不是 24，或者铺满 24 网格比描边图标宽一档）。
+// Lucide 的 62 枚全都自带 24 网格，**不再有任何 viewBox 例外**；两枚 16 网格的播放图标
+// 是 2026-11-20 单独收进来的用户字形，也不属于 Lucide 体系。
 const VIEWBOX = {
+  // 2026-11-20 用户指定的 16 网格实心播放图标，不能套 Lucide 的 24 网格。
+  'play-solid': '0 0 16 16',
+  'run-all': '0 0 16 16',
   // cpp：32 网格，墨迹 17.8×16.1。收进边长 22 的方框，视觉大小才和 folder / file 一档。
   // min-x 4.6 → 4.733：字形左半是实心「C」、右半是两枚细「+」，墨迹重心比外框中心偏左，
   // 往前挪 1.47 个单位（15px 下约 1px）把视觉重心摆回正中 —— 这是实心字形的光学补偿，
@@ -405,9 +414,24 @@ const props = defineProps({
   strokeWidth: { type: [Number, String], default: 2 },
 })
 
-const solid = computed(() => props.name in SOLID_PATHS)
+/**
+ * 需要保留「填充 + 描边」混合子路径的图标：直接给整段内部 SVG。
+ * 走 `d` 数组的话，子路径自带的 fill/stroke 会被外层统一覆盖。
+ */
+const CUSTOM_INNER = {
+  /**
+   * 运行全部（2026-11-20 用户指定）：实心三角 + 右侧错位折线，
+   * 对齐 VS Code codicon-run-all 的「批量」语义，不会读成播放器的快进。
+   */
+  'run-all':
+    '<path d="M2.2 4c0-.58.62-.94 1.12-.63l5.7 3.98a.76.76 0 0 1 0 1.3l-5.7 3.98c-.5.31-1.12-.05-1.12-.63V4Z"/>' +
+    '<path d="M7.4 3.8 12.8 8l-5.4 4.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.72"/>',
+}
+
+const solid = computed(() => props.name in SOLID_PATHS || props.name in CUSTOM_INNER)
 
 function inner(name) {
+  if (name in CUSTOM_INNER) return CUSTOM_INNER[name]
   const paths = solid.value ? SOLID_PATHS[name] : PATHS[name]
   return (paths ?? [])
     .map((d) => `<path d="${d}"/>`)

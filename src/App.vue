@@ -58,10 +58,14 @@ import { modelManager } from './services/monaco/modelManager.js'
 import {
   PANES_STORAGE_KEY,
   closeEmptyPane,
+  closeTestsPane,
+  editorLeaves,
   enablePanesPersistence,
   fileTabs,
   focusedLeaf,
+  hasTestsPane,
   leaves,
+  openTestsPane,
   restorePanes,
   splitPane,
 } from './services/editorPanes.js'
@@ -94,6 +98,7 @@ import {
   isNarrowLayout,
   narrowCollapseSide,
   panelPosition,
+  setTestsPanePlacement,
   uiScalePref,
 } from './services/shellSettings.js'
 
@@ -334,6 +339,11 @@ const running = ref(false)
  * 判据取自布局真源（editorPanes 的叶子数），不另存一份状态。
  */
 const paneSplit = computed(() => leaves().length > 1)
+/**
+ * 评测样例是否已移出为编辑区窗格（单活：此时侧栏那页只显示占位，不再挂第二份 TestPanel）。
+ * 真源仍是布局树，这里只是让模板与 runAll 读得到同一个响应式结论。
+ */
+const testsPaneOpen = computed(() => hasTestsPane())
 const editorPaneStyle = computed(() => ({
   order: panelPosition.value === 'right' ? 1 : 3,
   // 像素直连拖拽期间：编辑器只负责填满剩余空间（面板宽由 tests 的像素 flex-basis 定死），
@@ -994,6 +1004,35 @@ function revealTestsPanel() {
   selectSidebarPanel('tests')
 }
 
+/**
+ * 侧栏「评测」入口拖进编辑区 → 编辑区评测岛（单活）。
+ *
+ * 落点在左侧 / 右侧 / 底部带时顺手把停靠侧记下来（与拖动岛页头同一个出口），落在编辑区其它
+ * 位置按上次记忆 / 自动侧打开。成功移出后把侧栏切回资源管理器：经典三栏立刻成型，
+ * 侧栏也回到「文件独占」（评测岛开着时侧栏本来就不该留评测页签）。
+ * @param {'left'|'right'|'bottom'|'editor'} side
+ */
+function openTestsPaneFromSidebar(side) {
+  if (side === 'left' || side === 'right' || side === 'bottom') setTestsPanePlacement(side)
+  const id = openTestsPane()
+  if (!id) {
+    notify({ type: 'info', message: t('app.splitLimit'), duration: 2600, tag: 'split-editor' })
+    return
+  }
+  sidebarRef.value?.showPanel('explorer')
+}
+
+/**
+ * 编辑区评测岛 → 停靠回侧栏（拖动页头落到侧栏 / 活动栏上方松手）。
+ *
+ * 摘掉岛之后走 `selectSidebarPanel` 而不是 `showPanel`：拖过去的意图就是「要看见它」，
+ * 侧栏若折叠着就顺带展开 —— 只切页签的话整座岛会像凭空消失。
+ */
+function dockTestsPane() {
+  closeTestsPane()
+  selectSidebarPanel('tests')
+}
+
 // 快捷键版的「翻到另一个面板」。侧栏收起着就先把它捞回来 —— 否则按下去什么也看不见，
 // 会被当成快捷键没生效。真正的翻面还是交给 Sidebar.vue 的 togglePanel（它负责动画与落盘）。
 // instant 由调用方传（题解全屏退出那一下布局是跳变的，见 SHORTCUT_HANDLERS）。
@@ -1391,7 +1430,9 @@ async function runAll() {
   // 保证「没有判题语言就绝不进编译」这条不依赖 UI 是否画对
   if (!activeLanguage.value) return
 
-  revealTestsPanel()
+  // 保证「看得到结果」：评测岛开在编辑区时它就在眼前，侧栏此时也只剩文件页，
+  // 不必（也无法）把侧栏翻到评测页
+  if (!testsPaneOpen.value) revealTestsPanel()
   running.value = true
   abortController = new AbortController()
   const signal = abortController.signal
@@ -1568,7 +1609,7 @@ watch(
 function toggleSplitPane() {
   const pane = focusedLeaf()
   if (!pane) return
-  if (pane.tabs.length === 0 && leaves().length > 1) {
+  if (pane.tabs.length === 0 && editorLeaves().length > 1) {
     closeEmptyPane(pane.id)
     return
   }
@@ -2192,6 +2233,13 @@ onBeforeUnmount(() => {
           :judge="judgeSettings"
           :connection="connection"
           :ui-scale="uiScalePref"
+          :cases="testCases"
+          :running="running"
+          :elapsed="elapsed"
+          :run-blocked="runBlockedReason"
+          :notice="emptyNotice"
+          :show-submit="showSubmit"
+          :submitting="submitting"
           @update:settings="updateEditorSettings"
           @update:time-limit="timeLimitMs = $event"
           @update:memory-limit="memoryLimitBytes = $event"
@@ -2202,6 +2250,13 @@ onBeforeUnmount(() => {
           @update-base="updateBase"
           @test-connection="testConnection"
           @shortcut="runShortcutAction"
+          @add="addCase"
+          @remove="removeCase"
+          @run-one="runOne"
+          @run-all="runAll"
+          @submit="requestSubmitConfirmation"
+          @dock-tests="dockTestsPane"
+          @open-tests="openTestsPaneFromSidebar"
         />
         <!-- 全站通知（toast）：锚在编辑区右下角（容器 absolute，含块 = 本栏）。
              不用视口右下角：侧边栏可停靠右侧，浮层会盖在侧栏上。
@@ -2251,7 +2306,11 @@ onBeforeUnmount(() => {
               <FileExplorer ref="fileExplorer" @drag-out="collapsePanelForTreeDrag" />
             </template>
             <template #tests>
+              <!-- 单活：评测岛在编辑区时，侧栏由资源管理器独占（评测页签在 Sidebar 里
+                   直接不可用），这里绝不挂第二份 TestPanel —— 双实例会双触发快捷键、
+                   双纸屑、双 ResizeObserver，并让本地 UI 状态漂移。 -->
               <TestPanel
+                v-if="!testsPaneOpen"
                 :cases="testCases"
                 :running="running"
                 :elapsed="elapsed"
@@ -2526,6 +2585,9 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   box-shadow: var(--island-rim);
 }
+
+/* 侧栏评测页的占位态已随「岛在编辑区 → 侧栏由文件独占」一并删除：
+   评测页签此时根本不可用，不需要一句「已在编辑区打开」的说明。 */
 
 .pane--tests {
   flex: 1 1 auto;
@@ -3032,5 +3094,61 @@ onBeforeUnmount(() => {
 ::view-transition-group(pane-tests) {
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 评测拖动期间（EditorPaneGrid / testsPaneDrag 给 body 挂的类）：指针无论移到哪儿都保持
+   抓取光标，并禁掉文本选择 —— 从侧栏「评测」段或岛页头起手时都不会拖出一片蓝色选区。
+   放在全局块里 —— body 不是任何组件模板的一部分。 */
+body.is-tests-pane-dragging,
+body.is-tests-pane-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* 「拎起」反馈（2026-11-20 方案四）：跨过阈值、真正开始拖时整座评测岛降到 0.45，
+   松手 / Esc 后恢复。放在全局块里 —— `:global(body…) .tests-pane` 在 scoped CSS 中
+   会被编译成只剩 body 选择器，后代那个类会丢（实测）。 */
+body.is-tests-pane-dragging .tests-pane {
+  opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+
+/* 评测岛拖到侧栏上方：展开的整座侧栏、折叠态的活动栏都整片亮起来。
+   「能放回去」这件事必须落在指针所在的那一块上 —— 编辑区里那枚
+   「松开以停靠回侧边栏」的胶囊在指针移到侧栏时已经离得很远。
+   2026-11-19 晚按用户要求去掉外圈描边：用一层大面积半透明填色盖满整块
+   （::before 盖在内容之上），与编辑区落点带同一种 --bg-drop-root。
+   两份 DOM 分别对应两种形态：展开看 .pane--tests，折叠看 .activity-bar。 */
+body.is-tests-drop-sidebar .pane--tests::before,
+body.is-tests-drop-sidebar .activity-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  border-radius: inherit;
+  background: var(--bg-drop-root);
+  pointer-events: none;
+}
+
+/* 活动栏平时没有定位上下文，伪元素要落满它得先补一个 */
+body.is-tests-drop-sidebar .activity-bar {
+  position: relative;
+}
+
+/* 折叠态竖向活动栏：栏宽 44、方块宽 40。左停靠时方块贴左（左 0、右侧剩 4），
+   高亮往左探 4px 成 48px 宽，方块正好在高亮里居中；右停靠镜像到右边。
+   栏本身 overflow: hidden 会裁掉探出的那 4px，拖动期间放开。
+   窄屏横排（is-narrow）不适用，保持原样贴边。 */
+:where(html:not(.is-narrow)) body.is-tests-drop-sidebar .activity-bar {
+  overflow: visible;
+}
+
+:where(html:not(.is-narrow)) body.is-tests-drop-sidebar .activity-bar::before {
+  left: -4px;
+}
+
+:where(html:not(.is-narrow)) body.is-tests-drop-sidebar .activity-bar[data-side='right']::before {
+  left: 0;
+  right: -4px;
 }
 </style>

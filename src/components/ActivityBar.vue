@@ -45,9 +45,10 @@ import {
 import { countdown } from '../services/countdown.js'
 import { codeforcesTab, settingsTab } from '../services/editorViews.js'
 import { flipPanelPosition, isNarrowLayout } from '../services/shellSettings.js'
+import { beginTestsPaneDrag, consumeTestsPaneDragClick } from '../services/testsPaneDrag.js'
 
 const props = defineProps({
-  /** Sidebar 透传的面板表：{ id, icon, label, active } */
+  /** Sidebar 透传的面板表：{ id, icon, label, active, detached } */
   panels: { type: Array, default: () => [] },
   /**
    * 侧栏停靠在哪一侧。本组件只用它判一件事：上簇 hover 时那枚小 chevron 指哪边
@@ -56,7 +57,24 @@ const props = defineProps({
    */
   panelPosition: { type: String, default: 'left' },
 })
-defineEmits(['select'])
+const emit = defineEmits(['select'])
+
+/**
+ * 「评测」格是拖出口（2026-11-19 用户口径：去掉「在编辑区打开」按钮，拖它进编辑区
+ * 就变成岛）；点按仍是「展开侧栏并切到该面板」，拖动后的 click 由服务吞掉。
+ *
+ * 外置态（`detached`，评测岛已经在编辑区）不再起手拖：那颗格子的点按语义已经
+ * 变成「把评测收回来」（App 的 selectSidebarPanel → Sidebar.showPanel 走同一条），
+ * 再拖只会走一遍「发现岛已开着 → 把侧栏翻回文件」的空动作。
+ */
+function onPanelPointerDown(event, panel) {
+  if (panel.id === 'tests' && !panel.detached) beginTestsPaneDrag(event, 'sidebar')
+}
+
+function onPanelClick(id) {
+  if (consumeTestsPaneDragClick()) return
+  emit('select', id)
+}
 
 // ------------------------------------------------------------ 图标尺寸
 // 2026-11-11 图标库整体换成 Lucide 之后，这一节从「三步换算」缩成了两行。
@@ -255,12 +273,14 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
         :key="panel.id"
         type="button"
         class="activity-bar__item"
-        :class="{ 'is-active': panel.active }"
+        :class="{ 'is-active': panel.active, 'is-detached': panel.detached }"
         :data-panel="panel.id"
-        :title="panel.label"
-        :aria-label="panel.label"
+        :data-detached="panel.detached ? 'true' : null"
+        :title="panel.detached ? t('app.sidebar.dockTests') : panel.label"
+        :aria-label="panel.detached ? t('app.sidebar.dockTests') : panel.label"
         :aria-pressed="panel.active"
-        @click="$emit('select', panel.id)"
+        @pointerdown="onPanelPointerDown($event, panel)"
+        @click="onPanelClick(panel.id)"
       >
         <AppIcon :name="panel.icon" v-bind="iconOptics(panel.icon)" />
       </button>
@@ -455,6 +475,57 @@ const visiblePins = computed(() => (isNarrowLayout() ? [] : pinnedComponents.val
    与全局规则同档，胜负就由注入顺序决定了。 */
 .activity-bar__item:focus-visible {
   outline-offset: -1px;
+}
+
+/* 外置态（2026-11-20）：评测岛在编辑区里，这一格点下去是「把评测收回来」，
+   不再是「切到评测」。不加角标（同日用户要求去掉那枚蓝点）：只保留图标降档这一条 ——
+   - 图标停到 --text-dim：它仍是可点的动作，比闲置档（--text-faint）亮一档；
+   - 别占用 ::after —— 面板格那枚 hover 才浮出的 chevron 在用它（见下面「行为差异」段）。
+   ⚠️ 深色主题那条闲置档压在 (0,2,0)，这里 (0,3,0) 才盖得住。 */
+.activity-bar__item.is-detached {
+  color: var(--text-dim);
+}
+
+/* 外置格仍是可点的动作：hover 要回到与普通格同一档的 --text。
+   上面那条 (0,3,0) 与基础 hover 的 `:where(…) .activity-bar__item:hover` 同分，
+   而基础 hover 在源码里更靠前 —— 不补这一条就会被 is-detached 压住。 */
+:where(html.is-hoverable) .activity-bar__item.is-detached:hover {
+  color: var(--text);
+}
+
+/* 「评测」格还是侧栏里的一格时，它是**拖出口**（拖进编辑区就变成评测岛）。
+   悬停时右上角浮出一枚 2×3 六点把手，与胶囊「评测」段、评测岛页头那颗 grip
+   同一套语言 —— 表达「这一格可以拖走」，而不只是点开侧栏。
+   - 用 radial-gradient 平铺六个点，不额外塞 DOM、不吃可点区（absolute + pointer-events: none）；
+   - 常时透明，只在可 hover 的设备上悬停才出现，透明度 0.38（比胶囊那段再浅一点：
+     这里旁边还有 hover 才浮出的 chevron，两枚标记不能抢）；
+   - 外置态没有可拖的东西，不画（判据 :not(.is-detached)）；
+   - ::before 是空的（那枚蓝点已于同日移除），::after 仍留给 chevron，互不占用。
+   光标同步成 grab / grabbing，与胶囊「评测」段的拖拽提示一致。 */
+.activity-bar__item[data-panel='tests']:not(.is-detached) {
+  cursor: grab;
+}
+
+.activity-bar__item[data-panel='tests']:not(.is-detached):active {
+  cursor: grabbing;
+}
+
+.activity-bar__item[data-panel='tests']:not(.is-detached)::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 5px;
+  width: 6px;
+  height: 10px;
+  background-image: radial-gradient(circle, currentColor 0.9px, transparent 1px);
+  background-size: 3.5px 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+:where(html.is-hoverable) .activity-bar__item[data-panel='tests']:not(.is-detached):hover::before {
+  opacity: 0.38;
 }
 
 /* 深色主题下闲置档整体压暗一档（2026-11-18 用户要求）：折叠栏这几枚图标在深色地面上

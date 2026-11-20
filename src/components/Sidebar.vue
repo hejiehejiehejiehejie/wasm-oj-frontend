@@ -31,6 +31,7 @@ import {
   openSettingsTab,
   settingsTab,
 } from '../services/editorViews.js'
+import { closeTestsPane, hasTestsPane } from '../services/editorPanes.js'
 
 // 侧栏停靠在哪一侧（'left' / 'right'，状态归 services/shellSettings.js，由 App 透传进来）。
 // 本组件只拿它算一件事：窄屏底部那颗「收起侧栏」的箭头朝哪边（见下面的 collapseEntry）。
@@ -77,6 +78,28 @@ const activeTab = usePersistentRef('cp.sidebarTab', 'explorer')
 // 存档里可能是旧值 / 脏值：认不出来就退回默认页签，免得两个面板被一起藏掉
 if (!PANEL_TABS.some((tab) => tab.id === activeTab.value)) activeTab.value = 'explorer'
 
+// 评测岛在编辑区里时（全站单活），侧栏由「资源管理器」独占。这里要分开两个概念：
+//   · availableTabs —— **能切换**的面板（动作路由：toggle / 快捷键 / showPanel 的兜底）；
+//   · panels         —— 页头**要画**的面板，永远是两段；评测那段标 `detached`，
+//                       表达「它不是另一个待选页签，而是在编辑区里」。
+// 别再合并成一份：外置态若把评测段从 DOM 里删掉，页头左侧就塌成两颗孤零零的工具钮，
+// 宽度也会骤降一整枚胶囊（2026-11-20 用户报）。胶囊保持原尺寸，点下去只有一个动作：
+// 把评测收回来（见 togglePanel / dockTestsPanel）。
+// 评测页本身仍在 DOM 里（岛在时由 App 的 v-if 不挂第二份），岛收回后原样回来。
+const testsDocked = computed(() => hasTestsPane())
+const availableTabs = computed(() =>
+  testsDocked.value ? PANEL_TABS.filter((tab) => tab.id !== 'tests') : PANEL_TABS,
+)
+watch(
+  testsDocked,
+  (docked) => {
+    if (docked && activeTab.value === 'tests') activeTab.value = 'explorer'
+  },
+  // immediate：冷启动就带着岛（布局是恢复出来的）时，存档里的 tests 页签要当场让位，
+  // 否则会落进「文件面板藏着、评测面板又没挂载」的空白侧栏。
+  { immediate: true },
+)
+
 // 页头胶囊（定稿形态见 SidebarSwitcher 头注释）：两段并排、当前段填亮，
 // 整枚是一颗 toggle 按钮 —— 点轨道上任意位置都翻到另一个面板。
 // 设置那颗独立：它开关的是编辑区里的合成页签，与面板互不排斥（见第 5 节坑 7），
@@ -85,6 +108,10 @@ const panels = computed(() =>
   PANEL_TABS.map((tab) => ({
     ...withLabel(tab),
     active: tab.id === activeTab.value,
+    // 外置态（2026-11-20）：评测岛在编辑区里，这一段不再表示「另一个可选面板」，
+    // 而是「评测现在在编辑区，点一下收回来」。视觉与点击语义见 SidebarSwitcher
+    // 的 .is-detached 一段；ActivityBar 也读这个字段。
+    detached: tab.id === 'tests' && testsDocked.value,
     // 打开态图标一次性补齐：消费方只判 `active ? iconActive : icon`，不再自己查表
     iconActive: tab.iconActive ?? tab.icon,
   })),
@@ -92,14 +119,39 @@ const panels = computed(() =>
 
 // 胶囊上要写的是「将要去的那一个」：整枚是一个动作按钮，文案得说清点下去会去哪
 const targetPanel = computed(() =>
-  withLabel(PANEL_TABS.find((tab) => tab.id !== activeTab.value) ?? PANEL_TABS[0]),
+  withLabel(availableTabs.value.find((tab) => tab.id !== activeTab.value) ?? availableTabs.value[0]),
+)
+
+// 外置态的胶囊只有一个动作（收回评测），文案不能再说「切换到评测样例」。
+// 正常态那句与 verify-ui 的 A 组钉在一起（`切换到评测样例`），改词条要同步改探针。
+const pillTitle = computed(() =>
+  testsDocked.value
+    ? t('app.sidebar.dockTests')
+    : t('app.sidebar.switchTo', { panel: targetPanel.value.label }),
 )
 
 function togglePanel() {
+  // 外置态：胶囊整枚就是「把评测收回来」，不存在「翻到另一页」——那一页此刻没有挂载
+  if (testsDocked.value) {
+    dockTestsPanel()
+    return
+  }
   // 只有两个面板时就是「另一个」；写成 find 是为了数组真变长时也不会错得很离谱
-  const next = PANEL_TABS.find((tab) => tab.id !== activeTab.value)
+  const next = availableTabs.value.find((tab) => tab.id !== activeTab.value)
   if (!next) return
   activeTab.value = next.id
+}
+
+/**
+ * 把编辑区里的评测岛收回侧栏，并把侧栏翻到评测页。
+ *
+ * `closeTestsPane()` 是同步改树的：树一变，App 那个 `v-if="!testsPaneOpen"` 的 #tests
+ * 槽与下面的 v-show 会在**同一次渲染**里对齐，不会先亮出一块空面板。
+ * 关不掉（理论上到不了）就什么都不做 —— 不能留一个 activeTab='tests' 的空侧栏。
+ */
+function dockTestsPanel() {
+  if (!closeTestsPane()) return
+  activeTab.value = 'tests'
 }
 
 function toggleSettings() {
@@ -173,35 +225,44 @@ const rootEl = ref(null)
 // ① 两档紧凑：判定文案先收、胶囊段位标签后收（2026-11-01 用户要求「异步收窄」）。
 //   - verdictCompact（< 400 逻辑 px）：评测面板页头的「全部 AC / n/m AC」先换短文案
 //     （去掉「 AC」后缀，见 TestPanel 的 verdict），这一档先省下 ~25px；
-//   - compact：胶囊段位再收起文字标签、退回纯图标 —— **不设固定阈值，实测页头折不折行**。
+//   - compact：胶囊段位再收起文字标签、退回纯图标 —— 带标签那一份**实测**，右侧上下文
+//     动作区按**常规内容的固定预留**估（理由与取值见下）。
 //   两档分开而不是共用一条：一起收的话，页头会在同一档宽度上「整排缩一下」。
 //
-//   为什么 compact 不再是 376 那种死阈值（2026-11-19 用户：「阈值太大了，大部分情况下都
-//   不会碰到，现在这个样式有些零散」）：数字只能按**最坏**那一份文案去取 —— 带标签 208 +
-//   固定开销 26 + 判定簇最坏 121（英文「Running」+ 转圈 + 耗时）≈ 355，再留 20px 呼吸就是
-//   376。可最坏只在「正在跑」或五位数毫秒的那一刻出现，其余时间页头明明塞得下「文件 / 评测」
-//   两个词，却也退成了四颗光秃秃的图标：左边一簇图标、右边「120ms AC」，中间一大段空白，
-//   读起来是散的。所以改成**按当下真实需求判**：把带标签那一份量出来，跟页头剩下多少地方
-//   比一比，放不下才收。
+//   分界线怎么算（2026-11-20 用户问「是不是太宽、还有很大空间」）：
+//     sidebarW ≥ 左内边距 4 + 带标签的切换器 208 + 右内边距 8 + 预留 76 ≈ 296
+//   （预留 76 里已经含两簇间距 8 与常规内容 61~67；判据就是「页头右沿 − 切换器右沿 ≥ 76」。）
+//   之前预留取 120（「耗时 + 判定」最宽那一档），于是 344 才放行、而平时右侧只占 54~67，
+//   中间那一大段就白留了。现在按**常驻内容**取值：资源管理器两颗图标钮 54、评测的
+//   「无测试用例 / 0/2 AC」61~67 —— 76 刚好盖住（再小会在两个面板之间出现几像素的翻面带），
+//   随 uiScale 缩放（与 verdictCompact 的 400 同口径）。跑完带耗时的结论会到 98 左右，
+//   真放不下时页头先折行，由下面的单向收合接住；不会为了它把整条线抬到三百四十多。
 //
-//   量法沿用 SidebarSwitcher 里 `labeledRowWidth` 那条：临时摘掉 is-compact 量一次再放回去，
-//   同步完成、浏览器不会画出中间那一帧 —— 所以量到的永远是「带标签」那一份，与当前 compact
-//   是什么值无关。判据因此不会自我强化（不像「已经收了 → 更放得下 → 继续收」那样锁死），
-//   也不会在两档之间来回抖。标签自带 84px 的差值（208 ↔ 124），这一来一回足够把折行挡在
-//   第二行之外。
+//   稳定性怎么保（2026-11-20 用户两次报「胶囊换来换去」）：
+//   - **不观察 #sidebar-context**。那簇宽度跟着文件和运行结果变；只在侧栏宽度变了时完整
+//     重判（含「弹回带标签」），页头自己折行（= 内容真放不下）时只许收、不许弹。
+//     于是内容变化最多让标签收一次，绝不会来回翻。
 //
-//   两条滞回（hysteresis）：折了立刻收，但回弹要多留 8px（`slack >= 16` = 两簇间距 8 + 呼吸 8），
-//   中间这一档维持现状 —— 否则拖分隔条时正好压在临界点上，会一格一格地闪。
+//   两条滞回（hysteresis）：折了立刻收；回弹平时要多留 8px（`slack >= 16` = 两簇间距 8 +
+//   呼吸 8），中间这一档维持现状，免得拖分隔条压在临界点上抖。侧栏正在**变宽**时按 0 放行
+//   （见 onMounted 的 judge）：挂载那一帧宽度从 0 长上来，不给这条出口会把临界宽度锁死。
 //   （slack 是「带标签时」两簇之间的空当；收到最紧时它就是那条 gap = 8。）
 //
-//   ⚠️ 页头的宽度需求会随文案变（运行中 → AC、耗时出现 / 消失、中英文切换），所以除了侧栏
-//   宽度，还要观察 #sidebar-context 自己的尺寸 —— 只看侧栏宽的话，跑起来那一刻页头会折行。
 //   用 ResizeObserver 而不用 @container：页头里有 fixed 定位的浮层（SettingsMenu），
 //   container-type 附带的 layout containment 会把它的定位基准从视口改到页头。
 const compact = ref(false)
 const verdictCompact = ref(false)
 const headEl = ref(null)
 let compactObserver = null
+
+/**
+ * 右侧上下文动作区在**判据里**占的宽度（逻辑 px，随 uiScale 缩放）。
+ * 76 = 两个面板的常规内容（资源管理器 54 / 评测 61~67）留一点余量 —— 再小就会在
+ * 两个面板之间出现几像素的翻面带（一侧放得下、另一侧差 2~3px）。
+ * 别按最坏文案（带耗时的 98+）取：那条会把分界线抬到 340 多，平时白留一大截
+ * （2026-11-20 用户报）；真放不下由「折行只收不弹」那条兜住，不会来回翻。
+ */
+const CONTEXT_RESERVE = 76
 
 /** 页头「带标签」时还放得下吗；顺便回一段左右余量给滞回用 */
 function headFitWithLabels() {
@@ -218,9 +279,12 @@ function headFitWithLabels() {
   const ctxBox = ctx.getBoundingClientRect()
   if (wasCompact) nav.classList.add('is-compact')
 
+  // ctx 贴右（margin-left: auto），右缘就是页头内容区的右沿；按固定预留算余量，
+  // 此刻是哪个面板、结论文案多长都不影响判据（见上面 ①）
+  const slack = ctxBox.right - navBox.right - CONTEXT_RESERVE * uiScale.value
   // 同一行时 ctx 在 nav 里垂直居中（ctx.top < nav.bottom），折到第二行才会掉到它下面
-  const wrapped = ctxBox.top >= navBox.bottom - 0.5
-  return { wrapped, slack: wrapped ? 0 : ctxBox.left - navBox.right }
+  const wrapped = slack < 0 || ctxBox.top >= navBox.bottom - 0.5
+  return { wrapped, slack }
 }
 
 // ② 滚动显影：列表没滚动时页头与正文一色（2026-10-04「透明页头」的定稿不变）；
@@ -248,23 +312,37 @@ onMounted(() => {
   }
   syncHeadScrolled()
 
-  const judge = () => {
+  /**
+   * @param {boolean} allowExpand 是否允许「弹回带标签」。只有侧栏宽度真的变了才允许 ——
+   *   内容变宽 / 页头折行触发的这一轮只许收（内容回瘦时不跟着弹，否则切文件就来回翻）。
+   * @param {number} expandAt 回弹需要的余量：平常留 16px 呼吸带；侧栏正在**变宽**时
+   *   按 0 放行 —— 挂载那一帧宽度是从 0 长上来的，不给这条出口的话，临界宽度会被
+   *   一次「窄宽度下的提前收合」永久锁在图标档（同一个宽度、刷新两次结果不一样）。
+   */
+  const judge = (allowExpand = true, expandAt = 16) => {
     const width = rootEl.value?.getBoundingClientRect().width ?? 0
     // 阈值是逻辑尺寸，要随 uiScale 走（与 useUiScale 的 px() 同口径）
     verdictCompact.value = width > 0 && width < 400 * uiScale.value
     const fit = headFitWithLabels()
     if (!fit) return
     if (fit.wrapped) compact.value = true
-    else if (fit.slack >= 16) compact.value = false
-    // 夹在中间（0 ≤ slack < 16）就维持现状：这一条就是滞回带，别改成 else compact = false
+    else if (allowExpand && fit.slack >= expandAt) compact.value = false
+    // 夹在中间就维持现状：这一条就是滞回带，别改成 else compact = false
   }
-  compactObserver = new ResizeObserver(judge)
+  // 盯两处：侧栏宽度（rootEl，完整重判）与页头自身高度（headEl，只用来兜底折行）。
+  // **不观察 .sidebar__context**：那簇宽度跟着文件 / 运行结果变，一观察就等于把内容
+  // 放回判据，胶囊会随切文件来回翻（见上面 ①）。
+  let lastWidth = 0
+  compactObserver = new ResizeObserver((entries) => {
+    const width = rootEl.value?.getBoundingClientRect().width ?? 0
+    const widthChanged = entries.some((entry) => entry.target === rootEl.value)
+    const grew = widthChanged && width > lastWidth + 0.5
+    if (widthChanged) lastWidth = width
+    judge(widthChanged, grew ? 0 : 16)
+  })
   if (rootEl.value) {
     compactObserver.observe(rootEl.value)
-    // 上下文动作自身的宽也会变（运行中 ↔ AC、耗时出现、中英文切换），
-    // 那时侧栏宽度没动、但页头的需求变了，必须单独盯住
-    const ctxEl = rootEl.value.querySelector('.sidebar__context')
-    if (ctxEl) compactObserver.observe(ctxEl)
+    if (headEl.value) compactObserver.observe(headEl.value)
   }
   judge()
 })
@@ -277,6 +355,8 @@ onBeforeUnmount(() => {
 provide('sidebarTabs', {
   panels,
   targetPanel,
+  pillTitle,
+  testsDocked,
   togglePanel,
   settings: settingsEntry,
   toggleSettings,
@@ -292,16 +372,35 @@ provide('sidebarTabs', {
 // 供父组件从外部切到指定面板（如 App.vue 在开跑时要把「评测样例」亮出来）。
 // 状态与持久化仍只在这一处，这里只是多一个入口，不让父组件自己存一份
 function showPanel(id) {
-  if (PANEL_TABS.some((tab) => tab.id === id)) activeTab.value = id
+  // 评测岛在编辑区时点「评测」（折叠态活动栏、拖回入口都走这里）＝ 把它收回来，
+  // 而不是切到一个此刻没有挂载的页签。availableTabs 在这条分支之后才会放行。
+  if (id === 'tests' && testsDocked.value) {
+    dockTestsPanel()
+    return
+  }
+  if (availableTabs.value.some((tab) => tab.id === id)) activeTab.value = id
 }
+
+/**
+ * 快捷键（Mod+Shift+E）的「翻到另一个面板」：只在 availableTabs 里翻。
+ * 不外置时它与 togglePanel 完全等价；外置时**是 no-op** —— 快捷键不该顺手把
+ * 评测岛收回来，那是胶囊那一颗有明确文案与视觉的动作。
+ */
+function switchAvailablePanel() {
+  const next = availableTabs.value.find((tab) => tab.id !== activeTab.value)
+  if (next) activeTab.value = next.id
+}
+
 defineExpose({
   showPanel,
-  // 供快捷键用（App.vue 的 switch-panel）：与点胶囊走的是同一个 togglePanel，
-  // 所以动画与持久化都一致，不会出现「键盘切过去没动画」这种两套行为
-  switchPanel: togglePanel,
-  // 供折叠态那条图标栏用（ActivityBar）：它要画「有哪两个面板、我停在哪一个」，
-  // 但它不是本组件的子组件（是工作区的兄弟节点），inject 够不到这里的 provide，
-  // 所以由 App 把这份（已翻译、带 active 的）表透传过去，状态仍只有这里一份
+  // 供快捷键用（App.vue 的 switch-panel）：走的仍是「翻到另一个面板」这一条，
+  // 只是在外置态下不把评测算进可翻的那一组（见 switchAvailablePanel 的注释）。
+  // 动画与持久化照旧一致，不会出现「键盘切过去没动画」这种两套行为。
+  switchPanel: switchAvailablePanel,
+  // 供折叠态那条图标栏用（ActivityBar）：它要画「有哪两个面板、我停在哪一个、
+  // 哪一个外置在编辑区（detached）」，但它不是本组件的子组件（是工作区的兄弟节点），
+  // inject 够不到这里的 provide，所以由 App 把这份（已翻译、带 active / detached 的）
+  // 表透传过去，状态仍只有这里一份
   panels,
 })
 </script>

@@ -29,46 +29,11 @@ const STATUS_LABELS = {
 }
 const STATUS_CODES = { passed: 'AC', failed: 'WA', error: 'ERR' }
 
-/**
- * 判定码 → 定性名（`AC` → 通过），只给分项视图的加长文案用，见 caseBadgeLabelVerbose。
- * 存 key 不存字，理由同上：这张表在模块加载期建好，那时 locale 还可能是另一套。
- */
-const VERDICT_NAMES = {
-  AC: 'tests.card.verdictName.ac',
-  WA: 'tests.card.verdictName.wa',
-  CE: 'tests.card.verdictName.ce',
-  TLE: 'tests.card.verdictName.tle',
-  MLE: 'tests.card.verdictName.mle',
-  RE: 'tests.card.verdictName.re',
-  ERR: 'tests.card.verdictName.err',
-}
-
 /** 徽标上那串字：优先用这一轮的判定码，没有才退回状态名 */
 export function caseBadgeLabel(record) {
   if (record?.verdict) return record.verdict
   const key = STATUS_LABELS[record?.status] ?? STATUS_LABELS.idle
   return key ? t(key) : STATUS_CODES[record?.status] ?? t(STATUS_LABELS.idle)
-}
-
-/**
- * 分项视图（TestCaseTabs 那条 36px 状态栏）用的加长版徽标文案：`AC · 通过` / `TLE · 超时`。
- *
- * 【为什么要分叉】2026-11-19 判定徽标去掉底色与内边距、改走纯文字（Typographic Status）。
- * 卡片头栏里 `AC` 紧跟在「样例 1」后面，两个字母足够；分项视图里它是状态栏的第一个元素，
- * 左边没有任何标题给它做上下文，两个字母裸着站太单薄 —— 补上定性名，横向跨度才撑得起一行。
- *
- * 只加长「跑完」的判定：待运行 / 运行中本身就是完整的词，再拼判定码只是噪音；运行中另给
- * 「评测中…」，省略号表示还在等结果（与卡片那侧仍用「运行中」不冲突：同一状态，两种版面
- * 各有各的口径，判定结论本身两处一致）。判定码与定性名之间固定 ` · `，中英文都读得通。
- */
-export function caseBadgeLabelVerbose(record) {
-  const code = record?.verdict
-  if (!code) {
-    if (record?.status === 'running') return t('tests.tabs.badgeRunning')
-    return caseBadgeLabel(record)
-  }
-  const key = VERDICT_NAMES[code]
-  return key ? `${code} · ${t(key)}` : code
 }
 
 /**

@@ -59,6 +59,9 @@ import { usePopoverLayer } from '../composables/usePopoverLayer.js'
  * @property {boolean} [checked] 勾选态（只在可勾选的菜单里给，见下面 `hasChecks`）
  * @property {boolean} [disabled]
  * @property {boolean} [divider]
+ * @property {boolean} [heading] 分组标题：不可点、不派发 select，只给下面几项一个名字
+ *   （评测栏右键菜单的「评测样例视图」是第一个用户）。有勾位的菜单里它同样让出勾位，
+ *   于是标题文字与下面各条目的文字落在同一条竖线上。
  */
 
 const props = defineProps({
@@ -109,6 +112,10 @@ function select(item) {
     >
       <template v-for="(item, index) in items" :key="item.id ?? index">
         <div v-if="item.divider" class="context-menu__divider" role="separator"></div>
+        <div v-else-if="item.heading" class="context-menu__heading" role="presentation">
+          <span v-if="hasChecks" class="context-menu__check" aria-hidden="true"></span>
+          <span class="context-menu__label">{{ item.label }}</span>
+        </div>
         <button
           v-else
           type="button"
@@ -204,6 +211,20 @@ function select(item) {
        「菜单被匣到锚点上方」时变成向上展开却向下掉（见 base.css 的 --menu-enter-y）。 */
     transform: scale(0.92) translateY(var(--menu-enter-y));
   }
+}
+
+/* 分组标题（2026-11-20 加）：不可点、不参与悬停，字号比条目小一档、走 --menu-muted。
+   内边距与 gap 抄条目那一份，有勾位时也占上一格，于是标题文字与下面各条目的文字
+   落在同一条竖线上。 */
+.context-menu__heading {
+  display: flex;
+  align-items: center;
+  gap: calc(20px * var(--menu-scale));
+  padding: calc(4px * var(--menu-scale)) calc(var(--menu-item-pad-x) * var(--menu-scale));
+  color: var(--menu-muted);
+  font-size: calc(11px * var(--menu-scale));
+  cursor: default;
+  user-select: none;
 }
 
 .context-menu__item {

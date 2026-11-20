@@ -109,6 +109,11 @@ export default {
         switcherLabel: '侧边栏面板与设置',
         /** 胶囊开关的 title / aria-label，{panel} 是目标面板名 */
         switchTo: '切换到{panel}',
+        /**
+         * 外置态（2026-11-20）：评测岛在编辑区里，胶囊/活动栏那一下的动作是把它收回来。
+         * 别再说「切换到评测样例」—— 此刻没有另一页可切。
+         */
+        dockTests: '评测在编辑区，点击收回侧栏',
         /** 窄屏底部那颗箭头按钮（2026-10-13 加）：把侧栏收成一条图标栏 */
         collapse: '收起侧边栏',
       },
@@ -275,6 +280,7 @@ export default {
         testsShort: 'Tests',
         switcherLabel: 'Sidebar panels and settings',
         switchTo: 'Switch to {panel}',
+        dockTests: 'Tests are in the editor — click to dock back',
         collapse: 'Collapse sidebar',
       },
 

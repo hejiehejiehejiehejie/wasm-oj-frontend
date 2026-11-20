@@ -84,32 +84,31 @@ const timing = computed(() => caseTimingText(props.testCase))
       </button>
       <!-- 标题：2026-10-24 由单独的数字改成「样例 N」。原来的状态圆点已删 ——
            它和右侧徽标（AC / CE / 运行中）说的是同一件事，两个色块并排纯属噪音。
-           现在头栏从左到右只有：折叠箭头 → 样例 N → 状态徽标 → 删除 → 运行。
            2026-10-25：标题本身就是第二颗折叠开关（用户要求「点击标题部分也可以折叠」
-           —— 箭头的墨迹只有 8.5px 宽，热区太小）。外观保持纯文字，只加了 pointer 光标。 -->
+           —— 箭头的墨迹只有 8.5px 宽，热区太小）。外观保持纯文字，只加了 pointer 光标。
+           2026-11-20 重排：判定胶囊与耗时合成左簇（同一件事的两半），右侧只留动作 ——
+           删除（危险，退后）+ 发丝分隔 + 运行（实底，主操作）。 -->
       <button
         type="button"
         class="card__title"
         :title="t(isCollapsed ? 'tests.card.expand' : 'tests.card.collapse')"
         @click="toggleCollapse"
       >{{ t('tests.card.title', { n: index + 1 }) }}</button>
-      <span class="badge" :data-status="testCase.status">{{ badgeLabel }}</span>
-      <!-- 右侧两颗图标共用一套语言（2026-10-24 晚第三次改，用户要求）：都是 32×32 热区、
-           默认无底色，删除在左、运行在右。「结果待重测」仍贴在徽标右侧，运行耗时紧挨着两颗图标。
-           ▶ 用 aria-disabled 而不是原生 disabled：原生禁用会吞掉按钮的鼠标事件，
-           runBlocked 那句原因就永远弹不出来。 -->
-      <span
-        v-if="testCase.stale"
-        class="stale"
-        :title="t('tests.card.staleTitle')"
-      >
-        <!-- 窄容器下换短称（见 @container 22.5rem 那条）：全称五个字会把标题挤成「样…」，
+      <span class="case-status">
+        <span class="badge" :data-status="testCase.status">{{ badgeLabel }}</span>
+        <span v-if="timing" class="metric" :title="t('tests.card.timingTitle')">{{ timing }}</span>
+        <!-- 「结果待重测」跟着状态簇走：它是判定的一部分，不该被甩到最右。
+             宽容器下换短称（见 @container 22.5rem 那条）：全称五个字会把标题挤成「样…」，
              短称把宽度还给标题；完整解释留在 title 里，最窄一档整条隐藏。 -->
-        <span class="stale__full">{{ t('tests.card.staleLabel') }}</span>
-        <span class="stale__short">{{ t('tests.card.staleLabelShort') }}</span>
+        <span v-if="testCase.stale" class="stale" :title="t('tests.card.staleTitle')">
+          <span class="stale__full">{{ t('tests.card.staleLabel') }}</span>
+          <span class="stale__short">{{ t('tests.card.staleLabelShort') }}</span>
+        </span>
       </span>
       <span class="grow"></span>
-      <span v-if="timing" class="metric" :title="t('tests.card.timingTitle')">{{ timing }}</span>
+      <!-- 右侧两颗图标：删除（幽灵态）+ 运行（幽灵态，悬停浮底色），无分隔线。
+           ▶ 用 aria-disabled 而不是原生 disabled：原生禁用会吞掉按钮的鼠标事件，
+           runBlocked 那句原因就永远弹不出来。 -->
       <AppTooltip class="trash-wrap" :text="t('tests.card.remove')">
         <button
           class="icon-btn icon-btn--danger"
@@ -172,10 +171,17 @@ const timing = computed(() => caseTimingText(props.testCase))
      右侧仍是 8px，最右那颗运行钮不贴边。
      纵向 2px（原 7px）：运行 / 删除两颗图标按钮都高 32px，整个头栏因此高 32 + 4 = 36px，
      与它之前「22px 按钮 + 7px 上下内边距」的 36px 完全一致 —— 标题的垂直位置、
-     卡片底到下一张标题的距离都不动，只把多出来的 10px 让给了那颗按钮。 */
+     卡片底到下一张标题的距离都不动，只把多出来的 10px 让给了那颗按钮。
+     2026-11-20：头栏下方不再加分隔线（用户要求去掉），判定胶囊与耗时留在左侧。 */
   padding: 2px 8px 2px 0;
-  /* 头栏与正文之间不再画线（2026-10-24 晚）：卡片已经拆掉，一条线会在无框的面上
-     凭空划出一道横纹；分隔改由「头栏下内边距 + 正文上内边距」的留白承担。 */
+}
+
+/* 左侧状态簇：判定胶囊 + 耗时 + 待重测，同属运行结果，彼此 8px */
+.case-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .card__title {
@@ -225,18 +231,18 @@ const timing = computed(() => caseTimingText(props.testCase))
   /* 徽标不参与压缩、也不换行：窄面板下宁可让标题与「结果待重测」先让位，否则中文会被挤成竖排单字 */
   flex: 0 0 auto;
   white-space: nowrap;
-  /* 纯文字判定（2026-11-19，Typographic Status）：实心淡底、6px 圆角、左右 8px 内边距全部删掉。
-     有底色那版靠 ~17px 高的色块撑体量，底色一抽只剩 11px 的裸字就散架；体量改由字号字重承担 ——
-     12.5px 压在 11px 的耗时之上、又不抢 13.5px/700「样例 N」的位置，700 的笔画才让 AC / WA
-     在亮暗两种底子上都显出纯正的判定色。
+  /* 纯文字判定（2026-11-19，2026-11-20 按用户要求复原）：底色、圆角、左右内边距全删。
+     体量由 12px / 600 承担（2026-11-20 从 12.5 / 700 收一档）：判定现在是中文
+     「待运行 / 运行中」，三个汉字在这个字号下再叠 700 会明显压过 11px 的耗时和标题，
+     收成 600 后与标题同一档粗细。颜色只走语义前景色：--ok / --fail / --err / --info。
      ⚠️ 别再补 background / border-radius / padding：旧底色是硬编码的暗色系亮色相
      （rgba(137,209,133,.18) 那一批），在 paper / leaf / mist 这些浅底主题上会糊出一层脏荧光，
      而 --err 压根没有对应的 --err-face。颜色只有一处来源：--ok / --fail / --err / --info。
      ⚠️ TestCaseTabs 里有一份逐字副本（scoped 样式不跨组件），改这里必须同步那边。 */
   padding: 0;
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--text-dim);
   transition: color 0.18s ease;
 }
@@ -281,15 +287,17 @@ const timing = computed(() => caseTimingText(props.testCase))
   display: none;
 }
 
+/* 耗时紧贴判定胶囊：同属运行结果，等宽数字让它不随读数跳格子 */
 .metric {
   flex: 0 0 auto;
   font-family: var(--mono-font);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-dim);
   white-space: nowrap;
 }
 
-/* 头栏右侧两颗图标（删除 / 运行）共用一套 32×32 的幽灵按钮语汇，规则见下方
+/* 头栏右侧两颗图标（删除 / 运行）共用一套 24×24 的按钮语汇，规则见下方
    .icon-btn--danger 与 .icon-btn--run；中间的空余由 .grow 撑开。
    （2026-11-19：TestCaseBody 里那两颗 22×22 的动作钮自带一份同款底座 ——
      组件拆分后这条规则不再跨组件生效，别以为删了这里也没事。） */
@@ -322,14 +330,13 @@ const timing = computed(() => caseTimingText(props.testCase))
   cursor: default;
 }
 
-/* 垃圾桶是休眠的幽灵（2026-10-24 晚第二次改，用户要求）：默认常驻，但只剩 0.18 的
-   透明度、用次要文字色 —— 它替运行图标撑住右侧这一格，不至于留白，也不跟主操作抢注意力；
-   鼠标进入卡片（或键盘进入头栏）时醒到 1，并转成柔和的危险色。
-   点按面一直有效（不再 pointer-events: none）：它看得见，就该点得到；
-   0.18 的幽灵图标也不至于被误触。手指 / 无悬停指针上走下面那条「常亮」兜底。 */
+/* 垃圾桶：退居二线的危险动作（2026-11-20）。
+   常态 0.18 幽灵（与运行图标同尺寸，但权重明显低一档）；指针进入卡片升到 0.75 灰，
+   指针真正落到垃圾桶上才转红加底。点按面一直有效：它看得见，就该点得到。
+   手指 / 无悬停指针上走下面那条「常亮」兜底。 */
 .icon-btn.icon-btn--danger {
   /* 与运行图标同尺寸（2026-10-24 晚第三次改，用户要求）：32×32 热区、6px 圆角，
-     两颗按钮的点击范围与形状完全一致。 */
+     两颗按钮的点击范围与形状完全一致。2026-11-20 按用户要求恢复原样。 */
   width: 32px;
   height: 32px;
   border-radius: 6px;
@@ -351,30 +358,42 @@ const timing = computed(() => caseTimingText(props.testCase))
 
 /* 亮起条件按**键盘意图**判，不用 :focus-within（2026-10-24 修）：鼠标点一下旁边的运行按钮，
    焦点也会落进头栏，:focus-within 随即把垃圾桶点亮，指针移出卡片后它仍一直亮着 ——
-   看着像垃圾桶自己被聚焦了。:has(:focus-visible) 只认键盘意图，鼠标点击不匹配。 */
+   看着像垃圾桶自己被聚焦了。:has(:focus-visible) 只认键盘意图，鼠标点击不匹配。
+   2026-11-20 再收：悬停整张卡片（或键盘进入头栏）**只把幽灵提亮成常规灰，不染红**。
+   之前只要指针在标题 / 输入框上，右边就跳出一块红底 —— 删除本不是当前主操作，
+   那种「红块自动亮起」正是用户说的「幽灵按钮好像有问题」。 */
 :where(html.is-hoverable) .card:hover .icon-btn--danger:not(:disabled),
 .card__head:has(:focus-visible) .icon-btn--danger:not(:disabled) {
-  opacity: 1;
+  opacity: 0.75;
 }
 
-/* 鼠标进入卡片即按用户要求转危险色；键盘进入头栏只显形、不染红 —— 那时焦点还在
-   别的按钮上，一枚红垃圾桶会跟正在聚焦的主操作抢眼神。等 Tab 真正落到垃圾桶
-   （focus-visible）再变红，见下一条。 */
-:where(html.is-hoverable) .card:hover .icon-btn--danger:not(:disabled),
-.icon-btn--danger:focus-visible {
+/* 只有指针**真正落到垃圾桶上**（或 Tab 聚焦到它）才提亮、转危险色、加淡红底。
+   选择器权重与上一条持平并排在后面，靠顺序覆盖。 */
+:where(html.is-hoverable) .card .icon-btn--danger:hover:not(:disabled),
+.card .icon-btn--danger:focus-visible:not(:disabled) {
+  opacity: 1;
   color: var(--fail);
+  background: color-mix(in srgb, var(--fail) 12%, transparent);
+}
+
+/* 运行中：`running` 会把垃圾桶一起禁用（见模板的 :disabled）。`.icon-btn:disabled`
+   的 0.35 与上面那条 `.icon-btn.icon-btn--danger` 的 0.18 权重相同、且被排在前面，
+   结果是禁用时反而退回到「几乎看不见」—— 像是按钮凭空消失了。这里补一条更高权重的
+   禁用档，与其他禁用按钮保持同一可见度。 */
+.icon-btn.icon-btn--danger:disabled {
+  opacity: 0.35;
 }
 
 /* 没有悬停能力时（手指 / 触控笔落下的那一瞬起）垃圾桶常亮：那种指针上「等悬停才现身」
    等于永远不现身。判据用 html.is-hoverable 而不是 `@media (hover: none)`（2026-10-30 换）：
    后者判的是**设备**，手指点在一台「也插着鼠标」的机器上时它不成立，于是上面两条
-   被 is-hoverable 挡住、这条又不接管 —— 垃圾桶就一直停在 0.18 的幽灵态。 */
+   被 is-hoverable 挡住、这条又不接管 —— 垃圾桶就一直停在幽灵态。 */
 :where(html:not(.is-hoverable)) .icon-btn--danger:not(:disabled) {
   opacity: 1;
   color: var(--fail);
 }
 
-/* 运行图标（2026-10-24 晚第三次改）：与垃圾桶互换位置后独立成一颗 32×32 按钮，
+/* 运行图标（2026-10-24 晚第三次改，2026-11-20 恢复）：与垃圾桶同尺寸的幽灵按钮，
    默认无底色、无描边，悬停才浮出 --icon-hover-bg。 */
 .icon-btn.icon-btn--run {
   width: 32px;
@@ -399,14 +418,6 @@ const timing = computed(() => caseTimingText(props.testCase))
 :where(html.is-hoverable) .icon-btn--run[aria-disabled='true']:hover {
   background: transparent;
   color: var(--text-dim);
-}
-
-/* 焦点环画在按钮内部：它贴着卡片右缘，外扩的环会被头栏的内边距裁掉。 */
-.icon-btn--run:focus-visible {
-  outline: none;
-  background: var(--icon-hover-bg);
-  box-shadow: inset 0 0 0 1px var(--focus);
-  color: var(--text);
 }
 
 .icon-btn--toggle {
@@ -517,10 +528,8 @@ const timing = computed(() => caseTimingText(props.testCase))
 @container (max-width: 22.5rem) {
   .card__head {
     gap: 6px;
-    /* 左内边距与基础值同为 0：省宽度的活交给右边（8 → 6），左边一让，
-       折叠箭头和整列文字的左轨就会跟着横跳，而它才是这一行的起点。
-       纵向 2px 同基础值：头栏高度由 32px 的幽灵按钮撑住。 */
-    padding: 2px 6px 2px 0;
+    /* 右内边距保持 8：与下方 ACTUAL 字段级图标的右缘对齐（见 TestCaseBody 的
+       .field__actions）；省宽度的活交给 .stale 压缩。左轨 / 高度 / 描边沿用基础值。 */
   }
 
   /* gap 收到 6 之后，箭头右侧的负外边距也要同步收 2px，
@@ -561,7 +570,6 @@ const timing = computed(() => caseTimingText(props.testCase))
 @container (max-width: 15.625rem) {
   .card__head {
     gap: 4px;
-    padding: 2px 5px 2px 0;
   }
 
   /* 同上：负外边距跟住 gap，左轨仍是 22px */

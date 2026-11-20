@@ -56,7 +56,12 @@ import {
   setMdView,
   toggleMdFullscreen,
 } from '../services/mdView.js'
-import { closeEmptyPane, editorPanes, leafById, leaves } from '../services/editorPanes.js'
+import {
+  closeEmptyPane,
+  editorLeaves,
+  editorPanes,
+  leafById,
+} from '../services/editorPanes.js'
 import { getViewState, saveViewState } from '../services/editorViewStates.js'
 import {
   activeLanguage,
@@ -328,8 +333,8 @@ const stripEmpty = computed(() => {
   return !workspace.openTabIds.length && !anyViewOpen.value
 })
 
-/** 空窗格能不能关掉：只有分屏之后（叶子数 > 1）才有意义，根叶子永远留着 */
-const canClosePane = computed(() => !!props.paneId && leaves().length > 1)
+/** 空窗格能不能关掉：只有分屏之后（**代码叶子**数 > 1）才有意义，根叶子与最后一片代码格永远留着 */
+const canClosePane = computed(() => !!props.paneId && editorLeaves().length > 1)
 
 /** 空窗格占位上的「关闭窗格」（与 ⌘/Ctrl+Alt+\\ 同一条出口） */
 function closeThisPane() {

@@ -2,20 +2,25 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
+import ContextMenu from './ContextMenu.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import TestCaseTabs from './TestCaseTabs.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { useScrollEdge } from '../composables/useScrollEdge.js'
+import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { mountConfetti, unmountConfetti } from '../services/confetti.js'
-import { caseView } from '../services/shellSettings.js'
+import { CASE_VIEWS, caseView, setCaseView } from '../services/shellSettings.js'
 import { t } from '../i18n/index.js'
 
-// 页头右侧的 verdict + 耗时经 Teleport 投进 Sidebar 的共享页头（#sidebar-context），
-// 只在本面板激活时投 —— 切换器单实例上提后（2026-10-11），页头只剩这一小条上下文
-const { activeTab, verdictCompact } = inject('sidebarTabs')
-const isActivePanel = computed(() => activeTab.value === 'tests')
+// 页头右侧的 verdict + 耗时经 Teleport 投进共享页头：侧栏场景是 Sidebar 的
+// `#sidebar-context`，评测岛场景是 TestsPane 页头的 `#tests-pane-context`（见 props.variant）。
+// 侧栏契约在单例切换器上提后（2026-10-11）只剩这一小条上下文，所以这里必须容错 ——
+// 评测岛渲染在 EditorPaneGrid 里，注入源（Sidebar）根本不在它的祖先链上。
+const sidebarTabs = inject('sidebarTabs', null)
+const activeTab = sidebarTabs?.activeTab ?? ref('tests')
+const verdictCompact = sidebarTabs?.verdictCompact ?? ref(false)
 
 /**
  * 用例列表是面板里唯一的长滚动区：原生滚动条会占掉 11px 宽度（卡片跟着变窄、出现 / 消失时
@@ -67,9 +72,44 @@ const props = defineProps({
    * tone：'' 走常态的暗灰，'info' 是进行中，'warn' 是失败。
    */
   notice: { type: Object, default: null },
+  /**
+   * 渲染场景：'sidebar'（侧栏里那页，默认）或 'pane'（编辑区里的评测岛，见 TestsPane.vue）。
+   * 差别只有两处：页头结论投进哪个 Teleport 目标、是否总按「激活」算（岛上没有侧栏切换器）。
+   */
+  variant: { type: String, default: 'sidebar' },
+  /**
+   * 底部横跨的评测岛：把页脚那一排「提交 / 运行全部」缩成 26px 的小条 Teleport 进岛页头，
+   * 页脚整条收掉，纵向空间全让给正文。左右停靠 / 侧栏场景保持 false。
+   */
+  compactActions: Boolean,
+  /**
+   * 工作台布局（2026-11-20 方案一，仅在底部横跨 + 分项视图 + 有样例时成立）：
+   * 左侧样例轨 + 右侧满高分栏，页头与状态栏一起让位。由 TestsPane 算好传下来 ——
+   * 判据同时决定「页头还要不要画」，只能有一个来源。
+   */
+  workbench: Boolean,
+  /**
+   * 纵向停靠的评测岛（2026-11-20 方案二，左右停靠）：页头不再放结论（让给样例页签），
+   * 页脚换成「左状态、右动作」的紧凑栏 —— 取代原来那颗通栏大绿钮。
+   * 2026-11-20 起侧栏的分项标签视图也走这一档（整岛方案整合），列表视图 / 底部横跨不动。
+   */
+  verticalDock: Boolean,
 })
 
-const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit'])
+const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit', 'drag-start'])
+
+const isPane = computed(() => props.variant === 'pane')
+// 工作台只在 TestPanel 真正渲染分项视图时成立（用例清空时会退回列表空态，
+// 那时左侧轨也不存在，动作必须回到页头）。
+const isWorkbench = computed(
+  () => props.workbench && props.cases.length > 0 && caseView.value === 'tabs',
+)
+// 岛上没有侧栏页签这回事，永远算激活；侧栏场景才看 Sidebar 当前选中的页
+const isActivePanel = computed(() => isPane.value || activeTab.value === 'tests')
+// 页头结论的落点：侧栏共享页头 / 评测岛页头。
+// 工作台不投递 —— 那一支由 TestCaseTabs 用下面几个 summary prop 自己画结论
+// （两个版面的目标节点随 v-if 整块换掉，Teleport 不会重新解析，硬投会投进已摘掉的旧节点）。
+const contextTarget = computed(() => (isPane.value ? '#tests-pane-context' : '#sidebar-context'))
 
 /**
  * 样例栏有两种列表面孔（2026-11-19，用户提的方案）：
@@ -84,6 +124,41 @@ const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit'])
 // 用例空着时一律退回列表模式的空态（黄金分割处那行字 + 底部虚线框）：
 // 分项模式的标签轨与状态栏在 0 条用例时没有意义，而空态只有一份实现，不必写两套。
 const showTabs = computed(() => caseView.value === 'tabs' && props.cases.length > 0)
+
+/**
+ * 评测栏的右键菜单（2026-11-20 加，用户要求）：在面板任意空白 / 卡片上右键，
+ * 就地切换「评测样例视图」（卡片流 / 分项标签）。
+ *
+ * 【为什么不另写一份菜单】与设置菜单那一行读的是同一组 `CASE_VIEWS` 与同一个
+ * `caseView` ref，改完当场换壳，也不用新增文案。
+ *
+ * 【只接管「没人认领」的右键】分项胶囊与输入 / 输出框各自有菜单，它们会先
+ * `preventDefault()`（见 TestCaseTabs / TestCaseBody）；这里看到事件已被处理就放行，
+ * 既不叠一份菜单，也不会把它们的菜单顶掉。触屏长按同样会派发 contextmenu，按全站口径
+ * （Sidebar 页头 / ActivityBar）不接管，交给系统。
+ */
+const panelMenu = ref(null)
+
+const viewMenuItems = computed(() => [
+  // 分组标题：给下面两档一个名字，否则「卡片流 / 分项标签」在菜单里没有上下文
+  { id: 'heading', heading: true, label: t('settings.appearance.caseView.label') },
+  ...CASE_VIEWS.map((view) => ({
+    id: `view:${view.id}`,
+    label: t(view.labelKey),
+    checked: caseView.value === view.id,
+  })),
+])
+
+function onPanelContextMenu(event) {
+  if (event.defaultPrevented || isTouchPointer()) return
+  event.preventDefault()
+  panelMenu.value = { x: event.clientX, y: event.clientY, items: viewMenuItems.value }
+}
+
+function onPanelMenuSelect(id) {
+  panelMenu.value = null
+  if (id.startsWith('view:')) setCaseView(id.slice('view:'.length))
+}
 
 // 页脚主条里面那行气泡文案（2026-10-24 凌晨用户要求「鼠标在运行全部按钮上时，显示它的快捷键」）。
 // 组合键走 formatCombo(bindings.run) —— 绑定表是唯一口径，设置里改键这里跟着变；解绑了退回纯动作名。
@@ -116,7 +191,6 @@ const submitTitle = computed(() => {
   const combo = formatCombo(bindings.value['submit-solution'])
   return combo ? t('tests.submit.buttonTip', { key: combo }) : t('tests.submit.button')
 })
-
 /**
  * 空态那行标题（2026-11-18 改口径）：跑不了（`runBlocked` 非空）时标题**就是原因**
  * ——「非代码文件无法运行」/「没有打开的文件」由 App 各给一句；其余情形仍是写死的
@@ -152,6 +226,51 @@ const footBlocked = computed(() => (props.cases.length ? props.runBlocked : ''))
  * 任何用例数都没有意义，留着反而误导。
  */
 const showVerdict = computed(() => !props.runBlocked)
+
+/**
+ * 紧凑底栏是否成立（2026-11-20 方案二）：左右停靠的评测岛，或侧栏的分项标签视图
+ * （整岛方案已整合进侧栏，正文 / 页签 / 底栏共用同一套），且列表里有用例。
+ * 空列表不换成新底栏 —— 那时底栏左侧会是一颗「无测试用例」，与空态标题重复，
+ * 而且列表末尾那颗「添加测试样例」正需要多出来的高度。
+ */
+const verticalBar = computed(
+  () =>
+    props.cases.length > 0 &&
+    (props.verticalDock || (!isPane.value && caseView.value === 'tabs')),
+)
+
+/**
+ * 页头右上的结论（2026-11-20）：侧栏分项视图虽然也用了紧凑底栏，但结论仍留在页头右上角 ——
+ * 那是侧栏原有位置，不跟着底栏走。只有真正的评测岛（isPane）才把结论下沉到底栏。
+ */
+const showHeaderVerdict = computed(
+  () => !isWorkbench.value && (!verticalBar.value || !isPane.value),
+)
+
+/**
+ * 底栏那颗「单测」跑的是**当前选中的样例** —— 这个状态只在 TestCaseTabs 里。
+ * 所以这里拿它的 ref，把「跑当前样例」这个动作原样转发（守卫 / singleRun 全在它那边）。
+ * 列表视图没有「当前样例」这回事，底栏就不渲染这颗按钮（见模板里的 v-if="showTabs"）。
+ */
+const tabsRef = ref(null)
+
+function runActiveCase() {
+  tabsRef.value?.runActive()
+}
+
+/** 当前样例序号（1 起；无选中为 0），由 TestCaseTabs 的当前页签算出来 */
+const activeCaseNumber = computed(() => Number(tabsRef.value?.activeNumber) || 0)
+
+/**
+ * 左钮的悬停说明：跑不了时填原因（禁用按钮收不到鼠标事件，气泡弹不出来），
+ * 否则明确「只跑这一条」并带出序号。
+ */
+const runOneTitle = computed(() => {
+  if (props.runBlocked) return props.runBlocked
+  return activeCaseNumber.value
+    ? t('tests.panel.runOneTip', { n: activeCaseNumber.value })
+    : t('tests.card.runOne')
+})
 
 // 页脚上沿那条「还有下文」线（2026-10-23 加；判据同日按用户口径翻过一面）：
 // 页脚底色已改成与面板同色（--bg-editor，即整页地面），不再靠色差与列表分开，
@@ -226,7 +345,12 @@ const elapsedText = computed(() => {
 </script>
 
 <template>
-  <section class="panel" :aria-label="t('tests.panel.ariaLabel')">
+  <section
+    class="panel"
+    :class="{ 'is-pane': isPane, 'is-workbench': isWorkbench }"
+    :aria-label="t('tests.panel.ariaLabel')"
+    @contextmenu="onPanelContextMenu"
+  >
     <!-- 页头动作区：耗时与结论投进 Sidebar 共享页头的 #sidebar-context（顺序见下面那一簇）。
          不激活时 disabled、内容原地渲染（面板 v-show 藏着，不可见）；defer 的来历
          见 FileExplorer 里那颗同款 Teleport 的注释。
@@ -236,9 +360,11 @@ const elapsedText = computed(() => {
          或一份没有意义的旧结论，与空态标题「为什么跑不了」自相矛盾（判据见脚本的
          `showVerdict`）。
          2026-11-19：视图切换钮曾住在这块末尾（同日又按用户要求挪进「设置 › 外观」），
-         现在这一格只剩结论那一对 —— 于是外层 `v-if` 与 `showVerdict` 又合成一层。 -->
-    <Teleport defer :disabled="!isActivePanel" to="#sidebar-context">
-      <div v-if="showVerdict" class="panel__heading">
+         现在这一格只剩结论那一对 —— 于是外层 `v-if` 与 `showVerdict` 又合成一层。
+         2026-11-20（方案二）：纵向停靠时结论下沉到底栏左侧（见 verticalBar），
+         页头这一格整个不投 —— 把 35px 页头的全部宽度让给样例页签。 -->
+    <Teleport v-if="showHeaderVerdict" defer :disabled="!isActivePanel" :to="contextTarget">
+      <div v-if="showVerdict" class="panel__heading" :class="{ 'is-pane': isPane }">
         <!-- 顺序：耗时在前、结论在后（2026-11-19 用户要求交换）。右端最后落的是那枚 12px/600
              的判定，它是这一簇里唯一的重音；耗时是 11px 的淡色附注，放在左边当引子。
              两段都是 `flex: 0 0 auto`，交换只动 DOM 顺序，宽度与折行判据一点没变。 -->
@@ -342,25 +468,94 @@ const elapsedText = computed(() => {
          `@more-below` 是页脚那条发丝线的判据来源（滚动所有者在它内部，见上面 moreBelow）。 -->
     <TestCaseTabs
       v-else
+      ref="tabsRef"
       :cases="cases"
       :running="running"
       :run-blocked="runBlocked"
       :add-title="addTitle"
+      :teleport-rail="isPane"
+      :workbench="isWorkbench"
+      :vertical="verticalDock"
+      :show-submit="showSubmit"
+      :submitting="submitting"
+      :run-title="runTitle"
+      :submit-title="submitTitle"
+      :verdict-text="verdict.text"
+      :verdict-tone="verdict.tone"
+      :verdict-visible="showVerdict"
+      :elapsed-text="elapsedText"
       @add="emit('add')"
       @remove="emit('remove', $event)"
       @run-one="emit('run-one', $event)"
+      @run-all="emit('run-all')"
+      @submit="emit('submit')"
       @more-below="tabsMoreBelow = $event"
+      @drag-start="emit('drag-start', $event)"
     />
 
-    <footer class="panel__foot" :class="{ 'is-more-below': moreBelow }">
+    <!-- 紧凑底栏（2026-11-20 方案二；侧栏分项视图同款）：左状态、右动作。
+         右侧三个独立控件按「幽灵 → 中性 → 主色」排成阶梯：提交无底、单跑中性浅底、
+         全跑是唯一的绿色焦点钮并放在最右收口，不再让两颗绿钮互相抢焦点。 -->
+    <footer v-if="verticalBar" class="panel__foot is-vertical">
+      <div class="panel__foot-status">
+        <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
+        <template v-else-if="showVerdict && isPane">
+          <span class="verdict" :data-tone="verdict.tone">
+            <LoadingSpinner v-if="counts.running" :size="10" />
+            <span>{{ verdict.text }}</span>
+          </span>
+          <span
+            v-if="elapsedText"
+            class="elapsed"
+            :title="t('tests.elapsedTitle', { time: elapsedText })"
+          >
+            <AppIcon name="clock" :size="11" />{{ elapsedText }}
+          </span>
+        </template>
+      </div>
+      <div class="panel__foot-actions">
+        <AppTooltip v-if="showSubmit" class="submit-wrap" :text="submitTitle">
+          <button
+            class="submit-inline"
+            :class="{ 'is-submitting': submitting }"
+            :disabled="running || submitting"
+            :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
+            @click="emit('submit')"
+          >
+            <AppIcon name="upload" :size="13" />
+          </button>
+        </AppTooltip>
+        <AppTooltip v-if="showTabs" class="run-one-wrap" :text="runOneTitle">
+          <button class="btn-run-one" :disabled="runDisabled" @click="runActiveCase">
+            <AppIcon name="play-solid" :size="14" />
+            <span>{{ t('tests.panel.runOneLabel') }}</span>
+          </button>
+        </AppTooltip>
+        <AppTooltip class="run-all-wrap" :text="runTitle">
+          <button class="btn-run-all" :disabled="runDisabled" @click="emit('run-all')">
+            <AppIcon name="run-all" :size="14" />
+            <span>{{ t('tests.panel.runAllLabel') }}</span>
+          </button>
+        </AppTooltip>
+      </div>
+    </footer>
+
+    <footer
+      v-else
+      class="panel__foot"
+      :class="{ 'is-more-below': moreBelow && !compactActions, 'is-compact': compactActions }"
+    >
       <!-- 跑不了的原因写成一行看得见的字（置灰的按钮在浏览器里收不到鼠标事件，
            title 也就悬不出来）。**提交那条不在这里**：交不了的时候那颗按钮压根不渲染
            （见 showSubmit 与 App 里那段说明）。
            2026-11-18：`footBlocked` 只在列表里还有用例时兜底 —— 列表空着时空态标题
            已经说了同一句话（见 `emptyTitle`），页脚再写一遍就是重复；列表非空时
-           `.empty` 那个 `li` 根本不渲染，原因没处说，这里补上。 -->
+           `.empty` 那个 `li` 根本不渲染，原因没处说，这里补上。
+           2026-11-20（底部横跨）：动作条整排 Teleport 进岛页头（compactActions），
+           页脚只剩可能的原因行；没有原因时整条塌成 0 高。 -->
       <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
-      <div class="panel__foot-row">
+      <Teleport v-if="!isWorkbench" defer to="#tests-pane-actions" :disabled="!compactActions">
+        <div class="panel__foot-row" :class="{ 'is-compact': compactActions }">
         <!-- 一键提交（2026-10-23 加）：次要动作，保持纯图标、靠左，与主条同高。
              只在**真交得了**的时候出现（2026-10-23 改）：交不了的场合连按钮带原因
              一起收掉，页脚不留占位（原因走快捷键那条通知）。
@@ -377,38 +572,48 @@ const elapsedText = computed(() => {
              10.6×11.75 是同档（宽 0.4、矮 0.9），并排看不出谁大谁小。
              2026-11-10：悬停说明改由 AppTooltip 自绘气泡承担（见脚本 submitTitle 那段），
              不再挂原生 title —— 原生那条在这颗图标钮上悬不出来，用户对照「运行全部」报的。 -->
-        <AppTooltip v-if="showSubmit" class="submit-wrap" :text="submitTitle">
-          <button
-            class="submit-inline"
-            :class="{ 'is-submitting': submitting }"
-            :disabled="running || submitting"
-            :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
-            @click="emit('submit')"
+          <AppTooltip
+            v-if="showSubmit"
+            class="submit-wrap"
+            :text="submitTitle"
+            :placement="compactActions ? 'bottom' : 'top'"
           >
-            <AppIcon name="upload" :size="13" />
-          </button>
-        </AppTooltip>
-        <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
-             图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
-             文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
-             「▶ 运行全部」仍有富余（见样式里那条宽高账）。
-             2026-10-24 凌晨：title 里带上它的快捷键（用户要求「鼠标在运行全部按钮上时，
-             显示它的快捷键」），组合键走绑定表，见脚本 runTitle。
-             2026-11-10：跟提交那颗一样换成 AppTooltip 自绘气泡（用户：「运行全部的 hover
-             悬浮提示和这几个都不同」）—— 原生那条灰框在同一个排里独一份，其余几颗早就是
-             站内气泡了。`.run-inline` 的 `flex: 1 1 auto` 随之挪到外层 .run-all-wrap 上：
-             气泡的触发体是它自己那个 span，只有它才是这一排的 flex 子项。 -->
-        <AppTooltip class="run-all-wrap" :text="runTitle">
-          <button
-            class="run-inline"
-            :disabled="runDisabled"
-            @click="emit('run-all')"
+            <button
+              class="submit-inline"
+              :class="{ 'is-submitting': submitting }"
+              :disabled="running || submitting"
+              :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
+              @click="emit('submit')"
+            >
+              <AppIcon name="upload" :size="13" />
+            </button>
+          </AppTooltip>
+          <!-- 主操作（2026-10-24 改）：原先是一颗 32px 的线框 ▶，用户嫌「太单薄、像个漂在角落的
+               图标」。现在是通栏图文条：宽度由内容撑开、底色只用低透明度的 --ok 磨砂面，
+               文字同时充当可访问名。窄到一个字都放不下之前都不收字 —— 侧栏下限 158px 时
+               「▶ 运行全部」仍有富余（见样式里那条宽高账）。
+               2026-10-24 凌晨：title 里带上它的快捷键（用户要求「鼠标在运行全部按钮上时，
+               显示它的快捷键」），组合键走绑定表，见脚本 runTitle。
+               2026-11-10：跟提交那颗一样换成 AppTooltip 自绘气泡（用户：「运行全部的 hover
+               悬浮提示和这几个都不同」）—— 原生那条灰框在同一个排里独一份，其余几颗早就是
+               站内气泡了。`.run-inline` 的 `flex: 1 1 auto` 随之挪到外层 .run-all-wrap 上：
+               气泡的触发体是它自己那个 span，只有它才是这一排的 flex 子项。 -->
+          <AppTooltip
+            class="run-all-wrap"
+            :text="runTitle"
+            :placement="compactActions ? 'bottom' : 'top'"
           >
-            <AppIcon name="play" :size="14" />
-            <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
-          </button>
-        </AppTooltip>
-      </div>
+            <button
+              class="run-inline"
+              :disabled="runDisabled"
+              @click="emit('run-all')"
+            >
+              <AppIcon name="play" :size="14" />
+              <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
+            </button>
+          </AppTooltip>
+        </div>
+      </Teleport>
     </footer>
 
     <!-- 庆祝纸屑层（2026-10-23 加）：铺满整块样例面板、盖在列表与页脚之上，
@@ -416,6 +621,17 @@ const elapsedText = computed(() => {
          services/confetti.js 每次放之前按 getBoundingClientRect 现设，这里只管「和面板一样大」。
          aria-hidden：纯装饰，不进无障碍树（同样理由，也不用 aria-live 念出来）。 -->
     <canvas ref="confettiEl" class="panel__confetti" aria-hidden="true"></canvas>
+
+    <!-- 评测栏右键菜单（2026-11-20）：切「评测样例视图」。卡片流 / 分项标签两档带勾，
+         读的是设置菜单同一份 CASE_VIEWS（见脚本 viewMenuItems）。 -->
+    <ContextMenu
+      v-if="panelMenu"
+      :x="panelMenu.x"
+      :y="panelMenu.y"
+      :items="panelMenu.items"
+      @select="onPanelMenuSelect"
+      @close="panelMenu = null"
+    />
   </section>
 </template>
 
@@ -475,6 +691,13 @@ const elapsedText = computed(() => {
    挤偏 —— 归零。特异性 (0,2,0)，不参与 Sidebar 那条 margin-left 的争夺。 */
 :where(html.is-narrow) .panel__heading {
   margin-right: 0;
+}
+
+/* 评测岛页头：这一簇后面接拖动把手（TestsPane 负责，页头即把手），
+   所以不再贴右、右边距归零，间距略收 */
+.panel__heading.is-pane {
+  margin-right: 0;
+  gap: 7px;
 }
 
 .verdict {
@@ -564,6 +787,14 @@ const elapsedText = computed(() => {
 .cases::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* 岛内列表：横向留白交给 `.card__body` 的 --pane-px（底部 12 / 纵向 10），
+   这里归零，页头 gripping/标签的左沿才与正文第一列盒面同一条线。
+   侧栏不经过这一支（.panel 无 is-pane），8px 原样保留。 */
+.panel.is-pane .cases {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* 空态（2026-10-06 照参照稿改；2026-10-11 改定位）：一行居中的淡灰字。
@@ -711,7 +942,7 @@ button.empty__link {
   gap: 8px;
   /* 左右 8px = .cases 的横向内边距：主操作条与列表里的卡片 / 「添加测试样例」同宽，
      页脚不再比上面窄 4px（2026-10-24） */
-  padding: 10px 8px;
+  padding: 10px var(--pane-px, 8px);
   /* 底色与面板同色（--bg-editor，即整页地面），照侧边栏页头那套「透明条」的做法（2026-10-23）：
      页脚不再是一块比正文亮一档的色斑，而是同一条地面的末段，剩下的按钮直接浮在上面。
      与正文的分界改由一条发丝线承担 —— 但它只在**还有内容压在下面**时才描出来
@@ -729,9 +960,210 @@ button.empty__link {
   border-top-color: var(--border-soft);
 }
 
+/* 底部横跨态（compactActions）：动作条已 Teleport 进岛页头，页脚只剩可能的原因行。
+   没有原因时整条 0 高 —— 这正是这次挪按钮要换回来的那 ~56px（padding 10×2 + 36 条）。 */
+.panel__foot.is-compact {
+  padding: 0;
+  border-top: none;
+}
+
+.panel__foot.is-compact .run-blocked {
+  padding: 6px var(--pane-px, 8px) 8px;
+}
+
+/* 纵向停靠的底栏（2026-11-20 方案二；同日方案一重排）：左状态、右动作。
+   高度改由内容撑开（28px 控件 + 上 8 / 下 --pane-px）：底边距与左右等宽，
+   右下角按钮不再比右侧更贴边，圆角的「下坠感」消失。 */
+.panel__foot.is-vertical {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px var(--pane-px, 10px) var(--pane-px, 10px);
+  border-top: 0;
+}
+
+/* 侧栏分项视图（非评测岛）：内容左右留白与纵向评测岛一致，统一 10px */
+.panel:not(.is-pane) .panel__foot.is-vertical {
+  padding: 10px;
+}
+
+.panel:not(.is-pane) .panel__foot.is-vertical .panel__foot-status {
+  padding-left: 0;
+}
+
+/* 侧栏底栏按钮恢复原来的 36px 高（紧凑评测岛仍是 28px），整条底栏回到 56px */
+.panel:not(.is-pane) .panel__foot.is-vertical .submit-inline {
+  width: 36px;
+  height: 36px;
+}
+
+.panel:not(.is-pane) .panel__foot.is-vertical .btn-run-one,
+.panel:not(.is-pane) .panel__foot.is-vertical .btn-run-all {
+  height: 36px;
+}
+
+/* 左侧状态：统一 inline-flex 中轴、锁死 22px 行盒，图标与文字不再各自漂移。 */
+.panel__foot-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 6px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.panel__foot-status .run-blocked {
+  margin: 0;
+  line-height: 1.2;
+  color: var(--text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.panel__foot-status .verdict,
+.panel__foot-status .elapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel__foot-status .verdict {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.panel__foot-status .elapsed {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.panel__foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* AppTooltip 的触发体是它自己的 inline-flex span；统一对齐后才不会把按钮顶歪 1–2px */
+.panel__foot-actions > * {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 提交钮：降噪为幽灵图标，28×28 与运行按钮等高 */
+.panel__foot.is-vertical .submit-inline {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+:where(html.is-hoverable) .panel__foot.is-vertical .submit-inline:hover:not(:disabled) {
+  background: var(--icon-hover-bg);
+  color: var(--text);
+}
+
+/* 三个独立按钮按「幽灵 → 中性 → 主色」排成阶梯（2026-11-20 方案二）：
+   提交 = 无底图标；单跑 = 中性浅底 + 普通文字；全跑 = 唯一的 --ok 焦点钮，放最右收口。 */
+.btn-run-one,
+.btn-run-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease, opacity 0.14s ease;
+}
+
+/* 次操作（运行）：中性浅灰，不参与绿色语义 —— 绿只留给全跑 */
+.btn-run-one {
+  color: var(--text-dim);
+  background: var(--bg-hover-soft);
+}
+
+:where(html.is-hoverable) .btn-run-one:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* 主动作（全跑）：整排唯一的绿色焦点钮 */
+.btn-run-all {
+  color: var(--ok);
+  background: var(--ok-face);
+}
+
+:where(html.is-hoverable) .btn-run-all:hover:not(:disabled) {
+  background: var(--ok-face-hover);
+}
+
+.btn-run-one:disabled,
+.btn-run-all:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.panel__foot.is-vertical .run-one-wrap,
+.panel__foot.is-vertical .run-all-wrap {
+  flex: 0 0 auto;
+}
+
 .panel__foot-row {
   display: flex;
   gap: 8px;
+}
+
+/* 岛页头只有 --head-ctrl-h（26px）：两颗按钮同高、同 6px 圆角，
+   与标签胶囊同一把标尺；尺寸全部走变量，纵向停靠 / 侧栏不经过这一支。 */
+.panel__foot-row.is-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel__foot-row.is-compact .submit-inline,
+.panel__foot-row.is-compact .run-inline {
+  box-sizing: border-box;
+  height: var(--head-ctrl-h, 26px);
+  border-radius: 6px;
+}
+
+.panel__foot-row.is-compact .submit-inline {
+  width: var(--head-ctrl-h, 26px);
+}
+
+.panel__foot-row.is-compact .run-inline {
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1;
 }
 
 /* 不可运行的原因：说清楚就行，别用告警色 —— 编辑题解本来就不该有什么「出错」感 */

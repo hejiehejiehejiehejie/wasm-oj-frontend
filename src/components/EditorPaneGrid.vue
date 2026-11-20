@@ -23,11 +23,19 @@ import {
   focusPane,
   focusedLeaf,
   leafById,
+  moveTestsPane,
   paneOf,
   previewSplitRect,
   resetRatio,
   setRatio,
 } from '../services/editorPanes.js'
+import {
+  beginTestsPaneDrag,
+  testsDrop,
+  testsDropCurrent,
+  testsDropLabel,
+  testsPaneDrag,
+} from '../services/testsPaneDrag.js'
 import {
   paneDropHint,
   clearPaneDropHint,
@@ -40,6 +48,7 @@ import { beginPaneResize, endPaneResize } from '../services/paneResize.js'
 import { registerDropZone } from '../composables/useTreeDrag.js'
 import { openFile, pinTab } from '../services/vfs/workspaceStore.js'
 import EditorPane from './EditorPane.vue'
+import TestsPane from './TestsPane.vue'
 
 // 监听器与 class 等非 prop 属性直接落到 EditorPane 上（本组件不声明 emits）
 defineOptions({ inheritAttrs: false })
@@ -53,7 +62,17 @@ defineProps({
   judge: { type: Object, required: true },
   connection: { type: Object, required: true },
   uiScale: { type: Number, required: true },
+  // 评测岛的数据与事件（只有 content: 'tests' 的叶子用得到；代码窗格不吃这些）
+  cases: { type: Array, required: true },
+  running: Boolean,
+  elapsed: { type: Number, default: 0 },
+  runBlocked: { type: String, default: '' },
+  notice: { type: Object, default: null },
+  showSubmit: Boolean,
+  submitting: Boolean,
 })
+
+const emit = defineEmits(['add', 'remove', 'run-one', 'run-all', 'submit', 'dock-tests', 'open-tests'])
 
 const gridEl = ref(null)
 
@@ -76,6 +95,11 @@ function cellStyle(rect) {
     width: `${rect.w}%`,
     height: `${rect.h}%`,
   }
+}
+
+/** 这一格是不是评测岛（布局树里 `content: 'tests'` 的叶子） */
+function isTestsLeaf(paneId) {
+  return leafById(paneId)?.content === 'tests'
 }
 
 function splitterStyle(splitter) {
@@ -243,7 +267,29 @@ watch(
 function focusPaneAt(event) {
   const cell = event.target?.closest?.('.editor-grid__cell')
   const paneId = cell?.dataset?.paneId
-  if (paneId) focusPane(paneId)
+  // 评测岛是被动窗格：点它的输入框不能把焦点 / activeId 抢走（focusPane 自己也会挡，
+  // 这里提前挡掉是为了连 focusedPaneId 的写入都不发生）
+  if (paneId && leafById(paneId)?.content !== 'tests') focusPane(paneId)
+}
+
+/* ------------------------------------------------------------ 评测岛拖动
+   2026-11-19 用户口径：评测岛页头与侧栏的「评测」入口都不再放按钮，一律靠拖动 ——
+   岛页头拖到编辑区右侧 / 底部换边，拖到侧栏上方停靠回去；侧栏胶囊 / 活动栏的评测图标
+   拖进编辑区则直接变成岛（原来的「在编辑区打开」按钮已删）。
+   手势、落点与高亮都在 services/testsPaneDrag.js（两个来源共用一套），这里只做两件本地事：
+   把页头的 `drag-start` 转给服务、以及把服务算出的落点兑现成布局动作。 */
+function beginTestsDrag(event) {
+  beginTestsPaneDrag(event, 'island')
+}
+
+/** 服务松手时回调（`testsPaneDrag.settle`）：岛换边 / 靠回侧栏；从侧栏拖出来则交给 App */
+function settleTestsDrop(target, source) {
+  if (source === 'sidebar') {
+    emit('open-tests', target)
+    return
+  }
+  if (target === 'sidebar') emit('dock-tests')
+  else if (target) moveTestsPane(target)
 }
 
 /* ------------------------------------------------------------ 拖放：页签 / 文件树
@@ -315,6 +361,8 @@ function onFileDragLeave() {
 let unregisterDropZone = null
 
 onMounted(() => {
+  // 评测拖动的落点结算注入（服务只算手势与命中，落位要动布局树 + 通知 App）
+  testsPaneDrag.settle = settleTestsDrop
   unregisterDropZone = registerDropZone({
     el: gridEl.value,
     // 目录不接：拖进编辑区是「打开」语义，移动目录请落在树里
@@ -326,6 +374,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (testsPaneDrag.settle === settleTestsDrop) testsPaneDrag.settle = null
   window.removeEventListener('pointermove', updateTabDropHint)
   clearPaneDropHint()
   // 拖到一半被卸载（关工作区、切到没有编辑区的视图）：把「正在拖」这个瞬时状态和一整套
@@ -439,7 +488,24 @@ defineExpose({
       :data-pane-id="rect.id"
       :style="cellStyle(rect)"
     >
+      <TestsPane
+        v-if="isTestsLeaf(rect.id)"
+        :cases="cases"
+        :running="running"
+        :elapsed="elapsed"
+        :run-blocked="runBlocked"
+        :notice="notice"
+        :show-submit="showSubmit"
+        :submitting="submitting"
+        @add="emit('add')"
+        @remove="emit('remove', $event)"
+        @run-one="emit('run-one', $event)"
+        @run-all="emit('run-all')"
+        @submit="emit('submit')"
+        @drag-start="beginTestsDrag"
+      />
       <EditorPane
+        v-else
         :ref="(el) => setPaneRef(rect.id, el)"
         v-bind="$attrs"
         :settings="settings"
@@ -468,6 +534,18 @@ defineExpose({
       :style="dropStyle"
       aria-hidden="true"
     />
+
+    <!-- 评测岛拖动落点（2026-11-19；2026-11-20 方案三把几何收拢到中线）：
+         左右 47% / 底部 56%，6% 中线迟滞；落在当前已停靠侧时只画极淡线框，
+         文案改成「保持当前位置」—— 让「松手＝取消」读得出来。 -->
+    <div
+      v-if="testsDrop"
+      class="editor-grid__tests-drop"
+      :class="[`is-${testsDrop}`, { 'is-current': testsDropCurrent }]"
+      aria-hidden="true"
+    >
+      <span class="editor-grid__tests-drop-label">{{ testsDropLabel }}</span>
+    </div>
 
     <!-- 页签栏落点的插入线：钉在「松手后会插进去的那条缝」上。不做补间 —— 插入点是离散
          的槽位，滑过去反而像没对准；跟着指针对齐才读得出「插在谁前面」。 -->
@@ -621,6 +699,74 @@ defineExpose({
     top 0.13s cubic-bezier(0.2, 0.8, 0.3, 1),
     width 0.13s cubic-bezier(0.2, 0.8, 0.3, 1),
     height 0.13s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+/* 评测岛拖动落点（2026-11-19）：与页签拖放的高亮是两套东西 —— 这里铺一整条带
+   （左侧 / 右侧 38% / 底部 35% / 侧栏整片），带宽与评测岛打开后的占比同值，所见即所得。
+   2026-11-19 晚按用户要求去掉外圈描边：只留大面积半透明填色，落点靠「整片亮起来」表达，
+   不再画一圈线。填色用全站统一的 --bg-drop-root，与页签拖放同一套主题色。 */
+.editor-grid__tests-drop {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: var(--bg-drop-root);
+  border-radius: 10px;
+}
+
+.editor-grid__tests-drop.is-right {
+  left: 53%;
+  top: 0;
+  width: 47%;
+  height: 100%;
+}
+
+/* 左侧与右侧对称：0%↔47%，过中线即高亮（与 resolveDrop 的 0.47 / 0.53 同一组数） */
+.editor-grid__tests-drop.is-left {
+  left: 0;
+  top: 0;
+  width: 47%;
+  height: 100%;
+}
+
+.editor-grid__tests-drop.is-bottom {
+  left: 0;
+  top: 56%;
+  width: 100%;
+  height: 44%;
+}
+
+/* 落在「当前已经停靠的那一侧」：不铺落点色带、也不描边（2026-11-20 用户要求去掉那圈灰线），
+   只把文案改成「保持当前位置」并压暗 —— 让「松手＝取消 / 不换边」靠一句话读出来。 */
+.editor-grid__tests-drop.is-current {
+  background: none;
+}
+
+.editor-grid__tests-drop.is-current .editor-grid__tests-drop-label {
+  color: var(--text-dim);
+}
+
+.editor-grid__tests-drop.is-sidebar {
+  inset: 0;
+  background: none;
+}
+
+/* 从侧栏拖进编辑区的落点：整片网格都可以松手（按记忆 / 自动侧打开），
+   所以整块亮起来，而不是只画右侧 / 底部那一条。 */
+.editor-grid__tests-drop.is-editor {
+  inset: 0;
+}
+
+/* 落点文案（2026-11-20 用户要求）：去掉外圈胶囊 —— 不再有底色、圆角与投影，
+   直接一行大字压在落点色带上。11px 太小，与「整片亮起来」的落点提示不成比例。 */
+.editor-grid__tests-drop-label {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 /* 页签栏落点的插入线：2px 宽、居中压在「缝」上（margin-left 抵消一半）。颜色用主题色，

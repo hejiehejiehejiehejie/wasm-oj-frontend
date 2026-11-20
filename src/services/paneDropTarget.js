@@ -291,6 +291,9 @@ export function paneDropTargetAt(point) {
   }
   const paneId = cell?.dataset?.paneId
   if (!paneId) return null
+  // 评测岛不接受任何拖放（不装页签、也不可再分）：整块按「不在落点」处理，
+  // 高亮与命中一起消失，指针滑过它时不会误亮出边缘切分带。
+  if (leafById(paneId)?.content === 'tests') return null
 
   if (strip) return tabStripTarget(cell, strip, point)
   if (!stage) return { paneId, zone: 'center' }

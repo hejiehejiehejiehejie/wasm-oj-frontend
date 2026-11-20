@@ -14,6 +14,10 @@
  *   （第一轮被否），两段各自接点击又会在胶囊内留 2px 死区、点边缘没反应（第二轮被否）。
  * - 文案写**将要去的那一个**（`title` / `aria-label` 都是「切换到评测样例」这种祈使句）：
  *   整枚是一个动作按钮，得让人预判点下去会去哪。
+ * - **外置态**（2026-11-20）：评测岛拖到编辑区后，胶囊不收起、仍画两段，
+ *   评测那段标 `.is-detached`（颜色降档 + 降透明度）。整枚点下去只有一个动作
+ *   「把评测收回来」—— 文案换成 Sidebar 下发的 `pillTitle`，不再说「切换到评测」。
+ *   这也是页头左侧的视觉锚点：收起胶囊会让宽度骤降、只剩两颗工具钮孤零零。
  * - 段位是「图标 + 短标签」；收不收标签有两个口径（见 `iconOnly`）：
  *   宽屏听 Sidebar 的 `compact`（带标签时页头放不下才收，见那边的 headFitWithLabels），
  *   窄屏听实测的 85% —— 底栏那一排独占整个抽屉宽，整排塞进 85% 就带标签
@@ -41,8 +45,9 @@ import { t } from '../i18n/index.js'
 import { onViewportChange } from '../composables/useMobileKeyboard.js'
 import { useGearSpin } from '../composables/useGearSpin.js'
 import { panelPosition } from '../services/shellSettings.js'
+import { beginTestsPaneDrag, consumeTestsPaneDragClick } from '../services/testsPaneDrag.js'
 
-const { panels, targetPanel, togglePanel, settings, components, collapse, compact } =
+const { panels, pillTitle, testsDocked, togglePanel, settings, components, collapse, compact } =
   inject('sidebarTabs')
 
 // 齿轮点一下转 120°（2026-11-12 用户要求，时长与曲线见 useGearSpin 头注释）。
@@ -52,6 +57,25 @@ const { spin: spinGear, style: gearSpinStyle } = useGearSpin()
 // 指示块的位置信号：当前面板的 id 直接写在 pill 的 data-active 上，
 // CSS 按它给指示块写 translateX（见样式表）。无头回归另读段上的 data-current。
 const activePanelId = computed(() => panels.value.find((panel) => panel.active)?.id ?? '')
+
+/**
+ * 「评测」那一半是拖出口（2026-11-19 用户口径：不再有「在编辑区打开」按钮，
+ * 直接拖这颗进编辑区就变成岛）。点按仍然是切换面板，拖动后的 click 由服务吞掉。
+ *
+ * 外置态（评测岛已经在编辑区）没有「从侧栏拖出去」这回事：不开始拖，
+ * 否则会走一遍「openTestsPane 发现已经开着 → 把侧栏翻回资源管理器」的空动作。
+ */
+function onPillPointerDown(event) {
+  const seg = event.target?.closest?.('.sidebar-switcher__seg')
+  if (seg?.dataset?.panel === 'tests' && !testsDocked.value) {
+    beginTestsPaneDrag(event, 'sidebar')
+  }
+}
+
+function onPillClick() {
+  if (consumeTestsPaneDragClick()) return
+  togglePanel()
+}
 
 // ------------------------------------------------------------ 设置下拉菜单
 // 点齿轮不再直接开设置页，而是在齿轮位置弹一个 Quick Settings 菜单（SettingsMenu）：
@@ -298,14 +322,19 @@ const HEAD_ICON_SIZE = 19
     </button>
 
     <!-- 整枚胶囊＝一颗按钮。两段是 span（纯指示），不接点击，
-         也不带 tabindex —— 键盘用户按一次空格/回车就翻过去，不需要在胶囊里再 Tab 一轮 -->
+         也不带 tabindex —— 键盘用户按一次空格/回车就翻过去，不需要在胶囊里再 Tab 一轮。
+         评测岛在编辑区时**不收起**（2026-11-20 用户口径）：胶囊保持原尺寸，评测那段
+         标 `detached`（颜色降档 + 降透明度），整枚点下去只有一个动作「把评测收回来」。
+         收起会同时丢掉页头左侧的视觉锚点、并把页头宽度骤降一整枚（两颗工具钮孤零零）。 -->
     <button
+      v-if="panels.length > 1"
       type="button"
       class="sidebar-switcher__pill"
       :data-active="activePanelId"
-      :title="t('app.sidebar.switchTo', { panel: targetPanel.label })"
-      :aria-label="t('app.sidebar.switchTo', { panel: targetPanel.label })"
-      @click="togglePanel"
+      :title="pillTitle"
+      :aria-label="pillTitle"
+      @pointerdown="onPillPointerDown"
+      @click="onPillClick"
     >
       <!-- 蓝色指示块：一枚铺满当前段的小胶囊，active 变化时 transform 滑过去。
            它是「我在哪一个面板」唯一的主信号，别退成只换图标色的弱提示 -->
@@ -314,9 +343,10 @@ const HEAD_ICON_SIZE = 19
         v-for="panel in panels"
         :key="panel.id"
         class="sidebar-switcher__seg"
-        :class="{ 'is-active': panel.active }"
+        :class="{ 'is-active': panel.active, 'is-detached': panel.detached }"
         :data-panel="panel.id"
         :data-current="panel.active ? 'true' : null"
+        :data-detached="panel.detached ? 'true' : null"
       >
         <!-- 图标跟着「这一段是不是当前面板」走：资源管理器开着时是掀盖的文件夹
              （`folder-open`），收起时是合着的 `folder`（2026-11-12 用户要求）。
@@ -485,6 +515,62 @@ const HEAD_ICON_SIZE = 19
 .sidebar-switcher__seg.is-active {
   color: var(--text-on-accent);
   transition: color 0.16s ease 0.06s;
+}
+
+/* 外置段（2026-11-20）：评测岛在编辑区里，这一段读作「它现在在哪」，不是「另一个待选面板」。
+   只靠两档信号（2026-11-20 用户要求去掉虚线描边）：
+   - 颜色降一档（--text-faint，与折叠态图标栏闲置档同源）+ 透明度 0.72 —— 它不是当前面板；
+   - 悬停整枚胶囊时恢复常亮：这时它表达的是「点下去会收回评测」，不是禁用。
+   纯图标档（is-compact）同样靠这两档，不会与左边带蓝色指示块的段混淆。 */
+.sidebar-switcher__seg.is-detached {
+  color: var(--text-faint);
+  opacity: 0.72;
+  transition:
+    color 0.12s ease,
+    opacity 0.16s ease;
+}
+
+:where(html.is-hoverable) .sidebar-switcher__pill:hover .sidebar-switcher__seg.is-detached {
+  opacity: 1;
+}
+
+/* 「评测」段还是侧栏里的一段时，它是**拖出口**（拖进编辑区就变成评测岛）。
+   鼠标悬到这一段上，右上角浮出一枚 2×3 的六点把手 —— 与评测岛页头那颗 grip
+   同一套语言，表达「这一段可以拖走」，而不是点了只能切面板。
+   - 把手用 radial-gradient 平铺六个点：不额外塞 DOM、不吃宽度（absolute + pointer-events: none）；
+   - 常时透明，只在可 hover 的设备上悬停这一段才出现，透明度 0.42（浅浅一层，
+     不抢图标与文字的阅读）；
+   - 外置态（:.is-detached）没有可拖的东西，不画；纯图标档（30px 段）位置太挤，
+     也不画，那里靠 grab 光标提示。
+   光标本身也换成 grab / grabbing，拖拽手势与评测岛页头保持一致。 */
+.sidebar-switcher__seg[data-panel='tests']:not(.is-detached) {
+  cursor: grab;
+}
+
+.sidebar-switcher__seg[data-panel='tests']:not(.is-detached):active {
+  cursor: grabbing;
+}
+
+.sidebar-switcher__seg[data-panel='tests']:not(.is-detached)::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  width: 6px;
+  height: 10px;
+  background-image: radial-gradient(circle, currentColor 0.9px, transparent 1px);
+  background-size: 3.5px 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+:where(html.is-hoverable) .sidebar-switcher__seg[data-panel='tests']:not(.is-detached):hover::after {
+  opacity: 0.42;
+}
+
+.sidebar-switcher.is-compact .sidebar-switcher__seg[data-panel='tests']::after {
+  display: none;
 }
 
 /* 「文件」段的文件夹：Lucide 的 folder 墨迹在 24 viewBox 里是 y 3→20，重心只比网格中心

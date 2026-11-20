@@ -43,6 +43,7 @@ const PANEL_POSITION_KEY = 'cp.panelPosition'
 const UI_SCALE_KEY = 'cp.uiScale'
 const NARROW_COLLAPSE_SIDE_KEY = 'cp.narrowCollapseSide'
 const CASE_VIEW_KEY = 'cp.caseView'
+const TESTS_PANE_PLACEMENT_KEY = 'cp.testsPanePlacement'
 
 function read(key, fallback, revive) {
   try {
@@ -152,6 +153,26 @@ export const CASE_VIEWS = [
 export function setCaseView(next) {
   if (next !== 'list' && next !== 'tabs') return
   caseView.value = next
+}
+
+/**
+ * 评测岛停靠在编辑区的哪一侧：'left' | 'right' | 'bottom' | null（null = 自动判断）。
+ *
+ * 只在用户**手动拖动**评测岛页头落位之后才有值（`setTestsPanePlacement`，由自定义拖动出口
+ * `moveTestsPane` 调用）；自动判断（窄屏 / 已有两列代码 → 底部，否则右侧）不落盘 —— 窗口换一次
+ * 尺寸就沿用上次的自动结论，反而会与当下布局打架。真源在 `services/editorPanes.js` 的 `openTestsPane`。
+ */
+export const testsPanePlacement = ref(
+  read(TESTS_PANE_PLACEMENT_KEY, null, (value) =>
+    value === 'left' || value === 'right' || value === 'bottom' ? value : null,
+  ),
+)
+watch(testsPanePlacement, (value) => persist(TESTS_PANE_PLACEMENT_KEY, value), { immediate: true })
+
+/** 指定评测岛的停靠侧（拖动页头松手、`moveTestsPane` 走这里；'left' / 'right' / 'bottom' 之外一律忽略） */
+export function setTestsPanePlacement(next) {
+  if (next !== 'left' && next !== 'right' && next !== 'bottom') return
+  testsPanePlacement.value = next
 }
 
 /**

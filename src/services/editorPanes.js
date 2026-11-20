@@ -25,6 +25,7 @@
  */
 import { reactive, watch } from 'vue'
 import { isViewId } from './editorViewIds.js'
+import { isNarrowLayout, setTestsPanePlacement, testsPanePlacement } from './shellSettings.js'
 
 /** 根叶子的固定 id：单窗格阶段 App / EditorPane 直接认它，P1 后仍作为初始叶子的 id */
 export const PANE_ROOT_ID = 'pane-root'
@@ -54,8 +55,16 @@ function newId(prefix) {
  */
 const allowsEmpty = new Set()
 
-function makeLeaf(id) {
-  const leaf = { kind: 'leaf', id: id ?? newId('pane'), tabs: [], active: null, preview: null }
+function makeLeaf(id, content = 'editor') {
+  const leaf = {
+    kind: 'leaf',
+    id: id ?? newId('pane'),
+    // 'editor' = 代码窗格（装页签）；'tests' = 评测岛（没有页签，永远被动、不接焦点）
+    content: content === 'tests' ? 'tests' : 'editor',
+    tabs: [],
+    active: null,
+    preview: null,
+  }
   allowsEmpty.add(leaf.id)
   return leaf
 }
@@ -101,6 +110,36 @@ export function leafById(paneId) {
 }
 
 /**
+ * 纯**代码**叶子（过滤掉评测岛）。与 `leaves()` 的分工必须严格遵守：
+ *   · `leaves()`：全部叶子（含 `content: 'tests'`）—— 只给网格渲染、`MAX_PANES` 上限、
+ *     几何分割这些「评测岛也占一格」的地方用；
+ *   · `editorLeaves()`：**空窗格回收判断、最后一个代码格保护、焦点回落、快捷键在代码窗格
+ *     之间跳转** —— 这些地方一个评测岛都不能算进来。否则「1 个代码格 + 1 个评测岛」会被
+ *     `leaves().length > 1` 误判成「还有别的代码格」，把最后一片代码窗格收掉。
+ * @returns {any[]}
+ */
+export function editorLeaves(node = editorPanes.root, out = []) {
+  if (!node) return out
+  if (isLeaf(node)) {
+    if (node.content !== 'tests') out.push(node)
+    return out
+  }
+  editorLeaves(node.a, out)
+  editorLeaves(node.b, out)
+  return out
+}
+
+/** 编辑区里那张评测岛叶子（at most one）；没有就是 null */
+export function testsLeaf() {
+  return leaves().find((leaf) => leaf.content === 'tests') ?? null
+}
+
+/** 编辑区里有没有评测岛（写它的是 `openTestsPane` / `closeTestsPane`） */
+export function hasTestsPane() {
+  return testsLeaf() !== null
+}
+
+/**
  * 页签所在叶子；不在任何叶子里返回 null。
  * @param {string} tabId
  */
@@ -112,9 +151,13 @@ export function paneOf(tabId) {
   return null
 }
 
-/** 焦点叶子。focusedPaneId 失效（刚被合并掉）时回落到第一片叶子 */
+/** 焦点叶子。focusedPaneId 失效（刚被合并掉）时回落到第一片**代码**叶子 */
 export function focusedLeaf() {
-  return leafById(editorPanes.focusedPaneId) ?? leaves()[0] ?? null
+  const current = leafById(editorPanes.focusedPaneId)
+  if (current && current.content !== 'tests') return current
+  // 评测岛永远被动：焦点指针失效时也只能落到代码格上，绝不落到评测岛
+  // （`workspace.activeId` 是 `focusedLeaf().active` 的镜像，指错会把 activeId 抹成 null）。
+  return editorLeaves()[0] ?? leaves()[0] ?? null
 }
 
 /** 全部页签（含合成视图），按树内顺序拼起来 —— tabStrip.stripOrder 的派生源 */
@@ -136,7 +179,9 @@ export function hasTab(tabId) {
 
 /** @param {string} paneId */
 export function focusPane(paneId) {
-  if (leafById(paneId)) editorPanes.focusedPaneId = paneId
+  const leaf = leafById(paneId)
+  // 评测岛是被动窗格：点它里面的输入框不能把 focusedPaneId / activeId 抢走
+  if (leaf && leaf.content !== 'tests') editorPanes.focusedPaneId = paneId
 }
 
 // ------------------------------------------------------------ 页签增删改
@@ -171,7 +216,9 @@ export const paneFocus = { settle: null }
  */
 export function placeTab(tabId, { paneId, index, makeActive = true } = {}) {
   if (!tabId) return null
-  const target = leafById(paneId) ?? focusedLeaf()
+  // 评测岛不装页签：指定到它身上时退回焦点代码格（调用方本不该这么做，这里是兜底）
+  const requested = leafById(paneId)
+  const target = requested && requested.content !== 'tests' ? requested : focusedLeaf()
   if (!target) return null
   const existing = paneOf(tabId)
 
@@ -188,7 +235,7 @@ export function placeTab(tabId, { paneId, index, makeActive = true } = {}) {
     const wasActive = existing.active === tabId
     const removed = removeTab(tabId)
     if (removed && wasActive) handoffFocus(removed.leaf, tabId, removed.index)
-    if (removed?.leaf && removed.leaf.tabs.length === 0 && leaves().length > 1) {
+    if (removed?.leaf && removed.leaf.tabs.length === 0 && editorLeaves().length > 1) {
       closeEmptyPane(removed.leaf.id)
     }
   }
@@ -351,7 +398,8 @@ export function hydrate(tabIds) {
 export function splitPane(paneId, axis = 'x', side = 'after') {
   if (leaves().length >= MAX_PANES) return null
   const slot = findSlot(editorPanes.root, paneId)
-  if (!slot || !isLeaf(slot.node)) return null
+  // 评测岛不可再分：拖放层已经拒绝它的四区落点，这里再挡一层（否则会被切出嵌套岛）
+  if (!slot || !isLeaf(slot.node) || slot.node.content === 'tests') return null
 
   const fresh = makeLeaf()
   const split = {
@@ -388,26 +436,117 @@ export function splitPane(paneId, axis = 'x', side = 'after') {
  *
  * @param {'x'|'y'} axis
  * @param {'before'|'after'} [side] 新窗格在旧整棵树的哪一侧
+ * @param {{ focus?: boolean, share?: number, content?: 'editor'|'tests' }} [options]
+ *   `focus` 默认 true（拖放落地后视线跟到新格）；**评测岛必须传 false** —— 它不接焦点。
+ *   `share` 覆盖 `spanPaneShare`（评测岛用固定 0.35 / 0.38 的舒适比例，而不是等分）。
  * @returns {string|null} 新叶子 id；已到上限时 null
  */
-export function splitSpanning(axis, side = 'after') {
+export function splitSpanning(axis, side = 'after', { focus = true, share = null, content = 'editor' } = {}) {
   if (leaves().length >= MAX_PANES) return null
   const dir = axis === 'y' ? 'y' : 'x'
-  const share = spanPaneShare(dir)
+  const portion = Number.isFinite(share) ? clamp(share, MIN_RATIO, MAX_RATIO) : spanPaneShare(dir)
   const old = editorPanes.root
-  const fresh = makeLeaf()
+  const fresh = makeLeaf(undefined, content)
   const split = {
     kind: 'split',
     id: newId('split'),
     axis: dir,
     // share 是**新窗格**那一份；ratio 记的是 a 那一份（见 computePaneRects）
-    ratio: side === 'before' ? share : 1 - share,
+    ratio: side === 'before' ? portion : 1 - portion,
     a: side === 'before' ? fresh : old,
     b: side === 'before' ? old : fresh,
   }
   editorPanes.root = split
-  editorPanes.focusedPaneId = fresh.id
+  if (focus) editorPanes.focusedPaneId = fresh.id
   return fresh.id
+}
+
+// ------------------------------------------------------------ 评测岛（tests 叶）
+
+/** 评测岛开出来时的默认比例：左右 62/38，底部 65/35（窄屏底部对半） */
+const TESTS_PANE_SHARE = { left: 0.38, right: 0.38, bottom: 0.35 }
+
+/** 当前评测岛停在哪一侧（'left' | 'right' | 'bottom'）；没有岛时 null */
+export function testsPaneSide() {
+  const leaf = testsLeaf()
+  if (!leaf) return null
+  const slot = findSlot(editorPanes.root, leaf.id)
+  const parent = slot?.parent
+  if (!parent) return null
+  if (parent.axis === 'y') return 'bottom'
+  return parent.a === slot.node ? 'left' : 'right'
+}
+
+/**
+ * 最近一次纵向（左 / 右）停靠侧 —— 双击页头在「底部 ↔ 上次纵向侧」之间切换用
+ * （2026-11-20 方案四）。切到底部时**不清空**，否则彩蛋就退化成「底部 ↔ 右侧」。
+ */
+let lastVerticalSide = 'right'
+
+export function lastTestsPaneSide() {
+  return lastVerticalSide
+}
+
+/**
+ * 自动停靠侧：窄屏、或代码区已经横向切成 ≥2 列 → 底部（底部通栏能让样例输入与答案并排）；
+ * 其余情况右侧。用户手动切过之后由 `testsPanePlacement` 覆盖这里。
+ */
+function autoTestsPaneSide() {
+  if (isNarrowLayout()) return 'bottom'
+  return axisSegments(editorPanes.root, 'x') >= 2 ? 'bottom' : 'right'
+}
+
+/**
+ * 把评测样例移出为编辑区里的一等窗格（全站最多一张 tests 叶）。
+ *
+ * - 已经开着：不重复创建，直接返回现有叶子；
+ * - 没开着：按 `testsPanePlacement`（用户手动选择）或自动判断，在整棵树外侧切一刀 ——
+ *   用 `splitSpanning` 而不是 `splitPane`：后者会把聚焦窗格腰斩并抹平同轴比例；
+ * - `focus: false`：评测岛是被动窗格，`focusedPaneId` / `activeId` 一概不碰。
+ *
+ * @returns {string|null} 评测岛叶子 id；叶子数到上限时 null
+ */
+export function openTestsPane() {
+  const existing = testsLeaf()
+  if (existing) return existing.id
+  if (leaves().length >= MAX_PANES) return null
+  const side = testsPanePlacement.value ?? autoTestsPaneSide()
+  if (side === 'left' || side === 'right') lastVerticalSide = side
+  const share =
+    side === 'bottom'
+      ? isNarrowLayout()
+        ? 0.5
+        : TESTS_PANE_SHARE.bottom
+      : TESTS_PANE_SHARE[side]
+  return splitSpanning(side === 'bottom' ? 'y' : 'x', side === 'left' ? 'before' : 'after', {
+    focus: false,
+    share,
+    content: 'tests',
+  })
+}
+
+/** 把评测岛停靠回侧边栏（摘掉 tests 叶；焦点与 activeId 不受影响） */
+export function closeTestsPane() {
+  const leaf = testsLeaf()
+  if (!leaf) return false
+  return closeEmptyPane(leaf.id)
+}
+
+/**
+ * 把评测岛挪到指定一侧（拖动页头松手时调用；已经是那一侧就什么都不做）。
+ *
+ * 实现仍是「关掉再按新侧重开」，而不是原地改父 split 的 axis：重开走 `splitSpanning`
+ * 会重新算 0.62/0.65 的舒适比例，也顺带保住代码区内部原有的行列比例；原地翻轴则要
+ * 把整棵子树的宽高互换，代价大且容易把比例搞乱。
+ */
+export function moveTestsPane(side) {
+  if (side !== 'left' && side !== 'right' && side !== 'bottom') return
+  if (!testsLeaf() || testsPaneSide() === side) return
+  // 记住最近一次纵向侧（切到底部时保留），供双击页头的「底部 ↔ 上次纵向侧」使用
+  if (side === 'left' || side === 'right') lastVerticalSide = side
+  closeTestsPane()
+  setTestsPanePlacement(side)
+  openTestsPane()
 }
 
 /**
@@ -467,6 +606,9 @@ function equalizeAxisChain(split) {
   const members = [split]
   for (let i = chain.length - 1; i >= 0; i -= 1) {
     if (chain[i].axis !== axis) break
+    // 评测岛不是等分链的成员：继续往上等分会把它的固定占比一起抹平
+    // （代码区 62 / 评测 38 → 再分一列变成 33/33/33）。同轴链到含 tests 的祖先为止。
+    if (subtreeHasTests(chain[i])) break
     members.push(chain[i])
   }
   for (const node of members) {
@@ -499,6 +641,10 @@ export function closeEmptyPane(paneId) {
   if (!slot || !isLeaf(slot.node)) return false
   if (!slot.parent) return false
   if (slot.node.tabs.length > 0) return false
+  // 最后一个代码格不许收：布局树里除评测岛之外至少留一片代码窗格。否则收完只剩评测岛，
+  // `focusedLeaf()` 无处可落、activeId 变 null，用户也没有入口把代码格要回来。
+  // 评测岛自己不受这条约束（`closeTestsPane` 正是走这里把它摘掉的）。
+  if (slot.node.content !== 'tests' && editorLeaves().length <= 1) return false
 
   const parentSlot = findSlot(editorPanes.root, slot.parent.id)
   if (!parentSlot) return false
@@ -512,9 +658,12 @@ export function closeEmptyPane(paneId) {
   if (before) shrinkAxis(before)
 
   if (editorPanes.focusedPaneId === paneId) {
-    // 焦点交给**顶位的那棵子树**的第一片叶子，而不是 leaves()[0]：收掉的格子腾出来的空间
+    // 焦点交给**顶位的那棵子树**的第一片代码叶子，而不是 leaves()[0]：收掉的格子腾出来的空间
     // 正好给了它，视线也该落在那里（横排三列收掉最右一格，leaves()[0] 是最左那格）。
-    editorPanes.focusedPaneId = leaves(sibling)[0]?.id ?? leaves()[0]?.id ?? null
+    // 必须取代码叶子 —— sibling 可能是评测岛，焦点绝不能落到被动窗格上。
+    const next = leaves(sibling).find((leaf) => leaf.content !== 'tests')
+    editorPanes.focusedPaneId =
+      next?.id ?? editorLeaves()[0]?.id ?? leaves()[0]?.id ?? null
   }
   return true
 }
@@ -534,13 +683,23 @@ export function closeEmptyPane(paneId) {
  */
 export function reapEmptyPanes() {
   const doomed = leaves()
-    .filter((leaf) => leaf.tabs.length === 0 && !allowsEmpty.has(leaf.id))
+    .filter(
+      (leaf) =>
+        leaf.content !== 'tests' && leaf.tabs.length === 0 && !allowsEmpty.has(leaf.id),
+    )
     .map((leaf) => leaf.id)
   let reaped = false
   for (const id of doomed) {
     if (closeEmptyPane(id)) reaped = true
   }
   return reaped
+}
+
+/** 内部：子树里有没有评测岛（等分链在它这里断开，见 `equalizeAxisChain`） */
+function subtreeHasTests(node) {
+  if (!node) return false
+  if (isLeaf(node)) return node.content === 'tests'
+  return subtreeHasTests(node.a) || subtreeHasTests(node.b)
 }
 
 /** 内部：子树里有没有这张叶子（`traceAxis` 判左右用，摘除**之前**问才算数） */
@@ -604,6 +763,10 @@ function shrinkAxis(before) {
     // 不同轴的祖先：那根轴上没有空出区间，动它会把没参与收格的窗格一起缩掉 ——
     // 它更是连续段的边界，再往上（更靠近根）的同轴祖先同样不该动。
     if (axis !== before.axis) break
+    // 另一侧是评测岛：这一段区间固定属于它，被摘格子的空段在下面已被兄弟吸收，
+    // 再往上改 ratio 会把评测岛的占比一起放大/缩小。
+    const other = stop.inA ? stop.node.b : stop.node.a
+    if (subtreeHasTests(other)) break
     const rest = stop.extent - freed
     if (!(rest > 0)) continue
     const a = stop.inA ? stop.extentA - freed : stop.extentA
@@ -668,6 +831,8 @@ export function previewSplitRect({ paneId, axis, side = 'after', recyclePaneId =
   const members = [split]
   for (let i = chain.length - 1; i >= 0; i -= 1) {
     if (chain[i].axis !== dir) break
+    // 与 equalizeAxisChain 同一口径：等分链到含 tests 的祖先为止
+    if (subtreeHasTests(chain[i])) break
     members.push(chain[i])
   }
   for (const node of members) {
@@ -843,6 +1008,7 @@ function serializeNode(node) {
     return {
       kind: 'leaf',
       id: node.id,
+      content: node.content === 'tests' ? 'tests' : 'editor',
       tabs: [...node.tabs],
       active: node.active,
       preview: node.preview,
@@ -874,14 +1040,22 @@ export function serializePanes() {
 function buildTree(savedRoot, isAlive) {
   const seen = new Set()
   let leafCount = 0
+  let seenTests = false
 
   const norm = (node) => {
     if (!node || typeof node !== 'object') return null
     if (node.kind === 'leaf' || Array.isArray(node.tabs)) {
       if (leafCount >= MAX_PANES) return null
+      const content = node.content === 'tests' ? 'tests' : 'editor'
+      // 评测岛全站最多一张：存档里出现第二张（旧版本异常 / 手改存档）时直接丢掉
+      if (content === 'tests') {
+        if (seenTests) return null
+        seenTests = true
+      }
       leafCount += 1
       const tabs = []
-      for (const id of Array.isArray(node.tabs) ? node.tabs : []) {
+      // 评测岛不装页签：存档里即使混进了 id 也不恢复（它永远是被动窗格）
+      for (const id of content === 'tests' ? [] : Array.isArray(node.tabs) ? node.tabs : []) {
         if (typeof id !== 'string' || seen.has(id)) continue
         if (!isViewId(id) && !isAlive(id)) continue
         seen.add(id)
@@ -896,6 +1070,7 @@ function buildTree(savedRoot, isAlive) {
       return {
         kind: 'leaf',
         id: typeof node.id === 'string' && node.id ? node.id : newId('pane'),
+        content,
         tabs,
         active,
         preview,
@@ -934,7 +1109,12 @@ export function restorePanes(saved, isAlive = () => true) {
   if (!root) return []
   editorPanes.root = root
   const focused = saved?.focusedPaneId
-  editorPanes.focusedPaneId = leafById(focused) ? focused : leaves()[0]?.id ?? null
+  const focusedLeafNode = leafById(focused)
+  // 焦点只能落在代码叶子上：存档里的 focusedPaneId 若指向评测岛（或已失效），回落到代码格
+  editorPanes.focusedPaneId =
+    focusedLeafNode && focusedLeafNode.content !== 'tests'
+      ? focused
+      : editorLeaves()[0]?.id ?? leaves()[0]?.id ?? null
   return before.filter((id) => !hasTab(id))
 }
 

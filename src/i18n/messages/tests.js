@@ -23,6 +23,10 @@ export default {
         /** 页脚主按钮上的可见文字（2026-10-24 加）：title 走 `runAllTip`（解绑快捷键时退回 `runAll`），
             这条要短到窄侧栏也放得下 */
         runAllLabel: '运行全部',
+        /** 紧凑底栏那颗「只跑当前样例」的可见文字（2026-11-20 方案二）：与右钮「运行全部」成对 */
+        runOneLabel: '运行当前',
+        /** 左钮的悬停说明：明确「只跑这一条」，不让人误解成单元测试 */
+        runOneTip: '仅运行当前样例（样例 {n}）',
         /**
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
          * 空态标题 / 页脚说明与它们的 title。「没打开文件」与「打开的不是代码」分开写。
@@ -200,21 +204,6 @@ export default {
         /** 徽标文案：跑完的用例改用判定码（AC/WA/CE/TLE/RE/ERR），这里只有「还没跑」和「正在跑」 */
         idle: '待运行',
         running: '运行中',
-        /**
-         * 判定码的定性名（2026-11-19 加）：只给分项视图的加长徽标用（`AC · 通过`）。
-         * 卡片头栏仍然只显示判定码 —— 那里紧跟在「样例 N」后面，加长会把标题挤掉。
-         * 措辞刻意比 submit.verdict 那组短（超时 / 运行错误，而非运行超时 / 运行出错）：
-         * 这一行还要和耗时并排，长一档就会折行。
-         */
-        verdictName: {
-          ac: '通过',
-          wa: '答案错误',
-          ce: '编译错误',
-          tle: '超时',
-          mle: '内存超限',
-          re: '运行错误',
-          err: '运行出错',
-        },
         expand: '展开该用例',
         collapse: '折叠该用例',
         runOne: '仅运行该用例',
@@ -231,19 +220,17 @@ export default {
         emptyOutput: '输出为空',
 
         /**
-         * ⚠️ 这张表里没有**输入框 / 期望输出 / 实际输出的小标题**：它们是 `TestCaseCard.vue`
-         * 模板里写死的英文 `input` / `Expected` / `Actual`（用户 2026-09-29 定：三个并排的
-         * 小标签要长得一致，都是拉丁词、由 CSS `text-transform: uppercase` 变大字，中英界面
-         * 都不变；末二词 2026-10-06 砍掉 `Output`，那一行窄，而每个框本来就是「标题 + 框」，
-         * Output 二字没有增量信息）。中途曾试着全接 i18n（zh 给 `输入` / `期望输出` / `实际输出`），
-         * 用户要求**改回去**——小标题别再翻。
-         *
-         * 两个**占位提示**（框里的灰字）则跟着语言走：期望输出那个框空态默认可见，需要它自己
-         * 说清楚；输入框那条 2026-10-06 按用户要求从写死的 `input` 接回本表（中文「输入」、
-         * 英文仍是 `input`）。翻的只是框里的灰字，与上面「小标题不翻」不冲突。
+         * 输入 / 期望输出 / 实际输出的小标题（2026-11-20 用户要求统一语言）：
+         * 卡片流与底部工作台都走这张表，不再写死 `input / Expected / Actual`；
+         * 两个框内的占位提示同日移除 —— 初始状态保持空白，不再显示「输入」「期望输出」。
          */
-        inputPlaceholder: '输入',
-        expectedPlaceholder: '期望输出',
+        field: {
+          input: '输入',
+          expected: '期望输出',
+          actual: '实际输出',
+        },
+        /** 工作台里 ACTUAL 还没跑过时框内的引导语（跑过但为空仍用 emptyOutput） */
+        outputIdle: '运行后在此显示输出',
 
         /** 输入 / 期望框右键菜单（2026-11-19 加）：没选中任何内容时两个动作都作用于全部内容 */
         copy: '复制',
@@ -321,8 +308,6 @@ export default {
        * 「窄屏缩写」用 —— 两者的取舍不同（标题可以省略号，Tab 只允许换一种更短的写法）。
        */
       tabs: {
-        /** Tab 胶囊在窄侧栏下的短称：`样例 3` → `#3`（窄到 15.625rem 再退成纯数字，那条在组件里） */
-        shortTitle: '#{n}',
         /** 标签轨的无障碍名（它本身是一排可点的胶囊，没有可见标题） */
         railLabel: '测试样例',
         /** 切到分项视图后，正文区承接 Tab 的语义（读屏念的是「第 N 条样例的输入与输出」） */
@@ -334,6 +319,27 @@ export default {
          * 只有一句「输入为空」：截断本身不写「还有 N 行」，末行一个 `…` 就够（用户同日要求去掉）。
          */
         previewEmpty: '输入为空',
+        /** 胶囊右键菜单第一项（2026-11-20 加）：跑被右击的那条，不要求先切过去 */
+        runOne: '运行该样例',
+      },
+
+      /**
+       * 评测岛（2026-11-19）：把侧栏的评测页移出成编辑区里的一等窗格。
+       * `pane` 是岛自己页头上的文案；`docked` 是岛在编辑区时侧栏那页的占位态
+       * （全站单活，侧栏不再挂第二份 TestPanel）。
+       */
+      pane: {
+        ariaLabel: '评测样例窗格',
+        title: '评测样例',
+        dragHint: '拖动页头可调整停靠位置',
+        dockMenuLabel: '停靠位置',
+        dropLeft: '停靠到左侧',
+        dropRight: '停靠到右侧',
+        dropBottom: '停靠到底部',
+        dropSidebar: '松开以停靠回侧边栏',
+        dockSidebar: '收回到侧边栏',
+        dropKeep: '保持当前位置',
+        dropEditor: '松开以在编辑区打开',
       },
     },
   },
@@ -348,6 +354,9 @@ export default {
         /** visible label on the footer's primary button (2026-10-24); the title is `runAllTip`
             (or `runAll` when the shortcut is unbound) */
         runAllLabel: 'Run all',
+        /** see zh-CN: visible label of the vertical dock footer's single-case button */
+        runOneLabel: 'Run current',
+        runOneTip: 'Run only this case (case {n})',
         /** 见 zh-CN 那侧的说明 */
         runBlocked: 'Non-code files can’t be run',
         runBlockedNoFile: 'No file is open',
@@ -460,16 +469,6 @@ export default {
         title: 'Testcase {n}',
         idle: 'Not run',
         running: 'Running',
-        /** 见 zh-CN 那侧：分项视图加长徽标用的定性名 */
-        verdictName: {
-          ac: 'Accepted',
-          wa: 'Wrong answer',
-          ce: 'Compilation error',
-          tle: 'Time limit',
-          mle: 'Memory limit',
-          re: 'Runtime error',
-          err: 'Run failed',
-        },
         expand: 'Expand this case',
         collapse: 'Collapse this case',
         runOne: 'Run this case only',
@@ -483,10 +482,13 @@ export default {
         useActual: 'Write actual output to Expected',
         emptyOutput: 'No output',
 
-        // 与 zh-CN 那栏严格对应：三个小标题都是写死的英文（`input` / `Expected` / `Actual`），
-        // 见 zh-CN 那侧的注释；只有两个框的占位提示走这张表。
-        inputPlaceholder: 'input',
-        expectedPlaceholder: 'Expected output',
+        // 与 zh-CN 那栏严格对应：三个小标题走本表，框内不再有任何占位提示。
+        field: {
+          input: 'Input',
+          expected: 'Expected',
+          actual: 'Actual',
+        },
+        outputIdle: 'Run to see the output here',
 
         /** Same as zh-CN: right-click menu on the input / expected boxes */
         copy: 'Copy',
@@ -526,12 +528,28 @@ export default {
 
       /** 见 zh-CN 那侧的说明 */
       tabs: {
-        shortTitle: '#{n}',
         railLabel: 'Test cases',
         panelLabel: 'Input and output of test case {n}',
         badgeRunning: 'Judging…',
         /** 见 zh-CN 那侧的说明（悬停 Tab 时的输入预览） */
         previewEmpty: 'No input',
+        /** 见 zh-CN 那侧的说明（胶囊右键菜单第一项） */
+        runOne: 'Run this case',
+      },
+
+      /** 见 zh-CN 那侧的说明（评测岛与侧栏占位态） */
+      pane: {
+        ariaLabel: 'Test cases pane',
+        title: 'Test cases',
+        dragHint: 'Drag the header to change where it docks',
+        dockMenuLabel: 'Dock position',
+        dropLeft: 'Dock to the left',
+        dropRight: 'Dock to the right',
+        dropBottom: 'Dock to the bottom',
+        dropSidebar: 'Release to dock back to the sidebar',
+        dockSidebar: 'Dock back to sidebar',
+        dropKeep: 'Keep current position',
+        dropEditor: 'Release to open in the editor',
       },
     },
   },
