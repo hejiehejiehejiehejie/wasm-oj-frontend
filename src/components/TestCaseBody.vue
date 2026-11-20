@@ -306,10 +306,11 @@ const outputView = computed(() => {
 })
 
 /* ---------- 迷你 Buffer（2026-11-20 方案一）：行号槽 + 行数元信息 ---------- */
-// 行号用一段 <pre> 文本一口气画出来（不是 N 个节点）：几千行也只是一条文本，
-// 而且 line-height 与内容完全相同，天然逐行对齐。
-// ⚠️ 行号只在**不折行**时成立：输入 / 输出三块都关掉了软换行（textarea 的 wrap="off"、
-//    pre 的 white-space: pre），长行走横向滚动，与编辑器缓冲区同一个心智模型。
+// 行号只给 ACTUAL 那一条只读输出（2026-11-20 用户要求删掉输入 / 期望的行号：
+// 它们的行数少，槽位只是白白占掉一列宽度）。行号用一段 <pre> 文本一口气画出来
+// （不是 N 个节点）：几千行也只是一条文本，而且 line-height 与内容完全相同，天然逐行对齐。
+// ⚠️ 行号只在**不折行**时成立：输出关掉了软换行（pre 的 white-space: pre），
+//   长行走横向滚动，与编辑器缓冲区同一个心智模型。
 const lineCount = (text) => (text ? text.split('\n').length : 0)
 const gutterText = (text) => {
   const n = Math.max(1, lineCount(text))
@@ -318,8 +319,6 @@ const gutterText = (text) => {
   return out.join('\n')
 }
 
-const inputGutter = computed(() => gutterText(inputModel.value))
-const expectedGutter = computed(() => gutterText(expectedModel.value))
 // 输出为空时框里显示的是系统提示（运行中 / 待运行 / 输出为空），不是数据行 —— 不给行号。
 // 只要有真实输出（哪怕只有一个换行）就照常从 1 起。
 const actualGutter = computed(() =>
@@ -755,7 +754,6 @@ defineExpose({ syncHeight })
           <span class="field__name">{{ t('tests.card.field.input') }}</span>
         </label>
         <div class="buffer">
-          <pre class="buffer__gutter" aria-hidden="true">{{ inputGutter }}</pre>
           <textarea
             :id="inputId"
             ref="inputEl"
@@ -765,7 +763,6 @@ defineExpose({ syncHeight })
             spellcheck="false"
             wrap="off"
             :disabled="locked"
-            @scroll="syncGutter"
             @copy="onLongCopy($event, testCase.input)"
             @contextmenu="onBoxContextMenu($event, 'input')"
           ></textarea>
@@ -792,7 +789,6 @@ defineExpose({ syncHeight })
              没法只给其中几个字符染色。点一下换回输入框（见脚本里的 editExpected）。
              ⚠️ 这一整段必须写在**同一行**里：`<pre>` 内的空白是内容，缩进会变成输出里的空格。 -->
         <div class="buffer">
-          <pre class="buffer__gutter" aria-hidden="true">{{ expectedGutter }}</pre>
           <pre
             v-if="expectedSegments && !editingExpected"
             :id="expectedId"
@@ -800,7 +796,6 @@ defineExpose({ syncHeight })
             :class="{ 'ta--truncated': expectedHidden > 0 }"
             :style="workbench || vertical || bento ? null : { maxHeight: `${px(maxIOHeight)}px` }"
             tabindex="0"
-            @scroll="syncGutter"
             @click="editExpected"
             @keydown.enter="editExpectedByKey"
             @copy="onLongCopy($event, testCase.expectedOutput)"
@@ -819,7 +814,6 @@ defineExpose({ syncHeight })
             spellcheck="false"
             wrap="off"
             :disabled="locked"
-            @scroll="syncGutter"
             @copy="onLongCopy($event, testCase.expectedOutput)"
             @contextmenu="onBoxContextMenu($event, 'expected')"
             @blur="editingExpected = false"
@@ -1121,15 +1115,14 @@ defineExpose({ syncHeight })
 
 /* 输入 / 期望缓冲（2026-11-20 方案一）：
    无边框、无圆角、无阴影、无焦点光晕、无 hover —— 与旁边的 Monaco 一样，只是一块写字的平面。
-   左侧 24px：行号槽本身 28px 宽（数字右对齐、右留 6px），正文起点压进槽的留白里，
-   数字右端到正文只剩约 2px（2026-11-20 四次收窄，38 → 30 → 26 → 24，已到不贴字的极限）。
-   行号与正文逐行对齐靠同一行高。 */
+   2026-11-20 按用户要求删掉输入 / 期望的行号槽之后，正文直接从 10px 起（左内边距 = 列头内边距，
+   两者落在同一条竖线上）；行高仍与 ACTUAL 共用 --case-line-h。 */
 .ta {
   display: block;
   box-sizing: border-box;
   width: 100%;
   min-height: 76px;
-  padding: 6px 10px 6px 24px;
+  padding: 6px 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1428,11 +1421,7 @@ defineExpose({ syncHeight })
   color: var(--text-dim);
 }
 
-/* 输入 / 期望输出的标题右移 10px：大致对齐下方正文起点（正文从 24px 起）。
-   `:not(--row)` 把实际输出排除在外 —— 那一列保持 12px 原位。 */
-.card__body.is-workbench .field__label:not(.field__label--row) {
-  padding-left: 26px;
-}
+/* 输入 / 期望的标题与正文现在起在同一条 12px 竖线上（2026-11-20 删掉行号槽后不再需要偏移） */
 
 .card__body.is-workbench .field__head-right {
   display: inline-flex;
@@ -1495,7 +1484,7 @@ defineExpose({ syncHeight })
 
 .card__body.is-workbench .ta {
   height: auto;
-  padding: 6px 8px 8px 24px;
+  padding: 6px 8px 8px 12px;
   overflow: auto;
 }
 
@@ -1643,7 +1632,7 @@ defineExpose({ syncHeight })
 
 .card__body.is-vertical .ta {
   height: auto;
-  padding: 6px 12px 10px 24px;
+  padding: 6px 12px 10px 10px;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-faint) 30%, transparent) transparent;
