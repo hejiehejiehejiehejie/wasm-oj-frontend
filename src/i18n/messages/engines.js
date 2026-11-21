@@ -216,6 +216,7 @@ export default {
       toolchainEvicted: '本机工具链缓存已被浏览器清理，请联网后重新下载。',
       toolchainPartial: '本机工具链缺少 {missing}，请联网后重新下载修复。',
       toolchainCorrupted: '本机工具链中的 {asset} 已损坏，请联网后重新下载修复。',
+      toolchainRepairFailed: '自动修复工具链失败，请检查网络后重试。',
       /** Worker 启动失败（见 services/wasi/client.js 的 WORKER_ERROR） */
       workerScriptMissing: '离线状态下缺少编译器 Worker 脚本，请联网刷新页面后重试。',
       workerBootTimeout: '编译器 Worker 启动超时，请刷新页面后重试。',
@@ -461,6 +462,7 @@ export default {
       toolchainEvicted: 'The browser cleared the cached toolchain. Connect to the network and download it again.',
       toolchainPartial: 'The cached toolchain is missing {missing}. Connect to the network and download it again.',
       toolchainCorrupted: '{asset} in the cached toolchain is corrupted. Connect to the network and download it again.',
+      toolchainRepairFailed: 'Could not repair the toolchain. Check your network and try again.',
       /** Worker startup failures (see WORKER_ERROR in services/wasi/client.js) */
       workerScriptMissing: 'The compiler worker script is missing offline. Connect to the network and refresh the page.',
       workerBootTimeout: 'The compiler worker did not start in time. Refresh the page and retry.',

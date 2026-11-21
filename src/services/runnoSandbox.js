@@ -984,7 +984,20 @@ function loadToolchain(onStatus, { timeoutMs = PREPARE_TIMEOUT_MS } = {}) {
         // 离线时保持原错误：下载必然失败，只会把「已损坏」换成更含糊的报错。
         const offline = typeof navigator !== 'undefined' && navigator.onLine === false
         if (error?.code !== TOOLCHAIN_ERROR.CORRUPTED || offline) throw error
-        prepared = await prepareToolchainHost(onStatus, timeoutMs, { forceDownload: true })
+        try {
+          prepared = await prepareToolchainHost(onStatus, timeoutMs, { forceDownload: true })
+        } catch (repairError) {
+          // 「假在线」（连着没有外网的 Wi-Fi，navigator.onLine 仍为 true）时，重下的
+          // fetch 抛的是裸 NetworkError；而坏条目的尺寸戳还在，explainToolchainFailure
+          // 会判成 ready 把它原样返回。这里兜底换成可操作的文案，别让 TypeError 漏到
+          // 「本地沙箱不可用：Failed to fetch」。
+          if (repairError?.code) throw repairError
+          throw createToolchainError(
+            TOOLCHAIN_ERROR.REPAIR_FAILED,
+            t('error.toolchainRepairFailed'),
+            { cause: String(repairError?.message ?? repairError) },
+          )
+        }
       }
       const { host, preloaded } = prepared
       if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe

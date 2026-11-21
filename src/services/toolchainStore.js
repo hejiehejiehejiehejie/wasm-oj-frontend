@@ -89,6 +89,8 @@ export const TOOLCHAIN_ERROR = {
   PARTIAL: 'TOOLCHAIN_PARTIAL',
   /** 读到了字节，但解压或 WebAssembly.compile 失败（磁盘上的文件半截损坏） */
   CORRUPTED: 'TOOLCHAIN_CORRUPTED',
+  /** 已确认损坏、在线强制重下又失败（典型是「假在线」：Wi-Fi 连上但无外网） */
+  REPAIR_FAILED: 'TOOLCHAIN_REPAIR_FAILED',
 }
 
 /**
