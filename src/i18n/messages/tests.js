@@ -350,6 +350,42 @@ export default {
         clickAgainExpand: '再次点击展开',
         clickAgainCollapse: '再次点击折叠',
       },
+
+      /** 交互式新手引导（2026-11-21）：每步都要用户真做一次手势 */
+      guide: {
+        aria: '评测岛交互式新手引导',
+        done: '完成',
+        repaired: '场景已复位，请按上面的提示再做一次',
+        skipStep: '跳过本步',
+        exit: '退出引导',
+        steps: {
+          detach: {
+            title: '把「评测」拖进编辑区',
+            text: '按住侧栏页头里「评测」这一半，拖到右侧编辑区后松手。侧栏若已收起，先点一下活动栏的「评测」图标把它展开。',
+            doing: '现在：按住「评测」不放，拖进编辑区再松手',
+          },
+          move: {
+            title: '把岛拖到另一侧',
+            text: '按住岛上方的页头，拖到编辑区的左边、右边或底边，松手后它就会停到那一侧。',
+            doing: '现在：按住岛页头，拖到另一侧再松手',
+          },
+          resize: {
+            title: '拖分隔条改大小',
+            text: '岛和代码区之间有一条分隔线，按住它拖动，就能调整岛占的空间大小。',
+            doing: '现在：按住岛与代码区之间的分隔线拖动',
+          },
+          toggle: {
+            title: '双击页头折叠',
+            text: '在岛的页头上快速点两下，它就会收成一座悬浮的小岛。',
+            doing: '现在：在岛页头上双击',
+          },
+          float: {
+            title: '拖浮岛换一条边',
+            text: '按住悬浮小岛的任意位置，拖到编辑区的左边、右边或底边，松手后它会吸到那条边。',
+            doing: '现在：按住浮岛，拖到另一条边再松手',
+          },
+        },
+      },
     },
   },
   en: {
@@ -567,6 +603,42 @@ export default {
         caseTab: 'Test case {n}',
         clickAgainExpand: 'Click again to expand',
         clickAgainCollapse: 'Click again to collapse',
+      },
+
+      /** see zh-CN: interactive tests island tour */
+      guide: {
+        aria: 'Interactive tests island tour',
+        done: 'Done',
+        repaired: 'Scene reset — follow the instruction above and try again',
+        skipStep: 'Skip this step',
+        exit: 'Exit tour',
+        steps: {
+          detach: {
+            title: 'Drag “Tests” into the editor',
+            text: 'Press the “Tests” half of the sidebar header and drag it into the editor, then release. If the sidebar is collapsed, click the “Tests” icon in the activity bar first.',
+            doing: 'Now: press “Tests” and drag it into the editor',
+          },
+          move: {
+            title: 'Move the island to another side',
+            text: 'Press the island’s header and drag it to the left, right or bottom edge, then release.',
+            doing: 'Now: drag the island header to another side',
+          },
+          resize: {
+            title: 'Resize with the splitter',
+            text: 'A splitter runs between the island and the code area. Press and drag it to change how much space the island takes.',
+            doing: 'Now: drag the splitter between the island and the code',
+          },
+          toggle: {
+            title: 'Double-click the header to collapse',
+            text: 'Quickly click the island header twice; it folds into a floating mini island.',
+            doing: 'Now: double-click the island header',
+          },
+          float: {
+            title: 'Drag the float to another edge',
+            text: 'Press anywhere on the floating island, drag it to the left, right or bottom edge, and release to snap it there.',
+            doing: 'Now: drag the float to another edge',
+          },
+        },
       },
     },
   },

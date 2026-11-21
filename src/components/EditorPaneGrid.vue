@@ -57,8 +57,10 @@ import { createPaneForDrop, paneTabDragSource } from '../services/editorPaneDrop
 import { beginPaneResize, endPaneResize } from '../services/paneResize.js'
 import { registerDropZone } from '../composables/useTreeDrag.js'
 import { openFile, pinTab } from '../services/vfs/workspaceStore.js'
+import { openTestsGuide, testsGuide } from '../services/testsGuide.js'
 import EditorPane from './EditorPane.vue'
 import TestsPane from './TestsPane.vue'
+import TestsGuide from './TestsGuide.vue'
 
 // 监听器与 class 等非 prop 属性直接落到 EditorPane 上（本组件不声明 emits）
 defineOptions({ inheritAttrs: false })
@@ -785,6 +787,20 @@ function onSplitterDblClick(splitter) {
 // 折叠位一变（确认手势 / 拖动 / 从侧栏打开）就收掉气泡，避免停在过期文案上
 watch(() => testsRail.floating, clearToggleHint)
 
+/* ------------------------------------------------------------ 新手引导
+   首次启动静置 900ms 后自动播一次（存档键 `cp.testsGuideSeen`）。教程是交互式的：
+   起手先把岛收回侧栏，让用户真的拖出来；之后每一步都由 TestsGuide 摆好场景。 */
+let guideTimer = 0
+
+onMounted(() => {
+  if (testsGuide.seen || testsGuide.open) return
+  guideTimer = window.setTimeout(() => {
+    if (!testsGuide.seen && !testsGuide.open) openTestsGuide()
+  }, 900)
+})
+
+onBeforeUnmount(() => clearTimeout(guideTimer))
+
 /* ------------------------------------------------------------ 对 App 的代理 */
 
 const paneRefs = new Map()
@@ -899,6 +915,7 @@ defineExpose({
         { 'is-active': resizingId === splitter.id },
       ]"
       :style="splitterStyle(splitter)"
+      :data-split-id="splitter.id"
       role="separator"
       :aria-orientation="splitter.axis === 'y' ? 'horizontal' : 'vertical'"
       @pointerdown="beginResize($event, splitter)"
@@ -951,6 +968,8 @@ defineExpose({
         {{ toggleHintText }}
       </div>
     </Teleport>
+
+    <TestsGuide :resizing="Boolean(resizingId)" />
   </div>
 </template>
 

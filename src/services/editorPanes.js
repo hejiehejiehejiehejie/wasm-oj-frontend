@@ -554,7 +554,7 @@ export const testsRail = reactive({
 /**
  * 评测岛所在 split 的身份：它永远是根 split 的直接子节点。
  * ratio 始终是 a 支占比 —— `testsIsA` 交给渲染层换算「岛这一侧」的宽高。
- * @returns {{ splitId: string, testsIsA: boolean, axis: 'x'|'y' }|null}
+ * @returns {{ splitId: string, testsIsA: boolean, axis: 'x'|'y', ratio: number }|null}
  */
 export function testsSplitInfo() {
   const leaf = testsLeaf()
@@ -566,6 +566,7 @@ export function testsSplitInfo() {
     splitId: parent.id,
     testsIsA: parent.a === slot.node,
     axis: parent.axis === 'y' ? 'y' : 'x',
+    ratio: parent.ratio,
   }
 }
 
