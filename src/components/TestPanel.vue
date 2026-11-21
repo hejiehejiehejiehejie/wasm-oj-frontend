@@ -6,6 +6,7 @@ import ContextMenu from './ContextMenu.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseCard from './TestCaseCard.vue'
 import TestCaseTabs from './TestCaseTabs.vue'
+import VerdictBadge from './VerdictBadge.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { useScrollEdge } from '../composables/useScrollEdge.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
@@ -227,8 +228,11 @@ const footBlocked = computed(() => (props.cases.length ? props.runBlocked : ''))
  * 之前判据只认「没打开文件」（且带 `cases.length` 兜底：真出现「没认到活跃文件、
  * 却还留着用例」的情形想把真实结论留下来）。现在闸门关着就藏 —— 对跑不了的文件，
  * 任何用例数都没有意义，留着反而误导。
+ *
+ * 2026-11-21 用户要求：一条用例都没有时也不画 —— 那时页头那颗只会写「无测试用例」，
+ * 与空态标题「No test cases yet.」说的是同一件事；侧栏页头因此不再出现这行字。
  */
-const showVerdict = computed(() => !props.runBlocked)
+const showVerdict = computed(() => !props.runBlocked && props.cases.length > 0)
 
 /**
  * 窄屏侧栏（2026-11-20 用户要求「与纵向评测岛同一套形态」）：页头不再放结论与耗时，
@@ -334,33 +338,33 @@ const counts = computed(() => {
 })
 
 // 与卡片徽标同一套判定词：AC 就是通过。混合结果只报「几 / 几 AC」，
-// 具体是 WA 还是 TLE 由各张卡片的徽标说明，页头不再堆第二个长句。
+// 判定按「信号 + 比例 + 文案」拆开，交给 VerdictBadge 统一渲染：
+// tone 只认 passed / failed / error / warn / info / muted 六值；
+// passed / total 是比例，label 是「AC」这类后缀（空串表示不显示）。
 // 只要有一张卡片的结论已过期（stale），就不能再宣称「全部 AC」——
 // 上一轮通过不代表改完代码后仍通过。
 // 窄侧栏（verdictCompact 由 Sidebar 按 <400 逻辑 px 算好，比胶囊标签的 350 早收一档，
-// 2026-11-01 用户要求「异步收窄」）去掉「 AC」后缀：这时胶囊段位还带着文字标签，
-// 先让判定文案省出 ~25px；「0/4 AC」加耗时在侧栏最窄时会挤到折行，数字本身已经表意（2026-10-12）。
+// 2026-11-01 用户要求「异步收窄」）直接不给 AC 后缀：这时胶囊段位还带着文字标签，
+// 先让判定文案省出 ~25px；「0/4 AC」加耗时在侧栏最窄时会挤到折行（2026-10-12）。
 const verdict = computed(() => {
   const total = props.cases.length
-  // 同一套判据出两份文案：text 跟随侧栏宽度（verdictCompact），short 恒定是去后缀的那版。
-  // 横跨岛的页签轨会随岛宽缩到 112px，TestPanel 把 short 传给 TestCaseTabs，由容器查询
-  // 在窄轨时换用（2026-11-21 用户要求：太窄只留 x/x，不显示后面的 AC）。
-  const pick = (longKey, shortKey, params) => ({
-    text: t(`tests.verdict.${verdictCompact.value ? shortKey : longKey}`, params),
-    short: t(`tests.verdict.${shortKey}`, params),
-  })
-  if (!total)
-    return { text: t('tests.verdict.noCases'), short: t('tests.verdict.noCases'), tone: 'muted' }
-  if (counts.value.running)
-    return { text: t('tests.verdict.running'), short: t('tests.verdict.running'), tone: 'info' }
-  // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待重测）
-  if (counts.value.stale) return { ...pick('stale', 'staleShort', { total }), tone: 'warn' }
-  if (counts.value.passed === total) return { ...pick('allPassed', 'allPassedShort'), tone: 'passed' }
-  const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
-  return {
-    ...pick('partial', 'partialShort', { passed: counts.value.passed, total }),
-    tone,
+  // AC 是「通过」的通用说法，两套语言都不译（见 i18n 的 tests.verdict 注释）
+  const suffix = verdictCompact.value ? '' : 'AC'
+  if (!total) {
+    return { tone: 'muted', passed: null, total: 0, label: t('tests.verdict.noCases') }
   }
+  if (counts.value.running) {
+    return { tone: 'info', passed: null, total: 0, label: t('tests.verdict.running') }
+  }
+  // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待重测）
+  if (counts.value.stale) {
+    return { tone: 'warn', passed: '?', total, label: suffix }
+  }
+  if (counts.value.passed === total) {
+    return { tone: 'passed', passed: total, total, label: suffix }
+  }
+  const tone = counts.value.error ? 'error' : counts.value.failed ? 'failed' : 'muted'
+  return { tone, passed: counts.value.passed, total, label: suffix }
 })
 
 // 有过期结论时，页头耗时同样来自上一轮，跟着藏掉，免得和「结果待重测」自相矛盾
@@ -401,10 +405,13 @@ const elapsedText = computed(() => {
         >
           <AppIcon name="clock" :size="11" />{{ elapsedText }}
         </span>
-        <span class="verdict" :data-tone="verdict.tone">
-          <LoadingSpinner v-if="counts.running" :size="9" />
-          <span>{{ verdict.text }}</span>
-        </span>
+        <VerdictBadge
+          :tone="verdict.tone"
+          :passed="verdict.passed"
+          :total="verdict.total"
+          :label="verdict.label"
+          :spinner-size="9"
+        />
       </div>
     </Teleport>
 
@@ -530,9 +537,7 @@ const elapsedText = computed(() => {
       :submitting="submitting"
       :run-title="runTitle"
       :submit-title="submitTitle"
-      :verdict-text="verdict.text"
-      :verdict-short-text="verdict.short"
-      :verdict-tone="verdict.tone"
+      :verdict="verdict"
       :verdict-visible="showVerdict"
       :elapsed-text="elapsedText"
       @add="emit('add')"
@@ -552,11 +557,13 @@ const elapsedText = computed(() => {
       <div class="panel__foot-status">
         <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
         <template v-else-if="showVerdict && cases.length && (isPane || narrowSidebar)">
-          <span class="verdict" :data-tone="verdict.tone">
-            <LoadingSpinner v-if="counts.running" :size="10" />
-            <span class="verdict-long">{{ verdict.text }}</span>
-            <span class="verdict-short">{{ verdict.short }}</span>
-          </span>
+          <VerdictBadge
+            :tone="verdict.tone"
+            :passed="verdict.passed"
+            :total="verdict.total"
+            :label="verdict.label"
+            :spinner-size="10"
+          />
           <span
             v-if="elapsedText"
             class="elapsed"
@@ -759,48 +766,8 @@ const elapsedText = computed(() => {
   gap: 7px;
 }
 
-.verdict {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  /* 纯文字结论（2026-11-19，Typographic Status）：圆角矩形底色、左右内边距、那条用来凑高度的
-     1px 透明占位边框全部删掉。有底色那版靠 ~17px 高的色块撑体量，一抽掉就只剩 11px 的裸字；
-     体量改由字号阶梯承担 —— 12px / 600 比右侧 11px 的时钟与耗时大一号、粗一档，是页头右栏
-     唯一的视觉锚点，靠 Flex 的 align-items 自然垂直居中，不再需要边框凑高度。
-     ⚠️ 别再往这里加 background / border-radius：旧底色是硬编码的暗色系亮色相
-     （rgba(137,209,133,.13) 那一批），在 paper / leaf / mist 这些浅底主题上会叠出脏荧光，
-     而 --err 没有对应的 --err-face。颜色只有一处来源：--ok / --fail / --err / --info / --warn。 */
-  padding: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  /* 3/4 AC、2/4 待重测：数字等宽，通过数跳动时判定句不左右晃 */
-  font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
-  white-space: nowrap;
-  transition: color 0.18s ease;
-}
-
-.verdict[data-tone='passed'] {
-  color: var(--ok);
-}
-
-.verdict[data-tone='failed'] {
-  color: var(--fail);
-}
-
-.verdict[data-tone='error'] {
-  color: var(--err);
-}
-
-.verdict[data-tone='info'] {
-  color: var(--info);
-}
-
-/* 有结论过期（代码/输入改后未重跑）：琥珀色提示，不再给绿色「全部 AC」 */
-.verdict[data-tone='warn'] {
-  color: var(--warn);
-}
+/* 判定徽标（信号点 + 比例 + 文案）已抽到 VerdictBadge.vue：
+   同一套 tone 词表与排版由页头、工作台轨头、折叠评测条共享。 */
 
 .elapsed {
   display: inline-flex;
@@ -1091,7 +1058,6 @@ button.empty__link {
 .panel__foot-status .elapsed {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   height: 22px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1102,19 +1068,12 @@ button.empty__link {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-weight: 500;
 }
 
 .panel__foot-status .elapsed {
   flex: 0 0 auto;
   font-size: 11px;
   color: var(--text-faint);
-}
-
-/* 纵向岛窄底栏：判定只留 x/x、耗时去掉钟表（2026-11-21 用户要求，与横跨岛同一口径）。
-   宽底栏照旧用 long 那版；short 只是同屏备着，默认不渲染。 */
-.panel__foot-status .verdict-short {
-  display: none;
 }
 
 .panel__foot-actions {
@@ -1255,12 +1214,9 @@ button.empty__link {
    就放不下了）。这里向上取整到 20rem，把判定换成 x/x（与横跨岛同一套 short 文案）、
    同时收掉钟表图标；只作用于评测岛，侧栏那套宽度收束由 verdictCompact 负责。 */
 @container (max-width: 20rem) {
-  .panel.is-pane .panel__foot-status .verdict-long {
+  /* 判定只留 x/x：VerdictBadge 的 AC 后缀让位（与横跨岛同一口径） */
+  .panel.is-pane .panel__foot-status :deep(.verdict__label) {
     display: none;
-  }
-
-  .panel.is-pane .panel__foot-status .verdict-short {
-    display: inline;
   }
 
   .panel.is-pane .panel__foot-status .elapsed-clock {

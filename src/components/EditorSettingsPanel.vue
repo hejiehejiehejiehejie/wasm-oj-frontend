@@ -460,15 +460,15 @@ const CODE_IMAGE_ROWS = [
 ]
 
 /**
- * 外观栏里那五条「外壳」偏好：值不在 editorSettings 里，各有自己的出口 ——
+ * 外观栏里那六条「外壳」偏好：值不在 editorSettings 里，各有自己的出口 ——
  * 缩放走 App 的 cp.uiScale、界面语言由 i18n 模块自己持久化、侧边栏位置只是发起一次对调、
- * 评测样例视图读写 shellSettings 的 cp.caseView。
+ * 评测样例视图与贴底折叠形态读写 shellSettings。
  *
  * 2026-10-12 收进 APPEARANCE_ROWS、与主题和「代码图片」共用一个循环：「代码图片」那组要摆在
  * 这一栏**末尾**（外观栏原本就有的那几行在前），拆成两段循环就得把行模板抄两遍。
  * 差异（取值 / 落值 / 选项显示名）由 rowValue / rowSelect / rowOptionLabel 分流；
  * `external` 用来关掉「已改动」指示线与行尾键名——那两样只对 editorSettings 的键有意义。
- * 现有五条：界面缩放 / 界面语言 / 侧边栏位置 / 窄屏折叠方向 / 评测样例视图。
+ * 现有六条：界面缩放 / 界面语言 / 侧边栏位置 / 窄屏折叠方向 / 评测样例视图 / 贴底折叠形态。
  */
 const SHELL_ROWS = [
   {

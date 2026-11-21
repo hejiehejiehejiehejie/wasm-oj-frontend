@@ -47,6 +47,7 @@ import {
 import AppIcon from './AppIcon.vue'
 import ContextMenu from './ContextMenu.vue'
 import TabGroupCard from './TabGroupCard.vue'
+import { useScrollReveal } from '../composables/useScrollReveal.js'
 import { useTabDrag } from '../composables/useTabDrag.js'
 import { IS_MAC } from '../composables/useShortcutManager.js'
 import { t } from '../i18n/index.js'
@@ -64,7 +65,7 @@ import {
 import { viewOf, viewState, activeViewIdIn } from '../services/editorViews.js'
 import { closeTabItem, focusTab } from '../services/tabFlow.js'
 import { isViewId, moveStripItem, moveStripRun, stripOrder } from '../services/tabStrip.js'
-import { leafById, paneOf, placeTab } from '../services/editorPanes.js'
+import { editorPanes, leafById, paneOf, placeTab } from '../services/editorPanes.js'
 import {
   clearPaneTabDrag,
   createPaneForDrop,
@@ -76,6 +77,7 @@ import {
   clearActiveTab,
   getNodeById,
   pinTab,
+  tabRevealIntent,
   workspace,
 } from '../services/vfs/workspaceStore.js'
 
@@ -141,6 +143,8 @@ function activate(id, event) {
   if (consumeClickSuppression()) return
   if (event && isProblemClick(event) && openTabProblem(id)) return
   focusTab(id)
+  // 点的就是当前激活页签时 id 不变，watch 不会响；点按本身仍要保证它完整可见
+  revealFocusedTab()
 }
 
 /** 双击钉住预览页签；拖动收尾那一串点击同样要挡掉（否则拖完会顺带把它钉住） */
@@ -204,6 +208,7 @@ function onViewMouseDown(event, id) {
 function onViewClick(view) {
   if (consumeClickSuppression()) return
   focusTab(view.id)
+  revealFocusedTab()
 }
 
 /**
@@ -360,6 +365,142 @@ const { draggingId, draggingIds, settlingGid, dragEdge, touchDrag, pressingId, a
     // 跟着被拖页签走完整个拖拽（它是 Teleport 到 body 的 fixed 元素，不会自己让路）。
     onMenuDismiss: dismissStripMenus,
   })
+
+/* ------------------------------------------------------------ 焦点页签滚进视野
+   文件管理器打开 / 切换文件、快捷键切页签、关闭后的焦点交接……最终都只表现为
+   `paneFocusedTabId` 变化，所以监听这一条就够了。两处例外需要点按时兜底：
+     · 点的是**已经激活**但被滚出视野的页签 —— id 没变，watch 不会响；
+     · 触屏轻点走 useTabDrag 的 onTap（不经过 click），由 onStripTap 自己补一次。
+   滚动容器是 `.editor-tabs__strip`（35px 的 `.editor-tabs` 只是 overflow: hidden 的外壳），
+   目标按 `data-strip-id` 现取；inset 32 让激活页签两侧露出一点邻签、不贴死边。
+   落点 / 平滑 / scrollend 复核 / 用户打断 / 卸载清理见 composables/useScrollReveal.js。 */
+const stripEl = () => rootEl.value?.querySelector('.editor-tabs__strip') ?? null
+
+const { schedule: scheduleTabReveal } = useScrollReveal({
+  container: stripEl,
+  target: (strip) => {
+    const id = paneFocusedTabId.value
+    if (!id) return null
+    return strip.querySelector(`.editor-tabs__item[data-strip-id="${CSS.escape(String(id))}"]`)
+  },
+  inset: 32,
+  axis: 'x',
+})
+
+/**
+ * 拖拽中的焦点变化是「拖谁就切谁」的副产物，这时滚条带只会跟手势抢位置。
+ *
+ * 同 id 短时间去重：鼠标点页签时 pointerdown 已经切过一次焦（watch 排了一次滚动），
+ * 抬手后的 click 还会再走 activate / onViewClick。两次落在同一颗页签上时若各排一次，
+ * useScrollReveal 的「快速连切」会把第二发降级成 instant，正在播的平滑动画被硬切 ——
+ * 这里把同一目标的重复触发压掉，动画就能完整跑完。
+ */
+let lastRevealId = null
+let lastRevealAt = 0
+const REVEAL_DEDUPE_MS = 120
+
+function revealFocusedTab() {
+  if (draggingId.value || touchDrag.value) return
+  const id = paneFocusedTabId.value
+  if (!id) return
+  const now = performance.now()
+  if (id === lastRevealId && now - lastRevealAt < REVEAL_DEDUPE_MS) return
+  lastRevealId = id
+  lastRevealAt = now
+  scheduleTabReveal()
+}
+
+// flush: 'post' —— 文件管理器新开文件时 tabs 与 activeId 同拍变更，等 DOM 落位再找元素；
+// schedule 自身还会再等 nextTick + rAF，新页签挂载慢一帧也接得住。
+// 首屏恢复会话（刷新后开着 18 个文件、焦点在最右那张）：首次定位必须 instant ——
+// 进页面时条带从 0 平滑扫到最右很抢眼，用户要的是「打开就已经在那儿」。
+let initialRevealDone = false
+watch(
+  paneFocusedTabId,
+  () => {
+    if (!initialRevealDone) {
+      // 首屏 activeId 可能晚一帧才从会话里恢复：等到有目标再做那次 instant
+      if (!paneFocusedTabId.value) return
+      initialRevealDone = true
+      scheduleTabReveal({ instant: true })
+      return
+    }
+    revealFocusedTab()
+  },
+  { immediate: true, flush: 'post' },
+)
+
+// 文件树重复点同一份文件 / 页签菜单再次选中当前项：activeId 不变，上面那条 watch 不响，
+// 但「用户点了」这件事仍然要落成一次完整入框。多窗格时只让目标页签所在的那条栏认领。
+watch(
+  () => tabRevealIntent.seq,
+  () => {
+    if (tabRevealIntent.id !== paneFocusedTabId.value) return
+    // 分屏：只让目标窗格那条条带响应，隔壁窗格不跟着滚
+    if (tabRevealIntent.paneId && props.paneId && tabRevealIntent.paneId !== props.paneId) return
+    revealFocusedTab()
+  },
+  { flush: 'post' },
+)
+
+// 切到本窗格的正文区（分屏 A → B）：B 的激活页签若早先被手动滑走了，补一次可见性适配。
+// 走 revealFocusedTab 的去重，避免「点 B 的页签」时这次 focus 与页签点击各排一次。
+watch(
+  () => editorPanes.focusedPaneId,
+  (id) => {
+    if (!props.paneId || id !== props.paneId) return
+    revealFocusedTab()
+  },
+)
+
+// 条带变宽 / 变窄（拖窗格分隔条、窗口缩放、全局缩放）后，激活页签可能又被裁掉一截；
+// 尺寸变化期间跟手，直接瞬时落位，不排平滑动画。
+let stripObserver = null
+onMounted(() => {
+  stripObserver = new ResizeObserver(() => {
+    if (draggingId.value || touchDrag.value) return
+    scheduleTabReveal({ instant: true })
+  })
+  if (rootEl.value) stripObserver.observe(rootEl.value)
+  nextTick(observeActiveItem)
+})
+onBeforeUnmount(() => {
+  stripObserver?.disconnect()
+  stripObserver = null
+  activeItemObserver?.disconnect()
+  activeItemObserver = null
+  window.clearTimeout(dragRevealTimer)
+})
+
+// 激活页签自己变宽（未保存圆点 / 重命名变长 / 置顶后重新落位）时，它可能被挤出右缘。
+// 条带本身尺寸没变，上面的 ResizeObserver 收不到；单独盯住这一颗元素。
+let activeItemObserver = null
+let dragRevealTimer = 0
+function observeActiveItem() {
+  activeItemObserver?.disconnect()
+  activeItemObserver = null
+  const strip = stripEl()
+  const id = paneFocusedTabId.value
+  if (!strip || !id) return
+  const el = strip.querySelector(`.editor-tabs__item[data-strip-id="${CSS.escape(String(id))}"]`)
+  if (!el) return
+  activeItemObserver = new ResizeObserver(() => {
+    if (draggingId.value || touchDrag.value) return
+    scheduleTabReveal()
+  })
+  activeItemObserver.observe(el)
+}
+watch(paneFocusedTabId, () => nextTick(observeActiveItem), { flush: 'post' })
+
+// 拖拽落位后（含 Esc / 拖出边界取消）补一次瞬时校正：松手时页签可能停在只露半截的位置。
+// 等 180ms 让 useTabDrag 的归位补间结束，避免量到中间态。
+watch(draggingId, (now, before) => {
+  if (!before || now) return
+  window.clearTimeout(dragRevealTimer)
+  dragRevealTimer = window.setTimeout(() => {
+    scheduleTabReveal({ instant: true })
+  }, 180)
+})
 
 /* ------------------------------------------------------------ 跨窗格拖页签
    本条条带只知道自己的窗格。开拖的那一帧把源窗格写给渲染层（EditorPaneGrid 据此判断
@@ -523,7 +664,10 @@ function onStripTap({ id, gid }) {
     if (group) toggleGroup(group, { fromGesture: true })
     return
   }
-  if (id) focusTab(id)
+  if (id) {
+    focusTab(id)
+    revealFocusedTab()
+  }
 }
 
 /** 触屏拖拽真正开始的那一帧：拖谁就切谁（与鼠标「按下即获焦」对齐）。

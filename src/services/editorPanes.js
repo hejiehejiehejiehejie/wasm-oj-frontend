@@ -25,7 +25,11 @@
  */
 import { reactive, watch } from 'vue'
 import { isViewId } from './editorViewIds.js'
-import { isNarrowLayout, setTestsPanePlacement, testsPanePlacement } from './shellSettings.js'
+import {
+  isNarrowLayout,
+  setTestsPanePlacement,
+  testsPanePlacement,
+} from './shellSettings.js'
 
 /** 根叶子的固定 id：单窗格阶段 App / EditorPane 直接认它，P1 后仍作为初始叶子的 id */
 export const PANE_ROOT_ID = 'pane-root'
@@ -170,9 +174,9 @@ export function testsLeaf() {
   return leaves().find((leaf) => leaf.content === 'tests') ?? null
 }
 
-/** 编辑区里有没有评测岛（写它的是 `openTestsPane` / `closeTestsPane`） */
+/** 编辑区里有没有评测岛（展开的叶子，或已收成浮岛的折叠态） */
 export function hasTestsPane() {
-  return testsLeaf() !== null
+  return testsLeaf() !== null || testsRail.floating
 }
 
 /**
@@ -525,10 +529,10 @@ export function lastTestsPaneSide() {
 
 /* ------------------------------------------------------------ 评测岛折叠态
 
-   折叠只是界面状态，真源仍是 split 的 ratio（窄条 ≈52px/分区尺寸）。折叠位（collapsed）
-   与折叠前的岛份额（lastShare）会跟布局一起写进存档：刷新后仍是同一条窄条，
-   点展开也还能回到折叠前的宽度。恢复时 ratio 先按 0.2/0.8 收口，真正的 48px
-   由 EditorPaneGrid 挂载后按当前分区尺寸再算一次。 */
+   2026-11-21 用户方案：折叠不再把 split 收到 52px，而是**把 tests 叶从布局树里摘掉**，
+   由编辑区里的悬浮迷你岛接管（不再占一列宽度）。浮岛只存「吸附边 + 沿边比例」，
+   窗口 / 分屏变化时按边重新落位；展开时用 edge 写回 testsPanePlacement，顺带恢复
+   折叠前的岛份额（lastShare）。 */
 export const testsRail = reactive({
   /** 岛当前是否收成一条（TestsPane 据此切换窄条） */
   collapsed: false,
@@ -539,6 +543,12 @@ export const testsRail = reactive({
   lastShare: null,
   /** 窄条里点了哪条样例（TestCaseTabs 消费后清空） */
   pendingCaseId: null,
+  /** 折叠态是否由悬浮迷你岛接管（此时 tests 叶已从布局树摘掉） */
+  floating: false,
+  /** 浮岛吸附边：left | right | bottom（顶边留给文件标签栏） */
+  edge: 'right',
+  /** 沿吸附边的位置比例（0~1），换窗口尺寸时按它重算，不存绝对像素 */
+  ratio: 0,
 })
 
 /**
@@ -571,27 +581,62 @@ export function rememberTestsRatio() {
 }
 
 /**
- * 收成窄条。ratio 直接写进 split 节点（不走 setRatio 的另一层语义），
- * 但几何仍会被 `computePaneRects` 按 tests 的非对称边界正确渲染。
- * @param {number} regionPx splitter 所在分区在拖动轴上的像素长度
+ * 收起评测岛：把 tests 叶从布局树摘掉，交给编辑区里的悬浮迷你岛。
+ * 底部与左右停靠同一形态 —— 不再保留原位 52px 横条（2026-11-21 用户口径）。
  */
-export function collapseTestsPane(regionPx) {
+export function collapseTestsPane() {
+  if (testsRail.floating) return true
   const info = testsSplitInfo()
-  if (!info || !(regionPx > TESTS_RAIL_PX)) return false
+  const leaf = testsLeaf()
+  if (!info || !leaf) return false
+  const side = testsPaneSide()
+
+  // 摘叶 + 浮岛。先记下折叠前份额与吸附边，展开时按 edge 重开并回到这个份额。
   const slot = findSlot(editorPanes.root, info.splitId)
   if (!slot || isLeaf(slot.node)) return false
-  const share = TESTS_RAIL_PX / regionPx
-  slot.node.ratio = info.testsIsA ? share : 1 - share
+  if (!Number.isFinite(testsRail.lastShare)) {
+    const share = info.testsIsA ? slot.node.ratio : 1 - slot.node.ratio
+    if (share > 0 && share < 1) testsRail.lastShare = share
+  }
+  if (side === 'left' || side === 'right' || side === 'bottom') testsRail.edge = side
   testsRail.collapsed = true
+  testsRail.floating = true
+  // 摘叶会触发下面 testsLeaf 的 watch；floating 已置位，watch 不会清掉浮岛状态
+  closeEmptyPane(leaf.id)
   return true
 }
 
 /**
- * 展开窄条。
+ * 展开窄条 / 浮岛。
+ * 浮岛态：按 edge 重开 tests 叶，并回到折叠前的份额；普通窄条态保持旧逻辑。
  * @param {{ ratio?: number|null }} [options] 传入时按指针位置展开（拖动路径），
  *   不传则回到折叠前那次拖动的起手比例。
  */
 export function expandTestsPane({ ratio = null } = {}) {
+  if (testsRail.floating) {
+    const edge = testsRail.edge
+    const share = testsRail.lastShare
+    testsRail.floating = false
+    testsRail.collapsed = false
+    setTestsPanePlacement(edge)
+    const id = openTestsPane()
+    if (!id) {
+      testsRail.floating = true
+      testsRail.collapsed = true
+      return false
+    }
+    const info = testsSplitInfo()
+    if (!info) return true
+    const slot = findSlot(editorPanes.root, info.splitId)
+    if (!slot || isLeaf(slot.node)) return true
+    const fallback = info.axis === 'y' ? TESTS_PANE_SHARE.bottom : 0.38
+    const targetShare = Number.isFinite(share) ? share : fallback
+    // lastShare 记的是「岛这一侧」，换边后 a/b 互换，这里换算回 split 的 a 支占比
+    const target = Number.isFinite(ratio) ? ratio : info.testsIsA ? targetShare : 1 - targetShare
+    slot.node.ratio = clampRatio(slot.node, target)
+    testsRail.lastShare = null
+    return true
+  }
   const info = testsSplitInfo()
   testsRail.collapsed = false
   if (!info) {
@@ -609,20 +654,21 @@ export function expandTestsPane({ ratio = null } = {}) {
   return true
 }
 
-/** 岛的创建 / 关闭 / 换边 / 恢复存档之后都必须清一次，避免陈旧折叠位 */
+/** 岛的创建 / 关闭 / 换边 / 恢复存档之后都必须清一次，避免陈旧折叠位；浮岛位置（edge/ratio）作为偏好保留 */
 export function resetTestsRail() {
   testsRail.collapsed = false
+  testsRail.floating = false
   testsRail.lastShare = null
   testsRail.pendingCaseId = null
 }
 
 // 兜底：评测岛被摘掉（切工作区 prune、关闭 / 停靠回侧栏）时清折叠位。
 // 只认「岛消失」—— 换边与存档恢复会换一个 tests 叶 id，但折叠态要保留，
-// 那两条路径各自有显式的 reset 时机。
+// 那两条路径各自有显式的 reset 时机。浮岛是「故意摘叶」，不能清。
 watch(
   () => testsLeaf()?.id ?? null,
   (id) => {
-    if (!id) resetTestsRail()
+    if (!id && !testsRail.floating) resetTestsRail()
   },
 )
 
@@ -646,9 +692,21 @@ function autoTestsPaneSide() {
  * @returns {string|null} 评测岛叶子 id；叶子数到上限时 null
  */
 export function openTestsPane() {
+  // 浮岛态直接「展开」：摘掉浮岛标记，下面按正常路径重建叶子
+  const wasFloating = testsRail.floating
+  if (wasFloating) {
+    testsRail.floating = false
+    testsRail.collapsed = false
+  }
   const existing = testsLeaf()
   if (existing) return existing.id
-  if (leaves().length >= MAX_PANES) return null
+  if (leaves().length >= MAX_PANES) {
+    if (wasFloating) {
+      testsRail.floating = true
+      testsRail.collapsed = true
+    }
+    return null
+  }
   const side = testsPanePlacement.value ?? autoTestsPaneSide()
   if (side === 'left' || side === 'right') lastVerticalSide = side
   const share =
@@ -663,11 +721,19 @@ export function openTestsPane() {
     content: 'tests',
   })
   if (id) resetTestsRail()
+  else if (wasFloating) {
+    testsRail.floating = true
+    testsRail.collapsed = true
+  }
   return id
 }
 
-/** 把评测岛停靠回侧边栏（摘掉 tests 叶；焦点与 activeId 不受影响） */
+/** 把评测岛停靠回侧边栏（摘掉 tests 叶 / 收起浮岛；焦点与 activeId 不受影响） */
 export function closeTestsPane() {
+  if (testsRail.floating) {
+    resetTestsRail()
+    return true
+  }
   const leaf = testsLeaf()
   if (!leaf) return false
   const closed = closeEmptyPane(leaf.id)
@@ -1167,13 +1233,16 @@ function serializeNode(node) {
   }
 }
 
-/** 当前布局树的存档形态（`{ root, focusedPaneId, testsCollapsed, testsShare }`）。只读快照，可直接 JSON 化。 */
+/** 当前布局树的存档形态（`{ root, focusedPaneId, testsCollapsed, testsShare, testsFloating, testsEdge, testsRailRatio }`）。只读快照，可直接 JSON 化。 */
 export function serializePanes() {
   return {
     root: serializeNode(editorPanes.root),
     focusedPaneId: editorPanes.focusedPaneId,
-    // 折叠位与展开尺寸一起存档：刷新后停在窄条，展开仍回到折叠前的宽度
+    // 折叠位、浮岛吸附边 / 沿边比例与展开尺寸一起存档：刷新后仍停在同一条浮岛
     testsCollapsed: testsRail.collapsed,
+    testsFloating: testsRail.floating,
+    testsEdge: testsRail.edge,
+    testsRailRatio: testsRail.ratio,
     testsShare: Number.isFinite(testsRail.lastShare) ? testsRail.lastShare : null,
   }
 }
@@ -1259,11 +1328,29 @@ export function restorePanes(saved, isAlive = () => true) {
   editorPanes.root = root
   // 同 id 的 tests 叶可能被复用：先清掉内存里的旧折叠位，再按存档恢复
   resetTestsRail()
-  if (saved?.testsCollapsed === true && testsLeaf()) {
-    testsRail.collapsed = true
+  const savedEdge = ['left', 'right', 'bottom'].includes(saved?.testsEdge)
+    ? saved.testsEdge
+    : null
+  const savedRatio = Number(saved?.testsRailRatio)
+  const leaf = testsLeaf()
+  const savedSide = leaf ? testsPaneSide() : null
+  const floated = saved?.testsFloating === true
+  const savedCollapsed = saved?.testsCollapsed === true
+  if (floated || (savedCollapsed && leaf)) {
+    // 浮岛存档，或旧版的侧边 / 贴底窄条 → 统一迁成浮岛
+    if (leaf) {
+      if (savedSide === 'left' || savedSide === 'right' || savedSide === 'bottom') {
+        testsRail.edge = savedSide
+      }
+    }
+    if (savedEdge) testsRail.edge = savedEdge
+    if (Number.isFinite(savedRatio)) testsRail.ratio = clamp(savedRatio, 0, 1)
     const share = Number(saved?.testsShare)
     // lastShare 只在 (0,1) 内才是合法的「岛份额」；坏值当作没记过，展开用默认比例
     if (Number.isFinite(share) && share > 0 && share < 1) testsRail.lastShare = share
+    testsRail.collapsed = true
+    testsRail.floating = true
+    if (leaf) closeEmptyPane(leaf.id)
   }
   const focused = saved?.focusedPaneId
   const focusedLeafNode = leafById(focused)

@@ -181,7 +181,6 @@ export const SETTINGS_MENU_ROWS = [
     current: () => caseView.value,
     select: (id) => setCaseView(id),
   },
-
   { kind: 'divider' },
 
   {

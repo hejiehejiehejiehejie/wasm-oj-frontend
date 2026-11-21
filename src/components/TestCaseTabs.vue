@@ -16,10 +16,11 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
 import ContextMenu from './ContextMenu.vue'
-import LoadingSpinner from './LoadingSpinner.vue'
 import TestCaseBody from './TestCaseBodyPane.vue'
+import VerdictBadge from './VerdictBadge.vue'
 import { useOverlayScrollbar } from '../composables/useOverlayScrollbar.js'
 import { useScrollEdge } from '../composables/useScrollEdge.js'
+import { useScrollReveal } from '../composables/useScrollReveal.js'
 import {
   caseDotStatus,
   caseInputPreview,
@@ -65,15 +66,13 @@ const props = defineProps({
   /**
    * 工作台需要的「面板级」读数与动作（从 TestPanel 透传）。工作台与页头是两棵互斥的
    * DOM，结论 / 动作不再靠 Teleport 投递（目标节点会换人，Teleport 不会重新解析），
-   * 改由这里直接画：结论用这四个值，动作 emit 回 TestPanel。
+   * 改由这里直接画：结论用 TestPanel 传来的 verdict 对象交给 VerdictBadge，动作 emit 回 TestPanel。
    */
   showSubmit: Boolean,
   submitting: Boolean,
   runTitle: { type: String, default: '' },
   submitTitle: { type: String, default: '' },
-  verdictText: { type: String, default: '' },
-  verdictShortText: { type: String, default: '' },
-  verdictTone: { type: String, default: 'muted' },
+  verdict: { type: Object, default: null },
   verdictVisible: { type: Boolean, default: true },
   elapsedText: { type: String, default: '' },
 })
@@ -136,7 +135,7 @@ function onRailWheel(event) {
   if (!el || el.scrollWidth <= el.clientWidth) return
   // 直接写 scrollLeft（瞬间到位）。⚠️ 别给 .case-tabs 加 scroll-behavior: smooth：
   // 滚轮是连发的，每一格都排队做一次补间，手感会变成拖泥带水的一串动画。
-  // 切 Tab 时那次居中滚动用的是 scrollIntoView 自带的 behavior，不受这里影响。
+  // 切 Tab 时那次自动适配由 revealElement 自己排程，不受这里影响。
   el.scrollLeft += event.deltaY
   event.preventDefault()
 }
@@ -144,18 +143,24 @@ function onRailWheel(event) {
 let railObserver = null
 function bindRailObserver() {
   railObserver?.disconnect()
+  railObserver = null
   const el = railEl.value
-  if (!el) return
-  // 面板宽度变化（拖分隔条 / 全局缩放）会改变「装不装得下」，但盒子高度恒为 36，
-  // ResizeObserver 照样会在 inline-size 变化时报一次 —— 这就够了。
+  // 工作台没有横向轨，滚动容器换成左侧样例行列表；两者只会存在一个
+  const list = workbenchListEl.value
+  if (!el && !list) return
+  // 面板尺寸变化（拖分隔条 / 窗口缩放 / 全局缩放）会改变「装不装得下」：
+  // 轨的高度恒为 36，但 inline-size 一变 ResizeObserver 照样会报；工作台列表看的是高与宽。
   railObserver = new ResizeObserver(() => {
     syncRailFade()
     scheduleMeasure()
+    // 当前页签可能被新尺寸挤出可见框；拖拽中跟手，不做平滑动画
+    scheduleReveal({ instant: true })
   })
-  railObserver.observe(el)
+  if (el) railObserver.observe(el)
   // 轨本身是 `flex: 0 1 auto`：样例少时它的宽度等于内容宽，拖分隔条也不会变。
   // 所以「可用空间」变化还得靠整行来触发 —— 行是撑满可用宽度的那一层。
   if (tabsRowEl.value && tabsRowEl.value !== el) railObserver.observe(tabsRowEl.value)
+  if (list) railObserver.observe(list)
   syncRailFade()
   scheduleMeasure()
 }
@@ -178,6 +183,26 @@ const activeIndex = computed(() => props.cases.findIndex((item) => item.id === a
 const activeCase = computed(() => props.cases[activeIndex.value] ?? null)
 
 /**
+ * 切样例后的滚动适配（2026-11-21 方案）。
+ *
+ * 容器随布局切换：分项标签看横向轨，工作台看左侧样例行列表；目标按 `data-case-id`
+ * 现取（DOM 在下一帧才换好）。`inset` 让目标避开轨两端的 16px 渐隐遮罩，
+ * `axis` 明确只动该动的那一条 —— 横轨没有纵向滚动，列表也没有横向滚动。
+ * 通用逻辑（nearest 落点、平滑 / 防抢滚、scrollend 复核、卸载清理）见
+ * composables/useScrollReveal.js。
+ */
+const { schedule: scheduleReveal } = useScrollReveal({
+  container: () => (props.workbench ? workbenchListEl.value : railEl.value),
+  target: (container) => {
+    const id = activeId.value
+    if (id === null) return null
+    return container.querySelector(`[data-case-id="${id}"]`)
+  },
+  inset: () => (props.workbench ? 8 : 20),
+  axis: () => (props.workbench ? 'y' : 'x'),
+})
+
+/**
  * 评测岛窄条的「点样例 → 展开并选中」请求。窄条在 TestsPane 里，选中状态归本组件，
  * 所以走一次性请求位而不是把 activeId 提升出去：
  *   · 先展开、再写 pending（TestsPane 保证顺序），这里的 watcher 在可见布局上落选中；
@@ -189,6 +214,8 @@ watch(
     if (!id) return
     if (props.cases.some((item) => item.id === id)) activeId.value = id
     testsRail.pendingCaseId = null
+    // 目标恰好已经是当前样例时 activeId 不变，watch 不会响：展开后仍要把它滚进视野
+    scheduleReveal()
   },
 )
 
@@ -201,21 +228,14 @@ watch(
 const tabStampCode = caseStampCode
 const tabStampTone = caseStampTone
 
-/**
- * 页签的状态点：待重测时判定码水印照画（整枚压成灰章），圆点只在「没有判定码」时才登场。
- * 旧结论作废由灰色水印与全局结论（`?/n AC`）交代，页签上不再亮一颗琥珀实心点。
- */
-function tabDotStatus(record) {
-  if (record?.stale) return ''
-  return caseDotStatus(record)
-}
-
 /* ---------- 页签名称档位（2026-11-20） ---------- */
 /**
  * 名称格式不再由「样例数 ≥ 4」这种单变量决定，也不是单纯看岛宽：
  *   ① 用隐藏量尺量出当前**每一条**序号在「样例 N / N」下的真实宽度；
- *   ② 按当前样例数把整条轨所需总宽算出来（含轨内 gap）；
- *   ③ 能整条装下就用全称，装不下直接退到纯数字（不再经过 `#N` 这一档）。
+ *   ② 按当前样例数把整条轨所需总宽算出来（含轨内固定 gap）；
+ *   ③ 三档依次判定：全称 + 24px 呼吸 → 全称 + 8px 紧凑 → 纯数字 + 8px 紧凑。
+ * 只有三档的壳宽（24px / 8px）都按固定值量，不去读当前渲染出来的内边距，
+ * 档位才只随行宽单调变化，不会在临界宽度附近回弹。
  * 样例数、序号位数、布局宽度三者因此同时参与判定；样例增删后序号会重排，
  * 下一次测量自然会把档位与新的序号对齐。
  */
@@ -223,14 +243,17 @@ const labelFormat = ref('long')
 
 function measureFormat() {
   const row = tabsRowEl.value
-  const track = railEl.value
   const measure = measureEl.value
   const textEl = measureTextEl.value
   const count = props.cases.length
-  if (!row || !track || !measure || !textEl || !count) return
+  if (!row || !measure || !textEl || !count) return
   // 轨是 `flex: 0 1 auto`（装得下就贴着胶囊、装不下才收缩），所以它的 clientWidth
   // 在样例少时只是内容宽度，不能当可用空间。可用空间要按**整行**算：
   // 行宽 − 行内边距 − 「+」− 行 gap，剩下才是标签轨最多能占到的宽度。
+  //
+  // 全称档的排布间距固定按 6px 量，**不读**当前计算值：窄容器档会把行 / 轨的 gap
+  // 收到 4px，若跟着变，全称总宽会在临界宽度附近又「装得下」，名称档位就会回弹。
+  const LONG_GAP = 6
   const rowStyle = getComputedStyle(row)
   const addWidth = row.querySelector('.tab-add-wrap')?.getBoundingClientRect().width ?? 0
   const avail =
@@ -238,34 +261,47 @@ function measureFormat() {
     (Number.parseFloat(rowStyle.paddingLeft) || 0) -
     (Number.parseFloat(rowStyle.paddingRight) || 0) -
     addWidth -
-    (Number.parseFloat(rowStyle.columnGap) || 0)
+    LONG_GAP
   if (avail <= 0) return
-  const gap = Number.parseFloat(getComputedStyle(track).columnGap) || 0
-  // 文字宽度只跟文本与字号有关，按文本缓存；每次只量一次「壳宽」（点 + 间距 + 内边距 +
-  // 边框 + 纵向的 22px 删除槽），两者相加就是整颗胶囊的宽度。拖分隔条时因此不会
-  // 每帧做几十次强制排版。
+  // 文字宽度只跟文本与字号有关，按文本缓存；壳宽则一次量出两档固定值：
+  // 全称宽档（左右各 24px 内边距 + 边框）与紧凑档（左右各 8px + 边框）。
+  // 量尺的内边距由 .case-tabs .tab--measure 固定，不跟当前名称档走，
+  // 否则「收窄 → 全称又装得下 → 回弹」会再次出现。
+  measure.classList.remove('is-measure-tight')
   textEl.textContent = 'M'
-  const chrome = measure.getBoundingClientRect().width - textEl.getBoundingClientRect().width
+  const wideChrome =
+    measure.getBoundingClientRect().width - textEl.getBoundingClientRect().width
+  measure.classList.add('is-measure-tight')
+  const tightChrome =
+    measure.getBoundingClientRect().width - textEl.getBoundingClientRect().width
+  measure.classList.remove('is-measure-tight')
   const textWidths = new Map()
-  const widthOf = (text) => {
+  const textWidthOf = (text) => {
     let width = textWidths.get(text)
     if (width === undefined) {
       textEl.textContent = text
       width = textEl.getBoundingClientRect().width
       textWidths.set(text, width)
     }
-    return width + chrome
+    return width
   }
   // 逐条量而不是拿最大序号代表全部：序号的位数分布不同（1..9 与 10..12 宽度不一样），
   // 逐条求和才能既不过早降级、也不在刚好差几像素时溢出。
-  const totalOf = (labelOf) => {
+  const totalOf = (labelOf, chrome) => {
     let sum = 0
-    for (let i = 1; i <= count; i += 1) sum += widthOf(labelOf(i))
-    return sum + (count - 1) * gap
+    for (let i = 1; i <= count; i += 1) sum += textWidthOf(labelOf(i)) + chrome
+    return sum + (count - 1) * LONG_GAP
   }
-  const fitsLong = totalOf((i) => t('tests.card.title', { n: i })) <= avail
-  // 只有两档：全称装得下就用全称，装不下直接给序号（轨本身仍可横向滚）。
-  labelFormat.value = fitsLong ? 'long' : 'num'
+  const labelOf = (i) => t('tests.card.title', { n: i })
+  // 三档：全称宽档 → 全称紧凑档 → 纯序号。两次比较都用固定壳宽，行宽单调减，
+  // 所以只会按这个顺序降级，不会跳回上一档。
+  if (totalOf(labelOf, wideChrome) <= avail) {
+    labelFormat.value = 'long'
+  } else if (totalOf(labelOf, tightChrome) <= avail) {
+    labelFormat.value = 'tight'
+  } else {
+    labelFormat.value = 'num'
+  }
 }
 
 // 拖分隔条时 ResizeObserver 会按帧回调；一次测量要做几十次排版，统一收进 rAF 合并。
@@ -389,64 +425,22 @@ watch(
 )
 
 /**
- * 切 Tab 之后把胶囊滚进视野、正文回到顶部。
+ * 切 Tab 之后把目标页签滚进视野、正文回到顶部。
  *
- * 【为什么不用 scrollIntoView（2026-11-19 修）】原来写的是
- *   `tab.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })`
- * 两个毛病：
- *   ① `scrollIntoView` 会把它**所有**祖先的滚动都调整一遍 —— 包括 `overflow: hidden` 的
- *      `.pane--tests` 和文档根。那些盒子只要有一丁点可滚动溢出（亚像素宽度、缩放不是 100%、
- *      系统保留滚动条槽位），整块面板就会被推 1px，读起来就是「一切换整个侧栏就动一下」。
- *   ② `inline: 'center'` 是**无条件**居中：三颗胶囊都看得见的时候，切到第 1 颗要把轨推到
- *      scrollLeft = 0、切到第 3 颗又要推到最右 —— 明明不用滚，整排胶囊还是滑一下。
- *      这正是「样例 1 与样例 3 来回切，侧栏有微小移动」的来源。
- * 现在只动轨自己：**先判胶囊是否已完整可见**，可见就一个像素都不动；真的被挡住才居中，
- * 而且直接算 `scrollLeft`（clamp 在轨自己的范围内），祖先元素再没有任何被滚到的机会。
- *
- * `behavior: 'smooth'` 与侧栏其它滚动一致；系统开了「减少动态效果」时浏览器会自己降级。
- *
- * 正文回顶不是洁癖：上一条样例如果很长、用户滚到了中间，切过去会停在新样例的中间 ——
- * 第一眼看到的是「半截代码」，像是内容丢了。
+ * 滚动适配交给 useScrollReveal：它按容器可见框做 nearest 落点，平滑滚完再复核一次；
+ * 正文回顶不参与这套调度 —— 内容已经换了，第一眼就该从顶部开始。
  */
-function revealTab(tab) {
-  const rail = railEl.value
-  if (!rail || !tab) return
-  const railBox = rail.getBoundingClientRect()
-  const tabBox = tab.getBoundingClientRect()
-  // 1px 亚像素余量：缩放后胶囊与轨的边界常差零点几像素，不该为这点差去滚
-  const leftGap = tabBox.left - railBox.left
-  const rightGap = railBox.right - tabBox.right
-  if (leftGap >= -1 && rightGap >= -1) return
-  const centered = rail.scrollLeft + leftGap - (rail.clientWidth - tabBox.width) / 2
-  // 浏览器会把越界的值 clamp 回 [0, max]，这里不必自己夹
-  rail.scrollTo({ left: centered, behavior: 'smooth' })
-}
-
 watch(activeId, (id) => {
   if (id === null) return
-  nextTick(() => {
-    const tab = railEl.value?.querySelector(`[data-case-id="${id}"]`)
-    revealTab(tab)
-    if (props.workbench) revealCaseRow(workbenchListEl.value, tab)
-    if (viewportEl.value) viewportEl.value.scrollTop = 0
-  })
+  if (viewportEl.value) viewportEl.value.scrollTop = 0
+  scheduleReveal()
 })
 
-/**
- * 工作台样例行滚进视野（纵向版 revealTab）。
- *
- * 仍然**不用** `scrollIntoView`：它会连带调整所有祖先的滚动，整座岛会被推几像素
- * （与 revealTab 注释里那条同一个坑）。这里只动列表自己的 `scrollTop`，且先判断
- * 整行是否已完整可见 —— 可见就一个像素都不动。
- */
-function revealCaseRow(list, row) {
-  if (!list || !row) return
-  const listBox = list.getBoundingClientRect()
-  const rowBox = row.getBoundingClientRect()
-  if (rowBox.top >= listBox.top && rowBox.bottom <= listBox.bottom) return
-  const centered = list.scrollTop + (rowBox.top - listBox.top) - (list.clientHeight - rowBox.height) / 2
-  list.scrollTo({ top: centered, behavior: 'smooth' })
-}
+// 布局切换后滚动容器是新建的（横向轨 ↔ 工作台列表）：等 DOM 落定直接瞬时落位
+watch(
+  () => props.workbench,
+  () => scheduleReveal({ instant: true }),
+)
 
 /* ------------------------------------------------- 跑完自动跳到第一处失败 */
 /**
@@ -732,6 +726,8 @@ function onTabClick(id) {
     return
   }
   activeId.value = id
+  // 点的就是当前样例时 activeId 不变，watch 不会响；点按本身仍要保证它完整可见
+  scheduleReveal()
 }
 
 /**
@@ -771,6 +767,7 @@ onBeforeUnmount(() => {
   railObserver?.disconnect()
   railObserver = null
   cancelAnimationFrame(measureRaf)
+  // useScrollReveal 通过 onScopeDispose 自己清理 rAF / 监听器 / 定时器
   clearPress()
 })
 </script>
@@ -829,7 +826,6 @@ onBeforeUnmount(() => {
               class="tab"
               :class="{ 'is-active': item.id === activeId }"
               :data-case-id="item.id"
-              :data-status="tabDotStatus(item)"
               :data-tone="tabStampTone(item) || null"
               :aria-current="item.id === activeId ? 'true' : undefined"
               data-pane-drag-proxy
@@ -837,14 +833,6 @@ onBeforeUnmount(() => {
               @contextmenu="onTabContextMenu($event, item.id)"
               @pointerdown="onTabPointerDown($event, item.id)"
             >
-              <!-- 圆点**常驻**（未运行画空心圈），不写 v-if：它一出现就占掉 7+5=12px，
-                   跑完那一刻整条轨会横向重排一遍。留个空位让宽度恒定（见样式里的注释）。
-                   有判定水印时只把圆点藏起来、宽度照占，避免出结果那一刻页签变窄。 -->
-              <span
-                class="tab__dot"
-                :class="{ 'is-stamp-slot': tabStampCode(item) }"
-                :data-status="tabDotStatus(item)"
-              ></span>
               <span class="tab__long">{{ t('tests.card.title', { n: index + 1 }) }}</span>
               <span class="tab__num">{{ index + 1 }}</span>
               <!-- 浅色判定码叠印在页签右下角（不占横向宽度，窄轨里也能一眼扫出哪条挂了）。
@@ -891,10 +879,10 @@ onBeforeUnmount(() => {
           </button>
         </AppTooltip>
 
-        <!-- 隐藏量尺（2026-11-20）：与真实页签同款同字号，只用来量「样例 N / N」
-             两种写法的实际宽度。绝对定位 + visibility:hidden，不占位也不可交互。 -->
+        <!-- 隐藏量尺（2026-11-20）：与真实页签同款同字号，只用来量「样例 N / N」的
+             文字宽度，以及 24px / 8px 两套固定壳宽。绝对定位 + visibility:hidden，
+             不占位也不可交互。 -->
         <span ref="measureEl" class="tab tab--measure" aria-hidden="true">
-          <span class="tab__dot"></span>
           <span ref="measureTextEl">{{ t('tests.card.title', { n: cases.length }) }}</span>
         </span>
       </div>
@@ -961,12 +949,15 @@ onBeforeUnmount(() => {
         <!-- 全局结论（verdict + 耗时）：与 TestPanel 页头同一套判据 / 文案，由 props 传下来。
              顺序（2026-11-20 用户要求）：通过个数在前、耗时在后，与紧凑底栏同一口径。 -->
         <div class="workbench__context">
-          <template v-if="verdictVisible">
-            <span class="workbench__verdict" :data-tone="verdictTone">
-              <LoadingSpinner v-if="running" :size="9" />
-              <span class="workbench__verdict-long">{{ verdictText }}</span>
-              <span class="workbench__verdict-short">{{ verdictShortText }}</span>
-            </span>
+          <template v-if="verdictVisible && verdict">
+            <VerdictBadge
+              class="workbench__verdict"
+              :tone="verdict.tone"
+              :passed="verdict.passed"
+              :total="verdict.total"
+              :label="verdict.label"
+              :spinner-size="9"
+            />
             <span
               v-if="elapsedText"
               class="workbench__elapsed"
@@ -1233,24 +1224,18 @@ onBeforeUnmount(() => {
   );
 }
 
-/* 胶囊 26px / 6px 圆角 / 12.5px 600。未选中是幽灵态，选中才浮出底色
+/* 胶囊 26px / 6px 圆角 / 12px 600。未选中是幽灵态，选中才浮出底色
    （与文件树「悬停浅、选中深」同一套语汇；底色取 --case-chip-bg）。
-   内边距 9 而不是 10：这枚胶囊自带 1px 边框（各态一律透明，见下面 .tab 那条），
-   9 + 1 才等于正文的「框 12 + 字 10」那笔账 —— 胶囊的**内容起点**（那颗状态圆点）
-   落在 22px 字轨上，与 input / Expected 的标签同一竖线。
-   ⚠️ 「样例 N」这几个字因此被圆点推到 34px（22 + 7 + 5），这是有意的：胶囊读作
-   「圆点 + 标题」的一行条目，左沿该对齐的是圆点。2026-11-19 审查时试过把 padding 收到 7
-   去把文字压回 22，但那样圆点会掉出字轨、右内边距还是 9，反而左右不匀。 */
+   左右各 24px 内边距：右端那条槽位给判定码水印与悬停 ×，左端留等宽留白，
+   让「样例 N」落在胶囊正中（1px 透明边框两侧对称，不参与居中）。 */
 .tab {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
   flex: 0 0 auto;
   height: 26px;
-  padding: 0 9px;
+  padding: 0 24px;
   border-radius: 6px;
   /* 各态都透明，只为把尺寸钉死：选中前后胶囊宽高逐像素相同，来回切时整条轨不重排。
-     ⚠️ 别顺手删成 `border: 0` —— 那样要同时把 padding 补成 10，字轨才对得上（见上一条注释）；
      也别给它上色（2026-11-19 用户：「去掉分项标签的标签外一圈线」）。 */
   border: 1px solid transparent;
   background: transparent;
@@ -1267,7 +1252,7 @@ onBeforeUnmount(() => {
 }
 
 /* 选中态只有底色 + 字色，没有描边（2026-11-19 用户要求去掉那圈线）。
-   判定色仍由胶囊里那颗 7px 圆点与下方状态栏的徽标交代 —— 曾经给选中胶囊的边框
+   判定色由右下角的判定码水印交代 —— 曾经给选中胶囊的边框
    也染过一档判定色（color-mix 兑 --ok / --fail / --err），但那圈线正是这次被点名去掉的东西；
    别再补回来，也别改成 `outline` / `box-shadow` 的环，那是同一根线换了个画法。 */
 .tab.is-active {
@@ -1275,53 +1260,13 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-/* 状态点（7px）。**常驻**，未运行时是一圈空心 —— 见模板里那段注释：
-   宽度恒定，跑完加色时胶囊不会横向重排（原来 6px 且 v-if，一跑完整条轨往右跳 12px/颗）。
-   7px 是审查后从 6 调上来的：余光里分辨红绿，6px 太吃力。 */
-.tab__dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  /* 未运行：空心环，靠 inset 阴影画线，不占额外尺寸 */
-  box-shadow: inset 0 0 0 1px var(--text-faint);
-}
-
-.tab__dot[data-status='passed'] {
-  background: var(--ok);
-  box-shadow: none;
-}
-
-/* 失败 / 出错多给一层同色微光：一排点里红点要能被一眼拎出来（橙同理）。
-   同样兑 var(--fail) / var(--err)，理由见上面选中态那条 —— 浅色主题的判定色与深色不同。 */
-.tab__dot[data-status='failed'] {
-  background: var(--fail);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fail) 18%, transparent);
-}
-
-.tab__dot[data-status='error'] {
-  background: var(--err);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--err) 18%, transparent);
-}
-
-.tab__dot[data-status='running'] {
-  background: var(--info);
-  box-shadow: none;
-}
-
-/* 「结果待重测」用琥珀色压过判定色：旧结论已经不作数，画绿点会让人以为它还是 AC */
-.tab__dot[data-status='stale'] {
-  background: var(--warn);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 16%, transparent);
-}
-
-/* 两档写法：全称 / 纯数字。默认只显示全称，数字档由下面的规则按需换上。 */
+/* 三档写法：全称宽档 / 全称紧凑档 / 纯数字。默认只显示全称，数字档由下面的规则按需换上。 */
 .tab__num {
   display: none;
 }
 
 /* 名称档位（2026-11-20）：由脚本按「样例数 × 序号位数 × 轨宽」量出来，不再由容器宽度单独猜。
-   全称装得下就用全称，装不下直接退到纯数字（`#N` 这一档已取消）。 */
+   三档依次是：全称 + 24px 呼吸 → 全称 + 8px 紧凑 → 纯数字。 */
 .is-label-num .tab__long {
   display: none;
 }
@@ -1330,13 +1275,31 @@ onBeforeUnmount(() => {
   display: inline;
 }
 
-/* 隐藏量尺：沿用 .tab 的全部尺寸（含纵向的 22px 删除槽），只测宽不显示 */
+/* 紧凑档：全称紧凑档与序号档都收掉全称宽档为居中留的左右 24px 呼吸。
+   ⚠️ 档位判定用的量尺固定按两套壳宽（24px / 8px）分别量（见 .case-tabs .tab--measure），
+   不跟当前渲染的内边距走，否则内边距一收会让全称「又装得下」、把档位弹回上一档。 */
+.is-label-tight .tab,
+.is-label-num .tab {
+  padding: 0 8px;
+}
+
+/* 隐藏量尺：沿用 .tab 的全部尺寸，只测宽不显示。
+   内边距**始终按两套固定档位**算：默认 24px，临时加 .is-measure-tight 时量 8px。
+   量尺若跟着当前名称档收缩，会出现「变窄 → 全称又装得下 → 弹回」的往返。 */
 .tab--measure {
   position: absolute;
   left: -9999px;
   top: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+.case-tabs .tab--measure {
+  padding: 0 24px;
+}
+
+.case-tabs .tab--measure.is-measure-tight {
+  padding: 0 8px;
 }
 
 /* 胶囊外面那层是 AppTooltip 的触发体（气泡挂 body，触发器只是个 inline-flex 的壳）。
@@ -1596,14 +1559,6 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-/* 页签水印（2026-11-20，侧栏分项视图与纵向岛共用同一套）——
-   26px 高、6px 圆角胶囊、悬停 --icon-hover-bg、选中 --case-chip-bg，全部走上面的基础规则。
-   这里补三件事：右端给水印留固定 24px 槽位（纵向岛的 × 也落在这条槽里）；
-   水位章需要定位与裁切边界；前景文字抬到水印之上。 */
-.case-tabs .tab {
-  padding-right: 24px;
-}
-
 /* 水印的定位上下文与裁切边界。量尺（.tab--measure）必须留在绝对定位里，不能吃这条 */
 .case-tabs .tab:not(.tab--measure) {
   position: relative;
@@ -1676,13 +1631,7 @@ onBeforeUnmount(() => {
   --tab-tone: var(--text-dim);
 }
 
-/* 有判定水印时把圆点藏起来（仍占位，宽度不跳） */
-.tab__dot.is-stamp-slot {
-  visibility: hidden;
-}
-
 /* 前景文字压在水印之上 */
-.case-tabs .tab__dot,
 .case-tabs .tab__long,
 .case-tabs .tab__num {
   position: relative;
@@ -1802,8 +1751,8 @@ onBeforeUnmount(() => {
    钉在右上角，给右下角的水印让出位置。 */
 .case-tabs .tab__close {
   position: absolute;
-  right: 3px;
-  top: 2px;
+  right: 1px;
+  top: 0;
   display: inline-grid;
   place-items: center;
   width: 16px;
@@ -1864,8 +1813,9 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 最窄一档：胶囊只剩「状态点 + 数字」，间距再收一档。
-   判定徽标、单卡耗时、页头的全局结论在任何宽度下都不隐藏（同卡片那条优先级）。 */
+/* 最窄一档：轨与页签间距再收一档。
+   页签内边距的收缩交给名称档（`.is-label-tight` / `.is-label-num`），不按容器宽度切 ——
+   否则全称档会在临界宽度附近又「装得下」、回弹成「样例 N」（见 measureFormat 的固定间距口径）。 */
 @container (max-width: 15.625rem) {
   .active-case-head {
     gap: 4px;
@@ -1874,11 +1824,6 @@ onBeforeUnmount(() => {
   .case-tabs,
   .case-tabs__track {
     gap: 4px;
-  }
-
-  .tab {
-    gap: 5px;
-    padding: 0 8px;
   }
 }
 
@@ -1935,73 +1880,29 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* 判定是纯文字（与页头同一套 Typographic Status）：12px / 600，颜色只走语义前景色。
-   ⚠️ 别加底色 / 圆角 —— 那正是这一轮要摆脱的模板感。 */
+/* 判定徽标由 VerdictBadge 统一渲染；这里只负责它在轨头里可收缩、可省略 */
 .workbench__verdict {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  flex: 0 1 auto;
   min-width: 0;
-  padding: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.workbench__verdict > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 窄轨判定语只留计数（x/x），去掉「 AC」后缀；耗时也去掉钟表图标只留数字
+/* 窄轨判定语只留计数（x / n），去掉「 AC」后缀；耗时也去掉钟表图标只留数字
    （2026-11-21 用户要求）。页签轨随岛宽在 112–188px 间伸缩，最窄时
    「0/10 AC」+ 钟表 + 耗时会被 ellipsis 吃掉；152px 与轨道自己的窄态断点一致
    （见文件末尾的「样例 N」→ 序号切换）。 */
-.workbench__verdict-short {
-  display: none;
-}
-
 @container (max-width: 152px) {
   .workbench__rail-head {
     padding: 0 8px 0 14px;
   }
 
-  .workbench__verdict-long {
+  .workbench__context :deep(.verdict__label) {
     display: none;
-  }
-
-  .workbench__verdict-short {
-    display: inline;
   }
 
   .workbench__clock {
     display: none;
   }
-}
-
-.workbench__verdict[data-tone='passed'] {
-  color: var(--ok);
-}
-
-.workbench__verdict[data-tone='failed'] {
-  color: var(--fail);
-}
-
-.workbench__verdict[data-tone='error'] {
-  color: var(--err);
-}
-
-.workbench__verdict[data-tone='info'] {
-  color: var(--info);
-}
-
-.workbench__verdict[data-tone='warn'] {
-  color: var(--warn);
 }
 
 .workbench__elapsed {

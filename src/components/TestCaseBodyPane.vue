@@ -21,7 +21,7 @@ import { locale, t } from '../i18n/index.js'
 import { px, uiScale } from '../composables/useUiScale.js'
 import { DEFAULT_CHECKER_ID } from '../services/checkers.js'
 import { editorSettings } from '../services/editorSettings.js'
-import { caseBadgeLabel, caseTimingText } from '../services/caseSummary.js'
+import { caseTimingText } from '../services/caseSummary.js'
 import { notify } from '../services/notifications.js'
 import { diffOutput, markSegments } from '../services/outputDiff.js'
 
@@ -291,12 +291,12 @@ const actualPlaceholder = computed(() => {
   return t('tests.card.emptyOutput')
 })
 
-/** 工作台 ACTUAL 列头右侧的结论（`AC · 0.4 ms` / `待运行`）—— 状态栏让位之后它才是结果归属 */
-const statusText = computed(() => {
-  const label = caseBadgeLabel(props.testCase)
-  const time = caseTimingText(props.testCase)
-  return time ? `${label} · ${time}` : label
-})
+/**
+ * ACTUAL 列头左侧的运行耗时（`0.4 ms`）。
+ * 2026-11-21 用户要求：判定码（AC / WA / 待运行）从这里去掉，只留运行时间；
+ * 没跑过时没有耗时，整格不渲染。
+ */
+const timingText = computed(() => caseTimingText(props.testCase))
 
 // 实际输出也是同一套：超长就只显示开头一段 + 省略行。它天生只读（是个 <pre>），
 // 所以不用像上面两个输入框那样维护「可编辑段」的边界，现算就行。
@@ -805,10 +805,10 @@ defineExpose({ syncHeight })
     <div v-if="showActual" class="field field--actual">
       <span class="field__label field__label--row">
         <span
-          v-if="workbench || vertical || bento"
+          v-if="(workbench || vertical || bento) && timingText"
           class="field__status"
           :data-status="testCase.status"
-          >{{ statusText }}</span
+          >{{ timingText }}</span
         >
         <span class="field__name">{{ t('tests.card.field.actual') }}</span>
         <span class="field__head-right">
@@ -970,7 +970,7 @@ defineExpose({ syncHeight })
   white-space: nowrap;
 }
 
-/* 实际输出列头（2026-11-20 用户要求）：状态在左、标题居中、动作在右。
+/* 实际输出列头（2026-11-20 用户要求）：耗时在左、标题居中、动作在右。
    两侧各一条 1fr 对称列，标题才落在列宽的正中，而不是被右侧动作挤偏。 */
 .field__label--row {
   display: grid;
@@ -1376,7 +1376,8 @@ defineExpose({ syncHeight })
   min-width: 0;
 }
 
-/* ACTUAL 列头的运行结论：状态由 TestCaseTabs 的 36px 状态栏搬到这里 */
+/* ACTUAL 列头左侧的运行耗时：状态由 TestCaseTabs 的 36px 状态栏搬到这里，
+   2026-11-21 用户要求只留时间，判定码不再画 */
 .card__body.is-workbench .field__status {
   min-width: 0;
   overflow: hidden;
@@ -1529,7 +1530,7 @@ defineExpose({ syncHeight })
   min-width: 0;
 }
 
-/* 单样例结论：挂在「实际输出」列头右侧，语义最贴切、零额外占高（状态行已让位给满高分栏） */
+/* 单样例耗时：挂在「实际输出」列头左侧，语义最贴切、零额外占高（状态行已让位给满高分栏） */
 .card__body.is-vertical .field__status {
   min-width: 0;
   overflow: hidden;

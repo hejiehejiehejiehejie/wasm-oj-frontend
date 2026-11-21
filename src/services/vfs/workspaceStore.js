@@ -441,6 +441,25 @@ export const codeViewIntent = { show: null }
 export const focusTabIntent = { show: null }
 
 /**
+ * 「用户刚刚表达了切到这张页签的意图」的自增信号 —— **值没变也自增**。
+ *
+ * 与 `focusTabIntent` 同源，但供 UI 层消费：文件树重复点同一份文件、页签菜单再次
+ * 选中当前项时，`activeId` 赋值前后同值，`watch(activeId)` 不响；可用户明明点了，
+ * 页签栏就该把它完整滚进视野。EditorTabs 监听 `seq`，用 `id` 认领自己窗格那一条。
+ * 自增而不是布尔翻转：连续点两次同一份文件也要有两次独立的「意图」。
+ */
+export const tabRevealIntent = reactive({ id: null, paneId: null, seq: 0 })
+
+function signalTabIntent(id, paneId = null) {
+  focusTabIntent.show?.(id)
+  tabRevealIntent.id = id
+  // 带上页签所在窗格：分屏时只有目标窗格该响应，隔壁窗格即使焦点页签 id 恰好相同
+  // （或 props.paneId 缺省走了全局兜底）也不能跟着滚
+  tabRevealIntent.paneId = paneId ?? paneOf(id)?.id ?? null
+  tabRevealIntent.seq += 1
+}
+
+/**
  * 打开文件：已打开则只切活跃；否则建 model + retain + 加入 tab。
  *
  * `preview` 是「单击文件树」专用的预览语义：第一个文件占住预览槽，再点一个就把上一个
@@ -459,7 +478,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
     // 让位得在这里显式做一次（判据见上面 codeViewIntent）。
     codeViewIntent.show?.(paneOf(id)?.id)
     workspace.activeId = id
-    focusTabIntent.show?.(id)
+    signalTabIntent(id)
     revealId(id)
     return
   }
@@ -488,7 +507,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
   // 等读盘这期间，同一个文件可能已经被另一次点击打开了（连点两下）：别再 push 一次
   if (workspace.openTabIds.includes(id)) {
     workspace.activeId = id
-    focusTabIntent.show?.(id)
+    signalTabIntent(id)
     revealId(id)
     return
   }
@@ -521,7 +540,7 @@ export async function openFile(id, nodeHint = null, { preview = false } = {}) {
     placeTab(id, { paneId: targetPane?.id, makeActive: false })
   }
   workspace.activeId = id
-  focusTabIntent.show?.(id)
+  signalTabIntent(id)
   // 预览槽写在**落点窗格**上：不带窗格的代理写的是「当前焦点」，而焦点可能刚被
   // activeId 的跨窗格路由挪走。
   if (preview && targetPane) targetPane.preview = id
@@ -606,7 +625,7 @@ export function setActiveTab(id) {
   if (!workspace.openTabIds.includes(id)) return
   workspace.activeId = id
   // 同上：值没变也要发一次意图（重复点同一张页签时 watch 不响）
-  focusTabIntent.show?.(id)
+  signalTabIntent(id)
 }
 
 /**

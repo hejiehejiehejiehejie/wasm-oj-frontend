@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "verify": "node scripts/verify-ui.mjs",
+    "test": "vitest run",
     "lint": "npm run lint:css && npm run lint:text",
     "lint:css": "node scripts/lint-css.mjs",
     "lint:text": "node scripts/lint-text.mjs",
@@ -50,8 +51,10 @@
     "@tauri-apps/cli": "^2.12.1",
     "@vitejs/plugin-vue": "^6.0.9",
     "binaryen": "^132.0.0",
+    "jsdom": "^26.1.0",
     "postcss-pxtorem": "^6.1.0",
     "puppeteer-core": "^25.11.0",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "vitest": "^5.1.1"
   }
 }

@@ -38,6 +38,7 @@ import {
   testsRail,
   testsSplitInfo,
 } from '../services/editorPanes.js'
+import { t } from '../i18n/index.js'
 import {
   beginTestsPaneDrag,
   testsDrop,
@@ -62,7 +63,7 @@ import TestsPane from './TestsPane.vue'
 // 监听器与 class 等非 prop 属性直接落到 EditorPane 上（本组件不声明 emits）
 defineOptions({ inheritAttrs: false })
 
-defineProps({
+const props = defineProps({
   settings: { type: Object, required: true },
   panelPosition: { type: String, required: true },
   timeLimit: { type: Number, required: true },
@@ -110,6 +111,211 @@ function cellStyle(rect) {
 function isTestsLeaf(paneId) {
   return leafById(paneId)?.content === 'tests'
 }
+
+/* ------------------------------------------------------------ 悬浮评测迷你岛
+
+   2026-11-21 用户方案：折叠 = 把 tests 叶从布局树摘掉，岛改为浮在整块编辑网格上。
+   位置只存「吸附边 + 沿边比例」，窗口 / 分屏变化时按 edge 重算；顶边留给文件标签栏，
+   所以网格内只吸附左 / 右 / 底三条边（网格本身已在标签栏下方，顶部内缩取 8px）。
+   拖动与点击用 5px 阈值隔离：没越过阈值时按钮照常收到 click，越过才接管成拖拽。 */
+const floatEl = ref(null)
+const floatStyle = ref({ left: '0px', top: '0px' })
+const floatDragging = ref(false)
+const floatReady = ref(false)
+const FLOAT_INSET = { top: 8, right: 16, bottom: 14, left: 14 }
+const FLOAT_DRAG_THRESHOLD = 5
+
+let floatDrag = null
+let floatObserver = null
+
+function clampFloat(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
+
+/** 按 edge + ratio 把浮岛贴回安全边缘；尺寸变化（样例增减 / 换向）后也走这里 */
+function placeFloat() {
+  const el = floatEl.value
+  const grid = gridEl.value
+  if (!el || !grid || !testsRail.floating) return
+  const stage = grid.getBoundingClientRect()
+  const island = el.getBoundingClientRect()
+  if (!stage.width || !stage.height) return
+  const ratio = clampFloat(testsRail.ratio, 0, 1)
+  let left
+  let top
+  if (testsRail.edge === 'bottom') {
+    const span = Math.max(0, stage.width - island.width - FLOAT_INSET.left - FLOAT_INSET.right)
+    left = FLOAT_INSET.left + ratio * span
+    top = stage.height - island.height - FLOAT_INSET.bottom
+  } else {
+    const span = Math.max(0, stage.height - island.height - FLOAT_INSET.top - FLOAT_INSET.bottom)
+    top = FLOAT_INSET.top + ratio * span
+    left =
+      testsRail.edge === 'left'
+        ? FLOAT_INSET.left
+        : stage.width - island.width - FLOAT_INSET.right
+  }
+  floatStyle.value = {
+    left: `${Math.round(Math.max(0, left))}px`,
+    top: `${Math.round(Math.max(0, top))}px`,
+  }
+  if (!floatReady.value) {
+    // 首次落位先不带动画，避免从 (0,0) 滑进来；下一帧再开过渡
+    requestAnimationFrame(() => {
+      floatReady.value = true
+    })
+  }
+}
+
+function onFloatPointerDown(event) {
+  if (event.button !== 0 || !testsRail.floating) return
+  const el = floatEl.value
+  const grid = gridEl.value
+  if (!el || !grid) return
+  const stage = grid.getBoundingClientRect()
+  const rect = el.getBoundingClientRect()
+  floatDrag = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    left: rect.left - stage.left,
+    top: rect.top - stage.top,
+    width: rect.width,
+    height: rect.height,
+    moved: false,
+  }
+  // 不在 pointerdown 就 setPointerCapture：那会把随后的 click 重定向到外壳，
+  // 样例块 / 运行键的单击就没了。越过阈值、确认是拖拽后再接管。
+  window.addEventListener('pointermove', onFloatPointerMove)
+  window.addEventListener('pointerup', onFloatPointerUp)
+  window.addEventListener('pointercancel', onFloatPointerUp)
+}
+
+function onFloatPointerMove(event) {
+  if (!floatDrag || event.pointerId !== floatDrag.id) return
+  const dx = event.clientX - floatDrag.x
+  const dy = event.clientY - floatDrag.y
+  if (!floatDrag.moved) {
+    if (Math.hypot(dx, dy) < FLOAT_DRAG_THRESHOLD) return
+    floatDrag.moved = true
+    floatDragging.value = true
+    try {
+      floatEl.value?.setPointerCapture(event.pointerId)
+    } catch {
+      // 指针已抬起等情况：忽略，window 监听仍会收尾
+    }
+  }
+  const grid = gridEl.value
+  if (!grid) return
+  const stage = grid.getBoundingClientRect()
+  const maxLeft = Math.max(FLOAT_INSET.left, stage.width - floatDrag.width - FLOAT_INSET.right)
+  const maxTop = Math.max(FLOAT_INSET.top, stage.height - floatDrag.height - FLOAT_INSET.bottom)
+  const left = clampFloat(floatDrag.left + dx, FLOAT_INSET.left, maxLeft)
+  const top = clampFloat(floatDrag.top + dy, FLOAT_INSET.top, maxTop)
+  floatStyle.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` }
+}
+
+/** 拖拽松手后浏览器会补一发 click：捕获阶段吞掉，避免顺手展开 / 切样例 */
+function suppressFloatClick() {
+  const stop = (event) => {
+    event.stopPropagation()
+    event.preventDefault()
+  }
+  window.addEventListener('click', stop, true)
+  window.setTimeout(() => window.removeEventListener('click', stop, true), 0)
+}
+
+function onFloatPointerUp(event) {
+  if (!floatDrag || event.pointerId !== floatDrag.id) return
+  const moved = floatDrag.moved
+  const el = floatEl.value
+  const grid = gridEl.value
+  if (moved && el && grid) {
+    const stage = grid.getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
+    const left = rect.left - stage.left
+    const top = rect.top - stage.top
+    const cx = left + rect.width / 2
+    const cy = top + rect.height / 2
+    const distRight = stage.width - cx
+    const distBottom = stage.height - cy
+    const distLeft = cx
+    const edge =
+      distBottom <= distRight && distBottom <= distLeft
+        ? 'bottom'
+        : distLeft < distRight
+          ? 'left'
+          : 'right'
+    let ratio = 0
+    if (edge === 'bottom') {
+      const span = Math.max(0, stage.width - rect.width - FLOAT_INSET.left - FLOAT_INSET.right)
+      const x = clampFloat(
+        left,
+        FLOAT_INSET.left,
+        Math.max(FLOAT_INSET.left, stage.width - rect.width - FLOAT_INSET.right),
+      )
+      ratio = span > 0 ? (x - FLOAT_INSET.left) / span : 0
+    } else {
+      const span = Math.max(0, stage.height - rect.height - FLOAT_INSET.top - FLOAT_INSET.bottom)
+      const y = clampFloat(
+        top,
+        FLOAT_INSET.top,
+        Math.max(FLOAT_INSET.top, stage.height - rect.height - FLOAT_INSET.bottom),
+      )
+      ratio = span > 0 ? (y - FLOAT_INSET.top) / span : 0
+    }
+    testsRail.edge = edge
+    testsRail.ratio = clampFloat(ratio, 0, 1)
+    floatDragging.value = false
+    nextTick(placeFloat)
+    suppressFloatClick()
+  }
+  if (floatDrag && el?.hasPointerCapture?.(floatDrag.id)) {
+    try {
+      el.releasePointerCapture(floatDrag.id)
+    } catch {
+      // 已释放
+    }
+  }
+  window.removeEventListener('pointermove', onFloatPointerMove)
+  window.removeEventListener('pointerup', onFloatPointerUp)
+  window.removeEventListener('pointercancel', onFloatPointerUp)
+  floatDrag = null
+}
+
+/** 外壳空白 / 读数区单击：第一下只冒「再次点击展开」气泡，第二下才展开 */
+function onFloatClick(event) {
+  if (event.target.closest('button')) return
+  if (toggleHint.value) {
+    clearToggleHint()
+    expandTestsPane()
+    return
+  }
+  armToggleHint('expand', event.clientX, event.clientY)
+}
+
+function syncFloatPlacement() {
+  if (testsRail.floating) placeFloat()
+}
+
+watch(
+  () => [testsRail.floating, testsRail.edge, props.cases.length],
+  async () => {
+    if (!testsRail.floating) {
+      floatObserver?.disconnect()
+      floatObserver = null
+      floatReady.value = false
+      return
+    }
+    await nextTick()
+    placeFloat()
+    if (floatEl.value && !floatObserver) {
+      floatObserver = new ResizeObserver(placeFloat)
+      floatObserver.observe(floatEl.value)
+    }
+  },
+  { immediate: true },
+)
 
 function splitterStyle(splitter) {
   // 厚度不写在这里：热区宽度按指针形态路由（默认 8px / 触屏 24px，见样式里的
@@ -298,19 +504,7 @@ function settleTestsDrop(target, source) {
     return
   }
   if (target === 'sidebar') emit('dock-tests')
-  else if (target) {
-    // 从折叠窄条上拖走：换边后仍保持折叠（否则松手会突然弹开一整座岛）。
-    // moveTestsPane 会重建 split 且清掉折叠位，所以先记状态，落地后再收一次。
-    const wasCollapsed = testsRail.collapsed
-    const savedShare = testsRail.lastShare
-    moveTestsPane(target)
-    if (wasCollapsed) {
-      nextTick(() => {
-        applyTestsRailSize()
-        if (Number.isFinite(savedShare)) testsRail.lastShare = savedShare
-      })
-    }
-  }
+  else if (target) moveTestsPane(target)
 }
 
 /* ------------------------------------------------------------ 拖放：页签 / 文件树
@@ -382,40 +576,6 @@ function onFileDragLeave() {
 let unregisterDropZone = null
 let gridResizeObserver = null
 
-/**
- * 折叠窄条按**像素**定宽（48px），但 split 里存的是比例 —— 窗口 / 侧栏尺寸一变，
- * 同一条 ratio 画出来就不再是 48px。这里在网格尺寸变化时按新分区长度重算一次 ratio，
- * 让窄条始终保持一条。只在折叠态动作，展开态的拖拽比例一点不碰。
- */
-function applyTestsRailSize() {
-  const el = gridEl.value
-  if (!el) return
-  const info = testsSplitInfo()
-  if (!info) return
-  const rect = el.getBoundingClientRect()
-  if (!rect.width || !rect.height) return
-  const splitter = computePaneRects().splitters.find((item) => item.id === info.splitId)
-  if (!splitter) return
-  const region = splitter.region
-  const regionPx =
-    info.axis === 'y' ? (region.h / 100) * rect.height : (region.w / 100) * rect.width
-  collapseTestsPane(regionPx)
-}
-
-/** 尺寸变化时只处理折叠态；换边后恢复折叠由 settleTestsDrop 直接调 applyTestsRailSize */
-function syncTestsRailSize() {
-  if (!testsRail.collapsed) return
-  applyTestsRailSize()
-}
-
-// 存档恢复是异步的：网格挂载后折叠位才置 true 时，也必须立刻把 ratio 换成 48px
-watch(
-  () => testsRail.collapsed,
-  (collapsed) => {
-    if (collapsed) nextTick(syncTestsRailSize)
-  },
-)
-
 onMounted(() => {
   // 评测拖动的落点结算注入（服务只算手势与命中，落位要动布局树 + 通知 App）
   testsPaneDrag.settle = settleTestsDrop
@@ -428,10 +588,10 @@ onMounted(() => {
     onDrop: onFileDrop,
   })
   if (gridEl.value) {
-    gridResizeObserver = new ResizeObserver(syncTestsRailSize)
+    gridResizeObserver = new ResizeObserver(syncFloatPlacement)
     gridResizeObserver.observe(gridEl.value)
-    // 从存档恢复的折叠态：首帧就把 ratio 换成 48px，避免先闪一下 20% 宽的面板
-    syncTestsRailSize()
+    // 从存档恢复的浮岛：首帧就贴边，避免先闪一下
+    placeFloat()
   }
 })
 
@@ -442,7 +602,13 @@ onBeforeUnmount(() => {
   // 拖到一半被卸载（关工作区、切到没有编辑区的视图）：把「正在拖」这个瞬时状态和一整套
   // window 监听一起收干净，否则页签栏会一直停在瞬时过渡上
   if (drag) endResize()
-  window.clearTimeout(splitClickTimer)
+  clearToggleHint()
+  window.removeEventListener('pointermove', onFloatPointerMove)
+  window.removeEventListener('pointerup', onFloatPointerUp)
+  window.removeEventListener('pointercancel', onFloatPointerUp)
+  floatDrag = null
+  floatObserver?.disconnect()
+  floatObserver = null
   gridResizeObserver?.disconnect()
   gridResizeObserver = null
   unregisterDropZone?.()
@@ -453,11 +619,8 @@ onBeforeUnmount(() => {
 
 let drag = null
 
-/* 单击分割条 = 折叠 / 展开评测岛（用户口径 2026-11-21：改岛宽的「拖拽条」就是这条缝）。
-   拖动仍然优先：起手后指针位移超过 4px 记为拖动，松手那发 click 不切换；
-   双击复位保留 —— 单击先挂起 220ms，双击到来时由 onSplitterDblClick 取消。 */
-let splitClick = null
-let splitClickTimer = 0
+/* 折叠 / 展开都不再由分割条承担：分割条只负责拖动与双击复位比例
+   （2026-11-21 用户口径：手势落在可拖动的页头 / 轨头上，见 toggleHint 那段）。 */
 
 /** 正在拖的是哪一条分割线（null = 没在拖）。分割线平时不画（分屏靠地面缝隙分开），
  *  只在悬停 / 拖动时亮出来 —— 拖动时指针未必还压在条上（拖得快、拖到窗格外），
@@ -492,14 +655,6 @@ function beginResize(event, splitter) {
     isTests,
     testsIsA: isTests ? testsInfo.testsIsA : false,
   }
-  // 单击判定：记下起手点与分区像素长；位移超过 4px 就只当拖动，不切换折叠
-  splitClick = {
-    id: splitter.id,
-    x: event.clientX,
-    y: event.clientY,
-    moved: false,
-    regionPx: splitter.axis === 'y' ? drag.height : drag.width,
-  }
   // 记下这次拖动起手前的岛宽 —— 之后展开按它恢复（从窄条上起拖不覆盖）
   if (isTests) rememberTestsRatio()
   beginPaneResize()
@@ -513,12 +668,6 @@ function beginResize(event, splitter) {
 
 function onResizeMove(event) {
   if (!drag) return
-  // 超过 4px 就从「可能是一次单击」改成「拖动」—— 拖完松手不切换折叠
-  if (splitClick && !splitClick.moved) {
-    const dx = event.clientX - splitClick.x
-    const dy = event.clientY - splitClick.y
-    if (Math.hypot(dx, dy) > 4) splitClick.moved = true
-  }
   const ratio =
     drag.axis === 'y'
       ? (event.clientY - drag.top) / drag.height
@@ -545,7 +694,7 @@ function onResizeMove(event) {
     if (testsPx < expandPx) return
     expandTestsPane({ ratio })
   } else if (testsPx <= collapsePx) {
-    collapseTestsPane(regionPx)
+    collapseTestsPane()
     return
   }
   setRatio(drag.id, ratio)
@@ -575,29 +724,66 @@ function resetSplitterRatio(splitterId) {
   resetRatio(splitterId)
 }
 
-/* ------------------------------------------------------------ 单击分割条切换折叠
+/* ------------------------------------------------------------ 折叠 / 展开的确认手势
 
-   点一下「改岛宽的那条缝」：展开态收成窄条，折叠态回到上次的份额（426 / 526 两条
-   拖动路径仍是唯一改比例的地方）。非评测岛的缝不响应；位移超过 4px 的拖动不响应；
-   双击仍走上面的复位 —— 单击因此挂起 220ms，双击到来时取消。 */
-function onSplitterClick(splitter) {
-  const gesture = splitClick
-  splitClick = null
-  if (!gesture || gesture.id !== splitter.id || gesture.moved) return
-  if (testsSplitInfo()?.splitId !== splitter.id) return
-  window.clearTimeout(splitClickTimer)
-  splitClickTimer = window.setTimeout(() => {
-    splitClickTimer = 0
-    if (testsRail.collapsed) expandTestsPane()
-    else collapseTestsPane(gesture.regionPx)
-  }, 220)
+   2026-11-21 用户口径：手势落在**可拖动的页头**上，不再放在分割条上。
+   · 展开态 → 折叠：点页头（左右停靠）或工作台左侧轨头（贴底），第一下冒气泡，
+     第二下才折叠；
+   · 折叠态 → 展开：点悬浮岛空白处，同样第一下冒气泡，第二下才展开。
+   气泡 2 秒后自己收掉。分割条只保留拖动与双击复位比例。 */
+
+const toggleHint = ref(null)
+let toggleHintTimer = 0
+const TOGGLE_HINT_MS = 2000
+
+function clearToggleHint() {
+  if (toggleHintTimer) {
+    window.clearTimeout(toggleHintTimer)
+    toggleHintTimer = 0
+  }
+  toggleHint.value = null
+}
+
+function armToggleHint(action, x, y) {
+  toggleHint.value = { action, x, y }
+  if (toggleHintTimer) window.clearTimeout(toggleHintTimer)
+  toggleHintTimer = window.setTimeout(clearToggleHint, TOGGLE_HINT_MS)
+}
+
+/** 气泡贴指针上方 12px；靠近视口顶边时翻到下方，左右各留 90px 不越界 */
+const toggleHintStyle = computed(() => {
+  const hint = toggleHint.value
+  if (!hint) return {}
+  const half = 90
+  const maxX = Math.max(half, window.innerWidth - half)
+  return {
+    left: `${Math.min(Math.max(hint.x, half), maxX)}px`,
+    top: `${hint.y}px`,
+  }
+})
+
+const toggleHintText = computed(() =>
+  toggleHint.value?.action === 'expand'
+    ? t('tests.pane.clickAgainExpand')
+    : t('tests.pane.clickAgainCollapse'),
+)
+
+/** 页头 / 工作台轨头：第一下冒气泡，第二下折叠 */
+function onPaneHeaderToggle(point) {
+  if (toggleHint.value) {
+    clearToggleHint()
+    collapseTestsPane()
+    return
+  }
+  armToggleHint('collapse', point.x, point.y)
 }
 
 function onSplitterDblClick(splitter) {
-  window.clearTimeout(splitClickTimer)
-  splitClickTimer = 0
   resetSplitterRatio(splitter.id)
 }
+
+// 折叠位一变（确认手势 / 拖动 / 从侧栏打开）就收掉气泡，避免停在过期文案上
+watch(() => testsRail.floating, clearToggleHint)
 
 /* ------------------------------------------------------------ 对 App 的代理 */
 
@@ -650,6 +836,7 @@ defineExpose({
         @run-all="emit('run-all')"
         @submit="emit('submit')"
         @drag-start="beginTestsDrag"
+        @toggle-collapse="onPaneHeaderToggle"
       />
       <EditorPane
         v-else
@@ -715,9 +902,53 @@ defineExpose({
       role="separator"
       :aria-orientation="splitter.axis === 'y' ? 'horizontal' : 'vertical'"
       @pointerdown="beginResize($event, splitter)"
-      @click="onSplitterClick(splitter)"
       @dblclick="onSplitterDblClick(splitter)"
     />
+
+    <!-- 悬浮评测迷你岛（2026-11-21 用户方案）：折叠后 tests 叶已从布局树摘掉，
+         岛浮在整块编辑网格上；拖到左 / 右 / 底边松手即磁吸并换向。 -->
+    <div
+      v-if="testsRail.floating"
+      ref="floatEl"
+      class="tests-float"
+      :class="{
+        'is-horizontal': testsRail.edge === 'bottom',
+        'is-dragging': floatDragging,
+        'is-ready': floatReady,
+      }"
+      :style="floatStyle"
+      @pointerdown="onFloatPointerDown"
+      @click="onFloatClick"
+    >
+      <TestsPane
+        floating
+        :cases="cases"
+        :running="running"
+        :elapsed="elapsed"
+        :run-blocked="runBlocked"
+        :notice="notice"
+        :show-submit="showSubmit"
+        :submitting="submitting"
+        @add="emit('add')"
+        @remove="emit('remove', $event)"
+        @run-one="emit('run-one', $event)"
+        @run-all="emit('run-all')"
+        @submit="emit('submit')"
+      />
+    </div>
+
+    <!-- 折叠手势的确认气泡（2026-11-21 用户口径）：第一下点击冒提示，第二下才执行 -->
+    <Teleport to="body">
+      <div
+        v-if="toggleHint"
+        class="tests-toggle-hint"
+        :class="{ 'is-below': toggleHint.y < 64 }"
+        :style="toggleHintStyle"
+        role="status"
+      >
+        {{ toggleHintText }}
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -775,6 +1006,126 @@ defineExpose({
   border-radius: 12px;
   background: var(--bg-panel);
   background-clip: padding-box;
+}
+
+/* 悬浮评测迷你岛（2026-11-21 用户方案）：浮在整块编辑网格上，位置由脚本的
+   edge + ratio 算成 left/top。材质对齐右键菜单（2026-11-21 用户要求）：
+   --menu-bg 半透明面 + --menu-backdrop 微毛玻璃 + --menu-shadow 多层落影，
+   不画描边 —— 轮廓交给首层虚化发丝影，12 套主题随 --menu-* 自动换。 */
+.tests-float {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  box-sizing: border-box;
+  /* 圆角裁切：样例滚到边沿时按岛形收口，不越出边框 */
+  overflow: hidden;
+  border: none;
+  border-radius: calc(6px * var(--menu-scale));
+  background: color-mix(in srgb, var(--menu-bg) 78%, transparent);
+  box-shadow: var(--menu-shadow);
+  backdrop-filter: var(--menu-backdrop);
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+/* 高对比主题保持实面：那边 --menu-bg 本就是不透明实色、--menu-backdrop 为 none，
+   不参与这档半透明。 */
+:root[data-theme='contrast'] .tests-float {
+  background: var(--menu-bg);
+}
+
+/* 折叠手势的确认气泡：贴指针上方 12px（近视口顶边时翻到下方），材质与右键菜单同源，
+   不吃指针事件。 */
+.tests-toggle-hint {
+  position: fixed;
+  z-index: 130;
+  transform: translate(-50%, calc(-100% - 12px));
+  padding: 5px 10px;
+  border-radius: calc(6px * var(--menu-scale));
+  background: var(--menu-bg);
+  color: var(--menu-text);
+  box-shadow: var(--menu-shadow);
+  backdrop-filter: var(--menu-backdrop);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tests-toggle-hint.is-below {
+  transform: translate(-50%, 12px);
+}
+
+/* 可拖拽微暗示（2026-11-21 用户要求）：一条 12×2 的暗灰圆角微杠，不占布局空间。
+   竖排贴顶边居中，横排转到左边缘竖放；常态 15% 几乎隐形，指针移上浮岛亮到 40%。 */
+.tests-float::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-dim);
+  opacity: 0.15;
+  transform: translateX(-50%);
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+
+.tests-float.is-horizontal::before {
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 12px;
+  transform: translateY(-50%);
+}
+
+.tests-float:hover::before {
+  opacity: 0.4;
+}
+
+/* 首次落位完成后再开过渡，避免从 (0,0) 滑进来；拖动中由 .is-dragging 关掉 */
+.tests-float.is-ready {
+  transition:
+    left 0.22s cubic-bezier(0.2, 0.9, 0.2, 1),
+    top 0.22s cubic-bezier(0.2, 0.9, 0.2, 1),
+    box-shadow 0.16s ease;
+}
+
+/* 样例多时不能溢出小岛：行向 flex 的 cross 轴不会按 max-height 收缩子项
+   （子项按内容高度撑开，整串样例就画到岛外）。纵向改用列向主轴，子项带
+   min-height: 0 才能在上限处让内部样例轨接管滚动。 */
+.tests-float:not(.is-horizontal) {
+  flex-direction: column;
+  width: 48px;
+  padding: 8px 0;
+  max-height: min(300px, 55%);
+}
+
+.tests-float.is-horizontal {
+  width: max-content;
+  max-width: min(420px, 60%);
+  height: 44px;
+  padding: 0 8px;
+}
+
+.tests-float.is-dragging {
+  transition: none;
+  cursor: grabbing;
+  box-shadow: var(--menu-shadow);
+}
+
+/* 岛内材料由外壳统一，TestsPane 只负责排布 */
+.tests-float :deep(.tests-pane) {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: transparent;
+}
+
+.tests-float.is-dragging :deep(.tests-rail) {
+  cursor: grabbing;
 }
 
 /* 岛的「沿」：主题变量 --island-rim 接管几何（2026-11-18 深夜「去线框化」方案二：
