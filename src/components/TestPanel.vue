@@ -12,7 +12,9 @@ import { useScrollEdge } from '../composables/useScrollEdge.js'
 import { isTouchPointer } from '../composables/useMobileKeyboard.js'
 import { formatCombo, useShortcutManager } from '../composables/useShortcutManager.js'
 import { mountConfetti, unmountConfetti } from '../services/confetti.js'
+import { onToolchainProgress } from '../services/runnoSandbox.js'
 import { CASE_VIEWS, caseView, isNarrowLayout, setCaseView } from '../services/shellSettings.js'
+import { subscribeStatus } from '../services/wasmRuntime.js'
 import { t } from '../i18n/index.js'
 
 // 页头右侧的 verdict + 耗时经 Teleport 投进共享页头：侧栏场景是 Sidebar 的
@@ -38,8 +40,30 @@ useOverlayScrollbar(listEl)
 // 不是这里 watch props.cases —— 用例回写会在运行途中整批换掉卡片对象，
 // watch 拿到的「上一份 status」经常已经丢了。
 const confettiEl = ref(null)
-onMounted(() => mountConfetti(confettiEl.value))
-onBeforeUnmount(unmountConfetti)
+// verdict 在「运行中」时要能显示工具链下载进度：阶段从状态总线拿，百分比从
+// onToolchainProgress 的压缩态字节拿（不解析文案里的百分号，i18n 改了就会断）。
+const liveStatus = ref(null)
+const downloadProgress = ref(null)
+let unsubscribeStatus = null
+let unsubscribeProgress = null
+onMounted(() => {
+  mountConfetti(confettiEl.value)
+  unsubscribeStatus = subscribeStatus((status) => {
+    liveStatus.value = status
+    // 离开 download 阶段就丢掉旧的百分比，下次下载从新的一轮重新计数
+    if (status.stage !== 'download') downloadProgress.value = null
+  })
+  unsubscribeProgress = onToolchainProgress((progress) => {
+    if (progress.phase === 'download' && progress.total > 0) {
+      downloadProgress.value = { loaded: progress.loaded, total: progress.total }
+    }
+  })
+})
+onBeforeUnmount(() => {
+  unmountConfetti()
+  unsubscribeStatus?.()
+  unsubscribeProgress?.()
+})
 
 const props = defineProps({
   cases: { type: Array, required: true },
@@ -354,6 +378,14 @@ const verdict = computed(() => {
     return { tone: 'muted', passed: null, total: 0, label: t('tests.verdict.noCases') }
   }
   if (counts.value.running) {
+    // 首次运行 / 缓存被清后的运行会先下工具链：这段时间 verdict 报下载百分比，
+    // 比只说「运行中」更能解释为什么还没出结果。loadToolchain 开头也会把阶段报成
+    // download（此时缓存命中、并没有下载），所以只认真正收到过的进度事件。
+    const progress = liveStatus.value?.stage === 'download' ? downloadProgress.value : null
+    if (progress) {
+      const percent = Math.min(99, Math.round((progress.loaded / progress.total) * 100))
+      return { tone: 'info', passed: null, total: 0, label: t('tests.verdict.downloading', { percent }) }
+    }
     return { tone: 'info', passed: null, total: 0, label: t('tests.verdict.running') }
   }
   // 有结论过期就报不出确切的通过数，用 ? 代替（卡片各自标明哪些待重测）

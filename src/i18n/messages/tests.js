@@ -100,6 +100,8 @@ export default {
       verdict: {
         noCases: '无测试用例',
         running: '运行中',
+        /** 运行中正好在下载工具链：把真实进度放进 verdict，别只报「运行中」 */
+        downloading: '下载 {percent}%',
         allPassed: '全部 AC',
         allPassedShort: 'AC',
         /** 有结论过期时给不出确切通过数，用 ? 占位 */
@@ -428,6 +430,7 @@ export default {
       verdict: {
         noCases: 'No test cases',
         running: 'Running',
+        downloading: 'Downloading {percent}%',
         allPassed: 'All AC',
         allPassedShort: 'AC',
         stale: '?/{total} AC',
