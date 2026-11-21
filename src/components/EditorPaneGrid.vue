@@ -195,7 +195,7 @@ function onFloatPointerDown(event) {
   // 样例块 / 运行键的单击就没了。越过阈值、确认是拖拽后再接管。
   window.addEventListener('pointermove', onFloatPointerMove)
   window.addEventListener('pointerup', onFloatPointerUp)
-  window.addEventListener('pointercancel', onFloatPointerUp)
+  window.addEventListener('pointercancel', onFloatPointerCancel)
 }
 
 function onFloatPointerMove(event) {
@@ -298,7 +298,27 @@ function onFloatPointerUp(event) {
   }
   window.removeEventListener('pointermove', onFloatPointerMove)
   window.removeEventListener('pointerup', onFloatPointerUp)
-  window.removeEventListener('pointercancel', onFloatPointerUp)
+  window.removeEventListener('pointercancel', onFloatPointerCancel)
+  floatDrag = null
+}
+
+/** 触屏上滑到系统手势区等情况会被浏览器 pointercancel：只收尾，不吸附、不落位 */
+function onFloatPointerCancel(event) {
+  if (!floatDrag || event.pointerId !== floatDrag.id) return
+  const el = floatEl.value
+  if (floatDrag && el?.hasPointerCapture?.(floatDrag.id)) {
+    try {
+      el.releasePointerCapture(floatDrag.id)
+    } catch {
+      // 已释放
+    }
+  }
+  floatDragging.value = false
+  floatDockReady.value = false
+  document.body.classList.remove('is-tests-drop-sidebar')
+  window.removeEventListener('pointermove', onFloatPointerMove)
+  window.removeEventListener('pointerup', onFloatPointerUp)
+  window.removeEventListener('pointercancel', onFloatPointerCancel)
   floatDrag = null
 }
 

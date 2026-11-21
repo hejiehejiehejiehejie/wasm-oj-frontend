@@ -218,9 +218,23 @@ export function consumeTestsPaneDragClick() {
 /**
  * 指针是否落在侧栏上方（展开的整座 / 折叠态活动栏 / 侧栏外沿那几像素）。
  * 浮岛自己的拖动也复用这一条 —— 落点判据只能有一份，不能两处各写一套选择器。
+ *
+ * 窄屏折叠态额外放宽 28px：侧栏横成屏幕顶部 / 底部的一条活动栏，而浮岛被
+ * `overflow: hidden` 夹在编辑网格里（距网格边还有 FLOAT_INSET），拖到底时指针
+ * 往往还差十几像素才真正压到栏上。这里把栏外一圈也算作落点，高亮与松手共用
+ * 同一判据 —— 看到侧栏亮起就可以松手，不用把指针硬推到系统手势区。
  */
 export function isSidebarDropPoint(x, y) {
-  return Boolean(document.elementFromPoint(x, y)?.closest?.('.sidebar, .activity-bar, .pane--tests'))
+  if (document.elementFromPoint(x, y)?.closest?.('.sidebar, .activity-bar, .pane--tests')) {
+    return true
+  }
+  if (!document.documentElement.classList.contains('is-narrow')) return false
+  const bar = document.querySelector('.activity-bar')
+  if (!bar) return false
+  const rect = bar.getBoundingClientRect()
+  if (!rect.width || !rect.height) return false
+  const pad = 28
+  return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
 }
 
 /**
