@@ -289,7 +289,17 @@ export async function putAsset(url, response, { expectedSize, onProgress }) {
   if (!response.body) throw new Error('下载响应没有 body')
 
   const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > 0 && declared !== expectedSize) {
+  const contentEncoding = response.headers.get('content-encoding')
+  // Vercel 实测会给 `.gzbin` 再套一层 br/gzip（即使 Content-Type 是 octet-stream）：
+  // 浏览器会把那一层透明解掉，我们拿到的仍是原始 gzip 字节；但此时 content-length
+  // （若存在）是**编码后**的字节数，与 expectedSize 不可比。有 content-encoding 就
+  // 跳过这项预检，真实长度以下面的流计数 + 写后冷读复验为准。
+  if (
+    !contentEncoding &&
+    Number.isFinite(declared) &&
+    declared > 0 &&
+    declared !== expectedSize
+  ) {
     // 不消费 body 会让连接一直挂着，顺手放掉
     try {
       await response.body?.cancel()
