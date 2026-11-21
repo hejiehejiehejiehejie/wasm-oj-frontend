@@ -75,10 +75,10 @@ export default {
     runtime: {
       cpp: {
         title: 'C++',
-        idleHint: 'clang 23 + libc++（C++20），约 31MB（含预编译头）',
+        idleHint: 'clang 23 + libc++（C++20），约 56MB（含预编译头）',
         downloadTitle: '下载 clang 工具链',
         uninstallHint:
-          '删除本机 clang 工具链（约 31MB，含预编译头）；下次运行 C++ 需重新下载。',
+          '删除本机 clang 工具链（约 56MB，含预编译头）；下次运行 C++ 需重新下载。',
       },
       python: {
         title: 'Python 3',
@@ -121,11 +121,48 @@ export default {
           '预下载 {title}：下次启动且浏览器空闲时自动下载（本机已有则跳过）',
         note: '该运行环境会在下次启动、浏览器空闲时自动下载；本机已有则跳过。开关随账号同步。',
       },
+      /**
+       * 离线诊断（第三步）：只读本机状态，一键复制 JSON。
+       * SW 的 controller / waiting 必须分开显示 —— 升级窗口里的故障全靠它一眼分辨。
+       */
+      diagnostics: {
+        title: '离线诊断',
+        hint: '只读取本机状态，不修改任何缓存；真机验收或报障时直接复制 JSON。',
+        refresh: '刷新',
+        refreshing: '读取中…',
+        copy: '复制诊断 JSON',
+        copied: '已复制',
+        copyFailed: '复制失败',
+        empty: '还没有读取诊断信息。',
+        failure: '读取诊断失败：{message}',
+        swController: 'SW 接管当前页面',
+        swWaiting: '旧 SW 等待升级',
+        persisted: '存储已持久化',
+        quota: '已用 / 配额',
+        workerCached: 'Worker 脚本在缓存中',
+        toolchainStatus: '工具链状态',
+        manifest: 'manifest',
+        assets: '三件套',
+        yes: '是',
+        no: '否',
+        unknown: '未知',
+        none: '无',
+        status: {
+          ready: '已就绪',
+          'not-installed': '未安装',
+          evicted: '已被清理',
+          partial: '缺件',
+          unavailable: 'Cache Storage 不可用',
+          unknown: '未知',
+          error: '读取失败',
+        },
+      },
     },
 
     /** 沙箱的实时阶段播报（设置页下载那一行会显示） */
     stage: {
-      toolchain: '正在获取本地工具链（约 23MB，仅下一次）…',
+      toolchain: '正在获取本地工具链（约 38MB，仅下一次）…',
+      toolchainDownload: '正在获取本地工具链（{percent}%，约 38MB）…',
       compile: '正在编译…',
       run: '正在运行…',
       pythonRuntime: '正在获取 Python 运行时（约 24MB，仅下一次）…',
@@ -148,7 +185,7 @@ export default {
       noDecompressionStream: '浏览器不支持 DecompressionStream，无法解包工具链',
       downloadFailed: '{label} 下载失败（HTTP {status}）',
       sysrootFailed: '系统头文件下载失败（HTTP {status}）',
-      sysrootNotTar: '系统头文件没有按 tar 解出来（多半是 Content-Encoding: br 没生效）',
+      sysrootNotTar: '系统头文件没有按 tar 解出来（多半是压缩格式没生效）',
       pythonLibFailed: 'Python 标准库下载失败（HTTP {status}）',
       compileFailed: '编译未通过',
       linkFailed: '链接失败',
@@ -172,6 +209,15 @@ export default {
       trapUncaught: '未捕获的 C++ 异常，程序已被中止',
       compileTimeout: '本地编译超过 {seconds} 秒未返回，已中断。',
       prepareTimeout: '运行环境准备超过 {seconds} 秒未返回，已中断，请检查网络后重试。',
+      /** 工具链的结构化错误（见 services/toolchainStore.js 的 TOOLCHAIN_ERROR） */
+      toolchainNotInstalled: '本机还没有下载编译器工具链，请联网后点「下载」。',
+      toolchainEvicted: '本机工具链缓存已被浏览器清理，请联网后重新下载。',
+      toolchainPartial: '本机工具链缺少 {missing}，请联网后重新下载修复。',
+      toolchainCorrupted: '本机工具链中的 {asset} 已损坏，请联网后重新下载修复。',
+      /** Worker 启动失败（见 services/wasi/client.js 的 WORKER_ERROR） */
+      workerScriptMissing: '离线状态下缺少编译器 Worker 脚本，请联网刷新页面后重试。',
+      workerBootTimeout: '编译器 Worker 启动超时，请刷新页面后重试。',
+      workerCrash: 'C++ WASI worker 崩溃',
 
       /** 远端评测服务 */
       noResponse: '服务无响应',
@@ -285,10 +331,10 @@ export default {
     runtime: {
       cpp: {
         title: 'C++',
-        idleHint: 'clang 23 + libc++ (C++20), ~31MB including the precompiled header',
+        idleHint: 'clang 23 + libc++ (C++20), ~56MB including the precompiled header',
         downloadTitle: 'Download the clang toolchain',
         uninstallHint:
-          'Deletes the cached clang toolchain (~31MB, including the precompiled header); it will be downloaded again on the next C++ run.',
+          'Deletes the cached clang toolchain (~56MB, including the precompiled header); it will be downloaded again on the next C++ run.',
       },
       python: {
         title: 'Python 3',
@@ -328,10 +374,44 @@ export default {
           'Preload {title}: download it in the background on the next start (skipped if already present)',
         note: 'Downloads the runtime in the background on the next start if it is missing. These switches sync with your account.',
       },
+      /** Offline diagnostics: read-only local state, copied as JSON */
+      diagnostics: {
+        title: 'Offline diagnostics',
+        hint: 'Reads local state without touching any cache. Copy the JSON when testing on a real device or reporting a problem.',
+        refresh: 'Refresh',
+        refreshing: 'Reading…',
+        copy: 'Copy diagnostic JSON',
+        copied: 'Copied',
+        copyFailed: 'Copy failed',
+        empty: 'No diagnostics collected yet.',
+        failure: 'Failed to collect diagnostics: {message}',
+        swController: 'SW controls this page',
+        swWaiting: 'Old SW waiting to activate',
+        persisted: 'Storage persisted',
+        quota: 'Used / quota',
+        workerCached: 'Worker script cached',
+        toolchainStatus: 'Toolchain status',
+        manifest: 'manifest',
+        assets: 'Assets',
+        yes: 'Yes',
+        no: 'No',
+        unknown: 'Unknown',
+        none: 'None',
+        status: {
+          ready: 'Ready',
+          'not-installed': 'Not installed',
+          evicted: 'Cleared by browser',
+          partial: 'Missing files',
+          unavailable: 'Cache Storage unavailable',
+          unknown: 'Unknown',
+          error: 'Read failed',
+        },
+      },
     },
 
     stage: {
-      toolchain: 'Fetching the local toolchain (~23MB, once)…',
+      toolchain: 'Fetching the local toolchain (~38MB, once)…',
+      toolchainDownload: 'Fetching the local toolchain ({percent}%, ~38MB)…',
       compile: 'Compiling…',
       run: 'Running…',
       pythonRuntime: 'Fetching the Python runtime (~24MB, once)…',
@@ -372,6 +452,15 @@ export default {
         'Local compilation did not return within {seconds} s and was interrupted.',
       prepareTimeout:
         'Runtime preparation did not return within {seconds} s. Check your network and retry.',
+      /** Structured toolchain errors (see TOOLCHAIN_ERROR in services/toolchainStore.js) */
+      toolchainNotInstalled: 'The compiler toolchain has not been downloaded yet. Connect to the network and tap Download.',
+      toolchainEvicted: 'The browser cleared the cached toolchain. Connect to the network and download it again.',
+      toolchainPartial: 'The cached toolchain is missing {missing}. Connect to the network and download it again.',
+      toolchainCorrupted: '{asset} in the cached toolchain is corrupted. Connect to the network and download it again.',
+      /** Worker startup failures (see WORKER_ERROR in services/wasi/client.js) */
+      workerScriptMissing: 'The compiler worker script is missing offline. Connect to the network and refresh the page.',
+      workerBootTimeout: 'The compiler worker did not start in time. Refresh the page and retry.',
+      workerCrash: 'C++ WASI worker crashed',
 
       noResponse: 'No response from the service',
       pistonConnect:

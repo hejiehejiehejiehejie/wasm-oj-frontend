@@ -22,7 +22,7 @@ function readField(buffer, start, length) {
  */
 export function untarFiles(buffer) {
   if (buffer.length < 512 || readField(buffer, 257, 5) !== 'ustar') {
-    throw new Error('sysroot 不是 tar（检查响应的 Content-Encoding: br）')
+    throw new Error('sysroot 不是 tar（检查 .gzbin 的解压结果）')
   }
   const files = {}
   let count = 0

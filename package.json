@@ -7,9 +7,9 @@
     "node": "22.x"
   },
   "scripts": {
-    "predev": "npm run md:runtime && npm run wasi:clock-patch",
+    "predev": "npm run md:runtime && npm run wasi:clock-patch && npm run wasm:gzbin",
     "dev": "vite",
-    "prebuild": "npm run notice && npm run md:runtime && npm run wasi:clock-patch",
+    "prebuild": "npm run notice && npm run md:runtime && npm run wasi:clock-patch && npm run wasm:gzbin",
     "build": "vite build",
     "build:tauri": "npm run build && node scripts/strip-wasm-assets.mjs",
     "preview": "vite preview",
@@ -25,6 +25,7 @@
     "notice": "node scripts/render-notice.mjs",
     "notice:check": "node scripts/render-notice.mjs --check",
     "wasm:opt": "node scripts/optimize-wasm.mjs",
+    "wasm:gzbin": "node scripts/build-toolchain-gzbin.mjs",
     "wasi:clock-patch": "node scripts/patch-wasi-clock.mjs",
     "wasi:clock-check": "node scripts/patch-wasi-clock.mjs --check",
     "md:runtime": "node scripts/prepare-md-runtime.mjs",

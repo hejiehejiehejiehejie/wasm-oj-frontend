@@ -19,7 +19,6 @@
  *   `max(100ms, 5%)` 的宽限；是否 TLE 按**程序自己的结束时刻**与时限比较（§4.2）。
  */
 import {
-  FRONTEND_ASSET_URLS,
   crossCheckRun,
   ensurePch,
   isPythonRuntimeReady,
@@ -27,6 +26,7 @@ import {
   isToolchainReady,
   preloadPythonRuntime,
   preloadToolchain,
+  probeCachedToolchain,
   runCpp,
   runPython,
   runtimeAssetURLs,
@@ -479,7 +479,11 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
             durationMs: Math.round(performance.now() - entry.stageStartedAt),
           }
         }
-        return { type: 'failure', stage: entry.stage === 'compile' ? 'compile' : 'infra', message: timeoutMessage(entry) }
+        return {
+          type: 'failure',
+          stage: entry.stage === 'compile' ? 'compile' : 'infra',
+          message: timeoutMessage(entry),
+        }
       }
       // 运行段的异常 = 程序把 runno 的宿主搞崩了（探针实测 2026-10-12：真栈溢出的 wasm
       // trap 会从 worker 一路炸到主线程，无 exitCode）——这是**程序**的问题，标 'run'，
@@ -489,6 +493,10 @@ export function runCase({ language = 'cpp', entryPath, code, stdin, signal, time
         type: 'failure',
         stage: entry.stage === 'run' ? 'run' : 'infra',
         message: error?.message || String(error),
+        // 结构化错误码 / detail 原样往上带：TOOLCHAIN_EVICTED / PARTIAL / CORRUPTED
+        // 与 WORKER_SCRIPT_MISSING 的恢复动作不同，别让 UI 去解析中文文案
+        code: error?.code ?? null,
+        detail: error?.detail ?? null,
         // 运行段被搞崩（真栈溢出之类）也算「程序打到一半出事」：镜像里那截照样带回去
         stdout: error?.partialStdout ?? '',
       }
@@ -623,6 +631,9 @@ export async function probeRuntime(language) {
   // 「已下载」、也别让预取白下 23 MiB。判据同 runnoSandbox.loadToolchain 的前置检查。
   if (language === 'cpp' && !supportsCppToolchain()) return false
   if (language === 'python' ? isPythonRuntimeReady() : isToolchainReady()) return true
+  // C++ 的「已就绪」以桶里的 manifest 为准（manifest + 三件命中 + Content-Length 匹配），
+  // 新格式没有再下过就退回旧 `.br` 条目（老用户免重下）。
+  if (language === 'cpp') return probeCachedToolchain()
   const urls = runtimeAssetURLs(language)
   if (!urls.length) return false
   const probes = await Promise.all(urls.map(isAssetCached))
@@ -640,8 +651,7 @@ export async function probeRuntime(language) {
 export async function probeFrontendToolchain() {
   if (!supportsCppToolchain()) return false
   if (isToolchainReady()) return true
-  const probes = await Promise.all(FRONTEND_ASSET_URLS.map(isAssetCached))
-  return probes.every(Boolean)
+  return probeCachedToolchain(['clang', 'sysroot'])
 }
 
 export async function isAssetCached(url) {
@@ -734,7 +744,15 @@ export function preload(language = 'cpp', signal, onStatus) {
       return { type: 'ready', durationMs }
     } catch (error) {
       if (entry.cancelled) return { type: 'cancelled' }
-      return { type: 'failure', stage: 'infra', message: error?.message || String(error) }
+      return {
+        type: 'failure',
+        stage: 'infra',
+        message: error?.message || String(error),
+        // 下载 / 预热阶段的工具链错误码：设置页要据此决定给「下载」还是「修复重装」，
+        // 别再让 UI 去匹配文案
+        code: error?.code ?? null,
+        detail: error?.detail ?? null,
+      }
     } finally {
       endTask(entry)
     }

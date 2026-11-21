@@ -31,13 +31,86 @@
  * worker（~400ms）外加一枪 ABORTED、旧红线留在编辑器里。所以前台让它跑完，自己不杀它。
  */
 
+import wasiWorkerUrl from './wasi.worker.js?worker&url'
 import {
   createMirror,
   OUTPUT_LIMIT_BYTES,
   readMirror,
   resetMirror,
 } from './stdoutMirror.js'
+import { TOOLCHAIN_ERROR } from '../toolchainStore.js'
 import { t } from '../../i18n/index.js'
+
+/**
+ * Worker 脚本地址（**Vite 打包后的产物地址**）。单独导出：设置页的离线诊断要拿它去
+ * `caches.match` 判「这份 chunk 在不在外壳桶里」。
+ *
+ * 为什么用 `?worker&url` 而不是 `new URL('./wasi.worker.js', import.meta.url)`：
+ * 后者只在**字面量**出现在 `new Worker(...)` 里时才会被 Vite 当成 worker 入口去打包；
+ * 一旦把 URL 存进变量（这里为了导出给诊断用必须存），Vite 只会把它当普通静态资源
+ * 原样复制，worker 里的 `import` 就全部悬空。`?worker&url` 明确表达「打包成 worker，
+ * 给我产物 URL」，两条用途（构造 + 诊断）指向同一份文件。
+ */
+export const WASI_WORKER_URL = new URL(wasiWorkerUrl, import.meta.url).href
+
+/**
+ * Worker 启动失败的结构化错误码。
+ *
+ * 与 `TOOLCHAIN_ERROR` 分开：这几个讲的是「脚本根本没起来」，而不是「工具链资产有问题」。
+ */
+export const WORKER_ERROR = {
+  /** 离线且 worker 脚本不在缓存里（发版窗口 / 外壳预缓存没收进去） */
+  SCRIPT_MISSING: 'WORKER_SCRIPT_MISSING',
+  /** 5 秒内没收到 BOOTED：脚本加载了但求值卡住 / 模块依赖坏了 */
+  BOOT_TIMEOUT: 'WORKER_BOOT_TIMEOUT',
+  /** 已经 BOOTED，之后宿主自己崩了 */
+  CRASHED: 'WORKER_CRASHED',
+}
+
+/**
+ * BOOTED 握手时限。
+ *
+ * 5 秒而不是 3 秒：低端安卓机 PWA 冷启时主线程繁忙，3 秒会把「慢」误报成「坏」。
+ * 真正的「脚本没加载出来」不会等这张表 —— 浏览器加载失败会几乎瞬间触发 `worker.onerror`，
+ * 那条路直接短接到缓存命中判定（见 ensureWorker）。
+ */
+const WORKER_BOOT_TIMEOUT_MS = 5000
+
+/** worker 脚本是否在 Cache Storage 里；`null` = 拿不到 Cache Storage，判不了 */
+async function workerScriptCached(url) {
+  if (typeof caches === 'undefined') return null
+  try {
+    return Boolean(await caches.match(url))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Worker 回的 `TOOLCHAIN_*` 错误码 → 用户文案。
+ *
+ * Worker 里没有 isDesktop / localStorage 这些上下文，也不该把中文文案写死在里面；
+ * 码和 detail 过线，翻译留在主线程。
+ */
+function localizeToolchainError(message) {
+  const detail = message.detail ?? {}
+  switch (message.code) {
+    case TOOLCHAIN_ERROR.NOT_INSTALLED:
+      return t('error.toolchainNotInstalled')
+    case TOOLCHAIN_ERROR.EVICTED:
+      return t('error.toolchainEvicted')
+    case TOOLCHAIN_ERROR.PARTIAL:
+      return t('error.toolchainPartial', {
+        missing: (detail.missing ?? []).join(', ') || '?',
+      })
+    case TOOLCHAIN_ERROR.CORRUPTED:
+      return t('error.toolchainCorrupted', {
+        asset: detail.file ?? detail.asset ?? '?',
+      })
+    default:
+      return message.error || 'C++ WASI 宿主错误'
+  }
+}
 
 const OUTPUT_LIMIT_MIB = OUTPUT_LIMIT_BYTES / 1024 / 1024
 
@@ -148,6 +221,8 @@ export class WasiWorkerHost {
     this.nextId = 1
     /** 每次重建 worker 递增。排队中的旧任务靠它对不上而判死，不会塞进新 worker */
     this.generation = 0
+    /** BOOTED 握手的看门狗（只属于当前这颗 worker，重建 / 收掉时必须清） */
+    this.bootTimer = 0
     /** 已经派发（postMessage 已发出）的那条任务；空 = 这条队列此刻空闲 */
     this.active = null
     /** 已入队、还没轮到的任务（按入队顺序，取的时候按 priority 挑） */
@@ -350,11 +425,34 @@ export class WasiWorkerHost {
     if (!active || active.id !== message.id) return
     this.active = null
     if (message.type === 'error') {
-      const error = new Error(message.error || 'C++ WASI 宿主错误')
+      const error = new Error(localizeToolchainError(message))
+      error.code = message.code || 'WORKER_ERROR'
+      error.detail = message.detail ?? null
       error.stage = message.stage
       error.partialStdout = this.partialStdout()
       error.partialStderr = this.stderr
       active.settle(error)
+      // init 失败 = 这颗 worker 永远不可用（工具链缺件 / 损坏 / 启动异常）。
+      // 必须在这里就地判死并终结整条队列：否则 `pump()` 会把后面排着的 preload / compile
+      // 派发进一个 baseFs / clangModule 都没建好的 worker，用户看到的是
+      // 「宿主还没 init」——真正的结构化错误码被这句内部措辞盖掉了。
+      if (active.payload?.type === 'init') {
+        this.dead = true
+        this.ready = null
+        this.generation += 1
+        const worker = this.worker
+        this.worker = null
+        if (worker) {
+          try {
+            worker.terminate()
+          } catch {
+            /* 已经退出 */
+          }
+        }
+        this.fail(error)
+        this.emitEvent({ type: 'terminated', reason: null, message: error.message })
+        return
+      }
     } else {
       const result = message.result ?? {}
       // 输出以增量累积为准；老版本 worker 还会在 result 里带整份，那时以它为准
@@ -375,6 +473,11 @@ export class WasiWorkerHost {
 
   ensureWorker() {
     if (this.alive) return this.worker
+    // 旧 worker 的握手表先清掉（它要么在 terminate 里已经清过，要么从没起来）
+    if (this.bootTimer) {
+      clearTimeout(this.bootTimer)
+      this.bootTimer = 0
+    }
     // 上一颗已经死了（init 失败留下的 / 已被 kill）：彻底收掉再换新的
     if (this.worker) {
       try {
@@ -386,13 +489,69 @@ export class WasiWorkerHost {
     }
     this.dead = false
     this.generation += 1
-    const worker = new Worker(new URL('./wasi.worker.js', import.meta.url), {
+    const worker = new Worker(WASI_WORKER_URL, {
       type: 'module',
       name: 'cp-cpp-wasi',
     })
-    worker.onmessage = (event) => this.onMessage(event.data)
+
+    /**
+     * BOOTED 握手（2026-11-22，第三步）。
+     *
+     * 为什么需要它：离线冷启时如果这颗 worker 的 chunk 不在缓存里，`new Worker` 不会抛，
+     * 只会在几乎同一拍触发 `worker.onerror`；而此时 init 还挂在 5 分钟的下载表上，
+     * 用户看到的是「准备环境一直转圈」。这里把「脚本没起来」与「脚本起来了、init 慢」
+     * 分开：前者立刻查 `caches.match(workerUrl)`，缺就是 WORKER_SCRIPT_MISSING。
+     *
+     * 两条纪律：
+     * - onerror 且尚未 BOOTED → 不进 5 秒等待，直接查缓存（发版窗口里最常见的就是这一格）；
+     * - 超时 5 秒（不是 3 秒）：低端安卓冷启主线程繁忙，3 秒容易误报。
+     */
+    let booted = false
+    let bootSettled = false
+    const clearBootTimer = () => {
+      if (this.bootTimer) {
+        clearTimeout(this.bootTimer)
+        this.bootTimer = 0
+      }
+    }
+    const failBoot = async (fallbackMessage, fallbackCode) => {
+      if (bootSettled) return
+      bootSettled = true
+      clearBootTimer()
+      const cached = await workerScriptCached(WASI_WORKER_URL)
+      // cached === false 才是「确实不在缓存里」；null（隐私模式 / 没有 Cache Storage）
+      // 不能拿来指控脚本缺失，退回调用方给的措辞。
+      const missing = cached === false
+      const error = Object.assign(
+        new Error(missing ? t('error.workerScriptMissing') : fallbackMessage),
+        {
+          code: missing ? WORKER_ERROR.SCRIPT_MISSING : fallbackCode,
+          detail: { url: WASI_WORKER_URL, cached },
+        },
+      )
+      this.failBootedWorker(worker, error)
+    }
+
+    worker.onmessage = (event) => {
+      const data = event.data
+      if (!booted) {
+        booted = true
+        bootSettled = true
+        clearBootTimer()
+      }
+      // BOOTED 只用于握手，不交给队列（它没有 id，也不该 settle 任何任务）
+      if (data?.type === 'booted') return
+      this.onMessage(data)
+    }
     worker.onerror = (event) => {
-      const error = new Error(event?.message || 'C++ WASI worker 崩溃')
+      const message = event?.message || t('error.workerCrash')
+      if (!booted) {
+        // 离线缺 chunk 会在这一拍到达 —— 不要傻等 5 秒超时
+        void failBoot(message, WORKER_ERROR.CRASHED)
+        return
+      }
+      const error = new Error(message)
+      error.code = WORKER_ERROR.CRASHED
       error.partialStdout = this.partialStdout()
       error.partialStderr = this.stderr
       this.dead = true
@@ -404,6 +563,9 @@ export class WasiWorkerHost {
       this.emitEvent({ type: 'terminated', reason: null, message: error.message })
     }
     this.worker = worker
+    this.bootTimer = setTimeout(() => {
+      void failBoot(t('error.workerBootTimeout'), WORKER_ERROR.BOOT_TIMEOUT)
+    }, WORKER_BOOT_TIMEOUT_MS)
     // init 走同一条队列（它必然是这颗 worker 的第一条消息），这样「一次只发一条」
     // 这条不变量只有一处实现
     this.ready = this.send(
@@ -414,6 +576,29 @@ export class WasiWorkerHost {
       this.dead = true
     })
     return worker
+  }
+
+  /**
+   * 握手失败 / 脚本缺失时收掉这颗 worker。
+   *
+   * 与 `terminate` 分开：那条路要区分 KILL_REASON、还要决定排队任务是否交接；
+   * 这里只有一种结论 —— 这颗 worker 从未可用，所有任务都该拿到同一条结构化错误。
+   */
+  failBootedWorker(worker, error) {
+    // 异步查缓存期间这颗 worker 可能已经被换掉（新一轮 ensureWorker）：
+    // 旧 worker 的结论不能落在新 worker 的任务上
+    if (this.worker !== worker) return
+    this.dead = true
+    this.generation += 1
+    this.ready = null
+    try {
+      worker.terminate()
+    } catch {
+      /* 已经退出 */
+    }
+    this.worker = null
+    this.fail(error)
+    this.emitEvent({ type: 'terminated', reason: null, message: error.message })
   }
 
   /**
@@ -644,6 +829,11 @@ export class WasiWorkerHost {
     preserveWaiting = false,
   } = {}) {
     this.dead = true
+    // 握手表只属于被收掉的那颗 worker；留着会在新 worker 上误报一次 BOOT_TIMEOUT
+    if (this.bootTimer) {
+      clearTimeout(this.bootTimer)
+      this.bootTimer = 0
+    }
     const worker = this.worker
     this.worker = null
     this.ready = null

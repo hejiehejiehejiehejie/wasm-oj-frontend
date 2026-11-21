@@ -53,6 +53,9 @@ import {
   useShortcutManager,
 } from '../composables/useShortcutManager.js'
 import { preload, probeRuntime, subscribeStatus, uninstallRuntime } from '../services/wasmRuntime.js'
+import { requestPersistence } from '../services/storageQuota.js'
+import { collectToolchainDiagnostics } from '../services/toolchainStore.js'
+import { WASI_WORKER_URL } from '../services/wasi/client.js'
 import {
   CF_AUTO_INSTALL_KEY,
   cfReady,
@@ -1841,6 +1844,7 @@ watch(settingsSectionEntry, (sectionId) => {
 onBeforeUnmount(() => {
   window.clearTimeout(copyTimer)
   window.clearTimeout(appsCopyTimer)
+  window.clearTimeout(diagnosticsCopyTimer)
 })
 
 // ------------------------------------------------------------ 本地运行环境
@@ -1963,6 +1967,10 @@ function runtimeDotClass(entry) {
 // 下载就是把该语言的资产拉进缓存，之后引擎评测和这里共用同一份，不需要常驻 Worker。
 async function downloadRuntime(entry) {
   if (downloadingAny.value || entry.state.value === 'ready') return
+  // persist() 必须在 click 回调的**第一行、任何 await 之前**发起：Firefox 会把这条
+  // 请求绑在用户手势上，经过一次异步微任务就判定手势丢失、直接拒绝。
+  // 不 await：拿不拿得到都不该挡住下载（Safari 至今不实现，Chrome 按参与度静默批）。
+  void requestPersistence()
   entry.state.value = 'downloading'
   entry.failureReason.value = ''
   // 第三个参数是进度回调：工具链的进度走 subscribeStatus 总线，题解渲染器没有总线，
@@ -1978,6 +1986,73 @@ async function downloadRuntime(entry) {
   }
   entry.state.value = 'failed'
   entry.failureReason.value = message.message || t('runtime.failed')
+}
+
+// ------------------------------------------------------------ 离线诊断（第三步）
+// 真机（Firefox Android / iOS 主屏）验收时，最关键的三个事实在界面上看不到：
+// SW 是不是接管了、有没有旧 SW 正在 waiting、Cache Storage 里的三件套长什么样。
+// 这里全部从只读探针取，展开时才读（不在每次进设置页时碰 StorageManager）。
+const diagnosticsOpen = ref(false)
+const diagnosticsBusy = ref(false)
+const diagnostics = ref(null)
+const diagnosticsFailure = ref('')
+const diagnosticsCopied = ref(false)
+let diagnosticsCopyTimer = 0
+
+/** 字节数 → 短文本；null / 0 统一显示「无」（estimate() 在某些引擎上给 undefined） */
+function formatDiagnosticBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return t('runtime.diagnostics.none')
+  const mib = bytes / 1024 / 1024
+  return `${mib >= 10 ? mib.toFixed(1) : mib.toFixed(2)} MiB`
+}
+
+/** 三态布尔 → 是 / 否 / 未知（null = 这个引擎没有对应 API） */
+function diagnosticFlag(value) {
+  if (value === true) return t('runtime.diagnostics.yes')
+  if (value === false) return t('runtime.diagnostics.no')
+  return t('runtime.diagnostics.unknown')
+}
+
+function diagnosticTime(timestamp) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return t('runtime.diagnostics.none')
+  return new Date(timestamp).toLocaleString()
+}
+
+async function refreshDiagnostics() {
+  diagnosticsBusy.value = true
+  diagnosticsFailure.value = ''
+  try {
+    diagnostics.value = await collectToolchainDiagnostics({ workerUrl: WASI_WORKER_URL })
+  } catch (error) {
+    diagnosticsFailure.value = t('runtime.diagnostics.failure', {
+      message: String(error?.message ?? error),
+    })
+  } finally {
+    diagnosticsBusy.value = false
+  }
+}
+
+function toggleDiagnostics() {
+  diagnosticsOpen.value = !diagnosticsOpen.value
+  // 展开时才读：诊断要反映「此刻」的状态，也避免设置页每次都触发 Cache Storage 查询
+  if (diagnosticsOpen.value && !diagnostics.value && !diagnosticsBusy.value) {
+    void refreshDiagnostics()
+  }
+}
+
+async function copyDiagnostics() {
+  if (!diagnostics.value) return
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(diagnostics.value, null, 2))
+    diagnosticsCopied.value = true
+    window.clearTimeout(diagnosticsCopyTimer)
+    diagnosticsCopyTimer = window.setTimeout(() => {
+      diagnosticsCopied.value = false
+    }, 2000)
+  } catch {
+    diagnosticsCopied.value = false
+    diagnosticsFailure.value = t('runtime.diagnostics.copyFailed')
+  }
 }
 
 // ------------------------------------------------------------ 卸载
@@ -3401,6 +3476,99 @@ function confirmUnbind() {
                 <span>{{ t('runtime.uninstall') }}</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- 离线诊断（第三步）：只读、可折叠。放在编译器这一组的末尾 —— 它是给
+             「真机验收 / 报障」用的，不是日常操作，默认收起。SW 的 controller 与
+             waiting 必须分成两行：升级窗口里的故障就是靠这两项一眼分开的。 -->
+        <div v-if="!isDesktop" class="toolchain-diagnostics">
+          <button
+            type="button"
+            class="ghost-button toolchain-diagnostics__toggle"
+            :aria-expanded="diagnosticsOpen"
+            @click="toggleDiagnostics"
+          >
+            <AppIcon name="info" :size="13" />
+            <span>{{ t('runtime.diagnostics.title') }}</span>
+            <AppIcon
+              name="chevron"
+              :size="12"
+              class="toolchain-diagnostics__chevron"
+              :class="{ 'is-open': diagnosticsOpen }"
+            />
+          </button>
+          <div v-if="diagnosticsOpen" class="toolchain-diagnostics__body">
+            <p class="toolchain-diagnostics__hint">{{ t('runtime.diagnostics.hint') }}</p>
+            <div class="toolchain-diagnostics__actions">
+              <button class="ghost-button" :disabled="diagnosticsBusy" @click="refreshDiagnostics">
+                <AppIcon name="reset" :size="12" :class="{ 'is-spinning': diagnosticsBusy }" />
+                <span>
+                  {{ t(diagnosticsBusy ? 'runtime.diagnostics.refreshing' : 'runtime.diagnostics.refresh') }}
+                </span>
+              </button>
+              <button class="ghost-button" :disabled="!diagnostics" @click="copyDiagnostics">
+                <AppIcon :name="diagnosticsCopied ? 'check' : 'copy'" :size="12" />
+                <span>
+                  {{ t(diagnosticsCopied ? 'runtime.diagnostics.copied' : 'runtime.diagnostics.copy') }}
+                </span>
+              </button>
+            </div>
+            <p v-if="diagnosticsFailure" class="toolchain-diagnostics__error">
+              {{ diagnosticsFailure }}
+            </p>
+            <p v-else-if="!diagnostics" class="toolchain-diagnostics__hint">
+              {{ t('runtime.diagnostics.empty') }}
+            </p>
+            <dl v-else class="toolchain-diagnostics__list">
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.swController') }}</dt>
+                <dd>{{ diagnosticFlag(diagnostics.serviceWorker.controller) }}</dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.swWaiting') }}</dt>
+                <dd>{{ diagnosticFlag(diagnostics.serviceWorker.waiting) }}</dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.persisted') }}</dt>
+                <dd>{{ diagnosticFlag(diagnostics.storage.persisted) }}</dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.quota') }}</dt>
+                <dd>
+                  {{ formatDiagnosticBytes(diagnostics.storage.usage) }} /
+                  {{ formatDiagnosticBytes(diagnostics.storage.quota) }}
+                </dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.workerCached') }}</dt>
+                <dd>{{ diagnosticFlag(diagnostics.worker.cached) }}</dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.toolchainStatus') }}</dt>
+                <dd>{{ t(`runtime.diagnostics.status.${diagnostics.toolchain.status}`) }}</dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.manifest') }}</dt>
+                <dd>{{ diagnosticTime(diagnostics.toolchain.manifest?.createdAt) }}</dd>
+              </div>
+              <div class="toolchain-diagnostics__row">
+                <dt>{{ t('runtime.diagnostics.assets') }}</dt>
+                <dd class="toolchain-diagnostics__assets">
+                  <template v-if="diagnostics.toolchain.assets.length">
+                    <span
+                      v-for="asset in diagnostics.toolchain.assets"
+                      :key="asset.key"
+                      class="toolchain-diagnostics__asset"
+                      :class="{ 'is-missing': !asset.ok }"
+                    >
+                      {{ asset.key }} · {{ formatDiagnosticBytes(asset.compressedSize) }}
+                    </span>
+                  </template>
+                  <span v-else>{{ t('runtime.diagnostics.none') }}</span>
+                </dd>
+              </div>
+            </dl>
           </div>
         </div>
 
@@ -5005,6 +5173,102 @@ function confirmUnbind() {
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+}
+
+/* ---------- 离线诊断（编译器分组末尾） ---------- */
+.toolchain-diagnostics {
+  padding: 0 18px 12px;
+}
+
+/* 标题按钮撑满整行，箭头靠右：收起时它只是一行「离线诊断」，不与上面的
+   运行环境行抢视觉重量 */
+.toolchain-diagnostics__toggle {
+  width: 100%;
+  justify-content: flex-start;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.toolchain-diagnostics__chevron {
+  margin-left: auto;
+  transition: transform 0.16s ease;
+}
+
+.toolchain-diagnostics__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.toolchain-diagnostics__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  background: var(--bg-field);
+}
+
+.toolchain-diagnostics__hint,
+.toolchain-diagnostics__error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.toolchain-diagnostics__error {
+  color: var(--danger);
+}
+
+.toolchain-diagnostics__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.toolchain-diagnostics__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.toolchain-diagnostics__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.toolchain-diagnostics__row dt {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.toolchain-diagnostics__row dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.toolchain-diagnostics__assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.toolchain-diagnostics__asset {
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+/* 缺件 / 尺寸对不上的那一件用危险色：这一栏就是给「为什么跑不起来」看的 */
+.toolchain-diagnostics__asset.is-missing {
+  color: var(--danger);
 }
 
 .download-button {

@@ -28,43 +28,58 @@ import { WASIWorkerHost } from '@runno/wasi'
 import { t } from '../i18n/index.js'
 import { deletePch, readPch, writePch } from './pchStore.js'
 import { TOOLCHAIN_CACHE } from './storageNames.js'
+import {
+  TOOLCHAIN_ASSETS_BASE,
+  TOOLCHAIN_ASSET_KEYS,
+  TOOLCHAIN_ASSET_LABELS,
+  TOOLCHAIN_ASSET_URLS,
+  TOOLCHAIN_ERROR,
+  TOOLCHAIN_MANIFEST_KEY,
+  TOOLCHAIN_VERSION,
+  clearLastInstalledAt,
+  createToolchainError,
+  downloadToolchain,
+  hasLegacyToolchain,
+  inspectToolchain,
+  probeToolchain,
+  readLastInstalledAt,
+} from './toolchainStore.js'
 import { HOST_PRIORITY_BACKGROUND, KILL_REASON, WasiWorkerHost } from './wasi/client.js'
 import { detectWasmFeatures } from './wasmFeatures.js'
 // 文件记录的形状归 vfs/runnoFs.js 一处管：工具链的 sysroot 和用户 VFS 拍出来的表
 // 必须长得一模一样，runno 才认。
 import { fsEntry as wasiFile } from './vfs/runnoFs.js'
 
-// 工具链自托管在 public/wasm/<版本>/。23.1.0 起三件资产都是**预压 brotli**：
-// clang.wasm.br / wasm-ld.wasm.br / sys23-fs.tar.br，靠响应的 Content-Encoding: br
-// 让浏览器透明解压（dev 由 vite.config.js 的 cp-wasm-brotli-assets 补头，线上由 vercel.json）。
-// 路径带版本号，升级工具链时换目录名，immutable 缓存自然失效。
+// 工具链自托管在 public/wasm/<版本>/。2026-11-22 起运行态换成**预压 gzip** 的
+// `*.gzbin`（构建期由 scripts/build-toolchain-gzbin.mjs 从旧 `.br` 转出）：
+// 响应故意不带 Content-Encoding，页面把原始压缩字节直接写进 Cache Storage，
+// 运行时用 DecompressionStream 流式解压（见 services/toolchainStore.js）。
+// 旧 `.br` 只作为老用户的**缓存读取回退**，不再拿去请求网络。
 //
 // 必须是**绝对地址**：runno 把 worker 源码做成 blob: URL 再 new Worker，
 // 而 blob: 是非层级 scheme，在它里面解析 '/wasm/…' 这种相对路径会抛 Invalid URL。
-// 工具链目录版本号。它有两个用途：拼资源地址，以及当 PCH 存档 id 的一部分
-//（升级工具链 = 换目录名 = 旧 PCH 自然作废），所以只能有一处定义。
-const TOOLCHAIN_VERSION = '23.1.0'
-const ASSETS = `${location.origin}${import.meta.env.BASE_URL}wasm/${TOOLCHAIN_VERSION}`
-const CLANG_URL = `${ASSETS}/clang.wasm.br`
-const LINKER_URL = `${ASSETS}/wasm-ld.wasm.br`
-const SYSROOT_URL = `${ASSETS}/sys23-fs.tar.br`
+const ASSETS = TOOLCHAIN_ASSETS_BASE
+const CLANG_URL = TOOLCHAIN_ASSET_URLS.clang
+const LINKER_URL = TOOLCHAIN_ASSET_URLS.linker
+const SYSROOT_URL = TOOLCHAIN_ASSET_URLS.sysroot
 
 /**
- * Uncompressed sizes of the two assets fetched during host init.
+ * 解压态字节数（下载进度与解压进度条的分母）。
  *
- * They are the only trustworthy denominator for a progress bar: the wire
- * `Content-Length` counts the br/gzip payload (clang is 14.24MB on the wire)
- * while the worker's ReadableStream yields decoded bytes (77.30MB). The
- * service worker also strips `content-length` for entries it re-encodes,
- * so measuring against response headers would produce NaN or >100%.
+ * wire 上的 `Content-Length` 是压缩态（clang 22.6MB），而 worker 的解压流产出 77.3MB，
+ * 两者不能混用。精确值由构建脚本写进服务端清单，这里只是给旧格式回退 / 语义悬停
+ * 一个同步可读的常量（与 public/wasm/23.1.0/toolchain-assets.json 对齐）。
  */
-export const TOOLCHAIN_ASSET_BYTES = { clang: 77_300_000, sysroot: 16_330_000 }
+export const TOOLCHAIN_ASSET_BYTES = {
+  clang: 77_295_003,
+  linker: 43_510_455,
+  sysroot: 16_328_704,
+}
 
 /**
- * Assets the host downloads in `init` (the linker stays lazy until a link).
- * Cache probes for the semantic wake path must use this list, not the full
- * runtime set: a hover-only session never fetches wasm-ld, and treating it as
- * "not cached" would mislabel every wake-up as a fresh download.
+ * Assets the host reads during `init` (clang + sysroot). Cache probes for the semantic
+ * wake path use this subset: a hover-only session never needs wasm-ld's bytes in memory,
+ * even though the download itself always fetches all three (see toolchainStore).
  */
 export const FRONTEND_ASSET_URLS = [CLANG_URL, SYSROOT_URL]
 
@@ -72,9 +87,17 @@ export const FRONTEND_ASSET_URLS = [CLANG_URL, SYSROOT_URL]
 const assetProgressListeners = new Set()
 
 /**
- * Subscribe to uncompressed decode progress for clang / sysroot.
- * The callback receives `{ key, loaded, total }` and is throttled by the stream chunk size.
- * @param {(progress: { key: string, loaded: number, total?: number }) => void} listener
+ * Subscribe to toolchain progress.
+ *
+ * Two phases share this channel:
+ * - `phase: 'download'` — aggregate **compressed** bytes across the three assets
+ *   (key is `'download'`, total is the wire size, ~38MB);
+ * - no phase — the worker decoding one asset, counted in **uncompressed** bytes
+ *   (key is `clang` / `linker` / `sysroot`, denominator from the cached manifest).
+ *
+ * The two denominators are not interchangeable: clang is 22.6MB compressed but
+ * 77.3MB decoded. Subscribers must branch on `phase` before computing a percentage.
+ * @param {(progress: { key: string, loaded: number, total?: number, phase?: string }) => void} listener
  * @returns {() => void} unsubscribe
  */
 export function onToolchainProgress(listener) {
@@ -713,6 +736,9 @@ function createToolHost({ oomProbe = true } = {}) {
     linkerURL: LINKER_URL,
     sysrootURL: SYSROOT_URL,
     assetSizes: TOOLCHAIN_ASSET_BYTES,
+    // Worker 里没有 localStorage：把安装痕迹传进去，preflight 才能把 EVICTED 与
+    // NOT_INSTALLED 分开（见 toolchainStore.inspectToolchain / LAST_INSTALLED_KEY）
+    lastInstalledAt: readLastInstalledAt(),
     onAssetProgress: forwardAssetProgress,
     universalHeaderPath: UNIVERSAL_HEADER_PATH,
     universalHeader: UNIVERSAL_HEADER,
@@ -755,7 +781,150 @@ function forwardHostEvent(event) {
   }
 }
 
-function loadToolchain(onStatus) {
+/**
+ * 「准备阶段」的硬上限（2026-11-22 加）。
+ *
+ * 为什么必须有：`host.preload()` 里那张 5 分钟表只覆盖「init 消息已经派发出去」之后，
+ * 而断网 / 弱网时 fetch 可以长时间不返回；这段时间里宿主的把手还没交到上层
+ * （`onHost` 要等 loadToolchain 成功之后才回调），wasmRuntime 的 boot 看门狗与用户取消
+ * 全都只能空转 —— 表现就是「一直显示运行中、只能退出重启」。
+ * 超时按「准备环境失败」让本次任务收尾，并 dispose 掉半初始化的宿主；下一次运行会重新
+ * 走 loadToolchain（失败时 toolchainPromise 已经被清掉）。
+ */
+const PREPARE_TIMEOUT_MS = 3 * 60 * 1000
+
+/**
+ * 给准备期的 promise 套上限。超时文案复用 `error.prepareTimeout`，错误由调用方的
+ * catch 接住并 dispose 宿主（terminate 会顺手掐断 worker 里在飞的 fetch）。
+ * `Promise.race` 会给落败的那条挂上处理器，超时之后它再 reject 也不会变成未处理异常。
+ */
+async function withPrepareTimeout(promise, timeoutMs) {
+  let timer = 0
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(t('error.prepareTimeout', { seconds: Math.round(timeoutMs / 1000) })))
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 在途的工具链下载（单飞）。
+ *
+ * 为什么必须单飞：下载的每一步都在写同一个桶、最后写 manifest；两个并发下载会变成
+ * 同键双写（存储锁冲突、双倍内存），而「首访 + 用户又点了一次下载」恰好很容易撞上。
+ * 失败时清空，下一次点击可以重试；超时也不会掐断它 —— 下载继续在后台跑完，
+ * 下一次点击要么等到它、要么直接命中已提交的 manifest。
+ */
+let toolchainDownloadPromise = null
+
+function ensureToolchainDownloaded(onStatus = () => {}, onProgress) {
+  if (!toolchainDownloadPromise) {
+    toolchainDownloadPromise = downloadToolchain({
+      onProgress: (progress) => {
+        // 下载阶段的进度用压缩态字节（wire 上的真实大小）；解压阶段由 worker 用
+        // manifest 里的 uncompressedSize 另行播报。两条事件的 `phase` 不同，订阅者
+        // 各自选分母，别把 38MB 和 137MB 混在一起算百分比。
+        forwardAssetProgress({
+          key: 'download',
+          loaded: progress.loaded,
+          total: progress.total,
+          phase: 'download',
+        })
+        onProgress?.(progress)
+        const percent = Math.min(99, Math.round((progress.loaded / progress.total) * 100))
+        onStatus('download', t('stage.toolchainDownload', { percent }))
+      },
+    }).finally(() => {
+      toolchainDownloadPromise = null
+    })
+  }
+  return toolchainDownloadPromise
+}
+
+/**
+ * 「三件套已经在本机」的判据：新格式 manifest 优先，旧 `.br` 回退。
+ *
+ * 旧格式回退是给老用户的：他们已经有一份完整的解压态 / 旧 SW 重压过的资产，
+ * 断网时照样能跑，不该因为新格式的 manifest 不存在就被判成「没下载」。
+ */
+async function isToolchainCached() {
+  if (await probeToolchain()) return true
+  return hasLegacyToolchain()
+}
+
+/**
+ * 下载失败之后，把「本机当前状态」翻译成结构化错误码。
+ *
+ * 为什么不能直接抛 fetch 的 `TypeError: Failed to fetch`：断网时这句话既没说是哪一件、
+ * 也没告诉用户该做什么。这里复用 preflight 的同一份判定（manifest / 缺件 / 安装痕迹），
+ * 给出 NOT_INSTALLED / EVICTED / PARTIAL 三档与人话；三档的恢复动作都一样（联网重下），
+ * UI 不需要为它们各写一套按钮。
+ *
+ * `status === 'ready'` 时原样返回：下载失败发生在「本机其实完整」的情况下（典型是
+ * 用户点了下载、但本次网络抖动），那是普通网络错误，不该被误报成工具链缺失。
+ */
+async function explainToolchainFailure(cause) {
+  let inspection
+  try {
+    inspection = await inspectToolchain()
+  } catch {
+    return cause
+  }
+  if (inspection.status === 'partial') {
+    const missing = inspection.missing.map((key) => TOOLCHAIN_ASSET_LABELS[key] ?? key)
+    return createToolchainError(
+      TOOLCHAIN_ERROR.PARTIAL,
+      t('error.toolchainPartial', { missing: missing.join(', ') }),
+      { status: inspection.status, missing, cause: String(cause?.message ?? cause) },
+    )
+  }
+  if (inspection.status === 'evicted') {
+    return createToolchainError(TOOLCHAIN_ERROR.EVICTED, t('error.toolchainEvicted'), {
+      status: inspection.status,
+      missing: inspection.missing.map((key) => TOOLCHAIN_ASSET_LABELS[key] ?? key),
+      cause: String(cause?.message ?? cause),
+    })
+  }
+  if (inspection.status === 'not-installed') {
+    return createToolchainError(TOOLCHAIN_ERROR.NOT_INSTALLED, t('error.toolchainNotInstalled'), {
+      status: inspection.status,
+      cause: String(cause?.message ?? cause),
+    })
+  }
+  return cause
+}
+
+/**
+ * 把三件套下载并写进 Cache Storage（含写后逐字节复验与 manifest 提交）。
+ *
+ * 给设置页的下载按钮 / 后台预取用：**不建宿主、不 untar**。运行路径由 loadToolchain
+ * 在 init 之前调同一份逻辑，保证「下载」和「首次运行」看到的是同一条经过校验的资产。
+ *
+ * @param {{ onStatus?: (stage: string, message: string) => void, onProgress?: Function }} [options]
+ */
+export async function downloadToolchainAssets({ onStatus, onProgress } = {}) {
+  try {
+    await ensureToolchainDownloaded(onStatus, onProgress)
+  } catch (error) {
+    throw await explainToolchainFailure(error)
+  }
+}
+
+/**
+ * 轻量缓存探针（不触网、不读 body）。给 wasmRuntime.probeRuntime / 语义悬停唤醒用。
+ * @param {string[]} [keys] 默认三件套
+ */
+export async function probeCachedToolchain(keys = TOOLCHAIN_ASSET_KEYS) {
+  if (await probeToolchain(keys)) return true
+  return hasLegacyToolchain(keys)
+}
+
+function loadToolchain(onStatus, { timeoutMs = PREPARE_TIMEOUT_MS } = {}) {
   if (toolchain?.host?.alive) return Promise.resolve(toolchain)
   if (toolchain && !toolchain.host?.alive) {
     toolchain = null
@@ -776,7 +945,21 @@ function loadToolchain(onStatus) {
       // 监听器随宿主对象一起消失，重建时会重新挂上。
       host.onEvent(forwardHostEvent)
       try {
-        const preloaded = await host.preload()
+        // 下载在 init 之前、由页面直接写桶（不再依赖 SW 拦截）：这样首访、SW 未接管、
+        // 或 SW 正在更新时，下载都不会落空。下载 + init 一起受准备阶段上限约束。
+        const preloaded = await withPrepareTimeout(
+          (async () => {
+            if (!(await isToolchainCached())) {
+              try {
+                await ensureToolchainDownloaded(onStatus)
+              } catch (error) {
+                throw await explainToolchainFailure(error)
+              }
+            }
+            return host.preload()
+          })(),
+          timeoutMs,
+        )
         if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
       } catch (error) {
         host.dispose()
@@ -893,7 +1076,9 @@ function loadCrossToolchain(onStatus) {
 /** 只把工具链拉到本地（不发编译任务），用于「本地运行环境」面板的下载按钮。 */
 export async function preloadToolchain(onStatus = () => {}) {
   const startedAt = performance.now()
-  await loadToolchain(onStatus)
+  // 设置页 / 预下载是用户明确在等的那一次：沿用宿主 init 那张 5 分钟表，让慢网下完；
+  // 运行路径的 3 分钟上限只约束「点 ▶ 之后卡住」的那种场景。
+  await loadToolchain(onStatus, { timeoutMs: 5 * 60 * 1000 })
   return Math.round(performance.now() - startedAt)
 }
 
@@ -1403,12 +1588,18 @@ export function runtimeAssetURLs(language) {
 }
 
 /**
- * 后台预取：只把资产读进 Cache Storage / HTTP 缓存，**不** init 宿主、不 untar。
+ * 后台预取：只把资产写进 Cache Storage，**不** init 宿主、不 untar。
  *
- * `preloadToolchain()` 会建 worker、解 1385 条 sysroot，常驻 ~27 MiB；后台预取不该让
- * 每个访客都为没用到的语言付内存。这里只 fetch + 丢弃 body，首次点▶再走完整 init。
+ * C++ 走与设置页下载按钮完全相同的 `downloadToolchainAssets`：一次性拉齐三件套
+ * （含 wasm-ld）、逐件写后复验、最后提交 manifest。这条路径不再依赖 SW 拦截，
+ * 所以首访（SW 还没接管）也能真正下好。
  */
 export async function prefetchRuntimeAssets(language = 'cpp') {
+  if (language === 'cpp') {
+    if (!(await isToolchainCached())) await downloadToolchainAssets()
+    void pruneLegacyToolchainCache()
+    return true
+  }
   const urls = runtimeAssetURLs(language)
   if (!urls.length) return false
   for (const url of urls) {
@@ -1416,7 +1607,6 @@ export async function prefetchRuntimeAssets(language = 'cpp') {
     if (!response.ok) throw new Error(t('error.downloadFailed', { label: url, status: response.status }))
     await response.arrayBuffer()
   }
-  if (language === 'cpp') void pruneLegacyToolchainCache()
   return true
 }
 
@@ -1463,6 +1653,9 @@ export async function pruneLegacyToolchainCache() {
   await deleteToolchainEntries(
     (url) =>
       url.includes(WASM_PATH_SEGMENT) &&
+      // manifest 是「已就绪」的唯一事实源，任何情况下都不能被回收（它本身就在当前前缀里，
+      // 这里显式放行是为了将来改 key 命名时不会再踩一次）。
+      url !== TOOLCHAIN_MANIFEST_KEY &&
       // PCH 归 IndexedDB 独占（SW 也不再缓存，见 sw.js 边界 6），桶里留着的一律清掉。
       // 不能只靠下面那条版本前缀判据：PCH 的文件名会在**同目录**里换（改参数 / 改头），
       // 旧条目永远落在「当前版本前缀」里，那条判据认不出来（2026-11-03 改名后实测）。
@@ -1495,6 +1688,8 @@ export async function unloadRuntime(language) {
   toolchain?.host?.dispose()
   toolchain = null
   toolchainPromise = null
+  // 用户主动卸载：诊断痕迹一起清掉，下次离线运行应报「未安装」而不是「被浏览器清理」
+  clearLastInstalledAt()
   // 对拍那颗宿主是第二份内存（自带一份 clang / wasm-ld 与 sysroot），卸载得一起收；
   // 闲置倒计时也要停，否则它到点会对一颗已经释放的宿主再 dispose 一次
   cancelCrossIdleDispose()

@@ -163,30 +163,50 @@ function serviceWorker() {
 }
 
 /**
- * 23.1.0 的四件资产是**预压 brotli** 的（`clang.wasm.br` / `wasm-ld.wasm.br` /
- * `sys23-fs.tar.br` / `pch-*.pch.br`）：Vercel 自己的 br 档位比本机 q11 弱 ~1.38×，
- * 所以自己压、用 `Content-Encoding: br` 让浏览器透明解压。
+ * 工具链两代资产在 dev / preview 下的静态托管：
  *
- * 浏览器只认响应头，不认扩展名 —— 少了这个中间件，dev/preview 会把 `.br` 当
- * `application/octet-stream` 原样吐出去，`instantiateStreaming` 立刻报 magic word 错，
- * sysroot 解包则变成空文件系统。线上由 vercel.json 的 headers 做同一件事。
+ * - `.br`（旧格式）：Vercel 自己的 br 档位比本机 q11 弱 ~1.38×，所以自己压、用
+ *   `Content-Encoding: br` 让浏览器透明解压。浏览器只认响应头，不认扩展名 —— 少了这个
+ *   中间件，dev/preview 会把 `.br` 当 `application/octet-stream` 原样吐出去，
+ *   `compileStreaming` 立刻报 magic word 错，sysroot 解包则变成空文件系统。
+ * - `.gzbin`（2026-11-22 起的运行态）：构建期由 scripts/build-toolchain-gzbin.mjs 从
+ *   `.br` 转出，**故意不带 `Content-Encoding`** —— 浏览器在 fetch 阶段不能替我们解压，
+ *   页面才能把原始 gzip 字节原样写进 Cache Storage。dev 必须显式给 `Content-Length`，
+ *   下载侧要拿它做「落盘字节数是否等于预期」的第一道校验。
+ * - `toolchain-assets.json`：上面那一步生成的静态清单（压缩态 / 解压态精确字节数），
+ *   每次构建都可能变，所以不缓存。
+ *
+ * 线上由 vercel.json 的 headers 做同一件事。
  */
 function wasmBrotliAssets() {
   const serve = (req, res, next) => {
     const path = (req.url ?? '').split('?')[0]
-    if (!/^\/wasm\/[^/]+\/[^/]+\.br$/.test(path) || path.includes('..')) return next()
+    if (path.includes('..')) return next()
+    const isBrotli = /^\/wasm\/[^/]+\/[^/]+\.br$/.test(path)
+    const isGzbin = /^\/wasm\/[^/]+\/[^/]+\.gzbin$/.test(path)
+    const isAssetList = /^\/wasm\/[^/]+\/toolchain-assets\.json$/.test(path)
+    if (!isBrotli && !isGzbin && !isAssetList) return next()
     try {
       const bytes = readFileSync(join(process.cwd(), 'public', path))
-      res.setHeader('Content-Encoding', 'br')
-      res.setHeader(
-        'Content-Type',
-        path.endsWith('.wasm.br')
-          ? 'application/wasm'
-          : path.endsWith('.pch.br')
-            ? 'application/octet-stream'
-            : 'application/x-tar',
-      )
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      if (isBrotli) {
+        res.setHeader('Content-Encoding', 'br')
+        res.setHeader(
+          'Content-Type',
+          path.endsWith('.wasm.br')
+            ? 'application/wasm'
+            : path.endsWith('.pch.br')
+              ? 'application/octet-stream'
+              : 'application/x-tar',
+        )
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      } else if (isGzbin) {
+        // 不要设 Content-Encoding：这份 body 就是给页面落桶的原始 gzip 字节
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      } else {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate')
+      }
       res.setHeader('Content-Length', bytes.length)
       res.end(bytes)
     } catch {

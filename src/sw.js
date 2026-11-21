@@ -1,13 +1,14 @@
 /* unnamed 的 Service Worker —— **源码模板**，构建产物是同路径的 dist/sw.js。
 
    目标：装完外壳即可离线打开，所以 install 阶段只预缓存「构建产物 + 静态资源」。
-   **语言工具链不预缓存**（clang 52MB / CPython 24MB）：用户用哪个语言才拉哪个，
-   第一次真正请求时由 fetch 处理器的 cacheFirst 按 /wasm/ 前缀写进 TOOLCHAIN_CACHE；
-   拉过一次之后同样能离线用。这样不为「可能用不到的语言」在安装时强占带宽与配额。
+   **语言工具链不预缓存**（C++ 约 38MB / CPython 24MB）：用户用哪个语言才拉哪个。
+   Python 仍由 fetch 处理器的 cacheFirst 按 /wasm/ 前缀写进 TOOLCHAIN_CACHE；
+   **C++ 工具链自 2026-11-22 起由页面 / Worker 直接写桶**（见边界 7），SW 只透传。
+   拉过一次之后同样能离线用，这样不为「可能用不到的语言」在安装时强占带宽与配额。
    **题解渲染器（/md/，katex + marked）同理**：它不算构建产物，进不了
    precache-manifest，用户在设置里点「下载」时才由页面写进 MD_CACHE。
 
-   六条边界：
+   七条边界：
    1) 不能拦截跨域请求 —— 判题服务地址是用户在顶栏填的，SW 一旦插手就会变成 CORS 事故；
    2) 构建产物带内容哈希，不能在源码里硬编码文件名，安装时去读构建期生成的
       /precache-manifest.json（见 vite.config.js 的 cp-precache-manifest 插件）；
@@ -36,6 +37,11 @@
       里，`pruneLegacyToolchainCache` 的版本判据清不到，只能永久占着。放行进网络即可：
       资源自带 `immutable, max-age=1y` 的 HTTP 磁盘缓存，IndexedDB 被手动清掉时照样
       免流量恢复。
+   7) 工具链新格式（`*.gzbin` 与 `__toolchain_manifest__.json`）**纯透传网络**（2026-11-22 加，
+      边界 1 的单一写入源原则）—— 它们只由页面 / Worker 通过 services/toolchainStore.js
+      直接写 `cp-toolchain`。SW 一旦也走 cacheFirst 或写桶，就会出现同键并发双写
+      （存储锁冲突、双倍内存），而且「修复重下」时旧坏缓存会被 SW 原样吐回给下载逻辑。
+      回退读旧条目（`.br`）也由页面侧的 `caches.match` 完成，不需要 SW 插手。
 
    ⚠ 下面用到的桶名常量（SHELL_CACHE / TOOLCHAIN_CACHE / MD_CACHE / LEGACY_BUCKETS）
    **不在本文件里定义**。SW 是 classic worker，没有 import，读不到 services/storageNames.js，
@@ -54,19 +60,17 @@
 const STATIC_ASSETS = ['/', '/index.html']
 
 /**
- * 工具链桶里的条目按**存储编码**记一笔（2026-11-05 加，P3）。
+ * 工具链桶里**旧条目**的存储编码标记（2026-11-05 加，P3）。
  *
- * 为什么需要：Cache API 存的是**解码后**的 body —— 14.2MB 的 `clang.wasm.br` 落桶是
- * 77.3MB，三件资产合计 89MB，加上 PCH 与外壳就是 113MB 配额。浏览器不会替我们把
- * 响应重新压回去，所以只能由 SW 自己用 `CompressionStream('gzip')` 重编码：
- * clang 77.3 → 22.6MB、sysroot 16.3 → 2.4MB、wasm-ld 43.5 → 13.3MB。
+ * 历史：那时 `.br` 靠 `Content-Encoding: br` 让浏览器透明解压，Cache API 落桶的是
+ * 77.3MB 的解压态，SW 只好用 `CompressionStream('gzip')` 再压一遍。这个头就是
+ * 「桶里这份是 gzip」的标记，读取时必须解压。
  *
- * 这一行头就是「桶里这份是 gzip」的标记。**读的时候必须解压**，否则会把压缩字节
- * 直接喂给 `WebAssembly.compileStreaming`；**没有这个头的旧条目是解压态**，可以原样用
- * （迁移见 recompressLegacyToolchainEntries）。
- *
- * gzip 而不是 br：`CompressionStream` 只认 gzip / deflate / deflate-raw，不支持 brotli。
- * 压缩比差一点（22.6 vs 14.2），但换掉的是「浏览器不给我们重压」这个硬限制。
+ * 2026-11-22 起新链路换成 `*.gzbin`（服务端就是 gzip 字节、页面原样落桶），
+ * 写入完全由 services/toolchainStore.js 负责，**SW 不再参与**；`activate` 里那次
+ * 全量重压缩迁移也已删除（手机端在 SW 里压 89MB 几乎注定被系统随时杀掉）。
+ * 这个标记只留给老用户桶里的旧条目做读取兼容 —— 新写入的条目同样带它，
+ * 但那是 toolchainStore 写的，与下面这两个常量无关。
  */
 const STORAGE_ENCODING_HEADER = 'x-cp-storage-encoding'
 const STORAGE_ENCODING_GZIP = 'gzip'
@@ -180,62 +184,6 @@ async function pruneStaleShellArtifacts() {
   )
 }
 
-/**
- * 把旧条目**原地重压**成 gzip，零网络流量（2026-11-05 加，P3）。
- *
- * 为什么不能「删掉重下」：老用户的桶里已经躺着完整的 77.3MB clang + 16.3MB sysroot，
- * 删掉等于再花 25MB 流量；弱网或断网时更新 SW，还会直接把「本机已就绪」打成「没有」。
- * 这里把解压态的 body 流式过一遍 `CompressionStream('gzip')` 再覆写回同一个 key：
- * 只花本地 CPU（三件资产约 1.8s，SW 线程，不挡页面），断网也照样瘦身。
- *
- * 判据只看**标记头**：有 `x-cp-storage-encoding: gzip` 的跳过；没有的一律当解压态
- * （旧版本写进来的、或者别的迁移路径漏掉的）。**任何一条失败就 delete 那一条**，
- * 让它下次真正需要时重新下载 —— 半拉子条目比占地方更糟。
- *
- * 流式而不是 `blob()`：单条最大 77MB，读成 Blob 在低端机上就是一次内存尖峰
- * （同文件头边界 6 里说的那个坑）。
- */
-async function recompressLegacyToolchainEntries() {
-  if (typeof CompressionStream === 'undefined') return
-  let cache
-  try {
-    cache = await caches.open(TOOLCHAIN_CACHE)
-  } catch {
-    return
-  }
-  for (const request of await cache.keys()) {
-    if (!request.url.includes('/wasm/')) continue
-    const response = await cache.match(request)
-    if (!response) continue
-    if (response.headers.get(STORAGE_ENCODING_HEADER) === STORAGE_ENCODING_GZIP) continue
-    if (!response.body) {
-      await cache.delete(request)
-      continue
-    }
-    const headers = new Headers(response.headers)
-    headers.set(STORAGE_ENCODING_HEADER, STORAGE_ENCODING_GZIP)
-    headers.delete('content-length')
-    headers.delete('content-encoding')
-    try {
-      await cache.put(
-        request,
-        new Response(response.body.pipeThrough(new CompressionStream(STORAGE_ENCODING_GZIP)), {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        }),
-      )
-    } catch {
-      // 压缩中途失败 / 配额不足：删掉这条，下次按需重下，别留半份
-      try {
-        await cache.delete(request)
-      } catch {
-        /* 删不掉也只是占地方 */
-      }
-    }
-  }
-}
-
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
@@ -245,9 +193,9 @@ self.addEventListener('activate', (event) => {
       const names = await caches.keys()
       await Promise.all(names.map((name) => (keep.has(name) ? null : caches.delete(name))))
       await pruneStaleShellArtifacts()
-      // 先 claim 再接瘦身：页面立刻拿到新 SW，重压缩在后台慢慢跑完（waitUntil 兜住）
+      // 工具链的新格式（.gzbin + manifest）只在页面侧落桶，SW 不做任何迁移 / 重压缩：
+      // 手机端在 SW 里压 89MB 会被系统随时杀掉，而且和页面的 cache.put 会变成同键双写。
       await self.clients.claim()
-      await recompressLegacyToolchainEntries()
     })(),
   )
 })
@@ -300,8 +248,8 @@ async function cacheFirst(event, request) {
  * 把缓存里的工具链条目还原成「解压态」再交出去。
  *
  * 新条目带 `x-cp-storage-encoding: gzip`，要过一遍 `DecompressionStream('gzip')`；
- * 旧条目（没有这个头）本来就是解压态，原样返回 —— 迁移（recompressLegacyToolchainEntries）
- * 还没跑到的那段时间里也不能让页面拿不到工具链。
+ * 旧条目（没有这个头）本来就是解压态，原样返回 —— 老用户的桶里两种都可能存在，
+ * 2026-11-22 删除全量迁移之后仍要能读。
  *
  * 构造新 Response 时**必须保留 `Content-Type`**：工具链是 `application/wasm`，
  * 丢了它 `WebAssembly.compileStreaming` 会直接抛
@@ -400,6 +348,17 @@ self.addEventListener('fetch', (event) => {
   // PCH 归 IndexedDB 独占（边界 6）：这里**既不读也不写** —— 只从 STATIC_ASSETS 摘掉不够，
   // cacheFirst 在未命中时照样会把 18MB 解压后的 body 写进工具链桶。
   if (/\.pch\.br$/.test(url.pathname)) return
+
+  // 工具链新格式（边界 7）：`*.gzbin`、页面提交的 manifest，以及构建期生成的静态清单
+  // 都必须纯透传 —— 前两个只能由 toolchainStore 写（cacheFirst 会让旧坏缓存拦住
+  // 「修复重下」）；静态清单虽小，但它是同版本内**可能随构建变**的元数据，
+  // 被 cacheFirst 钉住会让下载侧拿旧尺寸去校验新字节，表现为「下载永远失败」。
+  if (
+    url.pathname.endsWith('.gzbin') ||
+    url.pathname.endsWith('/__toolchain_manifest__.json') ||
+    url.pathname.endsWith('/toolchain-assets.json')
+  )
+    return
 
   event.respondWith(
     request.mode === 'navigate' ? networkFirstNavigation(request) : cacheFirst(event, request),

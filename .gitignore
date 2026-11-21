@@ -6,6 +6,10 @@ dist/
 tools/
 # wasm-opt 的候选产物：实测收益为负，不接运行时路径，也别让它进仓库
 public/wasm/8.0.1/clang_opt.wasm
+# 工具链的 gzip 运行态：由 scripts/build-toolchain-gzbin.mjs 从现有 .br 在构建期转出，
+# 合计约 38MB，属于构建产物而不是源码（见 npm run wasm:gzbin）
+public/wasm/23.1.0/*.gzbin
+public/wasm/23.1.0/toolchain-assets.json
 # 题解渲染器（katex + marked 的副本）：由 scripts/prepare-md-runtime.mjs 从 node_modules 生成，
 # 是构建输入而不是源码，跟着 katex 版本走，不进仓库（见 npm run md:runtime）
 public/md/

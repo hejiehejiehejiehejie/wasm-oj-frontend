@@ -211,7 +211,13 @@ async function startPrepare() {
   const total = TOOLCHAIN_ASSET_BYTES.clang + TOOLCHAIN_ASSET_BYTES.sysroot
   let unsubscribe = null
   if (!cached) {
-    unsubscribe = onToolchainProgress(({ key, loaded: bytes }) => {
+    unsubscribe = onToolchainProgress(({ key, loaded: bytes, total: phaseTotal, phase }) => {
+      // 下载阶段：压缩态总字节（约 38MB），直接就是百分比分母
+      if (phase === 'download') {
+        const percent = phaseTotal ? Math.min(99, Math.round((bytes / phaseTotal) * 100)) : 0
+        setPhase('downloading', percent)
+        return
+      }
       if (loaded[key] === undefined) return
       loaded[key] = Math.max(loaded[key], bytes)
       const percent = Math.min(99, Math.round(((loaded.clang + loaded.sysroot) / total) * 100))

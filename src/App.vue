@@ -1451,57 +1451,64 @@ async function runAll() {
   // 不必（也无法）把侧栏翻到评测页
   if (!testsPaneOpen.value) revealTestsPanel()
   running.value = true
-  abortController = new AbortController()
-  const signal = abortController.signal
+  const controller = new AbortController()
+  abortController = controller
+  const signal = controller.signal
   // 评测结果通知（services/runNotify.js）挂在本文件名下：重跑即收掉上一条常驻
   // CE —— 结果好坏另说，反正待会会有新的一条来接替
   const entryPath = activeNode.value?.path
   if (entryPath) clearRunNotify(entryPath)
-  // 运行前自动保存全部 dirty model，再取活跃文件快照
-  await saveAll()
-  const snapshot = peekActiveContent() ?? ''
-  const queue = [...testCases.value]
-  queue.forEach(resetCase)
+  /** 这一轮真正交给 runCases 的那批卡片；异常时也要靠它把「运行中」复位 */
+  let queue = []
+  try {
+    // 运行前自动保存全部 dirty model，再取活跃文件快照
+    await saveAll()
+    const snapshot = peekActiveContent() ?? ''
+    queue = [...testCases.value]
+    queue.forEach(resetCase)
 
-  const left = await runCases({
-    engine: engine.value,
-    base: judgeBase.value,
-    languageId: activeLanguage.value,
-    entryPath,
-    cases: queue,
-    code: snapshot,
-    timeLimitMs: effectiveTimeLimitMs.value,
-    memoryLimitBytes: effectiveMemoryLimitBytes.value,
-    checker: effectiveChecker.value,
-    signal: abortController.signal,
-    onCase: applyPatch,
-    // 对拍那行事后提示：只带 note + 索引，判定不受影响（见 applyLateNote）
-    onNote: applyLateNote,
-  })
+    await runCases({
+      engine: engine.value,
+      base: judgeBase.value,
+      languageId: activeLanguage.value,
+      entryPath,
+      cases: queue,
+      code: snapshot,
+      timeLimitMs: effectiveTimeLimitMs.value,
+      memoryLimitBytes: effectiveMemoryLimitBytes.value,
+      checker: effectiveChecker.value,
+      signal,
+      onCase: applyPatch,
+      // 对拍那行事后提示：只带 note + 索引，判定不受影响（见 applyLateNote）
+      onNote: applyLateNote,
+    })
 
-  // 中途中断时，未跑到的卡片回到待运行，不留假的“运行中”。
-  // 它们这一轮根本没有产出，上一轮的输出也不再是「这次的结果」——
-  // 复位时留下的那一份在这里一并清掉，退回占位语（与引擎给的 cancelled 补丁同口径：
-  // 那种卡片已经被补丁清过了，不会走到这个分支）。
-  for (const item of queue) {
-    if (item.status !== 'running') continue
-    item.status = 'idle'
-    item.actualOutput = ''
-    item.detail = ''
-    item.note = ''
+    // 结果通知在状态归位后发。**必须用 queue 而不是 testCases.value**：用例回写
+    // （flushCasesWrite → updateFileConfig → rebuildTree）会在运行途中把卡片对象
+    // 整批换成新的一批，patch 落在 queue 持有的旧引用上 —— 读 testCases.value 会
+    // 读到没跑过的新对象（实测 verdict 全空）。queue 与 patch 的落点是同一批引用。
+    // 被中断（abort）的那次不弹 —— 中断几乎总紧跟着一次新的运行，弹一条半截的结果只会误导
+    if (!signal.aborted) notifyRunOutcome({ path: entryPath, cases: queue })
+    // 庆祝纸屑同理，且用 queue 而不是 testCases.value（理由同上一条）
+    if (!signal.aborted) celebrateIfAllPassed(queue)
+  } finally {
+    // 中途中断 / 抛错时，未跑到的卡片回到待运行，不留假的“运行中”。
+    // 它们这一轮根本没有产出，上一轮的输出也不再是「这次的结果」——
+    // 复位时留下的那一份在这里一并清掉，退回占位语（与引擎给的 cancelled 补丁同口径：
+    // 那种卡片已经被补丁清过了，不会走到这个分支）。
+    //
+    // 这一步必须在 finally 里：runCases / saveAll 一旦抛错，旧写法会把 running 永久
+    // 留在 true（再点 ▶ 只 abort 一个没人听的 controller 然后 return），只能刷新页面。
+    for (const item of queue) {
+      if (item.status !== 'running') continue
+      item.status = 'idle'
+      item.actualOutput = ''
+      item.detail = ''
+      item.note = ''
+    }
+    running.value = false
+    if (abortController === controller) abortController = null
   }
-
-  // 结果通知在状态归位后发。**必须用 queue 而不是 testCases.value**：用例回写
-  // （flushCasesWrite → updateFileConfig → rebuildTree）会在运行途中把卡片对象
-  // 整批换成新的一批，patch 落在 queue 持有的旧引用上 —— 读 testCases.value 会
-  // 读到没跑过的新对象（实测 verdict 全空）。queue 与 patch 的落点是同一批引用。
-  // 被中断（abort）的那次不弹 —— 中断几乎总紧跟着一次新的运行，弹一条半截的结果只会误导
-  if (!signal.aborted) notifyRunOutcome({ path: entryPath, cases: queue })
-  // 庆祝纸屑同理，且用 queue 而不是 testCases.value（理由同上一条）
-  if (!signal.aborted) celebrateIfAllPassed(queue)
-
-  running.value = false
-  abortController = null
 }
 
 async function runOne(target) {

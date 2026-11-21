@@ -19,8 +19,22 @@
  */
 
 import { MemoryFs, runWasiModule } from './host.js'
+import {
+  TOOLCHAIN_ASSET_KEYS,
+  TOOLCHAIN_ASSET_LABELS,
+  TOOLCHAIN_ERROR,
+  createToolchainError,
+  decodeNetworkAsset,
+  inspectToolchain,
+  openToolchainAsset,
+} from '../toolchainStore.js'
 import { untarFiles } from './tar.js'
 import { wrapMirror } from './stdoutMirror.js'
+
+// BOOTED 握手（2026-11-22）：脚本**成功求值**的第一时间报一声，主线程拿它把
+// 「脚本没加载出来（离线缺 chunk）」与「脚本在、只是 init 慢 / 崩了」分开。
+// 这行必须在任何 await / 异步初始化之前 —— onerror 往往在模块求值失败时就触发。
+self.postMessage({ type: 'booted' })
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -37,6 +51,8 @@ let lldModule = null
 /** 在途的链接器下载（单飞）：语义悬停 / 语法检查一辈子走不到这条 */
 let lldPromise = null
 let linkerURL = ''
+/** 链接器解压态字节数（进度条分母，来自桶里的 manifest） */
+let linkerBytes = 0
 let baseFs = null
 let pchSource = ''
 let oomProbeObject = null
@@ -81,14 +97,13 @@ function streamer(id, kind) {
 }
 
 /**
- * Pass-through wrapper that reports decoded (uncompressed) byte progress.
+ * Pass-through wrapper that reports **decoded (uncompressed) byte** progress.
  *
- * The caller's denominator is the uncompressed size, never `content-length`:
- * after br decoding the body is 77.30MB for clang while the wire header says
- * 14.24MB, and the service worker removes `content-length` entirely for
- * entries it re-encodes as gzip. Constructing a new Response keeps the
- * original headers, so `Content-Type: application/wasm` survives and
- * `WebAssembly.compileStreaming` still works.
+ * The caller's denominator comes from the cached manifest's `uncompressedSize`,
+ * never from a response header: `.gzbin` is gzip bytes on disk (clang 22.6MB),
+ * while this stream yields 77.3MB after `DecompressionStream`. Constructing a
+ * new Response keeps the headers, so `Content-Type: application/wasm` survives
+ * and `WebAssembly.compileStreaming` still works.
  */
 function trackProgress(response, key, total) {
   if (!key || !response.body || typeof TransformStream === 'undefined') return response
@@ -109,35 +124,135 @@ function trackProgress(response, key, total) {
   })
 }
 
-async function fetchModule(url, key, total) {
+/** manifest 里的解压态字节数 → `{ clang, linker, sysroot }`；没有 manifest 时返回 null */
+function sizesFromManifest(manifest) {
+  if (!manifest?.assets) return null
+  const sizes = {}
+  for (const asset of manifest.assets) sizes[asset.key] = asset.uncompressedSize
+  return sizes
+}
+
+/**
+ * 读一件资产：Cache Storage 优先（新 `.gzbin` → 旧 `.br`），未命中才回退网络。
+ *
+ * 正常情况下永远不会走到网络：页面在 init 之前已经把三件套写进桶并提交了 manifest
+ * （runnoSandbox 的 ensureToolchainDownloaded）。网络分支只是兜底 —— 例如用户手动
+ * 清了 Cache Storage、或者用旧客户端跑了新 worker。解压口径与页面侧共用
+ * toolchainStore.decodeNetworkAsset，避免两处对 content-encoding 的判断分叉。
+ *
+ * 返回值带 `source`：后面解压 / 编译失败时，只有缓存来源才映射成 TOOLCHAIN_CORRUPTED
+ * （网络来源更可能是中间层改了字节，诊断里要能分开）。
+ */
+async function openAsset(key, url, contentType) {
+  const cached = await openToolchainAsset(key)
+  if (cached) return { response: cached, source: 'cache' }
   const response = await fetch(url)
   if (!response.ok) throw new Error(`${url} 下载失败（HTTP ${response.status}）`)
+  return { response: decodeNetworkAsset(response, contentType), source: 'network' }
+}
+
+/**
+ * 流式读取 / 解压 / 编译失败 → 统一映射成 TOOLCHAIN_CORRUPTED。
+ *
+ * 两个入口都要收：`DecompressionStream` 在读到坏字节时会抛（半截文件、双层 gzip），
+ * `WebAssembly.compileStreaming` 则在 magic word / 段结构不对时抛。它们的原生措辞
+ * 对用户没有信息量，而恢复动作完全一样：删掉重下。
+ */
+function corruptedError(key, source, error, firstError = null) {
+  if (error?.code) return error
+  const file = TOOLCHAIN_ASSET_LABELS[key] ?? key
+  return createToolchainError(
+    TOOLCHAIN_ERROR.CORRUPTED,
+    `toolchain asset ${file} failed to decode (${source})`,
+    {
+      asset: key,
+      file,
+      source,
+      cause: String(error?.message ?? error),
+      ...(firstError ? { firstCause: String(firstError?.message ?? firstError) } : {}),
+    },
+  )
+}
+
+async function compileAsset(key, url, total) {
+  const opened = await openAsset(key, url, 'application/wasm')
   // 先走 streaming（能吃到浏览器的 wasm 代码缓存）；不行再退回整包编译。
   try {
-    return await WebAssembly.compileStreaming(trackProgress(response.clone(), key, total))
-  } catch {
-    return WebAssembly.compile(await response.arrayBuffer())
+    return await WebAssembly.compileStreaming(trackProgress(opened.response, key, total))
+  } catch (firstError) {
+    // 流已经被 compileStreaming 消费掉一半，不能复用；重新从缓存开一份
+    const retry = await openAsset(key, url, 'application/wasm')
+    try {
+      return await WebAssembly.compile(await retry.response.arrayBuffer())
+    } catch (error) {
+      throw corruptedError(key, retry.source, error, firstError)
+    }
   }
 }
 
+/**
+ * 运行前轻量 preflight（<5ms）：manifest 存在、三件命中、每件的 `x-cp-size`
+ * 与 manifest 的 compressedSize 一致。**不读 body** —— 真实字节的兜底在写后复验
+ * （页面侧 putAsset）与下面的流式读取（corruptedError）。
+ *
+ * 缺件时把 `missing` 放进 detail，界面文案直接可用（如 ['wasm-ld']）。
+ * `lastInstalledAt` 由页面通过 init 消息传进来：Worker 里没有 localStorage，
+ * 但 EVICTED / NOT_INSTALLED 的分流必须在出错现场做。
+ */
+async function preflight(message) {
+  const inspection = await inspectToolchain(TOOLCHAIN_ASSET_KEYS, {
+    lastInstalledAt: message.lastInstalledAt ?? 0,
+  })
+  if (inspection.status === 'ready') return inspection
+
+  const code =
+    inspection.status === 'evicted'
+      ? TOOLCHAIN_ERROR.EVICTED
+      : inspection.status === 'partial'
+        ? TOOLCHAIN_ERROR.PARTIAL
+        : TOOLCHAIN_ERROR.NOT_INSTALLED
+  throw createToolchainError(code, `toolchain preflight: ${inspection.status}`, {
+    status: inspection.status,
+    missing: inspection.missing.map((key) => TOOLCHAIN_ASSET_LABELS[key] ?? key),
+    missingKeys: inspection.missing,
+    hasManifest: Boolean(inspection.manifest),
+  })
+}
+
 async function init(message) {
-  const sizes = message.assetSizes ?? {}
-  const [sysrootResponse, clang] = await Promise.all([
-    fetch(message.sysrootURL),
-    fetchModule(message.clangURL, 'clang', sizes.clang),
-  ])
-  if (!sysrootResponse.ok) throw new Error(`sysroot 下载失败（HTTP ${sysrootResponse.status}）`)
-  const tar = new Uint8Array(
-    await trackProgress(sysrootResponse, 'sysroot', sizes.sysroot).arrayBuffer(),
+  const inspection = await preflight(message)
+  const sizes = sizesFromManifest(inspection.manifest) ?? message.assetSizes ?? {}
+  const sysrootTask = openAsset('sysroot', message.sysrootURL, 'application/x-tar').then(
+    async (opened) => {
+      try {
+        const buffer = await trackProgress(opened.response, 'sysroot', sizes.sysroot).arrayBuffer()
+        return { tar: new Uint8Array(buffer), source: opened.source }
+      } catch (error) {
+        throw corruptedError('sysroot', opened.source, error)
+      }
+    },
   )
-  const { files, count } = untarFiles(tar)
+  const [clang, sysroot] = await Promise.all([
+    compileAsset('clang', message.clangURL, sizes.clang),
+    sysrootTask,
+  ])
+  const tar = sysroot.tar
+  let untarred
+  try {
+    untarred = untarFiles(tar)
+  } catch (error) {
+    throw corruptedError('sysroot', sysroot.source, error)
+  }
+  const { files, count } = untarred
   if (!files[message.universalHeaderPath]) {
     files[message.universalHeaderPath] = encoder.encode(message.universalHeader)
   }
   clangModule = clang
-  // 链接器不在 init 里下：`-fsyntax-only` / `-code-completion-at` 只跑到 clang 前端，
-  // 永远用不到它。8.1MB br 与一次 compileStreaming 留给真正点「运行」的那一刻。
+  // 链接器不在 init 里编：`-fsyntax-only` / `-code-completion-at` 只跑到 clang 前端，
+  // 永远用不到它。**但字节已经随三件套一起下好了**（见 toolchainStore），
+  // 所以真正点「运行」时只是从桶里读 + 解压 + compileStreaming，没有网络等待。
   linkerURL = message.linkerURL
+  linkerBytes = sizes.linker ?? 0
   baseFs = new MemoryFs(files, ['/sys'], { sourceMtime: SYSROOT_MTIME })
   pchSource = message.pchSource
   // 内存证据探针在 init 里就编好：它是每次链接都要用的 .o，放在第一次 compile 里
@@ -172,7 +287,7 @@ async function ensureLinker() {
   if (lldModule) return lldModule
   if (!linkerURL) throw new Error('宿主还没 init')
   if (!lldPromise) {
-    lldPromise = fetchModule(linkerURL)
+    lldPromise = compileAsset('linker', linkerURL, linkerBytes)
       .then((module) => {
         lldModule = module
         return module
@@ -188,9 +303,9 @@ async function ensureLinker() {
 /**
  * 放开对 wasm-ld 模块的引用，让 V8 回收它的 wire bytes 与 JIT 代码页。
  *
- * 下次 link 会重新从 Cache Storage 取同一份 `.br` 并重编：本地、无网络，代价是一次
- * compileStreaming（实测远小于常驻那百来 MB）。正在跑的那条消息手里有自己的局部引用，
- * 这里清模块级变量不会把在飞的链接器抽走。
+ * 下次 link 会重新从 Cache Storage 取同一份 `.gzbin`、解压并重编：本地、无网络，
+ * 代价是一次 compileStreaming（实测远小于常驻那百来 MB）。正在跑的那条消息手里
+ * 有自己的局部引用，这里清模块级变量不会把在飞的链接器抽走。
  */
 function releaseLinker() {
   lldModule = null
@@ -277,6 +392,7 @@ async function main(message) {
     lldModule = null
     lldPromise = null
     linkerURL = ''
+    linkerBytes = 0
     installedPchRef = null
     moduleCache = null
     ready = null
@@ -424,6 +540,14 @@ self.onmessage = async (event) => {
     if (result?.binary) transfer.push(result.binary.buffer)
     post({ type: 'result', id: message.id, result }, transfer)
   } catch (error) {
-    post({ type: 'error', id: message.id, stage: message.type, error: String(error?.message ?? error) })
+    post({
+      type: 'error',
+      id: message.id,
+      stage: message.type,
+      error: String(error?.message ?? error),
+      // 结构化错误码 + 可诊断的 detail（page 侧据此翻译文案、诊断面板原样展示）
+      ...(error?.code ? { code: error.code } : {}),
+      ...(error?.detail ? { detail: error.detail } : {}),
+    })
   }
 }
