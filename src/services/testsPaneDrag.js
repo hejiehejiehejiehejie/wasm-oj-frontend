@@ -216,6 +216,14 @@ export function consumeTestsPaneDragClick() {
 }
 
 /**
+ * 指针是否落在侧栏上方（展开的整座 / 折叠态活动栏 / 侧栏外沿那几像素）。
+ * 浮岛自己的拖动也复用这一条 —— 落点判据只能有一份，不能两处各写一套选择器。
+ */
+export function isSidebarDropPoint(x, y) {
+  return Boolean(document.elementFromPoint(x, y)?.closest?.('.sidebar, .activity-bar, .pane--tests'))
+}
+
+/**
  * 指针在哪儿算哪个落点。侧栏判定必须走 `elementFromPoint`：拖动期间没有 pointer capture，
  * 指针移到侧栏上方时命中的就是侧栏里的元素。除了展开态的 `.sidebar` 与折叠态的活动栏，
  * 还认整个 `.pane--tests` —— 用户可能落在侧栏外沿 / 分隔条那一侧，那几像素不在 `.sidebar`
@@ -227,10 +235,7 @@ export function consumeTestsPaneDragClick() {
  */
 function resolveDrop(x, y, prevTarget) {
   const source = testsPaneDragSource.value
-  const overSidebar = document
-    .elementFromPoint(x, y)
-    ?.closest?.('.sidebar, .activity-bar, .pane--tests')
-  if (overSidebar) return source === 'island' ? 'sidebar' : null
+  if (isSidebarDropPoint(x, y)) return source === 'island' ? 'sidebar' : null
   const el = document.querySelector('.editor-grid')
   if (!el) return null
   const rect = el.getBoundingClientRect()

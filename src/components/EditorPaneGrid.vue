@@ -41,6 +41,7 @@ import {
 import { t } from '../i18n/index.js'
 import {
   beginTestsPaneDrag,
+  isSidebarDropPoint,
   testsDrop,
   testsDropCurrent,
   testsDropLabel,
@@ -124,6 +125,8 @@ const floatEl = ref(null)
 const floatStyle = ref({ left: '0px', top: '0px' })
 const floatDragging = ref(false)
 const floatReady = ref(false)
+/** 拖到侧栏上方：松手就收回侧栏（与页头的「拖回侧栏」同一个出口） */
+const floatDockReady = ref(false)
 const FLOAT_INSET = { top: 8, right: 16, bottom: 14, left: 14 }
 const FLOAT_DRAG_THRESHOLD = 5
 
@@ -174,6 +177,8 @@ function onFloatPointerDown(event) {
   const el = floatEl.value
   const grid = gridEl.value
   if (!el || !grid) return
+  floatDockReady.value = false
+  document.body.classList.remove('is-tests-drop-sidebar')
   const stage = grid.getBoundingClientRect()
   const rect = el.getBoundingClientRect()
   floatDrag = {
@@ -215,6 +220,11 @@ function onFloatPointerMove(event) {
   const left = clampFloat(floatDrag.left + dx, FLOAT_INSET.left, maxLeft)
   const top = clampFloat(floatDrag.top + dy, FLOAT_INSET.top, maxTop)
   floatStyle.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` }
+  // 浮岛自身被夹在网格内，但指针可以越过网格压到侧栏上：此时亮侧栏、淡出浮岛，
+  // 提示「松手就收回侧栏」—— 与页头拖回侧栏共用同一个 body 高亮类。
+  const overSidebar = isSidebarDropPoint(event.clientX, event.clientY)
+  floatDockReady.value = overSidebar
+  document.body.classList.toggle('is-tests-drop-sidebar', overSidebar)
 }
 
 /** 拖拽松手后浏览器会补一发 click：捕获阶段吞掉，避免顺手展开 / 切样例 */
@@ -232,7 +242,12 @@ function onFloatPointerUp(event) {
   const moved = floatDrag.moved
   const el = floatEl.value
   const grid = gridEl.value
-  if (moved && el && grid) {
+  // 落点在侧栏：不吸附边缘，直接走「评测岛 → 侧栏」的同一个出口（App 里 closeTestsPane + 切到评测页）
+  const dockToSidebar = moved && isSidebarDropPoint(event.clientX, event.clientY)
+  if (dockToSidebar) {
+    suppressFloatClick()
+    emit('dock-tests')
+  } else if (moved && el && grid) {
     const stage = grid.getBoundingClientRect()
     const rect = el.getBoundingClientRect()
     const left = rect.left - stage.left
@@ -268,10 +283,12 @@ function onFloatPointerUp(event) {
     }
     testsRail.edge = edge
     testsRail.ratio = clampFloat(ratio, 0, 1)
-    floatDragging.value = false
     nextTick(placeFloat)
     suppressFloatClick()
   }
+  floatDragging.value = false
+  floatDockReady.value = false
+  document.body.classList.remove('is-tests-drop-sidebar')
   if (floatDrag && el?.hasPointerCapture?.(floatDrag.id)) {
     try {
       el.releasePointerCapture(floatDrag.id)
@@ -799,7 +816,10 @@ onMounted(() => {
   }, 900)
 })
 
-onBeforeUnmount(() => clearTimeout(guideTimer))
+onBeforeUnmount(() => {
+  clearTimeout(guideTimer)
+  document.body.classList.remove('is-tests-drop-sidebar')
+})
 
 /* ------------------------------------------------------------ 对 App 的代理 */
 
@@ -933,6 +953,7 @@ defineExpose({
         'is-edge-left': testsRail.edge === 'left',
         'is-edge-right': testsRail.edge === 'right',
         'is-dragging': floatDragging,
+        'is-dock-ready': floatDockReady,
         'is-ready': floatReady,
       }"
       :style="floatStyle"
@@ -1134,6 +1155,11 @@ defineExpose({
     left 0.22s cubic-bezier(0.2, 0.9, 0.2, 1),
     top 0.22s cubic-bezier(0.2, 0.9, 0.2, 1),
     box-shadow 0.16s ease;
+}
+
+/* 拖到侧栏上方：浮岛淡出，侧栏由 body.is-tests-drop-sidebar 亮起，松手即收回侧栏 */
+.tests-float.is-dock-ready {
+  opacity: 0.55;
 }
 
 /* 样例多时不能溢出小岛：行向 flex 的 cross 轴不会按 max-height 收缩子项
