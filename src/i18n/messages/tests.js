@@ -350,6 +350,37 @@ export default {
         clickAgainExpand: '再次点击展开',
         clickAgainCollapse: '再次点击折叠',
       },
+
+      /** 评测岛新手引导（2026-11-21）：首次打开岛时自动播，帮助页可重看 */
+      guide: {
+        aria: '评测岛新手引导',
+        skip: '跳过',
+        prev: '上一步',
+        next: '下一步',
+        done: '完成',
+        steps: {
+          detach: {
+            title: '从侧边栏分出评测岛',
+            text: '侧栏展开时，按住页头的「评测」这一半拖进编辑区；侧栏收起时，先点活动栏的「评测」图标把它展开，再拖出去。',
+          },
+          move: {
+            title: '拖动页头，换一边停靠',
+            text: '按住评测岛的页头拖到编辑区左、右或底边，松手就会吸附到那一侧。',
+          },
+          resize: {
+            title: '拖动分隔条，调整岛的大小',
+            text: '拖动评测岛与代码区之间的分隔条改变它占的比例；双击分隔条恢复默认。',
+          },
+          toggle: {
+            title: '双击页头，收起或展开',
+            text: '双击页头把岛收成悬浮迷你岛；再次双击浮岛即可展开回原来的位置和大小。',
+          },
+          float: {
+            title: '拖动浮岛，贴边换位',
+            text: '收起后的浮岛可以按住任意位置拖动，贴到左、右、底边松手就会吸过去。',
+          },
+        },
+      },
     },
   },
   en: {
@@ -567,6 +598,37 @@ export default {
         caseTab: 'Test case {n}',
         clickAgainExpand: 'Click again to expand',
         clickAgainCollapse: 'Click again to collapse',
+      },
+
+      /** see zh-CN: tests island onboarding tour */
+      guide: {
+        aria: 'Tests island tour',
+        skip: 'Skip',
+        prev: 'Back',
+        next: 'Next',
+        done: 'Done',
+        steps: {
+          detach: {
+            title: 'Detach the island from the sidebar',
+            text: 'With the sidebar open, press the “Tests” half of its header and drag it into the editor. If the sidebar is collapsed, click the “Tests” icon in the activity bar first, then drag it out.',
+          },
+          move: {
+            title: 'Drag the header to dock it elsewhere',
+            text: 'Press the island header and drag it to the left, right or bottom edge of the editor; release to dock it there.',
+          },
+          resize: {
+            title: 'Drag the splitter to resize',
+            text: 'Drag the splitter between the island and the code area to change the share; double-click it to reset.',
+          },
+          toggle: {
+            title: 'Double-click the header to collapse',
+            text: 'Double-click the header to fold the island into a floating mini island; double-click the float to expand it back.',
+          },
+          float: {
+            title: 'Drag the float to snap to another edge',
+            text: 'Once collapsed, press anywhere on the floating island and drag it; release near the left, right or bottom edge to snap there.',
+          },
+        },
       },
     },
   },

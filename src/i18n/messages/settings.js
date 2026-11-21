@@ -637,6 +637,7 @@ export default {
 
       help: {
         guideLink: '完整使用指南',
+        replayTestsGuide: '重看评测岛新手引导',
         /** 帮助栏置顶的站点提示。末尾那句后面紧跟留言板地址 ——
             地址本身不翻译，直接写在 HelpPanel 的模板里 */
         notice:
@@ -1270,6 +1271,7 @@ export default {
 
       help: {
         guideLink: 'Full user guide',
+        replayTestsGuide: 'Replay the tests island tour',
         /** 同 zh-CN：末尾紧跟留言板地址，那条链接在 HelpPanel 的模板里 */
         notice:
           'Still in testing, and not even named yet. Bug reports, feature requests, naming ideas or chat are all welcome here:',
