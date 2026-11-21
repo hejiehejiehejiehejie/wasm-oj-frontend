@@ -405,24 +405,51 @@ export async function downloadToolchain({ signal, onProgress } = {}) {
  *
  * 状态口径：
  * - `ready`：可以开跑；
- * - `not-installed`：没有 manifest，也没有安装痕迹 → 从没装过；
- * - `evicted`：没有 manifest，但有 `lastInstalledAt` → 桶被单独清掉 / 迁移异常；
+ * - `legacy`：只有旧 `.br` 条目（老用户未迁移），**同样可以开跑**；
+ * - `not-installed`：没有 manifest，也没有安装痕迹 / 旧条目 → 从没装过；
+ * - `evicted`：没有可用的 manifest，但有 `lastInstalledAt` → 桶被单独清掉 / 迁移异常；
  * - `partial`：manifest 在，但某件缺失或尺寸戳对不上 → 半份 / 被改坏；
  * - `unavailable`：拿不到 Cache Storage（隐私模式等）。
  *
  * @param {string[]} [keys] 默认三件套；语义悬停只关心 clang + sysroot
  * @param {{ lastInstalledAt?: number }} [options] Worker 里没有 localStorage，由页面把痕迹传进来
- * @returns {Promise<{status: 'ready'|'not-installed'|'evicted'|'partial'|'unavailable', missing: string[], manifest: object|null, assets: Array<object>}>}
+ * @returns {Promise<{status: 'ready'|'legacy'|'not-installed'|'evicted'|'partial'|'unavailable', missing: string[], manifest: object|null, assets: Array<object>}>}
  */
 export async function inspectToolchain(keys = TOOLCHAIN_ASSET_KEYS, { lastInstalledAt } = {}) {
   const manifest = await readCachedManifest()
   if (!manifest) {
+    // manifest 是**新格式**的提交点，不是「能不能跑」的唯一判据：老用户的 `.br` 条目
+    // 仍然可以直接读（openToolchainAsset 有回退）。这里必须先看旧条目，否则升级后的
+    // 老用户会被 worker preflight 判成 NOT_INSTALLED —— 明明能跑，却要求卸载重装。
+    const cache = await openToolchainCache()
+    if (!cache) return { status: 'unavailable', missing: [...keys], manifest: null, assets: [] }
+    const assets = await Promise.all(
+      keys.map(async (key) => {
+        const url = LEGACY_ASSET_URLS[key]
+        const cached = await cache.match(url)
+        if (!cached) return { key, ok: false, reason: 'missing', legacy: true, url }
+        const rawLength = cached.headers.get('content-length')
+        const length = rawLength === null ? null : Number(rawLength)
+        return {
+          key,
+          ok: true,
+          legacy: true,
+          url,
+          storedSize: Number.isFinite(length) ? length : null,
+          storageEncoding: cached.headers.get(STORAGE_ENCODING_HEADER),
+        }
+      }),
+    )
+    if (assets.every((asset) => asset.ok)) {
+      return { status: 'legacy', missing: [], manifest: null, assets }
+    }
     const hinted = lastInstalledAt === undefined ? readLastInstalledAt() : lastInstalledAt
     return {
       status: hinted ? 'evicted' : 'not-installed',
-      missing: [...keys],
+      missing: assets.filter((asset) => !asset.ok).map((asset) => asset.key),
       manifest: null,
-      assets: [],
+      assets,
+      legacy: true,
     }
   }
   const cache = await openToolchainCache()

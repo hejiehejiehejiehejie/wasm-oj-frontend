@@ -203,7 +203,9 @@ async function preflight(message) {
   const inspection = await inspectToolchain(TOOLCHAIN_ASSET_KEYS, {
     lastInstalledAt: message.lastInstalledAt ?? 0,
   })
-  if (inspection.status === 'ready') return inspection
+  // legacy = 只有旧 `.br` 条目：openToolchainAsset 会回退读取，能跑就不拦。
+  // 否则升级上来的老用户会被误判成「未安装」，只能卸载重装。
+  if (inspection.status === 'ready' || inspection.status === 'legacy') return inspection
 
   const code =
     inspection.status === 'evicted'
