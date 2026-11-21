@@ -1014,12 +1014,12 @@ onBeforeUnmount(() => {
           @contextmenu="onTabContextMenu($event, item.id)"
           @pointerdown="onTabPointerDown($event, item.id)"
         >
-          <!-- 固定宽状态槽（2026-11-21 方案一）：有结果显判定码，未跑 / 运行中显圆点。
-               26px 定宽让所有样例名落在同一条竖线上，右端整段让给 ▶ ×，
+          <!-- 固定宽状态槽（2026-11-21）：有结果与运行中都显判定码水印（运行中是蓝色 RUN），
+               未跑显空心圆点。26px 定宽让所有样例名落在同一条竖线上，右端整段让给 ▶ 垃圾桶，
                悬停时状态码纹丝不动、零遮挡。 -->
           <span class="case-row__status" aria-hidden="true">
             <span
-              v-if="tabStampCode(item) && caseDotStatus(item) !== 'running'"
+              v-if="tabStampCode(item)"
               class="case-row__stamp"
               :class="{ 'is-long': tabStampCode(item).length >= 3 }"
             >
@@ -1058,7 +1058,7 @@ onBeforeUnmount(() => {
                 :disabled="running"
                 @click.stop="removeCaseById(item.id)"
               >
-                <AppIcon name="close" :size="10" />
+                <AppIcon name="trash" :size="12" />
               </button>
             </AppTooltip>
           </span>
@@ -2055,11 +2055,6 @@ onBeforeUnmount(() => {
   background: var(--err);
 }
 
-.case-row__dot[data-status='running'] {
-  border-color: transparent;
-  background: var(--info);
-}
-
 .case-row__dot[data-status='stale'] {
   border-color: transparent;
   background: var(--warn);
@@ -2073,8 +2068,8 @@ onBeforeUnmount(() => {
   background: var(--tab-tone);
 }
 
-/* 固定宽状态槽（2026-11-21 方案一）：有结果显判定码，未跑 / 运行中显圆点。
-   定宽让所有样例名从同一条竖线开始；右端整段让给 ▶ ×，悬停时状态码零位移。 */
+/* 固定宽状态槽（2026-11-21）：有判定码（含运行中的 RUN 水印）显水印，未跑显圆点。
+   定宽让所有样例名从同一条竖线开始；右端整段让给 ▶ 垃圾桶，悬停时状态码零位移。 */
 .case-row__status {
   flex: 0 0 26px;
   display: inline-flex;
@@ -2104,26 +2099,41 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* 状态槽里的判定码：端正等宽，按判定档取色；AC 退淡，让异常一眼跳出来。 */
+/* 状态槽里的判定码水印（2026-11-21）：与分项页签右下角的叠印章同一套字形 ——
+   斜体、800 字重、行高压到 0.85，颜色只染 18%–28%，读作底纹而不是第二行正文。
+   位置仍在 26px 左槽里（用户要求「位置不变」），AC / WA / TLE / RUN 共用一套。 */
 .case-row__stamp {
   font-family: var(--mono-font);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: var(--tab-tone, var(--text-dim));
+  font-size: 15px;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  color: color-mix(in srgb, var(--tab-tone, var(--text-dim)) 22%, transparent);
   user-select: none;
 }
 
-/* 3 字母（TLE / MLE）略收，26px 槽里也留得下 */
+/* 3 字母（TLE / MLE / RUN / ERR）收一档，26px 槽里也留得下 */
 .case-row__stamp.is-long {
-  font-size: 10px;
-  letter-spacing: -0.04em;
+  font-size: 11px;
+  letter-spacing: -0.06em;
 }
 
+/* 未通过的状态比 AC 更醒目：一排扫过去绿色安静、红黄跳脱 */
 .case-row[data-tone='ok'] .case-row__stamp {
-  color: color-mix(in srgb, var(--ok) 76%, var(--text-dim));
-  font-weight: 500;
+  color: color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+.case-row[data-tone='err'] .case-row__stamp,
+.case-row[data-tone='warn'] .case-row__stamp,
+.case-row[data-tone='re'] .case-row__stamp,
+.case-row[data-tone='info'] .case-row__stamp {
+  color: color-mix(in srgb, var(--tab-tone) 28%, transparent);
+}
+
+/* 结论过期：灰章 + ?（后缀见上面与页签共用的规则） */
+.case-row[data-tone='stale'] .case-row__stamp {
+  color: color-mix(in srgb, var(--text-dim) 30%, transparent);
 }
 
 /* 单跑 / 删除：常规 Flex 收在行尾，默认宽度 0 + 隐身；悬停 / 聚焦时展开。
