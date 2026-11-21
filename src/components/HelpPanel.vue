@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import { locale, messages, t } from '../i18n/index.js'
-import { openTestsGuide } from '../services/testsGuide.js'
 
 /**
  * HelpPanel —— 「帮助」这一组设置的正文。
@@ -95,12 +94,7 @@ function segments(text) {
       </ul>
     </section>
 
-    <div class="help-actions">
-      <button type="button" class="guide-link guide-link--action" @click="openTestsGuide">
-        {{ t('settings.help.replayTestsGuide') }}
-      </button>
-      <a class="guide-link" :href="guideHref">{{ t('settings.help.guideLink') }}</a>
-    </div>
+    <a class="guide-link" :href="guideHref">{{ t('settings.help.guideLink') }}</a>
   </div>
 </template>
 
@@ -247,28 +241,12 @@ function segments(text) {
   white-space: nowrap;
 }
 
-/* 底部两条出口：重看评测岛引导（就地播，不是链接）/ 完整指南（静态页） */
-.help-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-}
-
 /* 指向根目录 guide.html：设置里只放精简版，完整版是那一页 */
 .guide-link {
+  align-self: flex-start;
   font-size: 13px;
   color: var(--accent);
   text-decoration: none;
-}
-
-/* 重看引导是一颗真按钮：清掉按钮默认的边框 / 底色，只借 .guide-link 的字色 */
-.guide-link--action {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  cursor: pointer;
 }
 
 :where(html.is-hoverable) .guide-link:hover {
