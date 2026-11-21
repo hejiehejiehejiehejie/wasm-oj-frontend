@@ -545,6 +545,13 @@ export const testsRail = reactive({
   pendingCaseId: null,
   /** 折叠态是否由悬浮迷你岛接管（此时 tests 叶已从布局树摘掉） */
   floating: false,
+  /**
+   * 上次离开时的形态偏好：true = 浮岛。
+   * 与 `floating` 分开存：`floating` 是「此刻」的状态，展开 / 收起会来回改；
+   * 这一位是「下次从侧栏拖出来直接给什么形态」，只在用户主动换形态时更新，
+   * `resetTestsRail()` 不碰它，并随布局一起落盘。
+   */
+  preferFloating: false,
   /** 浮岛吸附边：left | right | bottom（顶边留给文件标签栏） */
   edge: 'right',
   /** 沿吸附边的位置比例（0~1），换窗口尺寸时按它重算，不存绝对像素 */
@@ -602,6 +609,8 @@ export function collapseTestsPane() {
   if (side === 'left' || side === 'right' || side === 'bottom') testsRail.edge = side
   testsRail.collapsed = true
   testsRail.floating = true
+  // 用户主动收成浮岛：下次从侧栏拖出来直接给浮岛形态
+  testsRail.preferFloating = true
   // 摘叶会触发下面 testsLeaf 的 watch；floating 已置位，watch 不会清掉浮岛状态
   closeEmptyPane(leaf.id)
   return true
@@ -626,6 +635,8 @@ export function expandTestsPane({ ratio = null } = {}) {
       testsRail.collapsed = true
       return false
     }
+    // 用户把浮岛展开成停靠态：下次从侧栏拖出来按停靠态给
+    testsRail.preferFloating = false
     const info = testsSplitInfo()
     if (!info) return true
     const slot = findSlot(editorPanes.root, info.splitId)
@@ -732,13 +743,18 @@ export function openTestsPane() {
 /** 把评测岛停靠回侧边栏（摘掉 tests 叶 / 收起浮岛；焦点与 activeId 不受影响） */
 export function closeTestsPane() {
   if (testsRail.floating) {
+    // 离开时是浮岛：记住这个形态，下次从侧栏拖出来直接给浮岛
+    testsRail.preferFloating = true
     resetTestsRail()
     return true
   }
   const leaf = testsLeaf()
   if (!leaf) return false
   const closed = closeEmptyPane(leaf.id)
-  if (closed) resetTestsRail()
+  if (closed) {
+    testsRail.preferFloating = false
+    resetTestsRail()
+  }
   return closed
 }
 
@@ -1244,6 +1260,8 @@ export function serializePanes() {
     testsFloating: testsRail.floating,
     testsEdge: testsRail.edge,
     testsRailRatio: testsRail.ratio,
+    // 「下次从侧栏拖出来给什么形态」：与当前 floating 分开存，收起 / 展开都会更新它
+    testsPreferFloating: testsRail.preferFloating,
     testsShare: Number.isFinite(testsRail.lastShare) ? testsRail.lastShare : null,
   }
 }
@@ -1337,6 +1355,11 @@ export function restorePanes(saved, isAlive = () => true) {
   const savedSide = leaf ? testsPaneSide() : null
   const floated = saved?.testsFloating === true
   const savedCollapsed = saved?.testsCollapsed === true
+  // 形态偏好：新档直接读；旧档按「上次离开时是不是浮岛 / 窄条」推断
+  testsRail.preferFloating =
+    typeof saved?.testsPreferFloating === 'boolean'
+      ? saved.testsPreferFloating
+      : floated || savedCollapsed
   if (floated || (savedCollapsed && leaf)) {
     // 浮岛存档，或旧版的侧边 / 贴底窄条 → 统一迁成浮岛
     if (leaf) {

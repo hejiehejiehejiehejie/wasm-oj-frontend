@@ -59,6 +59,7 @@ import {
   PANES_STORAGE_KEY,
   closeEmptyPane,
   closeTestsPane,
+  collapseTestsPane,
   editorLeaves,
   enablePanesPersistence,
   fileTabs,
@@ -68,6 +69,7 @@ import {
   openTestsPane,
   restorePanes,
   splitPane,
+  testsRail,
 } from './services/editorPanes.js'
 import {
   MD_VIEW_SHORTCUT,
@@ -1036,6 +1038,8 @@ function openTestsPaneFromSidebar(side) {
     notify({ type: 'info', message: t('app.splitLimit'), duration: 2600, tag: 'split-editor' })
     return
   }
+  // 上次离开时停在浮岛形态：直接给浮岛（同一帧开岛 + 收起，用户看不到中间态）
+  if (testsRail.preferFloating) collapseTestsPane()
   sidebarRef.value?.showPanel('explorer')
 }
 
@@ -3153,8 +3157,11 @@ body.is-tests-pane-dragging .tests-pane {
    「松开以停靠回侧边栏」的胶囊在指针移到侧栏时已经离得很远。
    2026-11-19 晚按用户要求去掉外圈描边：用一层大面积半透明填色盖满整块
    （::before 盖在内容之上），与编辑区落点带同一种 --bg-drop-root。
-   两份 DOM 分别对应两种形态：展开看 .pane--tests，折叠看 .activity-bar。 */
-body.is-tests-drop-sidebar .pane--tests::before,
+   两份 DOM 分别对应两种形态：展开看 .pane--tests，折叠看 .activity-bar。
+   ⚠️ 折叠态的 .pane--tests 只剩 1px 宽（见下面 is-collapsed），它的 ::before
+   带 10px 圆角后会在这个 1px 盒子里被夹成一条独立竖线，正好贴着活动栏的圆角
+   露出来 —— 所以折叠态必须把 pane 这一份排除掉，只亮活动栏。 */
+body.is-tests-drop-sidebar .pane--tests:not(.is-collapsed)::before,
 body.is-tests-drop-sidebar .activity-bar::before {
   content: '';
   position: absolute;
