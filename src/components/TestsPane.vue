@@ -498,9 +498,8 @@ onBeforeUnmount(() => railObserver?.disconnect())
           :aria-label="t('tests.panel.runAll')"
           @click.stop="emit('run-all')"
         >
-          <!-- 两种朝向共用描边 ▶：竖排不再用实心 play-solid（2026-11-21 用户要求
-               与横排样式一致）。 -->
-          <AppIcon name="play" :size="14" />
+          <!-- 与展开态「运行全部」同一枚 list-video（2026-11-21 统一图标语汇）。 -->
+          <AppIcon name="list-video" :size="14" />
         </button>
       </AppTooltip>
     </div>
@@ -810,11 +809,6 @@ onBeforeUnmount(() => railObserver?.disconnect())
    padding 同档，上下两头呼吸间距对称。 */
 .tests-rail.is-vertical .tests-rail__run {
   height: 24px;
-}
-
-/* 单三角的视觉重心：flex 居中是几何居中，墨迹略偏左，右移 1px 才真正落在圆心 */
-.tests-rail__run svg {
-  transform: translateX(1px);
 }
 
 .tests-rail__run:disabled {

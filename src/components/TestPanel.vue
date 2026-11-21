@@ -587,13 +587,13 @@ const elapsedText = computed(() => {
         </AppTooltip>
         <AppTooltip v-if="showTabs && !runBlocked" class="run-one-wrap" :text="runOneTitle">
           <button class="btn-run-one" :disabled="runDisabled" @click="runActiveCase">
-            <AppIcon name="play-solid" :size="14" />
+            <AppIcon name="play" :size="14" />
             <span class="btn-run-one__label">{{ t('tests.panel.runOneLabel') }}</span>
           </button>
         </AppTooltip>
         <AppTooltip v-if="!runBlocked" class="run-all-wrap" :text="runTitle">
           <button class="btn-run-all" :disabled="runDisabled" @click="emit('run-all')">
-            <AppIcon name="run-all" :size="14" />
+            <AppIcon name="list-video" :size="14" />
             <span class="btn-run-all__label">{{ t('tests.panel.runAllLabel') }}</span>
           </button>
         </AppTooltip>
@@ -674,7 +674,7 @@ const elapsedText = computed(() => {
               :disabled="runDisabled"
               @click="emit('run-all')"
             >
-              <AppIcon name="play" :size="14" />
+              <AppIcon name="list-video" :size="14" />
               <span class="run-inline__label">{{ t('tests.panel.runAllLabel') }}</span>
             </button>
           </AppTooltip>

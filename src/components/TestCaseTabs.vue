@@ -92,7 +92,7 @@ const viewportEl = ref(null)
 const contentEl = ref(null)
 /** 工作台的样例行列表（滚动所有者；覆盖式滑块与「切样例后滚进视野」都挂在它上面） */
 const workbenchListEl = ref(null)
-/** 隐藏的量尺：一颗与真实页签同款的 .tab，只用来量三种写法的宽度（见 measureFormat） */
+/** 隐藏的量尺：一颗与真实页签同款的 .tab，只用来量全称 / 序号写法的宽度（见 measureFormat） */
 const measureEl = ref(null)
 const measureTextEl = ref(null)
 
@@ -231,10 +231,13 @@ const tabStampTone = caseStampTone
 /* ---------- 页签名称档位（2026-11-20） ---------- */
 /**
  * 名称格式不再由「样例数 ≥ 4」这种单变量决定，也不是单纯看岛宽：
- *   ① 用隐藏量尺量出当前**每一条**序号在「样例 N / N」下的真实宽度；
+ *   ① 用隐藏量尺量出当前**每一条**序号在「样例 N」下的真实宽度；
  *   ② 按当前样例数把整条轨所需总宽算出来（含轨内固定 gap）；
- *   ③ 三档依次判定：全称 + 24px 呼吸 → 全称 + 8px 紧凑 → 纯数字 + 8px 紧凑。
- * 只有三档的壳宽（24px / 8px）都按固定值量，不去读当前渲染出来的内边距，
+ *   ③ 三档依次判定：全称 + 24px 呼吸 → 序号 + 16px 中档 → 序号 + 8px 最窄档。
+ * 2026-11-21 用户要求中间档不再显示全称：那个宽度下「样例 N」已经挤成一团，
+ * 第二档起都只显示序号；第二档的左右呼吸保留 16px，第三档才收到 8px。
+ * 每档都按**该档实际渲染出来的写法**量宽（全称 / 序号），档位才与视觉一致；
+ * 壳宽（24px / 16px）都按固定值量，不去读当前渲染出来的内边距，
  * 档位才只随行宽单调变化，不会在临界宽度附近回弹。
  * 样例数、序号位数、布局宽度三者因此同时参与判定；样例增删后序号会重排，
  * 下一次测量自然会把档位与新的序号对齐。
@@ -264,17 +267,17 @@ function measureFormat() {
     LONG_GAP
   if (avail <= 0) return
   // 文字宽度只跟文本与字号有关，按文本缓存；壳宽则一次量出两档固定值：
-  // 全称宽档（左右各 24px 内边距 + 边框）与紧凑档（左右各 8px + 边框）。
-  // 量尺的内边距由 .case-tabs .tab--measure 固定，不跟当前名称档走，
-  // 否则「收窄 → 全称又装得下 → 回弹」会再次出现。
-  measure.classList.remove('is-measure-tight')
+  // 全称宽档（左右各 24px 内边距 + 边框）与序号中档（左右各 16px + 边框）。
+  // 最窄档是兜底，不需要参与测量。量尺的内边距由 .case-tabs .tab--measure 固定，
+  // 不跟当前名称档走，否则「收窄 → 全称又装得下 → 回弹」会再次出现。
+  measure.classList.remove('is-measure-mid')
   textEl.textContent = 'M'
   const wideChrome =
     measure.getBoundingClientRect().width - textEl.getBoundingClientRect().width
-  measure.classList.add('is-measure-tight')
-  const tightChrome =
+  measure.classList.add('is-measure-mid')
+  const midChrome =
     measure.getBoundingClientRect().width - textEl.getBoundingClientRect().width
-  measure.classList.remove('is-measure-tight')
+  measure.classList.remove('is-measure-mid')
   const textWidths = new Map()
   const textWidthOf = (text) => {
     let width = textWidths.get(text)
@@ -293,11 +296,12 @@ function measureFormat() {
     return sum + (count - 1) * LONG_GAP
   }
   const labelOf = (i) => t('tests.card.title', { n: i })
-  // 三档：全称宽档 → 全称紧凑档 → 纯序号。两次比较都用固定壳宽，行宽单调减，
-  // 所以只会按这个顺序降级，不会跳回上一档。
+  const numOf = (i) => String(i)
+  // 三档：全称宽档 → 序号 16px 中档 → 序号 8px 最窄档。每档按实际写法量宽，
+  // 行宽单调减，所以只会按这个顺序降级，不会跳回上一档。
   if (totalOf(labelOf, wideChrome) <= avail) {
     labelFormat.value = 'long'
-  } else if (totalOf(labelOf, tightChrome) <= avail) {
+  } else if (totalOf(numOf, midChrome) <= avail) {
     labelFormat.value = 'tight'
   } else {
     labelFormat.value = 'num'
@@ -879,8 +883,8 @@ onBeforeUnmount(() => {
           </button>
         </AppTooltip>
 
-        <!-- 隐藏量尺（2026-11-20）：与真实页签同款同字号，只用来量「样例 N / N」的
-             文字宽度，以及 24px / 8px 两套固定壳宽。绝对定位 + visibility:hidden，
+        <!-- 隐藏量尺（2026-11-20）：与真实页签同款同字号，只用来量「样例 N」/ 序号的
+             文字宽度，以及 24px / 16px 两套固定壳宽。绝对定位 + visibility:hidden，
              不占位也不可交互。 -->
         <span ref="measureEl" class="tab tab--measure" aria-hidden="true">
           <span ref="measureTextEl">{{ t('tests.card.title', { n: cases.length }) }}</span>
@@ -1043,7 +1047,7 @@ onBeforeUnmount(() => {
                 :aria-disabled="running"
                 @click.stop="runCaseById(item.id)"
               >
-                <AppIcon name="play-solid" :size="10" />
+                <AppIcon name="play" :size="12" />
               </button>
             </AppTooltip>
             <AppTooltip :text="t('tests.card.remove')" placement="top">
@@ -1087,8 +1091,8 @@ onBeforeUnmount(() => {
             :disabled="runAllDisabled"
             @click="emit('run-all')"
           >
-            <AppIcon name="play" :size="14" />
-            <span>{{ t('tests.panel.runAllLabel') }}</span>
+            <AppIcon name="list-video" :size="14" />
+            <span class="workbench__run-label">{{ t('tests.panel.runAllLabel') }}</span>
           </button>
         </AppTooltip>
       </div>
@@ -1260,31 +1264,37 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
-/* 三档写法：全称宽档 / 全称紧凑档 / 纯数字。默认只显示全称，数字档由下面的规则按需换上。 */
+/* 三档写法：全称宽档 / 序号中档 / 序号最窄档。
+   默认只显示全称，第二档起由下面的规则换成序号。 */
 .tab__num {
   display: none;
 }
 
-/* 名称档位（2026-11-20）：由脚本按「样例数 × 序号位数 × 轨宽」量出来，不再由容器宽度单独猜。
-   三档依次是：全称 + 24px 呼吸 → 全称 + 8px 紧凑 → 纯数字。 */
+/* 名称档位（2026-11-21）：由脚本按「样例数 × 序号位数 × 轨宽」量出来，不再由容器宽度单独猜。
+   三档依次是：全称 + 24px 呼吸 → 序号 + 16px 中档 → 序号 + 8px 最窄档。 */
+.is-label-tight .tab__long,
 .is-label-num .tab__long {
   display: none;
 }
 
+.is-label-tight .tab__num,
 .is-label-num .tab__num {
   display: inline;
 }
 
-/* 紧凑档：全称紧凑档与序号档都收掉全称宽档为居中留的左右 24px 呼吸。
-   ⚠️ 档位判定用的量尺固定按两套壳宽（24px / 8px）分别量（见 .case-tabs .tab--measure），
+/* 中档保留 16px 呼吸，最窄档才收到 8px。
+   ⚠️ 档位判定用的量尺固定按两套壳宽（24px / 16px）分别量（见 .case-tabs .tab--measure），
    不跟当前渲染的内边距走，否则内边距一收会让全称「又装得下」、把档位弹回上一档。 */
-.is-label-tight .tab,
+.is-label-tight .tab {
+  padding: 0 16px;
+}
+
 .is-label-num .tab {
   padding: 0 8px;
 }
 
 /* 隐藏量尺：沿用 .tab 的全部尺寸，只测宽不显示。
-   内边距**始终按两套固定档位**算：默认 24px，临时加 .is-measure-tight 时量 8px。
+   内边距始终按两套固定档位算：默认 24px，临时加 .is-measure-mid 时量 16px。
    量尺若跟着当前名称档收缩，会出现「变窄 → 全称又装得下 → 弹回」的往返。 */
 .tab--measure {
   position: absolute;
@@ -1298,8 +1308,8 @@ onBeforeUnmount(() => {
   padding: 0 24px;
 }
 
-.case-tabs .tab--measure.is-measure-tight {
-  padding: 0 8px;
+.case-tabs .tab--measure.is-measure-mid {
+  padding: 0 16px;
 }
 
 /* 胶囊外面那层是 AppTooltip 的触发体（气泡挂 body，触发器只是个 inline-flex 的壳）。
@@ -1664,6 +1674,18 @@ onBeforeUnmount(() => {
   letter-spacing: -0.06em;
 }
 
+/* 序号档的胶囊只有二十几像素：宽档那 8px 内缩会让水印看着浮在中间、离右缘太远。
+   两档各再向右收 4px，落进圆角安全区，读作贴角的底纹。 */
+.case-tabs.is-label-tight .tab__stamp,
+.case-tabs.is-label-num .tab__stamp {
+  right: 4px;
+}
+
+.case-tabs.is-label-tight .tab__stamp.is-long,
+.case-tabs.is-label-num .tab__stamp.is-long {
+  right: 3px;
+}
+
 /* 未通过的状态比 AC 更醒目：一排扫过去绿色安静、红黄跳脱 */
 .case-tabs .tab[data-tone='ok'] .tab__stamp {
   color: color-mix(in srgb, var(--tab-tone) 18%, transparent);
@@ -1831,7 +1853,7 @@ onBeforeUnmount(() => {
 /* 左侧样例轨（188px）+ 右侧满高 I/O 面板。这一层只负责两栏的横向切分与轨的纵向
    三段（页头 / 列表 / 页脚）；三列数据面归 TestCaseBody 的 workbench 样式。 */
 .workbench {
-  /* 轨页头与右侧三个列头同高（TestCaseBody 也读这个变量）—— 两排文字落在一条水平线上 */
+  /* 轨页头高度；右侧 Bento 槽位内的列头自成一档 28px（见 TestCaseBodyPane） */
   --workbench-head-h: 34px;
 
   flex: 1 1 auto;
@@ -2169,36 +2191,37 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
-/* 轨底：动作区的家。两颗按钮与「评测样例在侧边栏」时的页脚同色同语汇
-   （运行 = --ok 微光面，提交 = --accent 微光面；6px 圆角、同档禁用透明度），
-   只有高度压到 32px —— 横跨态本来就矮，36 的条会把列表压掉一行。 */
+/* 轨底动作区（2026-11-21 Bento 重构）：左右 6px 与上方 case-row 的选框外缘严格对齐，
+   底边 8px 与右侧三列 Bento 槽位的下内边距同档；不再画分隔线 —— 裸轨靠留白自己的边界。 */
 .workbench__rail-foot {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 10px;
+  padding: 6px 6px 8px;
 }
 
 .workbench__submit-wrap {
   flex: 0 0 auto;
 }
 
+/* 提交钮：与「其他分项标签」底栏同款幽灵图标，28×28 与运行按钮等高同角 */
 .workbench__submit {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border-radius: 6px;
   border: 1px solid transparent;
-  background: var(--accent-face);
-  color: var(--accent-text);
-  transition: background-color 0.16s ease, border-color 0.16s ease;
+  background: transparent;
+  color: var(--text-dim);
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
 
 :where(html.is-hoverable) .workbench__submit:hover:not(:disabled) {
-  background: var(--accent-face-hover);
+  background: var(--icon-hover-bg);
+  color: var(--text);
 }
 
 .workbench__submit:disabled {
@@ -2225,21 +2248,25 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+/* 「运行全部」：沿用其他分项标签底栏那颗主色钮的语汇 ——
+   28px 高、6px 圆角、零描边、--ok 微光面 + run-all 图标，是轨底唯一的绿色焦点。 */
 .workbench__run {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   width: 100%;
-  height: 32px;
-  padding: 0 12px;
+  height: 28px;
+  padding: 0 11px;
+  border: 0;
   border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   color: var(--ok);
   background: var(--ok-face);
   white-space: nowrap;
-  transition: background-color 0.16s ease;
+  transition: background-color 0.14s ease, color 0.14s ease, opacity 0.14s ease;
 }
 
 :where(html.is-hoverable) .workbench__run:hover:not(:disabled) {
@@ -2251,13 +2278,13 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
-/* 右半边：细竖线切出编辑器式的分栏面（不是两块圆角卡片并排） */
+/* 裸轨收口（2026-11-21 Bento 重构）：去掉通栏竖线，右侧三列圆角槽靠自己的描边分界；
+   轨与槽之间只留 case-row 的 6px + 正文的 2px 内边距。 */
 .workbench__panes {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
-  border-left: 1px solid var(--border-soft);
 }
 
 .workbench__panes > .card__body {
@@ -2286,6 +2313,21 @@ onBeforeUnmount(() => {
   .case-row__btn {
     width: 20px;
     height: 20px;
+  }
+
+  /* 轨窄到放不下「运行全部」：与其它底栏同步收成 28px 图标钮，仍靠右收口 */
+  .workbench__run-wrap {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .workbench__run-label {
+    display: none;
+  }
+
+  .workbench__run {
+    width: 28px;
+    padding: 0;
   }
 }
 </style>

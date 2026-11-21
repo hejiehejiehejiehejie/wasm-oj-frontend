@@ -21,7 +21,7 @@ import { locale, t } from '../i18n/index.js'
 import { px, uiScale } from '../composables/useUiScale.js'
 import { DEFAULT_CHECKER_ID } from '../services/checkers.js'
 import { editorSettings } from '../services/editorSettings.js'
-import { caseTimingText } from '../services/caseSummary.js'
+import { caseStampTone, caseTimingText } from '../services/caseSummary.js'
 import { notify } from '../services/notifications.js'
 import { diffOutput, markSegments } from '../services/outputDiff.js'
 
@@ -297,6 +297,13 @@ const actualPlaceholder = computed(() => {
  * 没跑过时没有耗时，整格不渲染。
  */
 const timingText = computed(() => caseTimingText(props.testCase))
+
+/**
+ * 工作台「实际输出」槽位的语义档（2026-11-21）：只有 WA / TLE / MLE / CE / RE / ERR
+ * 这几档会把槽位描边轻染成语义色，AC 与未运行保持中性灰 —— 出错时目光能立刻落到
+ * 第三块槽位上，又不至于让通过态也花花绿绿。
+ */
+const actualTone = computed(() => caseStampTone(props.testCase))
 
 // 实际输出也是同一套：超长就只显示开头一段 + 省略行。它天生只读（是个 <pre>），
 // 所以不用像上面两个输入框那样维护「可编辑段」的边界，现算就行。
@@ -802,7 +809,11 @@ defineExpose({ syncHeight })
       </div>
     </div>
 
-    <div v-if="showActual" class="field field--actual">
+    <div
+      v-if="showActual"
+      class="field field--actual"
+      :data-tone="workbench ? actualTone || null : null"
+    >
       <span class="field__label field__label--row">
         <span
           v-if="(workbench || vertical || bento) && timingText"
@@ -1314,16 +1325,18 @@ defineExpose({ syncHeight })
 }
 
 /* ------------------------------------------------------------ 工作台档（方案一） */
-/* 三列并排、满高、贴边：不再有圆角小黑框，也不再按内容自适应高度。
-   整块正文就是三块编辑器面板，列与列之间只用 1px 发丝线分开
-   （与 VS Code 的 Diff View / Zed 的面板同一套结构语汇）。 */
+/* 2026-11-21 Bento 重构：左侧样例轨彻底裸化（无通栏竖线），右侧三列改成三张独立
+   圆角槽位 —— 与纵向岛同一套「外 10 / 槽 6 / 控件 6」的同心圆角秩序。槽与槽之间
+   靠 8px 间隙分界，不再画任何横平竖直的通栏线。 */
 .card__body.is-workbench {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
+  gap: 8px;
   height: 100%;
   min-height: 0;
-  padding: 0;
+  /* 左 2px：紧贴裸轨、把剩余呼吸让给槽与槽之间；上 / 下 8px 与轨底动作区同档 */
+  padding: 8px 8px 8px 2px;
+  box-sizing: border-box;
 }
 
 /* `.io` 原来只是两列输入框的容器；工作台里它退成透明，让三块字段直接成为网格项 */
@@ -1331,53 +1344,88 @@ defineExpose({ syncHeight })
   display: contents;
 }
 
+/* 独立圆角槽：1px 极淡描边 + 微底色，替掉原有的两条通栏竖线与一列表头横线 */
 .card__body.is-workbench .field {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--code-block-bg) 60%, transparent);
+  overflow: hidden;
+  transition: border-color 0.14s ease;
 }
 
-/* 1px 竖分割线：Expected 与 Actual 各画一条在左沿；Input 是首列，不画 */
-.card__body.is-workbench .io .field + .field,
-.card__body.is-workbench .field--actual {
-  border-left: 1px solid var(--border-soft);
+/* 聚焦反馈只提描边，不画外发光 */
+.card__body.is-workbench .field:focus-within {
+  border-color: var(--border);
 }
 
-/* 列头：12px 常规字重、一句话一种语言（不再叠英文大写标签）。
-   高度走 --workbench-head-h，与左侧轨页头严格同高 —— 两排文字落在一条水平线上。 */
+/* 失败态只染「实际输出」这一槽（AC / 未运行保持中性灰）：WA 红、TLE / MLE 琥珀、
+   CE / RE / ERR 橙红 —— 30% 的浓度只做定位提示，不做警示灯。 */
+.card__body.is-workbench .field--actual[data-tone='err'] {
+  border-color: color-mix(in srgb, var(--fail) 30%, transparent);
+}
+
+.card__body.is-workbench .field--actual[data-tone='warn'] {
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+.card__body.is-workbench .field--actual[data-tone='re'] {
+  border-color: color-mix(in srgb, var(--err) 30%, transparent);
+}
+
+/* 列头（2026-11-21）：28px、11px、全部靠左；不再画下边线，靠字号与颜色区分标题 / 正文。 */
 .card__body.is-workbench .field__label,
 .card__body.is-workbench .field__label--row {
-  flex: 0 0 auto;
+  flex: 0 0 28px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
-  height: var(--workbench-head-h, 34px);
+  height: 28px;
+  min-height: 28px;
   margin: 0;
-  /* 默认左右各 12px；只有「输入 / 期望输出」再右移 10px（见下一条）。
-     实际输出列头保持原位（2026-11-20 用户修正）。 */
-  padding: 0 12px;
-  font-size: 12px;
+  padding: 0 10px;
+  border-bottom: 0;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
   color: var(--text-dim);
 }
 
-/* 输入 / 期望的标题与正文现在起在同一条 12px 竖线上（2026-11-20 删掉行号槽后不再需要偏移） */
+/* 实际输出列头：标题在前、耗时紧跟（`实际输出 · 0.0 ms`），工具安静贴右。
+   模板顺序是「耗时 → 标题 → 工具」，这里用 order 调成阅读顺序；
+   纵向岛的三段网格不读这几条，排布一个字都不动。 */
+.card__body.is-workbench .field__label--row {
+  gap: 6px;
+}
+
+.card__body.is-workbench .field__label--row > .field__name {
+  order: 1;
+}
+
+.card__body.is-workbench .field__label--row > .field__status {
+  order: 2;
+}
+
+.card__body.is-workbench .field__label--row > .field__head-right {
+  order: 3;
+  margin-left: auto;
+}
 
 .card__body.is-workbench .field__head-right {
   display: inline-flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
 }
 
-/* ACTUAL 列头左侧的运行耗时：状态由 TestCaseTabs 的 36px 状态栏搬到这里，
-   2026-11-21 用户要求只留时间，判定码不再画 */
+/* ACTUAL 列头的运行耗时：判定码已于 2026-11-21 从列头去掉，只留时间 */
 .card__body.is-workbench .field__status {
   min-width: 0;
   overflow: hidden;
@@ -1386,6 +1434,14 @@ defineExpose({ syncHeight })
   color: var(--text-faint);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 「实际输出 · 0.0 ms」中间那枚中性分隔点：不跟着判定色走 */
+.card__body.is-workbench .field__status::before {
+  content: '·';
+  margin-right: 4px;
+  color: var(--text-faint);
+  font-weight: 400;
 }
 
 .card__body.is-workbench .field__status[data-status='passed'] {
@@ -1404,20 +1460,18 @@ defineExpose({ syncHeight })
   color: var(--info);
 }
 
-/* 散工具贴着列头右沿（12px 内边距）对齐，不再为旧状态栏的 8px 右缘做补偿 */
 .card__body.is-workbench .field__actions {
   margin-right: 0;
   clip-path: none;
 }
 
-/* 三个数据面：撑满字段剩余高度，横向节奏与列头同一条竖线（列头 12px → 缓冲区 12px）。
-   行号槽已于 2026-11-20 全部移除，正文左内边距就是列头那条 12px 竖线。 */
+/* 三个数据面：撑满槽位剩余高度。槽内不再叠第二层底，正文从列头那条 10px 竖线起。 */
 .card__body.is-workbench .buffer {
   flex: 1 1 auto;
   display: flex;
   min-height: 0;
-  /* 左边不再缩进：输入区的可见底边与上方列头左端对齐（2026-11-20 用户要求往左推） */
-  margin: 0 8px 8px 0;
+  background: transparent;
+  margin: 0;
 }
 
 .card__body.is-workbench .buffer > .ta,
@@ -1429,15 +1483,19 @@ defineExpose({ syncHeight })
 
 .card__body.is-workbench .ta {
   height: auto;
-  padding: 6px 8px 8px 12px;
+  padding: 6px 10px 8px;
   overflow: auto;
 }
 
+/* 输出外框在槽内退成纯内容面：底色 / 描边 / 圆角全部上交给槽位，避免双层材质 */
 .card__body.is-workbench .out-box {
   display: flex;
-  flex: 1 1 auto; /* 与纵向同理：撑满列高，buffer 才有可用的高度 */
+  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
 }
 
@@ -1446,7 +1504,7 @@ defineExpose({ syncHeight })
   height: auto;
   min-height: 0;
   max-height: none;
-  padding: 6px 8px 8px 12px;
+  padding: 6px 10px 8px;
   overflow: auto;
 }
 
@@ -1456,8 +1514,7 @@ defineExpose({ syncHeight })
 }
 
 .card__body.is-workbench .ionote {
-  margin: 0 8px 8px;
-  padding: 0 4px;
+  margin: 0 10px 8px;
 }
 
 /* ---------------------------------------------------------- 纵向停靠档（方案二） */

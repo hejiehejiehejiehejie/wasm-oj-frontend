@@ -913,6 +913,8 @@ defineExpose({
       class="tests-float"
       :class="{
         'is-horizontal': testsRail.edge === 'bottom',
+        'is-edge-left': testsRail.edge === 'left',
+        'is-edge-right': testsRail.edge === 'right',
         'is-dragging': floatDragging,
         'is-ready': floatReady,
       }"
@@ -1058,7 +1060,8 @@ defineExpose({
 }
 
 /* 可拖拽微暗示（2026-11-21 用户要求）：一条 12×2 的暗灰圆角微杠，不占布局空间。
-   竖排贴顶边居中，横排转到左边缘竖放；常态 15% 几乎隐形，指针移上浮岛亮到 40%。 */
+   横排贴底边横放；竖排挪到背离编辑区的侧边，竖放 2×12。
+   常态 15% 几乎隐形，指针移上浮岛亮到 40%。 */
 .tests-float::before {
   content: '';
   position: absolute;
@@ -1074,15 +1077,35 @@ defineExpose({
   pointer-events: none;
 }
 
-.tests-float.is-horizontal::before {
+/* 竖排（左右停靠）：微杠从顶边挪到侧边，落在背离编辑区的那一条（浮岛的外侧） */
+.tests-float:not(.is-horizontal)::before {
   top: 50%;
-  left: 3px;
   width: 2px;
   height: 12px;
   transform: translateY(-50%);
 }
 
-.tests-float:hover::before {
+.tests-float.is-edge-left::before {
+  left: 3px;
+  right: auto;
+}
+
+.tests-float.is-edge-right::before {
+  left: auto;
+  right: 3px;
+}
+
+/* 横排（贴底）：微杠放在底边居中、横放 12×2，同样落在浮岛外侧 */
+.tests-float.is-horizontal::before {
+  top: auto;
+  bottom: 3px;
+  left: 50%;
+  width: 12px;
+  height: 2px;
+  transform: translateX(-50%);
+}
+
+:where(html.is-hoverable) .tests-float:hover::before {
   opacity: 0.4;
 }
 
