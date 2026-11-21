@@ -497,15 +497,11 @@ export async function inspectToolchain(keys = TOOLCHAIN_ASSET_KEYS, { lastInstal
 }
 
 /**
- * 轻量探针（日常「已就绪」判定）。**不读 body**，结论与 `inspectToolchain` 同一份逻辑。
- * @param {string[]} [keys] 默认三件套；语义悬停只关心 clang + sysroot
- * @returns {Promise<boolean>}
+ * 旧格式资产是否都在桶里（老用户免重下的判据，只用于读取回退与诊断）。
+ *
+ * 注意：「能不能跑」的判据只有 `inspectToolchain` 一处（`ready` / `legacy`）。
+ * 页面与 Worker 都不要再拿这个函数去拼自己的判定 —— a433b4b 修的就是两套口径分叉。
  */
-export async function probeToolchain(keys = TOOLCHAIN_ASSET_KEYS) {
-  return (await inspectToolchain(keys)).status === 'ready'
-}
-
-/** 旧格式资产是否都在桶里（老用户免重下的判据，只用于读取回退） */
 export async function hasLegacyToolchain(keys = TOOLCHAIN_ASSET_KEYS) {
   const cache = await openToolchainCache()
   if (!cache) return false

@@ -39,9 +39,7 @@ import {
   clearLastInstalledAt,
   createToolchainError,
   downloadToolchain,
-  hasLegacyToolchain,
   inspectToolchain,
-  probeToolchain,
   readLastInstalledAt,
 } from './toolchainStore.js'
 import { HOST_PRIORITY_BACKGROUND, KILL_REASON, WasiWorkerHost } from './wasi/client.js'
@@ -847,14 +845,16 @@ function ensureToolchainDownloaded(onStatus = () => {}, onProgress) {
 }
 
 /**
- * 「三件套已经在本机」的判据：新格式 manifest 优先，旧 `.br` 回退。
+ * 「三件套已经在本机、能直接跑」的唯一判据。
  *
- * 旧格式回退是给老用户的：他们已经有一份完整的解压态 / 旧 SW 重压过的资产，
- * 断网时照样能跑，不该因为新格式的 manifest 不存在就被判成「没下载」。
+ * 只认 `inspectToolchain` 的口径（`ready` = 新格式，`legacy` = 老用户的旧 `.br`），
+ * 页面侧**不再**自己拼 `probeToolchain() || hasLegacyToolchain()`：两套判断迟早会在
+ * 某一版的判定细节上分叉（a433b4b 这次就是页面认旧 `.br`、Worker 不认），
+ * 而 Worker 的 preflight 用的也是同一个函数。
  */
-async function isToolchainCached() {
-  if (await probeToolchain()) return true
-  return hasLegacyToolchain()
+async function isToolchainCached(keys = TOOLCHAIN_ASSET_KEYS) {
+  const { status } = await inspectToolchain(keys)
+  return status === 'ready' || status === 'legacy'
 }
 
 /**
@@ -920,8 +920,42 @@ export async function downloadToolchainAssets({ onStatus, onProgress } = {}) {
  * @param {string[]} [keys] 默认三件套
  */
 export async function probeCachedToolchain(keys = TOOLCHAIN_ASSET_KEYS) {
-  if (await probeToolchain(keys)) return true
-  return hasLegacyToolchain(keys)
+  return isToolchainCached(keys)
+}
+
+/**
+ * 建一颗宿主、把缺的工具链补齐、再让 worker 做 init。失败时收掉宿主（坏 worker 不能复用）。
+ *
+ * `forceDownload` 跳过「本机看着是好的」那一步，直接重下三件套并覆盖写入 —— 给
+ * `TOOLCHAIN_CORRUPTED` 的自愈用：preflight 只核对尺寸戳，只有真正解压 / 编译时才会
+ * 发现字节坏了，这时缓存里的条目「看起来」仍是完整的。
+ */
+async function prepareToolchainHost(onStatus, timeoutMs, { forceDownload = false } = {}) {
+  const host = createToolHost()
+  // 转发宿主生命周期：语法诊断把一次性闸门挂在它上面（见 onHostEvent）。
+  // 监听器随宿主对象一起消失，重建时会重新挂上。
+  host.onEvent(forwardHostEvent)
+  try {
+    // 下载在 init 之前、由页面直接写桶（不再依赖 SW 拦截）：这样首访、SW 未接管、
+    // 或 SW 正在更新时，下载都不会落空。下载 + init 一起受准备阶段上限约束。
+    const preloaded = await withPrepareTimeout(
+      (async () => {
+        if (forceDownload || !(await isToolchainCached())) {
+          try {
+            await ensureToolchainDownloaded(onStatus)
+          } catch (error) {
+            throw await explainToolchainFailure(error)
+          }
+        }
+        return host.preload()
+      })(),
+      timeoutMs,
+    )
+    return { host, preloaded }
+  } catch (error) {
+    host.dispose()
+    throw error
+  }
 }
 
 function loadToolchain(onStatus, { timeoutMs = PREPARE_TIMEOUT_MS } = {}) {
@@ -940,31 +974,20 @@ function loadToolchain(onStatus, { timeoutMs = PREPARE_TIMEOUT_MS } = {}) {
         throw new Error(t('error.wasmUnsupported', { missing: features.missing.join(', ') }))
       }
       onStatus('download', t('stage.toolchain'))
-      const host = createToolHost()
-      // 转发宿主生命周期：语法诊断把一次性闸门挂在它上面（见 onHostEvent）。
-      // 监听器随宿主对象一起消失，重建时会重新挂上。
-      host.onEvent(forwardHostEvent)
+      let prepared
       try {
-        // 下载在 init 之前、由页面直接写桶（不再依赖 SW 拦截）：这样首访、SW 未接管、
-        // 或 SW 正在更新时，下载都不会落空。下载 + init 一起受准备阶段上限约束。
-        const preloaded = await withPrepareTimeout(
-          (async () => {
-            if (!(await isToolchainCached())) {
-              try {
-                await ensureToolchainDownloaded(onStatus)
-              } catch (error) {
-                throw await explainToolchainFailure(error)
-              }
-            }
-            return host.preload()
-          })(),
-          timeoutMs,
-        )
-        if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
+        prepared = await prepareToolchainHost(onStatus, timeoutMs)
       } catch (error) {
-        host.dispose()
-        throw error
+        // 在线自愈：桶里的字节坏了（老用户残余 `.br` 被截断、存储写坏）时，
+        // 强制重下一遍新格式再试一次。重下会覆盖同名 `.gzbin`，manifest 提交后
+        // 顺手清掉旧 `.br`（downloadToolchain 的 deleteLegacyEntries）。
+        // 离线时保持原错误：下载必然失败，只会把「已损坏」换成更含糊的报错。
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+        if (error?.code !== TOOLCHAIN_ERROR.CORRUPTED || offline) throw error
+        prepared = await prepareToolchainHost(onStatus, timeoutMs, { forceDownload: true })
       }
+      const { host, preloaded } = prepared
+      if (preloaded?.oomProbe) oomProbeObject = preloaded.oomProbe
       toolchain = { host }
       notifyRuntimeReady('cpp')
       void pruneLegacyToolchainCache()
