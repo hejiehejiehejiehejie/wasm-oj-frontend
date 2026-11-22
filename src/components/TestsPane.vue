@@ -244,6 +244,12 @@ const railRunTitle = computed(() => {
   return combo ? t('tests.panel.runAllTip', { key: combo }) : t('tests.panel.runAll')
 })
 
+/** 悬浮岛里的提交键：文案与其它版面同一口径（动作名 + 快捷键） */
+const railSubmitTitle = computed(() => {
+  const combo = formatCombo(bindings.value['submit-solution'])
+  return combo ? t('tests.submit.buttonTip', { key: combo }) : t('tests.submit.button')
+})
+
 function onRailCase(id) {
   // 顺序不能反：先把岛展开，再让 TestCaseTabs 消费选中请求
   expandTestsPane()
@@ -489,6 +495,26 @@ onBeforeUnmount(() => railObserver?.disconnect())
           >
         </span>
       </div>
+      <!-- 提交到 Codeforces（2026-11-22 用户要求）：悬浮岛是贴着编辑区边沿的常驻窄条，
+           收起后仍要能交题 —— 只用幽灵图标，与运行键同一档尺寸与排布（竖排落在运行键
+           上方、横排排在最左端，保持「提交 → 运行」的动作梯度）。 -->
+      <AppTooltip
+        v-if="floating && showSubmit"
+        class="tests-rail__submit-wrap"
+        :text="railSubmitTitle"
+        :placement="railTipPlacement"
+      >
+        <button
+          type="button"
+          class="tests-rail__submit"
+          :class="{ 'is-submitting': submitting }"
+          :disabled="running || submitting"
+          :aria-label="submitting ? t('tests.submit.submitting') : t('tests.submit.button')"
+          @click.stop="emit('submit')"
+        >
+          <AppIcon name="upload" :size="13" />
+        </button>
+      </AppTooltip>
       <!-- 脚：运行全部。竖排仍贴底（与展开态页脚同位）；横排由 order 提到最左端，
            与读数、样例轨组成「▶ 2/3 | 样例…」的原始控制簇。 -->
       <AppTooltip
@@ -781,6 +807,58 @@ onBeforeUnmount(() => railObserver?.disconnect())
 /* 横排不再需要这条竖线：读数已移到最右端，左端只剩「▶ + 样例轨」直接并排 */
 .tests-rail.is-horizontal .tests-rail__sep {
   display: none;
+}
+
+/* 提交键（悬浮岛专属）：与运行键同档的哑光幽灵图标 —— 无底座、无描边，
+   常态压淡一档，悬停只提亮墨迹。横排排在运行键左侧，形成「提交 → 运行」梯度。 */
+.tests-rail__submit-wrap {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.tests-rail.is-horizontal .tests-rail__submit-wrap {
+  order: -2;
+}
+
+.tests-rail__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-dim) 82%, transparent);
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    opacity 0.14s ease;
+}
+
+.tests-rail.is-horizontal .tests-rail__submit {
+  width: 24px;
+  height: 28px;
+}
+
+.tests-rail__submit:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.tests-rail__submit.is-submitting {
+  animation: tests-rail-submit-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tests-rail-submit-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 /* 运行键：竖排贴底、横排由 order 钉在最左端（与右端读数分守两头）。
@@ -1173,6 +1251,10 @@ onBeforeUnmount(() => railObserver?.disconnect())
 /* 悬停只提亮墨迹，不铺热区底色（2026-11-21 用户要求） */
 :where(html.is-hoverable) .tests-rail__run:hover:not(:disabled) {
   color: var(--ok);
+}
+
+:where(html.is-hoverable) .tests-rail__submit:hover:not(:disabled) {
+  color: var(--text);
 }
 
 :where(html.is-hoverable) .tests-rail__case:not([data-tone]):hover {
