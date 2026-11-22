@@ -378,6 +378,11 @@ onBeforeUnmount(() => railObserver?.disconnect())
       <!-- 底部横跨态的动作区：提交 / 运行全部从页脚 Teleport 到这里（见 TestPanel 的
            compactActions）。左右停靠时这一格空着，动作留在页脚。 -->
       <div id="tests-pane-actions" class="tests-pane__actions"></div>
+      <!-- 页头右端常驻的空白折叠区（2026-11-22）：页签轨与「添加测试样例」把 35px
+           页头吃满之后，「双击页头折叠」就再没有落点 —— 新手引导第 4 步实测点在中点
+           命中的是加号，岛不折叠反而多出一条样例。这一格留 24px 真空（加上 flex gap
+           约 32px），天然落在 head 档位：双击它就是双击空白页头，折叠手势到处都在。 -->
+      <span class="tests-pane__grip" aria-hidden="true"></span>
     </header>
 
     <TestPanel
@@ -663,6 +668,14 @@ onBeforeUnmount(() => railObserver?.disconnect())
 
 .tests-pane__actions:empty {
   display: none;
+}
+
+/* 空白折叠区：只做「留白 + 落点」，不画任何东西。flex: 0 0 auto 保证它不被页签轨压掉，
+   右侧 12px 内边距把它和窗格边缘隔开，双击落在它和它左边的 gap 上都算「页头空白」。 */
+.tests-pane__grip {
+  flex: 0 0 24px;
+  align-self: stretch;
+  min-width: 24px;
 }
 
 /* 状态读数与操作按钮之间的 1×14 竖分割线：只在这一对都非空时出现。 */

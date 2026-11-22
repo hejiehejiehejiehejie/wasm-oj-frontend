@@ -3,11 +3,16 @@
  * TestsGuide —— 评测岛交互式新手引导（2026-11-21 第二版）。
  *
  * 每一步都是真机任务：固定场景 → 用户自己做手势 → 检测到状态变化后自动进入下一步。
- * 五步：① 从侧栏分出岛 → ② 拖页头换边 → ③ 拖分隔条改大小 → ④ 双击折叠
- * → ⑤ 拖浮岛换边。
+ * 宽屏五步：① 从侧栏分出岛 → ② 拖页头换边 → ③ 拖分隔条改大小 → ④ 双击页头空白折叠
+ * → ⑤ 拖浮岛换边。窄屏四步（去掉换边，岛固定停底部）：① 从图标栏拖出 → ② 改大小
+ * → ③ 折叠 → ④ 拖浮岛。（第 4 步在宽屏必须落在 `.tests-pane__grip` 那一格空白上：页签轨和加号
+ * 会把页头吃满，中间的双击点往往是页签或「添加测试样例」，点了不折叠反而切样例 / 多建一条。）
  *
- * 场景只由步骤号决定（见 prepareTestsGuideScene），不看用户当前布局；每一步进入前
- * 都先把状态摆到「动作之前」，所以目标一定存在。用户乱操作导致目标消失（如第 3 步
+ * 步骤身份是 **key**（detach / move / resize / toggle / float），不是下标：两套轨道长度不同，
+ * 完成判定、落点、文案全按 key 分支，下标只用来取「当前第几个」。
+ *
+ * 场景只由步骤 key 决定（见 prepareTestsGuideScene），不看用户当前布局；每一步进入前
+ * 都先把状态摆到「动作之前」，所以目标一定存在。用户乱操作导致目标消失（如改大小
  * 中途折叠了岛）时，1.2s 后自动复位到本步起点并提示「已复位」。
  *
  * 聚光灯只压暗、不拦指针 —— 用户必须能操作高亮目标；卡片自己可点，放在目标对侧。
@@ -16,23 +21,36 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { t } from '../i18n/index.js'
 import {
   closeTestsGuide,
+  guideSteps,
   prepareTestsGuideScene,
-  TESTS_GUIDE_STEPS,
   testsGuide,
 } from '../services/testsGuide.js'
 import { testsLeaf, testsPaneSide, testsRail, testsSplitInfo } from '../services/editorPanes.js'
+import { isNarrowLayout, narrowCollapseSide } from '../services/shellSettings.js'
 
 const props = defineProps({
   /** 用户是否正在拖分隔条：第 3 步要等松手后才判完成，避免拖到一半就切步 */
   resizing: { type: Boolean, default: false },
 })
 
-const STEP_KEYS = ['detach', 'move', 'resize', 'toggle', 'float']
-const LAST_STEP = TESTS_GUIDE_STEPS - 1
-const stepKey = computed(() => STEP_KEYS[testsGuide.step] ?? STEP_KEYS[0])
-const titleKey = computed(() => `tests.guide.steps.${stepKey.value}.title`)
-const textKey = computed(() => `tests.guide.steps.${stepKey.value}.text`)
-const doingKey = computed(() => `tests.guide.steps.${stepKey.value}.doing`)
+/** 两套轨道（宽屏五步 / 窄屏四步），旋屏当场换；`step` 是下标，key 才是身份 */
+const steps = computed(() => guideSteps())
+const LAST_STEP = computed(() => steps.value.length - 1)
+const stepKey = computed(() => steps.value[testsGuide.step] ?? steps.value[0] ?? 'detach')
+/** 窄屏专用文案只覆盖这四步（窄屏轨道正好就这四步） */
+const NARROW_COPY = new Set(['detach', 'resize', 'toggle', 'float'])
+const stepBase = computed(() => {
+  const base = `tests.guide.steps.${stepKey.value}`
+  // 旋屏的瞬间 step 可能还停在旧轨道的下标上（'move'）：宁可用宽屏文案，也不露 key
+  return isNarrowLayout() && NARROW_COPY.has(stepKey.value) ? `${base}.narrow` : base
+})
+const titleKey = computed(() => `${stepBase.value}.title`)
+const textKey = computed(() => `${stepBase.value}.text`)
+const doingKey = computed(() => `${stepBase.value}.doing`)
+/** 窄屏图标栏在哪条边（设置里可选上 / 下）—— 第一步文案要说对是哪条边 */
+const barWhere = computed(() =>
+  t(narrowCollapseSide.value === 'top' ? 'tests.guide.barTop' : 'tests.guide.barBottom'),
+)
 
 const rect = ref(null)
 const scrims = ref([])
@@ -50,7 +68,7 @@ let invalidSince = 0
 /** 进入新步骤后的静置期：期间只重采基线，不判完成，避免布局收尾误触发 */
 let armedUntil = 0
 
-/** 第一步 / 第二步 / 第四步的页头：浮岛 / 底部裸轨 / 左右页头三种形态 */
+/** move / toggle / float 的页头：浮岛 / 底部裸轨 / 左右页头三种形态 */
 function headerEl() {
   if (testsRail.floating) return document.querySelector('.tests-float')
   if (testsPaneSide() === 'bottom') return document.querySelector('.workbench__rail-head')
@@ -75,6 +93,10 @@ function resolveTarget() {
   const key = stepKey.value
   if (key === 'detach') return detachTarget()
   if (key === 'float') return document.querySelector('.tests-float') || headerEl()
+  // 折叠这一步要落在页头那块常驻空白上：页签轨 + 加号会把页头吃满，中间的双击
+  // 落点常常是一颗页签或「添加测试样例」，点了不折叠反而切样例 / 多建一条。
+  // 窄屏停靠底部时页头换成工作台的样例轨头（没有 grip），回退到轨头本身。
+  if (key === 'toggle') return document.querySelector('.tests-pane__grip') || headerEl()
   if (key === 'resize') {
     const info = testsSplitInfo()
     return info
@@ -177,8 +199,8 @@ function captureBaseline() {
 /** 切到某一步：先把场景摆到「动作之前」，再记基线 */
 function goToStep(step) {
   clearTimeout(advanceTimer)
-  const target = Math.min(LAST_STEP, Math.max(0, step))
-  prepareTestsGuideScene(target)
+  const target = Math.min(LAST_STEP.value, Math.max(0, step))
+  prepareTestsGuideScene(steps.value[target])
   testsGuide.step = target
   done.value = false
   notice.value = ''
@@ -192,12 +214,17 @@ function goToStep(step) {
 }
 
 function stepComplete() {
-  switch (testsGuide.step) {
-    case 0:
+  switch (stepKey.value) {
+    case 'detach':
       return Boolean(testsLeaf()) || testsRail.floating
-    case 1:
-      return Boolean(baseline.side) && testsPaneSide() !== baseline.side
-    case 2: {
+    case 'move':
+      // 必须真的换到另一侧：折叠（岛被摘走）时 side 会短暂变 null，那不算换边
+      return (
+        Boolean(baseline.side) &&
+        Boolean(testsPaneSide()) &&
+        testsPaneSide() !== baseline.side
+      )
+    case 'resize': {
       if (props.resizing) return false
       const ratio = testsSplitInfo()?.ratio
       return (
@@ -206,9 +233,9 @@ function stepComplete() {
         Math.abs(ratio - baseline.ratio) > 0.003
       )
     }
-    case 3:
+    case 'toggle':
       return testsRail.floating === true
-    case 4:
+    case 'float':
       return testsRail.floating && Boolean(baseline.edge) && testsRail.edge !== baseline.edge
     default:
       return false
@@ -217,8 +244,8 @@ function stepComplete() {
 
 /** 当前步骤的目标是否还成立；不成立 1.2s 后复位 */
 function stateValid() {
-  if (testsGuide.step === 0) return true
-  if (testsGuide.step === 4) return testsRail.floating
+  if (stepKey.value === 'detach') return true
+  if (stepKey.value === 'float') return testsRail.floating
   return Boolean(testsLeaf()) && !testsRail.floating
 }
 
@@ -228,8 +255,10 @@ function advance() {
   clearTimeout(advanceTimer)
   advanceTimer = window.setTimeout(() => {
     if (!testsGuide.open) return
-    if (testsGuide.step >= LAST_STEP) {
-      closeTestsGuide()
+    if (testsGuide.step >= LAST_STEP.value) {
+      // 走完全程：保留用户最后摆出的样子（浮岛停在他刚拖到的那条边上），
+      // 不再按开场快照「关回去」—— 否则最后一步做完，岛会当场消失。
+      closeTestsGuide({ keepScene: true })
       return
     }
     goToStep(testsGuide.step + 1)
@@ -269,7 +298,7 @@ function tick() {
 }
 
 function skipStep() {
-  if (testsGuide.step >= LAST_STEP) {
+  if (testsGuide.step >= LAST_STEP.value) {
     closeTestsGuide()
     return
   }
@@ -290,41 +319,61 @@ function stopPolling() {
   pollTimer = 0
 }
 
+function startSession() {
+  done.value = false
+  notice.value = ''
+  invalidSince = 0
+  armedUntil = Date.now() + 450
+  // 折叠确认气泡靠这个类浮到遮罩之上（见 EditorPaneGrid 里 `body.is-tests-guide` 那条）
+  document.body.classList.add('is-tests-guide')
+  captureBaseline()
+  measure()
+  nextTick(placeCard)
+  startPolling()
+  window.addEventListener('keydown', onKeydown)
+}
+
+function endSession() {
+  stopPolling()
+  invalidSince = 0
+  rect.value = null
+  scrims.value = []
+  document.body.classList.remove('is-tests-guide')
+  window.removeEventListener('keydown', onKeydown)
+}
+
+// `runId` 也看：引导已经开着时再点一次「重看」（帮助面板），open 不会变化，
+// 只靠 open 的 watch 会连场景都不重摆。
 watch(
-  () => testsGuide.open,
-  (open) => {
+  () => [testsGuide.open, testsGuide.runId],
+  ([open]) => {
     clearTimeout(advanceTimer)
     clearTimeout(noticeTimer)
-    if (open) {
-      done.value = false
-      notice.value = ''
-      armedUntil = Date.now() + 450
-      measure()
-      nextTick(placeCard)
-      startPolling()
-      window.addEventListener('keydown', onKeydown)
-    } else {
-      stopPolling()
-      invalidSince = 0
-      rect.value = null
-      scrims.value = []
-      window.removeEventListener('keydown', onKeydown)
-    }
+    if (open) startSession()
+    else endSession()
+  },
+)
+
+// 旋屏 / 拉窗口会换轨道（五步 ↔ 四步）：下标可能越界，收到最后一步并重摆场景。
+// 反过来（窄 → 宽）下标仍合法，只是步骤身份变了，按 key 走的判定 / 文案会自己跟上。
+watch(
+  () => steps.value.length,
+  (len) => {
+    if (!testsGuide.open) return
+    if (testsGuide.step > len - 1) goToStep(len - 1)
   },
 )
 
 onMounted(() => {
   if (!testsGuide.open) return
-  measure()
-  nextTick(placeCard)
-  startPolling()
-  window.addEventListener('keydown', onKeydown)
+  startSession()
 })
 
 onBeforeUnmount(() => {
   stopPolling()
   clearTimeout(advanceTimer)
   clearTimeout(noticeTimer)
+  document.body.classList.remove('is-tests-guide')
   window.removeEventListener('keydown', onKeydown)
 })
 </script>
@@ -365,28 +414,28 @@ onBeforeUnmount(() => {
 
       <div ref="cardEl" class="tests-guide__card" :class="{ 'is-done': done }" :style="cardStyle">
         <div class="tests-guide__meta">
-          <span class="tests-guide__count">{{ testsGuide.step + 1 }} / {{ TESTS_GUIDE_STEPS }}</span>
+          <span class="tests-guide__count">{{ testsGuide.step + 1 }} / {{ steps.length }}</span>
           <span class="tests-guide__dots" aria-hidden="true">
             <i
-              v-for="n in TESTS_GUIDE_STEPS"
+              v-for="n in steps.length"
               :key="n"
               class="tests-guide__dot"
               :class="{ 'is-on': n - 1 === testsGuide.step, 'is-past': n - 1 < testsGuide.step }"
             ></i>
           </span>
         </div>
-        <p class="tests-guide__title">{{ t(titleKey) }}</p>
+        <p class="tests-guide__title">{{ t(titleKey, { where: barWhere }) }}</p>
         <p class="tests-guide__status" :class="{ 'is-done': done, 'is-notice': notice }">
           <span class="tests-guide__signal" aria-hidden="true"></span>
-          {{ done ? t('tests.guide.done') : notice || t(doingKey) }}
+          {{ done ? t('tests.guide.done') : notice || t(doingKey, { where: barWhere }) }}
         </p>
-        <p class="tests-guide__text">{{ t(textKey) }}</p>
+        <p class="tests-guide__text">{{ t(textKey, { where: barWhere }) }}</p>
         <div class="tests-guide__actions">
           <button type="button" class="tests-guide__ghost" @click="skipStep">
             {{ t('tests.guide.skipStep') }}
           </button>
           <span class="tests-guide__spacer"></span>
-          <button type="button" class="tests-guide__ghost" @click="closeTestsGuide">
+          <button type="button" class="tests-guide__ghost" @click="closeTestsGuide()">
             {{ t('tests.guide.exit') }}
           </button>
         </div>
@@ -440,24 +489,40 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 引导卡片：按项目里的右键菜单来做（2026-11-22 用户要求「参考右键菜单」）。
+   与 ContextMenu 的容器逐条对齐：
+     · 面 = --menu-bg，配 --menu-backdrop 微毛玻璃（原来就是这一对）；
+     · **不画描边** —— 菜单的轮廓交给 --menu-shadow 首层那道虚化发丝影，卡片原来那条
+       1px --border-hairline 会把它框回一个「盒子」，和菜单不是一种东西；
+     · 圆角 6px × --menu-scale（菜单容器那一档，不再是另开的 10px）；
+     · 内边距 = 菜单容器（6px / --menu-pad-x × scale）+ 菜单条目那一档
+       （6px / --menu-item-pad-x × scale）：菜单里文字距边框是 4 + 12 = 16px，
+       卡片没有可点的条目行，就把两级内边距并进容器，正文落在同一条读数上
+       （≈ 11px / 14.7px，与改前的 13px / 14px 几乎一致）。 */
 .tests-guide__card {
   position: fixed;
   box-sizing: border-box;
   width: 292px;
-  padding: 13px 14px 11px;
-  border: 1px solid var(--border-hairline);
-  border-radius: 10px;
+  padding: calc(6px * var(--menu-scale) * 2)
+    calc((var(--menu-item-pad-x) + var(--menu-pad-x)) * var(--menu-scale));
+  border: none;
+  border-radius: calc(6px * var(--menu-scale));
   background: var(--menu-bg);
   backdrop-filter: var(--menu-backdrop);
   box-shadow: var(--menu-shadow);
-  color: var(--text);
+  color: var(--menu-text);
   font-family: var(--ui-font);
   pointer-events: auto;
-  transition: border-color 0.16s ease;
+  transition: box-shadow 0.16s ease;
 }
 
+/* 完成态：菜单体系里没有「描边」，但这一步做完了必须看得出来 —— 用一层 1px 的
+   语义色环叠在菜单影之前（视觉上等于原来那条 --ok 描边，位置从盒内挪到盒外，
+   不参与布局，卡片尺寸不动）。 */
 .tests-guide__card.is-done {
-  border-color: color-mix(in srgb, var(--ok) 42%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ok) 45%, transparent),
+    var(--menu-shadow);
 }
 
 .tests-guide__meta {
@@ -470,10 +535,11 @@ onBeforeUnmount(() => {
 
 .tests-guide__count {
   font-family: var(--mono-font);
-  font-size: 10.5px;
+  font-size: calc(11px * var(--menu-scale));
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: var(--text-faint);
+  /* 菜单里「退到背景里那一档」就是 --menu-muted（分组标题 / 快捷键用它） */
+  color: var(--menu-muted);
 }
 
 .tests-guide__dots {
@@ -486,7 +552,7 @@ onBeforeUnmount(() => {
   width: 4px;
   height: 4px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text-dim) 30%, transparent);
+  background: color-mix(in srgb, var(--menu-muted) 45%, transparent);
   transition:
     background-color 0.14s ease,
     width 0.14s ease;
@@ -506,7 +572,8 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
-  color: var(--text);
+  /* 菜单条目的文字色（--menu-text），跟着 --menu-bg 的明暗一起换 */
+  color: var(--menu-text);
 }
 
 .tests-guide__text {
@@ -524,7 +591,7 @@ onBeforeUnmount(() => {
   margin: 0 0 6px;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--text);
+  color: var(--menu-text);
 }
 
 .tests-guide__signal {
@@ -563,33 +630,43 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 动作行与正文之间画一条菜单分隔线（--menu-separator，1px）：卡片里「跳过 / 退出」
+   是唯一的可点区，用菜单那套「分隔 + 条目」的结构把它和说明文字分开。 */
 .tests-guide__actions {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--menu-separator);
 }
 
 .tests-guide__spacer {
   flex: 1 1 auto;
 }
 
+/* 幽灵按钮 = 菜单里的次要条目：常态 --menu-muted，悬停换成菜单那枚深蓝胶囊
+   （--menu-hover-bg / --menu-hover-text），圆角用菜单条目的 4px × --menu-scale。
+   不再自带描边 —— 菜单条目没有描边，也不该有。 */
 .tests-guide__ghost {
   height: 24px;
-  padding: 0 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  padding: 0 calc(6px * var(--menu-scale));
+  border: none;
+  border-radius: calc(4px * var(--menu-scale));
   background: transparent;
-  color: var(--text-dim);
+  color: var(--menu-muted);
   font-family: var(--ui-font);
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 :where(html.is-hoverable) .tests-guide__ghost:hover {
-  color: var(--text);
-  background: var(--icon-hover-bg);
+  color: var(--menu-hover-text);
+  background: var(--menu-hover-bg);
 }
 
 @media (prefers-reduced-motion: reduce) {

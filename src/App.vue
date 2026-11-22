@@ -95,6 +95,7 @@ import {
 } from './services/notifications.js'
 import { initSettingsUndo } from './services/settingsUndo.js'
 import { editorSettings, updateEditorSettings } from './services/editorSettings.js'
+import { testsGuideLayout } from './services/testsGuide.js'
 import {
   flipPanelPosition,
   isNarrowLayout,
@@ -762,6 +763,19 @@ function togglePanel({ instant = false } = {}) {
 function collapsePanelForTreeDrag() {
   if (!isNarrowLayout() || !panelVisible.value) return
   togglePanel({ instant: true })
+}
+
+/**
+ * 新手引导读 / 写侧栏开合的注入点（2026-11-22）。
+ *
+ * 引导的三步手势全在服务层与 `EditorPaneGrid` 里判，可窄屏第一步必须先把抽屉收起来
+ * （同 `collapsePanelForTreeDrag` 的理由：抽屉盖在编辑区上，不收就没有可拖的落点），
+ * 而 `panelVisible` 是绑在本组件生命周期上的持久化 ref —— 只能在这里回填。
+ * 体例与 `testsPaneDrag.settle` 一致：服务只声明「要什么」，落位留在知道布局的这一层。
+ */
+testsGuideLayout.sidebarOpen = () => panelVisible.value
+testsGuideLayout.setSidebarOpen = (open) => {
+  if (panelVisible.value !== open) togglePanel({ instant: true })
 }
 
 // 轻点的位移上限（与触摸端「轻点 / 滑动」的判定口径一致）：超过它算拖拽，不算轻点

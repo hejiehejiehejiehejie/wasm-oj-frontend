@@ -7919,3 +7919,196 @@ case / testcase，卡片标题也是 `Testcase {n}`，没有「用例 / 样例�
 连按右键同一坐标：菜单只是重开（第二下先被遮罩收掉、再落到胶囊上重开），样例数 1 → 1，没删。
 
 `npm run verify` A–I7 全 PASS；`vite build` 通过；`lint:css` 7 条 / `lint:text` 37 条不变。
+
+## 78. 新手引导第 4 步走不过去：页头补一块常驻空白折叠区（2026-11-22）
+
+用户报「新手教程有些问题」。无头探针按真人手势跑完整条引导（真实 `page.mouse` 拖拽 / 双击，不是读代码推断），
+四条结论，前两条是本次修的：
+
+### 78.1 「双击页头折叠」没有落点（根因）
+
+`onSectionClick` 只认 `getTestsPaneDragStartKind()?.kind === 'head'`，而页签是 `tab-proxy`、加号是按钮。
+实测默认工程（`main.cpp` 自带 2 条样例）岛停在右侧时页头宽 232：整条 35px 页头从左到右 = 页签 1、页签 2、
+「添加测试样例」（约 90px，带文字的虚线大按钮），**可命中 `head` 档的像素只剩最左 6px**。在页头中心双击
+命中的是加号：岛不折叠，反而多建一条样例（用户数据被写脏）。引导偏偏把整条页头的 rect 高亮成目标，
+照做的用户 100% 失败。
+
+**修法**：页头末尾加一格常驻空白 `.tests-pane__grip`（`flex: 0 0 24px`，不画任何东西），加上 `gap: 8px`
+共约 32px 「没有页签也没有按钮」的真空，天然是 `head` 档。左右停靠 / 底部横跨（非 workbench）都吃这一格；
+workbench 形态没有页头，落点仍是 `.workbench__rail-head`（实测同样能折叠）。
+
+- 引导第 4 步的 `resolveTarget` 改成先找 `.tests-pane__grip`，找不到再回退页头 —— 高亮圈从此压在
+  24×35 的空白上（实测 1400×980：右停靠 ring = `[1358, 8, 24, 35]`，底部横跨 ring = `[1356, 557, 24, 42]`）。
+- `tests.guide.steps.toggle` 的中英文案同步改成「页头最右端的空白处点两下」，并说明第一下只冒提示。
+
+### 78.2 第 2 步「拖到另一侧」会误判完成
+
+`stepComplete` 原来是 `Boolean(baseline.side) && testsPaneSide() !== baseline.side`。用户在这一步把岛
+双击折叠（或被任何路径摘走）时 `testsPaneSide()` 变 `null`，`null !== 'left'` 成立 → 判完成、跳进第 3 步、
+再把岛自动展开。现在两端都要求非空：`Boolean(baseline.side) && Boolean(testsPaneSide()) && 不等`。
+
+### 78.3 收尾不再把岛关掉 / 重看会重摆场景
+
+- 走完全程调 `closeTestsGuide({ keepScene: true })`：保留用户最后摆出的浮岛（原来按开场快照「关回去」，
+  最后一步拖完浮岛当场消失，观感像坏了）。中途 Esc / 跳过仍按快照还原（实测：开场岛开着 → Esc → 岛还开着）。
+- `openTestsGuide()` 现在自己做 `prepareTestsGuideScene(0)`，并 `runId += 1`；`TestsGuide` 的 watch 同时看
+  `open` 与 `runId`（`startSession` / `endSession` 抽出）。修掉两件事：重看时岛若停靠 / 浮岛着，第一步的
+  高亮落点根本不存在；引导已开着再点「重看」时 `open` 不变，watch 不响、场景不重摆。
+
+### 78.4 未修：窄屏第一步做不了（已由 §79 修掉）
+
+430×860 下侧栏铺满全屏（`cp.panelVisible` 默认 true），编辑区不可见：从底栏胶囊往中间拖，`resolveDrop`
+命中侧栏 → `'sidebar'`，而 `source === 'sidebar'` 时该落点直接作废；文案还写着「拖到右侧编辑区」，窄屏
+没有右侧编辑区。真要在窄屏上教，得先收侧栏（`panelVisible` 在 `App.vue` 里，服务层取不到），再把落点
+改成活动栏那颗「评测」图标（`ActivityBar.vue` 已支持 `beginTestsPaneDrag(..., 'sidebar')`），并补窄屏文案。
+—— 这几步在 §79 落地（窄屏改走四步轨道，抽屉由 App 注入的开合口收起来）。
+
+### 78.5 实测
+
+| 场景 | 结果 |
+|---|---|
+| 1400×980 五步全走（第 4 步点 grip 两下） | 1/5 → 5/5 → 引导关闭，浮岛留在用户拖到的那条边 |
+| 同上但第 4 步改拖分隔条到 ≤120px | 也判完成（`collapseTestsPane` 同一条路），浮岛出现 |
+| 底部停靠 + 2 条样例（workbench，无页头） | 第 4 步落点 `.workbench__rail-head`，两下折叠成功 |
+| 第 2 步里双击折叠 | 不再判完成，1.2s 后「场景已复位」，仍停在第 2 步 |
+| 引导开着调 `openTestsGuide()` | 回到 1/5、ring 落在侧栏胶囊上、岛被收回侧栏 |
+
+`npm run verify`：A/B/C/D/F/G/I 通过，E、H 失败（既有失败，与基线一致）；`npm run lint` 无新增（18 + 62 条存量提示）；`npx vitest run` 14 项通过。
+
+
+## 79. 新手引导补一套窄屏轨道：四步、抽屉先收起、文案分屏写（2026-11-22，用户「再补一套吧」）
+
+§78 把宽屏那条路修通了，窄屏（`isNarrowLayout()`，≤600px 且竖屏）仍然做不了第一步：抽屉铺满全屏、
+编辑区整个在它下面。这一节把窄屏当**另一条轨道**处理，宽屏五步不受影响。
+
+### 79.1 步骤身份从下标换成 key
+
+两套轨道长度不同（宽屏 `detach / move / resize / toggle / float`，窄屏去掉 `move`），
+`testsGuide.step` 仍存下标，但完成判定 / 落点 / 文案 / 场景摆位全部按 **key** 分支：
+
+- `services/testsGuide.js` 出 `guideSteps()`：读 `isNarrowLayout()`，窄屏回四步表；`TESTS_GUIDE_STEPS` 常量删掉。
+- `prepareTestsGuideScene(key)` 收 key 不再收下标（`detach` 收岛、`float` 摆浮岛、其余停靠）。
+- `TestsGuide.vue` 用 `computed(() => guideSteps())` 取当前轨道，`stepComplete()` / `stateValid()` /
+  `resolveTarget()` 三处 switch 都改成 switch key；圆点与「n / N」跟着 `steps.length` 走。
+- 旋屏会换轨道（5 ↔ 4）：`watch(steps.length)` 在下标越界时收到最后一步并重摆场景；
+  `stepBase` 里再兜一层 —— 窄屏只对那四步取 `.narrow` 文案，避免旋屏那一帧露出 i18n key。
+
+窄屏不教 `move`（换边）：`autoTestsPaneSide()` 在窄屏恒回 `bottom`，把岛拖到左 / 右只会把 430px
+竖屏再竖切成两条 215px 的窄栏，不是手机上该示范的动作。要改这个口径，先把那两栏做可用。
+
+### 79.2 抽屉：App 回填一个开合口
+
+`panelVisible` 是 `App.vue` 里的 `usePersistentRef`（`onMounted` 落盘，挪不到模块顶层），而引导在服务层
+摆场景。按 `testsPaneDrag.settle` 的体例加了个注入点：
+
+```js
+// services/testsGuide.js
+export const testsGuideLayout = { sidebarOpen: () => false, setSidebarOpen: () => {} }
+// App.vue（紧挨 collapsePanelForTreeDrag）
+testsGuideLayout.sidebarOpen = () => panelVisible.value
+testsGuideLayout.setSidebarOpen = (open) => { if (panelVisible.value !== open) togglePanel({ instant: true }) }
+```
+
+`prepareTestsGuideScene()` 在窄屏每一次都先 `setSidebarOpen(false)`（与 `collapsePanelForTreeDrag` 同一个
+理由：抽屉盖在编辑区上，不收就没有落点）。`instant: true` —— 引导开场不该播 View Transition。
+第一步的落点因此自然回落到 `detachTarget()` 的第二优先项：`.activity-bar__item[data-panel="tests"]`。
+
+### 79.3 窄屏文案（`steps.<key>.narrow`）
+
+zh / en 各四段，只在窄屏轨道上取：
+
+- `detach`：说明「编辑区与侧栏没法并排，抽屉已经收起」，并按住**{where}图标栏**里的「评测」拖到编辑区
+  靠下的位置。`{where}` 取 `tests.guide.barTop / barBottom`，跟着设置 › 外观 › 窄屏折叠方向走
+  （图标栏可能贴上边也可能贴下边）。
+- `resize`：分隔线是**横**的，上下拖。
+- `toggle`：页头形态随停靠方式变（左右停靠是最右端空白，停底部是左侧样例轨的标题行），文案两种都说。
+- `float`：仍是左 / 右 / 底三选一，补一句「手机上它只是小胶囊，不会盖住代码区」。
+
+### 79.4 收尾与中途退出
+
+- 走完全程仍 `keepScene`：浮岛留在用户最后拖到的那条边，抽屉保持收起（展开会把岛整块盖住）。
+- 中途 Esc / 跳过：岛按开场快照还原；抽屉**只在还原后没有岛**时才还回去。否则「开场抽屉开着 + 岛也开着」
+  这一格退出后抽屉会重新盖上来，用户看不到自己刚摆的岛。
+
+### 79.5 顺带：折叠确认气泡提到引导遮罩之上
+
+`tests-toggle-hint` 原 `z-index: 130`，引导遮罩是 9000 —— 第 4 步「第一下点了什么」的唯一反馈被压暗，
+而文案正靠它说「再点一下」。`TestsGuide` 会话期间给 `body` 挂 `is-tests-guide`，`EditorPaneGrid` 里补一条
+`:global(body.is-tests-guide .tests-toggle-hint) { z-index: 9001 }`（只提一档，仍在别的浮层之下）。
+⚠️ 写 `:global(body.is-tests-guide) .tests-toggle-hint` 会被 scoped 编译成 `body.is-tests-guide { z-index: 9001 }`
+（后代被吃掉）—— 整条选择器都要放进 `:global()` 里。
+
+### 79.6 实测（无头 Chrome 真实鼠标手势）
+
+430×860 / `isMobile` + `hasTouch` / `cp.uiScale = 1` / 抽屉开场展开：
+
+| 操作 | 结果 |
+|---|---|
+| 点帮助「重看评测岛交互式引导」 | `1 / 4`；`.pane--tests` 收到 `is-collapsed`（宽 1px）；ring = `[173, 808, 40, 40]`（底栏「评测」图标） |
+| 从该图标拖到 (205, 610) | 岛停底部（`side = bottom`），`2 / 4`「拖分隔条改大小」，ring = `[6, 392, 418, 24]`（横分隔条） |
+| 分隔条上拖 120px | `3 / 4`，页头 `[8, 286, 414, 42]`、grip `[386, 286, 24, 42]`，ring 落在 grip |
+| grip 上点两下 | 浮岛 `[22, 742, 84, 44]`，`4 / 4`「拖浮岛换一条边」 |
+| 浮岛拖到左边 (34, 320) | 引导关闭，浮岛 `[22, 287, 48, 73]` 贴左，抽屉仍收着 |
+| 有样例的 workbench 形态（无页头） | 落点 `.workbench__rail-head` `[8, 406, 112, 34]`；在右端空白点两下 → 先冒「再次点击折叠」(z = 9001) → 折叠成功 |
+| 第一步按 Esc | 抽屉还原展开（`is-collapsed = false`） |
+| 1400×980 宽屏复跑 | `1 / 5 → 5 / 5`，浮岛收在 `[766, 914, 84, 44]`，与 §78 一致 |
+
+`npm run verify`：A/B/C/D/F/G/I 通过，E、H 失败（既有失败，与基线一致）；`npm run lint:css` 18 条 /
+`lint:text` 62 条存量提示，无新增；`npx vitest run` 14 项通过。
+
+### 79.7 探针踩坑（下次直接照做）
+
+改完源码不重启 dev server 就开探针，`App.vue` 的 import 会被 HMR 改写成
+`/src/services/testsGuide.js?t=...`，而探针 `import('/src/services/testsGuide.js')` 拿到的是**另一份实例**：
+`testsGuide.open` 在自己那份里变成 true，页面却毫无反应、注入点也还是默认的 noop。症状极像「改动没生效」。
+本次先被骗了一轮，重启 dev server（无 HMR 历史）后一次通过 —— 与技能文档 §16 同一条。
+
+## 80. 新手引导卡片按右键菜单重做表面（2026-11-22，用户「修改一下新手教程浮岛的样式，参考我项目中的右键菜单」）
+
+用户说的「新手教程浮岛」= 教程那张浮在界面上的引导卡片（`.tests-guide__card`），**不是**评测浮岛
+（`.tests-float`）。第一轮按评测浮岛改了一版，用户当场纠正后已**逐条撤回**（`git diff` 复核：EditorPaneGrid
+只剩 §79 那条 `tests-toggle-hint` 的 z-index，TestsPane 只剩 §78 的 grip 与「悬浮岛提交键」那笔既有未提交改动）。
+
+评测浮岛本来就在 2026-11-21 按菜单材质做过（面用 `color-mix(--menu-bg 78%)`、圆角 6×`--menu-scale`、
+`--menu-shadow`、无描边），这次不动它。
+
+### 80.1 卡片改成菜单容器
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| 描边 | `1px solid --border-hairline` | **无**（菜单靠 `--menu-shadow` 首层虚化发丝影收边） |
+| 圆角 | `10px` | `calc(6px * --menu-scale)`（5.52px，与 `.context-menu` 同值） |
+| 内边距 | `13px 14px 11px` | `calc(6px*scale*2) calc((--menu-item-pad-x + --menu-pad-x) * scale)` = 11.04 / 14.72 |
+| 文字色 | `--text` / `--text-dim` | 标题与状态 `--menu-text`；序号与圆点 `--menu-muted`；正文仍 `--text-dim`（11.5px 不用更暗的 muted） |
+| 完成态 | 描边转 `--ok` 42% | 影子里叠 `0 0 0 1px color-mix(--ok 45%)`（盒外一圈，不参与布局） |
+
+内边距为什么是「容器 + 条目」两档相加：菜单里文字距边框 = `--menu-pad-x` 4px + 条目 12px = 16px。
+卡片没有可点的条目行，就把两级并进容器，正文落在同一条读数上（≈14.7px，与改前 14px 几乎一致），
+不为了「像菜单」把文字挤到边。
+
+### 80.2 动作行与按钮
+
+- 「跳过本步 / 退出引导」上方补一条 `1px --menu-separator` 分隔线（+8px padding-top）：卡片里唯一的
+  可点区用菜单那套「分隔 + 条目」结构隔开。
+- 幽灵按钮：`border: none`、圆角 `calc(4px * --menu-scale)`、常态 `--menu-muted`、悬停
+  `--menu-hover-bg` + `--menu-hover-text`（菜单那枚深蓝胶囊），过渡 0.1s 与菜单条目同档。
+
+### 80.3 实测
+
+无头 Chrome、1400×980、`cp.uiScale = 1`、从头点「重看引导」：
+
+| 项 | 值 |
+|---|---|
+| 卡片盒 | `[172, 14, 292, 186]`（5 步轨道，第 1 步） |
+| 计算样式 | `bg = rgba(37,37,38,0.72)`、`radius = 5.52px`、`padding = 11.04px 14.72px`、`border = 0` |
+| 悬停「跳过本步」 | 底色 `--menu-hover-bg`、文字转白（截图确认是菜单同款深蓝胶囊） |
+| 浅色主题 | `bg = rgba(255,255,255,0.8)`、`--menu-text #616161`、分隔线 `#d4d4d4`，无发灰 |
+| 完成态 | 影子首层 `color(srgb .537 .820 .522 / .45) 0 0 0 1px` = 淡绿一圈 |
+| 430×860 窄屏 | 卡片 `[47, 572, 292, 222]`，横向不溢出（`scrollWidth = 430`） |
+
+`npm run lint:css` 18 条 / `lint:text` 62 条，与 §79 基线同数、无新增；`npx vitest run` 14 项通过。
+
+⚠️ 探针踩坑二：本机 dev 下的 `page.screenshot({ clip })` 与 `elementHandle.screenshot()` 在右键菜单上
+截出来的都是**菜单底下那块代码**（菜单 `visibility: visible`、`z-index: 120` 都对）。整页截图里菜单位置正确，
+判断是浮层 `backdrop-filter` 单独提层后与截图合成不一致。**对比浮层外观时以整页截图为准**，别再花时间调
+clip 坐标。

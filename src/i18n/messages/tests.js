@@ -353,18 +353,28 @@ export default {
         clickAgainCollapse: '再次点击折叠',
       },
 
-      /** 交互式新手引导（2026-11-21）：每步都要用户真做一次手势 */
+      /** 交互式新手引导（2026-11-21）：每步都要用户真做一次手势。
+       *  2026-11-22 加窄屏一套（`narrow`）：手机屏上岛固定停底部、图标栏在屏幕边上、
+       *  分隔线是横的、页头换成工作台的样例轨头 —— 宽屏那套话在窄屏说不通。 */
       guide: {
         aria: '评测岛交互式新手引导',
         done: '完成',
         repaired: '场景已复位，请按上面的提示再做一次',
         skipStep: '跳过本步',
         exit: '退出引导',
+        /** 窄屏图标栏贴哪条边（设置 › 外观 › 窄屏折叠方向），插进第一步文案的 {where} */
+        barTop: '顶部',
+        barBottom: '底部',
         steps: {
           detach: {
             title: '把「评测」拖进编辑区',
             text: '按住侧栏页头里「评测」这一半，拖到右侧编辑区后松手。侧栏若已收起，先点一下活动栏的「评测」图标把它展开。',
             doing: '现在：按住「评测」不放，拖进编辑区再松手',
+            narrow: {
+              title: '把「评测」拖进编辑区',
+              text: '手机屏上编辑区与侧栏没法并排：抽屉已经收起，编辑区就在眼前。按住{where}图标栏里那颗「评测」图标，往编辑区靠下的位置拖，松手后岛会停在屏幕下半部分。',
+              doing: '现在：按住{where}的「评测」图标，拖进编辑区再松手',
+            },
           },
           move: {
             title: '把岛拖到另一侧',
@@ -375,16 +385,31 @@ export default {
             title: '拖分隔条改大小',
             text: '岛和代码区之间有一条分隔线，按住它拖动，就能调整岛占的空间大小。',
             doing: '现在：按住岛与代码区之间的分隔线拖动',
+            narrow: {
+              title: '拖分隔条改大小',
+              text: '岛停在屏幕下半部分，它和代码区之间有一条横向分隔线。按住它上下拖动，就能改岛占多少屏幕。',
+              doing: '现在：按住岛与代码区之间的分隔线上下拖动',
+            },
           },
           toggle: {
-            title: '双击页头折叠',
-            text: '在岛的页头上快速点两下，它就会收成一座悬浮的小岛。',
-            doing: '现在：在岛页头上双击',
+            title: '双击页头空白折叠',
+            text: '页头最右端留着一小块空白（没有页签、也没有按钮），在那里快速点两下：第一下会冒出「再次点击折叠」，第二下才真的收起，岛就变成一座悬浮的小岛。',
+            doing: '现在：在页头最右端的空白处点两下',
+            narrow: {
+              title: '双击页头空白折叠',
+              text: '在岛页头那一行找一块没有页签、也没有按钮的空白（左右停靠时是最右端，停底部时是左侧样例轨的标题行），在那里快速点两下：第一下会冒出「再次点击折叠」，第二下才真的收起，岛就变成一座悬浮的小岛。',
+              doing: '现在：在页头空白处点两下',
+            },
           },
           float: {
             title: '拖浮岛换一条边',
             text: '按住悬浮小岛的任意位置，拖到编辑区的左边、右边或底边，松手后它会吸到那条边。',
             doing: '现在：按住浮岛，拖到另一条边再松手',
+            narrow: {
+              title: '拖浮岛换一条边',
+              text: '按住悬浮小岛，拖到编辑区的左边、右边或底边，松手后它会吸到那条边 —— 手机上它不会盖住整块代码区。',
+              doing: '现在：按住浮岛，拖到另一条边再松手',
+            },
           },
         },
       },
@@ -615,11 +640,19 @@ export default {
         repaired: 'Scene reset — follow the instruction above and try again',
         skipStep: 'Skip this step',
         exit: 'Exit tour',
+        /** which edge the narrow icon bar sits on; interpolated as {where} in step 1 */
+        barTop: 'top',
+        barBottom: 'bottom',
         steps: {
           detach: {
             title: 'Drag “Tests” into the editor',
             text: 'Press the “Tests” half of the sidebar header and drag it into the editor, then release. If the sidebar is collapsed, click the “Tests” icon in the activity bar first.',
             doing: 'Now: press “Tests” and drag it into the editor',
+            narrow: {
+              title: 'Drag “Tests” into the editor',
+              text: 'On a phone the editor and sidebar can’t sit side by side, so the drawer is already collapsed. Press the “Tests” icon in the {where} icon bar, drag it into the lower part of the editor, and release — the island docks to the bottom half of the screen.',
+              doing: 'Now: press the “Tests” icon at the {where} and drag it into the editor',
+            },
           },
           move: {
             title: 'Move the island to another side',
@@ -630,16 +663,31 @@ export default {
             title: 'Resize with the splitter',
             text: 'A splitter runs between the island and the code area. Press and drag it to change how much space the island takes.',
             doing: 'Now: drag the splitter between the island and the code',
+            narrow: {
+              title: 'Resize with the splitter',
+              text: 'The island sits in the bottom half of the screen, with a horizontal splitter between it and the code. Press it and drag up or down to change how much of the screen the island takes.',
+              doing: 'Now: drag the splitter up or down',
+            },
           },
           toggle: {
-            title: 'Double-click the header to collapse',
-            text: 'Quickly click the island header twice; it folds into a floating mini island.',
-            doing: 'Now: double-click the island header',
+            title: 'Double-click the blank header edge to collapse',
+            text: 'The far right of the island header keeps a small blank strip — no case tabs, no buttons. Click it twice quickly: the first click shows “Click again to collapse”, the second one folds the island into a floating mini island.',
+            doing: 'Now: click the blank strip at the right end of the header twice',
+            narrow: {
+              title: 'Double-click a blank spot on the header to collapse',
+              text: 'Find a blank spot on the island’s header row — no case tabs, no buttons (far right when docked sideways, the sample rail’s title row when docked at the bottom). Click it twice quickly: the first click shows “Click again to collapse”, the second folds the island into a floating mini island.',
+              doing: 'Now: double-click a blank spot on the header',
+            },
           },
           float: {
             title: 'Drag the float to another edge',
             text: 'Press anywhere on the floating island, drag it to the left, right or bottom edge, and release to snap it there.',
             doing: 'Now: drag the float to another edge',
+            narrow: {
+              title: 'Drag the float to another edge',
+              text: 'Press the floating island, drag it to the left, right or bottom edge, and release to snap it there — on a phone it stays a small pill instead of covering the code.',
+              doing: 'Now: drag the float to another edge',
+            },
           },
         },
       },
