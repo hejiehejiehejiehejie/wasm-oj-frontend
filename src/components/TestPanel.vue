@@ -619,7 +619,7 @@ const elapsedText = computed(() => {
         </AppTooltip>
         <AppTooltip v-if="showTabs && !runBlocked" class="run-one-wrap" :text="runOneTitle">
           <button class="btn-run-one" :disabled="runDisabled" @click="runActiveCase">
-            <AppIcon name="play" :size="14" />
+            <AppIcon name="play-solid" :size="14" />
             <span class="btn-run-one__label">{{ t('tests.panel.runOneLabel') }}</span>
           </button>
         </AppTooltip>
@@ -1142,8 +1142,10 @@ button.empty__link {
   color: var(--text);
 }
 
-/* 三个独立按钮按「幽灵 → 中性 → 主色」排成阶梯（2026-11-20 方案二）：
-   提交 = 无底图标；单跑 = 中性浅底 + 普通文字；全跑 = 唯一的 --ok 焦点钮，放最右收口。 */
+/* 三个独立按钮按「幽灵 → 中性 → 实心主色」排成阶梯（2026-11-24 改实心）：
+   提交 = 无底图标；单跑 = 实心暗灰底 + 亮文字；全跑 = 唯一实心绿，放最右收口。
+   不再用 --ok-face 的半透明微光面（Linear / LeetCode 口径）：主次层级靠
+   「实心主色 vs 实心灰面 vs 无底」一步到位，不用再让透明度去承担权重。 */
 .btn-run-one,
 .btn-run-all {
   display: inline-flex;
@@ -1162,25 +1164,26 @@ button.empty__link {
   transition: background-color 0.14s ease, color 0.14s ease, opacity 0.14s ease;
 }
 
-/* 次操作（运行）：中性浅灰，不参与绿色语义 —— 绿只留给全跑 */
+/* 次操作（运行）：实心暗灰，不参与绿色语义 —— 绿只留给全跑。
+   字色与三角统一用 --text（2026-11-24：从 --text-active 提亮一档回来），
+   图标走 currentColor 自然同步。 */
 .btn-run-one {
-  color: var(--text-dim);
+  color: var(--text);
   background: var(--bg-hover-soft);
 }
 
 :where(html.is-hoverable) .btn-run-one:hover:not(:disabled) {
-  color: var(--text);
   background: var(--bg-hover);
 }
 
-/* 主动作（全跑）：整排唯一的绿色焦点钮 */
+/* 主动作（全跑）：整排唯一的实心绿焦点钮 */
 .btn-run-all {
-  color: var(--ok);
-  background: var(--ok-face);
+  color: var(--run-green-text);
+  background: var(--run-green);
 }
 
 :where(html.is-hoverable) .btn-run-all:hover:not(:disabled) {
-  background: var(--ok-face-hover);
+  background: var(--run-green-hover);
 }
 
 .btn-run-one:disabled,
@@ -1330,18 +1333,18 @@ button.empty__link {
   padding: 0 12px;
   border-radius: 6px;
   font-size: 12.5px;
-  /* 低饱和度主操作（2026-10-24 选定）：不描边、不做实底，只铺一层 --ok 的 12% 微光面
-     （浅色主题见 base.css 的 8%）。面积与位置承担「这是这一栏的主按钮」，
-     颜色只负责「跑」这个动作的身份；悬停把同一块面加深一档，不换色。 */
-  color: var(--ok);
-  background: var(--ok-face);
-  border: 1px solid transparent;
+  /* 实心主操作（2026-11-24）：纯 --run-green 填充 + --run-green-text 字色、无边框。
+     不再铺 --ok 的半透明微光面 —— 实心色块自己撑起主按钮的权重，
+     与同排的灰面 / 幽灵按钮拉开一档就够；悬停加深一档，不换色。 */
+  color: var(--run-green-text);
+  background: var(--run-green);
+  border: 0;
   white-space: nowrap;
   transition: background-color 0.16s ease;
 }
 
 :where(html.is-hoverable) .run-inline:hover:not(:disabled) {
-  background: var(--ok-face-hover);
+  background: var(--run-green-hover);
 }
 
 .run-inline:disabled {

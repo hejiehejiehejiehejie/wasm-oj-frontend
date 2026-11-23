@@ -2258,8 +2258,9 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-/* 「运行全部」：沿用其他分项标签底栏那颗主色钮的语汇 ——
-   28px 高、6px 圆角、零描边、--ok 微光面 + run-all 图标，是轨底唯一的绿色焦点。 */
+/* 「运行全部」：与评测栏底栏那颗主钮同一套实心语汇（2026-11-24）——
+   28px 高、6px 圆角、零描边、--run-green 实心填充 + --run-green-text 字色，
+   是轨底唯一的绿色焦点。 */
 .workbench__run {
   display: inline-flex;
   align-items: center;
@@ -2273,14 +2274,14 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
-  color: var(--ok);
-  background: var(--ok-face);
+  color: var(--run-green-text);
+  background: var(--run-green);
   white-space: nowrap;
   transition: background-color 0.14s ease, color 0.14s ease, opacity 0.14s ease;
 }
 
 :where(html.is-hoverable) .workbench__run:hover:not(:disabled) {
-  background: var(--ok-face-hover);
+  background: var(--run-green-hover);
 }
 
 .workbench__run:disabled {
