@@ -3563,7 +3563,11 @@ function confirmUnbind() {
                       :class="{ 'is-missing': !asset.ok }"
                     >
                       {{ asset.key }} ·
-                      {{ asset.legacy ? t('runtime.diagnostics.legacyAsset') : formatDiagnosticBytes(asset.compressedSize) }}
+                      {{ asset.ok
+                        ? asset.legacy
+                          ? t('runtime.diagnostics.legacyAsset')
+                          : formatDiagnosticBytes(asset.compressedSize)
+                        : t('runtime.diagnostics.missingAsset') }}
                     </span>
                   </template>
                   <span v-else>{{ t('runtime.diagnostics.none') }}</span>

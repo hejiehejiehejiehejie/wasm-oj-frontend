@@ -146,6 +146,44 @@ export function clearLastInstalledAt() {
   }
 }
 
+/**
+ * 上一次下载失败的现场（纯诊断，**不参与任何就绪判定**）。
+ *
+ * 为什么单独记一笔：真机报障时最缺的恰恰是「失败发生在哪一件、收到多少字节、
+ * 是 fetch 断了还是写盘断了」。这些事实只在失败的现场有，用户重试 / 刷新之后就没了。
+ * 所以失败时写进 localStorage，成功提交 manifest 时清掉 —— 诊断 JSON 里读到的
+ * 一定是「最近一次真实的失败」，而不是一条早该作废的历史。
+ */
+export const LAST_DOWNLOAD_FAILURE_KEY = 'cp.toolchain.lastFailure'
+
+/** 读上一次下载失败的现场；没有 / 坏值 / 隐私模式一律返回 null */
+export function readLastDownloadFailure() {
+  try {
+    const raw = localStorage.getItem(LAST_DOWNLOAD_FAILURE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function rememberDownloadFailure(failure) {
+  try {
+    localStorage.setItem(LAST_DOWNLOAD_FAILURE_KEY, JSON.stringify(failure))
+  } catch {
+    /* 只是诊断痕迹，写不进去不影响这次下载的报错 */
+  }
+}
+
+function forgetDownloadFailure() {
+  try {
+    localStorage.removeItem(LAST_DOWNLOAD_FAILURE_KEY)
+  } catch {
+    /* 同上：清不掉也只会让诊断里多一条陈旧记录 */
+  }
+}
+
 /** 新格式（预压缩 .gzbin，页面直接落桶） */
 export const TOOLCHAIN_ASSET_URLS = {
   clang: `${ASSETS}/clang.wasm.gzbin`,
@@ -358,46 +396,85 @@ export async function putAsset(url, response, { expectedSize, onProgress }) {
  * @param {{ signal?: AbortSignal, onProgress?: (progress: { loaded: number, total: number, key: string }) => void }} [options]
  */
 export async function downloadToolchain({ signal, onProgress } = {}) {
-  const list = await fetchAssetList()
-  const total = list.assets.reduce((sum, asset) => sum + asset.compressedSize, 0)
-
-  const assets = []
+  const startedAt = Date.now()
+  // 失败现场：phase 说明卡在哪一步，key / assetLoaded 说明卡在哪一件的第几字节。
+  // 这三个值只在 catch 里用得到，但必须在每一步之前更新 —— 异常一旦抛出就没有第二次机会。
+  let phase = 'manifest'
+  let currentKey = null
+  let currentURL = null
+  let assetLoaded = 0
   let done = 0
-  for (const key of TOOLCHAIN_ASSET_KEYS) {
-    const asset = list.assets.find((item) => item.key === key)
-    if (!asset) throw new Error(`工具链清单缺少 ${key}`)
-    const url = `${ASSETS}/${asset.file}`
-    // no-store：这份 body 要原样进 Cache Storage，不能再让 HTTP 磁盘缓存存第二份 38MB
-    const response = await fetch(url, { cache: 'no-store', signal })
-    if (!response.ok) {
-      throw new Error(`${asset.file} 下载失败（HTTP ${response.status}）`)
-    }
-    await putAsset(url, response, {
-      expectedSize: asset.compressedSize,
-      onProgress: (loaded) => {
-        onProgress?.({ key, loaded: done + loaded, total })
-      },
-    })
-    done += asset.compressedSize
-    assets.push({
-      key,
-      url,
-      compressedSize: asset.compressedSize,
-      uncompressedSize: asset.uncompressedSize,
-    })
-  }
+  let total = 0
 
-  // 三件全部复验通过，才提交。此前任何失败都不会留下「已就绪」的假象。
-  const manifest = {
-    version: TOOLCHAIN_VERSION,
-    format: TOOLCHAIN_FORMAT,
-    createdAt: Date.now(),
-    assets,
+  try {
+    const list = await fetchAssetList()
+    total = list.assets.reduce((sum, asset) => sum + asset.compressedSize, 0)
+
+    const assets = []
+    for (const key of TOOLCHAIN_ASSET_KEYS) {
+      const asset = list.assets.find((item) => item.key === key)
+      if (!asset) throw new Error(`工具链清单缺少 ${key}`)
+      currentKey = key
+      currentURL = `${ASSETS}/${asset.file}`
+      assetLoaded = 0
+      // no-store：这份 body 要原样进 Cache Storage，不能再让 HTTP 磁盘缓存存第二份 38MB
+      phase = 'fetch'
+      const response = await fetch(currentURL, { cache: 'no-store', signal })
+      if (!response.ok) {
+        throw new Error(`${asset.file} 下载失败（HTTP ${response.status}）`)
+      }
+      phase = 'write'
+      await putAsset(currentURL, response, {
+        expectedSize: asset.compressedSize,
+        onProgress: (loaded) => {
+          assetLoaded = loaded
+          onProgress?.({ key, loaded: done + loaded, total })
+        },
+      })
+      done += asset.compressedSize
+      assetLoaded = 0
+      assets.push({
+        key,
+        url: currentURL,
+        compressedSize: asset.compressedSize,
+        uncompressedSize: asset.uncompressedSize,
+      })
+    }
+
+    // 三件全部复验通过，才提交。此前任何失败都不会留下「已就绪」的假象。
+    phase = 'manifest'
+    const manifest = {
+      version: TOOLCHAIN_VERSION,
+      format: TOOLCHAIN_FORMAT,
+      createdAt: Date.now(),
+      assets,
+    }
+    await writeCachedManifest(manifest)
+    // 成功了就把上一次失败的现场清掉，诊断里不该再躺着一条早已被修复的理由
+    forgetDownloadFailure()
+    // 清理旧 `.br` 是 best-effort：manifest 已经提交，清理失败不能把一次成功的下载判成失败
+    void deleteLegacyEntries()
+    return manifest
+  } catch (error) {
+    rememberDownloadFailure({
+      at: new Date().toISOString(),
+      elapsedMs: Date.now() - startedAt,
+      phase,
+      key: currentKey,
+      url: currentURL,
+      // assetLoaded 是这一件已经落盘的字节；loaded 是相对 38MB 总盘的位置，
+      // 两者一起看才能区分「整包重来」与「单件被截断」
+      assetLoaded,
+      loaded: done + assetLoaded,
+      total,
+      name: error?.name ?? null,
+      code: error?.code ?? null,
+      message: String(error?.message ?? error),
+      // 假在线（连着没有外网的 Wi-Fi）时 navigator.onLine 仍是 true，记下来供分流
+      online: typeof navigator === 'undefined' ? null : navigator.onLine,
+    })
+    throw error
   }
-  await writeCachedManifest(manifest)
-  // 清理旧 `.br` 是 best-effort：manifest 已经提交，清理失败不能把一次成功的下载判成失败
-  void deleteLegacyEntries()
-  return manifest
 }
 
 /**
@@ -653,6 +730,9 @@ export async function collectToolchainDiagnostics({ workerUrl = '' } = {}) {
       legacyCached: null,
       manifest: null,
       assets: [],
+      // 最近一次下载失败的现场（见 LAST_DOWNLOAD_FAILURE_KEY）。成功下载后会是 null；
+      // 页面刷新不影响它 —— 报障时用户往往已经重试过一轮，现场只剩这里。
+      lastDownloadFailure: readLastDownloadFailure(),
     },
   }
 
