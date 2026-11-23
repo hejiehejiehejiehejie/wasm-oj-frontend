@@ -220,7 +220,7 @@
      低一档的暖白既保住对比，又不抢眼 —— 想提亮只在浅色主题里回到纯白。 */
   --run-green: #238636;
   --run-green-hover: #2ea043;
-  --run-green-text: #dce6df;
+  --run-green-text: #d2dcd5;
 
   /* 状态色：文字色 + 底纹（用于卡片、输出块） */
   --ok: #89d185;

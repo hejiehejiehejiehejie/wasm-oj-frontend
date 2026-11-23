@@ -1165,10 +1165,10 @@ button.empty__link {
 }
 
 /* 次操作（运行）：实心暗灰，不参与绿色语义 —— 绿只留给全跑。
-   字色与三角统一用 --text（2026-11-24：从 --text-active 提亮一档回来），
+   字色与三角统一用 --text-active（夹在 --text 与 --text-dim 之间的一档），
    图标走 currentColor 自然同步。 */
 .btn-run-one {
-  color: var(--text);
+  color: var(--text-active);
   background: var(--bg-hover-soft);
 }
 
