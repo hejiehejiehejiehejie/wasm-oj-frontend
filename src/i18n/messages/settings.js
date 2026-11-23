@@ -49,6 +49,19 @@ export default {
         installExtension: '安装浏览器插件',
         updateExtension: '更新浏览器插件',
         downloadExtension: '下载浏览器插件',
+        /* 反馈（2026-11-23 从组件菜单挪进来）：动作行，点开的是 FeedbackDialog */
+        feedback: '反馈',
+      },
+
+      /**
+       * 反馈弹窗（FeedbackDialog）的文案。入口是菜单里那一行「反馈」，
+       * 所以归在 settings 域；两个落点都是站外链接，文案只描述去处。
+       */
+      feedback: {
+        title: '反馈',
+        desc: '遇到问题或有建议？可以在 GitHub 提 Issue，也可以到留言板留言。',
+        issue: 'GitHub Issue',
+        board: '留言板',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */
@@ -688,6 +701,15 @@ export default {
         installExtension: 'Install the extension',
         updateExtension: 'Update the extension',
         downloadExtension: 'Download the extension',
+        feedback: 'Feedback',
+      },
+
+      /** Copy for FeedbackDialog — opened from the "Feedback" row above. */
+      feedback: {
+        title: 'Feedback',
+        desc: 'Found a problem or have a suggestion? Open an issue on GitHub, or leave a note on the message board.',
+        issue: 'GitHub Issue',
+        board: 'Message Board',
       },
 
       /** 模板：新建文件时按语言填入的初始正文（状态在 services/fileTemplates.js） */

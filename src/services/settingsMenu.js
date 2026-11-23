@@ -64,6 +64,7 @@ import {
 import { appInstalled, canInstall, install, MANUAL_INSTALL_BROWSER } from '../composables/useInstallPrompt.js'
 import { extensionInfo } from '../composables/useCompanionBridge.js'
 import { fireSectionGuide } from './installGuides.js'
+import { openFeedback } from './feedback.js'
 import {
   EXTENSION_ROUTES,
   downloadExtensionPackage,
@@ -317,5 +318,16 @@ export const SETTINGS_MENU_ROWS = [
      * 那一页。上面那几档（缩放 / 语言）反过来 —— 选完留在原地才好连着试（见文件头）。
      */
     closes: true,
+  },
+
+  { kind: 'divider' },
+
+  {
+    // 反馈（2026-11-23 从组件菜单挪进设置菜单）：动作行，点完菜单收起，
+    // 卡片本体挂在 App.vue（开关见 services/feedback.js）。
+    id: 'feedback',
+    kind: 'action',
+    labelKey: 'settings.menu.feedback',
+    run: () => openFeedback(),
   },
 ]

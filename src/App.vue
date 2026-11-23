@@ -10,6 +10,7 @@ import FileExplorer from './components/FileExplorer.vue'
 import ToolchainGate from './components/ToolchainGate.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import CountdownCard from './components/CountdownCard.vue'
+import FeedbackDialog from './components/FeedbackDialog.vue'
 import { t } from './i18n/index.js'
 import { usePersistentRef } from './composables/usePersistentRef.js'
 import { uiScale } from './composables/useUiScale.js'
@@ -2402,6 +2403,10 @@ onBeforeUnmount(() => {
     <!-- 悬浮倒计时卡：常驻挂载，显隐只看 services/countdown.js 里的 open；
          位置/计时跨刷新保留，入口在齿轮菜单的「倒计时」 -->
     <CountdownCard />
+
+    <!-- 反馈卡：入口在组件菜单底部那一行。挂在这里而不是菜单里 ——
+         菜单点完就收、整棵卸载，弹窗得比它活得久一些（开关见 services/feedback.js）。 -->
+    <FeedbackDialog />
 
     <!-- 提交确认：点页脚那颗提交 / 按 Mod+Shift+Enter 都先停在这里，点「确认提交」
          才真的发。外壳走 AppDialog，点遮罩 / Esc = 取消。
