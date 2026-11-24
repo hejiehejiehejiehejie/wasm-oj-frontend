@@ -146,8 +146,10 @@ const contextTarget = computed(() => (isPane.value ? '#tests-pane-context' : '#s
  * 所以设置里改完这块面板当场就换。外壳与正文的划分见 TestCaseTabs / TestCaseCard
  * 的文件头，这一层只管「渲染哪一套」与两种模式共用的空态 / 页脚。
  */
-// 用例空着时一律退回列表模式的空态（黄金分割处那行字 + 底部虚线框）：
+// 用例空着时一律退回列表模式的空态外壳：
 // 分项模式的标签轨与状态栏在 0 条用例时没有意义，而空态只有一份实现，不必写两套。
+// 2026-11-24 起分项偏好下这颗添加按钮也收回空态里（标题下方居中，见 `.empty__add`），
+// 列表偏好下仍是底部那颗通栏 Add New —— 同一片空白里只放一个添加入口。
 const showTabs = computed(() => caseView.value === 'tabs' && props.cases.length > 0)
 
 /**
@@ -220,23 +222,9 @@ const submitTitle = computed(() => {
   return combo ? t('tests.submit.buttonTip', { key: combo }) : t('tests.submit.button')
 })
 /**
- * 空态那行标题（2026-11-18 改口径）：跑不了（`runBlocked` 非空）时标题**就是原因**
- * ——「非代码文件无法运行」/「没有打开的文件」由 App 各给一句；其余情形仍是写死的
- * `No test cases yet.`（用户 2026-10-06 定：这句不翻，与三个小标题 input / Expected /
- * Actual 同一个理由）。
- *
- * 为什么放宽到整个 `runBlocked`（用户 2026-11-18 要求）：非代码文件（题解这类）也
- * 跑不了，空列表上顶一句「No test cases yet.」同样不对题 —— 没有能跑的代码，哪来的
- * 用例结论。2026-11-17 那版只认「一个文件都没打开」（`noFile`），题解那条被排除在
- * 外，是口径收窄错了；现在统一成「闸门关着 → 标题说原因」，`noFile` prop 随之删除。
- *
- * ⚠️ 页脚那行要跟着避让：标题已经把原因说了，页脚再说一遍就是重复 —— 见 `footBlocked`。
- */
-const emptyTitle = computed(() => props.runBlocked || 'No test cases yet.')
-
-/**
- * 页脚那行「为什么跑不了」：只在**列表里还有用例**时兜底显示 —— 那时空态标题
- * 根本不渲染（`.empty` 那个 `li` 是 `v-if="!cases.length"`），原因没处说，页脚补上；
+ * 页脚那行「为什么跑不了」：只在**列表里还有用例**时兜底显示 —— 空态那行标题
+ * 只说明「跑不了」的原因（见模板里 `.empty`），列表非空时它根本不渲染
+ * （`.empty` 那个 `li` 是 `v-if="!cases.length"`），原因没处说，页脚补上；
  * 列表空着时标题已经说了同一句话，页脚让它空着，一句话只在一个地方说。
  * 两个 ▶ 与卡片 ▶ 的置灰、title 仍用 `runBlocked`，一个字都没少。
  */
@@ -254,7 +242,7 @@ const footBlocked = computed(() => (props.cases.length ? props.runBlocked : ''))
  * 任何用例数都没有意义，留着反而误导。
  *
  * 2026-11-21 用户要求：一条用例都没有时也不画 —— 那时页头那颗只会写「无测试用例」，
- * 与空态标题「No test cases yet.」说的是同一件事；侧栏页头因此不再出现这行字。
+ * 与空态本身说的是同一件事；侧栏页头因此不再出现这行字。
  */
 const showVerdict = computed(() => !props.runBlocked && props.cases.length > 0)
 
@@ -268,10 +256,11 @@ const narrowSidebar = computed(() => !isPane.value && isNarrowLayout())
 /**
  * 紧凑底栏是否成立（2026-11-20 方案二）：左右停靠的评测岛、窄屏侧栏，或侧栏的分项标签
  * 视图（整岛方案已整合进侧栏，正文 / 页签 / 底栏共用同一套）。
- * 列表流空着时不换 —— 末尾那颗「添加测试样例」正需要多出来的高度，而且底栏左侧会是一颗
- * 与空态标题重复的「无测试用例」。
- * 分项标签空态则用紧凑底栏（2026-11-21 用户要求）：否则会退回底部那条通栏绿色
- * 「运行全部」，与有样例时的 28px 胶囊排不是同一个样式。
+ * 列表流空着时不换 —— 末尾那颗「添加样例」正需要多出来的高度，而且底栏左侧会是一颗
+ * 与空态状态重复的「无测试用例」。
+ * 分项标签空态曾用紧凑底栏（2026-11-21 用户要求），2026-11-24 改为**底栏整体隐藏**：
+ * 0 个样例时置灰的「运行全部」没有交互价值，空态区块下面空出来更舒展
+ * （见模板里两处 `cases.length` 守卫）。
  */
 const verticalBar = computed(
   () =>
@@ -450,19 +439,9 @@ const elapsedText = computed(() => {
     <!-- 两种列表面孔二选一（2026-11-19）：列表流 / 分项标签。同一时刻只有一套在 DOM 里 ——
          不是 v-show —— 因为分项模式的核心就是「只留一份正文」：挂着四张卡不动，
          等于四份 textarea、四份差异计算、四条折叠外壳一起常驻。
-         2026-11-21：分项标签空着时也把页签轨渲染出来（`railOnly`），添加按钮住在轨里；
-         正文那片空白继续复用下面这套 `.cases` 空态（标题 + 抓样提示），列表流也不变。 -->
-    <TestCaseTabs
-      v-if="caseView === 'tabs' && !cases.length && !runBlocked"
-      rail-only
-      :cases="cases"
-      :running="running"
-      :run-blocked="runBlocked"
-      :add-title="addTitle"
-      :teleport-rail="isPane"
-      :vertical="verticalDock"
-      @add="emit('add')"
-    />
+         2026-11-24（用户要求）：分项标签一条样例都没有时不渲染页签轨 —— 不必为「以后
+         这里会是标签栏」在页头留一条空轨，添加按钮收回下面 `.empty` 里、标题下方居中。
+         点完添加、出现「样例 1」之后页签轨再照常回来。 -->
     <ul
       v-if="caseView === 'list' || !cases.length"
       ref="listEl"
@@ -473,23 +452,26 @@ const elapsedText = computed(() => {
       }"
     >
       <li v-if="!cases.length" class="empty">
-        <!-- 分项标签的空态（2026-11-21）：添加动作已经挪进上面的页签轨（那里唯一的
-             一枚虚线「空页签」），这里只留标题 / 抓样提示。列表流仍是原来的
-             「一行淡灰字 + 底部通栏 Add New」。 -->
-        <!-- 列表流的空态仍然只有这一行（2026-10-06）：原先还有一句「点击下方按钮新增一个
-             用例…」和一颗「添加第一个用例」大按钮，前者是废话、后者与列表末尾那颗
-             「添加测试样例」重复（那颗当时在页脚，2026-10-23 挪进列表）。
-             这句话默认**写死英文、两套界面语言都一样**（用户 2026-10-06 定，参照稿里就是
-             这行居中的淡灰字）：与三个小标题 input / Expected / Actual 同一个理由 ——
-             它是一句格式固定的状态语，翻成中文反而与整块面板的英文标签混搭。所以它
-             **不在消息表里**。
-             **例外（2026-11-18，用户要求）**：跑不了（`runBlocked` 非空）时换成跑不了的
-             原因 ——「非代码文件无法运行」/「没有打开的文件」（`emptyTitle`，两种情形 App
-             各给了一句独立成案的文案）。那种情形下「没有用例」是句废话 —— 代码跑不了，
-             用例当然没有结论；真正该说的是「为什么跑不了」。这句话原先写在页脚那行
-             `.run-blocked` 里，同一个意思不说两遍（页脚避让见 `footBlocked`）。
-             抓样提示（notice）保留 —— 它是插件自动抓样例那一路唯一的反馈，且仍按语言翻。 -->
-        <p class="empty__title">{{ emptyTitle }}</p>
+        <!-- 空态（2026-11-24 用户要求）：正常空态**不再写「暂无样例」这行标题** ——
+             「一条用例都没有」是最显然的状态，这句话只是占了黄金分割点。现在只留
+             「添加样例」按钮 + 抓样提示，一屏很轻。
+             唯一例外是跑不了（`runBlocked` 非空）：那行换成闸门原因
+             （「非代码文件无法运行」/「没有打开的文件」，App 各给一句），因为这时
+             连添加按钮都不出现；不说明原因，用户就不知道发生了什么。
+             列表流仍是原来的「底部通栏 Add New」。 -->
+        <p v-if="runBlocked" class="empty__title">{{ runBlocked }}</p>
+        <!-- 分项标签空态的主操作（方案三）：实心高对比，「点这里开始」的确定感。
+             跑不了（`runBlocked`）时不画 —— 与列表末尾、页脚两颗按钮的闸门一致。 -->
+        <button
+          v-if="caseView === 'tabs' && !runBlocked"
+          type="button"
+          class="empty__add"
+          :disabled="running"
+          @click="emit('add')"
+        >
+          <AppIcon name="plus" :size="14" />
+          <span>{{ t('tests.panel.addCase') }}</span>
+        </button>
         <!-- 跑不了的原因现在在空态标题里说（见上），这一栏越干净越好。
              抓样那三条提示仍然照旧（它们说的是「样例为什么还没到手」，与能不能运行无关）。 -->
         <p v-if="notice" class="empty__notice" :data-tone="notice.tone">
@@ -584,8 +566,10 @@ const elapsedText = computed(() => {
 
     <!-- 紧凑底栏（2026-11-20 方案二；侧栏分项视图同款）：左状态、右动作。
          右侧三个独立控件按「幽灵 → 中性 → 主色」排成阶梯：提交无底、单跑中性浅底、
-         全跑是唯一的绿色焦点钮并放在最右收口，不再让两颗绿钮互相抢焦点。 -->
-    <footer v-if="verticalBar" class="panel__foot is-vertical">
+         全跑是唯一的绿色焦点钮并放在最右收口，不再让两颗绿钮互相抢焦点。
+         2026-11-24（用户要求）：0 个样例时整条底栏不渲染 —— 置灰的「运行全部」
+         没有交互价值，空态区块下面空出来，视觉更舒展。 -->
+    <footer v-if="verticalBar && cases.length" class="panel__foot is-vertical">
       <div class="panel__foot-status">
         <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
         <template v-else-if="showVerdict && cases.length && (isPane || narrowSidebar)">
@@ -633,16 +617,16 @@ const elapsedText = computed(() => {
     </footer>
 
     <footer
-      v-else
+      v-else-if="!verticalBar && cases.length"
       class="panel__foot"
       :class="{ 'is-more-below': moreBelow && !compactActions, 'is-compact': compactActions }"
     >
       <!-- 跑不了的原因写成一行看得见的字（置灰的按钮在浏览器里收不到鼠标事件，
            title 也就悬不出来）。**提交那条不在这里**：交不了的时候那颗按钮压根不渲染
            （见 showSubmit 与 App 里那段说明）。
-           2026-11-18：`footBlocked` 只在列表里还有用例时兜底 —— 列表空着时空态标题
-           已经说了同一句话（见 `emptyTitle`），页脚再写一遍就是重复；列表非空时
-           `.empty` 那个 `li` 根本不渲染，原因没处说，这里补上。
+           2026-11-18：`footBlocked` 只在列表里还有用例时兜底 —— 列表空着时空态里
+           已经说了同一句话（见 `.empty` 里那颗 `runBlocked` 标题），页脚再写一遍
+           就是重复；列表非空时 `.empty` 那个 `li` 根本不渲染，原因没处说，这里补上。
            2026-11-20（底部横跨）：动作条整排 Teleport 进岛页头（compactActions），
            页脚只剩可能的原因行；没有原因时整条塌成 0 高。 -->
       <p v-if="footBlocked" class="run-blocked">{{ footBlocked }}</p>
@@ -886,27 +870,89 @@ const elapsedText = computed(() => {
   color: var(--text-faint);
 }
 
-/* 自动抓取样例那一路的提示：见模板里的说明 */
+/* 分项标签空态的主操作（2026-11-24）：页签轨已隐藏，添加按钮收回这块空态
+   里、标题下方居中。
+   材质与「▶ 运行」同系（2026-11-24 用户要求，按钮降噪）：暗灰实底 + 一档悬停，
+   放弃纯白反转底 —— 它只是「点这里开始」，不该比运行按钮更刺眼。
+   2026-11-24 再按用户要求去掉描边：暗灰实底本身已经和背景分得开，加线反而显重。
+   字号 13 / 常规字重 / 高 32 / 圆角 6，与次级按钮同一把尺。
+   间距：标题 → 按钮 16px（gap 6 + margin 10），按钮 → 抓样提示 24px（见下一条）。 */
+.empty__add {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--bg-hover-soft);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+}
+
+/* 图标比文字收暗一档（≈zinc-400），13px 常规字重下更协调 */
+.empty__add svg {
+  flex: none;
+  color: var(--text-dim);
+}
+
+/* 悬停只提一档底色（--bg-hover-soft → --bg-hover），不描边 ——
+   与「运行」按钮同一套反馈，不做反转或变色。 */
+:where(html.is-hoverable) .empty__add:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.empty__add:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 有主按钮时，抓样提示与它拉开 14px（gap 6 + 8）—— 提示是次级信息，但
+   2026-11-24 用户觉得原来的 24px 松了，收近一档，两块读作一组。 */
+.empty__add + .empty__notice {
+  margin-top: 8px;
+}
+
+/* 自动抓取样例那一路的提示：见模板里的说明。
+   2026-11-24：收一个 260px 的宽度上限，避免长句在宽面板里拉成一整行、
+   换行时又只把最后一两个字挤到第二行（「页。」孤字）。
+   颜色再压一档到 --text-faint（深色≈zinc-500 / 浅色≈zinc-400）：按钮降成灰底后，
+   这行提示不能反客为主变成画面最亮的元素（用户 2026-11-24 要求「低对比冷灰」）。 */
 .empty__notice {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 0;
+  max-width: 260px;
+  margin: 0 auto;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--text-dim);
+  color: var(--text-faint);
+}
+
+/* 两行排匀：text-wrap: balance 让浏览器按「行长接近相等」去切，而不是
+   先填满第一行、再把剩余几个字丢到第二行。只影响折行，不影响短句。 */
+.empty__notice > span {
+  min-width: 0;
+  text-wrap: balance;
 }
 
 .empty__notice[data-tone='info'] {
   color: var(--accent-strong);
 }
 
-.empty__notice[data-tone='warn'] {
-  color: var(--warn);
-}
+/* 2026-11-24（用户要求，提示语降噪）：warn 态正文不再整行铺暖黄 —— 纯黑白灰的
+   画面里，整句黄字太抢眼。这条染色规则因此删除，颜色统一走上面的 --text-faint。 */
 
-/* 提示里的题目链接：与整行同字号同色系，只靠下划线表明「可点」，不抢戏 */
+/* 提示里的题目链接：真正的外链导航，保留强调色，只靠下划线表明「可点」 */
 .empty__link {
   color: var(--accent-hover);
   text-decoration: underline;
@@ -915,14 +961,18 @@ const elapsedText = computed(() => {
 
 /* 同一套外观的站内跳转（「安装或重载插件」）：它是个 <button>，把默认盒模型清零，
    字号 / 行高跟着整行走（`font: inherit`），免得与旁边的外链长短高低不一致。
-   **颜色也继承整行**（2026-11-12 用户要求）：那句提示整行是 warn 色，跳转段跟着它同色，
-   只留一条下划线表明可点 —— 蓝字在这一行里太跳，像另一个控件。 */
+   2026-11-12 曾让颜色继承整行（蓝字太跳）；2026-11-24 用户要求：正文压成冷灰后，
+   这颗用 --text（≈zinc-300）就足够亮，不必再铺暖黄；下划线用 --text-faint，
+   offset 拉到 4px，悬停只加粗、不改色。 */
 button.empty__link {
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
-  color: inherit;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--text-faint);
+  text-underline-offset: 4px;
   cursor: pointer;
 }
 
@@ -930,10 +980,10 @@ button.empty__link {
   color: var(--accent-strong);
 }
 
-/* 站内跳转没有「变色」这层反馈了（颜色跟着整行走），改用下划线加粗一档顶上 ——
-   比 `<a>` 那个悬停变色的强度低，但鼠标扫过仍能看出这颗是可点的 */
+/* 站内跳转的悬停只把下划线提亮一档 + 加粗，颜色保持 --text（别变回蓝色） */
 :where(html.is-hoverable) button.empty__link:hover {
-  color: inherit;
+  color: var(--text);
+  text-decoration-color: var(--text-dim);
   text-decoration-thickness: 2px;
 }
 
@@ -962,7 +1012,7 @@ button.empty__link {
   margin-top: auto;
 }
 
-/* 分项标签空态已经把「添加」做成中心那颗页签胶囊，列表末尾的通栏 Add New
+/* 分项标签空态已经有中心那颗主操作（见 .empty__add），列表末尾的通栏 Add New
    不再出现 —— 同一片空白里不放两个添加入口。 */
 .cases.is-tabs-empty .cases__add {
   display: none;

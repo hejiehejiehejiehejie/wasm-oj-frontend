@@ -51,12 +51,6 @@ const props = defineProps({
    */
   workbench: Boolean,
   /**
-   * 只渲染标签轨（2026-11-21）：分项标签的空态没有页签可显示，但仍要那根
-   * 「页签栏」在场，添加按钮也住在里面。视口与正文整块不渲染，根节点让出高度，
-   * 由 TestPanel 的空态标题接管下面那片空白。
-   */
-  railOnly: Boolean,
-  /**
    * 纵向停靠档（2026-11-20 方案二，左右停靠的评测岛）：
    * 标签轨变成平齐的 IDE 页签（去胶囊），删掉 36px 状态栏，
    * 单样例结论挂进 ACTUAL 列头，正文交给 TestCaseBody 的满高分栏。
@@ -783,7 +777,7 @@ onBeforeUnmount(() => {
     class="tabs-view"
     :class="[
       `is-label-${labelFormat}`,
-      { 'is-embedded': teleportRail, 'is-vertical': vertical, 'is-rail-only': railOnly },
+      { 'is-embedded': teleportRail, 'is-vertical': vertical },
     ]"
   >
     <!-- 标签轨（36px，不随下方正文滚动）：可滚的胶囊轨道 + 轨外固定的虚线「+」。
@@ -871,15 +865,11 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="tab-add"
-            :class="{ 'is-empty': !cases.length }"
             :aria-label="t('tests.panel.addCase')"
             :disabled="running || Boolean(runBlocked)"
             @click="requestAdd"
           >
             <AppIcon name="plus" :size="14" />
-            <span v-if="!cases.length" class="tab-add__label">{{
-              t('tests.panel.addCase')
-            }}</span>
           </button>
         </AppTooltip>
 
@@ -898,7 +888,6 @@ onBeforeUnmount(() => {
          元素不重挂，textarea 的 undo 栈与滚动位置都留着，高度由组件内那条 flush:'post'
          的 watch 在绘制前重算 —— 绑 key 就会退回到「先按 min-height 排一帧」的闪烁。 -->
     <div
-      v-if="!railOnly"
       ref="viewportEl"
       class="case-viewport"
       :class="{ 'is-vertical': vertical, 'is-bento': !vertical }"
@@ -1144,12 +1133,6 @@ onBeforeUnmount(() => {
    这样页头内容、正文第一列盒面、页脚按钮落在同一条竖直基准线上。 */
 .tabs-view.is-embedded {
   padding: 0;
-}
-
-/* 空态只借这根轨（2026-11-21）：别把 flex:1 的正文壳撑起来，下面那片
-   空白留给 TestPanel 的 `.empty` 标题。 */
-.tabs-view.is-rail-only {
-  flex: 0 0 auto;
 }
 
 /* ---------------------------------------------------------- 一、标签轨 36px */
@@ -1737,34 +1720,6 @@ onBeforeUnmount(() => {
 :where(html.is-hoverable) .case-tabs .tab-add:hover:not(:disabled) {
   border-color: transparent;
   background: var(--bg-hover);
-  color: var(--text);
-}
-
-/* 空轨（2026-11-21 用户要求把添加按钮挪进页签栏）：没有页签时这颗「+」就是轨道里
-   唯一的一枚「空页签」，带上文案并按内容撑宽。放在 `.case-tabs .tab-add` 后面并用同名
-   提升一级特异度 —— 那套无边框 24×24 幽灵钮的规则在上面，会把它按回图标尺寸。
-   虚线 / 26px 高 / 6px 圆角仍与页签、列表末尾那颗 Add New 同一把尺。 */
-.case-tabs .tab-add.is-empty {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: auto;
-  height: 26px;
-  padding: 0 11px;
-  border: 1px dashed var(--border-hairline);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-:where(html.is-hoverable) .case-tabs .tab-add.is-empty:hover:not(:disabled) {
-  border-color: var(--border);
-  background: var(--bg-hover-soft);
   color: var(--text);
 }
 

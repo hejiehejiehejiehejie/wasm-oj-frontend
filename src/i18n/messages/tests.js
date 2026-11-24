@@ -12,10 +12,10 @@ export default {
     tests: {
       panel: {
         ariaLabel: 'unnamed 评测面板',
-        addCase: '添加测试样例',
-        /** 页脚「添加测试样例」的原生 title（2026-10-24 凌晨加快捷键）：动作名 + 绑定表里的组合键，
-            口径与 `runAllTip` 同一套 */
-        addCaseTip: '添加测试样例（{key}）',
+        addCase: '添加样例',
+        /** 页脚「添加样例」的原生 title（2026-10-24 凌晨加快捷键）：动作名 + 绑定表里的组合键，
+            口径与 `runAllTip` 同一套。2026-11-24 用户要求文案减字（测试样例 → 样例）。 */
+        addCaseTip: '添加样例（{key}）',
         runAll: '运行全部测试用例',
         /** 页脚主按钮的原生 title（2026-10-24 凌晨加快捷键）：动作名 + 绑定表里的组合键，
             括号写法中英各一套（全角 / 半角），别在代码里拼字符串 */
@@ -31,11 +31,11 @@ export default {
          * 运行闸门：活跃文件不是能判题的代码时，两个 ▶ 置灰，这句话同时充当
          * 空态标题 / 页脚说明与它们的 title。「没打开文件」与「打开的不是代码」分开写。
          *
-         * 2026-11-18 起这两条**都兼职空态那行标题**（跑不了时顶掉写死的
-         * `No test cases yet.`，见 TestPanel 的 `emptyTitle`；2026-11-17 那版只有
-         * `runBlockedNoFile` 兼职，2026-11-18 放宽到两条都是）—— 列表非空时页脚那行
-         * 兜底再说一次，列表空着时只说标题这一处。所以两条的两种语言都必须能独立成句，
-         * 别写成「同上」「见上」这类依赖上下文的短语。
+         * 2026-11-18 起这两条**都兼职空态那行原因**（跑不了时出现；正常空态的
+         * 「暂无样例」标题已于 2026-11-24 删除，见 TestPanel 的 `.empty`；
+         * 2026-11-17 那版只有 `runBlockedNoFile` 兼职，2026-11-18 放宽到两条都是）——
+         * 列表非空时页脚那行兜底再说一次，列表空着时只说空态这一处。所以两条的
+         * 两种语言都必须能独立成句，别写成「同上」「见上」这类依赖上下文的短语。
          */
         runBlocked: '非代码文件无法运行',
         runBlockedNoFile: '没有打开的文件',
@@ -43,20 +43,17 @@ export default {
 
       empty: {
         /**
-         * ⚠️ 这张表里**没有空态那行标题**：它就是 `TestPanel.vue` 模板里写死的
-         * `No test cases yet.`（用户 2026-10-06 定），中英界面都不翻，与三个小标题
-         * input / Expected / Actual 同一个理由。曾经有过 `title` 这一条（`暂无测试用例`
-         * / `No test cases yet`）与一句说明 `text`，两点都在 2026-10-06 删掉了 ——
-         * 别再好心把它们翻回来。
+         * 空态不再有「暂无样例」这行标题（2026-11-24 用户要求直接删掉）：
+         * 「一条用例都没有」是最显然的状态，只留「添加样例」+ 抓样提示。
+         * 原先的 `title` 条目随之删除；2026-10-06 曾定成写死英文、不翻译，
+         * 2026-11-24 上午刚改回按语言走，现在整行都不要了。
          *
-         * **唯一的例外（2026-11-17 加，2026-11-18 放宽）**：跑不了（`runBlocked` 非空）
-         * 时，那行标题改用闸门原因 —— 打开的不是代码用 `panel.runBlocked`
-         * （「非代码文件无法运行」/ `Non-code files cannot run`），什么都没打开用
-         * `panel.runBlockedNoFile`（「没有打开的文件」/ `No file is open`）——
-         * 空列表上写「没有用例」在这些场景里是废话，「为什么跑不了」才是用户要知道的。
-         * 它不是这张表新增的 `title` 条目，仍然按语言走；这句原先在页脚重复出现，
-         * 现在列表空着时只在空态里说一次（列表非空时页脚兜底，见 TestPanel 的
-         * `footBlocked`）。其余情形（有能跑的代码、只是没用例）照旧写死英文。
+         * **唯一例外**：跑不了（`runBlocked` 非空）时，空态里会出现一行原因 ——
+         * 打开的不是代码用 `panel.runBlocked`（「非代码文件无法运行」/
+         * `Non-code files cannot run`），什么都没打开用 `panel.runBlockedNoFile`
+         * （「没有打开的文件」/ `No file is open`）—— 这时连添加按钮都没有，
+         * 不说明原因用户就不知道发生了什么。它不是这张表的条目，仍按语言走；
+         * 列表非空时由页脚兜底（见 TestPanel 的 `footBlocked`）。
          * 下面这几条抓样提示是**另一回事、保留**：只在当前文件是一道题、样例还没到手时出现，
          * 它们仍然跟着界面语言走。
          *
@@ -73,8 +70,8 @@ export default {
         awaitingFetchAfter: '，浏览器插件会自动抓取样例',
         /**
          * 没检测到插件时的替代句（2026-10-06 收紧）：原来那句从「这是一道题目，样例还没到手。」
-         * 开头，是空态还有说明文字时留下的 —— 现在空态标题已经把「没有用例」说完了
-         * （写死的 No test cases yet.），再铺垫一遍就是啰嗦。现在只留「没人抓」这个坏消息
+         * 开头，是空态还有说明文字时留下的 —— 现在空态标题整行都删了（2026-11-24），
+         * 再铺垫「这是一道题目」就是啰嗦。现在只留「没人抓」这个坏消息
          * 与两步做法：原因 → 后果 → 怎么办，两句读完。
          *
          * 2026-11-12 起这句同样拆成三段，与上面 `awaitingFetch*` 一个体例：中间的
@@ -419,8 +416,8 @@ export default {
     tests: {
       panel: {
         ariaLabel: 'unnamed judge panel',
-        addCase: 'Add test case',
-        addCaseTip: 'Add test case ({key})',
+        addCase: 'Add sample',
+        addCaseTip: 'Add sample ({key})',
         runAll: 'Run all test cases',
         runAllTip: 'Run all test cases ({key})',
         /** visible label on the footer's primary button (2026-10-24); the title is `runAllTip`
@@ -435,9 +432,7 @@ export default {
       },
 
       empty: {
-        /** 见 zh-CN 那侧的说明：空态那行标题写死在 TestPanel.vue 里，这张表不管它 ——
-         *  例外是跑不了（`runBlocked` 非空）时改用这两条闸门文案（2026-11-17 加、
-         *  2026-11-18 放宽到两条都算）。
+        /** 见 zh-CN：空态不再有「暂无样例」标题（2026-11-24 删除）；跑不了时由闸门文案顶上。
          *  下面这几条与 autoScrapeState 的三个值一一对应，中间一段是可点的题目链接（见 zh-CN） */
         awaitingFetchBefore: 'Open the ',
         awaitingFetchLink: 'problem link',

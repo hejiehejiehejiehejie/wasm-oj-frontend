@@ -1083,8 +1083,8 @@ function switchSidebarPanel({ instant = false } = {}) {
  * 于是把它变成**入口上的禁用态**而不是「点了没反应」——
  * 非空字符串即「不可运行」，这句话同时充当提示行文案与两个 ▶ 的 title。
  * 「一个文件都没打开」与「打开的不是代码」是两回事，别混成一句话说。
- * 2026-11-18 起它还兼职评测面板**空态那行标题**（跑不了时顶掉写死的
- * `No test cases yet.`，见 TestPanel 的 `emptyTitle`）与右上角 verdict 的隐藏判据
+ * 2026-11-18 起它还兼职评测面板**空态那行原因**（跑不了时出现；正常空态标题
+ * 已于 2026-11-24 删除，见 TestPanel 的 `.empty`）与右上角 verdict 的隐藏判据
  * （`showVerdict`）—— 所以这两句都必须能独立成句，别写成依赖上下文的短语。
  */
 const runBlockedReason = computed(() => {
