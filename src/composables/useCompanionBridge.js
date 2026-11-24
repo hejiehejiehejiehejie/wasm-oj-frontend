@@ -104,6 +104,15 @@ const PING_DELAYS = [0, 400, 1500]
 export const extensionInfo = ref(null)
 /** 正在探测。设置面板据此显示「检测中」，而不是一上来就断言「未安装」 */
 const checking = ref(false)
+/**
+ * 是否已经探出过结论（不管探到没探到）。
+ *
+ * 只有**第一次**探活还悬着的时候才「不知道」，界面先按正常文案显示；
+ * 已经得出过一次「没有插件」之后再重探（设置面板那颗刷新、切回来重探），
+ * 结论出来前必须沿用上一轮的结论 —— 否则空态会在重探那一两秒里翻成
+ * 「打开题目链接会自动抓」那句假话（2026-11-24 用户报的就是这个）。
+ */
+const probed = ref(false)
 
 /** 改配置的回执超时：扩展开着通常几毫秒就回 */
 const CONFIG_TIMEOUT = 1000
@@ -247,6 +256,7 @@ export function refreshExtensionInfo() {
     window.setTimeout(
       () => {
         checking.value = false
+        probed.value = true
         currentRequestId = null
         extensionInfo.value = null
       },
@@ -1147,6 +1157,7 @@ function onMessage(event) {
 
   clearPingTimers()
   checking.value = false
+  probed.value = true
   currentRequestId = null
   extensionInfo.value = data.info ?? null
 }
@@ -1178,6 +1189,7 @@ export function useCompanionBridge(onTask) {
   return {
     extensionInfo,
     checking,
+    probed,
     refresh: refreshExtensionInfo,
     setExtensionConfig,
     canFillCode,

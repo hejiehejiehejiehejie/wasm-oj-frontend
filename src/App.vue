@@ -1434,10 +1434,12 @@ const emptyNotice = computed(() => {
   if (state === 'fetching') return { text: t('tests.empty.fetching'), tone: 'info' }
   if (state === 'failed') return { text: t('tests.empty.fetchFailed'), tone: 'warn' }
   // 握手已确认「没装插件」时给另一句实话：此时点题目链接也不会有人抓。
-  // 握手还在路上（checking）时不急着下结论，先按正常文案显示，免得闪一下错话。
+  // 只有**第一次**探活还悬着（checking 且从未出过结论）时才不急着下结论，先按正常文案
+  // 显示，免得闪一下错话；已经陈述过「没装」之后再重探（设置面板那颗刷新、切回来重探），
+  // 结论出来前仍按「没装」说 —— 中途翻成「会自动抓」那句是假话（2026-11-24 修）。
   // 这句里的「安装或重载插件」是个**站内跳转**（2026-11-12 改）：插件装在浏览器里，
   // 用户要的那份安装 / 下载入口就在设置面板的「浏览器插件」那一栏，把他送过去比让他自己找强。
-  if (!extensionInfo.value && !extensionChecking.value) {
+  if (!extensionInfo.value && (!extensionChecking.value || extensionProbed.value)) {
     return {
       tone: 'warn',
       before: t('tests.empty.awaitingNoExtensionBefore'),
@@ -2089,7 +2091,8 @@ const { active: dropActive } = usePageDrop({ onFiles: importDroppedFiles })
 watch(dropActive, previewDropTargetLayout)
 
 // 空态提示要按「插件装没装」分岔：attach 是幂等的，这里只为读全局状态
-const { extensionInfo, checking: extensionChecking, canSubmitCode } = useCompanionBridge()
+const { extensionInfo, checking: extensionChecking, probed: extensionProbed, canSubmitCode } =
+  useCompanionBridge()
 
 // 安装引导（装成应用 / 装插件）的开机自动弹一次：不画东西，只在这里挂上计时与监听。
 // 放在这一行下面是有意的 —— 它要读的就是上面那份插件状态，早于 attach 评估会读到「没装」。
