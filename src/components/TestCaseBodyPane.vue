@@ -735,7 +735,7 @@ defineExpose({ syncHeight })
             class="ta"
             :class="{ 'ta--truncated': inputHidden > 0 }"
             spellcheck="false"
-            wrap="off"
+            wrap="soft"
             :disabled="locked"
             @copy="onLongCopy($event, testCase.input)"
             @contextmenu="onBoxContextMenu($event, 'input')"
@@ -786,7 +786,7 @@ defineExpose({ syncHeight })
             class="ta"
             :class="{ 'ta--truncated': expectedHidden > 0 }"
             spellcheck="false"
-            wrap="off"
+            wrap="soft"
             :disabled="locked"
             @copy="onLongCopy($event, testCase.expectedOutput)"
             @contextmenu="onBoxContextMenu($event, 'expected')"
@@ -1086,7 +1086,9 @@ defineExpose({ syncHeight })
   line-height: var(--case-line-h);
   font-variant-ligatures: none;
   tab-size: 2;
-  white-space: pre; /* 与 wrap="off" 同步：软换行会破坏行号对齐 */
+  /* 与 wrap="soft" 同步：长行自动软换行，框内不出现横向滚动条 */
+  white-space: pre-wrap;
+  word-break: break-word;
   color: var(--text);
   caret-color: var(--focus);
   resize: none;
@@ -1201,7 +1203,8 @@ defineExpose({ syncHeight })
   line-height: var(--case-line-h);
   font-variant-ligatures: none;
   tab-size: 2;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
   color: var(--text);
   cursor: text;
   scrollbar-width: thin;
@@ -1286,7 +1289,8 @@ defineExpose({ syncHeight })
 .ta--view {
   margin: 0;
   overflow: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
   cursor: text;
 }
 
@@ -1634,7 +1638,8 @@ defineExpose({ syncHeight })
 
 .card__body.is-vertical .ta {
   height: auto;
-  padding: 6px 12px 10px 10px;
+  /* 左右统一 10px：与同屏的期望 / 实际输出（.out）同一条内边距轮廓。 */
+  padding: 6px 10px 10px;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-faint) 30%, transparent) transparent;
@@ -1653,7 +1658,7 @@ defineExpose({ syncHeight })
   height: auto;
   min-height: 0;
   max-height: none;
-  padding: 6px 12px 10px 12px;
+  padding: 6px 10px 10px;
   overflow: auto;
 }
 
