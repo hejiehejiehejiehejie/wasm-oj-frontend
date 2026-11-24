@@ -469,14 +469,12 @@ const CODE_IMAGE_ROWS = [
  *
  * 2026-10-12 收进 APPEARANCE_ROWS、与主题和「代码图片」共用一个循环：「代码图片」那组要摆在
  * 这一栏**末尾**（外观栏原本就有的那几行在前），拆成两段循环就得把行模板抄两遍。
- * 差异（取值 / 落值 / 选项显示名）由 rowValue / rowSelect / rowOptionLabel 分流；
- * `external` 用来关掉「已改动」指示线与行尾键名——那两样只对 editorSettings 的键有意义。
+ * 差异（取值 / 落值 / 选项显示名）由 rowValue / rowSelect / rowOptionLabel 分流。
  * 现有六条：界面缩放 / 界面语言 / 侧边栏位置 / 窄屏折叠方向 / 评测样例视图 / 贴底折叠形态。
  */
 const SHELL_ROWS = [
   {
     key: 'uiScale',
-    external: true,
     labelKey: 'settings.appearance.uiScale.label',
     hintKey: 'settings.appearance.uiScale.hint',
     control: 'select',
@@ -490,7 +488,6 @@ const SHELL_ROWS = [
     // 状态在 src/i18n/index.js 里是模块级单例，自己读写 localStorage，所以不走 props / emits。
     // label 一律用该语言自己的写法（endonym），任何语言下都找得到自己，所以不翻译。
     key: 'locale',
-    external: true,
     labelKey: 'settings.appearance.locale.label',
     hintKey: 'settings.appearance.locale.hint',
     control: 'select',
@@ -504,7 +501,6 @@ const SHELL_ROWS = [
     // 两段式一键切换（2026-10-30 起，原先是下拉）：两档名字并排，点另一档就发起对调，
     // 点当前档是空操作（onSelect 里那道比较把它滤掉）。
     key: 'panelPosition',
-    external: true,
     labelKey: 'settings.appearance.panelPosition.label',
     hintKey: 'settings.appearance.panelPosition.hint',
     control: 'toggle',
@@ -522,7 +518,6 @@ const SHELL_ROWS = [
     // 这里不接 props / emits：状态是那个模块的单例，读写都走它自己。
     // 两段式一键切换（2026-10-30 起，原先是下拉），与「侧边栏位置」同一种控件。
     key: 'narrowCollapseSide',
-    external: true,
     when: () => isNarrowLayout(),
     labelKey: 'settings.appearance.narrowCollapseSide.label',
     hintKey: 'settings.appearance.narrowCollapseSide.hint',
@@ -541,7 +536,6 @@ const SHELL_ROWS = [
     // 两者挨着更好读；它在宽屏整行不摆（见上面那行 when），于是宽屏上这一行照样紧贴
     // 「侧边栏位置」。
     key: 'caseView',
-    external: true,
     labelKey: 'settings.appearance.caseView.label',
     hintKey: 'settings.appearance.caseView.hint',
     control: 'toggle',
@@ -559,6 +553,10 @@ const SHELL_ROWS = [
 const APPEARANCE_ROWS = [
   {
     key: 'theme',
+    // 「主题」本身就是一组：做成眉标，卡片不再重复一遍同名标签
+    groupTitleKey: 'settings.appearance.theme.label',
+    groupTitleFirst: true,
+    hideLabel: true,
     labelKey: 'settings.appearance.theme.label',
     control: 'themeGrid',
     options: THEMES,
@@ -2365,31 +2363,6 @@ function isModified(row) {
   return props.settings[row.key] !== EDITOR_SETTINGS_DEFAULTS[row.key]
 }
 
-/** 归一化：只留字母数字、转小写，用来比较「标签」与「键名」是不是同一句话 */
-const normalizeForCompare = (text) => text.replace(/[^a-z0-9]/gi, '').toLowerCase()
-
-/**
- * 这一行还要不要显示紧跟标签的那个内部键名。
- *
- * 英文界面里不少行的标签就是键名的「Title Case + 空格」写法（`Theme` / `theme`、
- * `Minimap` / `minimap`、`Font size` / `fontSize`），那一小行等宽字纯属重复，收掉；
- * 键名真的与标签不同时才留着——它是给「想直接查 Monaco 选项名」的人看的极低频参考信息
- * （`Current line highlight` / `renderLineHighlight`、`Indent width` / `tabSize`）。
- *
- * 判据刻意做成**与语言无关**的归一化比较（相等即视为重复）：中文标签（`主题` / `缩略图` /
- * `内边距`）永远不可能等于 ASCII 键名，所以中文界面一行都不会被收掉；英文界面里也只有那批
- * 真正重复的行命中。好处是不用再维护一张「哪几行不显示键名」的名单——往编辑器组加新行时，
- * 标签起得和键名重了它自然就藏起来。
- *
- * 注意这里是**函数**而不是预计算的 Set：模板里每次渲染都重算，但它读的是 `t()`（即 `locale`
- * 这个 ref），放在函数里才能跟着切语言变——写成模块级常量会把语言冻结在那一刻。
- */
-function showKey(row) {
-  // 外观栏那三行「外壳」偏好不是 editorSettings 的键（见 SHELL_ROWS），行尾那行键名没有意义
-  if (row.external) return false
-  return normalizeForCompare(t(row.labelKey)) !== normalizeForCompare(row.key)
-}
-
 function setNumber(row, event) {
   const value = Number.parseInt(event.target.value, 10)
   if (!Number.isFinite(value)) return
@@ -2882,10 +2855,16 @@ function confirmUnbind() {
         <p class="setting-group__title">{{ t('settings.section.appearance') }}</p>
 
         <!-- 行渲染与「编辑器」那一栏同源（都在 editorSettings 上），只是这里多了三条「外壳」
-             偏好与末尾的「代码图片」组 —— 后者靠首行的 groupTitleKey 在前面插一道小标题，
+             偏好与末尾的「代码图片」组 —— 两组都靠在首行前面插一道眉标来分段，
              所有行共用一个循环（顺序见 APPEARANCE_ROWS；有条件隐藏的行见 appearanceRows） -->
         <template v-for="row in appearanceRows" :key="row.key">
-          <p v-if="row.groupTitleKey" class="setting-subtitle">{{ t(row.groupTitleKey) }}</p>
+          <p
+            v-if="row.groupTitleKey"
+            class="setting-subtitle"
+            :class="{ 'setting-subtitle--first': row.groupTitleFirst }"
+          >
+            {{ t(row.groupTitleKey) }}
+          </p>
 
           <!-- 主题色卡与两段切换这两行必须是 div 而不是 label：label 会把第一个可标记后代
                （第一张卡 / 第一颗段钮）认成自己的控件，点标题空白处等于点了它 -->
@@ -2893,11 +2872,12 @@ function confirmUnbind() {
             :is="row.control === 'themeGrid' || row.control === 'toggle' ? 'div' : 'label'"
             class="setting-row"
             :class="[`setting-row--${row.control}`, { 'is-modified': isModified(row) }]"
+            :role="row.control === 'themeGrid' ? 'group' : undefined"
+            :aria-label="row.control === 'themeGrid' ? t(row.labelKey) : undefined"
           >
-            <span class="setting-row__main">
-              <span class="setting-row__head">
+            <span v-if="!row.hideLabel || row.hintKey" class="setting-row__main">
+              <span v-if="!row.hideLabel" class="setting-row__head">
                 <span class="setting-row__label">{{ t(row.labelKey) }}</span>
-                <span v-if="showKey(row)" class="setting-row__key">{{ row.key }}</span>
               </span>
               <span v-if="row.hintKey" class="setting-row__hint">{{ t(row.hintKey) }}</span>
             </span>
@@ -2995,7 +2975,6 @@ function confirmUnbind() {
             <span class="setting-row__main">
               <span class="setting-row__head">
                 <span class="setting-row__label">{{ t(row.labelKey) }}</span>
-                <span v-if="showKey(row)" class="setting-row__key">{{ row.key }}</span>
               </span>
               <span v-if="row.hintKey" class="setting-row__hint">{{ t(row.hintKey) }}</span>
             </span>
@@ -4654,30 +4633,32 @@ function confirmUnbind() {
 
 .setting-group__title {
   margin: 0;
-  padding: 0 18px 4px;
-  font-size: 13px;
+  /* 页头：与下面所有设置项拉开两档以上。留白收到 8px —— 紧跟其后的行自带 14px 上内边距，
+     两者相加正好是标题与正文之间的呼吸量，不额外堆 margin。 */
+  padding: 2px 18px 8px;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1.3;
   letter-spacing: 0.01em;
-  /* 分组标题升到与设置项标题同一档纯度（--text），靠「13px 小字号 + 上边距」建立层级，
-     而不是靠更暗的灰色 —— 原来的 --text-dim 让它比下面的列表项标题还暗，层级倒挂。
-     页头感再补一点：13px 压过 12.5px 的小节标题，保证「分组 > 小节 > 行」不塌。 */
   color: var(--text);
 }
 
-/* 组内的小标题：把「运行时限」与「评测引擎」在同一个「评测」分组里分开。
-   规范 3 要求用留白而不是实线分割：这里撤掉原来那条 border-top，只留更宽的上边距。 */
+/* 分组眉标：把「主题」「代码图片」这类小节分开，统一成「12px / 500 / 灰」的低调小标题，
+   字距略放宽。与设置项标题（14px / 500 / --text）只差字号与颜色，不再和它抢亮度 ——
+   原来 600 的粗体让它比行标题还显眼，层级是反的。用留白而不是实线分割：上方 30px
+   明显大于普通行距，下方只留 4px，紧贴该组第一行。 */
 .setting-subtitle {
   margin: 0;
-  padding: 28px 18px 4px;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0;
+  padding: 30px 18px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
   color: var(--text-dim);
 }
 
-/* 编辑器分组里的第一小节紧跟在分组标题下面，不用再留一大段 */
+/* 紧跟页面主标题的第一组眉标：页头自己已经交代了间距，不用再顶 30px */
 .setting-subtitle--first {
-  padding-top: 8px;
+  padding-top: 10px;
 }
 
 /* 「// 预下载本地运行环境」这类开关偏好的小节标题：前缀等宽斜杠 + 小方块，
@@ -4754,7 +4735,8 @@ function confirmUnbind() {
 .setting-row__main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  /* 标题与说明紧贴（2px），靠字号 / 灰度分档，不再靠间距硬撑 */
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -4792,19 +4774,22 @@ function confirmUnbind() {
   white-space: nowrap;
 }
 
-/* 第三级：底层键名 —— 极低频的参考信息，等宽 + 最弱灰度 */
+/* 行尾小徽标（插件版本、云端「已绑定」）：等宽、最弱灰度、正体 */
 .setting-row__key {
   font-family: var(--mono-font);
   font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.01em;
   color: var(--text-faint);
-  /* 设置项的内部键名是不可断的长词（bracketPairColorization），窄面板下必须允许断 */
+  /* 版本号 / 用户名这类内容不保证能断，窄面板下必须允许折行 */
   overflow-wrap: anywhere;
 }
 
-/* 第二级：描述 —— 有什么用。比标题低一档字号与灰度 */
+/* 第二级：描述 —— 有什么用。12px / 400，比标题低一档字号与灰度 */
 .setting-row__hint {
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--text-dim);
 }
 
@@ -4934,7 +4919,8 @@ function confirmUnbind() {
 }
 
 .theme-card__name {
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.3;
   color: var(--text-dim);
 }
