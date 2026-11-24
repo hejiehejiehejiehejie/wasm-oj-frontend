@@ -1086,7 +1086,7 @@ button.empty__link {
 }
 
 /* 纵向停靠的底栏（2026-11-20 方案二；同日方案一重排）：左状态、右动作。
-   高度改由内容撑开（28px 控件 + 上 8 / 下 --pane-px）：底边距与左右等宽，
+   高度改由内容撑开（30px 控件 + 上 8 / 下 --pane-px）：底边距与左右等宽，
    右下角按钮不再比右侧更贴边，圆角的「下坠感」消失。 */
 .panel__foot.is-vertical {
   flex: 0 0 auto;
@@ -1108,8 +1108,7 @@ button.empty__link {
 }
 
 /* 提交钮保留侧栏原来的 36px 热区（幽灵图标没有底色，视觉大小不变）；
-   运行两颗按 2026-11-21 用户要求收到与纵向评测岛同档的 28px —— 没有提交钮时
-   整条底栏也从 56px 收到 48px。 */
+   运行两颗 30px（2026-11-24 用户反馈 28px 太扁，各加 2px）—— 纵向评测岛同档。 */
 .panel:not(.is-pane) .panel__foot.is-vertical .submit-inline {
   width: 36px;
   height: 36px;
@@ -1171,14 +1170,14 @@ button.empty__link {
   align-items: center;
 }
 
-/* 提交钮：降噪为幽灵图标，28×28 与运行按钮等高 */
+/* 提交钮：降噪为幽灵图标，30×30 与运行按钮等高 */
 .panel__foot.is-vertical .submit-inline {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -1202,7 +1201,8 @@ button.empty__link {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: 28px;
+  /* 30px（2026-11-24 由 28px 抬高）：28px 配 12px 字看着偏扁 */
+  height: 30px;
   padding: 0 11px;
   border: 0;
   border-radius: 6px;
@@ -1260,7 +1260,7 @@ button.empty__link {
   .panel.is-pane .btn-run-all,
   :where(html.is-narrow) .panel:not(.is-pane) .btn-run-one,
   :where(html.is-narrow) .panel:not(.is-pane) .btn-run-all {
-    width: 28px;
+    width: 30px;
     padding: 0;
   }
 }
@@ -1276,7 +1276,7 @@ button.empty__link {
 
   :where(html:not(.is-narrow)) .panel:not(.is-pane):has(.submit-wrap) .btn-run-one,
   :where(html:not(.is-narrow)) .panel:not(.is-pane):has(.submit-wrap) .btn-run-all {
-    width: 28px;
+    width: 30px;
     padding: 0;
   }
 }
@@ -1289,7 +1289,7 @@ button.empty__link {
 
   :where(html:not(.is-narrow)) .panel:not(.is-pane) .btn-run-one,
   :where(html:not(.is-narrow)) .panel:not(.is-pane) .btn-run-all {
-    width: 28px;
+    width: 30px;
     padding: 0;
   }
 }
